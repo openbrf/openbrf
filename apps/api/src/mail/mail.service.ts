@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { render } from "@react-email/render";
+import { render } from "react-email";
 import { createTransport, type Transporter } from "nodemailer";
 
 import { ENV } from "../config/config.module";
