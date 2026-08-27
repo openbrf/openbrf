@@ -1,0 +1,10 @@
+export { boardMoveOutReminderMail } from "./board-move-out-reminder.template";
+export type { BoardMoveOutReminderMailProps } from "./board-move-out-reminder.template";
+export { invitationMail } from "./invitation.template";
+export type { InvitationMailProps } from "./invitation.template";
+export { magicLinkMail } from "./magic-link.template";
+export type { MagicLinkMailProps } from "./magic-link.template";
+export { moveInMail } from "./move-in.template";
+export type { MoveInMailProps } from "./move-in.template";
+export { moveOutMail } from "./move-out.template";
+export type { MoveOutMailProps } from "./move-out.template";

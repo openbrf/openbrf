@@ -23,7 +23,7 @@ export default defineConfig({
     swc.vite({
       jsc: {
         target: "es2022",
-        parser: { syntax: "typescript", decorators: true },
+        parser: { syntax: "typescript", tsx: true, decorators: true },
         transform: { legacyDecorator: true, decoratorMetadata: true },
       },
       module: { type: "es6" },
