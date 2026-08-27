@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 
+import { AddressesModule } from "./addresses/addresses.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { AuthorizationModule } from "./authorization/authorization.module";
@@ -13,6 +14,8 @@ import { I18nModule } from "./i18n/i18n.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { SettingsModule } from "./settings/settings.module";
+import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
 
 @Module({
@@ -28,6 +31,9 @@ import { SignupModule } from "./signup/signup.module";
     AuthorizationModule,
     InvitationsModule,
     SignupModule,
+    SetupModule,
+    SettingsModule,
+    AddressesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],

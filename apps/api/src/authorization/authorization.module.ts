@@ -2,6 +2,7 @@ import { Global, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
 import { AuthorizationGuard } from "./authorization.guard";
+import { MeController } from "./me.controller";
 import { PrincipalService } from "./principal.service";
 
 /**
@@ -10,6 +11,7 @@ import { PrincipalService } from "./principal.service";
  */
 @Global()
 @Module({
+  controllers: [MeController],
   providers: [
     PrincipalService,
     AuthorizationGuard,

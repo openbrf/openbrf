@@ -81,7 +81,8 @@
     "overview": "Overview",
     "addressBook": "Address book",
     "primary": "Main navigation",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "settings": "Settings"
   },
   "signIn": {
     "heading": "Sign in",
@@ -105,5 +106,277 @@
   "app": {
     "loading": "Loading",
     "housingCooperative": "Housing cooperative"
+  },
+  "setup": {
+    "title": "Set up Open BRF",
+    "intro": "A few steps and the housing cooperative has its register. Everything after the administrator account and the name can be skipped and finished later in settings.",
+    "progressLabel": "Step {{current}} of {{total}}",
+    "back": "Back",
+    "skip": "Skip for now",
+    "next": "Continue",
+    "finish": "Finish setup",
+    "working": "Saving...",
+    "step": {
+      "administrator": "Administrator",
+      "housingCooperative": "Housing cooperative",
+      "addresses": "Addresses",
+      "apartments": "Apartments",
+      "smtp": "Email",
+      "branding": "Appearance",
+      "done": "Done"
+    },
+    "closed": {
+      "title": "Setup is already finished",
+      "body": "This instance has been set up. Sign in and change what you need in settings.",
+      "signIn": "Go to sign-in"
+    },
+    "administrator": {
+      "title": "Your administrator account",
+      "intro": "The first account. It manages settings, invites the board and can never be created from this screen again.",
+      "firstName": "First name",
+      "lastName": "Surname",
+      "email": "Email address",
+      "password": "Password",
+      "passwordHint": "At least 12 characters. A passphrase of a few words is both easier to remember and harder to guess.",
+      "submit": "Create the account",
+      "errors": {
+        "alreadyClaimed": "This instance already has an account, so setup is closed. Sign in instead.",
+        "invalidEmail": "That email address could not be read. Check it and try again.",
+        "weakPassword": "The password needs at least 12 characters.",
+        "unknown": "The account could not be created just now. Please try again."
+      },
+      "signInPrompt": "The account is created. Sign in to continue setting up."
+    },
+    "done": {
+      "title": "The housing cooperative is set up",
+      "body": "The register is ready. Invite the board, then add people and apartments in the address book.",
+      "skippedNotice": "Skipped: {{steps}}. Finish these under Settings whenever you like.",
+      "open": "Open the address book"
+    },
+    "resume": {
+      "title": "Setup is not finished",
+      "body": "Some steps of the first-boot setup are still open. Everything there can also be changed on this page.",
+      "open": "Resume setup"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "intro": "The housing cooperative's own details, how it sends email, how long data is kept, and your own account.",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "loading": "Loading settings",
+    "readOnlyNotice": "You can see these settings but not change them.",
+    "errors": {
+      "unknown": "That could not be saved just now. Please try again.",
+      "forbidden": "Your account is not allowed to change this.",
+      "housingCooperativeMissing": "Name the housing cooperative first; the other settings hang off it."
+    },
+    "section": {
+      "housingCooperative": "Housing cooperative",
+      "addresses": "Addresses and apartments",
+      "branding": "Appearance",
+      "smtp": "Email",
+      "retention": "Retention",
+      "selfSignup": "Sign-up requests",
+      "profile": "Your profile",
+      "security": "Sign-in and security"
+    },
+    "housingCooperative": {
+      "title": "The housing cooperative",
+      "description": "The name goes on the board, in emails and on the register extracts.",
+      "name": "Name",
+      "namePlaceholder": "Brf Eksemplet",
+      "organizationNumber": "Organisation number",
+      "organizationNumberHint": "Ten digits, for example 769600-1234. Printed on statutory extracts.",
+      "defaultLocale": "Default language",
+      "locale": {
+        "sv": "Swedish",
+        "en": "English"
+      }
+    },
+    "addresses": {
+      "title": "Addresses",
+      "description": "A housing cooperative often owns several street addresses, one entrance each. The address book shows one board per address.",
+      "street": "Street",
+      "number": "Number",
+      "postalCode": "Postal code",
+      "city": "City",
+      "add": "Add address",
+      "none": "No addresses yet.",
+      "remove": "Remove",
+      "removeLabel": "Remove {{address}}",
+      "apartmentCount": "Apartments: {{count}}",
+      "errors": {
+        "exists": "That entrance is already an address of this housing cooperative.",
+        "hasApartments": "Remove the apartments on this address before removing the address itself.",
+        "notFound": "That address is no longer there. Reload the page.",
+        "unknown": "The address could not be saved just now. Please try again."
+      }
+    },
+    "apartments": {
+      "title": "Apartments",
+      "description": "Apartment numbers follow the Lantmateriet convention: the first two digits are the floor, where the entrance floor is 10, and the last two number the apartments on the landing.",
+      "selectAddress": "Address",
+      "generator": {
+        "title": "Generate a table",
+        "description": "Fill in the shape of the building and edit the table before anything is saved. No building is perfectly rectangular.",
+        "lowestFloor": "Lowest floor",
+        "lowestFloorHint": "0 is the entrance floor. Use -1 for a basement.",
+        "floorCount": "Number of floors",
+        "apartmentsPerFloor": "Apartments per floor",
+        "generate": "Generate"
+      },
+      "table": {
+        "number": "Apartment number",
+        "floor": "Floor",
+        "action": "Action"
+      },
+      "addRow": "Add a row",
+      "removeRow": "Remove row",
+      "commit": "Save these apartments",
+      "committed": "Added {{created}}. Already registered: {{skipped}}.",
+      "draftEmpty": "Nothing to save yet. Generate a table or add a row.",
+      "registered": "Registered apartments",
+      "none": "No apartments on this address yet.",
+      "floor": {
+        "entrance": "Entrance floor",
+        "above": "Floor {{floor}}",
+        "below": "{{floor}} below the entrance",
+        "unknown": "No floor"
+      },
+      "duplicateNumber": "The number {{number}} appears more than once.",
+      "errors": {
+        "inUse": "That apartment appears in the register and cannot be removed.",
+        "unknown": "The apartments could not be saved just now. Please try again."
+      }
+    },
+    "branding": {
+      "title": "Appearance",
+      "description": "One colour, used for positions of trust, links and selected items. Everything else comes from the theme.",
+      "primaryColor": "Primary colour",
+      "primaryColorHint": "The whole accent is derived from this one value and measured for contrast in both light and dark mode before it is saved.",
+      "clear": "Use the theme's own colour",
+      "preview": "This is how it will read",
+      "previewRoom": "Link and trust sign in the room",
+      "previewRegister": "On the register board",
+      "previewLight": "Light mode",
+      "previewDark": "Dark mode",
+      "adjustedNotice": "Darkened or lightened per mode so it holds the contrast a statutory register needs.",
+      "errors": {
+        "unreadable": "That is not a colour. Use a hex value such as #7D5F23.",
+        "failsContrast": "That colour cannot be read on the surfaces it has to appear on, so it was not saved.",
+        "pair": "{{foreground}} on {{background}} measures {{ratio}} to 1; at least {{required}} is needed.",
+        "statutoryPair": "This pair carries the statutory register, so it cannot be allowed through."
+      },
+      "appearance": "Light or dark"
+    },
+    "smtp": {
+      "title": "Email",
+      "description": "The instance sends invitations, activation links and sign-in links itself, through an SMTP server you provide.",
+      "host": "Server",
+      "port": "Port",
+      "secure": "Encrypted connection (TLS)",
+      "user": "User name",
+      "password": "Password",
+      "passwordKept": "A password is stored. Leave this empty to keep it, or clear it to remove it.",
+      "passwordClear": "Remove the stored password",
+      "fromAddress": "Sender address",
+      "sendTest": "Send a test message to me",
+      "sending": "Sending...",
+      "testSent": "A test message is on its way to {{email}}.",
+      "notConfigured": "Email is not set up, so invitations and sign-in links cannot be sent. Nobody can be invited until this is done.",
+      "configured": "Email is set up.",
+      "errors": {
+        "notConfigured": "Save a server and a sender address before sending a test.",
+        "noEmail": "Your own record has no email address to send the test to.",
+        "unknown": "The message could not be sent. Check the server, the port and the password."
+      },
+      "test": {
+        "subject": "Test message from {{association}}",
+        "heading": "Email works",
+        "body": "This message was sent by {{association}} through {{host}} to prove that the email settings work. Invitations and sign-in links will reach their recipients."
+      }
+    },
+    "retention": {
+      "title": "Retention",
+      "description": "How long service data is kept after someone moves out. The date is computed from the move-out date, so changing this moves every pending date at once.",
+      "days": "Days after move-out",
+      "daysHint": "Between 30 and 3650 days. A fresh instance starts at 365.",
+      "statutoryNotice": "The member register and the access log are exempt. The law requires the member register to be retained, so no setting and no administrator can delete it.",
+      "errors": {
+        "range": "Choose between 30 and 3650 days."
+      }
+    },
+    "selfSignup": {
+      "title": "Sign-up requests",
+      "description": "With this on, a resident can ask for an account by entering their address and apartment. Nothing is created until the board approves the request.",
+      "enabled": "Accept sign-up requests",
+      "stateOn": "On: requests reach the board's queue.",
+      "stateOff": "Off: the form is closed and accounts come from invitations only."
+    },
+    "profile": {
+      "title": "Your profile",
+      "description": "Your own language and how the interface looks on this device.",
+      "preferredLocale": "Language for emails and extracts",
+      "name": "Name"
+    },
+    "security": {
+      "title": "Sign-in and security",
+      "description": "How you sign in. A passkey or an authenticator app protects the register far better than a password alone.",
+      "password": {
+        "title": "Password",
+        "current": "Current password",
+        "new": "New password",
+        "repeat": "Repeat the new password",
+        "submit": "Change the password",
+        "changed": "The password is changed.",
+        "errors": {
+          "mismatch": "The two new passwords are not the same.",
+          "wrong": "The current password did not match.",
+          "weak": "The new password needs at least 12 characters.",
+          "unknown": "The password could not be changed just now. Please try again."
+        }
+      },
+      "totp": {
+        "title": "Authenticator app",
+        "description": "A six-digit code from an app on your phone, asked for after your password. While it is on, no sign-in link is issued for this account: a link would skip the code.",
+        "enable": "Turn on the authenticator app",
+        "disable": "Turn it off",
+        "password": "Your password",
+        "uri": "Setup link",
+        "uriHint": "Add this link, or the key inside it, to your authenticator app by hand. A scannable code is not built yet.",
+        "code": "Code from the app",
+        "verify": "Confirm the code",
+        "on": "On",
+        "off": "Off",
+        "enabled": "The authenticator app is on.",
+        "disabled": "The authenticator app is off.",
+        "backupCodes": "Recovery codes",
+        "backupCodesHint": "Shown once. Keep them somewhere other than your phone; each one signs you in if the app is lost.",
+        "errors": {
+          "wrongPassword": "That password did not match.",
+          "invalidCode": "That code did not match. Check the app and try again.",
+          "unknown": "That did not work just now. Please try again."
+        }
+      },
+      "passkeys": {
+        "title": "Passkeys",
+        "description": "Sign in with the fingerprint, face or screen lock of a device you own. A passkey cannot be phished and never leaves the device.",
+        "name": "Name for this device",
+        "add": "Add a passkey",
+        "adding": "Waiting for the device...",
+        "none": "No passkeys yet.",
+        "remove": "Remove",
+        "removeLabel": "Remove the passkey {{name}}",
+        "unnamed": "Unnamed passkey",
+        "added": "The passkey is added.",
+        "errors": {
+          "unsupported": "This browser or device cannot create a passkey.",
+          "cancelled": "That was cancelled, so no passkey was added.",
+          "unknown": "The passkey could not be added just now. Please try again."
+        }
+      }
+    }
   }
 }

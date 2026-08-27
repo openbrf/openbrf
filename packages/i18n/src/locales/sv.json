@@ -81,7 +81,8 @@
     "overview": "Översikt",
     "addressBook": "Adressbok",
     "primary": "Huvudnavigering",
-    "signOut": "Logga ut"
+    "signOut": "Logga ut",
+    "settings": "Inställningar"
   },
   "signIn": {
     "heading": "Logga in",
@@ -105,5 +106,277 @@
   "app": {
     "loading": "Laddar",
     "housingCooperative": "Bostadsrättsförening"
+  },
+  "setup": {
+    "title": "Kom i gång med Open BRF",
+    "intro": "Några steg och föreningen har sitt register. Allt efter administratörskontot och namnet kan hoppas över och slutföras senare i inställningarna.",
+    "progressLabel": "Steg {{current}} av {{total}}",
+    "back": "Tillbaka",
+    "skip": "Hoppa över just nu",
+    "next": "Fortsätt",
+    "finish": "Slutför",
+    "working": "Sparar...",
+    "step": {
+      "administrator": "Administratör",
+      "housingCooperative": "Förening",
+      "addresses": "Adresser",
+      "apartments": "Lägenheter",
+      "smtp": "E-post",
+      "branding": "Utseende",
+      "done": "Klart"
+    },
+    "closed": {
+      "title": "Konfigurationen är redan klar",
+      "body": "Den här instansen är konfigurerad. Logga in och ändra det du behöver i inställningarna.",
+      "signIn": "Till inloggningen"
+    },
+    "administrator": {
+      "title": "Ditt administratörskonto",
+      "intro": "Det första kontot. Det hanterar inställningar, bjuder in styrelsen och kan aldrig skapas från den här skärmen igen.",
+      "firstName": "Förnamn",
+      "lastName": "Efternamn",
+      "email": "E-postadress",
+      "password": "Lösenord",
+      "passwordHint": "Minst 12 tecken. En fras med några ord är både lättare att minnas och svårare att gissa.",
+      "submit": "Skapa kontot",
+      "errors": {
+        "alreadyClaimed": "Den här instansen har redan ett konto, så konfigurationen är stängd. Logga in i stället.",
+        "invalidEmail": "Den e-postadressen kunde inte läsas. Kontrollera den och försök igen.",
+        "weakPassword": "Lösenordet behöver minst 12 tecken.",
+        "unknown": "Kontot kunde inte skapas just nu. Försök igen."
+      },
+      "signInPrompt": "Kontot är skapat. Logga in för att fortsätta konfigurationen."
+    },
+    "done": {
+      "title": "Föreningen är konfigurerad",
+      "body": "Registret är klart. Bjud in styrelsen och lägg sedan in personer och lägenheter i adressboken.",
+      "skippedNotice": "Överhoppat: {{steps}}. Slutför dem under Inställningar när du vill.",
+      "open": "Öppna adressboken"
+    },
+    "resume": {
+      "title": "Konfigurationen är inte klar",
+      "body": "Några steg i förstagångskonfigurationen är kvar. Allt där kan också ändras på den här sidan.",
+      "open": "Återuppta konfigurationen"
+    }
+  },
+  "settings": {
+    "title": "Inställningar",
+    "intro": "Föreningens egna uppgifter, hur den skickar e-post, hur länge data sparas och ditt eget konto.",
+    "save": "Spara",
+    "saving": "Sparar...",
+    "saved": "Sparat",
+    "loading": "Hämtar inställningar",
+    "readOnlyNotice": "Du kan se de här inställningarna men inte ändra dem.",
+    "errors": {
+      "unknown": "Det kunde inte sparas just nu. Försök igen.",
+      "forbidden": "Ditt konto får inte ändra detta.",
+      "housingCooperativeMissing": "Namnge föreningen först; de övriga inställningarna hänger på den."
+    },
+    "section": {
+      "housingCooperative": "Förening",
+      "addresses": "Adresser och lägenheter",
+      "branding": "Utseende",
+      "smtp": "E-post",
+      "retention": "Gallring",
+      "selfSignup": "Ansökningar om konto",
+      "profile": "Din profil",
+      "security": "Inloggning och säkerhet"
+    },
+    "housingCooperative": {
+      "title": "Föreningen",
+      "description": "Namnet står på tavlan, i e-post och på registerutdragen.",
+      "name": "Namn",
+      "namePlaceholder": "Brf Exemplet",
+      "organizationNumber": "Organisationsnummer",
+      "organizationNumberHint": "Tio siffror, till exempel 769600-1234. Skrivs ut på lagstadgade utdrag.",
+      "defaultLocale": "Standardspråk",
+      "locale": {
+        "sv": "Svenska",
+        "en": "Engelska"
+      }
+    },
+    "addresses": {
+      "title": "Adresser",
+      "description": "En förening äger ofta flera gatuadresser, en port var. Adressboken visar en tavla per adress.",
+      "street": "Gata",
+      "number": "Nummer",
+      "postalCode": "Postnummer",
+      "city": "Ort",
+      "add": "Lägg till adress",
+      "none": "Inga adresser än.",
+      "remove": "Ta bort",
+      "removeLabel": "Ta bort {{address}}",
+      "apartmentCount": "Lägenheter: {{count}}",
+      "errors": {
+        "exists": "Den porten är redan en adress i föreningen.",
+        "hasApartments": "Ta bort lägenheterna på adressen innan du tar bort adressen.",
+        "notFound": "Adressen finns inte längre. Uppdatera sidan.",
+        "unknown": "Adressen kunde inte sparas just nu. Försök igen."
+      }
+    },
+    "apartments": {
+      "title": "Lägenheter",
+      "description": "Lägenhetsnummer följer Lantmäteriets standard: de två första siffrorna är våningen, där entréplan är 10, och de två sista numrerar lägenheterna på våningsplanet.",
+      "selectAddress": "Adress",
+      "generator": {
+        "title": "Generera en tabell",
+        "description": "Fyll i husets form och ändra tabellen innan något sparas. Inget hus är helt rektangulärt.",
+        "lowestFloor": "Lägsta våning",
+        "lowestFloorHint": "0 är entréplan. Använd -1 för souterräng.",
+        "floorCount": "Antal våningar",
+        "apartmentsPerFloor": "Lägenheter per våning",
+        "generate": "Generera"
+      },
+      "table": {
+        "number": "Lägenhetsnummer",
+        "floor": "Våning",
+        "action": "Åtgärd"
+      },
+      "addRow": "Lägg till rad",
+      "removeRow": "Ta bort rad",
+      "commit": "Spara lägenheterna",
+      "committed": "Lade till {{created}}. Redan registrerade: {{skipped}}.",
+      "draftEmpty": "Inget att spara än. Generera en tabell eller lägg till en rad.",
+      "registered": "Registrerade lägenheter",
+      "none": "Inga lägenheter på den här adressen än.",
+      "floor": {
+        "entrance": "Entréplan",
+        "above": "Plan {{floor}}",
+        "below": "{{floor}} under entréplan",
+        "unknown": "Ingen våning"
+      },
+      "duplicateNumber": "Numret {{number}} finns med mer än en gång.",
+      "errors": {
+        "inUse": "Lägenheten finns i registret och kan inte tas bort.",
+        "unknown": "Lägenheterna kunde inte sparas just nu. Försök igen."
+      }
+    },
+    "branding": {
+      "title": "Utseende",
+      "description": "En färg, som används för förtroendeuppdrag, länkar och valda objekt. Allt annat kommer från temat.",
+      "primaryColor": "Primärfärg",
+      "primaryColorHint": "Hela accentfärgen räknas fram ur det här enda värdet och kontrastmäts i både ljust och mörkt läge innan den sparas.",
+      "clear": "Använd temats egen färg",
+      "preview": "Så här kommer den att läsas",
+      "previewRoom": "Länk och förtroendeskylt i rummet",
+      "previewRegister": "På registertavlan",
+      "previewLight": "Ljust läge",
+      "previewDark": "Mörkt läge",
+      "adjustedNotice": "Mörkare eller ljusare per läge så att kontrasten som ett lagstadgat register kräver håller.",
+      "errors": {
+        "unreadable": "Det är inte en färg. Använd ett hexvärde som #7D5F23.",
+        "failsContrast": "Den färgen kan inte läsas på de ytor där den måste synas, så den sparades inte.",
+        "pair": "{{foreground}} på {{background}} mäter {{ratio}} mot 1; minst {{required}} krävs.",
+        "statutoryPair": "Det här paret bär det lagstadgade registret och kan därför inte släppas igenom."
+      },
+      "appearance": "Ljust eller mörkt"
+    },
+    "smtp": {
+      "title": "E-post",
+      "description": "Instansen skickar själv inbjudningar, aktiveringslänkar och inloggningslänkar via en SMTP-server som du anger.",
+      "host": "Server",
+      "port": "Port",
+      "secure": "Krypterad anslutning (TLS)",
+      "user": "Användarnamn",
+      "password": "Lösenord",
+      "passwordKept": "Ett lösenord är sparat. Lämna fältet tomt för att behålla det, eller töm det för att ta bort det.",
+      "passwordClear": "Ta bort det sparade lösenordet",
+      "fromAddress": "Avsändaradress",
+      "sendTest": "Skicka ett testmeddelande till mig",
+      "sending": "Skickar...",
+      "testSent": "Ett testmeddelande är på väg till {{email}}.",
+      "notConfigured": "E-post är inte inställt, så inbjudningar och inloggningslänkar kan inte skickas. Ingen kan bjudas in innan det är gjort.",
+      "configured": "E-post är inställt.",
+      "errors": {
+        "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
+        "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord."
+      },
+      "test": {
+        "subject": "Testmeddelande från {{association}}",
+        "heading": "E-posten fungerar",
+        "body": "Det här meddelandet skickades av {{association}} via {{host}} för att visa att e-postinställningarna fungerar. Inbjudningar och inloggningslänkar kommer fram till mottagarna."
+      }
+    },
+    "retention": {
+      "title": "Gallring",
+      "description": "Hur länge servicedata sparas efter att någon flyttat ut. Datumet räknas fram från utflyttningsdatumet, så en ändring flyttar alla kommande datum på en gång.",
+      "days": "Dagar efter utflyttning",
+      "daysHint": "Mellan 30 och 3650 dagar. En ny instans börjar på 365.",
+      "statutoryNotice": "Medlemsförteckningen och åtkomstloggen omfattas inte. Lagen kräver att medlemsförteckningen bevaras, så ingen inställning och ingen administratör kan ta bort den.",
+      "errors": {
+        "range": "Välj mellan 30 och 3650 dagar."
+      }
+    },
+    "selfSignup": {
+      "title": "Ansökningar om konto",
+      "description": "Med det här påslaget kan en boende ansöka om konto genom att ange adress och lägenhet. Inget skapas innan styrelsen godkänner ansökan.",
+      "enabled": "Ta emot ansökningar",
+      "stateOn": "På: ansökningar hamnar i styrelsens kö.",
+      "stateOff": "Av: formuläret är stängt och konton kommer bara från inbjudningar."
+    },
+    "profile": {
+      "title": "Din profil",
+      "description": "Ditt eget språk och hur gränssnittet ser ut på den här enheten.",
+      "preferredLocale": "Språk för e-post och utdrag",
+      "name": "Namn"
+    },
+    "security": {
+      "title": "Inloggning och säkerhet",
+      "description": "Hur du loggar in. En nyckel eller en autentiseringsapp skyddar registret betydligt bättre än bara ett lösenord.",
+      "password": {
+        "title": "Lösenord",
+        "current": "Nuvarande lösenord",
+        "new": "Nytt lösenord",
+        "repeat": "Upprepa det nya lösenordet",
+        "submit": "Byt lösenord",
+        "changed": "Lösenordet är bytt.",
+        "errors": {
+          "mismatch": "De två nya lösenorden är inte lika.",
+          "wrong": "Det nuvarande lösenordet stämde inte.",
+          "weak": "Det nya lösenordet behöver minst 12 tecken.",
+          "unknown": "Lösenordet kunde inte bytas just nu. Försök igen."
+        }
+      },
+      "totp": {
+        "title": "Autentiseringsapp",
+        "description": "En sexsiffrig kod från en app i telefonen, som efterfrågas efter lösenordet. Så länge den är på skickas ingen inloggningslänk till kontot: en länk skulle hoppa över koden.",
+        "enable": "Slå på autentiseringsapp",
+        "disable": "Slå av",
+        "password": "Ditt lösenord",
+        "uri": "Konfigurationslänk",
+        "uriHint": "Lägg in den här länken, eller nyckeln i den, i autentiseringsappen manuellt. En skannbar kod är inte byggd än.",
+        "code": "Kod från appen",
+        "verify": "Bekräfta koden",
+        "on": "På",
+        "off": "Av",
+        "enabled": "Autentiseringsappen är på.",
+        "disabled": "Autentiseringsappen är av.",
+        "backupCodes": "Återställningskoder",
+        "backupCodesHint": "Visas en gång. Spara dem någon annanstans än i telefonen; var och en loggar in dig om appen försvinner.",
+        "errors": {
+          "wrongPassword": "Det lösenordet stämde inte.",
+          "invalidCode": "Koden stämde inte. Kontrollera appen och försök igen.",
+          "unknown": "Det gick inte just nu. Försök igen."
+        }
+      },
+      "passkeys": {
+        "title": "Nycklar",
+        "description": "Logga in med fingeravtryck, ansikte eller skärmlås på en enhet du äger. En nyckel kan inte nätfiskas och lämnar aldrig enheten.",
+        "name": "Namn på enheten",
+        "add": "Lägg till nyckel",
+        "adding": "Väntar på enheten...",
+        "none": "Inga nycklar än.",
+        "remove": "Ta bort",
+        "removeLabel": "Ta bort nyckeln {{name}}",
+        "unnamed": "Namnlös nyckel",
+        "added": "Nyckeln är tillagd.",
+        "errors": {
+          "unsupported": "Den här webbläsaren eller enheten kan inte skapa en nyckel.",
+          "cancelled": "Det avbröts, så ingen nyckel lades till.",
+          "unknown": "Nyckeln kunde inte läggas till just nu. Försök igen."
+        }
+      }
+    }
   }
 }

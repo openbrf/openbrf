@@ -9,7 +9,9 @@ import type { FastifyReply } from "fastify";
 import { ZodError } from "zod";
 
 import { InvitationError } from "../invitations/invitation.service";
+import { MailNotConfiguredError } from "../mail/mail.service";
 import { SignupRequestError } from "../signup/signup-request.service";
+import { DomainError } from "./domain-error";
 
 /**
  * Translates request validation failures and domain errors into responses.
@@ -23,12 +25,23 @@ import { SignupRequestError } from "../signup/signup-request.service";
  * Nest's own handling, so an HttpException thrown elsewhere still carries its
  * own status.
  */
-@Catch(ZodError, InvitationError, SignupRequestError)
+@Catch(
+  ZodError,
+  InvitationError,
+  SignupRequestError,
+  MailNotConfiguredError,
+  DomainError,
+)
 export class DomainExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(DomainExceptionFilter.name);
 
   catch(
-    exception: ZodError | InvitationError | SignupRequestError,
+    exception:
+      | ZodError
+      | InvitationError
+      | SignupRequestError
+      | MailNotConfiguredError
+      | DomainError,
     host: ArgumentsHost,
   ): void {
     const reply = host.switchToHttp().getResponse<FastifyReply>();
@@ -48,10 +61,26 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    if (exception instanceof MailNotConfiguredError) {
+      // Service Unavailable rather than a server error: the instance is
+      // working, it simply has no way to send mail until SMTP is configured.
+      // Skipping that step in the wizard is allowed, so this is an expected
+      // state with a known fix rather than a fault to page someone about.
+      void reply.status(HttpStatus.SERVICE_UNAVAILABLE).send({
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        error: exception.name,
+        reason: "mail-not-configured",
+        message: exception.message,
+      });
+      return;
+    }
+
     const status =
-      exception instanceof InvitationError
-        ? invitationStatus(exception.reason)
-        : signupStatus(exception.reason);
+      exception instanceof DomainError
+        ? exception.status
+        : exception instanceof InvitationError
+          ? invitationStatus(exception.reason)
+          : signupStatus(exception.reason);
 
     if (status >= 500) {
       this.logger.error(exception.message, exception.stack);

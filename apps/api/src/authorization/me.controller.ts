@@ -1,0 +1,82 @@
+import { Controller, Get, Req } from "@nestjs/common";
+
+import { PrismaService } from "../database/prisma.service";
+import type { RequestWithPrincipal } from "./authorization.guard";
+import type { Capability } from "./capabilities";
+
+export interface ViewerView {
+  personId: string;
+  firstName: string;
+  lastName: string;
+  preferredLocale: string;
+  /** What this viewer may do, so the interface offers only that. */
+  capabilities: Capability[];
+  /**
+   * The housing cooperative's own identity, for the band and the mail brand.
+   *
+   * Null until the setup wizard has named it. Behind a session rather than
+   * public: the sign-in screen has no need for it, and everything about an
+   * instance sits behind a login (decision 28).
+   */
+  housingCooperative: {
+    name: string;
+    primaryColor: string | null;
+    logoPath: string | null;
+  } | null;
+}
+
+/**
+ * Who is signed in, and what they may do.
+ *
+ * The interface needs this to decide what to render: whether to offer the
+ * settings screens at all, whether the setup wizard may be resumed, and what
+ * name to put on the band. Without it the client would either guess from a role
+ * name it invented or call an endpoint and read the 403.
+ *
+ * It is NOT an authorization decision. The capability list here is a copy of
+ * what the guard will enforce on every request, so hiding a control is only
+ * courtesy: the server refuses the call regardless.
+ *
+ * The person id comes from the session, never from the request, so this route
+ * cannot be pointed at somebody else.
+ */
+@Controller("api/me")
+export class MeController {
+  constructor(private readonly prisma: PrismaService) {}
+
+  @Get()
+  async me(@Req() request: RequestWithPrincipal): Promise<ViewerView> {
+    const principal = request.principal;
+    if (principal === undefined) {
+      // Unreachable: the global guard attaches the principal or rejects the
+      // request. Stated so the type is honest rather than asserted away.
+      throw new Error("The authorization guard did not attach a principal.");
+    }
+
+    const [person, association] = await Promise.all([
+      this.prisma.person.findUnique({
+        where: { id: principal.personId },
+        select: { firstName: true, lastName: true, preferredLocale: true },
+      }),
+      this.prisma.association.findUnique({
+        where: { id: 1 },
+        select: { name: true, primaryColor: true, logoPath: true },
+      }),
+    ]);
+
+    if (person === null) {
+      throw new Error(
+        `Person ${principal.personId} vanished between the guard and this handler.`,
+      );
+    }
+
+    return {
+      personId: principal.personId,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      preferredLocale: person.preferredLocale,
+      capabilities: [...principal.capabilities],
+      housingCooperative: association,
+    };
+  }
+}

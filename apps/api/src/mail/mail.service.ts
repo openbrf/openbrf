@@ -90,6 +90,17 @@ export class MailService {
     return { subject, html, text };
   }
 
+  /**
+   * Whether this instance can send mail at all.
+   *
+   * Exposed because skipping SMTP in the setup wizard is allowed, and the
+   * screens that depend on delivery - invitations, sign-in links - have to be
+   * able to say so plainly rather than failing when someone presses send.
+   */
+  async isConfigured(): Promise<boolean> {
+    return (await this.loadSmtpSettings()) !== null;
+  }
+
   async send<Props>(input: SendMailInput<Props>): Promise<void> {
     const rendered = await this.renderMail(input);
     const smtp = await this.loadSmtpSettings();
