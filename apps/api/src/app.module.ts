@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
+import { AuthorizationModule } from "./authorization/authorization.module";
 import { ConfigModule } from "./config/config.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
@@ -20,6 +21,7 @@ import { MailModule } from "./mail/mail.module";
     JobsModule,
     MailModule,
     AuthModule,
+    AuthorizationModule,
   ],
   controllers: [HealthController],
 })
