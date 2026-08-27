@@ -83,7 +83,9 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 ## Commits and pull requests
 
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, with optional scope, e.g. `feat(register): ...`), linted by commitlint in CI.
-- **Squash merge is the only merge method.** Your PR title becomes the commit message on `main`, so the PR title must follow Conventional Commits; individual commits inside the PR can be messy.
+- **History on `main` stays linear.** Merge commits are disabled; a PR lands either by **squash** or by **rebase**, and which one you pick follows from the PR:
+  - **Squash** when the commits inside the PR are working notes. The PR title becomes the commit message on `main`, so that title must follow Conventional Commits.
+  - **Rebase** when the commits are already a deliberate sequence worth keeping - a migration split into reviewable steps, for instance. Every commit must then follow Conventional Commits on its own and each must build and pass CI, because each one lands on `main` separately.
 - **Changesets:** user-visible changes need a changeset file (`pnpm changeset`) describing the change and its semver impact. CI reminds you if it is missing; docs/chore PRs don't need one.
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.
