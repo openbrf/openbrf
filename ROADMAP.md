@@ -130,10 +130,10 @@ foundation.
       bookkeeping engine of our own.
 - [ ] Reporting to Lantmäteriet's cooperative housing register
       (bostadsrättsregister). Not a single export: an initial submission due
-      31 December 2027, then continuing notifications as grants, transfers,
-      terminations and other register changes occur. A missed notification can
-      affect registration and a third party's protection, so this is a legal
-      duty rather than a convenience feature
+      31 December 2027, then continuing notifications of each register event:
+      grant (upplåtelse), transfer (överlåtelse) and termination (upphörande).
+      A missed notification can affect registration and a third party's
+      protection, so this is a legal duty rather than a convenience feature
 
 ## Paid modules
 
