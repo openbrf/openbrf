@@ -11,6 +11,7 @@ import { I18nModule } from "./i18n/i18n.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { SignupModule } from "./signup/signup.module";
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { MailModule } from "./mail/mail.module";
     AuthModule,
     AuthorizationModule,
     InvitationsModule,
+    SignupModule,
   ],
   controllers: [HealthController],
 })
