@@ -15,3 +15,11 @@ allowBuilds:
   # SQLite. This project uses the Prisma adapter against PostgreSQL and never
   # loads it, so the native binding must not be compiled.
   better-sqlite3: false
+
+# Transitive dependency advisories we resolve ahead of the upstream package.
+overrides:
+  # GHSA: stack exhaustion when merging recursive object graphs. Reached only
+  # through @prisma/config merging our own prisma.config.ts at CLI time, so the
+  # practical exposure here is nil, but the fix is free if Prisma's config
+  # loader works with v8.
+  deepmerge-ts: ">=8.0.0"
