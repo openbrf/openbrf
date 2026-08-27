@@ -5,24 +5,41 @@ import { describe, expect, it, vi } from "vitest";
 import "../i18n";
 import { AppShell, type NavItem } from "./AppShell";
 
+/** The destination this stand-in treats as the current route. */
+const ACTIVE_PATH = "/";
+
 /**
  * The router's Link needs a router context this test has no use for, so it is
  * replaced with an anchor. The shell's job here is the frame, not routing.
+ *
+ * It does reproduce the two things the real Link contributes to the active
+ * state: it merges `activeProps` for the current route, and it marks that link
+ * with aria-current="page". Without those the active styling could not be
+ * asserted at all, and a marker regression would pass unnoticed.
  */
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
     children,
     className,
+    activeProps,
   }: {
     to: string;
     children: ReactNode;
     className?: string;
-  }): ReactElement => (
-    <a href={to} className={className}>
-      {children}
-    </a>
-  ),
+    activeProps?: { className?: string };
+  }): ReactElement => {
+    const active = to === ACTIVE_PATH;
+    return (
+      <a
+        href={to}
+        className={active ? activeProps?.className : className}
+        aria-current={active ? "page" : undefined}
+      >
+        {children}
+      </a>
+    );
+  },
 }));
 
 /** Child text, held in a constant so the no-literal-string rule stays strict. */
@@ -42,7 +59,7 @@ function renderShell(props: Partial<Parameters<typeof AppShell>[0]> = {}) {
 }
 
 describe("AppShell", () => {
-  it("carries the association's identity in the band", () => {
+  it("carries the housing cooperative's identity in the band", () => {
     renderShell();
     expect(screen.getByText("Brf Eksemplet")).toBeTruthy();
   });
@@ -91,6 +108,26 @@ describe("AppShell", () => {
     const onSignOut = vi.fn();
     renderShell({ onSignOut });
     expect(screen.getByRole("button", { name: /logga ut/i })).toBeTruthy();
+  });
+
+  it("marks the active destination with more than colour", () => {
+    renderShell();
+
+    /*
+     * DESIGN.md: colour is never the only signal - and a brass-on-dark shift is
+     * exactly what a red-green colour blind board member cannot see. Both
+     * navigations therefore carry a 3px brass edge on the active item: the band
+     * underlines it, the bar rules its top edge. The bar used to change only
+     * text-trust-register, which this catches.
+     */
+    const active = screen
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "page");
+
+    expect(active).toHaveLength(2);
+    for (const link of active) {
+      expect(link.className).toMatch(/border-trust-register/);
+    }
   });
 
   it("renders its children in the room below the band", () => {

@@ -114,6 +114,17 @@
   --text-label--line-height: 1.2;
   --text-label--letter-spacing: 0.12em;
 
+  /*
+   * Skylt-chips: role and state signs, and the brass count plates on the band.
+   * DESIGN.md fixes these at 11px/600 uppercase, 0.08em. Kept as a scale entry
+   * rather than written inline, because a role sign rendered a pixel smaller
+   * than a state sign is exactly the drift the scale exists to prevent.
+   */
+  --text-chip: 11px;
+  --text-chip--font-weight: 600;
+  --text-chip--line-height: 1.2;
+  --text-chip--letter-spacing: 0.08em;
+
   /* Register data. Always mono so columns align character for character. */
   --text-data: 13px;
   --text-data--line-height: 1.4;

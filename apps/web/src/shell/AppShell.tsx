@@ -1,16 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import type { ParseKeys } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
-/**
- * A translation key, checked against the actual resources.
- *
- * Typed rather than left as `string` so a navigation item naming a key that
- * does not exist fails to compile, instead of rendering the key itself to a
- * board member.
- */
-export type TranslationKey = ParseKeys<"translation">;
+import type { TranslationKey } from "../i18n/translation-key";
+
+export type { TranslationKey };
 
 export interface NavItem {
   to: string;
@@ -33,7 +27,7 @@ export interface AppShellProps {
 /** Brass plate carrying a count, e.g. open issues. */
 function NavCount({ count }: { count: number }): ReactElement {
   return (
-    <span className="inline-flex min-w-5 items-center justify-center rounded-control bg-trust-register px-1.5 text-[11px] font-bold text-register">
+    <span className="inline-flex min-w-5 items-center justify-center rounded-control bg-trust-register px-1.5 text-chip text-register">
       {count}
     </span>
   );
@@ -77,9 +71,17 @@ const BAND_LINK =
   "flex items-center gap-2 border-b-[3px] border-transparent text-label uppercase text-register-ink-muted transition-colors duration-150 ease-out";
 const BAND_LINK_ACTIVE = "border-trust-register text-register-ink";
 
+/*
+ * The bar carries the same 3px brass marker as the band, on the top edge
+ * (the side facing the content) since the bar sits at the bottom of the
+ * screen. Colour alone would not do: DESIGN.md requires a second signal, and
+ * a brass-on-dark colour shift is invisible to a red-green colour blind
+ * board member. Link already emits aria-current="page", so this closes the
+ * visual half of the same gap.
+ */
 const BAR_LINK =
-  "flex min-h-14 grow items-center justify-center gap-1.5 text-label uppercase text-register-ink-muted";
-const BAR_LINK_ACTIVE = "text-trust-register";
+  "flex min-h-14 grow items-center justify-center gap-1.5 border-t-[3px] border-transparent text-label uppercase text-register-ink-muted";
+const BAR_LINK_ACTIVE = "border-trust-register text-trust-register";
 
 /**
  * The application frame.
@@ -115,7 +117,7 @@ export function AppShell({
           <span className="truncate text-label uppercase">
             {associationName}
           </span>
-          <span className="text-[10px] tracking-[0.08em] text-register-ink-muted uppercase">
+          <span className="text-chip text-register-ink-muted uppercase">
             {t("welcome.title")}
           </span>
         </div>
@@ -136,7 +138,7 @@ export function AppShell({
             <div className="hidden flex-col items-end sm:flex">
               <span className="text-small font-semibold">{personName}</span>
               {roleLabel === undefined ? null : (
-                <span className="text-[10px] font-semibold tracking-[0.1em] text-trust-register uppercase">
+                <span className="text-chip text-trust-register uppercase">
                   {roleLabel}
                 </span>
               )}
