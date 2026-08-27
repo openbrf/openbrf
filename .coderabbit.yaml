@@ -163,10 +163,20 @@ reviews:
 
     - path: "apps/web/src/**"
       instructions: >-
-        Every visual value comes from a token. Flag any hardcoded colour, hex
-        literal, radius, shadow or font stack in a component: a theme must be
-        able to restyle everything, so a literal is a defect. Use
-        var(--obrf-*).
+        Every DESIGN value comes from a token: flag any hardcoded colour, hex
+        literal, radius, shadow or font stack in a component, because a theme
+        must be able to restyle those and a literal defeats it. Use
+        var(--obrf-*) or the Tailwind tokens mapped onto it.
+
+        Layout values are NOT tokens and must not be flagged as such: grid
+        track widths, column widths, min-widths, gaps and paddings are
+        arithmetic for one specific view. The themeable surface is deliberately
+        limited to colours, typefaces, shape, motion, the logo and view
+        variants, so proposing an --obrf-* token for a layout measurement is
+        proposing to widen a versioned public API past its documented scope -
+        and in the case of a register width, would let a theme reintroduce the
+        column clipping the measurement exists to prevent. The type scale lives
+        in Tailwind's @theme as application tokens for the same reason.
 
         Flag any user-facing string that is not an i18next key.
 

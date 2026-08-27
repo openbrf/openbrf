@@ -47,5 +47,34 @@
       "body": "{{name}} moved out of apartment {{apartment}} on {{movedOutOn}}. Service data is scheduled for erasure on {{purgeOn}}.",
       "action": "Open the address book"
     }
+  },
+  "theme": {
+    "mode": {
+      "label": "Appearance",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    }
+  },
+  "legend": {
+    "title": "Colour as law",
+    "trust": "Position of trust",
+    "ok": "Confirmed",
+    "warn": "Protected / caution",
+    "danger": "Danger",
+    "info": "Information"
+  },
+  "register": {
+    "column": {
+      "apartmentNumber": "Apt",
+      "name": "Name",
+      "contact": "Contact",
+      "movedIn": "Moved in"
+    },
+    "masked": "masked",
+    "caption": "Extract from the member register"
+  },
+  "person": {
+    "protectedPersonalData": "Protected personal data"
   }
 }
