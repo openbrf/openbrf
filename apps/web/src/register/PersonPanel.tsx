@@ -49,9 +49,9 @@ const ACCOUNT_LABEL = {
 } as const satisfies Record<string, TranslationKey>;
 
 const SECONDARY_BUTTON =
-  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-label uppercase text-ink";
+  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-ink";
 const CAUTION_BUTTON =
-  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-label uppercase text-warn";
+  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-warn";
 
 /** A label above a value, the room-side pattern for a read-only field. */
 function Field({
@@ -161,7 +161,7 @@ export function PersonPanel({
         <button
           type="button"
           onClick={onClose}
-          className="min-h-11 rounded-control border border-line-strong px-3 text-label text-ink uppercase"
+          className="min-h-11 rounded-control border border-line-strong px-3 text-small font-semibold text-ink"
         >
           {t("register.person.close")}
         </button>

@@ -638,6 +638,34 @@ describe("the resident-facing directory", () => {
     expect(residentPage.rows).toHaveLength(residentPage.total);
   });
 
+  it("does not count a protected person in the header stats either", async () => {
+    // The head count has to follow the same rule as the rows: a resident whose
+    // board lists three names must not read "four persons" above them, because
+    // the difference is exactly the protected people being hidden from them.
+    const residentCookie = await signIn(actors.resident.email);
+    const boardCookie = await signIn(actors.board.email);
+
+    const directory = await inject({
+      method: "GET",
+      url: `/api/resident-directory?addressId=${addressId}`,
+      headers: { cookie: residentCookie },
+    });
+    const board = await inject({
+      method: "GET",
+      url: `/api/address-book?addressId=${addressId}`,
+      headers: { cookie: boardCookie },
+    });
+
+    const residentStats = (
+      JSON.parse(directory.body) as { stats: { persons: number } }
+    ).stats;
+    const boardStats = (
+      JSON.parse(board.body) as { stats: { persons: number } }
+    ).stats;
+
+    expect(residentStats.persons).toBe(boardStats.persons - 1);
+  });
+
   it("does not surface a protected person through search either", async () => {
     const cookie = await signIn(actors.resident.email);
     const response = await inject({

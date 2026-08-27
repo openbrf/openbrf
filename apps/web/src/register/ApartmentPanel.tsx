@@ -113,7 +113,7 @@ export function ApartmentPanel({
         <button
           type="button"
           onClick={onClose}
-          className="min-h-11 rounded-control border border-line-strong px-3 text-label text-ink uppercase"
+          className="min-h-11 rounded-control border border-line-strong px-3 text-small font-semibold text-ink"
         >
           {t("register.person.close")}
         </button>

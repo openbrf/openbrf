@@ -146,7 +146,7 @@ export function AddPersonPanel({
         <button
           type="button"
           onClick={onClose}
-          className="min-h-11 rounded-control border border-line-strong px-3 text-label text-ink uppercase"
+          className="min-h-11 rounded-control border border-line-strong px-3 text-small font-semibold text-ink"
         >
           {t("register.addPerson.cancel")}
         </button>
@@ -219,7 +219,7 @@ export function AddPersonPanel({
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex min-h-11 items-center justify-center rounded-control bg-ink px-4 text-label text-page uppercase disabled:opacity-60"
+          className="inline-flex min-h-11 items-center justify-center rounded-control bg-ink px-4 text-small font-semibold text-page disabled:opacity-60"
         >
           {submitting
             ? t("register.addPerson.working")

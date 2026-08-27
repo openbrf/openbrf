@@ -412,7 +412,7 @@ export class AddressBookService {
 
     const [counts, stats, addresses] = await Promise.all([
       this.counts(query, now, searchTerms, options),
-      this.stats(query, now),
+      this.stats(query, now, options),
       this.addresses(),
     ]);
 
@@ -696,11 +696,21 @@ export class AddressBookService {
   private async stats(
     query: AddressBookQuery,
     now: Date,
+    options: { audience: "board" | "resident"; viewerPersonId: string | null },
   ): Promise<AddressBookStats> {
     const scope: Prisma.ResidencyWhereInput =
       query.addressId === undefined
         ? {}
         : { apartment: { addressId: query.addressId } };
+
+    // The head count follows the same visibility rule as the rows below it. A
+    // resident whose board lists three names must not read "four persons" in the
+    // line above them: the difference would count the protected people the
+    // register is hiding from them.
+    const visible: Prisma.PersonWhereInput[] =
+      options.audience === "resident"
+        ? [residentVisibilityWhere(options.viewerPersonId)]
+        : [];
 
     const [apartments, persons, members] = await Promise.all([
       this.prisma.apartment.count({
@@ -709,14 +719,24 @@ export class AddressBookService {
       }),
       this.prisma.person.count({
         where: {
-          residencies: { some: { AND: [scope, activeResidency(now)] } },
+          AND: [
+            ...visible,
+            { residencies: { some: { AND: [scope, activeResidency(now)] } } },
+          ],
         },
       }),
       this.prisma.person.count({
         where: {
-          residencies: {
-            some: { AND: [scope, activeResidency(now), { role: "MEMBER" }] },
-          },
+          AND: [
+            ...visible,
+            {
+              residencies: {
+                some: {
+                  AND: [scope, activeResidency(now), { role: "MEMBER" }],
+                },
+              },
+            },
+          ],
         },
       }),
     ]);

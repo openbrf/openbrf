@@ -148,7 +148,7 @@ export function AddressBookRoute(): ReactElement {
                 onClick={() => {
                   setPanel({ kind: "addPerson" });
                 }}
-                className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-label text-page uppercase"
+                className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
               >
                 {t("register.actions.addPerson")}
               </button>
@@ -171,7 +171,7 @@ export function AddressBookRoute(): ReactElement {
             <button
               type="button"
               onClick={reload}
-              className="min-h-11 rounded-control border border-line-strong px-4 text-label text-ink uppercase"
+              className="min-h-11 rounded-control border border-line-strong px-4 text-small font-semibold text-ink"
             >
               {t("register.error.retry")}
             </button>
