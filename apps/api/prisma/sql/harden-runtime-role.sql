@@ -15,23 +15,94 @@
 -- application at openbrf_app via DATABASE_URL_RUNTIME.
 --
 -- Usage:
---   psql "$DATABASE_URL" -v app_password="$RUNTIME_DB_PASSWORD" \
+--   RUNTIME_DB_PASSWORD="..." psql "$DATABASE_URL" \
 --     -f prisma/sql/harden-runtime-role.sql
+--
+-- The password is read from the environment rather than passed with -v, so it
+-- never appears in the process arguments, where any local user can read it out
+-- of `ps`. The script wraps itself in a transaction, so there is no half
+-- applied state to reason about if a statement fails.
 
 \set ON_ERROR_STOP on
 
--- Built as a string and run with \gexec rather than inside a DO block. psql
--- does not substitute :'app_password' inside dollar quoting: the placeholder
--- reaches PostgreSQL literally and the block fails to parse before it creates
--- anything. Outside the quotes psql expands it, format(%L) quotes it as a
--- literal, and \gexec runs the statement that comes back.
+\getenv app_password RUNTIME_DB_PASSWORD
+-- psql leaves :'app_password' untouched when the variable was never defined,
+-- which reaches PostgreSQL as a syntax error rather than as a clear message.
+-- Defining it empty lets the check below speak for itself.
+\if :{?app_password}
+\else
+\set app_password ''
+\endif
+
+BEGIN;
+
+-- Raised through \gexec because psql does not substitute inside dollar
+-- quoting: the WHERE decides whether any statement is produced at all.
+SELECT $sql$DO $body$ BEGIN
+  RAISE EXCEPTION 'RUNTIME_DB_PASSWORD is not set. See the usage note at the top of this script.';
+END $body$$sql$
+WHERE coalesce(:'app_password', '') = ''
+\gexec
+
+-- Ownership outranks every privilege granted below: the owner of a table can
+-- run ALTER TABLE ... DISABLE TRIGGER whatever its ACL says. If openbrf_app
+-- has somehow come to own anything, this script cannot deliver what it
+-- promises, so it refuses rather than reporting success.
+SELECT $sql$DO $body$ BEGIN
+  RAISE EXCEPTION 'openbrf_app owns objects in this database. An owner can disable the statutory triggers regardless of the privileges this script sets. Reassign them to the schema owner first.';
+END $body$$sql$
+WHERE EXISTS (
+  SELECT 1
+  FROM pg_class c
+  JOIN pg_roles r ON r.oid = c.relowner
+  WHERE r.rolname = 'openbrf_app'
+)
+\gexec
+
+-- An openbrf_app that already exists may have been made by hand or by an
+-- earlier tool. SUPERUSER or BYPASSRLS on it would ignore every revoke in this
+-- file, so the script refuses rather than reporting a hardening it did not
+-- achieve. Refusing is deliberate here instead of quietly stripping the
+-- attributes: only a superuser may clear SUPERUSER, so a script that tried
+-- would fail for the very installers that most need to know, and a runtime
+-- role that arrived with those attributes is an anomaly a human should look
+-- at rather than something to paper over.
+SELECT format($sql$DO $body$ BEGIN
+  RAISE EXCEPTION 'Role openbrf_app already exists with %s. This script cannot constrain such a role: those attributes override the privileges it sets. Fix the role, or drop it and run this again.';
+END $body$$sql$,
+  concat_ws(', ',
+    CASE WHEN rolsuper THEN 'SUPERUSER' END,
+    CASE WHEN rolbypassrls THEN 'BYPASSRLS' END,
+    CASE WHEN rolcreatedb THEN 'CREATEDB' END,
+    CASE WHEN rolcreaterole THEN 'CREATEROLE' END,
+    CASE WHEN rolreplication THEN 'REPLICATION' END))
+FROM pg_roles
+WHERE rolname = 'openbrf_app'
+  AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)
+\gexec
+
+-- LOGIN is set on both branches, not only on create: PrismaService and
+-- JobQueueService both connect as this role through DATABASE_URL_RUNTIME, so
+-- an existing NOLOGIN role would leave the application unable to start.
+-- Built as a string and run with \gexec for the same reason as above: psql
+-- does not substitute :'app_password' inside a dollar-quoted DO body, so the
+-- placeholder would reach PostgreSQL literally.
 SELECT format(
   CASE
     WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'openbrf_app')
-      THEN 'ALTER ROLE openbrf_app PASSWORD %L'
-    ELSE 'CREATE ROLE openbrf_app LOGIN PASSWORD %L'
+      THEN 'ALTER ROLE openbrf_app WITH LOGIN PASSWORD %L'
+    ELSE 'CREATE ROLE openbrf_app WITH LOGIN PASSWORD %L'
   END,
   :'app_password')
+\gexec
+
+-- A role membership carries privileges that the revokes below cannot reach,
+-- because they belong to the granted role rather than to openbrf_app.
+SELECT format('REVOKE %I FROM openbrf_app', granted.rolname)
+FROM pg_auth_members m
+JOIN pg_roles member ON member.oid = m.member
+JOIN pg_roles granted ON granted.oid = m.roleid
+WHERE member.rolname = 'openbrf_app'
 \gexec
 
 -- The database name comes from the connection string in the usage note above,
@@ -51,10 +122,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 -- The statutory archive: insert and read only. Revoked after the blanket
 -- grant above so the order of this script matters.
-REVOKE UPDATE, DELETE ON "member_register_entry" FROM openbrf_app;
-REVOKE UPDATE, DELETE ON "audit_log_entry" FROM openbrf_app;
-REVOKE DELETE ON "transfer" FROM openbrf_app;
-REVOKE DELETE ON "lien_note" FROM openbrf_app;
+-- Schema-qualified: an unqualified name resolves through search_path, so a
+-- like-named table in an earlier schema would take the revoke instead and the
+-- statutory tables would quietly keep their grants.
+REVOKE UPDATE, DELETE ON public."member_register_entry" FROM openbrf_app;
+REVOKE UPDATE, DELETE ON public."audit_log_entry" FROM openbrf_app;
+REVOKE DELETE ON public."transfer" FROM openbrf_app;
+REVOKE DELETE ON public."lien_note" FROM openbrf_app;
 
 -- TRUNCATE is a separate privilege in Postgres and is not implied by DELETE,
 -- so the grants above never conferred it. Revoked explicitly anyway, because
@@ -88,3 +162,5 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO openbrf_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT USAGE, SELECT ON SEQUENCES TO openbrf_app;
+
+COMMIT;

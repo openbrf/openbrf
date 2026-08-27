@@ -158,16 +158,49 @@ export class AuthService {
       { method: "invitation" },
     );
 
-    await context.internalAdapter.linkAccount({
-      userId: user.id,
-      providerId: "credential",
-      issuer: createLocalAccountIssuer("credential"),
-      accountId: user.id,
-      password: await context.password.hash(input.password),
-    });
+    try {
+      await context.internalAdapter.linkAccount({
+        userId: user.id,
+        providerId: "credential",
+        issuer: createLocalAccountIssuer("credential"),
+        accountId: user.id,
+        password: await context.password.hash(input.password),
+      });
+    } catch (cause) {
+      // The two writes go through Better Auth's adapter, which takes no
+      // transaction, so atomicity has to be arranged here. Without this the
+      // person keeps a user row with no credential: they cannot sign in, and
+      // the existence check above rejects every retry, so only a hand-written
+      // DELETE would get them out of it.
+      await this.deleteHalfCreatedUser(user.id, input.personId);
+      throw cause;
+    }
 
     this.logger.log(`Created account for person ${input.personId}`);
     return { userId: user.id };
+  }
+
+  /**
+   * Removes a user row whose credential account never landed.
+   *
+   * A failure here is reported rather than thrown, because the caller is
+   * already unwinding a different error and that one is the useful one. The
+   * message names the row, since this is the case that needs a human.
+   */
+  private async deleteHalfCreatedUser(
+    userId: string,
+    personId: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.user.delete({ where: { id: userId } });
+    } catch (cleanupFailure) {
+      this.logger.error(
+        `Could not remove the incomplete account ${userId} for person ` +
+          `${personId}. It has no credential and blocks any retry: delete it ` +
+          "by hand before inviting them again.",
+        cleanupFailure instanceof Error ? cleanupFailure.stack : undefined,
+      );
+    }
   }
 
   /** Resolves the signed-in person from request headers, or null. */
