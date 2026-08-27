@@ -23,7 +23,9 @@ import { loadEnvForIntegrationTests } from "../testing/integration-env";
  * database, because CI runs migrations without the seed: there, auth_user is
  * empty and the association row does not exist, so an ambient-state suite would
  * find setup legitimately open and fail on every assertion. It records what it
- * changed and puts it back afterwards.
+ * changed and puts it back afterwards, and beforeAll GATES on the claim having
+ * taken: on an open instance the administrator POST below would succeed, so
+ * that request must be unreachable rather than merely expected to fail.
  *
  * The suite deliberately does not exercise the *open* path. Doing so would mean
  * emptying auth_user on a database that may hold a real register - and, for the
@@ -43,21 +45,37 @@ let prisma: PrismaService;
  */
 let previousSetupCompletedAt: Date | null | undefined;
 
+/**
+ * A distinct forwarded address per request, inside this suite's own block.
+ *
+ * Distinct because the sign-in rate limiter buckets by forwarded address, and a
+ * repeat would make one test's requests count against another's budget. The
+ * counter walks the third octet as well as the fourth rather than wrapping
+ * inside one of them, so the sequence does not come back round onto itself
+ * however many requests the suite grows to make. 10.4.0.0/16 is this suite's:
+ * the other integration suites each hold their own second octet.
+ */
 let ipCounter = 0;
+function nextForwardedFor(): string {
+  ipCounter += 1;
+  const host = ipCounter % 254;
+  const subnet = Math.floor(ipCounter / 254) % 254;
+  return `10.4.${String(subnet)}.${String(host + 1)}`;
+}
+
 function inject(options: {
   method: "GET" | "POST" | "PUT";
   url: string;
   payload?: object;
   headers?: Record<string, string>;
 }) {
-  ipCounter += 1;
   return app
     .getHttpAdapter()
     .getInstance()
     .inject({
       ...options,
       headers: {
-        "x-forwarded-for": `10.4.0.${String(ipCounter % 250)}`,
+        "x-forwarded-for": nextForwardedFor(),
         ...options.headers,
       },
     });
@@ -93,6 +111,34 @@ beforeAll(async () => {
     create: { id: 1, name: "Brf Eksemplet", setupCompletedAt: new Date() },
     update: { setupCompletedAt: new Date() },
   });
+
+  /*
+   * A gate, not an assertion. Every expectation below is a refusal, and a
+   * refusal proves nothing on an instance that is legitimately open - the suite
+   * would report success while testing the opposite state. Worse, one of those
+   * cases POSTs to the public administrator route, which on an unclaimed
+   * instance SUCCEEDS: it would claim this shared database under a name and a
+   * password that are both in a public repository, and leave the rows behind.
+   *
+   * Thrown here rather than checked in an `it()`, because a failing test does
+   * not stop the ones after it in Vitest, so an assertion cannot keep that POST
+   * from running. A throw in beforeAll does: the suite reports one cause
+   * instead of a pile of consequences, and the destructive request is never
+   * reached.
+   */
+  const [accounts, claimed] = await Promise.all([
+    prisma.user.count(),
+    prisma.association.findUnique({
+      where: { id: 1 },
+      select: { setupCompletedAt: true },
+    }),
+  ]);
+  if (!(accounts > 0 || claimed?.setupCompletedAt != null)) {
+    throw new Error(
+      "the setup suite could not claim the instance, so its refusals would " +
+        "prove nothing and its administrator POST would succeed",
+    );
+  }
 });
 
 afterAll(async () => {
@@ -111,26 +157,9 @@ afterAll(async () => {
 });
 
 describe("first-boot setup on a claimed instance", () => {
-  it("is genuinely claimed, so the refusals below mean something", async () => {
-    /*
-     * Asserted rather than assumed. Every expectation below is a refusal, and a
-     * refusal proves nothing on an instance that is legitimately open - the
-     * suite would report success while testing the opposite state. This also
-     * catches the setup in beforeAll silently not taking effect.
-     */
-    const [accounts, association] = await Promise.all([
-      prisma.user.count(),
-      prisma.association.findUnique({
-        where: { id: 1 },
-        select: { setupCompletedAt: true },
-      }),
-    ]);
-
-    expect(
-      accounts > 0 || association?.setupCompletedAt != null,
-      "the suite failed to claim the instance in beforeAll",
-    ).toBe(true);
-  });
+  // The claimed state is a precondition of this whole describe and is enforced
+  // by the gate in beforeAll, so there is no case for it here: a test that
+  // failed would not stop the ones below from running against an open instance.
 
   it("reports that setup is not required", async () => {
     const response = await inject({ method: "GET", url: "/api/setup/state" });
