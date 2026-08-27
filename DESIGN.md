@@ -14,7 +14,7 @@ colors:
   tavla-ink: "#F4F2EC"
   tavla-ink-2: "#A5A6AA"
   tavla-line: "#3A3C40"
-  massing: "#8A6D28"
+  massing: "#7D5F23"
   massing-hover: "#6F571F"
   massing-tavla: "#C9A64B"
   massing-soft: "#EFE7D2"
@@ -107,7 +107,15 @@ components:
 
 Recorded from the built world (Claude Design project "Open BRF Designspråk v0.2 - Porttavlan", 4 artboards, seed 8fe6b948) after the finish review shipped. Values above are the LIGHT theme ("ljus"); the dark theme ("mork") redefines the same token names (see `.impeccable/design.json` extensions and the canvas). All components reference tokens via `var(--token)`, never hex.
 
-Note (decisions 42-47, 2026-08-27): at implementation time the PUBLIC token contract uses English semantic names (--surface-register, --accent-trust, --status-warn, ...) versioned with semver; Porttavlan is the default THEME delivering these values, and the Swedish names in this document are its design-language vocabulary. Themes are pure data (no JS), linted for AA contrast, and may select core-maintained view variants (e.g. member register as table or cards). Mapping table and full contract: Obsidian "Research/Temasystem - temakontraktet.md".
+Correction (2026-08-27, implementation): the light brass was recorded as
+#8A6D28, which measures 4.17:1 on `--bg` and therefore fails the WCAG AA floor
+this document mandates below. It is now **#7D5F23** (5.08:1 on `--bg`, 5.94:1 on
+`--surface`), the value the Adressbok canvas had already adopted for link text.
+White on a brass ground improves from 4.89:1 to 5.94:1 at the same time. The
+contrast matrix is enforced in code (`packages/tokens`), so the palette and this
+document cannot drift apart again.
+
+Note (decisions 42-47, 2026-08-27): at implementation time the PUBLIC token contract uses prefixed English semantic names (--obrf-surface-register, --obrf-accent-trust, --obrf-status-warn, ...) versioned with semver; Porttavlan is the default THEME delivering these values, and the Swedish names in this document are its design-language vocabulary. Themes are pure data (no JS), linted for AA contrast, and may select core-maintained view variants (e.g. member register as table or cards). Mapping table and full contract: Obsidian "Research/Temasystem - temakontraktet.md".
 
 ## Overview
 
@@ -126,7 +134,7 @@ The system replaces "Skandinavisk värme" v0.1 (decided 2026-08-27). It explicit
 A neutral limewash room, one dark board surface, one brass accent, four semantic laws.
 
 ### Primary
-- **Mässing / Brass** (`--massing` #8A6D28 light, #C9A64B dark; `--massing-tavla` #C9A64B on the board in both themes): positions of trust, active selection, links, focus rings. Text set on a brass ground uses `--on-massing` (#FFFFFF light / #17181A dark).
+- **Mässing / Brass** (`--massing` #7D5F23 light, #C9A64B dark; `--massing-tavla` #C9A64B on the board in both themes): positions of trust, active selection, links, focus rings. Text set on a brass ground uses `--on-massing` (#FFFFFF light / #17181A dark).
 
 ### Neutral
 - **Kalkputs** (`--bg` #EFEDE7 / #17181A): page ground.
