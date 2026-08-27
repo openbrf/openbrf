@@ -20,17 +20,24 @@
 
 \set ON_ERROR_STOP on
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'openbrf_app') THEN
-    EXECUTE format('CREATE ROLE openbrf_app LOGIN PASSWORD %L', :'app_password');
-  ELSE
-    EXECUTE format('ALTER ROLE openbrf_app PASSWORD %L', :'app_password');
-  END IF;
-END
-$$;
+-- Built as a string and run with \gexec rather than inside a DO block. psql
+-- does not substitute :'app_password' inside dollar quoting: the placeholder
+-- reaches PostgreSQL literally and the block fails to parse before it creates
+-- anything. Outside the quotes psql expands it, format(%L) quotes it as a
+-- literal, and \gexec runs the statement that comes back.
+SELECT format(
+  CASE
+    WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'openbrf_app')
+      THEN 'ALTER ROLE openbrf_app PASSWORD %L'
+    ELSE 'CREATE ROLE openbrf_app LOGIN PASSWORD %L'
+  END,
+  :'app_password')
+\gexec
 
-GRANT CONNECT ON DATABASE openbrf TO openbrf_app;
+-- The database name comes from the connection string in the usage note above,
+-- so it is read from the connection rather than assumed to be "openbrf".
+SELECT format('GRANT CONNECT ON DATABASE %I TO openbrf_app', current_database())
+\gexec
 GRANT USAGE ON SCHEMA public TO openbrf_app;
 
 -- Ordinary service-tier access.

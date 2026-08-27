@@ -49,12 +49,15 @@ export class AuthService {
 
   private magicLinkDelivery(): MagicLinkDelivery {
     return {
-      hasSecondFactor: async (email) => {
+      accountState: async (email) => {
         const user = await this.prisma.user.findUnique({
           where: { email: email.toLowerCase() },
           select: { twoFactorEnabled: true },
         });
-        return user?.twoFactorEnabled === true;
+        return {
+          exists: user !== null,
+          hasSecondFactor: user?.twoFactorEnabled === true,
+        };
       },
 
       send: async ({ email, url, expiresAt }) => {

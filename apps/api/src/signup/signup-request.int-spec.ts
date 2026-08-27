@@ -96,11 +96,15 @@ const submission = () => ({
  */
 async function ensurePendingRequest(): Promise<void> {
   await setSelfSignup(true);
-  await inject({
+  const response = await inject({
     method: "POST",
     url: "/api/signup-requests/submit",
     payload: submission(),
   });
+  // Asserted here rather than discarded: a failed submission would otherwise
+  // surface as a findFirstOrThrow in an unrelated test, which is the
+  // misleading failure this helper exists to remove.
+  expect(response.statusCode).toBe(202);
 }
 
 beforeAll(async () => {

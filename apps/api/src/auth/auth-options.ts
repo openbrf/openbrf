@@ -14,6 +14,13 @@ const MAGIC_LINK_TTL_SECONDS = 15 * 60;
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
 
+export interface AccountState {
+  /** Whether the register holds an account for this address at all. */
+  exists: boolean;
+  /** Whether that account has TOTP enrolled. False when it does not exist. */
+  hasSecondFactor: boolean;
+}
+
 export interface MagicLinkDelivery {
   /**
    * Delivers a sign-in link. Implemented by AuthService against MailService so
@@ -24,17 +31,52 @@ export interface MagicLinkDelivery {
     url: string;
     expiresAt: Date;
   }) => Promise<void>;
-  /**
-   * Whether the account for this address has TOTP enrolled. Used to enforce
-   * the second-factor policy below.
-   */
-  hasSecondFactor: (email: string) => Promise<boolean>;
+  /** What the register knows about an address. Drives the policy below. */
+  accountState: (email: string) => Promise<AccountState>;
   /**
    * Tells the account holder why no link arrived. Delivered by mail rather
    * than in the HTTP response, so the refusal reaches the mailbox owner and
    * nobody else.
    */
   sendSecondFactorNotice: (input: { email: string }) => Promise<void>;
+}
+
+/**
+ * Decides what an address actually receives when a sign-in link is requested.
+ *
+ * Three outcomes, one response. Better Auth answers `{ status: true }` no
+ * matter which branch runs, because this endpoint is public and any visible
+ * difference is an enumeration oracle against a statutory register.
+ *
+ *   No account: nothing is sent. The plugin calls this before it checks
+ *   whether the user exists, so without this branch anyone could make the
+ *   instance mail a sign-in link to an address of their choosing.
+ *
+ *   TOTP enrolled: an explanation is mailed instead of a link. Better Auth's
+ *   second factor gates password sign-in only, so a magic link would mint a
+ *   session with mailbox access alone.
+ *
+ *   Otherwise: the link.
+ *
+ * Exported so the policy is testable on its own, without standing up the
+ * plugin to reach the callback.
+ */
+export async function deliverMagicLink(
+  delivery: MagicLinkDelivery,
+  input: { email: string; url: string; expiresAt: Date },
+): Promise<void> {
+  const account = await delivery.accountState(input.email);
+
+  if (!account.exists) {
+    return;
+  }
+
+  if (account.hasSecondFactor) {
+    await delivery.sendSecondFactorNotice({ email: input.email });
+    return;
+  }
+
+  await delivery.send(input);
 }
 
 /**
@@ -58,6 +100,7 @@ export interface MagicLinkDelivery {
  * the address has an account and that the account has a second factor. On an
  * instance holding a statutory register that is an enumeration oracle, so
  * every address gets the same answer and only the mailbox owner learns more.
+ * deliverMagicLink below is where that policy lives.
  *
  * Sign-up is disabled outright. Accounts come from an invitation or from a
  * board-approved self-signup request, both of which create the person first
@@ -138,20 +181,19 @@ export function buildAuthOptions(
 
       magicLink({
         expiresIn: MAGIC_LINK_TTL_SECONDS,
+        // The plugin stores the token in plain text by default. A magic-link
+        // token is a sign-in credential with the same standing as an
+        // invitation token, and InvitationService stores those as a SHA-256
+        // hash precisely so a leaked database yields nothing usable. The same
+        // rule applies here: the plaintext exists only in the email.
+        storeToken: "hashed",
         // Its own switch, separate from emailAndPassword.disableSignUp: this
         // plugin would otherwise create an account at verify time for any
         // address that followed a link, which is open registration by another
         // name on an invite-only instance.
         disableSignUp: true,
         sendMagicLink: async ({ email, url }) => {
-          if (await magicLinkDelivery.hasSecondFactor(email)) {
-            // Refuse rather than deliver a link that would bypass TOTP, and
-            // say so only to the mailbox: see the note above on disclosure.
-            await magicLinkDelivery.sendSecondFactorNotice({ email });
-            return;
-          }
-
-          await magicLinkDelivery.send({
+          await deliverMagicLink(magicLinkDelivery, {
             email,
             url,
             expiresAt: new Date(Date.now() + MAGIC_LINK_TTL_SECONDS * 1000),
