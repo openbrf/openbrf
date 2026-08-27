@@ -64,11 +64,14 @@ reachable without an interface, and the one unchecked row says why.
 
 ### The interface
 
-Barely begun. This is the gap between the list above and anything usable.
-The theming layer everything will be built on top of exists and renders, but
-no screen a board member or resident would recognise does yet.
+Under way. This is the gap between the list above and anything usable.
+There is now a frame and a way in; the screens that do the association's work
+are still ahead.
 
-- [ ] Application shell, navigation and sign-in screens
+- [x] Application shell and navigation: the dark band, and a bottom bar on
+      narrow screens where a thumb reaches
+- [x] Sign-in with a password or an emailed link, with routes closed to
+      anyone without a session
 - [ ] First-boot setup wizard: association, addresses, apartments, SMTP,
       branding
 - [ ] Settings, including per-user light and dark mode

@@ -76,5 +76,27 @@
   },
   "person": {
     "protectedPersonalData": "Skyddade personuppgifter"
+  },
+  "nav": {
+    "overview": "Översikt",
+    "addressBook": "Adressbok",
+    "primary": "Huvudnavigering",
+    "signOut": "Logga ut"
+  },
+  "signIn": {
+    "heading": "Logga in",
+    "intro": "Logga in för att nå föreningens register, dokument och nyheter.",
+    "email": "E-postadress",
+    "password": "Lösenord",
+    "submit": "Logga in",
+    "magicLink": "Skicka en inloggningslänk till mig i stället",
+    "linkSent": "Kolla din inkorg. Länken är giltig i 15 minuter.",
+    "secondFactorRequired": "Ange koden från din autentiseringsapp för att slutföra inloggningen.",
+    "failed": "De uppgifterna fungerade inte. Kontrollera adress och lösenord och försök igen.",
+    "working": "Loggar in..."
+  },
+  "app": {
+    "loading": "Laddar",
+    "association": "Förening"
   }
 }

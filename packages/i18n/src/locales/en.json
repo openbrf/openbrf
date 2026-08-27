@@ -76,5 +76,27 @@
   },
   "person": {
     "protectedPersonalData": "Protected personal data"
+  },
+  "nav": {
+    "overview": "Overview",
+    "addressBook": "Address book",
+    "primary": "Main navigation",
+    "signOut": "Sign out"
+  },
+  "signIn": {
+    "heading": "Sign in",
+    "intro": "Sign in to reach your association's register, documents and news.",
+    "email": "Email address",
+    "password": "Password",
+    "submit": "Sign in",
+    "magicLink": "Email me a sign-in link instead",
+    "linkSent": "Check your inbox. The link is valid for 15 minutes.",
+    "secondFactorRequired": "Enter the code from your authenticator app to finish signing in.",
+    "failed": "Those details did not work. Check the address and password and try again.",
+    "working": "Signing in..."
+  },
+  "app": {
+    "loading": "Loading",
+    "association": "Association"
   }
 }

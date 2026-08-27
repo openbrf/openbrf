@@ -1,25 +1,26 @@
+import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { App } from "./App";
 import "./i18n";
 import "./index.css";
-import { ThemeModeProvider } from "./theme/theme-mode-context";
+import { router } from "./routes/router";
 import { initializeThemeMode } from "./theme/theme-mode";
+import { ThemeModeProvider } from "./theme/theme-mode-context";
 
 const container = document.getElementById("root");
 if (container === null) {
   throw new Error("Root element #root is missing in index.html");
 }
 
-// Applied before the first render so a viewer who chose dark never sees a
-// light frame flash past.
+// Applied before the first render so a viewer who chose dark never sees a light
+// frame flash past.
 initializeThemeMode();
 
 createRoot(container).render(
   <StrictMode>
     <ThemeModeProvider>
-      <App />
+      <RouterProvider router={router} />
     </ThemeModeProvider>
   </StrictMode>,
 );

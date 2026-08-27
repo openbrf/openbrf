@@ -15,15 +15,19 @@
   },
   "dependencies": {
     "@openbrf/i18n": "workspace:*",
+    "@openbrf/tokens": "workspace:*",
+    "@tanstack/react-router": "^1.170.32",
+    "better-auth": "^1.7.1",
     "i18next": "^26.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-i18next": "^17.0.12",
-    "@openbrf/tokens": "workspace:*"
+    "react-i18next": "^17.0.12"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/router-plugin": "^1.168.35",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.0",
