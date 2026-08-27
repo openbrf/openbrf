@@ -137,6 +137,33 @@ describe("checkContrast", () => {
     expect(registerFinding?.required).toBe(AA_CONTRAST_RATIO);
   });
 
+  it("measures the register accent on both register grounds", () => {
+    /*
+     * deriveAccentFamily pushes the register accent until it reads on BOTH
+     * surface-register and surface-register-raised, so a matrix that named only
+     * the flat surface would publish a weaker promise than the derivation makes -
+     * and would let a per-association colour through on a statutory pair nothing
+     * had checked.
+     */
+    const broken = {
+      ...PORTTAVLAN_LIGHT,
+      // Reads on the flat register ground and not on the raised one.
+      "accent-trust-register": PORTTAVLAN_LIGHT["surface-register-raised"],
+    };
+
+    const findings = checkContrast(broken);
+    const grounds = findings
+      .filter((f) => f.foreground === "accent-trust-register")
+      .map((f) => f.background);
+
+    expect(grounds).toContain("surface-register-raised");
+    expect(
+      findings.every(
+        (f) => f.foreground !== "accent-trust-register" || f.statutory,
+      ),
+    ).toBe(true);
+  });
+
   it("treats an unparseable colour as a failure", () => {
     const broken = { ...PORTTAVLAN_LIGHT, "text-primary": "chartreuse-ish" };
     const findings = checkContrast(broken);
