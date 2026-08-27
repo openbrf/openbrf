@@ -1,0 +1,165 @@
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { AppModule } from "../app.module";
+import { PrismaService } from "../database/prisma.service";
+import { loadEnvForIntegrationTests } from "../testing/integration-env";
+
+/**
+ * First-boot setup, against a real database and the real HTTP stack.
+ *
+ * The property under test is the one that protects a live instance: the public
+ * "create an administrator" route must be shut once the instance is claimed. The
+ * unit tests cover the decision itself with fakes; only this suite proves that
+ * the decision is actually reached through the guard, the routing and the
+ * exception filter, and that `@Public()` on the setup controller does not leak
+ * to the completion controller that shares its path prefix.
+ *
+ * The suite deliberately does not exercise the *open* path. Doing so would mean
+ * emptying auth_user and clearing setupCompletedAt on the shared development
+ * database - destroying the seed and, for the duration, standing up an instance
+ * with an open admin-creation form. The refusal direction is the one a mistake
+ * would make dangerous.
+ */
+
+loadEnvForIntegrationTests();
+
+let app: NestFastifyApplication;
+let prisma: PrismaService;
+
+let ipCounter = 0;
+function inject(options: {
+  method: "GET" | "POST" | "PUT";
+  url: string;
+  payload?: object;
+  headers?: Record<string, string>;
+}) {
+  ipCounter += 1;
+  return app
+    .getHttpAdapter()
+    .getInstance()
+    .inject({
+      ...options,
+      headers: {
+        "x-forwarded-for": `10.4.0.${String(ipCounter % 250)}`,
+        ...options.headers,
+      },
+    });
+}
+
+beforeAll(async () => {
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  );
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+
+  prisma = app.get(PrismaService);
+});
+
+afterAll(async () => {
+  await app?.close();
+});
+
+describe("first-boot setup on a claimed instance", () => {
+  it("is genuinely claimed, so the refusals below mean something", async () => {
+    /*
+     * Asserted rather than assumed. If this suite ever ran against an unclaimed
+     * database every expectation below would pass for the wrong reason - the
+     * routes would be legitimately open - and the suite would report success
+     * while testing nothing.
+     */
+    const [accounts, association] = await Promise.all([
+      prisma.user.count(),
+      prisma.association.findUnique({
+        where: { id: 1 },
+        select: { setupCompletedAt: true },
+      }),
+    ]);
+
+    expect(
+      accounts > 0 || association?.setupCompletedAt != null,
+      "the test database is unclaimed; run pnpm db:seed first",
+    ).toBe(true);
+  });
+
+  it("reports that setup is not required", async () => {
+    const response = await inject({ method: "GET", url: "/api/setup/state" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ setupRequired: false });
+  });
+
+  it("tells an anonymous caller nothing except that one fact", async () => {
+    const response = await inject({ method: "GET", url: "/api/setup/state" });
+
+    /*
+     * An exact-key assertion, not a property check. This endpoint is reachable
+     * without a session, so any field added to its payload later - the
+     * cooperative's name, an address count, whether SMTP is configured - would
+     * be published to the internet. Adding one has to break this test.
+     */
+    expect(Object.keys(response.json() as object)).toEqual(["setupRequired"]);
+  });
+
+  it("refuses to create another administrator", async () => {
+    const before = await prisma.user.count();
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/setup/administrator",
+      payload: {
+        firstName: "Ovalkommen",
+        lastName: "Besokare",
+        email: `intruder-${process.hrtime.bigint().toString(36)}@exempel.se`,
+        password: "a-long-enough-password",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(await prisma.user.count()).toBe(before);
+  });
+
+  it("does not let the public setup routes open the completion route", async () => {
+    /*
+     * `SetupController` carries @Public() and `SetupCompletionController` carries
+     * @RequireCapability, on the same "api/setup" prefix. They are separate
+     * classes precisely so neither decorator can be applied to the other's
+     * routes by accident; this is the assertion that the separation holds.
+     */
+    const response = await inject({
+      method: "POST",
+      url: "/api/setup/complete",
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+});
+
+describe("settings without a session", () => {
+  it.each([
+    { method: "GET" as const, url: "/api/settings" },
+    { method: "PUT" as const, url: "/api/settings/housing-cooperative" },
+    { method: "PUT" as const, url: "/api/settings/branding" },
+    { method: "PUT" as const, url: "/api/settings/smtp" },
+    { method: "POST" as const, url: "/api/settings/smtp/test" },
+    { method: "PUT" as const, url: "/api/settings/retention" },
+    { method: "PUT" as const, url: "/api/settings/self-signup" },
+    { method: "POST" as const, url: "/api/addresses" },
+  ])("refuses $method $url", async ({ method, url }) => {
+    const response = await inject({ method, url, payload: {} });
+
+    // 401 rather than 400: authorization is decided before the body is read, so
+    // a malformed payload can never be the reason an anonymous caller is told
+    // about a route.
+    expect(response.statusCode).toBe(401);
+  });
+});
