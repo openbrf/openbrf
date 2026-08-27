@@ -69,12 +69,20 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
 
     return {
       settings: instance.ok ? instance.value : null,
-      // A missing housing cooperative is not a failure to report: the resume
-      // notice below already says setup is unfinished, and an error banner on
-      // top of it would be two messages for one situation.
+      /*
+       * A missing housing cooperative is not a failure to report: the resume
+       * notice below already says setup is unfinished, and an error banner on
+       * top of it would be two messages for one situation.
+       *
+       * A failed ADDRESS load is. Without it the panels render an empty list as
+       * "no addresses registered", and the apartment register hangs off address
+       * rows: a board reading that adds an entrance that already exists, and the
+       * apartment numbers for one entrance then split across two address rows.
+       */
       loadFailed:
-        !instance.ok &&
-        instance.failure.reason !== "housing-cooperative-missing",
+        (!instance.ok &&
+          instance.failure.reason !== "housing-cooperative-missing") ||
+        !addressList.ok,
       addresses: addressList.ok ? addressList.value : [],
     };
   }, [canRead]);
@@ -110,8 +118,10 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
       </header>
 
       {loadFailed ? (
+        // Its own sentence: this notice reports a failed READ, and the shared
+        // "could not be saved" would tell a board their settings had been lost.
         <Notice tone="danger" live>
-          {t("settings.errors.unknown")}
+          {t("settings.errors.loadFailed")}
         </Notice>
       ) : null}
 

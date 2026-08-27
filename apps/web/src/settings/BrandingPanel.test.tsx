@@ -33,6 +33,17 @@ function renderPanel(primaryColor: string | null = null) {
 
 const colourField = () => screen.getByLabelText(/primärfärg/i);
 
+/**
+ * How many times the refusal sentence appears on screen when #FFE066 is refused.
+ *
+ * Once in the notice, and once in each preview swatch whose family the panel
+ * cannot derive at all - the same sentence is the swatch's own "this mode cannot
+ * be drawn" text. Asserted as a number so a change to either place has to be a
+ * deliberate edit here rather than an assertion that quietly stops meaning
+ * anything.
+ */
+const UNREADABLE_MENTIONS = 2;
+
 beforeEach(() => {
   saveBranding.mockReset().mockResolvedValue({
     ok: true,
@@ -125,13 +136,46 @@ describe("saving", () => {
     await session.click(screen.getByRole("button", { name: /^spara$/i }));
 
     await waitFor(() => {
-      // Twice over: once in the notice, once in the swatch that cannot be
-      // drawn. Both are correct, so the count is asserted rather than one.
-      expect(screen.getAllByText(/kan inte läsas/i).length).toBeGreaterThan(0);
+      // The count, not merely "at least one": getAllByText throws when nothing
+      // matches, so the previous assertion held whatever the screen rendered.
+      expect(screen.getAllByText(/kan inte läsas/i)).toHaveLength(
+        UNREADABLE_MENTIONS,
+      );
     });
     // The number is the part a board can act on.
     expect(screen.getByText(/1\.11/)).toBeTruthy();
     expect(screen.getByText(/surface-page/)).toBeTruthy();
+  });
+
+  it("survives a refusal whose detail is not a contrast finding", async () => {
+    /*
+     * ApiFailure.detail is unknown and endpoint-specific: an invalid-body
+     * refusal carries the Zod issue list in the same field. Read as contrast
+     * findings, one of those issues reaches `required.toFixed(1)` and throws
+     * during render, so a board loses the whole settings screen instead of
+     * reading why their colour was refused.
+     */
+    saveBranding.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "primaryColor", message: "Too small: expected 1" }],
+      },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.type(colourField(), "#FFE066");
+    await session.click(screen.getByRole("button", { name: /^spara$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/kunde inte sparas/i)).toBeTruthy();
+    });
+    // The field is still there, which is the assertion: a thrown TypeError in
+    // the notice would have taken the form down with it.
+    expect(colourField()).toBeTruthy();
   });
 
   it("marks a failing register pair as the statutory one", async () => {

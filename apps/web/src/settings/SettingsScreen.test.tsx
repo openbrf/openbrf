@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
-import type { Viewer } from "../api/instance";
+import type { InstanceSettings, Viewer } from "../api/instance";
 import { ThemeModeProvider } from "../theme/theme-mode-context";
 import { SettingsScreen } from "./SettingsScreen";
 
@@ -51,7 +51,10 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
-const SETTINGS = {
+// Typed, so a field added, renamed or retyped in the API client breaks this
+// fixture instead of leaving the tests passing against a shape the API no
+// longer returns.
+const SETTINGS: InstanceSettings = {
   housingCooperative: {
     name: "Brf Eksemplet",
     organizationNumber: "769600-1234",
@@ -189,5 +192,33 @@ describe("an admin", () => {
     expect(
       screen.queryByRole("link", { name: /återuppta konfigurationen/i }),
     ).toBeNull();
+  });
+});
+
+describe("a failed load", () => {
+  it("says so when the addresses cannot be read", async () => {
+    /*
+     * The apartment register hangs off address rows. Rendered as "no addresses
+     * registered", a failed load invites a board to add an entrance that already
+     * exists, and the apartment numbers for one entrance then split across two
+     * address rows - so the failure has to be named rather than shown as an
+     * empty register.
+     */
+    fetchAddresses.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    renderScreen([
+      "association:read",
+      "association:manage",
+      "addressBook:read",
+      "addressBook:write",
+      "self:manage",
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
+    });
   });
 });

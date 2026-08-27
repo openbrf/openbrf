@@ -80,9 +80,20 @@ export function BrandingPanel({
     });
   };
 
+  /*
+   * Gated on the reason and validated per entry.
+   *
+   * ApiFailure.detail is `unknown` and endpoint-specific: the same field
+   * carries the Zod issue list for an invalid-body refusal. Cast unconditionally,
+   * one of those issues would reach `finding.required.toFixed(1)` below, throw a
+   * TypeError during render, and take the whole settings screen down instead of
+   * showing the refusal it was trying to explain.
+   */
   const failures =
-    save.state.kind === "failed"
-      ? ((save.state.failure.detail ?? []) as ContrastFailure[])
+    save.state.kind === "failed" &&
+    save.state.failure.reason === "colour-fails-contrast" &&
+    Array.isArray(save.state.failure.detail)
+      ? save.state.failure.detail.filter(isContrastFailure)
       : [];
 
   return (
@@ -197,6 +208,20 @@ export function BrandingPanel({
         ) : null}
       </form>
     </Panel>
+  );
+}
+
+/** Whether a detail entry is really one of the contrast findings. */
+function isContrastFailure(value: unknown): value is ContrastFailure {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<ContrastFailure>;
+  return (
+    typeof candidate.foreground === "string" &&
+    typeof candidate.background === "string" &&
+    typeof candidate.required === "number" &&
+    (candidate.ratio === null || typeof candidate.ratio === "number")
   );
 }
 

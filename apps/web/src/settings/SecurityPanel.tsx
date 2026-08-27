@@ -195,12 +195,26 @@ function PasswordSection(): ReactElement {
 
 function TotpSection({ enabled }: { enabled: boolean }): ReactElement {
   const { t } = useTranslation();
-  const [on, setOn] = useState(enabled);
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [totpUri, setTotpUri] = useState<string | null>(null);
   const [backupCodes, setBackupCodes] = useState<readonly string[]>([]);
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
+
+  /*
+   * The session's answer, unless this section has itself just changed it.
+   *
+   * Derived rather than seeded into state once. `enabled` comes from the session,
+   * which resolves AFTER the first render, so a seed captured then reads false
+   * for everybody. A viewer who already has an authenticator app enrolled would
+   * be shown "off" and an Enable button - and pressing it issues a NEW secret
+   * and new backup codes, so the entry already in their authenticator stops
+   * working. That is a lockout on an account that reaches the member register.
+   *
+   * Null means "nothing of our own": the session stands.
+   */
+  const [changed, setChanged] = useState<boolean | null>(null);
+  const on = changed ?? enabled;
 
   const enable = async (): Promise<void> => {
     setOutcome({ kind: "working" });
@@ -241,7 +255,7 @@ function TotpSection({ enabled }: { enabled: boolean }): ReactElement {
 
     setCode("");
     setTotpUri(null);
-    setOn(true);
+    setChanged(true);
     setOutcome({
       kind: "done",
       messageKey: "settings.security.totp.enabled",
@@ -265,7 +279,7 @@ function TotpSection({ enabled }: { enabled: boolean }): ReactElement {
 
     setPassword("");
     setBackupCodes([]);
-    setOn(false);
+    setChanged(false);
     setOutcome({
       kind: "done",
       messageKey: "settings.security.totp.disabled",

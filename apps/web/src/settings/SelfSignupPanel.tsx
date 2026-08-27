@@ -30,10 +30,20 @@ export function SelfSignupPanel({
   editable = true,
 }: SelfSignupPanelProps): ReactElement {
   const { t } = useTranslation();
-  const [on, setOn] = useState(enabled);
+
+  /*
+   * What the server says, unless this panel has itself set something.
+   *
+   * Derived rather than seeded into state once. The server is the authority on
+   * whether a public sign-up form exists, so a parent that reloads the settings
+   * has to be able to correct this panel - and a seed captured on the first
+   * render would ignore it. Null means "nothing of our own": the prop stands.
+   */
+  const [attempted, setAttempted] = useState<boolean | null>(null);
+  const on = attempted ?? enabled;
 
   const save = useSaveAction(saveSelfSignup, (value) => {
-    setOn(value.enabled);
+    setAttempted(value.enabled);
     onSaved?.(value);
   });
 
@@ -63,8 +73,19 @@ export function SelfSignupPanel({
           disabled={!editable || save.state.kind === "saving"}
           onChange={(event) => {
             const next = event.target.checked;
-            setOn(next);
-            void save.submit({ enabled: next });
+            setAttempted(next);
+            void save.submit({ enabled: next }).then((saved) => {
+              /*
+               * Dropped on a refusal, so the server's value stands again. The
+               * dangerous direction is closing: the board unticks the box, the
+               * request fails, and a panel that kept the attempted value would
+               * report a public sign-up route as shut while it is still open on
+               * an instance holding a statutory register of personal data.
+               */
+              if (!saved) {
+                setAttempted(null);
+              }
+            });
           }}
           className="size-4"
         />
