@@ -65,14 +65,150 @@
     "info": "Information"
   },
   "register": {
+    "heading": "Address book",
     "column": {
       "apartmentNumber": "Apt",
       "name": "Name",
+      "role": "Role",
       "contact": "Contact",
-      "movedIn": "Moved in"
+      "movedIn": "Moved in",
+      "movedOut": "Moved out"
     },
     "masked": "masked",
-    "caption": "Extract from the member register"
+    "caption": "Extract from the member register",
+    "house": {
+      "label": "Address",
+      "all": "All addresses"
+    },
+    "filter": {
+      "label": "Filter the register",
+      "all": "All",
+      "members": "Members",
+      "residents": "Residents",
+      "board": "Board",
+      "movedOut": "Moved out"
+    },
+    "group": {
+      "ground": "Ground floor {{prefix}}",
+      "floor": "Floor {{floor}} {{prefix}}",
+      "withoutApartment": "Without apartment"
+    },
+    "sign": {
+      "chair": "Chair",
+      "boardMember": "Board member",
+      "deputyBoardMember": "Deputy",
+      "member": "Member",
+      "resident": "Resident",
+      "protected": "Protected",
+      "movedOut": "Moved out"
+    },
+    "stats": {
+      "apartments": "Apartments",
+      "persons": "Persons",
+      "members": "Members"
+    },
+    "search": {
+      "label": "Search the register",
+      "placeholder": "Name or apartment number",
+      "hint": "Name and apartment number match as you type. An email address or phone number has to be written in full: they are encrypted, so only a complete value can be looked up.",
+      "clear": "Clear the search"
+    },
+    "pagination": {
+      "status": "Page {{page}} of {{pages}}",
+      "previous": "Previous",
+      "next": "Next"
+    },
+    "stamp": {
+      "addressBook": "Address book - {{scope}} - {{date}}"
+    },
+    "purge": {
+      "label": "Erased",
+      "explanation": "Service data is erased on this date. The statutory member register entry is retained as the law requires."
+    },
+    "contact": {
+      "none": "None on file",
+      "masked": "Masked"
+    },
+    "empty": {
+      "title": "Nothing matches",
+      "description": "No entry matches this filter. Clear the search or choose another filter."
+    },
+    "loading": "Loading the register",
+    "error": {
+      "title": "The register could not be loaded",
+      "retry": "Try again"
+    },
+    "actions": {
+      "addPerson": "Add person",
+      "openPerson": "Open {{name}}",
+      "openApartment": "Open apartment {{number}}"
+    },
+    "person": {
+      "close": "Close",
+      "postalAddress": "Postal address",
+      "alternativeAddress": "Alternative address",
+      "noAlternativeAddress": "No alternative address on file",
+      "email": "Email address",
+      "phone": "Phone number",
+      "personalIdentityNumber": "Personal identity number",
+      "onFile": "On file",
+      "notOnFile": "Not on file",
+      "residencies": "Residencies",
+      "noResidencies": "No apartment in the register",
+      "boardPositions": "Positions of trust",
+      "systemRoles": "System roles",
+      "account": "Account",
+      "accountActive": "Active",
+      "accountInvited": "Invited, not yet activated",
+      "accountNone": "No account",
+      "twoFactor": "Authenticator app enrolled",
+      "isMember": "Holds a tenant-ownership",
+      "notMember": "Holds no tenant-ownership",
+      "protectedFlag": "Protected personal data",
+      "protectedOn": "Masked everywhere; every reveal is written to the audit log",
+      "protectedOff": "Not masked",
+      "protect": "Mask this person",
+      "unprotect": "Stop masking this person",
+      "systemRole": {
+        "admin": "Administrator",
+        "propertyManager": "Property manager"
+      },
+      "current": "Current",
+      "ended": "Ended"
+    },
+    "reveal": {
+      "action": "Reveal",
+      "working": "Revealing",
+      "logged": "Every reveal is written to the audit log with your name and the fields you saw.",
+      "hide": "Hide again",
+      "failed": "That could not be revealed."
+    },
+    "addPerson": {
+      "heading": "Add person",
+      "description": "Adds a person to the register. Placing someone in an apartment is the move-in flow, which also writes the statutory register entry.",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "email": "Email address",
+      "phone": "Phone number",
+      "postalStreet": "Street address",
+      "postalCode": "Postal code",
+      "postalCity": "City",
+      "protectedPersonalData": "Protected personal data",
+      "protectedHint": "Masks this person's contact details and postal address everywhere, and logs every reveal.",
+      "submit": "Add to the register",
+      "cancel": "Cancel",
+      "working": "Adding",
+      "failed": "The person could not be added."
+    },
+    "apartment": {
+      "heading": "Apartment {{number}}",
+      "participationShare": "Participation share",
+      "noParticipationShare": "Not recorded",
+      "residents": "Current residents",
+      "history": "Earlier residents",
+      "noHistory": "No earlier residents",
+      "registerNotice": "Liens and initial share capital are apartment register content, which is a separate confidential document."
+    }
   },
   "person": {
     "protectedPersonalData": "Protected personal data"
