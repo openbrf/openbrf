@@ -100,8 +100,11 @@ Free, open source, and never moved behind a paywall.
 - [ ] GDPR engine: data subject access reports, legal hold, consents, masking
       of protected personal data, and configurable retention and purging of
       **service data only**. The statutory registers and the audit log are
-      append-only and exempt: the law requires the member register to be
-      retained, so no retention setting, and no admin, can delete it
+      append-only: the law requires the member register to be retained, so no
+      retention setting, and no admin, can delete it. That is an exemption
+      from purging alone, not from data protection - access control, masking
+      of protected personal data, access logging and the data subject access
+      report all still cover those records
 - [ ] News and mailings, by email and through an open SMS adapter
 - [ ] Document archive with per-role permissions
 - [ ] Issue reporting with photos
@@ -133,12 +136,16 @@ foundation.
       bookkeeping engine of our own.
 - [ ] Reporting to Lantmäteriet's cooperative housing register
       (bostadsrättsregister). Not a single export but a standing duty: an
-      initial submission of the existing apartments, then a notification
-      within two weeks of each event the cooperative is responsible for -
-      grant (upplåtelse), transfer (övergång) and termination (upphörande),
-      per Lag (2026:484) om bostadsrättsregister, 3 kap. Liens (pantsättning)
-      are registered by the lienholder rather than the cooperative, so they
-      are deliberately outside this feature. A missed notification can affect
+      initial submission of the existing apartments, then a notification of
+      each event the cooperative is responsible for - grant (upplåtelse),
+      transfer (övergång) and termination (upphörande) - per Lag (2026:484) om
+      bostadsrättsregister, 3 kap. Each has a two-week window, but they do not
+      all start from the same moment: for a transfer the clock runs from the
+      membership decision rather than the transfer itself, and the statute
+      assigns the report to a juridical person in defined cases. Liens
+      (pantsättning) are registered by the lienholder, not the cooperative, so
+      they are deliberately outside this feature. The exact per-event trigger
+      and actor rules belong with the implementation, not this page. A missed notification can affect
       registration and a third party's protection, which makes this a legal
       duty rather than a convenience feature
 
