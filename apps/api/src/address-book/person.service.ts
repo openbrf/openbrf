@@ -10,6 +10,7 @@ import type {
   SystemRoleType,
 } from "../generated/prisma/enums";
 import { computePurgeDate } from "../retention/purge-date";
+import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
   type AddressBookContact,
   hasMovedOut,
@@ -154,7 +155,7 @@ export class PersonService {
     personId: string,
     now: Date = new Date(),
   ): Promise<PersonDetail> {
-    const retentionDays = await this.retentionDays();
+    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
 
     const person = await this.prisma.person.findUnique({
       where: { id: personId },
@@ -553,13 +554,5 @@ export class PersonService {
 
       return { protectedPersonalData: input.protectedPersonalData };
     });
-  }
-
-  private async retentionDays(): Promise<number> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { retentionDaysAfterMoveOut: true },
-    });
-    return association?.retentionDaysAfterMoveOut ?? 365;
   }
 }

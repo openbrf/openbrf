@@ -11,7 +11,7 @@ filter tabs, floor-grouped rows following Lantmateriet numbering, the mono data
 grid, role and state signs, the always-visible colour-as-law legend and a
 register stamp. A person view and an apartment view beside it, search that
 matches names and apartment numbers incrementally while an encrypted email or
-phone number matches only in full, and pagination.
+phone number matches only in full and only for the board, and pagination.
 
 Masking is enforced server-side per the visibility matrix. The board sees
 contact data with protected persons masked and a per-field reveal that writes its

@@ -67,7 +67,16 @@ const protectedFlagSchema = z.object({
 });
 
 const revealSchema = z.object({
-  fields: z.array(z.enum(MASKABLE_FIELDS)).min(1),
+  // Bounded and deduplicated. The entry recording who saw a personal identity
+  // number is the evidence a supervisory authority asks for, so it must not be
+  // paddable by the caller: without this, one request naming the same field a
+  // thousand times performs a thousand decryptions and writes a thousand
+  // entries into the context of a single audit entry.
+  fields: z
+    .array(z.enum(MASKABLE_FIELDS))
+    .min(1)
+    .max(MASKABLE_FIELDS.length)
+    .transform((fields) => [...new Set(fields)]),
   reason: z.string().max(500).optional(),
 });
 

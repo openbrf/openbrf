@@ -625,6 +625,7 @@ describe("the resident-facing directory", () => {
     const boardPage = JSON.parse(board.body) as {
       total: number;
       counts: { all: number };
+      rows: { protectedPersonalData: boolean }[];
     };
     const residentPage = JSON.parse(directory.body) as {
       total: number;
@@ -632,9 +633,17 @@ describe("the resident-facing directory", () => {
       rows: unknown[];
     };
 
-    // Exactly one protected person lives at the fixture address.
-    expect(residentPage.total).toBe(boardPage.total - 1);
-    expect(residentPage.counts.all).toBe(boardPage.counts.all - 1);
+    // Derived rather than assumed. Another suite in this file flips the flag on
+    // a second person at the same address and clears it again, so a hard-coded
+    // delta of one would make this test depend on declaration order and fail
+    // under --sequence.shuffle for a reason unrelated to the rule it defends.
+    const protectedRows = boardPage.rows.filter(
+      (row) => row.protectedPersonalData,
+    ).length;
+
+    expect(protectedRows).toBeGreaterThan(0);
+    expect(residentPage.total).toBe(boardPage.total - protectedRows);
+    expect(residentPage.counts.all).toBe(boardPage.counts.all - protectedRows);
     expect(residentPage.rows).toHaveLength(residentPage.total);
   });
 
@@ -659,11 +668,30 @@ describe("the resident-facing directory", () => {
     const residentStats = (
       JSON.parse(directory.body) as { stats: { persons: number } }
     ).stats;
-    const boardStats = (
-      JSON.parse(board.body) as { stats: { persons: number } }
-    ).stats;
+    const boardBody = JSON.parse(board.body) as {
+      stats: { persons: number };
+      rows: {
+        personId: string;
+        protectedPersonalData: boolean;
+        signs: string[];
+      }[];
+    };
 
-    expect(residentStats.persons).toBe(boardStats.persons - 1);
+    // Derived, for the same reason as the test above. The head count counts
+    // distinct persons whose residency is current, so the delta is the set of
+    // protected persons who still live here - a protected row that has moved
+    // out is in neither count and must not be subtracted from one of them.
+    const hidden = new Set(
+      boardBody.rows
+        .filter(
+          (row) =>
+            row.protectedPersonalData && !row.signs.includes("MOVED_OUT"),
+        )
+        .map((row) => row.personId),
+    );
+
+    expect(hidden.size).toBeGreaterThan(0);
+    expect(residentStats.persons).toBe(boardBody.stats.persons - hidden.size);
   });
 
   it("does not surface a protected person through search either", async () => {
@@ -678,6 +706,43 @@ describe("the resident-facing directory", () => {
     };
 
     expect(rows).toEqual([]);
+  });
+
+  it("does not answer a contact-data question through the blind index", async () => {
+    // Contact data is board-only, and so is the ability to test a value against
+    // the register. An equality match on the blind index answers "is this number
+    // on file for this person" from the presence of a row, without the value
+    // ever appearing in the response - which is the board-only fact the absent
+    // contact column exists to withhold. The same probe against a protected
+    // person's number would be answered by the absence of one.
+    //
+    // Eleven digits cannot prefix-match a four-digit apartment number and match
+    // no name part, so the phone blind index is the only route by which this
+    // term can return a row. That is what makes the board's answer and the
+    // resident's answer differ here.
+    const term = encodeURIComponent("+46701112233");
+
+    const board = await inject({
+      method: "GET",
+      url: `/api/address-book?search=${term}`,
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+    const directory = await inject({
+      method: "GET",
+      url: `/api/resident-directory?search=${term}`,
+      headers: { cookie: await signIn(actors.resident.email) },
+    });
+
+    expect(
+      (JSON.parse(board.body) as { rows: { personId: string }[] }).rows.map(
+        (row) => row.personId,
+      ),
+    ).toContain(actors.resident.personId);
+    expect(directory.statusCode).toBe(200);
+    expect(
+      (JSON.parse(directory.body) as { rows: unknown[]; total: number }).rows,
+    ).toEqual([]);
+    expect((JSON.parse(directory.body) as { total: number }).total).toBe(0);
   });
 
   it("shows a protected person their own entry", async () => {
@@ -774,6 +839,46 @@ describe("revealing a masked field", () => {
     expect(entries[0]?.context).toMatchObject({
       fields: ["personalIdentityNumber"],
       protectedPersonalData: false,
+    });
+  });
+
+  it("cannot be padded into an audit entry that overstates the reveal", async () => {
+    // The entry recording who saw a personal identity number is the evidence a
+    // supervisory authority asks for, so the caller must not be able to inflate
+    // it. A repeated field is decrypted once and logged once; asking for more
+    // fields than exist is refused rather than truncated.
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: `/api/address-book/persons/${actors.resident.personId}/reveal`,
+      payload: {
+        fields: Array.from({ length: 50 }, () => "personalIdentityNumber"),
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+
+    const deduplicated = await inject({
+      method: "POST",
+      url: `/api/address-book/persons/${actors.resident.personId}/reveal`,
+      payload: {
+        fields: ["personalIdentityNumber", "personalIdentityNumber"],
+      },
+      headers: { cookie },
+    });
+
+    expect(deduplicated.statusCode).toBe(200);
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "PROTECTED_DATA_REVEALED",
+        targetPersonId: actors.resident.personId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+    expect(entries[0]?.context).toMatchObject({
+      fields: ["personalIdentityNumber"],
     });
   });
 

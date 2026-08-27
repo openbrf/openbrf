@@ -133,8 +133,22 @@ describe("board and admin rows", () => {
     // a screenshot or an export. The only route to one is the audited reveal.
     const row = toAddressBookRow(record(), { today: TODAY, purgeOn: null });
 
+    // The record type has no personal-identity-number field, so a mapper that
+    // spread the record into the row would still come out clean when it is fed
+    // only what the contract declares. Handing it a record that carries the
+    // value is what gives this assertion something to catch.
+    const loose = toAddressBookRow(
+      {
+        ...record(),
+        personalIdentityNumber: "8112289874",
+      } as AddressBookRecord,
+      { today: TODAY, purgeOn: null },
+    );
+
     expect(Object.keys(row)).not.toContain("personalIdentityNumber");
-    expect(serialize(row)).not.toContain("personalIdentityNumber");
+    expect(Object.keys(loose)).not.toContain("personalIdentityNumber");
+    expect(serialize(loose)).not.toContain("personalIdentityNumber");
+    expect(serialize(loose)).not.toContain("8112289874");
   });
 });
 

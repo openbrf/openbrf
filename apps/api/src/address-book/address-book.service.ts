@@ -4,6 +4,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { computePurgeDate } from "../retention/purge-date";
+import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
   APARTMENT_FIELDS,
   BOARD_PERSON_FIELDS,
@@ -11,6 +12,7 @@ import {
 } from "./address-book-projection";
 import {
   type AddressBookApartment,
+  type AddressBookAudience,
   type AddressBookRecord,
   type AddressBookRow,
   hasMovedOut,
@@ -122,7 +124,7 @@ export class AddressBookService {
     query: AddressBookQuery,
     now: Date = new Date(),
   ): Promise<AddressBookPage<AddressBookRow>> {
-    const retentionDays = await this.retentionDays();
+    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
     return this.page(query, now, {
       audience: "board",
       viewerPersonId: null,
@@ -259,16 +261,6 @@ export class AddressBookService {
     }));
   }
 
-  private async retentionDays(): Promise<number> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { retentionDaysAfterMoveOut: true },
-    });
-    // A fresh instance starts at 365 days; the same default applies before the
-    // setup wizard has written the association row.
-    return association?.retentionDaysAfterMoveOut ?? 365;
-  }
-
   /**
    * The shared paging engine.
    *
@@ -288,7 +280,7 @@ export class AddressBookService {
       toRow: (record: AddressBookRecord) => TRow;
     },
   ): Promise<AddressBookPage<TRow>> {
-    const searchTerms = await this.searchTerms(query.search);
+    const searchTerms = await this.searchTerms(query.search, options.audience);
 
     const residencyWhere = this.residencyWhere(
       query,
@@ -510,8 +502,19 @@ export class AddressBookService {
    * the complete number finds the row. The index is computed through the
    * encryption service rather than by normalizing here, because a hand-rolled
    * normalization silently misses rows that exist.
+   *
+   * The contact indexes are computed for the board audience only. Contact data
+   * is board-only, and so is the ability to test a value against the register:
+   * an equality match on a blind index answers "is this address on file for this
+   * person" from the presence or absence of a row, without the value ever
+   * appearing in the response. Withholding the column while answering the
+   * question would leave the resident view disclosing exactly the fact the
+   * projection exists to keep with the board.
    */
-  private async searchTerms(search: string | undefined): Promise<{
+  private async searchTerms(
+    search: string | undefined,
+    audience: AddressBookAudience,
+  ): Promise<{
     tokens: string[];
     digits: string | null;
     emailIndex: string | null;
@@ -524,15 +527,17 @@ export class AddressBookService {
 
     const tokens = trimmed.split(/\s+/).filter((token) => token !== "");
     const digits = /\d/.test(trimmed) ? trimmed.replace(/\D/g, "") : null;
+    const contactSearchable = audience === "board";
 
-    const emailIndex = trimmed.includes("@")
-      ? await this.encryption.computeIndex("person.email", trimmed)
-      : null;
+    const emailIndex =
+      contactSearchable && trimmed.includes("@")
+        ? await this.encryption.computeIndex("person.email", trimmed)
+        : null;
     // A phone number needs enough digits to be a whole number rather than a
     // fragment. Below that the index would be computed from something that was
     // never a phone number and could only ever match by accident.
     const phoneIndex =
-      digits !== null && digits.length >= 6
+      contactSearchable && digits !== null && digits.length >= 6
         ? await this.encryption.computeIndex("person.phone", trimmed)
         : null;
 
