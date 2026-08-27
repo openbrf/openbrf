@@ -44,7 +44,10 @@ without an interface.
       phone and personal identity number
 - [x] Append-only audit log, written in the same transaction as the access it
       records
-- [x] Sign-in: password, magic link, passkeys (WebAuthn) and TOTP
+- [x] Sign-in with password, magic link and TOTP
+- [ ] Sign-in with passkeys (WebAuthn): implemented, but not yet covered by
+      tests. Driving a WebAuthn authenticator needs the end-to-end suite,
+      so this stays unticked until that exists
 - [x] Invitation-based account activation
 - [x] Board-approved self-signup requests
 - [x] Capability-based authorization, protected by default
@@ -86,7 +89,12 @@ system itself is not built.
 
 Free, open source, and never moved behind a paywall.
 
-- [ ] Encrypted apartment-based address book and member register, with import
+- [ ] Apartment-based address book and member register, with import. Contact
+      details and personal identity numbers are encrypted at rest and stay
+      searchable through blind indexes; names and postal addresses are held in
+      plaintext on purpose, because the statutory register has to be
+      searchable and printable. Those are protected by access control,
+      masking and the audit log instead
 - [ ] The statutory registers under Swedish law: the member register (public on
       request) and the confidential apartment register, kept strictly separate
 - [ ] GDPR engine: configurable retention and purging, data subject access

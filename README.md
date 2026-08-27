@@ -8,7 +8,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 ## What it does (v1 scope)
 
-- Encrypted, apartment-based address book and member register, with import
+- Apartment-based address book and member register, with import. Contact details and personal identity numbers are encrypted at rest; names and postal addresses stay readable, because the statutory register must be searchable and printable
 - The statutory registers under Swedish law: the member register (public on request) and the confidential apartment register, kept strictly separate
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - News and mailings, document archive, issue reporting with photos
