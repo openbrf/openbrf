@@ -108,7 +108,7 @@ components:
 Recorded from the built world (Claude Design project "Open BRF Designspråk v0.2 - Porttavlan", 4 artboards, seed 8fe6b948) after the finish review shipped. Values above are the LIGHT theme ("ljus"); the dark theme ("mork") redefines the same token names (see `.impeccable/design.json` extensions and the canvas). All components reference tokens via `var(--token)`, never hex.
 
 Correction (2026-08-27, implementation): the light brass was recorded as
-#8A6D28, which measures 4.17:1 on `--bg` and therefore fails the WCAG AA floor
+`#8A6D28`, which measures 4.17:1 on `--bg` and therefore fails the WCAG AA floor
 this document mandates below. It is now **#7D5F23** (5.08:1 on `--bg`, 5.94:1 on
 `--surface`), the value the Adressbok canvas had already adopted for link text.
 White on a brass ground improves from 4.89:1 to 5.94:1 at the same time. The

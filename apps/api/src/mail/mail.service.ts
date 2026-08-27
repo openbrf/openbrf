@@ -98,10 +98,22 @@ export class MailService {
       if (this.env.NODE_ENV === "production") {
         throw new MailNotConfiguredError();
       }
-      // Local development without SMTP: log enough to follow the link, rather
-      // than failing a flow that is otherwise working.
+      if (this.env.NODE_ENV === "development") {
+        // Local development without SMTP: log enough to follow the link,
+        // rather than failing a flow that is otherwise working. The body is
+        // printed only here, because it carries the sign-in or invitation
+        // credential in full.
+        this.logger.warn(
+          `SMTP not configured. Would send "${rendered.subject}" to ${input.to}:\n${rendered.text}`,
+        );
+        return;
+      }
+
+      // Tests run in CI, whose logs are public on this repository. Record that
+      // the message was suppressed without printing the credential it carries.
       this.logger.warn(
-        `SMTP not configured. Would send "${rendered.subject}" to ${input.to}:\n${rendered.text}`,
+        `SMTP not configured. Suppressed "${rendered.subject}"; the message ` +
+          "body is not logged outside development.",
       );
       return;
     }

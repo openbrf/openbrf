@@ -1,7 +1,6 @@
 import {
   Inject,
   Injectable,
-  Logger,
   type OnModuleDestroy,
   type OnModuleInit,
 } from "@nestjs/common";
@@ -28,8 +27,6 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  private static readonly logger = new Logger(PrismaService.name);
-
   constructor(@Inject(ENV) env: Env) {
     const connectionString = env.DATABASE_URL_RUNTIME ?? env.DATABASE_URL;
     super({ adapter: new PrismaPg({ connectionString }) });
@@ -38,11 +35,12 @@ export class PrismaService
       env.NODE_ENV === "production" &&
       env.DATABASE_URL_RUNTIME === undefined
     ) {
-      PrismaService.logger.warn(
-        "DATABASE_URL_RUNTIME is not set, so the application connects as the " +
-          "schema owner. The statutory archive triggers can be disabled by " +
-          "the owner: apply prisma/sql/harden-runtime-role.sql and set " +
-          "DATABASE_URL_RUNTIME to close that gap.",
+      throw new Error(
+        "DATABASE_URL_RUNTIME is not set, so the application would connect as " +
+          "the schema owner. The owner can disable the statutory archive " +
+          "triggers, which defeats the append-only guarantee this service " +
+          "exists to enforce. Apply prisma/sql/harden-runtime-role.sql and " +
+          "set DATABASE_URL_RUNTIME before starting in production.",
       );
     }
   }

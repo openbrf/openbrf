@@ -23,6 +23,12 @@
       "body": "Använd länken nedan för att logga in. Om du inte har begärt den kan du bortse från det här meddelandet.",
       "action": "Logga in"
     },
+    "magicLinkRefused": {
+      "subject": "Om inloggningen till {{association}}",
+      "heading": "Ingen inloggningslänk skickades",
+      "body": "Det här kontot använder en autentiseringsapp, och en inloggningslänk skulle gå förbi din andra faktor. Logga in med ditt lösenord och din kod, eller med en passkey.",
+      "notRequested": "Om det inte var du som försökte logga in kan du bortse från det här meddelandet. Ingen har fått åtkomst."
+    },
     "moveIn": {
       "subject": "Välkommen till {{association}}",
       "heading": "Välkommen till ditt nya hem",

@@ -66,11 +66,14 @@ export class EncryptionKeyProvider {
     if (env.NODE_ENV === "production") {
       // A fresh key in production almost always means the volume is missing.
       // Generating one would quietly start an instance that cannot read the
-      // data it is about to be pointed at.
-      this.logger.warn(
-        `No encryption key found at ${keyPath}. Generating a new one. If this ` +
-          "instance already has encrypted data, stop now and restore the " +
-          "original key: a new key cannot decrypt existing fields.",
+      // data it is about to be pointed at, and the first write of an encrypted
+      // field would replace a readable value with ciphertext under a key that
+      // no backup knows about. Refuse instead.
+      throw new EncryptionKeyError(
+        `No encryption key found at ${keyPath}. Refusing to start in ` +
+          "production: generating a key here would make existing encrypted " +
+          "fields permanently unreadable. Restore the original key, or set " +
+          "OPENBRF_ENCRYPTION_KEY.",
       );
     }
 

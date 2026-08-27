@@ -19,7 +19,6 @@ import { SignupRequestService } from "./signup-request.service";
  */
 
 loadEnvForIntegrationTests();
-process.env.NODE_ENV = "test";
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
@@ -85,6 +84,24 @@ const submission = () => ({
   claimedAddress: "Storgatan 12",
   claimedApartmentNumber: "1105",
 });
+
+/**
+ * Leaves exactly one pending request from the applicant.
+ *
+ * Called by every block that needs one, so no block depends on a request an
+ * earlier block happened to create: a single test run in isolation, or a
+ * reordering, would otherwise fail in findFirstOrThrow rather than on the
+ * behaviour under test. Submitting twice is safe because a resubmission from
+ * the same address replaces the outstanding request.
+ */
+async function ensurePendingRequest(): Promise<void> {
+  await setSelfSignup(true);
+  await inject({
+    method: "POST",
+    url: "/api/signup-requests/submit",
+    payload: submission(),
+  });
+}
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -206,6 +223,8 @@ describe("the self-signup toggle", () => {
 });
 
 describe("a pending request", () => {
+  beforeAll(ensurePendingRequest);
+
   it("creates no person, residency or account by itself", async () => {
     const index = await encryption.computeIndex("person.email", applicantEmail);
     const person = await prisma.person.findFirst({
@@ -253,6 +272,8 @@ describe("a pending request", () => {
 });
 
 describe("approval", () => {
+  beforeAll(ensurePendingRequest);
+
   it("creates the person and residency, and invites them", async () => {
     const pending = await prisma.signupRequest.findFirstOrThrow({
       where: { claimedApartmentNumber: "1105", status: "PENDING" },

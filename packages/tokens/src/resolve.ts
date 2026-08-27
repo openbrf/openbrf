@@ -95,19 +95,106 @@ function followFallback(
   return undefined;
 }
 
+export class TokenValueError extends Error {
+  constructor(readonly offending: { token: string; reason: string }[]) {
+    super(
+      `Refusing to emit CSS for unsafe token values:\n  ${offending
+        .map((entry) => `${entry.token}: ${entry.reason}`)
+        .join("\n  ")}`,
+    );
+    this.name = "TokenValueError";
+  }
+}
+
+/**
+ * Things a token value may never contain, and why.
+ *
+ * A token value lands inside a declaration block, so anything that can close
+ * that declaration or block escapes into the stylesheet: `;` starts a new
+ * declaration, `}` closes the rule and lets the next characters open one of
+ * their own. The rest are the ways a value reaches outside the document -
+ * `@import` and `url()` fetch over the network, `<` closes an inline `<style>`
+ * element, `\` hides any of the above behind a CSS escape, and a comment
+ * marker lets a value swallow the declarations after it.
+ */
+const FORBIDDEN_IN_VALUE: { pattern: RegExp; reason: string }[] = [
+  { pattern: /[;{}]/, reason: "may not contain ; { or }" },
+  { pattern: /[<>]/, reason: "may not contain < or >" },
+  { pattern: /\\/, reason: "may not contain a backslash escape" },
+  { pattern: /@/, reason: "may not contain an at-rule" },
+  { pattern: /\/\*|\*\//, reason: "may not contain a comment marker" },
+  { pattern: /url\s*\(/i, reason: "may not load a URL" },
+  { pattern: /image-set\s*\(/i, reason: "may not load a URL" },
+  { pattern: /expression\s*\(/i, reason: "may not contain an expression()" },
+];
+
+/**
+ * True when a value is safe to emit inside a declaration block.
+ *
+ * Exported because a theme installer wants to report every bad value at once
+ * rather than discover them one thrown error at a time.
+ */
+export function tokenValueProblem(value: string): string | null {
+  for (const { pattern, reason } of FORBIDDEN_IN_VALUE) {
+    if (pattern.test(value)) {
+      return reason;
+    }
+  }
+  // Checked by code point rather than by a character class, which lints as a
+  // control-character regex. A newline or a NUL would let a value continue on
+  // a line of its own.
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) {
+      return "may not contain a control character";
+    }
+  }
+  // A lone quote or paren would swallow everything after it, including the
+  // closing brace, which has the same effect as writing one.
+  if (countOf(value, "'") % 2 !== 0 || countOf(value, '"') % 2 !== 0) {
+    return "has an unbalanced quote";
+  }
+  if (countOf(value, "(") !== countOf(value, ")")) {
+    return "has an unbalanced parenthesis";
+  }
+  return null;
+}
+
+function countOf(value: string, character: string): number {
+  let count = 0;
+  for (const char of value) {
+    if (char === character) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 /**
  * Renders a token set as CSS custom property declarations.
  *
- * Values are emitted verbatim: the caller is responsible for having validated
- * them (theme lint does this at install time). Nothing here interpolates
- * untrusted input into a selector.
+ * Values are validated rather than trusted. This is an exported boundary: a
+ * theme is third-party content, and a value carrying `;` and `}` would close
+ * the declaration and the rule and then write CSS of its own - including rules
+ * that fetch over the network. Refusing is the right answer rather than
+ * escaping, because no legitimate token value needs any of it.
  */
 export function tokensToCssDeclarations(tokens: TokenSet): string {
-  return Object.entries(tokens)
-    .map(
-      ([name, value]) => `  ${cssVariableName(name as TokenName)}: ${value};`,
-    )
-    .join("\n");
+  const offending: { token: string; reason: string }[] = [];
+
+  const declarations = Object.entries(tokens).map(([name, value]) => {
+    const problem = tokenValueProblem(value);
+    if (problem !== null) {
+      offending.push({ token: name, reason: problem });
+    }
+    return `  ${cssVariableName(name as TokenName)}: ${value};`;
+  });
+
+  if (offending.length > 0) {
+    throw new TokenValueError(offending);
+  }
+
+  return declarations.join("\n");
 }
 
 /**

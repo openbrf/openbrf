@@ -18,6 +18,13 @@ export const AA_CONTRAST_RATIO = 4.5;
  * Accepts hex in 3, 4, 6 and 8 digit forms and rgb()/rgba() notation, which
  * covers what a theme author realistically writes. Anything else returns null
  * so the caller reports it instead of computing nonsense.
+ *
+ * A colour that is not fully opaque also returns null. Discarding the alpha
+ * channel would let a transparent colour pass the contrast gate on the
+ * strength of RGB values nobody ever sees: #F4F2EC00 measures 15.07:1 against
+ * the dark surface it is invisible on. What such a colour actually contrasts
+ * with depends on whatever is painted behind it, which is not known here, so
+ * the honest answer is to refuse it rather than to guess a backdrop.
  */
 export function parseColor(
   value: string,
@@ -32,6 +39,9 @@ export function parseColor(
       if (r === undefined || g === undefined || b === undefined) {
         return null;
       }
+      if (digits.length === 4 && digits[3] !== "f") {
+        return null;
+      }
       return {
         r: Number.parseInt(`${r}${r}`, 16),
         g: Number.parseInt(`${g}${g}`, 16),
@@ -39,6 +49,9 @@ export function parseColor(
       };
     }
     if (digits.length === 6 || digits.length === 8) {
+      if (digits.length === 8 && digits.slice(6, 8) !== "ff") {
+        return null;
+      }
       return {
         r: Number.parseInt(digits.slice(0, 2), 16),
         g: Number.parseInt(digits.slice(2, 4), 16),
@@ -48,8 +61,14 @@ export function parseColor(
     return null;
   }
 
-  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(input);
+  const rgb =
+    /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/.exec(
+      input,
+    );
   if (rgb?.[1] !== undefined && rgb[2] !== undefined && rgb[3] !== undefined) {
+    if (rgb[4] !== undefined && !isFullyOpaque(rgb[4])) {
+      return null;
+    }
     return {
       r: Number(rgb[1]),
       g: Number(rgb[2]),
@@ -58,6 +77,14 @@ export function parseColor(
   }
 
   return null;
+}
+
+/** True for the alpha values CSS treats as fully opaque: 1 and 100%. */
+function isFullyOpaque(alpha: string): boolean {
+  const numeric = alpha.endsWith("%")
+    ? Number(alpha.slice(0, -1)) / 100
+    : Number(alpha);
+  return numeric === 1;
 }
 
 /** Relative luminance per WCAG 2.1. */

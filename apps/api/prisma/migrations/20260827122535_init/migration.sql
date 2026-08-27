@@ -361,8 +361,9 @@ ALTER TABLE "transfer" ADD CONSTRAINT "transfer_toPersonId_fkey" FOREIGN KEY ("t
 -- AddForeignKey
 ALTER TABLE "lien_note" ADD CONSTRAINT "lien_note_apartmentId_fkey" FOREIGN KEY ("apartmentId") REFERENCES "apartment"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "audit_log_entry" ADD CONSTRAINT "audit_log_entry_actorPersonId_fkey" FOREIGN KEY ("actorPersonId") REFERENCES "person"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "audit_log_entry" ADD CONSTRAINT "audit_log_entry_targetPersonId_fkey" FOREIGN KEY ("targetPersonId") REFERENCES "person"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- audit_log_entry."actorPersonId" and "targetPersonId" carry no foreign key on
+-- purpose. Every referential action rewrites the audit log: SET NULL and SET
+-- DEFAULT issue an UPDATE, CASCADE a DELETE, and the append-only trigger added
+-- in the next migration rejects both, so deleting a person the log names would
+-- fail. RESTRICT would instead let the log veto erasure. The log is evidence:
+-- it keeps the id that acted, even once that person is gone.

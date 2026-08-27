@@ -37,6 +37,13 @@ export class AuthController {
   }
 }
 
+/** Headers that describe the incoming transfer and never survive re-encoding. */
+const TRANSPORT_HEADERS = new Set([
+  "content-length",
+  "content-encoding",
+  "transfer-encoding",
+]);
+
 function toWebRequest(request: FastifyRequest): Request {
   const host = request.headers.host ?? "localhost";
   const url = new URL(request.url, `${request.protocol}://${host}`);
@@ -44,6 +51,12 @@ function toWebRequest(request: FastifyRequest): Request {
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (value === undefined) {
+      continue;
+    }
+    if (TRANSPORT_HEADERS.has(name.toLowerCase())) {
+      // These describe the bytes Fastify received, not the bytes below:
+      // serializeBody re-encodes an already-parsed body, so the original
+      // length and encoding no longer hold and would misdescribe the request.
       continue;
     }
     if (Array.isArray(value)) {

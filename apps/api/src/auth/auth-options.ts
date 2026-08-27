@@ -1,7 +1,6 @@
 import { passkey } from "@better-auth/passkey";
 import type { BetterAuthOptions } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { APIError } from "better-auth/api";
 import { magicLink } from "better-auth/plugins/magic-link";
 import { twoFactor } from "better-auth/plugins/two-factor";
 
@@ -30,6 +29,12 @@ export interface MagicLinkDelivery {
    * the second-factor policy below.
    */
   hasSecondFactor: (email: string) => Promise<boolean>;
+  /**
+   * Tells the account holder why no link arrived. Delivered by mail rather
+   * than in the HTTP response, so the refusal reaches the mailbox owner and
+   * nobody else.
+   */
+  sendSecondFactorNotice: (input: { email: string }) => Promise<void>;
 }
 
 /**
@@ -44,9 +49,15 @@ export interface MagicLinkDelivery {
  * is a different endpoint that mints a session directly, so a TOTP-protected
  * account could be entered with mailbox access alone, walking straight around
  * the second factor. Phase 1 therefore refuses to issue a magic link to an
- * account that has TOTP enrolled, and says so, rather than silently handing
- * out a weaker path than the user asked for. Passkeys are left alone: they are
+ * account that has TOTP enrolled, rather than silently handing out a weaker
+ * path than the user asked for. Passkeys are left alone: they are
  * phishing-resistant and hardware-bound, so they are not a downgrade.
+ *
+ * The refusal is explained by email and never in the response. This endpoint
+ * is public, so an error naming the reason would confirm to any caller that
+ * the address has an account and that the account has a second factor. On an
+ * instance holding a statutory register that is an enumeration oracle, so
+ * every address gets the same answer and only the mailbox owner learns more.
  *
  * Sign-up is disabled outright. Accounts come from an invitation or from a
  * board-approved self-signup request, both of which create the person first
@@ -127,14 +138,17 @@ export function buildAuthOptions(
 
       magicLink({
         expiresIn: MAGIC_LINK_TTL_SECONDS,
+        // Its own switch, separate from emailAndPassword.disableSignUp: this
+        // plugin would otherwise create an account at verify time for any
+        // address that followed a link, which is open registration by another
+        // name on an invite-only instance.
+        disableSignUp: true,
         sendMagicLink: async ({ email, url }) => {
           if (await magicLinkDelivery.hasSecondFactor(email)) {
-            // Refuse rather than deliver a link that would bypass TOTP.
-            throw new APIError("BAD_REQUEST", {
-              message:
-                "This account uses an authenticator app. Sign in with your password and code, or with a passkey.",
-              code: "MAGIC_LINK_DISABLED_FOR_TWO_FACTOR",
-            });
+            // Refuse rather than deliver a link that would bypass TOTP, and
+            // say so only to the mailbox: see the note above on disclosure.
+            await magicLinkDelivery.sendSecondFactorNotice({ email });
+            return;
           }
 
           await magicLinkDelivery.send({

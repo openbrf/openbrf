@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { REQUIRED_TOKEN_NAMES, TOKEN_NAMES } from "./contract.ts";
 import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan.ts";
-import { buildThemeStylesheet, resolveTokens } from "./resolve.ts";
+import {
+  buildThemeStylesheet,
+  resolveTokens,
+  tokensToCssDeclarations,
+  TokenValueError,
+  tokenValueProblem,
+} from "./resolve.ts";
 
 describe("resolveTokens", () => {
   it("passes a complete theme through unchanged", () => {
@@ -112,5 +118,77 @@ describe("buildThemeStylesheet", () => {
     for (const name of TOKEN_NAMES) {
       expect(rootBlock).toContain(`--obrf-${name}:`);
     }
+  });
+});
+
+/**
+ * A theme is third-party content and this is an exported boundary, so a token
+ * value must not be able to write CSS of its own.
+ */
+describe("token value validation", () => {
+  it.each([
+    ["#fff; } :root { display: none", "; { or }"],
+    ["red} body{display:none", "; { or }"],
+    ["@import url(https://evil.example/x.css)", "at-rule"],
+    ["url(https://evil.example/x.png)", "URL"],
+    ["image-set('https://evil.example/x.png')", "URL"],
+    ["expression(alert(1))", "expression()"],
+    ["\\3b color:red", "backslash"],
+    ["red /* swallow the rest", "comment marker"],
+    ["</style><script>alert(1)</script>", "< or >"],
+    ["'unclosed", "unbalanced quote"],
+    ["rgba(0, 0, 0", "unbalanced parenthesis"],
+  ])("refuses %s", (value, expected) => {
+    expect(tokenValueProblem(value)).toContain(expected);
+  });
+
+  it.each([
+    "#8A6D28",
+    "rgba(28, 29, 31, 0.08)",
+    "0 2px 10px rgba(28, 29, 31, 0.08)",
+    "'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+    "cubic-bezier(0.2, 0, 0, 1)",
+  ])("accepts %s, which a real theme writes", (value) => {
+    expect(tokenValueProblem(value)).toBeNull();
+  });
+
+  it("refuses to emit a stylesheet at all rather than emitting injected CSS", () => {
+    const hostile = {
+      ...PORTTAVLAN_LIGHT,
+      "surface-page": "#fff; } :root { display: none } .x {",
+    };
+
+    expect(() => tokensToCssDeclarations(hostile)).toThrow(TokenValueError);
+    expect(() =>
+      buildThemeStylesheet({ light: hostile, dark: PORTTAVLAN_DARK }),
+    ).toThrow(TokenValueError);
+  });
+
+  it("names every offending token, so an installer reports them at once", () => {
+    const hostile = {
+      ...PORTTAVLAN_LIGHT,
+      "surface-page": "#fff;}",
+      "text-primary": "url(https://evil.example/x.css)",
+    };
+
+    try {
+      tokensToCssDeclarations(hostile);
+      expect.unreachable("expected TokenValueError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TokenValueError);
+      expect((error as TokenValueError).offending.map((o) => o.token)).toEqual([
+        "surface-page",
+        "text-primary",
+      ]);
+    }
+  });
+
+  it("passes the default theme, which must survive its own gate", () => {
+    expect(() =>
+      buildThemeStylesheet({
+        light: PORTTAVLAN_LIGHT,
+        dark: PORTTAVLAN_DARK,
+      }),
+    ).not.toThrow();
   });
 });

@@ -17,7 +17,11 @@ import { SignupRequestService } from "./signup-request.service";
 const submitSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  email: z.string().min(3).max(320),
+  // Format-checked here rather than only at index time: the service raises
+  // invalid-email only when the blind index comes back null, so a malformed
+  // address would otherwise be stored and fail much later, when the board
+  // approves the request and the invitation cannot be delivered.
+  email: z.email().max(320),
   phone: z.string().max(40).optional(),
   // Free text: the form must not enumerate the register before sign-in.
   claimedAddress: z.string().min(1).max(200),

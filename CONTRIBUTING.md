@@ -4,7 +4,7 @@ Thank you for considering a contribution! This document explains how the project
 
 > **Pre-release note:** until v1 ships, the codebase moves fast and large areas are still being scaffolded. Opening an issue before writing code matters even more than usual.
 
-> ### External pull requests are not being accepted yet
+> ## External pull requests are not being accepted yet
 >
 > The repository is public because we develop in the open, not because the
 > project is ready for contributions. Two things have to land first: v1 has to

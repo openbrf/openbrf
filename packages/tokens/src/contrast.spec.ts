@@ -17,7 +17,8 @@ describe("parseColor", () => {
     ["#8A6D28", { r: 138, g: 109, b: 40 }],
     ["#8A6D28FF", { r: 138, g: 109, b: 40 }],
     ["rgb(138, 109, 40)", { r: 138, g: 109, b: 40 }],
-    ["rgba(138, 109, 40, 0.5)", { r: 138, g: 109, b: 40 }],
+    ["rgba(138, 109, 40, 1)", { r: 138, g: 109, b: 40 }],
+    ["#8A6D28F", null],
   ])("parses %s", (input, expected) => {
     expect(parseColor(input)).toEqual(expected);
   });
@@ -28,6 +29,32 @@ describe("parseColor", () => {
       expect(parseColor(input)).toBeNull();
     },
   );
+
+  // A colour that is not fully opaque has no contrast of its own: what it sits
+  // on decides that. Discarding the alpha channel would score #F4F2EC00 at
+  // 15.07:1 on the dark surface it is invisible against, so the gate would
+  // pass a theme whose register text cannot be read at all.
+  it.each([
+    "#F4F2EC00",
+    "#f4f2ec80",
+    "#fff0",
+    "rgba(244, 242, 236, 0)",
+    "rgba(244, 242, 236, 0.5)",
+    "rgb(244 242 236 / 50%)",
+  ])("refuses %s, which is not fully opaque", (input) => {
+    expect(parseColor(input)).toBeNull();
+  });
+
+  it("does not let a transparent colour pass the statutory pair", () => {
+    const broken = { ...PORTTAVLAN_DARK, "text-register": "#F4F2EC00" };
+    const finding = checkContrast(broken).find(
+      (f) =>
+        f.foreground === "text-register" && f.background === "surface-register",
+    );
+
+    expect(finding?.ratio).toBeNull();
+    expect(finding?.statutory).toBe(true);
+  });
 });
 
 describe("contrastRatio", () => {

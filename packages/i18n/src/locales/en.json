@@ -23,6 +23,12 @@
       "body": "Use the link below to sign in. If you did not request it, you can ignore this message.",
       "action": "Sign in"
     },
+    "magicLinkRefused": {
+      "subject": "About signing in to {{association}}",
+      "heading": "No sign-in link was sent",
+      "body": "This account uses an authenticator app, so a sign-in link would skip your second factor. Sign in with your password and your code, or with a passkey.",
+      "notRequested": "If you did not try to sign in, you can ignore this message. Nobody gained access."
+    },
     "moveIn": {
       "subject": "Welcome to {{association}}",
       "heading": "Welcome to your new home",

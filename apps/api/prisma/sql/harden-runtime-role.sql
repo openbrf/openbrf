@@ -59,6 +59,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM openbrf
 -- and cannot disable the triggers that back the rules above.
 REVOKE CREATE ON SCHEMA public FROM openbrf_app;
 
+-- PostgreSQL 15 and later revoke this by default, but a database restored from
+-- an earlier dump keeps the old grant, and PUBLIC includes openbrf_app. The
+-- role-specific revoke above does not touch it, so the application could still
+-- create objects in the schema it is meant to be a guest in.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
 -- The job queue lives in its own schema. Because the application holds no
 -- CREATE privilege, the schema is installed by the owner at deploy time with
 -- `pnpm --filter @openbrf/api db:jobs`, which must run BEFORE this script so

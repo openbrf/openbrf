@@ -83,13 +83,22 @@ describe("JobQueueService", () => {
     });
   }, 30_000);
 
-  it("creates a queue only once even when used repeatedly", async () => {
-    await queue.ensureQueue(QUEUE_NAME);
+  it("creates an existing queue again without failing", async () => {
     await queue.ensureQueue(QUEUE_NAME);
 
-    // Idempotence matters because every send() calls it.
-    await expect(queue.ensureQueue(QUEUE_NAME)).resolves.toBeUndefined();
-  });
+    // A second service has an empty cache, so this call reaches pg-boss with a
+    // queue name that already exists. Repeating the call on the same instance
+    // would prove nothing: the cache returns before pg-boss is touched, so the
+    // assertion would hold even if createQueue were not idempotent. Idempotence
+    // is what matters, because every send() calls this.
+    const second = new JobQueueService(env);
+    await second.start();
+    try {
+      await expect(second.ensureQueue(QUEUE_NAME)).resolves.toBeUndefined();
+    } finally {
+      await second.onModuleDestroy();
+    }
+  }, 30_000);
 
   it("keeps its tables out of the application schema", async () => {
     const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(

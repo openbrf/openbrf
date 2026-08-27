@@ -27,7 +27,15 @@ export {
   buildThemeStylesheet,
   resolveTokens,
   tokensToCssDeclarations,
+  TokenValueError,
+  tokenValueProblem,
 } from "./resolve.ts";
 export type { ResolveResult } from "./resolve.ts";
-export { contrastRatio, relativeLuminance, checkContrast } from "./contrast.ts";
+export {
+  AA_CONTRAST_RATIO,
+  checkContrast,
+  contrastRatio,
+  parseColor,
+  relativeLuminance,
+} from "./contrast.ts";
 export type { ContrastFinding } from "./contrast.ts";

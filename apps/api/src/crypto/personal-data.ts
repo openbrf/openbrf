@@ -137,7 +137,14 @@ export function parsePersonalIdentityNumber(
   const isCoordinationNumber = dayNumber > 60;
   const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
 
-  if (monthNumber < 1 || monthNumber > 12 || actualDay < 1 || actualDay > 31) {
+  if (monthNumber < 1 || monthNumber > 12 || actualDay < 1) {
+    return null;
+  }
+  // A range check alone accepts 30 February and 31 April. Those dates never
+  // existed, so a number carrying one is not a mis-typed real number: it is
+  // not a personal identity number at all, and a valid Luhn digit must not
+  // make it look like one.
+  if (actualDay > daysInMonth(fullYear, monthNumber)) {
     return null;
   }
 
@@ -197,4 +204,10 @@ export function isValidPersonalIdentityNumber(
   }
   const expectedCheckDigit = (10 - (sum % 10)) % 10;
   return expectedCheckDigit === Number(tenDigits[9]);
+}
+
+/** Days in a month, honouring the Gregorian leap-year rule. */
+function daysInMonth(year: number, month: number): number {
+  // Day 0 of the next month is the last day of this one.
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }

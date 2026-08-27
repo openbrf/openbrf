@@ -242,12 +242,18 @@ async function upsertPerson(
 }
 
 /**
- * Creates the statutory membership events for a demo member, but only if none
- * exist yet.
+ * Creates the statutory membership events for a demo member, one event type at
+ * a time and only where that type is missing.
  *
  * The member register cannot be updated or deleted, so a naive re-seed would
  * accumulate duplicate entries permanently. Checking first is what makes the
  * seed safe to run twice.
+ *
+ * The check is per event type rather than "does this person have any entry".
+ * A seed interrupted between the ENTRY and the EXIT leaves a count of one, and
+ * a whole-person check would then take that as done and leave a moved-out
+ * member permanently recorded as still resident - in the one table that can
+ * never be corrected by editing.
  */
 async function ensureMemberRegisterEntries(
   prisma: PrismaClient,
@@ -259,12 +265,11 @@ async function ensureMemberRegisterEntries(
   }
 
   const personId = `seed-person-${person.key}`;
-  const existing = await prisma.memberRegisterEntry.count({
+  const existing = await prisma.memberRegisterEntry.findMany({
     where: { personId },
+    select: { eventType: true },
   });
-  if (existing > 0) {
-    return 0;
-  }
+  const present = new Set(existing.map((entry) => entry.eventType));
 
   const recorded = {
     recordedFirstName: person.firstName,
@@ -274,24 +279,24 @@ async function ensureMemberRegisterEntries(
     recordedPostalCity: "Stockholm",
   };
 
-  await prisma.memberRegisterEntry.create({
-    data: {
-      personId,
-      apartmentId,
-      eventType: "ENTRY",
-      eventOn: new Date(person.movedInOn),
-      ...recorded,
-    },
-  });
-  let created = 1;
+  const required = [
+    { eventType: "ENTRY" as const, eventOn: person.movedInOn },
+    ...(person.movedOutOn === undefined
+      ? []
+      : [{ eventType: "EXIT" as const, eventOn: person.movedOutOn }]),
+  ];
 
-  if (person.movedOutOn !== undefined) {
+  let created = 0;
+  for (const event of required) {
+    if (present.has(event.eventType)) {
+      continue;
+    }
     await prisma.memberRegisterEntry.create({
       data: {
         personId,
         apartmentId,
-        eventType: "EXIT",
-        eventOn: new Date(person.movedOutOn),
+        eventType: event.eventType,
+        eventOn: new Date(event.eventOn),
         ...recorded,
       },
     });

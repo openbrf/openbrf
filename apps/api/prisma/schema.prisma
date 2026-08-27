@@ -169,8 +169,6 @@ model Person {
   memberRegisterEntries MemberRegisterEntry[]
   transfersFrom         Transfer[]            @relation("TransferFromPerson")
   transfersTo           Transfer[]            @relation("TransferToPerson")
-  auditEntriesAsActor   AuditLogEntry[]       @relation("AuditActor")
-  auditEntriesAsTarget  AuditLogEntry[]       @relation("AuditTargetPerson")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -443,13 +441,21 @@ model AuditLogEntry {
   id String @id @default(cuid())
 
   /// Null for actions taken by the system rather than a signed-in person.
+  ///
+  /// Deliberately a plain column and not a relation. A foreign key would have
+  /// to carry a referential action, and every one of them rewrites this table:
+  /// SetNull and SetDefault issue an UPDATE, Cascade a DELETE, and the
+  /// append-only trigger rejects both, so deleting a person the log names
+  /// would fail outright. Restrict would instead make the log veto erasure of
+  /// any person it mentions. The log is evidence: it records the id that acted
+  /// at the time, and that record stands even once the person is gone.
   actorPersonId String?
-  actorPerson   Person? @relation("AuditActor", fields: [actorPersonId], references: [id], onDelete: SetNull)
 
   action AuditAction
 
+  /// The person acted upon. A plain column for the same reason as
+  /// actorPersonId above.
   targetPersonId String?
-  targetPerson   Person? @relation("AuditTargetPerson", fields: [targetPersonId], references: [id], onDelete: SetNull)
 
   /// Free-form entity reference for non-person targets, e.g. a plugin id.
   targetKind String?
@@ -635,7 +641,10 @@ model Passkey {
   id           String    @id @default(cuid())
   name         String?
   publicKey    String
-  credentialID String
+  /// Unique across the instance, not merely per user: sign-in looks a passkey
+  /// up by this id alone and then trusts the row's userId, so a duplicate
+  /// would let the stored row decide who is signed in.
+  credentialID String    @unique
   counter      Int
   deviceType   String
   backedUp     Boolean

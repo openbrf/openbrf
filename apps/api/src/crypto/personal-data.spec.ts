@@ -112,6 +112,25 @@ describe("parsePersonalIdentityNumber", () => {
     expect(parsePersonalIdentityNumber("121312-1212", REFERENCE)).toBeNull();
     expect(parsePersonalIdentityNumber("121245-1212", REFERENCE)).toBeNull();
   });
+
+  it.each([
+    // 30 February 2026.
+    "260230-0127",
+    // 31 April 2001.
+    "010431-0123",
+    // 29 February 1999, which was not a leap year.
+    "990229-0122",
+    // The same impossible date written as a coordination number (+60).
+    "260290-0124",
+  ])("returns null for %s, a date that never existed", (value) => {
+    expect(parsePersonalIdentityNumber(value, REFERENCE)).toBeNull();
+  });
+
+  it("still accepts 29 February in a leap year", () => {
+    expect(parsePersonalIdentityNumber("000229-0120", REFERENCE)?.year).toBe(
+      2000,
+    );
+  });
 });
 
 describe("normalizePersonalIdentityNumber", () => {
@@ -163,5 +182,19 @@ describe("isValidPersonalIdentityNumber", () => {
   it("rejects input that is not an identity number at all", () => {
     expect(isValidPersonalIdentityNumber("", REFERENCE)).toBe(false);
     expect(isValidPersonalIdentityNumber("hello", REFERENCE)).toBe(false);
+  });
+
+  it.each([
+    // Every one of these carries a correct Luhn digit, so the checksum alone
+    // would accept a date that never existed.
+    "260230-0127",
+    "010431-0123",
+    "990229-0122",
+  ])("rejects %s because the date is impossible", (value) => {
+    expect(isValidPersonalIdentityNumber(value, REFERENCE)).toBe(false);
+  });
+
+  it("accepts 29 February in a leap year", () => {
+    expect(isValidPersonalIdentityNumber("000229-0120", REFERENCE)).toBe(true);
   });
 });

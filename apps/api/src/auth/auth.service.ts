@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import { betterAuth } from "better-auth";
 import { createLocalAccountIssuer } from "better-auth/db";
 
@@ -6,7 +6,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
-import { magicLinkMail } from "../mail/templates";
+import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
 import { buildAuthOptions, type MagicLinkDelivery } from "./auth-options";
 
 /**
@@ -58,25 +58,53 @@ export class AuthService {
       },
 
       send: async ({ email, url, expiresAt }) => {
-        const user = await this.prisma.user.findUnique({
-          where: { email: email.toLowerCase() },
-          select: {
-            person: { select: { firstName: true, preferredLocale: true } },
-          },
-        });
+        const recipient = await this.recipientFor(email);
 
         await this.mail.send({
           to: email,
           // The recipient's own language, not the request's.
-          locale: user?.person.preferredLocale ?? null,
+          locale: recipient.locale,
           template: magicLinkMail,
           props: {
-            recipientName: user?.person.firstName ?? email,
+            recipientName: recipient.name,
             signInUrl: url,
             expiresAt,
           },
         });
       },
+
+      sendSecondFactorNotice: async ({ email }) => {
+        const recipient = await this.recipientFor(email);
+
+        await this.mail.send({
+          to: email,
+          locale: recipient.locale,
+          template: magicLinkRefusedMail,
+          props: { recipientName: recipient.name },
+        });
+      },
+    };
+  }
+
+  /**
+   * Name and locale for an address, falling back to the address itself.
+   *
+   * An unknown address gets a usable answer rather than an error, because the
+   * sign-in endpoint must behave identically whether or not an account exists.
+   */
+  private async recipientFor(
+    email: string,
+  ): Promise<{ name: string; locale: string | null }> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: {
+        person: { select: { firstName: true, preferredLocale: true } },
+      },
+    });
+
+    return {
+      name: user?.person.firstName ?? email,
+      locale: user?.person.preferredLocale ?? null,
     };
   }
 
@@ -106,7 +134,10 @@ export class AuthService {
       select: { id: true },
     });
     if (existing !== null) {
-      throw new Error(
+      // Typed rather than a plain Error: this is a client-visible conflict,
+      // and the invitation and signup flows should answer 409 without having
+      // to match on the message text.
+      throw new ConflictException(
         `Person ${input.personId} already has an account; a person has at most one.`,
       );
     }

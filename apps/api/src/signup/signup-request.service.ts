@@ -90,8 +90,9 @@ export class SignupRequestService {
         : await this.encryption.encrypt("person.phone", input.phone);
 
     const request = await this.prisma.$transaction(async (tx) => {
-      // One outstanding request per address: resubmitting replaces the old one
-      // rather than filling the board's queue with duplicates.
+      // One outstanding request per email address: resubmitting from the same
+      // address replaces the old one rather than filling the board's queue
+      // with duplicates.
       await tx.signupRequest.deleteMany({
         where: { emailIndex, status: "PENDING" },
       });
@@ -208,6 +209,28 @@ export class SignupRequestService {
     }
 
     const personId = await this.prisma.$transaction(async (tx) => {
+      // The PENDING check above is only a fast path: two boards clicking
+      // approve at the same moment both pass it. This conditional update is
+      // what actually decides the race. Postgres re-evaluates the WHERE clause
+      // once it has the row lock, so the second transaction matches no row and
+      // rolls back rather than creating a second person, residency and
+      // invitation for one request.
+      const claimed = await tx.signupRequest.updateMany({
+        where: { id: request.id, status: "PENDING" },
+        data: {
+          status: "APPROVED",
+          decidedAt: new Date(),
+          decidedById: input.decidedByPersonId,
+          matchedApartmentId: apartment.id,
+        },
+      });
+      if (claimed.count === 0) {
+        throw new SignupRequestError(
+          "This request has already been decided.",
+          "already-decided",
+        );
+      }
+
       let id = existing?.id;
 
       if (id === undefined) {
@@ -236,16 +259,6 @@ export class SignupRequestService {
           // is a matter of record, not of asking.
           role: input.role ?? "RESIDENT",
           movedInOn: new Date(),
-        },
-      });
-
-      await tx.signupRequest.update({
-        where: { id: request.id },
-        data: {
-          status: "APPROVED",
-          decidedAt: new Date(),
-          decidedById: input.decidedByPersonId,
-          matchedApartmentId: apartment.id,
         },
       });
 
@@ -280,8 +293,10 @@ export class SignupRequestService {
       );
     }
 
-    await this.prisma.signupRequest.update({
-      where: { id: input.requestId },
+    // Conditional for the same reason as in approve: the check above does not
+    // survive two concurrent rejections, this does.
+    const decided = await this.prisma.signupRequest.updateMany({
+      where: { id: input.requestId, status: "PENDING" },
       data: {
         status: "REJECTED",
         decidedAt: new Date(),
@@ -289,5 +304,11 @@ export class SignupRequestService {
         rejectReason: input.reason ?? null,
       },
     });
+    if (decided.count === 0) {
+      throw new SignupRequestError(
+        "This request has already been decided.",
+        "already-decided",
+      );
+    }
   }
 }

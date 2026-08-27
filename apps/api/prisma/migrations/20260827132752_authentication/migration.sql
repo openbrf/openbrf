@@ -111,6 +111,9 @@ CREATE INDEX "auth_verification_identifier_idx" ON "auth_verification"("identifi
 CREATE INDEX "auth_two_factor_userId_idx" ON "auth_two_factor"("userId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "auth_passkey_credentialID_key" ON "auth_passkey"("credentialID");
+
+-- CreateIndex
 CREATE INDEX "auth_passkey_userId_idx" ON "auth_passkey"("userId");
 
 -- AddForeignKey

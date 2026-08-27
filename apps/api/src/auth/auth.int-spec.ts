@@ -192,18 +192,30 @@ describe("magic link and the second-factor policy", () => {
     expect(response.statusCode).toBe(200);
   });
 
-  it("refuses a magic link for an account with TOTP enrolled", async () => {
-    const response = await inject({
+  it("sends no magic link for an account with TOTP enrolled, and says so only by mail", async () => {
+    // Better Auth's second factor gates password sign-in only, so a magic
+    // link would hand out a session with mailbox access alone and walk around
+    // TOTP entirely. No link is issued.
+    const enrolled = await inject({
       method: "POST",
       url: "/api/auth/sign-in/magic-link",
       payload: { email: withTotp.email },
     });
+    // The endpoint is public, so the refusal must be invisible from outside:
+    // an error naming the reason would confirm both that the address has an
+    // account and that the account has a second factor, which is an
+    // enumeration oracle against a statutory register. The reason goes to the
+    // mailbox instead.
+    const unknown = await inject({
+      method: "POST",
+      url: "/api/auth/sign-in/magic-link",
+      payload: { email: `nobody-${suffix}@exempel.se` },
+    });
 
-    // Better Auth's second factor gates password sign-in only, so a magic
-    // link would hand out a session with mailbox access alone and walk around
-    // TOTP entirely. The request must fail rather than quietly do that.
-    expect(response.statusCode).toBeGreaterThanOrEqual(400);
-    expect(response.body).toContain("authenticator app");
+    expect(enrolled.statusCode).toBe(200);
+    expect(enrolled.statusCode).toBe(unknown.statusCode);
+    expect(enrolled.body).toBe(unknown.body);
+    expect(enrolled.body).not.toContain("authenticator");
   });
 
   it("still allows password sign-in for the TOTP account, with a challenge", async () => {
