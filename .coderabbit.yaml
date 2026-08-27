@@ -11,13 +11,12 @@
 
 language: en-US
 
+# Capped at 250 characters by the schema; repo-wide rules live in the "**"
+# path instruction below.
 tone_instructions: >-
-  Be direct and specific. Point at the line and say what breaks and why. Skip
-  praise and skip restating what the diff does. This platform holds a statutory
-  register of personal data under Swedish law, so correctness, privacy and
-  accessibility outrank style. If a change looks fine, say so briefly rather
-  than inventing something to comment on. Never add AI attribution of any kind
-  to review comments.
+  Be direct and specific: name the line, what breaks, and why. Skip praise and
+  skip restating the diff. This platform holds a statutory register of personal
+  data, so correctness, privacy and accessibility outrank style.
 
 reviews:
   profile: assertive
@@ -68,6 +67,29 @@ reviews:
     - "!apps/web/public/fonts/**"
 
   path_instructions:
+    - path: "**"
+      instructions: >-
+        Repository-wide rules.
+
+        Never add AI attribution to anything you propose: no Co-authored-by
+        trailers naming an AI, no "Generated with" banners, no session links.
+        This applies to committable suggestions and to any commit message you
+        draft.
+
+        This is a pre-release project with one maintainer, so review is the main
+        quality mechanism. Prefer a small number of findings that would actually
+        change the code over exhaustive commentary. If a change is fine, say so
+        briefly rather than inventing something to raise.
+
+        Swedish housing cooperative law shapes this codebase. When a change
+        touches the member register, the apartment register, personal identity
+        numbers, protected personal data or data retention, treat it as legally
+        load-bearing and say what the legal consequence of getting it wrong
+        would be, not just the technical one.
+
+        Domain terms follow GLOSSARY.md. Flag an English term that contradicts
+        the canonical Swedish-to-English mapping.
+
     - path: "apps/api/prisma/migrations/**"
       instructions: >-
         Migrations are forward-only and reviewed for safety, not style.
