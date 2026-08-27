@@ -76,5 +76,34 @@
   },
   "person": {
     "protectedPersonalData": "Skyddade personuppgifter"
+  },
+  "nav": {
+    "overview": "Översikt",
+    "addressBook": "Adressbok",
+    "primary": "Huvudnavigering",
+    "signOut": "Logga ut"
+  },
+  "signIn": {
+    "heading": "Logga in",
+    "intro": "Logga in för att nå föreningens register, dokument och nyheter.",
+    "email": "E-postadress",
+    "password": "Lösenord",
+    "submit": "Logga in",
+    "magicLink": "Skicka en inloggningslänk till mig i stället",
+    "linkSent": "Om adressen har ett konto är en inloggningslänk på väg. Länken är giltig i 15 minuter.",
+    "secondFactorRequired": "Ange koden från din autentiseringsapp för att slutföra inloggningen.",
+    "code": "Engångskod",
+    "verify": "Slutför inloggningen",
+    "working": "Loggar in...",
+    "errors": {
+      "invalidCredentials": "De uppgifterna fungerade inte. Kontrollera adress och lösenord och försök igen.",
+      "invalidCode": "Koden stämmer inte. Kontrollera koden i autentiseringsappen och försök igen.",
+      "secondFactorExpired": "Det tog för lång tid. Börja om med e-postadress och lösenord.",
+      "unknown": "Det gick inte att logga in just nu. Försök igen."
+    }
+  },
+  "app": {
+    "loading": "Laddar",
+    "housingCooperative": "Bostadsrättsförening"
   }
 }

@@ -1,15 +1,17 @@
 # Roadmap and status
 
-**Can I run this in my association today? No.** There is no user interface yet.
-The foundations underneath one are built and tested, but nothing on this page is
-usable by a board member or a resident, and the project is not ready to hold
-your association's data.
+**Can I run this in my housing cooperative today? No.** There is a sign-in and
+an application frame, but nothing behind them yet: no register, no setup wizard,
+no way to invite anyone. The foundations underneath are built and tested, and
+what a board member or a resident can actually do with the interface today is
+sign in and look at an empty frame. The project is not ready to hold your
+housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
 it.
 
-Target dates: pilot in a real association **December 2026**, public v1
+Target dates: pilot in a real housing cooperative **December 2026**, public v1
 **Q1 2027**.
 
 ## What "usable" will mean
@@ -18,14 +20,15 @@ The first milestone worth anyone's attention is a working, deployable address
 book. Concretely, all of this has to be true at once:
 
 - `docker compose up` gives a working instance
-- a first-boot wizard creates the association, its addresses and its apartments
+- a first-boot wizard creates the housing cooperative, its addresses and its
+  apartments
 - the board can sign in, invite people, and see the register
 - the statutory member and apartment registers print correctly and separately
 - a resident with protected personal data is masked everywhere
 - a real member list imports from CSV or Excel
 
 Until every line above is ticked, self-hosting this is a development exercise
-rather than a way to run an association.
+rather than a way to run a housing cooperative.
 
 ## Progress
 
@@ -34,8 +37,8 @@ rather than a way to run an association.
 Every checked item below is implemented and covered by tests. None of it is
 reachable without an interface, and the one unchecked row says why.
 
-- [x] Core data model: association, addresses, apartments, persons, residencies,
-      board positions, roles
+- [x] Core data model: housing cooperative, addresses, apartments, persons,
+      residencies, board positions, roles
 - [x] Two-tier data model separating the statutory archive from service data
 - [x] Statutory registers enforced in the database: the member register and the
       audit log cannot be updated, deleted or truncated, and the apartment
@@ -64,12 +67,15 @@ reachable without an interface, and the one unchecked row says why.
 
 ### The interface
 
-Barely begun. This is the gap between the list above and anything usable.
-The theming layer everything will be built on top of exists and renders, but
-no screen a board member or resident would recognise does yet.
+Under way. This is the gap between the list above and anything usable.
+There is now a frame and a way in; the screens that do the housing
+cooperative's work are still ahead.
 
-- [ ] Application shell, navigation and sign-in screens
-- [ ] First-boot setup wizard: association, addresses, apartments, SMTP,
+- [x] Application shell and navigation: the dark band, and a bottom bar on
+      narrow screens where a thumb reaches
+- [x] Sign-in with a password or an emailed link, with routes closed to
+      anyone without a session
+- [ ] First-boot setup wizard: housing cooperative, addresses, apartments, SMTP,
       branding
 - [ ] Settings, including per-user light and dark mode
 - [ ] The address book itself
@@ -137,7 +143,7 @@ foundation.
       BRL 9 kap. 14 §, and will never be built.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
-- [ ] Public mini-site generated from the association's own data
+- [ ] Public mini-site generated from the housing cooperative's own data
 - [ ] Forms: subletting applications, motions, key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own.
@@ -177,7 +183,7 @@ the same public plugin API that is available to anyone.
 
 A ticked box means the feature is implemented and covered by tests. It does not
 promise the feature is polished, documented, or has ever been used by a real
-association. Nothing here has.
+housing cooperative. Nothing here has.
 
 Where a whole area is built but not reachable yet, the text says so rather than
 letting a row of ticked boxes imply something that is not true.
