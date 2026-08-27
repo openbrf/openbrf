@@ -49,6 +49,12 @@ REVOKE UPDATE, DELETE ON "audit_log_entry" FROM openbrf_app;
 REVOKE DELETE ON "transfer" FROM openbrf_app;
 REVOKE DELETE ON "lien_note" FROM openbrf_app;
 
+-- TRUNCATE is a separate privilege in Postgres and is not implied by DELETE,
+-- so the grants above never conferred it. Revoked explicitly anyway, because
+-- one TRUNCATE would empty the archive without firing a row-level trigger.
+REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM openbrf_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM openbrf_app;
+
 -- Migrations are the owner's job, so the application cannot reshape the schema
 -- and cannot disable the triggers that back the rules above.
 REVOKE CREATE ON SCHEMA public FROM openbrf_app;

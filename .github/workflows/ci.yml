@@ -38,6 +38,52 @@ jobs:
       - name: Test
         run: pnpm test
 
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    # The statutory archive guards are database triggers, privileges and
+    # constraints, so they can only be verified against a real PostgreSQL.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: openbrf
+          POSTGRES_PASSWORD: openbrf
+          POSTGRES_DB: openbrf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openbrf -d openbrf"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://openbrf:openbrf@localhost:5432/openbrf
+      BETTER_AUTH_SECRET: ci-secret-at-least-16-characters
+      # Fixed test key: never used outside CI.
+      OPENBRF_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: pnpm --filter @openbrf/api db:deploy
+
+      - name: Integration tests
+        run: pnpm --filter @openbrf/api test:int
+
   pr-title:
     name: Validate PR title
     if: github.event_name == 'pull_request'

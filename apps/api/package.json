@@ -11,7 +11,8 @@
     "db:studio": "prisma studio",
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.integration.config.mts"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.3",
