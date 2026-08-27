@@ -19,17 +19,29 @@ import { loadEnvForIntegrationTests } from "../testing/integration-env";
  * exception filter, and that `@Public()` on the setup controller does not leak
  * to the completion controller that shares its path prefix.
  *
+ * The suite establishes the claimed state itself rather than relying on a seeded
+ * database, because CI runs migrations without the seed: there, auth_user is
+ * empty and the association row does not exist, so an ambient-state suite would
+ * find setup legitimately open and fail on every assertion. It records what it
+ * changed and puts it back afterwards.
+ *
  * The suite deliberately does not exercise the *open* path. Doing so would mean
- * emptying auth_user and clearing setupCompletedAt on the shared development
- * database - destroying the seed and, for the duration, standing up an instance
- * with an open admin-creation form. The refusal direction is the one a mistake
- * would make dangerous.
+ * emptying auth_user on a database that may hold a real register - and, for the
+ * duration, standing up an instance with an open admin-creation form. The
+ * refusal direction is the one a mistake would make dangerous.
  */
 
 loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
+
+/**
+ * What `setupCompletedAt` held before this suite claimed the instance, so
+ * afterAll can put it back. `undefined` means the association row did not exist
+ * at all and this suite created it - the state CI starts from.
+ */
+let previousSetupCompletedAt: Date | null | undefined;
 
 let ipCounter = 0;
 function inject(options: {
@@ -63,19 +75,48 @@ beforeAll(async () => {
   await app.getHttpAdapter().getInstance().ready();
 
   prisma = app.get(PrismaService);
+
+  /*
+   * Claim the instance. `setupCompletedAt` is the half of the rule that can be
+   * set without creating an account, and upserting the singleton is the same
+   * pattern the other integration suites use to get an association row.
+   */
+  const existing = await prisma.association.findUnique({
+    where: { id: 1 },
+    select: { setupCompletedAt: true },
+  });
+  previousSetupCompletedAt =
+    existing === null ? undefined : existing.setupCompletedAt;
+
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: { id: 1, name: "Brf Eksemplet", setupCompletedAt: new Date() },
+    update: { setupCompletedAt: new Date() },
+  });
 });
 
 afterAll(async () => {
+  if (prisma !== undefined) {
+    if (previousSetupCompletedAt === undefined) {
+      // This suite created the row, so removing it is the restore.
+      await prisma.association.deleteMany({ where: { id: 1 } });
+    } else {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { setupCompletedAt: previousSetupCompletedAt },
+      });
+    }
+  }
   await app?.close();
 });
 
 describe("first-boot setup on a claimed instance", () => {
   it("is genuinely claimed, so the refusals below mean something", async () => {
     /*
-     * Asserted rather than assumed. If this suite ever ran against an unclaimed
-     * database every expectation below would pass for the wrong reason - the
-     * routes would be legitimately open - and the suite would report success
-     * while testing nothing.
+     * Asserted rather than assumed. Every expectation below is a refusal, and a
+     * refusal proves nothing on an instance that is legitimately open - the
+     * suite would report success while testing the opposite state. This also
+     * catches the setup in beforeAll silently not taking effect.
      */
     const [accounts, association] = await Promise.all([
       prisma.user.count(),
@@ -87,7 +128,7 @@ describe("first-boot setup on a claimed instance", () => {
 
     expect(
       accounts > 0 || association?.setupCompletedAt != null,
-      "the test database is unclaimed; run pnpm db:seed first",
+      "the suite failed to claim the instance in beforeAll",
     ).toBe(true);
   });
 
