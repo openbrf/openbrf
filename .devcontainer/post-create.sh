@@ -50,12 +50,23 @@ pnpm --filter @openbrf/api db:generate
 #
 # `--wait` blocks on the healthcheck in docker-compose.yml, so the migrations
 # below are not racing the server's startup.
-if docker compose up -d --wait db &&
-  pnpm --filter @openbrf/api db:deploy &&
-  pnpm --filter @openbrf/api db:jobs; then
-  echo "==> database ready: migrations applied, pg-boss job schema installed"
-else
+# Each stage is checked on its own so the message names what actually failed.
+# Collapsing them into one condition made every failure read as "the database
+# did not come up", which is false and actively unhelpful when the server is up
+# and it was a migration that broke.
+if ! docker compose up -d --wait db; then
   echo "!!! the database did not come up, so migrations were skipped."
   echo "!!! once Docker is running, finish the setup with:"
   echo "!!!   bash .devcontainer/post-create.sh"
+elif ! pnpm --filter @openbrf/api db:deploy; then
+  echo "!!! the database is up, but applying migrations failed."
+  echo "!!! the error above is the real one; this is not a Docker problem."
+  echo "!!! retry with:"
+  echo "!!!   pnpm --filter @openbrf/api db:deploy"
+elif ! pnpm --filter @openbrf/api db:jobs; then
+  echo "!!! migrations applied, but installing the pg-boss job schema failed."
+  echo "!!! retry with:"
+  echo "!!!   pnpm --filter @openbrf/api db:jobs"
+else
+  echo "==> database ready: migrations applied, pg-boss job schema installed"
 fi
