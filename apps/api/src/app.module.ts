@@ -8,6 +8,7 @@ import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
+import { InvitationsModule } from "./invitations/invitations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
 
@@ -22,6 +23,7 @@ import { MailModule } from "./mail/mail.module";
     MailModule,
     AuthModule,
     AuthorizationModule,
+    InvitationsModule,
   ],
   controllers: [HealthController],
 })

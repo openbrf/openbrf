@@ -11,6 +11,7 @@ import type { FastifyRequest } from "fastify";
 import { AuthService } from "../auth/auth.service";
 import type { Capability, Principal } from "./capabilities";
 import { PrincipalService } from "./principal.service";
+import { IS_PUBLIC_ROUTE } from "./public.decorator";
 import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
 
 /** The principal is attached here for controllers to read. */
@@ -22,9 +23,10 @@ export interface RequestWithPrincipal extends FastifyRequest {
  * Resolves the session, builds the principal, and enforces the capabilities a
  * route declares.
  *
- * A route with no declared capability still requires a valid session: the
- * default is authenticated, not public. Anything genuinely public is served
- * outside this guard.
+ * Registered globally, so a route with no declared capability still requires a
+ * valid session and a route that declares nothing at all is still protected.
+ * Public routes opt out explicitly with @Public(); forgetting that decorator
+ * locks a route down rather than exposing it.
  */
 @Injectable()
 export class AuthorizationGuard implements CanActivate {
@@ -35,6 +37,14 @@ export class AuthorizationGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(
+      IS_PUBLIC_ROUTE,
+      [context.getHandler(), context.getClass()],
+    );
+    if (isPublic === true) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<RequestWithPrincipal>();
 
     const headers = new Headers();

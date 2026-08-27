@@ -1,6 +1,7 @@
 import { All, Controller, Req, Res } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { Public } from "../authorization/public.decorator";
 import { AuthService } from "./auth.service";
 
 /**
@@ -21,6 +22,7 @@ import { AuthService } from "./auth.service";
  *   cookies. Iterating headers normally collapses them into one comma-joined
  *   value, and a browser then silently drops the session.
  */
+@Public()
 @Controller("api/auth")
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
