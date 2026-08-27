@@ -78,7 +78,11 @@ cooperative's work are still ahead.
 - [ ] First-boot setup wizard: housing cooperative, addresses, apartments, SMTP,
       branding
 - [ ] Settings, including per-user light and dark mode
-- [ ] The address book itself
+- [x] The address book itself: the board per the design system, with house
+      tabs, floor-grouped rows, filter tabs, search, the colour-as-law legend
+      and a register stamp; a person and an apartment view; the
+      resident-facing variant with no contact column at all; and the audited
+      reveal for masked fields
 - [ ] Member register and apartment register views, with printable extracts
 - [ ] Move-in and move-out flows
 - [ ] Import from CSV and Excel with column mapping
