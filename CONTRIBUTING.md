@@ -88,4 +88,4 @@ All project spaces are covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Questions?
 
-Open an issue (GitHub Discussions will be enabled at public launch). For how decisions are made and how to become a maintainer, see [GOVERNANCE.md](GOVERNANCE.md).
+Open an issue, or start a thread in [GitHub Discussions](https://github.com/openbrf/openbrf/discussions). For how decisions are made and how to become a maintainer, see [GOVERNANCE.md](GOVERNANCE.md).

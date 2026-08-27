@@ -1,6 +1,6 @@
 # Name and Logo Policy
 
-> **Status: draft.** "Open BRF" is **not a registered trademark**. Apteo AB plans to register a figurative mark (logo + wordmark) with EUIPO before public launch, and this policy will be reviewed by counsel at that point. Until then, this document states the project's policy and expectations, not a claim of registered rights.
+> "Open BRF" is **not a registered trademark**; Apteo AB plans to register a figurative mark (logo + wordmark). This document states the project's policy and expectations, not a claim of registered rights.
 
 The name "Open BRF" and the Open BRF logo identify the official project maintained by Apteo AB. The code is open source and may be forked freely - that is the point of the project. The name and logo are how users tell the official project apart from forks and third-party services, so we ask that they not be used in ways that blur that line. This follows the model used by Nextcloud and Matomo: the license covers the code, never the identity.
 
@@ -22,5 +22,3 @@ The name "Open BRF" and the Open BRF logo identify the official project maintain
 ## Questions
 
 Open an issue or contact the lead maintainer, [@neeo](https://github.com/neeo).
-
-<!-- TODO: add trademark@ / hello@ contact address once project mail is set up. -->

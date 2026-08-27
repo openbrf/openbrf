@@ -1,8 +1,8 @@
 # Open BRF Individual Contributor License Agreement
 
-Version 1.0 (draft)
+Version 1.0
 
-> **Status: draft.** This agreement will be reviewed by counsel before external contributions open. It will be signed electronically via CLA Assistant on your first pull request; a corporate CLA will be available on request.
+> This agreement is signed electronically on your first pull request - the CLA bot guides you through it. A corporate CLA is available on request.
 
 Thank you for your interest in contributing to Open BRF, a project stewarded by Apteo AB, org. no. 559598-5846, Sweden ("Apteo").
 

@@ -1,8 +1,6 @@
 # Open BRF Module Exception
 
-Version 1.0 (draft)
-
-> **Status: draft.** This exception will be reviewed by counsel before the first public release. Until that review, its wording may change; the intent below is a settled project decision.
+Version 1.0
 
 ## The exception
 
