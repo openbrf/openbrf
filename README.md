@@ -20,7 +20,7 @@ Resource booking follows in v1.1. General meetings (stämma), board email, and s
 
 ## Tech stack
 
-TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router + Query, shadcn/ui, Tailwind CSS), PostgreSQL + Prisma, pg-boss job queue, Better Auth. Monorepo with pnpm workspaces + Turborepo. Deployed with Docker Compose - one instance per association. Node LTS; nothing in this repository may require Bun.
+TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router + Query, shadcn/ui, Tailwind CSS), PostgreSQL + Prisma, pg-boss job queue, Better Auth. Monorepo with pnpm workspaces + Turborepo. Deployed with Docker Compose - one instance per association. Node 26; nothing in this repository may require Bun.
 
 ## Project documents
 

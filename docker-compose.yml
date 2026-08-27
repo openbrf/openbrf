@@ -2,7 +2,19 @@
 # The app service is added once the API is deployable.
 services:
   db:
-    image: postgres:17-alpine
+    # A PostgreSQL data directory is not portable across major versions, so a
+    # volume created by an earlier major cannot be reused here. This file is
+    # local development infrastructure and its volume holds nothing precious:
+    # discard it with `docker compose down -v && docker compose up -d db`, then
+    # re-run the migrations.
+    #
+    # Never reach for that against an association's data. The `-v` deletes the
+    # pgdata volume outright, and this database holds the member and apartment
+    # registers the association is legally obliged to retain and to produce on
+    # request; destroying them is a statutory failure, not an inconvenience.
+    # Real data moves between majors by dump and restore or `pg_upgrade`, never
+    # by recreating the volume.
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: openbrf
@@ -11,7 +23,14 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 moved PGDATA to a version-scoped path
+      # (/var/lib/postgresql/18/docker) and raised its declared VOLUME to
+      # /var/lib/postgresql. Mounting the pre-18 /var/lib/postgresql/data here
+      # leaves the real data directory outside this named volume, and the
+      # entrypoint then classifies the stale mount as unused legacy data and
+      # exits before initialising, so the container fails to start outright
+      # rather than losing persistence quietly.
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openbrf -d openbrf"]
       interval: 5s

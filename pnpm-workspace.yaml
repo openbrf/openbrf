@@ -14,6 +14,14 @@ allowBuilds:
   # Pulled in transitively by better-auth, whose default adapter supports
   # SQLite. This project uses the Prisma adapter against PostgreSQL and never
   # loads it, so the native binding must not be compiled.
+  #
+  # It rides along as an *optional peer* of better-auth and the Prisma CLI,
+  # which pnpm resolves anyway; `ignoredOptionalDependencies` cannot drop it,
+  # as that setting only covers `optionalDependencies`. It is therefore the one
+  # remaining source of a deprecation warning on install: its unmaintained
+  # `prebuild-install` dependency. Both are inert here -- the build script is
+  # refused above and no code path imports the module -- so the warning is
+  # cosmetic until better-auth stops declaring the peer.
   better-sqlite3: false
 
 # Transitive dependency advisories we resolve ahead of the upstream package.
