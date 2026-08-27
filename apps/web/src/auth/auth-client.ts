@@ -1,3 +1,4 @@
+import { passkeyClient } from "@better-auth/passkey/client";
 import { createAuthClient } from "better-auth/react";
 import { magicLinkClient, twoFactorClient } from "better-auth/client/plugins";
 
@@ -19,12 +20,13 @@ export const authClient = createAuthClient({
    * simply is not on the client, so a missing plugin shows up as a type error
    * rather than a runtime surprise.
    *
-   * Passkeys are not wired up here yet: the server accepts them, but there is
-   * no enrolment surface until the security settings screen exists, and the
-   * end-to-end suite that can drive a WebAuthn authenticator does not exist
-   * either. The roadmap says so rather than implying coverage.
+   * The passkey plugin is a separate package since Better Auth 1.4, and it has
+   * to run in the browser: creating a passkey calls the WebAuthn API on the
+   * device, so no amount of server-side work can stand in for it. Signing in
+   * with one is still not covered by tests - that needs a virtual authenticator
+   * and the end-to-end suite - so the roadmap says so rather than implying it.
    */
-  plugins: [magicLinkClient(), twoFactorClient()],
+  plugins: [magicLinkClient(), twoFactorClient(), passkeyClient()],
 });
 
 export const { signIn, signOut, useSession } = authClient;

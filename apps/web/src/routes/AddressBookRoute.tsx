@@ -3,12 +3,9 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import { authClient, useSession } from "../auth/auth-client";
-import { AppShell, type NavItem } from "../shell/AppShell";
+import { AppShell } from "../shell/AppShell";
+import { NAV_ITEMS } from "../shell/nav-items";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
-
-const NAV_ITEMS: readonly NavItem[] = [
-  { to: "/", labelKey: "nav.addressBook" },
-];
 
 /**
  * The address book, still a placeholder.
