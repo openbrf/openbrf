@@ -164,6 +164,8 @@ model Person {
   emailVisibleToResidents Boolean @default(false)
   phoneVisibleToResidents Boolean @default(false)
 
+  /// Null until the person activates an account.
+  userAccount           User?
   residencies           Residency[]
   boardPositions        BoardPosition[]
   systemRoles           SystemRole[]
@@ -520,4 +522,134 @@ model InstalledTheme {
   updatedAt   DateTime @updatedAt
 
   @@map("installed_theme")
+}
+
+// ---------------------------------------------------------------------------
+// Authentication.
+//
+// These tables are owned by Better Auth: their shape comes from the library
+// (verified against getAuthTables() for the configured plugins), not from our
+// own design, so do not add domain fields here. The one exception is
+// User.personId, which is the link between an account and the person it
+// belongs to.
+//
+// Model names must stay exactly as they are: the Prisma adapter reaches the
+// delegate as db[model], so model User must expose prisma.user, TwoFactor must
+// expose prisma.twoFactor, and so on. The auth_ table prefix keeps them visibly
+// separate from the domain tables.
+// ---------------------------------------------------------------------------
+
+/// A sign-in account. Exactly one per person, and a person may have none:
+/// someone can sit in the register without ever activating an account.
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  /// Set when the person enrols TOTP.
+  twoFactorEnabled Boolean? @default(false)
+
+  /// The person this account belongs to. Required: an account with no person
+  /// would be invisible to the address book and to a data subject access
+  /// report.
+  personId String @unique
+  person   Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  sessions  Session[]
+  accounts  Account[]
+  twoFactors TwoFactor[]
+  passkeys  Passkey[]
+
+  @@map("auth_user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  issuer                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  /// Password hash for the credentials provider.
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_account")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("auth_verification")
+}
+
+/// TOTP enrolment. Includes the plugin's lockout counters, so repeated wrong
+/// codes throttle rather than allowing an unlimited guessing loop.
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  verified                Boolean?  @default(false)
+  failedVerificationCount Int?      @default(0)
+  lockedUntil             DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_two_factor")
+}
+
+model Passkey {
+  id           String    @id @default(cuid())
+  name         String?
+  publicKey    String
+  credentialID String
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  aaguid       String?
+  createdAt    DateTime? @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_passkey")
 }

@@ -11,3 +11,7 @@ allowBuilds:
   # Uses node-gyp-build, which links a shipped prebuild rather than compiling
   # (prebuilds exist for linux-x64, linux-arm64, darwin-x64 and darwin-arm64).
   sodium-native: true
+  # Pulled in transitively by better-auth, whose default adapter supports
+  # SQLite. This project uses the Prisma adapter against PostgreSQL and never
+  # loads it, so the native binding must not be compiled.
+  better-sqlite3: false

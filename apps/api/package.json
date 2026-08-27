@@ -17,6 +17,7 @@
     "db:seed": "tsc -p tsconfig.build.json && node dist/seed/main.js"
   },
   "dependencies": {
+    "@better-auth/passkey": "^1.7.1",
     "@nestjs/common": "^11.2.3",
     "@nestjs/core": "^11.2.3",
     "@nestjs/platform-fastify": "^11.2.3",
@@ -25,7 +26,9 @@
     "@prisma/client": "7.10.0",
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.0",
+    "better-auth": "^1.7.1",
     "ciphersweet-js": "2.0.6",
+    "fastify": "^5.12.1",
     "i18next": "^26.4.0",
     "nodemailer": "^9.0.5",
     "pg-boss": "12.28.0",
