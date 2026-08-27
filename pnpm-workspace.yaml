@@ -8,3 +8,6 @@ allowBuilds:
   "@swc/core": true
   esbuild: true
   prisma: true
+  # Uses node-gyp-build, which links a shipped prebuild rather than compiling
+  # (prebuilds exist for linux-x64, linux-arm64, darwin-x64 and darwin-arm64).
+  sodium-native: true
