@@ -46,8 +46,17 @@ Thank you for considering a contribution! This document explains how the project
 
 - **Node.js is pinned to an exact version in `.nvmrc`** (26.8.1), and the Dev Container and CI both install precisely that: CI through `node-version-file`, the container by running `nvm install` from `.nvmrc` on create. `engines` fences the 26 line (`>=26 <27`) so a stray 25 or 27 is rejected rather than silently tolerated. Bump `.nvmrc` and `engines` together. Note that 26 is still the Current line - it reaches Active LTS on 2026-10-28, and until then it can take breaking changes.
 - **pnpm** comes from the Dev Container image, which ships the version named in `packageManager`; pnpm self-manages that version elsewhere. Note that Node 26 no longer bundles **corepack**, so nothing here may depend on it. Nothing in the repo or CI may require Bun (using it as a personal dev tool is fine).
-- A **Dev Container** definition is provided - the fastest way to a working setup.
-- **Docker Compose** runs PostgreSQL and the app locally.
+- A **Dev Container** definition is provided - the fastest way to a working setup. It is deliberately **standalone**: a contributor touching only core never needs sibling clones of the other Open BRF repositories. On create it installs the pinned Node, runs `pnpm install`, copies `.env.example` to `.env` if you have no `.env` yet, generates the Prisma client, starts the database and applies migrations plus the job schema. If Docker is not ready in time it says so and tells you to re-run `bash .devcontainer/post-create.sh`; everything except the database works in the meantime. A later container restart brings the database back up on its own.
+- **Docker Compose** runs PostgreSQL locally (`docker compose up -d --wait db`); the app service is added once the API is deployable.
+- **Setting up without the Dev Container**, after `pnpm install`: copy `.env.example` to `.env`, `docker compose up -d --wait db`, then
+
+  ```sh
+  pnpm --filter @openbrf/api db:generate   # required before lint/typecheck/test
+  pnpm --filter @openbrf/api db:deploy     # apply migrations
+  pnpm --filter @openbrf/api db:jobs       # install the pg-boss job schema
+  ```
+
+  `db:generate` is not optional: the generated client lives in the gitignored `apps/api/src/generated/`, and lint, typecheck and test all import it, so `pnpm verify` fails on a fresh clone until it has run.
 - Monorepo layout: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/*`).
 
 ## Coding standards
