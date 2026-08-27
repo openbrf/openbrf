@@ -4,6 +4,24 @@ Thank you for considering a contribution! This document explains how the project
 
 > **Pre-release note:** until v1 ships, the codebase moves fast and large areas are still being scaffolded. Opening an issue before writing code matters even more than usual.
 
+> ### External pull requests are not being accepted yet
+>
+> The repository is public because we develop in the open, not because the
+> project is ready for contributions. Two things have to land first: v1 has to
+> take shape, and the legal documents (the [CLA](CLA.md), the
+> [module exception](LICENSE-EXCEPTION.md) and the trademark policy) have to be
+> reviewed by a lawyer. Asking anyone to sign a contributor agreement whose
+> wording we already expect to change would not be fair, so we are not asking.
+>
+> **Issues and discussions are very welcome in the meantime** - bug reports,
+> questions, and ideas about what a Swedish housing cooperative actually needs
+> are genuinely useful right now, and they cost you nothing legally. Watch the
+> repository if you want to know when this changes; it will be announced here
+> and in the release notes.
+>
+> The rest of this document describes how contribution will work once it opens,
+> and how maintainers work today.
+
 ## Language policy
 
 **English is the project language.** Everything in the repository is written in English:
