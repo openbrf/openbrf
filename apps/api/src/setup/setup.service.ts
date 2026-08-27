@@ -237,10 +237,22 @@ export class SetupService {
    *
    * Reported rather than thrown: the caller is already unwinding the real
    * error, and this failure needs a human rather than to replace that one.
+   *
+   * The account row goes first. Account creation writes the auth user and its
+   * credential through Better Auth's adapter, which takes no transaction, so a
+   * failure between the two can leave a user row behind whose own cleanup also
+   * failed. User.person is onDelete: Restrict, so that row would block the
+   * person delete below - and, because the guard counts user rows, would leave
+   * setup permanently closed with nothing left able to reopen it. Removing it
+   * here is the same unwind: the only account that can reference this person is
+   * the one this call just tried to create, and Session, Account, TwoFactor and
+   * Passkey all cascade from it.
    */
   private async rollbackAdministrator(personId: string): Promise<void> {
     try {
       await this.prisma.$transaction(async (tx) => {
+        await tx.user.deleteMany({ where: { personId } });
+
         // The grant was logged when it was made and the log cannot be edited,
         // so its removal is recorded as its own entry. Without this the log
         // would show an administrator who was never able to sign in and whose
@@ -258,7 +270,7 @@ export class SetupService {
           },
           tx,
         );
-        // The role first: it has a foreign key to the person.
+        // The role before the person: it has a foreign key to the person.
         await tx.systemRole.deleteMany({ where: { personId } });
         await tx.person.delete({ where: { id: personId } });
       });
@@ -266,7 +278,10 @@ export class SetupService {
       this.logger.error(
         `Could not remove the incomplete administrator ${personId}. They hold ` +
           "the ADMIN grant with no account, and setup will refuse to run " +
-          "again: delete the person row by hand before retrying.",
+          "again. Recovering it by hand means deleting the auth_user row for " +
+          "this person first, then the system_role row, then the person: the " +
+          "account references the person with ON DELETE RESTRICT, so deleting " +
+          "the person alone will fail.",
         cleanupFailure instanceof Error ? cleanupFailure.stack : undefined,
       );
     }

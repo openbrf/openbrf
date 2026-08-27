@@ -39,7 +39,10 @@ const ADMINISTRATOR = {
 interface Fakes {
   service: SetupService;
   prisma: {
-    user: { count: ReturnType<typeof vi.fn> };
+    user: {
+      count: ReturnType<typeof vi.fn>;
+      deleteMany: ReturnType<typeof vi.fn>;
+    };
     association: {
       findUnique: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
@@ -72,7 +75,10 @@ function build(
       : { setupCompletedAt: options.setupCompletedAt };
 
   const prisma = {
-    user: { count: vi.fn().mockResolvedValue(options.accounts ?? 0) },
+    user: {
+      count: vi.fn().mockResolvedValue(options.accounts ?? 0),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     association: {
       findUnique: vi.fn().mockResolvedValue(association),
       update: vi.fn().mockResolvedValue(association),
@@ -262,12 +268,35 @@ describe("creating the first administrator", () => {
     );
   });
 
+  it("removes a half-created account, which would block the person delete", async () => {
+    /*
+     * Account creation writes the auth user and its credential through an
+     * adapter that takes no transaction, so a failure between the two can leave
+     * a user row behind. User.person is onDelete: Restrict, so that row blocks
+     * the person delete and the guard - which counts user rows - then keeps
+     * setup closed with nothing able to reopen it.
+     */
+    fakes.auth.createAccountForPerson.mockRejectedValue(
+      new Error("linking failed"),
+    );
+
+    await expect(
+      fakes.service.createFirstAdministrator(ADMINISTRATOR),
+    ).rejects.toThrow("linking failed");
+
+    expect(fakes.prisma.user.deleteMany).toHaveBeenCalledWith({
+      where: { personId: "person-1" },
+    });
+  });
+
   it("does not mint a session of its own", async () => {
     // Sessions come from the ordinary sign-in path, so the rate limiting, the
     // second-factor policy and the cookie settings all apply to them.
-    await fakes.service.createFirstAdministrator(ADMINISTRATOR);
+    const result = await fakes.service.createFirstAdministrator(ADMINISTRATOR);
 
-    expect(Object.keys(fakes.auth)).toEqual(["createAccountForPerson"]);
+    // Asserted on the answer rather than on the fake: the id is all the caller
+    // gets, and nothing in it could authenticate the next request.
+    expect(Object.keys(result)).toEqual(["personId"]);
   });
 });
 
