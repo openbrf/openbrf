@@ -287,6 +287,14 @@ describe("creating the first administrator", () => {
     expect(fakes.prisma.user.deleteMany).toHaveBeenCalledWith({
       where: { personId: "person-1" },
     });
+    // The ORDER is the fix, and the fake enforces no foreign key: in Postgres
+    // the person delete fails while the account row still references it.
+    const accountDeletedAt =
+      fakes.prisma.user.deleteMany.mock.invocationCallOrder.at(0) ?? -1;
+    const personDeletedAt =
+      fakes.prisma.person.delete.mock.invocationCallOrder.at(0) ?? -1;
+    expect(accountDeletedAt).toBeGreaterThan(0);
+    expect(accountDeletedAt).toBeLessThan(personDeletedAt);
   });
 
   it("does not mint a session of its own", async () => {

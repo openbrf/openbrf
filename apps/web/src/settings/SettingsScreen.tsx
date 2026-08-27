@@ -23,12 +23,30 @@ export interface SettingsScreenProps {
 
 /** Everything one load produces, applied to the screen in one step. */
 interface Loaded {
+  /**
+   * Whether the reads below have settled.
+   *
+   * Distinct from "there is nothing to show", because the two states look the
+   * same and mean opposite things. Before the reads land, a null housing
+   * cooperative and an empty address list are simply unknown - and the panels
+   * that render them are editable, so a manager could type a name over a
+   * cooperative that already has one (the write upserts) or add an entrance that
+   * is already in the register. Apartment rows hang off address rows, so a
+   * second row for one entrance splits that entrance's apartment numbers across
+   * two of them.
+   */
+  ready: boolean;
   settings: InstanceSettings | null;
   addresses: readonly AddressView[];
   loadFailed: boolean;
 }
 
-const EMPTY: Loaded = { settings: null, addresses: [], loadFailed: false };
+const EMPTY: Loaded = {
+  ready: false,
+  settings: null,
+  addresses: [],
+  loadFailed: false,
+};
 
 /**
  * The settings screen.
@@ -60,7 +78,9 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
 
   const read = useCallback(async (): Promise<Loaded> => {
     if (!canRead) {
-      return EMPTY;
+      // Nothing to wait for: this viewer never asks for the instance settings,
+      // and the panels that need them are not rendered for them either.
+      return { ...EMPTY, ready: true };
     }
     const [instance, addressList] = await Promise.all([
       fetchSettings(),
@@ -68,6 +88,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
     ]);
 
     return {
+      ready: true,
       settings: instance.ok ? instance.value : null,
       /*
        * A missing housing cooperative is not a failure to report: the resume
@@ -106,9 +127,11 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
     void read().then(setLoaded);
   };
 
-  const { settings, addresses, loadFailed } = loaded;
+  const { ready, settings, addresses, loadFailed } = loaded;
+  // Gated on the read too: an unset completion date is unknown until then, so
+  // without this the resume notice flashes on every settings visit.
   const setupUnfinished =
-    canRead && settings?.housingCooperative.setupCompletedAt == null;
+    canRead && ready && settings?.housingCooperative.setupCompletedAt == null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -136,7 +159,13 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
         </div>
       ) : null}
 
-      {canRead ? (
+      {canRead && !ready ? (
+        <p role="status" className="text-body text-ink-muted">
+          {t("settings.loading")}
+        </p>
+      ) : null}
+
+      {canRead && ready ? (
         <>
           <HousingCooperativePanel
             key={settings?.housingCooperative.name ?? "unnamed"}

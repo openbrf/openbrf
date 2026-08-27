@@ -195,6 +195,53 @@ describe("an admin", () => {
   });
 });
 
+describe("before the reads settle", () => {
+  it("offers no editable instance panels", async () => {
+    /*
+     * The initial value is an empty instance, and the panels built from it are
+     * editable. A manager typing a name into an apparently unnamed cooperative
+     * would overwrite the stored one - the write upserts - and an apparently
+     * empty address list invites a second row for an entrance already in the
+     * register, which splits that entrance's apartment numbers across two
+     * address rows.
+     */
+    let release: (() => void) | undefined;
+    fetchSettings.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => {
+            resolve({ ok: true, value: SETTINGS });
+          };
+        }),
+    );
+
+    renderScreen([
+      "association:read",
+      "association:manage",
+      "addressBook:read",
+      "addressBook:write",
+      "self:manage",
+    ]);
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "Hämtar inställningar",
+    );
+    // The three panels built from the unsettled read. The profile and security
+    // panels below them do not depend on it and stay.
+    expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^adresser$/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^lägenheter$/i })).toBeNull();
+
+    release?.();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /^föreningen$/i }),
+      ).toBeTruthy();
+    });
+  });
+});
+
 describe("a failed load", () => {
   it("says so when the addresses cannot be read", async () => {
     /*
