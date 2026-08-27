@@ -74,8 +74,6 @@
       "movedIn": "Moved in",
       "movedOut": "Moved out"
     },
-    "masked": "masked",
-    "caption": "Extract from the member register",
     "house": {
       "label": "Address",
       "all": "All addresses"
@@ -91,6 +89,7 @@
     "group": {
       "ground": "Ground floor {{prefix}}",
       "floor": "Floor {{floor}} {{prefix}}",
+      "unknownFloor": "Floor not recorded",
       "withoutApartment": "Without apartment"
     },
     "sign": {
@@ -110,7 +109,8 @@
     "search": {
       "label": "Search the register",
       "placeholder": "Name or apartment number",
-      "hint": "Name and apartment number match as you type. An email address or phone number has to be written in full: they are encrypted, so only a complete value can be looked up."
+      "hint": "Name and apartment number match as you type. An email address or phone number has to be written in full: they are encrypted, so only a complete value can be looked up.",
+      "residentHint": "Name and apartment number match as you type. Contact details stay with the board and cannot be searched here."
     },
     "pagination": {
       "status": "Page {{page}} of {{pages}}",
@@ -121,8 +121,8 @@
       "addressBook": "Address book - {{scope}} - {{date}}"
     },
     "purge": {
-      "label": "Erased",
-      "explanation": "Service data is erased on this date. The statutory member register entry is retained as the law requires."
+      "label": "Purged",
+      "explanation": "Service data is purged on this date. The statutory member register entry is retained as the law requires."
     },
     "contact": {
       "none": "None on file",
@@ -172,7 +172,10 @@
         "propertyManager": "Property manager"
       },
       "current": "Current",
-      "ended": "Ended"
+      "ended": "Ended",
+      "electedOn": "Elected",
+      "endedOn": "Ended",
+      "protectionFailed": "The masking could not be changed. Try again."
     },
     "reveal": {
       "action": "Reveal",
@@ -200,6 +203,7 @@
     },
     "apartment": {
       "heading": "Apartment {{number}}",
+      "headingLabel": "Apartment",
       "participationShare": "Participation share",
       "noParticipationShare": "Not recorded",
       "residents": "Current residents",

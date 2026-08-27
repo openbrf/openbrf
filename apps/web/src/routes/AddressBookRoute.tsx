@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -62,6 +62,25 @@ export function AddressBookRoute(): ReactElement {
   );
   const { view, refreshing, reload } = useAddressBook(query);
 
+  /*
+   * Focus management for the panels. Each panel moves focus to its own heading
+   * on mount; returning it is this route's job, because only the route knows
+   * what opened the panel. It matters below `xl`, where an open panel hides the
+   * board: the button the user activated stops being focusable in the same
+   * commit, so focus would otherwise drop to the document body both on open and
+   * on close, and a keyboard user would have to traverse the whole shell twice.
+   */
+  const opener = useRef<HTMLElement | null>(null);
+  const rememberOpener = useCallback(() => {
+    // Only the first opener in a chain: a person opened from the apartment
+    // panel should still hand focus back to the button that started it.
+    if (opener.current !== null) {
+      return;
+    }
+    const active = document.activeElement;
+    opener.current = active instanceof HTMLElement ? active : null;
+  }, []);
+
   /** Any change to what is being asked for starts again at the first page. */
   const changeFilter = useCallback((next: RegisterFilter) => {
     setFilter(next);
@@ -78,14 +97,34 @@ export function AddressBookRoute(): ReactElement {
   const closePanel = useCallback(() => {
     setPanel({ kind: "none" });
   }, []);
-  const openPerson = useCallback((personId: string) => {
-    setPanel({ kind: "person", personId });
-  }, []);
-  const openApartment = useCallback((apartmentId: string) => {
-    setPanel({ kind: "apartment", apartmentId });
-  }, []);
+  const openPerson = useCallback(
+    (personId: string) => {
+      rememberOpener();
+      setPanel({ kind: "person", personId });
+    },
+    [rememberOpener],
+  );
+  const openApartment = useCallback(
+    (apartmentId: string) => {
+      rememberOpener();
+      setPanel({ kind: "apartment", apartmentId });
+    },
+    [rememberOpener],
+  );
 
   const panelOpen = panel.kind !== "none";
+
+  // After the commit that unmounts the panel and unhides the board, so the
+  // opener is focusable again by the time it is asked to take focus.
+  useEffect(() => {
+    if (panelOpen) {
+      return;
+    }
+    const previous = opener.current;
+    opener.current = null;
+    previous?.focus();
+  }, [panelOpen]);
+
   const stats =
     view.state === "board" || view.state === "resident"
       ? view.page.stats
@@ -146,6 +185,7 @@ export function AddressBookRoute(): ReactElement {
               <button
                 type="button"
                 onClick={() => {
+                  rememberOpener();
                   setPanel({ kind: "addPerson" });
                 }}
                 className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"

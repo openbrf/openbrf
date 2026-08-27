@@ -3,12 +3,14 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
   type ApartmentDetail,
   type ApartmentResidency,
   fetchApartment,
 } from "./register-api";
+import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
 /**
  * One apartment, as the address book shows it.
@@ -54,9 +56,12 @@ function ResidentRow({
             {t(ROLE_LABEL[residency.role])}
           </span>
         )}
-        <span className="font-data text-data text-ink-muted">
-          {`${residency.movedInOn ?? ""} ${residency.movedOutOn ?? ""}`.trim()}
-        </span>
+        <DatePair
+          from={residency.movedInOn}
+          to={residency.movedOutOn}
+          fromLabelKey="register.column.movedIn"
+          toLabelKey="register.column.movedOut"
+        />
       </span>
     </li>
   );
@@ -72,6 +77,7 @@ export function ApartmentPanel({
   onOpenPerson: (personId: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const heading = usePanelHeadingFocus();
   const [apartment, setApartment] = useState<ApartmentDetail | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -101,14 +107,28 @@ export function ApartmentPanel({
 
   return (
     <aside
-      aria-label={t("register.heading")}
+      aria-label={
+        apartment === null
+          ? t("register.heading")
+          : t("register.apartment.heading", { number: apartment.number })
+      }
       className="flex flex-col gap-5 rounded-panel border border-line bg-raised p-5 shadow-raised"
     >
       <div className="flex items-start justify-between gap-4">
-        <h2 className="text-headline">
-          {apartment === null
-            ? t("register.loading")
-            : t("register.apartment.heading", { number: apartment.number })}
+        {/*
+         * The number sits in its own mono span rather than inside the
+         * interpolated heading: register identifiers belong in the register face
+         * so their digits stay comparable with the rows below.
+         */}
+        <h2 ref={heading} tabIndex={-1} className="text-headline">
+          {apartment === null ? (
+            t("register.loading")
+          ) : (
+            <>
+              {t("register.apartment.headingLabel")}{" "}
+              <span className="font-data">{apartment.number}</span>
+            </>
+          )}
         </h2>
         <button
           type="button"
@@ -120,7 +140,9 @@ export function ApartmentPanel({
       </div>
 
       {failed ? (
-        <p className="text-body text-danger">{t("register.error.title")}</p>
+        <p role="alert" className="text-body text-danger">
+          {t("register.error.title")}
+        </p>
       ) : null}
 
       {apartment === null ? null : (

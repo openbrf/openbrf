@@ -170,12 +170,14 @@ describe("the board's view", () => {
   });
 
   it("marks a protected person with a lock as well as a colour", () => {
-    const { container } = renderBoard();
+    renderBoard();
     const sign = screen.getAllByText("Skyddad")[0]?.closest("span");
 
     expect(sign).not.toBeNull();
     // Colour is never the only signal: the sign carries the word and the lock.
-    expect(container.querySelector("svg")).not.toBeNull();
+    // Scoped to the sign, because any other icon on the board would satisfy a
+    // search of the whole container and the lock could be removed unnoticed.
+    expect(sign?.querySelector("svg")).not.toBeNull();
   });
 
   it("marks a moved-out row with a dashed sign and its purge date", () => {

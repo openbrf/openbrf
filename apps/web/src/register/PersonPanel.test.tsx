@@ -145,11 +145,77 @@ describe("a person with protected personal data", () => {
 
   it("offers no reveal for a field the register does not hold", async () => {
     // hasPhone is false, so there is nothing to reveal and no button to log a
-    // reveal of nothing.
+    // reveal of nothing. Asserted on the button rather than on the word:
+    // "Saknas" could come from another field, and a reveal button that appeared
+    // here would write an audit entry per click for a field the register does
+    // not hold.
     renderPanel(PROTECTED_PERSON);
     await screen.findByText("Sara Berg");
 
     expect(screen.getAllByText("Saknas").length).toBeGreaterThan(0);
+    const reveals = screen.getAllByRole("button", { name: /^Visa/ });
+    expect(
+      reveals.filter((button) =>
+        button.getAttribute("aria-label")?.includes("Telefonnummer"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("reports a postal address the register does not hold, not a blank value", async () => {
+    // The masked payload carries no presence flag for the postal address, so the
+    // completed reveal is what settles it. A blank mono value with a "hide"
+    // button reads as "the value is here but hidden", which is the one thing
+    // this panel must never say, and it leaves the field revealable for good.
+    revealFields.mockResolvedValue({
+      postalAddress: { street: null, postalCode: null, city: null },
+    });
+    renderPanel(PROTECTED_PERSON);
+    await screen.findByText("Sara Berg");
+
+    // Only the absent phone number reads "Saknas" before the reveal.
+    expect(screen.getAllByText("Saknas")).toHaveLength(1);
+
+    const address = screen
+      .getAllByRole("button", { name: /^Visa/ })
+      .find((button) =>
+        button.getAttribute("aria-label")?.includes("Postadress"),
+      );
+    expect(address).not.toBeUndefined();
+
+    await userEvent.click(address as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Saknas")).toHaveLength(2);
+    });
+    // Nothing came back, so there is nothing to hide and nothing to ask for
+    // again.
+    expect(screen.queryByRole("button", { name: "Dölj igen" })).toBeNull();
+    expect(
+      screen
+        .getAllByRole("button", { name: /^Visa/ })
+        .filter((button) =>
+          button.getAttribute("aria-label")?.includes("Postadress"),
+        ),
+    ).toHaveLength(0);
+    expect(revealFields).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when the masking could not be changed", async () => {
+    // The call site does not await, so an unreported rejection would leave the
+    // button clicked and nothing said - and a board member reading that as
+    // success would leave the person unmasked everywhere.
+    setProtectedPersonalData.mockRejectedValue(new Error("network"));
+    renderPanel(PROTECTED_PERSON);
+    await screen.findByText("Sara Berg");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Sluta maskera den här personen/ }),
+    );
+
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    expect(
+      await screen.findByText("Maskeringen kunde inte ändras. Försök igen."),
+    ).not.toBeNull();
   });
 
   it("masks the postal address, which is what protection exists for", async () => {

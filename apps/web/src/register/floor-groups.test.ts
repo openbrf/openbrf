@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupByFloor } from "./floor-groups";
+import { groupByFloor, UNKNOWN_FLOOR } from "./floor-groups";
 import type { DirectoryRow } from "./register-api";
 
 /**
@@ -129,6 +129,39 @@ describe("groupByFloor", () => {
     expect(groups).toHaveLength(2);
     expect(groups[1]?.floor).toBeNull();
     expect(groups[1]?.rows[0]?.personId).toBe("external");
+  });
+
+  it("marks an apartment whose floor cannot be determined as unknown", () => {
+    // Not the same as holding no apartment: the row prints an apartment number,
+    // so a header reading "Without apartment" above it would be a false label
+    // on a register view. This is the legacy-numbering case the module supports.
+    const groups = groupByFloor([row({ number: "1A", floor: null })], {
+      multipleAddresses: false,
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.floor).toBe(UNKNOWN_FLOOR);
+    expect(groups[0]?.addressId).toBe("address-1");
+  });
+
+  it("keeps two unknown-floor runs apart with distinct keys", () => {
+    // Two non-consecutive unknown runs under one address used to share the key
+    // `${addressId}:null`, which React renders as duplicate keys in one table.
+    const groups = groupByFloor(
+      [
+        row({ personId: "a", number: "1A", floor: null }),
+        row({ personId: "b", number: "1101", floor: 1 }),
+        row({ personId: "c", number: "1B", floor: null }),
+      ],
+      { multipleAddresses: false },
+    );
+
+    expect(groups.map((group) => group.floor)).toEqual([
+      UNKNOWN_FLOOR,
+      1,
+      UNKNOWN_FLOOR,
+    ]);
+    expect(new Set(groups.map((group) => group.key)).size).toBe(groups.length);
   });
 
   it("preserves the order the server sent", () => {

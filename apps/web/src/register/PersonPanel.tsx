@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
   fetchPerson,
@@ -12,6 +13,7 @@ import {
   type RevealedFields,
   setProtectedPersonalData,
 } from "./register-api";
+import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
 /**
  * One person, as the board sees them.
@@ -89,11 +91,13 @@ export function PersonPanel({
   onChanged,
 }: PersonPanelProps): ReactElement {
   const { t } = useTranslation();
+  const heading = usePanelHeadingFocus();
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const [revealed, setRevealed] = useState<RevealedFields>({});
   const [revealing, setRevealing] = useState<MaskableField | null>(null);
   const [revealFailed, setRevealFailed] = useState(false);
+  const [protectionFailed, setProtectionFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   /*
@@ -145,9 +149,23 @@ export function PersonPanel({
     });
   }, []);
 
+  /*
+   * A failed protection change must not look like a successful one. The call
+   * site fires this without awaiting, so an uncaught rejection would leave the
+   * button clicked, the panel unchanged and nothing said - and a board member
+   * who read that as success would leave a person unmasked in the register, in
+   * lists and in later exports, which is the exposure the flag exists to
+   * prevent.
+   */
   const toggleProtection = useCallback(
     async (next: boolean): Promise<void> => {
-      await setProtectedPersonalData(personId, next);
+      setProtectionFailed(false);
+      try {
+        await setProtectedPersonalData(personId, next);
+      } catch {
+        setProtectionFailed(true);
+        return;
+      }
       setRevealed({});
       setReloadToken((token) => token + 1);
       onChanged();
@@ -155,13 +173,33 @@ export function PersonPanel({
     [personId, onChanged],
   );
 
+  /*
+   * Three states, not two: not revealed yet, revealed with the register holding
+   * nothing, and revealed with a value. Without the middle one an empty reveal
+   * renders as a blank mono value - a placeholder shaped like a value, which is
+   * the one thing MaskedValue exists not to do - and leaves the reveal button in
+   * place for a field the register does not hold, so every further click writes
+   * another audit entry for nothing. The masked payload carries no presence flag
+   * for the postal address, so the completed reveal is what settles it.
+   */
+  const revealedPostalAddress =
+    revealed.postalAddress === undefined
+      ? undefined
+      : [
+          revealed.postalAddress?.street ?? null,
+          revealed.postalAddress?.postalCode ?? null,
+          revealed.postalAddress?.city ?? null,
+        ]
+          .filter((part): part is string => part !== null)
+          .join(", ");
+
   return (
     <aside
       aria-label={t("register.heading")}
       className="flex flex-col gap-5 rounded-panel border border-line bg-raised p-5 shadow-raised"
     >
       <div className="flex items-start justify-between gap-4">
-        <h2 className="text-headline">
+        <h2 ref={heading} tabIndex={-1} className="text-headline">
           {person === null
             ? t("register.loading")
             : `${person.firstName} ${person.lastName}`}
@@ -176,7 +214,9 @@ export function PersonPanel({
       </div>
 
       {failed ? (
-        <p className="text-body text-danger">{t("register.error.title")}</p>
+        <p role="alert" className="text-body text-danger">
+          {t("register.error.title")}
+        </p>
       ) : null}
 
       {person === null ? null : (
@@ -284,19 +324,10 @@ export function PersonPanel({
                 <MaskedValue
                   field="postalAddress"
                   masked
-                  present
-                  value={
-                    revealed.postalAddress === undefined ||
-                    revealed.postalAddress === null
-                      ? null
-                      : [
-                          revealed.postalAddress.street,
-                          revealed.postalAddress.postalCode,
-                          revealed.postalAddress.city,
-                        ]
-                          .filter((part): part is string => part !== null)
-                          .join(", ")
-                  }
+                  // A reveal that came back empty is a definitive absence:
+                  // nothing to show, and no reason to ask a second time.
+                  present={revealedPostalAddress !== ""}
+                  value={revealedPostalAddress ?? null}
                   revealing={revealing === "postalAddress"}
                   onReveal={() => {
                     void reveal("postalAddress");
@@ -322,7 +353,7 @@ export function PersonPanel({
             {t("register.reveal.logged")}
           </p>
           {revealFailed ? (
-            <p className="text-small text-danger">
+            <p role="alert" className="text-small text-danger">
               {t("register.reveal.failed")}
             </p>
           ) : null}
@@ -345,11 +376,12 @@ export function PersonPanel({
                     </DataValue>
                     <span className="flex flex-wrap items-center gap-2">
                       <SignChipRoom labelKey={ROLE_LABEL[residency.role]} />
-                      <DataValue>
-                        {`${residency.movedInOn ?? ""} ${
-                          residency.movedOutOn ?? ""
-                        }`.trim()}
-                      </DataValue>
+                      <DatePair
+                        from={residency.movedInOn}
+                        to={residency.movedOutOn}
+                        fromLabelKey="register.column.movedIn"
+                        toLabelKey="register.column.movedOut"
+                      />
                       <span className="text-small text-ink-muted">
                         {residency.movedOutOn === null
                           ? t("register.person.current")
@@ -379,11 +411,12 @@ export function PersonPanel({
                     className="flex flex-wrap items-center gap-2"
                   >
                     <SignChip sign={position.position} />
-                    <DataValue>
-                      {`${position.electedOn ?? ""} ${
-                        position.endedOn ?? ""
-                      }`.trim()}
-                    </DataValue>
+                    <DatePair
+                      from={position.electedOn}
+                      to={position.endedOn}
+                      fromLabelKey="register.person.electedOn"
+                      toLabelKey="register.person.endedOn"
+                    />
                   </li>
                 ))}
               </ul>
@@ -433,6 +466,11 @@ export function PersonPanel({
                 ? t("register.person.unprotect")
                 : t("register.person.protect")}
             </button>
+            {protectionFailed ? (
+              <p role="alert" className="text-small text-danger">
+                {t("register.person.protectionFailed")}
+              </p>
+            ) : null}
           </section>
         </>
       )}

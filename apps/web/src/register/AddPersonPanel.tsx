@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
 import { createPerson } from "./register-api";
+import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
 /**
  * Adding a person to the register.
@@ -106,6 +107,7 @@ export function AddPersonPanel({
   onAdded: (personId: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const heading = usePanelHeadingFocus();
   const [values, setValues] = useState(EMPTY);
   const [protectedPersonalData, setProtectedPersonalData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -142,7 +144,9 @@ export function AddPersonPanel({
       className="flex flex-col gap-5 rounded-panel border border-line bg-raised p-5 shadow-raised"
     >
       <div className="flex items-start justify-between gap-4">
-        <h2 className="text-headline">{t("register.addPerson.heading")}</h2>
+        <h2 ref={heading} tabIndex={-1} className="text-headline">
+          {t("register.addPerson.heading")}
+        </h2>
         <button
           type="button"
           onClick={onClose}
@@ -184,7 +188,7 @@ export function AddPersonPanel({
                   [field.name]: event.target.value,
                 }));
               }}
-              className="h-10 rounded-control border border-line-strong bg-raised px-3 text-body text-ink"
+              className="min-h-11 rounded-control border border-line-strong bg-raised px-3 text-body text-ink"
             />
           </div>
         ))}
@@ -211,7 +215,7 @@ export function AddPersonPanel({
         </div>
 
         {failed ? (
-          <p className="text-body text-danger">
+          <p role="alert" className="text-body text-danger">
             {t("register.addPerson.failed")}
           </p>
         ) : null}

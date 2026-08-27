@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import { ColourLegend } from "../theme/ColourLegend";
 import type { TranslationKey } from "../i18n/translation-key";
-import { groupByFloor } from "./floor-groups";
+import { type FloorGroup, groupByFloor, UNKNOWN_FLOOR } from "./floor-groups";
 import { SignRow } from "./SignChip";
 import {
   type DirectoryRow,
@@ -126,6 +126,33 @@ function Tab({
       )}
     </button>
   );
+}
+
+/**
+ * The header a floor group carries.
+ *
+ * Four cases, and the fourth is the one that matters: an apartment whose floor
+ * is neither stored nor derivable from its number keeps its address group and
+ * says so, rather than being labelled "Without apartment" while its number is
+ * printed in the row below.
+ */
+function groupLabel<TRow extends DirectoryRow>(
+  t: (key: TranslationKey, options?: Record<string, unknown>) => string,
+  group: FloorGroup<TRow>,
+): string {
+  if (group.floor === null) {
+    return t("register.group.withoutApartment");
+  }
+  if (group.floor === UNKNOWN_FLOOR) {
+    return t("register.group.unknownFloor");
+  }
+  if (group.floor === 0) {
+    return t("register.group.ground", { prefix: group.numberPrefix ?? "" });
+  }
+  return t("register.group.floor", {
+    floor: group.floor,
+    prefix: group.numberPrefix ?? "",
+  });
 }
 
 /** The mono stamp in the board's footer, naming the document and its date. */
@@ -253,7 +280,11 @@ export function Board<TRow extends DirectoryRow>({
             id="register-search-hint"
             className="max-w-80 text-small text-register-ink-muted"
           >
-            {t("register.search.hint")}
+            {t(
+              showContact
+                ? "register.search.hint"
+                : "register.search.residentHint",
+            )}
           </p>
         </div>
       </div>
@@ -306,16 +337,7 @@ export function Board<TRow extends DirectoryRow>({
                     colSpan={columnCount}
                     className="px-6 py-1.5 text-left text-label text-register-ink-muted uppercase"
                   >
-                    {group.floor === null
-                      ? t("register.group.withoutApartment")
-                      : group.floor === 0
-                        ? t("register.group.ground", {
-                            prefix: group.numberPrefix ?? "",
-                          })
-                        : t("register.group.floor", {
-                            floor: group.floor,
-                            prefix: group.numberPrefix ?? "",
-                          })}
+                    {groupLabel(t, group)}
                     {group.showAddress && group.addressId !== null ? (
                       <span className="ml-2 font-data text-data normal-case">
                         {addressLabel(group.addressId)}

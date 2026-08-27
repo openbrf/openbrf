@@ -14,11 +14,23 @@
 
 import type { DirectoryRow } from "./register-api";
 
+/**
+ * An apartment whose floor is neither stored nor derivable from its number.
+ *
+ * Distinct from `null`, which means the row holds no apartment at all. The two
+ * used to collapse into one value, which put an apartment whose number is
+ * printed in the row under a header reading "Without apartment".
+ */
+export const UNKNOWN_FLOOR = "unknown";
+
 export interface FloorGroup<TRow extends DirectoryRow> {
   /** Stable key for React, unique within the page. */
   key: string;
-  /** Null for the trailing group of persons who hold no apartment. */
-  floor: number | null;
+  /**
+   * Null for the trailing group of persons who hold no apartment;
+   * {@link UNKNOWN_FLOOR} for an apartment whose floor could not be determined.
+   */
+  floor: number | typeof UNKNOWN_FLOOR | null;
   /**
    * The number range the group covers, e.g. "10XX". Null when the apartment
    * numbers in the group do not share a prefix, which happens with numbering
@@ -78,6 +90,9 @@ function numberPrefixOf(rows: readonly DirectoryRow[]): string | null {
  *
  * Rows with no apartment - external board members, and anyone entered but not
  * yet moved in - cannot sit on a floor, so they collect into one trailing group.
+ * An apartment whose floor is neither stored nor derivable is not one of those:
+ * it keeps its address group and is marked {@link UNKNOWN_FLOOR}, because the
+ * row prints an apartment number and must not sit under "Without apartment".
  */
 export function groupByFloor<TRow extends DirectoryRow>(
   rows: readonly TRow[],
@@ -92,7 +107,7 @@ export function groupByFloor<TRow extends DirectoryRow>(
       continue;
     }
 
-    const floor = floorOf(row);
+    const floor = floorOf(row) ?? UNKNOWN_FLOOR;
     const addressId = row.apartment.addressId;
     const last = groups.at(-1);
 
@@ -106,7 +121,10 @@ export function groupByFloor<TRow extends DirectoryRow>(
     }
 
     groups.push({
-      key: `${addressId}:${String(floor)}`,
+      // The row key is part of the group key because a floor can produce more
+      // than one run: two non-consecutive unknown-floor runs under one address
+      // would otherwise share a key and render as duplicates in one table.
+      key: `${addressId}:${String(floor)}:${row.key}`,
       floor,
       numberPrefix: null,
       addressId,
