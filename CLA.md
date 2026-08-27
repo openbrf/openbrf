@@ -4,7 +4,7 @@ Version 1.0 (draft)
 
 > **Status: draft.** This agreement will be reviewed by counsel before external contributions open. It will be signed electronically via CLA Assistant on your first pull request; a corporate CLA will be available on request.
 
-Thank you for your interest in contributing to Open BRF, a project stewarded by Apteo AB, org. no. 559999-0000 <!-- TODO: correct org number -->, Sweden ("Apteo").
+Thank you for your interest in contributing to Open BRF, a project stewarded by Apteo AB, org. no. 559598-5846, Sweden ("Apteo").
 
 This is a **license** agreement: you keep the copyright to your contributions. It exists so that Apteo can (a) keep the entire core distributable under AGPL-3.0 with the Open BRF Module Exception, and (b) license the code under other terms where needed (for example the module exception itself and commercial editions) - see [GOVERNANCE.md](GOVERNANCE.md) for the project's public commitments about how those rights are used.
 
