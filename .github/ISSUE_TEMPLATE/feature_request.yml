@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a feature or improvement. Swedish is fine here if you prefer / du kan skriva på svenska.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what makes it hard today? Describe the situation in your association if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How do you imagine it working? Alternatives you considered are welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your perspective
+      options:
+        - Board member (styrelse)
+        - Resident
+        - Property manager (förvaltare)
+        - Self-hoster / operator
+        - Developer
+        - Other
+  - type: markdown
+    attributes:
+      value: |
+        Note: features need maintainer approval before a PR is opened - see CONTRIBUTING.md. Legal constraints (BRL, GDPR) sometimes rule things out; postal voting for general meetings, for example, is prohibited by law and will never be built.
