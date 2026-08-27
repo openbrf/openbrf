@@ -97,8 +97,11 @@ Free, open source, and never moved behind a paywall.
       masking and the audit log instead
 - [ ] The statutory registers under Swedish law: the member register (public on
       request) and the confidential apartment register, kept strictly separate
-- [ ] GDPR engine: configurable retention and purging, data subject access
-      reports, legal hold, consents, masking of protected personal data
+- [ ] GDPR engine: data subject access reports, legal hold, consents, masking
+      of protected personal data, and configurable retention and purging of
+      **service data only**. The statutory registers and the audit log are
+      append-only and exempt: the law requires the member register to be
+      retained, so no retention setting, and no admin, can delete it
 - [ ] News and mailings, by email and through an open SMS adapter
 - [ ] Document archive with per-role permissions
 - [ ] Issue reporting with photos
@@ -129,11 +132,15 @@ foundation.
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own.
 - [ ] Reporting to Lantmäteriet's cooperative housing register
-      (bostadsrättsregister). Not a single export: an initial submission due
-      31 December 2027, then continuing notifications of each register event:
-      grant (upplåtelse), transfer (överlåtelse) and termination (upphörande).
-      A missed notification can affect registration and a third party's
-      protection, so this is a legal duty rather than a convenience feature
+      (bostadsrättsregister). Not a single export but a standing duty: an
+      initial submission of the existing apartments, then a notification
+      within two weeks of each event the cooperative is responsible for -
+      grant (upplåtelse), transfer (övergång) and termination (upphörande),
+      per Lag (2026:484) om bostadsrättsregister, 3 kap. Liens (pantsättning)
+      are registered by the lienholder rather than the cooperative, so they
+      are deliberately outside this feature. A missed notification can affect
+      registration and a third party's protection, which makes this a legal
+      duty rather than a convenience feature
 
 ## Paid modules
 

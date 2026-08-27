@@ -14,7 +14,7 @@ Statutes referenced below:
 | boende | resident | Anyone living in the building: members, partners, tenants, children 13+. Not every resident is a member. |
 | bostadsrätt | tenant-ownership; cooperative apartment | The ownership form: a share in the association tied to the right to use an apartment. |
 | bostadsrättsförening (BRF) | housing cooperative; keep **BRF** as abbreviation | The association itself. "BRF" is established and used as-is in names and prose. |
-| bostadsrättsregister | cooperative housing register | The state register of cooperative apartments kept by Lantmäteriet. Initial reporting is due 2027-12-31, followed by continuing notifications of the register events: grant (upplåtelse), transfer (överlåtelse) and termination (upphörande). |
+| bostadsrättsregister | cooperative housing register | The state register of cooperative apartments kept by Lantmäteriet (Lag (2026:484) om bostadsrättsregister, 3 kap.). The cooperative reports grant, transfer and termination within two weeks of each; liens are reported by the lienholder, not the cooperative. |
 | dataskyddsförordningen | GDPR | Keep "GDPR". |
 | felanmälan | **issue report** | Resident-reported maintenance issue; the module is "issues". |
 | föreningsstämma / stämma | **general meeting** | Annual or extraordinary meeting of members. Postal voting is prohibited in a BRF (BRL 9 kap. 14 §) and is never built. |
@@ -37,8 +37,8 @@ Statutes referenced below:
 | styrelse | **board** | The elected board of the association. |
 | styrelseledamot / ledamot | board member | |
 | suppleant | deputy board member | |
-| upphörande | termination | A bostadsrätt ceasing to exist. A register event in its own right, distinct from a transfer to a new holder. |
-| upplåtelse | grant | The act of first granting a bostadsrätt to a holder. The contract that does so is the upplåtelseavtal (grant agreement). |
+| upphörande | termination | A bostadsrätt ceasing to exist. A register event in its own right, distinct from a transfer to a new holder; reported by the cooperative (Lag (2026:484), 3 kap.). |
+| upplåtelse | grant | The act of first granting a bostadsrätt to a holder; reported by the cooperative (Lag (2026:484), 3 kap.). The contract that does so is the upplåtelseavtal (grant agreement). |
 | upplåtelseavtal | grant agreement | The contract first granting a bostadsrätt. |
 | utflyttad | moved out | Register state with dashed outline + purge date in the UI. |
 | årsavgift / månadsavgift | annual fee / monthly fee | The fee the tenant-owner pays the association. |
