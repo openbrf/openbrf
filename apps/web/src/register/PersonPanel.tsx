@@ -137,6 +137,14 @@ export function PersonPanel({
     [personId],
   );
 
+  const hide = useCallback((field: MaskableField): void => {
+    setRevealed((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
   const toggleProtection = useCallback(
     async (next: boolean): Promise<void> => {
       await setProtectedPersonalData(personId, next);
@@ -210,6 +218,9 @@ export function PersonPanel({
                 onReveal={() => {
                   void reveal("email");
                 }}
+                onHide={() => {
+                  hide("email");
+                }}
               />
             </Field>
 
@@ -231,6 +242,9 @@ export function PersonPanel({
                 onReveal={() => {
                   void reveal("phone");
                 }}
+                onHide={() => {
+                  hide("phone");
+                }}
               />
             </Field>
 
@@ -248,6 +262,9 @@ export function PersonPanel({
                 revealing={revealing === "personalIdentityNumber"}
                 onReveal={() => {
                   void reveal("personalIdentityNumber");
+                }}
+                onHide={() => {
+                  hide("personalIdentityNumber");
                 }}
               />
             </Field>
@@ -283,6 +300,9 @@ export function PersonPanel({
                   revealing={revealing === "postalAddress"}
                   onReveal={() => {
                     void reveal("postalAddress");
+                  }}
+                  onHide={() => {
+                    hide("postalAddress");
                   }}
                 />
               )}
@@ -450,6 +470,7 @@ function MaskedValue({
   value,
   revealing,
   onReveal,
+  onHide,
 }: {
   field: MaskableField;
   masked: boolean;
@@ -457,6 +478,7 @@ function MaskedValue({
   value: string | null;
   revealing: boolean;
   onReveal: () => void;
+  onHide: () => void;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -468,8 +490,24 @@ function MaskedValue({
     );
   }
 
-  if (!masked || value !== null) {
+  if (!masked) {
     return <DataValue>{value ?? t("register.person.notOnFile")}</DataValue>;
+  }
+
+  if (value !== null) {
+    return (
+      <span className="flex flex-wrap items-center gap-3">
+        <DataValue>{value}</DataValue>
+        {/*
+         * Hiding again is local: no second request and no second audit entry.
+         * A revealed personal identity number should not sit on a screen that
+         * may be shared for the rest of the session.
+         */}
+        <button type="button" onClick={onHide} className={SECONDARY_BUTTON}>
+          {t("register.reveal.hide")}
+        </button>
+      </span>
+    );
   }
 
   return (

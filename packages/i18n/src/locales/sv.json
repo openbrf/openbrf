@@ -110,8 +110,7 @@
     "search": {
       "label": "Sök i registret",
       "placeholder": "Namn eller lägenhetsnummer",
-      "hint": "Namn och lägenhetsnummer matchas medan du skriver. E-postadress och telefonnummer måste skrivas fullständigt: de är krypterade, så bara ett komplett värde kan slås upp.",
-      "clear": "Rensa sökningen"
+      "hint": "Namn och lägenhetsnummer matchas medan du skriver. E-postadress och telefonnummer måste skrivas fullständigt: de är krypterade, så bara ett komplett värde kan slås upp."
     },
     "pagination": {
       "status": "Sida {{page}} av {{pages}}",
@@ -151,7 +150,6 @@
       "email": "E-postadress",
       "phone": "Telefonnummer",
       "personalIdentityNumber": "Personnummer",
-      "onFile": "Registrerat",
       "notOnFile": "Saknas",
       "residencies": "Boenden",
       "noResidencies": "Ingen lägenhet i registret",

@@ -145,6 +145,21 @@ describe("the board's view", () => {
     expect(screen.getAllByText(PLAIN_EMAIL).length).toBeGreaterThan(0);
   });
 
+  it("heads the columns the register is specified to have", () => {
+    renderBoard();
+
+    for (const head of [
+      "Lgh",
+      "Namn",
+      "Roll",
+      "Kontakt",
+      "Inflytt",
+      "Utflytt",
+    ]) {
+      expect(screen.getByRole("columnheader", { name: head })).not.toBeNull();
+    }
+  });
+
   it("renders no part of a protected person's contact data", () => {
     renderBoard();
 
@@ -212,6 +227,8 @@ describe("the resident-facing view", () => {
     expect(screen.getByText("Johan Berg")).not.toBeNull();
     expect(screen.getAllByText("1103").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Medlem").length).toBeGreaterThan(0);
+    // The role column stays: what residents lose is contact data, not roles.
+    expect(screen.getByRole("columnheader", { name: "Roll" })).not.toBeNull();
   });
 
   it("does not make a row openable, since there is no resident detail view", () => {

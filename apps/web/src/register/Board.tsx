@@ -168,7 +168,7 @@ export function Board<TRow extends DirectoryRow>({
   const showContact = contactOf !== undefined;
   const multipleAddresses = page.addresses.length > 1;
   const groups = groupByFloor(page.rows, { multipleAddresses });
-  const columnCount = showContact ? 5 : 4;
+  const columnCount = showContact ? 6 : 5;
   const pages = Math.max(1, Math.ceil(page.total / page.pageSize));
 
   const addressLabel = (id: string): string => {
@@ -268,6 +268,9 @@ export function Board<TRow extends DirectoryRow>({
               </th>
               <th scope="col" className={HEAD_CELL}>
                 {t("register.column.name")}
+              </th>
+              <th scope="col" className={`${HEAD_CELL} ${DESKTOP_ONLY}`}>
+                {t("register.column.role")}
               </th>
               {showContact ? (
                 <th scope="col" className={`${HEAD_CELL} ${DESKTOP_ONLY}`}>
@@ -459,7 +462,9 @@ function BoardRowView<TRow extends DirectoryRow>({
             </button>
           )}
 
-          <SignRow signs={row.signs} />
+          <span className="sm:hidden">
+            <SignRow signs={row.signs} />
+          </span>
 
           {/*
            * The narrow-screen fold: the columns hidden below `sm` reappear here
@@ -489,6 +494,10 @@ function BoardRowView<TRow extends DirectoryRow>({
             </span>
           )}
         </span>
+      </td>
+
+      <td className={`${CELL} ${DESKTOP_ONLY}`}>
+        <SignRow signs={row.signs} />
       </td>
 
       {showContact ? (

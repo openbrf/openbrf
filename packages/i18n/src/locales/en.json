@@ -110,8 +110,7 @@
     "search": {
       "label": "Search the register",
       "placeholder": "Name or apartment number",
-      "hint": "Name and apartment number match as you type. An email address or phone number has to be written in full: they are encrypted, so only a complete value can be looked up.",
-      "clear": "Clear the search"
+      "hint": "Name and apartment number match as you type. An email address or phone number has to be written in full: they are encrypted, so only a complete value can be looked up."
     },
     "pagination": {
       "status": "Page {{page}} of {{pages}}",
@@ -151,7 +150,6 @@
       "email": "Email address",
       "phone": "Phone number",
       "personalIdentityNumber": "Personal identity number",
-      "onFile": "On file",
       "notOnFile": "Not on file",
       "residencies": "Residencies",
       "noResidencies": "No apartment in the register",

@@ -120,6 +120,29 @@ describe("a person with protected personal data", () => {
     expect(revealFields).toHaveBeenCalledWith("person-sara", ["email"]);
   });
 
+  it("can hide a revealed value again without a second request", async () => {
+    // Hiding is local: the audit log records that the field was seen, and
+    // showing it again would be a second act to record. What this protects is
+    // the screen, not the log.
+    revealFields.mockResolvedValue({ email: EMAIL });
+    renderPanel(PROTECTED_PERSON);
+    await screen.findByText("Sara Berg");
+
+    const buttons = await screen.findAllByRole("button", { name: /^Visa/ });
+    const emailButton = buttons.find((button) =>
+      button.getAttribute("aria-label")?.includes("E-postadress"),
+    );
+    await userEvent.click(emailButton as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(EMAIL)).not.toBeNull();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Dölj igen" }));
+
+    expect(screen.queryByText(EMAIL)).toBeNull();
+    expect(revealFields).toHaveBeenCalledTimes(1);
+  });
+
   it("offers no reveal for a field the register does not hold", async () => {
     // hasPhone is false, so there is nothing to reveal and no button to log a
     // reveal of nothing.
