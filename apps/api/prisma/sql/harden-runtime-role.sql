@@ -44,19 +44,28 @@ END $body$$sql$
 WHERE coalesce(:'app_password', '') = ''
 \gexec
 
--- Ownership outranks every privilege granted below: the owner of a table can
--- run ALTER TABLE ... DISABLE TRIGGER whatever its ACL says. If openbrf_app
--- has somehow come to own anything, this script cannot deliver what it
--- promises, so it refuses rather than reporting success.
-SELECT $sql$DO $body$ BEGIN
-  RAISE EXCEPTION 'openbrf_app owns objects in this database. An owner can disable the statutory triggers regardless of the privileges this script sets. Reassign them to the schema owner first.';
-END $body$$sql$
-WHERE EXISTS (
-  SELECT 1
+-- Ownership outranks every privilege granted below, in two different ways.
+-- The owner of a table can run ALTER TABLE ... DISABLE TRIGGER whatever its
+-- ACL says, and the owner of a schema can run DROP SCHEMA ... CASCADE and take
+-- the statutory archive with it. Neither is reachable by any revoke in this
+-- file, so if openbrf_app owns anything the script refuses rather than
+-- reporting a hardening it did not achieve.
+SELECT format($sql$DO $body$ BEGIN
+  RAISE EXCEPTION 'openbrf_app owns %s in this database. An owner can disable the statutory triggers, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.';
+END $body$$sql$, string_agg(owned.description, ', ' ORDER BY owned.description))
+FROM (
+  SELECT format('relation %I.%I', n.nspname, c.relname) AS description
   FROM pg_class c
   JOIN pg_roles r ON r.oid = c.relowner
+  JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE r.rolname = 'openbrf_app'
-)
+  UNION ALL
+  SELECT format('schema %I', n.nspname)
+  FROM pg_namespace n
+  JOIN pg_roles r ON r.oid = n.nspowner
+  WHERE r.rolname = 'openbrf_app'
+) AS owned
+HAVING count(*) > 0
 \gexec
 
 -- An openbrf_app that already exists may have been made by hand or by an
