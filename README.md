@@ -4,11 +4,11 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 **Föreningen äger sin data - the association owns its data.** Open BRF gives a BRF board one system for the statutory member and apartment registers, communication, documents, and issue reporting - with no lock-in, no binding period, and Swedish law built in. Self-hosting is free, forever.
 
-> **Status: pre-release.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. APIs, schemas, and documents are still moving.
+> **Status: pre-release, not yet usable.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. There is no user interface yet: the foundations are built and covered by tests, with the exceptions the roadmap names, but nothing here can run a housing cooperative today. APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
 
 ## What it does (v1 scope)
 
-- Encrypted, apartment-based address book and member register, with import
+- Apartment-based address book and member register, with import. Contact details and personal identity numbers are encrypted at rest; names and postal addresses stay readable, because the statutory register must be searchable and printable
 - The statutory registers under Swedish law: the member register (public on request) and the confidential apartment register, kept strictly separate
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - News and mailings, document archive, issue reporting with photos
@@ -26,6 +26,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 
 | Document | What it covers |
 | --- | --- |
+| [ROADMAP.md](ROADMAP.md) | What is built, what is not, and what "usable" will mean |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: language policy, PR process, coding standards, tests, AI policy |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |

@@ -47,9 +47,12 @@ reviews:
     title:
       mode: error
       requirements: >-
-        The title must follow Conventional Commits (type(scope): subject), since
-        CI lints it with commitlint and a squash merge turns it into the commit
-        message on main. It must not contain AI attribution.
+        The title must follow Conventional Commits, since CI lints it with
+        commitlint (@commitlint/config-conventional) and a squash merge turns it
+        into the commit message on main. A scope is OPTIONAL: both
+        "type: subject" and "type(scope): subject" are valid, and most commits on
+        main carry no scope. Do not ask for one. It must not contain AI
+        attribution.
     description:
       mode: warning
     # The codebase comments why a thing exists, not what the next line does. A
