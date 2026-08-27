@@ -87,6 +87,7 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
   - **Squash** when the commits inside the PR are working notes. The PR title becomes the commit message on `main`, so that title must follow Conventional Commits.
   - **Rebase** when the commits are already a deliberate sequence worth keeping - a migration split into reviewable steps, for instance. Every commit must then follow Conventional Commits on its own and each must build and pass CI, because each one lands on `main` separately.
 - **Changesets:** user-visible changes need a changeset file (`pnpm changeset`) describing the change and its semver impact. CI reminds you if it is missing; docs/chore PRs don't need one.
+- **Every review thread must be resolved before merge.** `main` enforces this, so an open comment thread blocks the merge button. Resolve a thread by fixing what it asks for, or by replying with why the code stays as it is and then resolving it - silently resolving without an answer is not review.
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.
 
