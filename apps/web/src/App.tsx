@@ -38,6 +38,17 @@ const SAMPLE_DATA_LINE = ["1001", "2019-06-01", "070-123 45 67"] as const;
 
 const ROW_GRID = "grid grid-cols-[84px_1fr_150px_120px] items-center";
 
+/*
+ * Narrowest width at which every register column stays readable: the three
+ * fixed columns (84 + 150 + 120) plus room for a name and the row padding.
+ *
+ * Below this the board scrolls horizontally rather than dropping columns. It
+ * must never silently clip: a board member reviewing a statutory register has
+ * to be able to see all of it, and on a 375px phone the fixed columns alone
+ * exceed the available width.
+ */
+const ROW_MIN_WIDTH = "min-w-[580px]";
+
 /**
  * Temporary theme proof surface.
  *
@@ -67,38 +78,44 @@ export function App(): ReactElement {
         character.
       */}
       <section className="overflow-hidden rounded-panel bg-register shadow-raised">
-        <div
-          className={`${ROW_GRID} border-b border-register bg-register-raised px-6 py-2.5 text-label text-register-ink-muted uppercase`}
-        >
-          <span>{t("register.column.apartmentNumber")}</span>
-          <span>{t("register.column.name")}</span>
-          <span>{t("register.column.contact")}</span>
-          <span>{t("register.column.movedIn")}</span>
-        </div>
-        {SAMPLE_ROWS.map((row) => (
+        {/*
+          The board scrolls on its own axis. The page itself must never scroll
+          horizontally, and the register must never lose a column to clipping.
+        */}
+        <div className="overflow-x-auto">
           <div
-            key={row.apartmentNumber + row.name}
-            className={`${ROW_GRID} border-b border-register px-6 py-2.5 text-body text-register-ink`}
+            className={`${ROW_GRID} ${ROW_MIN_WIDTH} border-b border-register bg-register-raised px-6 py-2.5 text-label text-register-ink-muted uppercase`}
           >
-            <span className="font-data text-data">{row.apartmentNumber}</span>
-            <span className="flex items-center gap-2 font-medium">
-              {row.name}
-              {"isProtected" in row && row.isProtected ? (
-                <span className="rounded-control border border-warn-register px-2 py-0.5 text-label text-warn-register uppercase">
-                  {t("person.protectedPersonalData")}
-                </span>
-              ) : null}
-            </span>
-            {/*
+            <span>{t("register.column.apartmentNumber")}</span>
+            <span>{t("register.column.name")}</span>
+            <span>{t("register.column.contact")}</span>
+            <span>{t("register.column.movedIn")}</span>
+          </div>
+          {SAMPLE_ROWS.map((row) => (
+            <div
+              key={row.apartmentNumber + row.name}
+              className={`${ROW_GRID} ${ROW_MIN_WIDTH} border-b border-register px-6 py-2.5 text-body text-register-ink`}
+            >
+              <span className="font-data text-data">{row.apartmentNumber}</span>
+              <span className="flex items-center gap-2 font-medium">
+                {row.name}
+                {"isProtected" in row && row.isProtected ? (
+                  <span className="rounded-control border border-warn-register px-2 py-0.5 text-label text-warn-register uppercase">
+                    {t("person.protectedPersonalData")}
+                  </span>
+                ) : null}
+              </span>
+              {/*
               A masked field says so in words. Dots alone would leave a reader
               guessing whether the value is absent or withheld.
             */}
-            <span className="font-data text-data text-register-ink-muted">
-              {row.contact ?? `••• · ${t("register.masked")}`}
-            </span>
-            <span className="font-data text-data">{row.movedIn}</span>
-          </div>
-        ))}
+              <span className="font-data text-data text-register-ink-muted">
+                {row.contact ?? `••• · ${t("register.masked")}`}
+              </span>
+              <span className="font-data text-data">{row.movedIn}</span>
+            </div>
+          ))}
+        </div>
         <div className="bg-register-raised px-6 py-2.5">
           <ColourLegend />
         </div>

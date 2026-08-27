@@ -61,6 +61,23 @@ describe("App", () => {
     expect(screen.queryByText("070-555 12 34")).toBeNull();
   });
 
+  it("keeps every register column reachable on a narrow screen", () => {
+    renderApp();
+
+    // The fixed columns exceed a 375px phone's width, so the board scrolls on
+    // its own axis. Clipping them instead would silently hide part of a
+    // statutory register from the board member reviewing it.
+    const header = screen.getByText("Lgh").closest("div");
+    const scroller = header?.parentElement;
+    expect(scroller?.className).toContain("overflow-x-auto");
+    expect(header?.className).toContain("min-w-");
+
+    // And all four columns are actually rendered.
+    for (const column of ["Lgh", "Namn", "Kontakt", "Inflytt"]) {
+      expect(screen.getByText(column)).toBeTruthy();
+    }
+  });
+
   it("labels every legend entry, so colour is never the only signal", () => {
     renderApp();
 
