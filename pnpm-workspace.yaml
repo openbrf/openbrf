@@ -4,5 +4,7 @@ packages:
 
 # Dependency build scripts must be approved explicitly (pnpm >= 10).
 allowBuilds:
+  "@prisma/engines": true
   "@swc/core": true
   esbuild: true
+  prisma: true
