@@ -136,8 +136,15 @@ export function ApartmentsPanel({
     void read().then(setExisting);
   };
 
-  const commit = useSaveAction(addApartments, () => {
+  /** Counts from the last commit, so the panel can say what actually landed. */
+  const [committed, setCommitted] = useState<{
+    created: number;
+    skipped: number;
+  } | null>(null);
+
+  const commit = useSaveAction(addApartments, (result) => {
     setRows([]);
+    setCommitted(result);
     reload();
     onChanged();
   });
@@ -192,9 +199,15 @@ export function ApartmentsPanel({
               ),
             )}
           </Notice>
-        ) : commit.state.kind === "saved" ? (
+        ) : commit.state.kind === "saved" && committed !== null ? (
           <Notice tone="ok" live>
-            {t("settings.saved")}
+            {/* The skipped count matters: the API adds each number once, so a
+                table committed twice reports the second attempt honestly rather
+                than claiming to have added everything again. */}
+            {t("settings.apartments.committed", {
+              created: committed.created,
+              skipped: committed.skipped,
+            })}
           </Notice>
         ) : duplicate !== null ? (
           <Notice tone="warn" live>

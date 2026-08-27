@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import { saveOwnProfile } from "../api/instance";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
-import { FIELD, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import { FIELD, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -63,7 +63,6 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
         <span className="text-body">
           {`${viewer.firstName} ${viewer.lastName}`}
         </span>
-        <span className={HINT}>{t("settings.readOnlyNotice")}</span>
       </div>
 
       <form className="flex flex-col gap-4" onSubmit={onSubmit}>
@@ -101,7 +100,7 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
 
       <div className="flex flex-col gap-2 border-t border-line pt-4">
         <h3 className="text-label text-ink-muted uppercase">
-          {t("settings.branding.appearance")}
+          {t("settings.profile.appearance")}
         </h3>
         <ThemeModeToggle />
       </div>

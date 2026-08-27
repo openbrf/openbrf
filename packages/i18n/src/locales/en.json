@@ -150,11 +150,9 @@
     "done": {
       "title": "The housing cooperative is set up",
       "body": "The register is ready. Invite the board, then add people and apartments in the address book.",
-      "skippedNotice": "Skipped: {{steps}}. Finish these under Settings whenever you like.",
-      "open": "Open the address book"
+      "skippedNotice": "Skipped: {{steps}}. Finish these under Settings whenever you like."
     },
     "resume": {
-      "title": "Setup is not finished",
       "body": "Some steps of the first-boot setup are still open. Everything there can also be changed on this page.",
       "open": "Resume setup"
     }
@@ -171,16 +169,6 @@
       "unknown": "That could not be saved just now. Please try again.",
       "forbidden": "Your account is not allowed to change this.",
       "housingCooperativeMissing": "Name the housing cooperative first; the other settings hang off it."
-    },
-    "section": {
-      "housingCooperative": "Housing cooperative",
-      "addresses": "Addresses and apartments",
-      "branding": "Appearance",
-      "smtp": "Email",
-      "retention": "Retention",
-      "selfSignup": "Sign-up requests",
-      "profile": "Your profile",
-      "security": "Sign-in and security"
     },
     "housingCooperative": {
       "title": "The housing cooperative",
@@ -268,8 +256,7 @@
         "failsContrast": "That colour cannot be read on the surfaces it has to appear on, so it was not saved.",
         "pair": "{{foreground}} on {{background}} measures {{ratio}} to 1; at least {{required}} is needed.",
         "statutoryPair": "This pair carries the statutory register, so it cannot be allowed through."
-      },
-      "appearance": "Light or dark"
+      }
     },
     "smtp": {
       "title": "Email",
@@ -319,7 +306,8 @@
       "title": "Your profile",
       "description": "Your own language and how the interface looks on this device.",
       "preferredLocale": "Language for emails and extracts",
-      "name": "Name"
+      "name": "Name",
+      "appearance": "Light or dark"
     },
     "security": {
       "title": "Sign-in and security",
@@ -377,6 +365,12 @@
           "unknown": "The passkey could not be added just now. Please try again."
         }
       }
+    },
+    "notice": {
+      "ok": "Done",
+      "warn": "Note",
+      "danger": "Problem",
+      "info": "Information"
     }
   }
 }

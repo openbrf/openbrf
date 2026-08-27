@@ -19,7 +19,6 @@ import { Panel } from "../ui/Panel";
 interface PasskeyRow {
   id: string;
   name?: string | null;
-  createdAt?: string | Date | null;
 }
 
 type Outcome =
@@ -53,10 +52,15 @@ export function SecurityPanel({
 
   return (
     <>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-headline">{t("settings.security.title")}</h2>
+        <p className="text-body text-ink-muted">
+          {t("settings.security.description")}
+        </p>
+      </div>
       <PasswordSection />
       <TotpSection enabled={twoFactorEnabled} />
       <PasskeySection />
-      <p className={HINT}>{t("settings.security.description")}</p>
     </>
   );
 }

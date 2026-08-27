@@ -150,11 +150,9 @@
     "done": {
       "title": "Föreningen är konfigurerad",
       "body": "Registret är klart. Bjud in styrelsen och lägg sedan in personer och lägenheter i adressboken.",
-      "skippedNotice": "Överhoppat: {{steps}}. Slutför dem under Inställningar när du vill.",
-      "open": "Öppna adressboken"
+      "skippedNotice": "Överhoppat: {{steps}}. Slutför dem under Inställningar när du vill."
     },
     "resume": {
-      "title": "Konfigurationen är inte klar",
       "body": "Några steg i förstagångskonfigurationen är kvar. Allt där kan också ändras på den här sidan.",
       "open": "Återuppta konfigurationen"
     }
@@ -171,16 +169,6 @@
       "unknown": "Det kunde inte sparas just nu. Försök igen.",
       "forbidden": "Ditt konto får inte ändra detta.",
       "housingCooperativeMissing": "Namnge föreningen först; de övriga inställningarna hänger på den."
-    },
-    "section": {
-      "housingCooperative": "Förening",
-      "addresses": "Adresser och lägenheter",
-      "branding": "Utseende",
-      "smtp": "E-post",
-      "retention": "Gallring",
-      "selfSignup": "Ansökningar om konto",
-      "profile": "Din profil",
-      "security": "Inloggning och säkerhet"
     },
     "housingCooperative": {
       "title": "Föreningen",
@@ -268,8 +256,7 @@
         "failsContrast": "Den färgen kan inte läsas på de ytor där den måste synas, så den sparades inte.",
         "pair": "{{foreground}} på {{background}} mäter {{ratio}} mot 1; minst {{required}} krävs.",
         "statutoryPair": "Det här paret bär det lagstadgade registret och kan därför inte släppas igenom."
-      },
-      "appearance": "Ljust eller mörkt"
+      }
     },
     "smtp": {
       "title": "E-post",
@@ -319,7 +306,8 @@
       "title": "Din profil",
       "description": "Ditt eget språk och hur gränssnittet ser ut på den här enheten.",
       "preferredLocale": "Språk för e-post och utdrag",
-      "name": "Namn"
+      "name": "Namn",
+      "appearance": "Ljust eller mörkt"
     },
     "security": {
       "title": "Inloggning och säkerhet",
@@ -377,6 +365,12 @@
           "unknown": "Nyckeln kunde inte läggas till just nu. Försök igen."
         }
       }
+    },
+    "notice": {
+      "ok": "Klart",
+      "warn": "Observera",
+      "danger": "Fel",
+      "info": "Information"
     }
   }
 }

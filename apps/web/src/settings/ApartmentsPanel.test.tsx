@@ -180,6 +180,27 @@ describe("editing before committing", () => {
     });
   });
 
+  it("reports how many landed and how many were already there", async () => {
+    // The API adds each number once, so a table committed twice has to say what
+    // actually happened rather than claiming to have added everything again.
+    addApartments.mockResolvedValue({
+      ok: true,
+      value: { created: 1, skipped: 1 },
+    });
+    const session = userEvent.setup();
+    renderPanel();
+
+    await generate(session, { floors: "1", perFloor: "2" });
+    await session.click(
+      screen.getByRole("button", { name: /spara lägenheterna/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/lade till 1/i)).toBeTruthy();
+    });
+    expect(screen.getByText(/redan registrerade: 1/i)).toBeTruthy();
+  });
+
   it("refuses to commit two rows with the same number", async () => {
     // The API skips duplicates silently, so two identical rows would produce one
     // apartment and no complaint - leaving the board believing both were added.

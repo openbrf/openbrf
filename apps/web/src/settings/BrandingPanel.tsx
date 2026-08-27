@@ -11,7 +11,6 @@ import { useTranslation } from "react-i18next";
 import type { BrandingSettings, ContrastFailure } from "../api/instance";
 import { saveBranding } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
-import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import {
   FIELD_DATA,
   HINT,
@@ -36,7 +35,12 @@ const BRANDING_FAILURES: Readonly<Record<string, TranslationKey>> = {
 };
 
 /**
- * Appearance: one colour, and the light or dark mode.
+ * The housing cooperative's own accent colour.
+ *
+ * Light or dark is deliberately NOT here: that is a preference of the person
+ * looking at the screen, not a property of the cooperative, so it lives in
+ * their own profile. The wizard configures the instance; it does not configure
+ * the operator's eyes.
  *
  * The preview is the honest part. The board picks one value and the platform
  * derives five from it, differently for each mode, so a swatch of what they
@@ -192,13 +196,6 @@ export function BrandingPanel({
           </div>
         ) : null}
       </form>
-
-      <div className="flex flex-col gap-2 border-t border-line pt-4">
-        <h3 className="text-label text-ink-muted uppercase">
-          {t("settings.branding.appearance")}
-        </h3>
-        <ThemeModeToggle />
-      </div>
     </Panel>
   );
 }

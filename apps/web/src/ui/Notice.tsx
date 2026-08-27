@@ -19,30 +19,36 @@ export interface NoticeProps {
 /**
  * Colour, and never only colour.
  *
- * Every tone here carries three signals at once: the colour, a written word
- * naming the state, and a left rule whose weight differs from the panel's own
- * border. A board member who cannot distinguish the green from the red reads
- * the word instead, which is the rule DESIGN.md states and the reason the label
- * is not optional.
+ * Every tone carries three signals at once: the colour, a written word naming
+ * the state, and a left rule whose weight differs from the panel's own border. A
+ * board member who cannot distinguish the green from the red reads the word
+ * instead, which is the rule DESIGN.md states and the reason the label is not
+ * optional.
+ *
+ * The words are the message's own rather than the register legend's. The legend
+ * names what a colour means in the register - warn there is "protected person or
+ * caution" - and putting that on an unconfigured SMTP server would read as if
+ * somebody's protected personal data were involved. The colour keeps its
+ * meaning; the word says what this particular message is.
  */
 const TONE: Readonly<
   Record<NoticeTone, { classes: string; labelKey: TranslationKey }>
 > = {
   ok: {
     classes: "border-l-4 border-ok bg-ok-soft text-ink",
-    labelKey: "legend.ok",
+    labelKey: "settings.notice.ok",
   },
   warn: {
     classes: "border-l-4 border-warn bg-warn-soft text-ink",
-    labelKey: "legend.warn",
+    labelKey: "settings.notice.warn",
   },
   danger: {
     classes: "border-l-4 border-danger bg-danger-soft text-ink",
-    labelKey: "legend.danger",
+    labelKey: "settings.notice.danger",
   },
   info: {
     classes: "border-l-4 border-info bg-info-soft text-ink",
-    labelKey: "legend.info",
+    labelKey: "settings.notice.info",
   },
 };
 

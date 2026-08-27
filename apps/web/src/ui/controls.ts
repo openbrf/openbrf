@@ -35,17 +35,6 @@ export const SECONDARY_BUTTON =
   "inline-flex min-h-11 items-center justify-center rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-ink transition-colors duration-150 ease-out disabled:opacity-60";
 
 /**
- * The trust action. Brass, and only for a position of trust or an act of
- * governance - never as decoration and never as "the important button".
- */
-export const TRUST_BUTTON =
-  "inline-flex min-h-11 items-center justify-center rounded-control bg-trust px-4 text-small font-semibold text-on-trust transition-colors duration-150 ease-out hover:bg-trust-hover disabled:opacity-60";
-
-/** Destructive action. */
-export const DANGER_BUTTON =
-  "inline-flex min-h-11 items-center justify-center rounded-control bg-danger px-4 text-small font-semibold text-on-danger transition-colors duration-150 ease-out disabled:opacity-60";
-
-/**
  * A quiet button that still meets the touch target: used for row actions like
  * removing a generated apartment row.
  */
@@ -55,7 +44,3 @@ export const QUIET_BUTTON =
 /** A card in the room: one radius step up, one shadow level, no gradient. */
 export const PANEL =
   "rounded-panel border border-line bg-raised p-5 shadow-raised";
-
-/** The register surface, for anything that reads as register data. */
-export const BOARD_PANEL =
-  "rounded-panel border border-register-line bg-register p-4 text-register-ink";
