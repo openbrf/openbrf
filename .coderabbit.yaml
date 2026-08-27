@@ -1,0 +1,272 @@
+# CodeRabbit configuration for Open BRF.
+#
+# Schema: https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# Two things shape this file. First, review is the main quality mechanism on a
+# project with one maintainer, so the profile is assertive and the project's own
+# rules are spelled out per path rather than left to be inferred. Second, most
+# of CodeRabbit's tools default to ON, so the deliberate work here is switching
+# OFF the ones that would cry wolf on this codebase - each with the reason,
+# so a future maintainer can tell a considered choice from an oversight.
+
+language: en-US
+
+tone_instructions: >-
+  Be direct and specific. Point at the line and say what breaks and why. Skip
+  praise and skip restating what the diff does. This platform holds a statutory
+  register of personal data under Swedish law, so correctness, privacy and
+  accessibility outrank style. If a change looks fine, say so briefly rather
+  than inventing something to comment on. Never add AI attribution of any kind
+  to review comments.
+
+reviews:
+  profile: assertive
+
+  # One maintainer merges their own work, so a blocking review state would
+  # simply be dismissed. Findings are the value; gatekeeping is CI's job.
+  request_changes_workflow: false
+
+  high_level_summary: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  related_issues: true
+  related_prs: true
+
+  # A public repository is a shop window. No poems, no fortunes.
+  poem: false
+  in_progress_fortune: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    base_branches:
+      - main
+
+  pre_merge_checks:
+    title:
+      mode: error
+      requirements: >-
+        The title must follow Conventional Commits (type(scope): subject), since
+        CI lints it with commitlint and a squash merge turns it into the commit
+        message on main. It must not contain AI attribution.
+    description:
+      mode: warning
+    # The codebase comments why a thing exists, not what the next line does. A
+    # coverage threshold would push reviews toward the second kind.
+    docstrings:
+      mode: off
+
+  path_filters:
+    # Generated or vendored: reviewing these produces noise, not findings.
+    - "!pnpm-lock.yaml"
+    - "!apps/api/src/generated/**"
+    - "!apps/web/src/theme/*.generated.css"
+    - "!**/dist/**"
+    - "!**/.turbo/**"
+    - "!apps/web/public/fonts/**"
+
+  path_instructions:
+    - path: "apps/api/prisma/migrations/**"
+      instructions: >-
+        Migrations are forward-only and reviewed for safety, not style.
+
+        Flag anything that would weaken the statutory archive: the tables
+        member_register_entry and audit_log_entry must never accept UPDATE or
+        DELETE, and transfer and lien_note must never accept DELETE. Those
+        guards are BEFORE UPDATE OR DELETE triggers plus a statement-level
+        TRUNCATE trigger plus revoked privileges. Removing, renaming or
+        disabling any of them, or adding a table to the statutory tier without
+        the matching guards, is a defect. The Swedish Economic Associations Act
+        (EFL 5 kap., via BRL 9 kap.) requires the member register to be
+        retained, so this is a legal requirement rather than a convention.
+
+        Guards must raise with ERRCODE raise_exception (P0001) and the
+        OPENBRF_STATUTORY_ARCHIVE marker. Anything in SQLSTATE class 23 gets
+        rewritten by Prisma into a generic constraint error and the real reason
+        is lost.
+
+        Also flag: a destructive column or table drop without a stated reason,
+        an index added to a large table without CONCURRENTLY, and any migration
+        that would hold a long lock on the person or apartment tables.
+
+    - path: "apps/api/prisma/schema.prisma"
+      instructions: >-
+        This schema carries a two-tier model that must not be blurred. The
+        statutory tier (MemberRegisterEntry, Transfer, LienNote, AuditLogEntry
+        and the confidential apartment register fields) is append-only and
+        exempt from purging. The service tier carries a computed purge date.
+
+        Flag: a new field holding personal data that is not encrypted and blind
+        indexed when it should be (email, phone and personal identity number
+        follow the "<field>Cipher" plus "<field>Index" convention); any personal
+        identity number reachable from a model used in a public view; a
+        statutory model gaining an updatedAt or a mutable field that implies it
+        can be edited.
+
+        The models User, Session, Account, Verification, TwoFactor and Passkey
+        are owned by Better Auth. Their shape comes from the library, so domain
+        fields must not be added to them. Renaming them breaks the adapter,
+        which resolves the Prisma delegate by model name.
+
+    - path: "apps/api/src/**"
+      instructions: >-
+        Flag any user-facing string that is not an i18next key. This is a hard
+        project rule and applies to email and PDF output too, which must render
+        in the recipient's own locale rather than the acting user's.
+
+        Encryption goes through FieldEncryptionService and nothing else. Flag
+        direct use of ciphersweet-js, and flag a search on an encrypted field
+        that does not compute its blind index through that service, because a
+        hand-normalized lookup silently misses rows that exist.
+
+        Protected personal data (skyddade personuppgifter) is masked
+        server-side. Flag any endpoint that returns unmasked contact data to a
+        viewer who is not entitled to it, and any reveal that is not written to
+        the audit log in the same transaction as the read.
+
+        Resident-facing responses must never include another resident's email or
+        phone. Contact data is board-only.
+
+        Authorization is capability-based and the guard is global. Flag a new
+        route that neither declares a capability nor is deliberately marked
+        @Public(), and flag any @Public() route that touches personal data.
+
+        Flag personal data written to logs, error messages or exception
+        payloads.
+
+    - path: "apps/web/src/**"
+      instructions: >-
+        Every visual value comes from a token. Flag any hardcoded colour, hex
+        literal, radius, shadow or font stack in a component: a theme must be
+        able to restyle everything, so a literal is a defect. Use
+        var(--obrf-*).
+
+        Flag any user-facing string that is not an i18next key.
+
+        Colour is never the only signal. A state shown only by colour must also
+        carry a label or a pattern.
+
+        Register data belongs in the monospace face so columns align. Flag a
+        date, apartment number, phone number or personal identity number
+        rendered in the UI face.
+
+        Board members and residents span a wide age range: flag touch targets
+        under 44px on mobile and text that would fall below WCAG AA.
+
+    - path: "packages/tokens/**"
+      instructions: >-
+        This is a published contract, not a stylesheet. Adding a token is a
+        minor version and must ship a fallback derived from an existing token so
+        older themes keep working. Renaming or removing one is a major version.
+        Flag a change that breaks either rule, or that changes the documented
+        MEANING of a status token: themes may change values, never semantics.
+
+        Flag any new colour pair involving the register surface that is not
+        added to the contrast matrix.
+
+    - path: "**/*.{spec,int-spec}.ts"
+      instructions: >-
+        Prefer tests that would fail if the behaviour regressed. Flag a test
+        that asserts only that a call did not throw, and flag a mock that stands
+        in for the very thing under test - the database guards, the crypto and
+        the auth flows are tested against the real thing on purpose.
+
+        Integration tests share a database, so flag fixtures with fixed ids that
+        would collide across runs, and flag a test that leaves rows behind.
+
+    - path: ".github/workflows/**"
+      instructions: >-
+        This repository is public, so a workflow is an attack surface. Flag
+        actions referenced by a floating tag rather than a version, any use of
+        pull_request_target, secrets exposed to a step that does not need them,
+        and a missing least-privilege permissions block.
+
+    - path: "**/*.md"
+      instructions: >-
+        Documentation is in English. Swedish appears only in translation files
+        and where a legal term is the point. Domain terms follow GLOSSARY.md, so
+        flag an English term that contradicts the canonical mapping and flag a
+        new domain term introduced without a glossary entry.
+
+  tools:
+    # Matches the linter this repo actually runs.
+    oxc:
+      enabled: true
+    # Postgres migration safety: locking and destructive operations.
+    squawk:
+      enabled: true
+    prismaLint:
+      enabled: true
+    # Secrets. Belt and braces alongside GitHub push protection.
+    gitleaks:
+      enabled: true
+    # Workflow correctness and workflow security, which matter more now that
+    # the repository is public.
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    # A duplicate key in pnpm-workspace.yaml has already broken an install
+    # here once; this is cheap insurance.
+    yamllint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    # No Dockerfile yet; it arrives with the deployment work.
+    hadolint:
+      enabled: true
+
+    # --- Deliberately off ---------------------------------------------------
+    # The demo seed and the test fixtures contain synthetic Swedish names and
+    # personal identity numbers on purpose, so a PII detector would flag every
+    # pull request and teach us to ignore it. Real personal data lives only in
+    # a database, never in this repository.
+    presidio:
+      enabled: false
+    # Style linting fights Prisma's generated migration SQL. Migration SAFETY
+    # is covered by squawk above, which is the part that matters.
+    sqlfluff:
+      enabled: false
+    # The governance and policy documents keep hand-written formatting and are
+    # listed in .prettierignore for the same reason.
+    markdownlint:
+      enabled: false
+    # Prose linters on a bilingual project produce more noise than signal.
+    languagetool:
+      enabled: false
+    vale:
+      enabled: false
+    # Not this project's linters; enabling them only produces missing-config
+    # errors.
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    # Dependency advisories arrive through Dependabot alerts, and Renovate owns
+    # the updates. Repeating them per pull request would flag transitive issues
+    # that a review cannot act on.
+    osvScanner:
+      enabled: false
+
+chat:
+  auto_reply: true
+  # Nothing is accepting outside contributions yet, so there is no reason to
+  # answer accounts outside the organisation.
+  allow_non_org_members: false
+
+knowledge_base:
+  # Teach the reviewer the project's own rules instead of restating them in
+  # every pull request.
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CONTRIBUTING.md"
+      - "DESIGN.md"
+      - "GLOSSARY.md"
+      - "docs/theme-contract.md"
+      - "docs/adr/*.md"
+  # Keep what it learns to this repository rather than sharing it wider.
+  learnings:
+    scope: local

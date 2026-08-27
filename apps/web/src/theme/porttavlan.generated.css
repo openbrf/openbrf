@@ -1,0 +1,121 @@
+/*
+ * GENERATED FILE - do not edit.
+ *
+ * Produced from the token contract in packages/tokens by
+ * apps/web/scripts/generate-theme-css.mjs. Change a colour there, then run
+ * "pnpm --filter @openbrf/web theme:generate". A test fails if this file and
+ * the contract disagree.
+ */
+
+:root {
+  --obrf-surface-page: #EFEDE7;
+  --obrf-surface-raised: #FFFFFF;
+  --obrf-surface-sunken: #E6E3DB;
+  --obrf-text-primary: #26272A;
+  --obrf-text-secondary: #616269;
+  --obrf-border-subtle: #DBD8CF;
+  --obrf-border-strong: #B8B5AC;
+  --obrf-surface-register: #1C1D1F;
+  --obrf-surface-register-raised: #26272B;
+  --obrf-text-register: #F4F2EC;
+  --obrf-text-register-secondary: #A5A6AA;
+  --obrf-border-register: #3A3C40;
+  --obrf-accent-trust: #7D5F23;
+  --obrf-accent-trust-hover: #6F571F;
+  --obrf-accent-trust-soft: #EFE7D2;
+  --obrf-accent-trust-register: #C9A64B;
+  --obrf-on-accent-trust: #FFFFFF;
+  --obrf-status-ok: #366B3E;
+  --obrf-status-ok-soft: #E2EEDF;
+  --obrf-status-warn: #7D5615;
+  --obrf-status-warn-soft: #F3EAD2;
+  --obrf-status-warn-register: #D2A257;
+  --obrf-status-danger: #A03329;
+  --obrf-status-danger-soft: #F6E2DE;
+  --obrf-on-status-danger: #FFFFFF;
+  --obrf-status-info: #38607E;
+  --obrf-status-info-soft: #E1EAF2;
+  --obrf-radius-control: 4px;
+  --obrf-radius-panel: 8px;
+  --obrf-shadow-raised: 0 2px 10px rgba(28, 29, 31, 0.08);
+  --obrf-motion-duration: 180ms;
+  --obrf-motion-easing: ease-out;
+  --obrf-font-ui: 'Familjen Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --obrf-font-data: 'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --obrf-surface-page: #17181A;
+    --obrf-surface-raised: #212226;
+    --obrf-surface-sunken: #2A2B30;
+    --obrf-text-primary: #ECEAE4;
+    --obrf-text-secondary: #9C9DA1;
+    --obrf-border-subtle: #34353A;
+    --obrf-border-strong: #4A4B50;
+    --obrf-surface-register: #101113;
+    --obrf-surface-register-raised: #1A1B1E;
+    --obrf-text-register: #F4F2EC;
+    --obrf-text-register-secondary: #9EA0A4;
+    --obrf-border-register: #303236;
+    --obrf-accent-trust: #C9A64B;
+    --obrf-accent-trust-hover: #D8B75E;
+    --obrf-accent-trust-soft: #35301E;
+    --obrf-accent-trust-register: #C9A64B;
+    --obrf-on-accent-trust: #17181A;
+    --obrf-status-ok: #7FB489;
+    --obrf-status-ok-soft: #223122;
+    --obrf-status-warn: #D2A257;
+    --obrf-status-warn-soft: #383019;
+    --obrf-status-warn-register: #D2A257;
+    --obrf-status-danger: #E07A6E;
+    --obrf-status-danger-soft: #3D2420;
+    --obrf-on-status-danger: #17181A;
+    --obrf-status-info: #85ACC9;
+    --obrf-status-info-soft: #253442;
+    --obrf-radius-control: 4px;
+    --obrf-radius-panel: 8px;
+    --obrf-shadow-raised: 0 2px 10px rgba(0, 0, 0, 0.4);
+    --obrf-motion-duration: 180ms;
+    --obrf-motion-easing: ease-out;
+    --obrf-font-ui: 'Familjen Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --obrf-font-data: 'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+}
+
+:root[data-theme="dark"] {
+  --obrf-surface-page: #17181A;
+  --obrf-surface-raised: #212226;
+  --obrf-surface-sunken: #2A2B30;
+  --obrf-text-primary: #ECEAE4;
+  --obrf-text-secondary: #9C9DA1;
+  --obrf-border-subtle: #34353A;
+  --obrf-border-strong: #4A4B50;
+  --obrf-surface-register: #101113;
+  --obrf-surface-register-raised: #1A1B1E;
+  --obrf-text-register: #F4F2EC;
+  --obrf-text-register-secondary: #9EA0A4;
+  --obrf-border-register: #303236;
+  --obrf-accent-trust: #C9A64B;
+  --obrf-accent-trust-hover: #D8B75E;
+  --obrf-accent-trust-soft: #35301E;
+  --obrf-accent-trust-register: #C9A64B;
+  --obrf-on-accent-trust: #17181A;
+  --obrf-status-ok: #7FB489;
+  --obrf-status-ok-soft: #223122;
+  --obrf-status-warn: #D2A257;
+  --obrf-status-warn-soft: #383019;
+  --obrf-status-warn-register: #D2A257;
+  --obrf-status-danger: #E07A6E;
+  --obrf-status-danger-soft: #3D2420;
+  --obrf-on-status-danger: #17181A;
+  --obrf-status-info: #85ACC9;
+  --obrf-status-info-soft: #253442;
+  --obrf-radius-control: 4px;
+  --obrf-radius-panel: 8px;
+  --obrf-shadow-raised: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --obrf-motion-duration: 180ms;
+  --obrf-motion-easing: ease-out;
+  --obrf-font-ui: 'Familjen Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --obrf-font-data: 'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}

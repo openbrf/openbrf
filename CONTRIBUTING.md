@@ -4,6 +4,24 @@ Thank you for considering a contribution! This document explains how the project
 
 > **Pre-release note:** until v1 ships, the codebase moves fast and large areas are still being scaffolded. Opening an issue before writing code matters even more than usual.
 
+> ## External pull requests are not being accepted yet
+>
+> The repository is public because we develop in the open, not because the
+> project is ready for contributions. Two things have to land first: v1 has to
+> take shape, and the legal documents (the [CLA](CLA.md), the
+> [module exception](LICENSE-EXCEPTION.md) and the trademark policy) have to be
+> reviewed by a lawyer. Asking anyone to sign a contributor agreement whose
+> wording we already expect to change would not be fair, so we are not asking.
+>
+> **Issues and discussions are very welcome in the meantime** - bug reports,
+> questions, and ideas about what a Swedish housing cooperative actually needs
+> are genuinely useful right now, and they cost you nothing legally. Watch the
+> repository if you want to know when this changes; it will be announced here
+> and in the release notes.
+>
+> The rest of this document describes how contribution will work once it opens,
+> and how maintainers work today.
+
 ## Language policy
 
 **English is the project language.** Everything in the repository is written in English:
@@ -65,7 +83,9 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 ## Commits and pull requests
 
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, with optional scope, e.g. `feat(register): ...`), linted by commitlint in CI.
-- **Squash merge is the only merge method.** Your PR title becomes the commit message on `main`, so the PR title must follow Conventional Commits; individual commits inside the PR can be messy.
+- **History on `main` stays linear.** Merge commits are disabled; a PR lands either by **squash** or by **rebase**, and which one you pick follows from the PR:
+  - **Squash** when the commits inside the PR are working notes. The PR title becomes the commit message on `main`, so that title must follow Conventional Commits.
+  - **Rebase** when the commits are already a deliberate sequence worth keeping - a migration split into reviewable steps, for instance. Every commit must then follow Conventional Commits on its own and each must build and pass CI, because each one lands on `main` separately.
 - **Changesets:** user-visible changes need a changeset file (`pnpm changeset`) describing the change and its semver impact. CI reminds you if it is missing; docs/chore PRs don't need one.
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.

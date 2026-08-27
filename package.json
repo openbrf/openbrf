@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "changeset": "changeset",
-    "hooks:install": "git config core.hooksPath .githooks"
+    "hooks:install": "git config core.hooksPath .githooks",
+    "verify": "turbo run lint typecheck test build && pnpm format:check && pnpm --filter @openbrf/web theme:check"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",

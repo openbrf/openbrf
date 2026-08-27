@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./locales/*.json": "./src/locales/*.json"
   },
   "scripts": {
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",

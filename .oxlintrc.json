@@ -18,6 +18,7 @@
     "**/dist/**",
     "**/node_modules/**",
     "**/coverage/**",
-    "**/.turbo/**"
+    "**/.turbo/**",
+    "**/src/generated/**"
   ]
 }

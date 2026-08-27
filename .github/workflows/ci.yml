@@ -9,16 +9,25 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Least privilege rather than whatever the repository default happens to be.
+# Checkout and dependency caching need nothing beyond reading the contents.
+permissions:
+  contents: read
+
 jobs:
   checks:
     name: Lint, format, typecheck, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -32,22 +41,87 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # The default theme's CSS is committed so the browser never flashes
+      # unstyled; this proves it still matches the token contract.
+      - name: Theme stylesheet is current
+        run: pnpm --filter @openbrf/web theme:check
+
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Test
         run: pnpm test
 
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    # The statutory archive guards are database triggers, privileges and
+    # constraints, so they can only be verified against a real PostgreSQL.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: openbrf
+          POSTGRES_PASSWORD: openbrf
+          POSTGRES_DB: openbrf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openbrf -d openbrf"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://openbrf:openbrf@localhost:5432/openbrf
+      BETTER_AUTH_SECRET: ci-secret-at-least-16-characters
+      # Fixed test key: never used outside CI.
+      OPENBRF_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @openbrf/api db:generate
+
+      - name: Apply migrations
+        run: pnpm --filter @openbrf/api db:deploy
+
+      - name: Install job schema
+        run: pnpm --filter @openbrf/api db:jobs
+
+      - name: Integration tests
+        run: pnpm --filter @openbrf/api test:int
+
   pr-title:
     name: Validate PR title
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: pnpm
