@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "preview": "vite preview",
-    "theme:generate": "node scripts/generate-theme-css.mjs"
+    "theme:generate": "node scripts/generate-theme-css.mjs",
+    "theme:check": "node scripts/generate-theme-css.mjs --check"
   },
   "dependencies": {
     "@openbrf/i18n": "workspace:*",

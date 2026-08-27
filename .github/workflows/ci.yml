@@ -32,6 +32,11 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # The default theme's CSS is committed so the browser never flashes
+      # unstyled; this proves it still matches the token contract.
+      - name: Theme stylesheet is current
+        run: pnpm --filter @openbrf/web theme:check
+
       - name: Typecheck
         run: pnpm typecheck
 

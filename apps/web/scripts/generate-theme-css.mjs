@@ -6,12 +6,14 @@
  * parses, or the app flashes unstyled on every load; and a committed file makes
  * a palette change visible in review as a diff of actual colours.
  *
- * A test asserts the committed file still matches the contract, so it cannot
- * drift silently. Run this after changing any token value:
+ * Run with --check to verify the committed file matches the contract without
+ * writing, which is what CI does so the two cannot drift silently.
+ *
+ * Run this after changing any token value:
  *
  *   pnpm --filter @openbrf/web theme:generate
  */
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,5 +32,29 @@ const header = `/*
  */
 `;
 
-writeFileSync(target, `${header}\n${buildThemeStylesheet(PORTTAVLAN)}`, "utf8");
-console.log(`Wrote ${target}`);
+const contents = `${header}\n${buildThemeStylesheet(PORTTAVLAN)}`;
+
+if (process.argv.includes("--check")) {
+  let committed = "";
+  try {
+    committed = readFileSync(target, "utf8");
+  } catch {
+    console.error(
+      `Missing ${target}. Run: pnpm --filter @openbrf/web theme:generate`,
+    );
+    process.exit(1);
+  }
+
+  if (committed !== contents) {
+    console.error(
+      `${target} is out of date with the token contract.\n` +
+        "Run: pnpm --filter @openbrf/web theme:generate",
+    );
+    process.exit(1);
+  }
+
+  console.log("Theme stylesheet matches the token contract.");
+} else {
+  writeFileSync(target, contents, "utf8");
+  console.log(`Wrote ${target}`);
+}
