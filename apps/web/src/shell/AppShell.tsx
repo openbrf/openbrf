@@ -14,7 +14,7 @@ export interface NavItem {
 }
 
 export interface AppShellProps {
-  associationName: string;
+  housingCooperativeName: string;
   /** Signed-in person's display name, or undefined while unknown. */
   personName?: string;
   /** Their most senior role, already translated by the caller. */
@@ -87,7 +87,7 @@ const BAR_LINK_ACTIVE = "border-trust-register text-trust-register";
  * The application frame.
  *
  * Follows the design system's board topology: a fixed dark band carries the
- * association's identity and the navigation as a row of signs, and the content
+ * cooperative's identity and the navigation as a row of signs, and the content
  * lives in the light room below. The regions are fixed and swap their content
  * rather than moving, so a board member always finds the same thing in the same
  * place.
@@ -101,7 +101,7 @@ const BAR_LINK_ACTIVE = "border-trust-register text-trust-register";
  * The bar is where a thumb reaches, and residents are mostly on phones.
  */
 export function AppShell({
-  associationName,
+  housingCooperativeName,
   personName,
   roleLabel,
   navItems,
@@ -115,7 +115,7 @@ export function AppShell({
       <header className="flex h-16 shrink-0 items-center gap-8 bg-register px-4 text-register-ink sm:px-8">
         <div className="flex min-w-0 flex-col">
           <span className="truncate text-label uppercase">
-            {associationName}
+            {housingCooperativeName}
           </span>
           <span className="text-chip text-register-ink-muted uppercase">
             {t("welcome.title")}

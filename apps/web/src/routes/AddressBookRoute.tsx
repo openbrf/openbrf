@@ -26,7 +26,7 @@ export function AddressBookRoute(): ReactElement {
     <AppShell
       // The cooperative's real name arrives with the settings endpoint; until
       // then the frame is honest about not knowing it.
-      associationName={t("app.housingCooperative")}
+      housingCooperativeName={t("app.housingCooperative")}
       personName={session?.user.name}
       navItems={NAV_ITEMS}
       onSignOut={() => {

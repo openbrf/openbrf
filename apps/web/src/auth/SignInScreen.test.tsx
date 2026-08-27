@@ -9,6 +9,13 @@ const signInWithPassword = vi.fn();
 const requestMagicLink = vi.fn();
 const verifySecondFactor = vi.fn();
 
+/*
+ * The indirection through an arrow is load-bearing, not style: vi.mock factories
+ * are hoisted and run when the mocked module is first imported, which happens
+ * before these consts initialize. Capturing the binding is fine, dereferencing
+ * it is not - so `email: (...args) => signInEmail(...args)` works where
+ * `email: signInEmail` would read the binding too early.
+ */
 vi.mock("./sign-in-methods", () => ({
   signInWithPassword: (...args: unknown[]) => signInWithPassword(...args),
   requestMagicLink: (...args: unknown[]) => requestMagicLink(...args),
@@ -100,6 +107,36 @@ describe("SignInScreen", () => {
         expect(onSignedIn).toHaveBeenCalledTimes(1);
       });
       expect(verifySecondFactor).toHaveBeenCalledWith({ code: "123456" });
+    });
+
+    it("hands back the password form when the challenge has expired", async () => {
+      verifySecondFactor.mockResolvedValue({
+        status: "failed",
+        code: "second-factor-expired",
+      });
+      render(<SignInScreen />);
+
+      await submit();
+      await waitFor(() => {
+        expect(codeField()).toBeTruthy();
+      });
+
+      const session = userEvent.setup();
+      await session.type(codeField() as HTMLElement, "000000");
+      await session.click(screen.getByRole("button", { name: /slutför/i }));
+
+      /*
+       * The mirror image of the test below. Here the two-factor cookie is gone,
+       * so no code can be accepted any more and the message says to start again
+       * from the password - which means the password form has to actually come
+       * back. Telling someone to start over on a screen with no way to start
+       * over is the same dead end, reached from the other side.
+       */
+      await waitFor(() => {
+        expect(screen.getByLabelText(/lösenord/i)).toBeTruthy();
+      });
+      expect(codeField()).toBeNull();
+      expect(screen.getByRole("status").textContent).toMatch(/börja om/i);
     });
 
     it("keeps the code form after a wrong code", async () => {

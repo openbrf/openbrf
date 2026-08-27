@@ -81,6 +81,17 @@ export function SignInScreen({
         setAwaitingSecondFactor(true);
         return;
       case "failed":
+        /*
+         * An expired or missing challenge is the one failure that has to hand
+         * the viewer back: the two-factor cookie is gone, so no code can be
+         * accepted any more, and the message tells them to start again from the
+         * password. Every other failure stays on the code form, where another
+         * attempt still works.
+         */
+        if (outcome.code === "second-factor-expired") {
+          setAwaitingSecondFactor(false);
+          setCode("");
+        }
         setStatus({ kind: "failed", code: outcome.code });
         return;
     }

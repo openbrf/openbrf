@@ -52,7 +52,7 @@ const NAV: readonly NavItem[] = [
 
 function renderShell(props: Partial<Parameters<typeof AppShell>[0]> = {}) {
   return render(
-    <AppShell associationName="Brf Eksemplet" navItems={NAV} {...props}>
+    <AppShell housingCooperativeName="Brf Eksemplet" navItems={NAV} {...props}>
       <p>{CHILD_TEXT}</p>
     </AppShell>,
   );

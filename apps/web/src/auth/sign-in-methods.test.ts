@@ -21,6 +21,13 @@ const signInEmail = vi.fn();
 const signInMagicLink = vi.fn();
 const verifyTotp = vi.fn();
 
+/*
+ * The indirection through an arrow is load-bearing, not style: vi.mock factories
+ * are hoisted and run when the mocked module is first imported, which happens
+ * before these consts initialize. Capturing the binding is fine, dereferencing
+ * it is not - so `email: (...args) => signInEmail(...args)` works where
+ * `email: signInEmail` would read the binding too early.
+ */
 vi.mock("./auth-client", () => ({
   authClient: {
     signIn: {
