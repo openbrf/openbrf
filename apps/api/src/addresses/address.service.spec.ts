@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import { AddressService } from "./address.service";
 
 /**
@@ -140,6 +141,68 @@ describe("adding an address", () => {
         city: "Stockholm",
       }),
     ).rejects.toMatchObject({ reason: "address-exists" });
+  });
+});
+
+describe("renaming an address", () => {
+  const RENAMED = {
+    street: "Storgatan",
+    number: "14",
+    postalCode: "123 45",
+    city: "Stockholm",
+  };
+
+  it("refuses a street and number another address already holds", async () => {
+    const { service, prisma } = build();
+    // The clash lookup finds a different row, which is the case the id-not
+    // filter is there to distinguish from finding the row being renamed.
+    prisma.address.findFirst.mockResolvedValue({ id: "address-2" });
+
+    await expect(service.update("address-1", RENAMED)).rejects.toMatchObject({
+      reason: "address-exists",
+    });
+    expect(prisma.address.update).not.toHaveBeenCalled();
+  });
+
+  it("excludes the row being renamed from the clash lookup", async () => {
+    // Without the filter every rename would clash with itself and the panel
+    // could never change an address's postal code or city.
+    const { service, prisma } = build();
+    prisma.address.findFirst.mockResolvedValue(null);
+
+    await service.update("address-1", { ...RENAMED, city: "Uppsala" });
+
+    expect(prisma.address.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: "address-1" } }),
+      }),
+    );
+    expect(prisma.address.update).toHaveBeenCalledWith({
+      where: { id: "address-1" },
+      data: expect.objectContaining({ city: "Uppsala" }),
+    });
+  });
+
+  it("answers the conflict, not a server error, when the constraint decides", async () => {
+    /*
+     * The read narrows the race; the unique constraint closes it. Two boards
+     * renaming to the same entrance at the same moment both pass the read, and
+     * the second write raises P2002. Uncaught it would leave the filter with an
+     * error it does not handle, so the panel would show "something went wrong"
+     * for a conflict it already has words for.
+     */
+    const { service, prisma } = build();
+    prisma.address.findFirst.mockResolvedValue(null);
+    prisma.address.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("unique violation", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    await expect(service.update("address-1", RENAMED)).rejects.toMatchObject({
+      reason: "address-exists",
+    });
   });
 });
 

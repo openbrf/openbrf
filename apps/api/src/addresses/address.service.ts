@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { floorOfApartmentNumber } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 
 export class AddressError extends DomainError {
@@ -133,7 +134,28 @@ export class AddressService {
       );
     }
 
-    await this.prisma.address.update({ where: { id }, data: input });
+    try {
+      await this.prisma.address.update({ where: { id }, data: input });
+    } catch (cause) {
+      /*
+       * The read above narrows the window; the unique constraint closes it. Two
+       * boards renaming two addresses to the same entrance at the same moment
+       * both pass the read, and the second write raises P2002. Without this the
+       * caller gets a 500 for a conflict the client already knows how to show,
+       * which is the opposite of what `create` deliberately does by letting the
+       * database decide.
+       */
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2002"
+      ) {
+        throw new AddressError(
+          `${input.street} ${input.number} is already an address of this housing cooperative.`,
+          "address-exists",
+        );
+      }
+      throw cause;
+    }
     return this.requireView(input.street, input.number);
   }
 

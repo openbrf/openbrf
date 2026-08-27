@@ -1,5 +1,9 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { PORTTAVLAN, primaryColorOverride } from "@openbrf/tokens";
+import {
+  normalizeColor,
+  PORTTAVLAN,
+  primaryColorOverride,
+} from "@openbrf/tokens";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -250,8 +254,21 @@ export class SettingsService {
       );
     }
 
-    // The canonical form, so the same colour typed three ways is one value.
-    const stored = result.override.light["accent-trust"];
+    /*
+     * The canonical form of the CHOSEN colour, so the same colour typed three
+     * ways is one value.
+     *
+     * Not the derived accent: primaryColorOverride mixes the chosen colour
+     * towards each mode's ink until it reads, so override.light["accent-trust"]
+     * can be up to MAX_INK_MIX away from what the board typed. Storing that
+     * would show a colour nobody chose on the way back out, and - because both
+     * the client and this service re-derive both families from the stored value -
+     * would make every later derivation start from the light-adjusted value, so
+     * the dark family actually applied would be one this contrast check never
+     * measured. The register pairs are the statutory ones, so an unmeasured
+     * accent must not be able to reach them.
+     */
+    const stored = normalizeColor(input.primaryColor) ?? input.primaryColor;
     const association = await this.prisma.association.update({
       where: { id: 1 },
       data: { primaryColor: stored },

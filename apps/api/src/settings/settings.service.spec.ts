@@ -154,10 +154,13 @@ describe("reading the settings", () => {
     });
   });
 
-  it("shows the retention policy a fresh instance starts at", async () => {
-    const { service } = build();
+  it("reads back the stored retention policy", async () => {
+    // The stored value, not the schema default: a fake database applies no
+    // column defaults, so this test can only speak for what the row holds. The
+    // default itself is the migration's business and is asserted there.
+    const { service } = build({ retentionDaysAfterMoveOut: 400 });
     await expect(service.read()).resolves.toMatchObject({
-      retention: { daysAfterMoveOut: 365 },
+      retention: { daysAfterMoveOut: 400 },
     });
   });
 
@@ -202,6 +205,26 @@ describe("branding", () => {
 
     expect(result.primaryColor).toBe("#7d5f23");
     expect(current()?.primaryColor).toBe("#7d5f23");
+  });
+
+  it("stores the colour the board chose, not the accent derived from it", async () => {
+    /*
+     * A mid blue that reaches AA only once it is mixed towards the light mode's
+     * ink, so the derived accent (#0263e4) and the chosen colour differ - unlike
+     * the default theme's own brass, which passes untouched and would let this
+     * behaviour regress unnoticed.
+     *
+     * Storing the derived value would show a colour nobody typed on the way back
+     * out, and - because both this service and the client re-derive both mode
+     * families from the stored value - would make the dark family that actually
+     * gets applied one the contrast check above never measured.
+     */
+    const { service, current } = build();
+
+    const result = await service.updateBranding({ primaryColor: "#0066EE" });
+
+    expect(result.primaryColor).toBe("#0066ee");
+    expect(current()?.primaryColor).toBe("#0066ee");
   });
 
   it("refuses a colour too pale to read, naming the pair and the ratio", async () => {
