@@ -71,7 +71,8 @@
       "contact": "Contact",
       "movedIn": "Moved in"
     },
-    "masked": "masked"
+    "masked": "masked",
+    "caption": "Extract from the member register"
   },
   "person": {
     "protectedPersonalData": "Protected personal data"

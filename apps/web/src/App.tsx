@@ -13,9 +13,9 @@ import { ThemeModeToggle } from "./theme/ThemeModeToggle";
  * Note what the protected row carries. Name and apartment ARE shown to a board
  * viewer, because identifying members against apartments is what a statutory
  * register is for. What masking covers is the contact detail, which is why that
- * field arrives already redacted rather than being hidden by the component.
- * On the real board the redaction happens server-side: an unentitled viewer
- * never receives the value, and revealing it is a separate audited request.
+ * field arrives already redacted rather than being hidden by the component. On
+ * the real board the redaction happens server-side: an unentitled viewer never
+ * receives the value, and revealing it is a separate audited request.
  */
 const SAMPLE_ROWS = [
   {
@@ -36,18 +36,22 @@ const SAMPLE_ROWS = [
 /** A line of register data, shown to prove the monospace grid aligns. */
 const SAMPLE_DATA_LINE = ["1001", "2019-06-01", "070-123 45 67"] as const;
 
-const ROW_GRID = "grid grid-cols-[84px_1fr_150px_120px] items-center";
-
 /*
- * Narrowest width at which every register column stays readable: the three
- * fixed columns (84 + 150 + 120) plus room for a name and the row padding.
+ * Narrowest width at which every register column stays readable, being the sum
+ * of the fixed columns plus room for a name.
  *
  * Below this the board scrolls horizontally rather than dropping columns. It
  * must never silently clip: a board member reviewing a statutory register has
  * to be able to see all of it, and on a 375px phone the fixed columns alone
  * exceed the available width.
+ *
+ * This is layout arithmetic, deliberately not a theme token. A theme that could
+ * set it would be able to reintroduce the clipping this exists to prevent.
  */
-const ROW_MIN_WIDTH = "min-w-[580px]";
+const TABLE_MIN_WIDTH = "min-w-[580px]";
+
+const HEAD_CELL = "px-6 py-2.5 text-left text-label uppercase";
+const CELL = "px-6 py-2.5";
 
 /**
  * Temporary theme proof surface.
@@ -72,49 +76,75 @@ export function App(): ReactElement {
       <ThemeModeToggle />
 
       {/*
-        The register board. A statutory register renders on its own surface
-        family so it reads as a register rather than as another table, and every
-        data column uses the monospace face so figures align character for
-        character.
+        The register board.
+        
+        A real table, not a div grid. A register is tabular data, and a screen
+        reader has to be able to tie each value to its column heading - which
+        only table semantics provide. It also renders on its own surface family
+        so it reads as a register rather than as another list, and every data
+        column uses the monospace face so figures align character for character.
       */}
       <section className="overflow-hidden rounded-panel bg-register shadow-raised">
         {/*
-          The board scrolls on its own axis. The page itself must never scroll
+          The table scrolls on its own axis. The page itself must never scroll
           horizontally, and the register must never lose a column to clipping.
         */}
         <div className="overflow-x-auto">
-          <div
-            className={`${ROW_GRID} ${ROW_MIN_WIDTH} border-b border-register bg-register-raised px-6 py-2.5 text-label text-register-ink-muted uppercase`}
+          <table
+            className={`${TABLE_MIN_WIDTH} w-full border-collapse text-body text-register-ink`}
           >
-            <span>{t("register.column.apartmentNumber")}</span>
-            <span>{t("register.column.name")}</span>
-            <span>{t("register.column.contact")}</span>
-            <span>{t("register.column.movedIn")}</span>
-          </div>
-          {SAMPLE_ROWS.map((row) => (
-            <div
-              key={row.apartmentNumber + row.name}
-              className={`${ROW_GRID} ${ROW_MIN_WIDTH} border-b border-register px-6 py-2.5 text-body text-register-ink`}
-            >
-              <span className="font-data text-data">{row.apartmentNumber}</span>
-              <span className="flex items-center gap-2 font-medium">
-                {row.name}
-                {"isProtected" in row && row.isProtected ? (
-                  <span className="rounded-control border border-warn-register px-2 py-0.5 text-label text-warn-register uppercase">
-                    {t("person.protectedPersonalData")}
-                  </span>
-                ) : null}
-              </span>
-              {/*
-              A masked field says so in words. Dots alone would leave a reader
-              guessing whether the value is absent or withheld.
-            */}
-              <span className="font-data text-data text-register-ink-muted">
-                {row.contact ?? `••• · ${t("register.masked")}`}
-              </span>
-              <span className="font-data text-data">{row.movedIn}</span>
-            </div>
-          ))}
+            <caption className="sr-only">{t("register.caption")}</caption>
+            <thead>
+              <tr className="border-b border-register bg-register-raised text-register-ink-muted">
+                <th scope="col" className={`${HEAD_CELL} w-[84px]`}>
+                  {t("register.column.apartmentNumber")}
+                </th>
+                <th scope="col" className={HEAD_CELL}>
+                  {t("register.column.name")}
+                </th>
+                <th scope="col" className={`${HEAD_CELL} w-[150px]`}>
+                  {t("register.column.contact")}
+                </th>
+                <th scope="col" className={`${HEAD_CELL} w-[120px]`}>
+                  {t("register.column.movedIn")}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {SAMPLE_ROWS.map((row) => (
+                <tr
+                  key={row.apartmentNumber + row.name}
+                  className="border-b border-register"
+                >
+                  <td className={`${CELL} font-data text-data`}>
+                    {row.apartmentNumber}
+                  </td>
+                  <td className={CELL}>
+                    <span className="flex items-center gap-2 font-medium">
+                      {row.name}
+                      {"isProtected" in row && row.isProtected ? (
+                        <span className="rounded-control border border-warn-register px-2 py-0.5 text-label text-warn-register uppercase">
+                          {t("person.protectedPersonalData")}
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
+                  {/*
+                    A masked field says so in words. Dots alone would leave a
+                    reader guessing whether the value is absent or withheld.
+                  */}
+                  <td
+                    className={`${CELL} font-data text-data text-register-ink-muted`}
+                  >
+                    {row.contact ?? `••• · ${t("register.masked")}`}
+                  </td>
+                  <td className={`${CELL} font-data text-data`}>
+                    {row.movedIn}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
         <div className="bg-register-raised px-6 py-2.5">
           <ColourLegend />
