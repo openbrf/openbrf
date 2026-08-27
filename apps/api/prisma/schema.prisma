@@ -47,8 +47,9 @@ model Association {
   primaryColor String?
 
   /// Service-tier retention: days after move-out before service data is
-  /// purged. Default 730 days (24 months); the purge job is phase 2.
-  retentionDaysAfterMoveOut Int @default(730)
+  /// purged. Configurable per association; a fresh instance starts at 365 days
+  /// (12 months), which the setup wizard shows. The purge job is phase 2.
+  retentionDaysAfterMoveOut Int @default(365)
 
   /// Board-approved self-signup. Off by default: an instance holding a
   /// statutory register does not accept open registration.
@@ -158,11 +159,6 @@ model Person {
 
   /// Locale used for this person's email and PDF extracts.
   preferredLocale String @default("sv")
-
-  /// Opt-in, per field, for resident-to-resident contact sharing. The board
-  /// always sees contact data; other residents see only what is opted in.
-  emailVisibleToResidents Boolean @default(false)
-  phoneVisibleToResidents Boolean @default(false)
 
   /// Null until the person activates an account.
   userAccount           User?

@@ -31,7 +31,13 @@ export const CAPABILITIES = [
   "signupRequest:decide",
   /** Read and edit one's own person record and account settings. */
   "self:manage",
-  /** The resident-facing contact list, honouring per-field visibility. */
+  /**
+   * The resident-facing address book: names, apartments and roles only.
+   *
+   * Contact details are never included. Residents do not see each other's
+   * email or phone at all, and persons with protected personal data are
+   * excluded from this view entirely.
+   */
   "residentDirectory:read",
   /** Handle issue reports. Granted to the property manager; unused in phase 1. */
   "issues:handle",
