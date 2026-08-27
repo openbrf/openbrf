@@ -179,6 +179,7 @@
     },
     "reveal": {
       "action": "Visa",
+      "ariaLabel": "Visa {{field}}",
       "working": "Visar",
       "logged": "Varje visning skrivs till granskningsloggen med ditt namn och de fält du sett.",
       "hide": "Dölj igen",

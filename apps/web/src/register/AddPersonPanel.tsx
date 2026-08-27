@@ -35,6 +35,14 @@ interface FieldDefinition {
   type: "text" | "email" | "tel";
   required: boolean;
   autoComplete: string;
+  /**
+   * Register data is entered in the mono face, so the value reads the same here
+   * as it does in the register column it ends up in. Declared per field rather
+   * than decided from the field name at render time, so a field added later
+   * states its own face instead of inheriting prose by default. Names and
+   * street addresses are prose and stay in the UI face.
+   */
+  face?: "data";
 }
 
 const FIELDS: readonly FieldDefinition[] = [
@@ -65,6 +73,7 @@ const FIELDS: readonly FieldDefinition[] = [
     type: "tel",
     required: false,
     autoComplete: "off",
+    face: "data",
   },
   {
     name: "postalStreet",
@@ -188,7 +197,9 @@ export function AddPersonPanel({
                   [field.name]: event.target.value,
                 }));
               }}
-              className="min-h-11 rounded-control border border-line-strong bg-raised px-3 text-body text-ink"
+              className={`min-h-11 rounded-control border border-line-strong bg-raised px-3 text-body text-ink${
+                field.face === "data" ? "font-data" : ""
+              }`}
             />
           </div>
         ))}

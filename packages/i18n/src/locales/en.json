@@ -95,7 +95,7 @@
     "sign": {
       "chair": "Chair",
       "boardMember": "Board member",
-      "deputyBoardMember": "Deputy",
+      "deputyBoardMember": "Deputy board member",
       "member": "Member",
       "resident": "Resident",
       "protected": "Protected",
@@ -179,6 +179,7 @@
     },
     "reveal": {
       "action": "Reveal",
+      "ariaLabel": "Reveal {{field}}",
       "working": "Revealing",
       "logged": "Every reveal is written to the audit log with your name and the fields you saw.",
       "hide": "Hide again",

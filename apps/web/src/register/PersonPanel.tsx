@@ -557,7 +557,9 @@ function MaskedValue({
         type="button"
         onClick={onReveal}
         disabled={revealing}
-        aria-label={`${t("register.reveal.action")}: ${t(FIELD_LABEL[field])}`}
+        aria-label={t("register.reveal.ariaLabel", {
+          field: t(FIELD_LABEL[field]),
+        })}
         className={`${CAUTION_BUTTON} disabled:opacity-60`}
       >
         {revealing ? t("register.reveal.working") : t("register.reveal.action")}
