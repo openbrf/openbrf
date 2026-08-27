@@ -197,7 +197,7 @@ export function AddPersonPanel({
                   [field.name]: event.target.value,
                 }));
               }}
-              className={`min-h-11 rounded-control border border-line-strong bg-raised px-3 text-body text-ink${
+              className={`min-h-11 rounded-control border border-line-strong bg-raised px-3 text-body text-ink ${
                 field.face === "data" ? "font-data" : ""
               }`}
             />
