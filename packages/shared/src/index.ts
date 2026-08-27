@@ -1,3 +1,18 @@
+export {
+  apartmentNumberFor,
+  ApartmentNumberingError,
+  ENTRANCE_FLOOR_PREFIX,
+  floorOfApartmentNumber,
+  generateApartmentNumbers,
+  HIGHEST_FLOOR,
+  LOWEST_FLOOR,
+  MAX_APARTMENTS_PER_FLOOR,
+} from "./apartment-numbering.ts";
+export type {
+  ApartmentNumberRow,
+  GenerateApartmentNumbersInput,
+} from "./apartment-numbering.ts";
+
 /** Placeholder version constant until the first release is cut via changesets. */
 export const VERSION = "0.0.0";
 
