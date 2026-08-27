@@ -1,0 +1,4 @@
+#!/bin/sh
+# Optional local hook (install with: pnpm hooks:install).
+# Lints the commit message with commitlint. CI is the real gate.
+pnpm exec commitlint --edit "$1"

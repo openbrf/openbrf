@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Dependency build scripts must be approved explicitly (pnpm >= 10).
+allowBuilds:
+  "@swc/core": true
+  esbuild: true

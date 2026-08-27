@@ -1,0 +1,22 @@
+# Local development infrastructure.
+# The app service is added once the API is deployable.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openbrf
+      POSTGRES_PASSWORD: openbrf
+      POSTGRES_DB: openbrf
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openbrf -d openbrf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

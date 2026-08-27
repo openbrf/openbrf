@@ -1,0 +1,31 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+
+# Generated lockfiles
+pnpm-lock.yaml
+
+# Local tooling state (mirrors .gitignore)
+.impeccable/
+.claude/
+.mcp.json
+
+# Governance and policy documents keep their hand-written formatting
+/README.md
+/CONTRIBUTING.md
+/CODE_OF_CONDUCT.md
+/GOVERNANCE.md
+/SECURITY.md
+/GLOSSARY.md
+/TRADEMARK.md
+/LICENSE-EXCEPTION.md
+/CLA.md
+/PRODUCT.md
+/DESIGN.md
+/.github/PULL_REQUEST_TEMPLATE.md
+/.github/ISSUE_TEMPLATE/
+/.github/workflows/cla.yml
+/.github/rulesets/

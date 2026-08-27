@@ -1,0 +1,8 @@
+#!/bin/sh
+# Optional local hook (install with: pnpm hooks:install).
+# Fast formatting check on staged files only. CI is the real gate.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+printf "%s\n" "$staged" | tr "\n" "\0" | xargs -0 pnpm exec prettier --check --ignore-unknown
