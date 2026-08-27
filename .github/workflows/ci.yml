@@ -60,7 +60,9 @@ jobs:
     # constraints, so they can only be verified against a real PostgreSQL.
     services:
       postgres:
-        image: postgres:18-alpine
+        # Pinned by digest for the same reason the actions above are: a mutable
+        # tag lets CI change underneath us. Renovate keeps it current.
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
         env:
           POSTGRES_USER: openbrf
           POSTGRES_PASSWORD: openbrf

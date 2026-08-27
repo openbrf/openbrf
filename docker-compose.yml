@@ -3,9 +3,10 @@
 services:
   db:
     # A PostgreSQL data directory is not portable across major versions, so a
-    # volume created by an earlier major refuses to start under this image.
-    # Nothing here is precious -- recreate it with `docker compose down -v &&
-    # docker compose up -d db`, then re-run the migrations.
+    # volume created by an earlier major cannot be reused here. This is local
+    # development infrastructure only and holds nothing precious: discard it
+    # with `docker compose down -v && docker compose up -d db`, then re-run the
+    # migrations. Never run that against an association's data.
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
@@ -15,7 +16,12 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 moved PGDATA to a version-scoped path
+      # (/var/lib/postgresql/18/docker) and its declared VOLUME up to
+      # /var/lib/postgresql. Mounting the pre-18 /var/lib/postgresql/data here
+      # would leave the real data directory outside this named volume, on an
+      # anonymous one, so the database would silently not survive a recreate.
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openbrf -d openbrf"]
       interval: 5s
