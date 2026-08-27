@@ -44,7 +44,7 @@ Thank you for considering a contribution! This document explains how the project
 
 ## Development environment
 
-- **Node.js LTS** (currently 24; 26 after it reaches Active LTS) and **pnpm**. Nothing in the repo or CI may require Bun (using it as a personal dev tool is fine).
+- **Node.js 26** (see `.nvmrc`, which the Dev Container and CI both follow) and **pnpm**. Note that 26 is still the Current line: it reaches Active LTS on 2026-10-28, and until then it can take breaking changes. Nothing in the repo or CI may require Bun (using it as a personal dev tool is fine).
 - A **Dev Container** definition is provided - the fastest way to a working setup.
 - **Docker Compose** runs PostgreSQL and the app locally.
 - Monorepo layout: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/*`).

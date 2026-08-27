@@ -2,7 +2,11 @@
 # The app service is added once the API is deployable.
 services:
   db:
-    image: postgres:17-alpine
+    # A PostgreSQL data directory is not portable across major versions, so a
+    # volume created by an earlier major refuses to start under this image.
+    # Nothing here is precious -- recreate it with `docker compose down -v &&
+    # docker compose up -d db`, then re-run the migrations.
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: openbrf

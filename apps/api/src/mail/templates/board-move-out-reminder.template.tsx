@@ -1,4 +1,4 @@
-import { Text } from "@react-email/components";
+import { Text } from "react-email";
 import type { ReactElement } from "react";
 
 import type { MailTemplate } from "../mail-template";

@@ -1,6 +1,6 @@
 {
   "name": "Open BRF",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-24-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },

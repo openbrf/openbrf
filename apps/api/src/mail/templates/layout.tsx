@@ -9,7 +9,7 @@ import {
   Preview,
   Section,
   Text,
-} from "@react-email/components";
+} from "react-email";
 import type { ReactElement, ReactNode } from "react";
 
 import type { MailTemplateContext } from "../mail-template";
