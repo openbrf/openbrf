@@ -31,8 +31,8 @@ rather than a way to run an association.
 
 ### Foundations
 
-Everything here is implemented and covered by tests, but none of it is reachable
-without an interface.
+Every checked item below is implemented and covered by tests. None of it is
+reachable without an interface, and the one unchecked row says why.
 
 - [x] Core data model: association, addresses, apartments, persons, residencies,
       board positions, roles
@@ -121,15 +121,19 @@ foundation.
 
 - [ ] General meetings: motions, agenda, voting register, proxies, real-time
       voting. Postal voting is prohibited for a housing cooperative under
-      BRL 9 kap. 14 paragraph and will never be built.
+      BRL 9 kap. 14 §, and will never be built.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Public mini-site generated from the association's own data
 - [ ] Forms: subletting applications, motions, key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own.
-- [ ] Export to Lantmateriet's cooperative housing register (a legal
-      requirement, deadline December 2027)
+- [ ] Reporting to Lantmäteriet's cooperative housing register
+      (bostadsrättsregister). Not a single export: an initial submission due
+      31 December 2027, then continuing notifications as grants, transfers,
+      terminations and other register changes occur. A missed notification can
+      affect registration and a third party's protection, so this is a legal
+      duty rather than a convenience feature
 
 ## Paid modules
 

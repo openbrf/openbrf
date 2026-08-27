@@ -14,6 +14,7 @@ Statutes referenced below:
 | boende | resident | Anyone living in the building: members, partners, tenants, children 13+. Not every resident is a member. |
 | bostadsrätt | tenant-ownership; cooperative apartment | The ownership form: a share in the association tied to the right to use an apartment. |
 | bostadsrättsförening (BRF) | housing cooperative; keep **BRF** as abbreviation | The association itself. "BRF" is established and used as-is in names and prose. |
+| bostadsrättsregister | cooperative housing register | The state register of cooperative apartments kept by Lantmäteriet. Initial reporting is due 2027-12-31, followed by continuing notifications of grants, transfers and terminations. |
 | dataskyddsförordningen | GDPR | Keep "GDPR". |
 | felanmälan | **issue report** | Resident-reported maintenance issue; the module is "issues". |
 | föreningsstämma / stämma | **general meeting** | Annual or extraordinary meeting of members. Postal voting is prohibited in a BRF (BRL 9 kap. 14 §) and is never built. |
