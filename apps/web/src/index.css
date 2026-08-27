@@ -78,6 +78,45 @@
   /* Typography. The data face carries every register column. */
   --font-ui: var(--obrf-font-ui);
   --font-data: var(--obrf-font-data);
+
+  /*
+   * The type scale, named as DESIGN.md names it, so components write
+   * `text-label` instead of repeating `text-[13px] tracking-[0.12em] uppercase`
+   * and drifting apart from each other.
+   *
+   * These are APPLICATION tokens, deliberately not part of the public --obrf-*
+   * contract: what a theme may change is colours, typefaces, shape, motion, the
+   * logo and the view variants. Type sizes are not on that list, and adding
+   * them would widen a versioned public API past what the theme rules allow -
+   * and let a theme shrink a statutory register into illegibility.
+   */
+  --text-display: 30px;
+  --text-display--font-weight: 700;
+  --text-display--line-height: 1.15;
+
+  --text-headline: 24px;
+  --text-headline--font-weight: 700;
+  --text-headline--line-height: 1.25;
+
+  --text-title: 18px;
+  --text-title--font-weight: 600;
+  --text-title--line-height: 1.3;
+
+  --text-body: 15px;
+  --text-body--line-height: 1.55;
+
+  --text-small: 13px;
+  --text-small--line-height: 1.5;
+
+  /* Board headings, column heads and state signs. */
+  --text-label: 13px;
+  --text-label--font-weight: 600;
+  --text-label--line-height: 1.2;
+  --text-label--letter-spacing: 0.12em;
+
+  /* Register data. Always mono so columns align character for character. */
+  --text-data: 13px;
+  --text-data--line-height: 1.4;
 }
 
 /*

@@ -42,6 +42,25 @@ describe("App", () => {
     expect(checked).toHaveLength(1);
   });
 
+  it("names the protected state precisely on the row, not just as caution", () => {
+    renderApp();
+
+    // The legend entry describes what the colour means, which covers protected
+    // data AND caution. A row must say which one it is.
+    expect(screen.getByText("Skyddade personuppgifter")).toBeTruthy();
+  });
+
+  it("masks a protected resident's contact detail, in words", () => {
+    renderApp();
+
+    // Dots alone would leave a reader guessing whether the value is absent or
+    // withheld. Name and apartment stay visible: identifying members against
+    // apartments is what the statutory register is for.
+    expect(screen.getByText(/maskerad/)).toBeTruthy();
+    expect(screen.getByText("Sara Berg")).toBeTruthy();
+    expect(screen.queryByText("070-555 12 34")).toBeNull();
+  });
+
   it("labels every legend entry, so colour is never the only signal", () => {
     renderApp();
 

@@ -17,7 +17,7 @@ export function ThemeModeToggle(): ReactElement {
 
   return (
     <fieldset className="rounded-panel border border-line-strong p-3">
-      <legend className="px-1 text-[13px] font-semibold tracking-[0.12em] text-ink-muted uppercase">
+      <legend className="px-1 text-label text-ink-muted uppercase">
         {t("theme.mode.label")}
       </legend>
       <div className="flex gap-1" role="radiogroup">
@@ -33,7 +33,7 @@ export function ThemeModeToggle(): ReactElement {
                 setMode(candidate);
               }}
               className={[
-                "min-h-11 rounded-control px-3 text-sm font-semibold",
+                "min-h-11 rounded-control px-3 text-small font-semibold",
                 "transition-colors duration-150 ease-out",
                 selected
                   ? "bg-trust text-on-trust"

@@ -66,9 +66,14 @@
   },
   "register": {
     "column": {
-      "apartment": "Lgh",
+      "apartmentNumber": "Lgh",
       "name": "Namn",
+      "contact": "Kontakt",
       "movedIn": "Inflytt"
-    }
+    },
+    "masked": "maskerad"
+  },
+  "person": {
+    "protectedPersonalData": "Skyddade personuppgifter"
   }
 }

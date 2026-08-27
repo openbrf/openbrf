@@ -22,7 +22,7 @@ export function ColourLegend(): ReactElement {
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] tracking-[0.06em] uppercase">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-label uppercase">
       <span className="font-bold text-register-ink-muted">
         {t("legend.title")}
       </span>

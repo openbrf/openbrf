@@ -66,9 +66,14 @@
   },
   "register": {
     "column": {
-      "apartment": "Apt",
+      "apartmentNumber": "Apt",
       "name": "Name",
+      "contact": "Contact",
       "movedIn": "Moved in"
-    }
+    },
+    "masked": "masked"
+  },
+  "person": {
+    "protectedPersonalData": "Protected personal data"
   }
 }
