@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:int": "vitest run --config vitest.integration.config.mts",
-    "db:jobs": "node scripts/install-job-schema.mjs"
+    "db:jobs": "node scripts/install-job-schema.mjs",
+    "db:seed": "tsc -p tsconfig.build.json && node dist/seed/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.3",

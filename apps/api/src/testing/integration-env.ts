@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs";
-import { dirname, join, parse } from "node:path";
-
+import { loadNearestEnvFile } from "../config/load-env-file";
 import { type Env, loadEnv } from "../config/env";
 
 /**
@@ -21,22 +19,5 @@ export function loadEnvForIntegrationTests(): Env {
         ".env and start the database with `docker compose up -d db`.",
       { cause },
     );
-  }
-}
-
-function loadNearestEnvFile(startDirectory: string = process.cwd()): void {
-  const { root } = parse(startDirectory);
-  let directory = startDirectory;
-
-  for (;;) {
-    const candidate = join(directory, ".env");
-    if (existsSync(candidate)) {
-      process.loadEnvFile(candidate);
-      return;
-    }
-    if (directory === root) {
-      return;
-    }
-    directory = dirname(directory);
   }
 }
