@@ -7,27 +7,27 @@ export {
   TOKEN_PREFIX,
   TOKENS,
   tokenDefinition,
-} from "./contract";
+} from "./contract.ts";
 export type {
   ContrastPair,
   PartialTokenSet,
   TokenDefinition,
   TokenName,
   TokenSet,
-} from "./contract";
+} from "./contract.ts";
 export {
   DEFAULT_THEME_MODES,
   PORTTAVLAN,
   PORTTAVLAN_DARK,
   PORTTAVLAN_ID,
   PORTTAVLAN_LIGHT,
-} from "./porttavlan";
-export type { ThemeModes } from "./porttavlan";
+} from "./porttavlan.ts";
+export type { ThemeModes } from "./porttavlan.ts";
 export {
   buildThemeStylesheet,
   resolveTokens,
   tokensToCssDeclarations,
-} from "./resolve";
-export type { ResolveResult } from "./resolve";
-export { contrastRatio, relativeLuminance, checkContrast } from "./contrast";
-export type { ContrastFinding } from "./contrast";
+} from "./resolve.ts";
+export type { ResolveResult } from "./resolve.ts";
+export { contrastRatio, relativeLuminance, checkContrast } from "./contrast.ts";
+export type { ContrastFinding } from "./contrast.ts";

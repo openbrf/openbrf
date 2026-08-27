@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { REQUIRED_TOKEN_NAMES, TOKEN_NAMES } from "./contract";
-import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan";
-import { buildThemeStylesheet, resolveTokens } from "./resolve";
+import { REQUIRED_TOKEN_NAMES, TOKEN_NAMES } from "./contract.ts";
+import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan.ts";
+import { buildThemeStylesheet, resolveTokens } from "./resolve.ts";
 
 describe("resolveTokens", () => {
   it("passes a complete theme through unchanged", () => {

@@ -1,4 +1,4 @@
-import { CONTRAST_PAIRS, type TokenName, type TokenSet } from "./contract";
+import { CONTRAST_PAIRS, type TokenName, type TokenSet } from "./contract.ts";
 
 /**
  * WCAG contrast, used to gate theme installation.

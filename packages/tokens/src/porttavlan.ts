@@ -1,4 +1,4 @@
-import type { PartialTokenSet, TokenSet } from "./contract";
+import type { PartialTokenSet, TokenSet } from "./contract.ts";
 
 /**
  * Porttavlan: the default theme.

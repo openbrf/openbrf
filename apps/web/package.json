@@ -9,14 +9,16 @@
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "theme:generate": "node scripts/generate-theme-css.mjs"
   },
   "dependencies": {
     "@openbrf/i18n": "workspace:*",
     "i18next": "^26.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-i18next": "^17.0.12"
+    "react-i18next": "^17.0.12",
+    "@openbrf/tokens": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

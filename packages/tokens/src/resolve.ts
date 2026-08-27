@@ -4,7 +4,7 @@ import {
   TOKENS,
   type TokenName,
   type TokenSet,
-} from "./contract";
+} from "./contract.ts";
 
 /**
  * Completes a partial token set into a full one.

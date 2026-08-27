@@ -144,6 +144,9 @@ importers:
       '@openbrf/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@openbrf/tokens':
+        specifier: workspace:*
+        version: link:../../packages/tokens
       i18next:
         specifier: ^26.4.0
         version: 26.4.0(typescript@7.0.2)

@@ -6,8 +6,8 @@ import {
   contrastRatio,
   parseColor,
   relativeLuminance,
-} from "./contrast";
-import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan";
+} from "./contrast.ts";
+import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan.ts";
 
 describe("parseColor", () => {
   it.each([

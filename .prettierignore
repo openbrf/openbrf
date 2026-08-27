@@ -29,3 +29,7 @@ pnpm-lock.yaml
 /.github/ISSUE_TEMPLATE/
 /.github/workflows/cla.yml
 /.github/rulesets/
+
+# Generated from the token contract; formatting is the generator's business and
+# a drift test compares this file against its output byte for byte.
+apps/web/src/theme/*.generated.css
