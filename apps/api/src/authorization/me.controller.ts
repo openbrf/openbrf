@@ -3,6 +3,7 @@ import { Controller, Get, Req } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import type { RequestWithPrincipal } from "./authorization.guard";
 import type { Capability } from "./capabilities";
+import { RequireCapability } from "./require-capability.decorator";
 
 export interface ViewerView {
   personId: string;
@@ -39,8 +40,16 @@ export interface ViewerView {
  *
  * The person id comes from the session, never from the request, so this route
  * cannot be pointed at somebody else.
+ *
+ * The capability is declared rather than left to the global guard's session
+ * check. Every non-public route in this codebase states what it requires, so a
+ * route's protection can be read off the route instead of inferred from what
+ * the guard happens to do with no metadata. self:manage is the right one: this
+ * is the viewer's own record, and capabilitiesFor grants it to every principal,
+ * so the declaration narrows nothing and locks nobody out.
  */
 @Controller("api/me")
+@RequireCapability("self:manage")
 export class MeController {
   constructor(private readonly prisma: PrismaService) {}
 
@@ -65,8 +74,11 @@ export class MeController {
     ]);
 
     if (person === null) {
+      // The id is deliberately left out: this message reaches the exception
+      // filter and the server log, and a person id identifies somebody in the
+      // member register.
       throw new Error(
-        `Person ${principal.personId} vanished between the guard and this handler.`,
+        "The session names a person that no longer exists in the register.",
       );
     }
 

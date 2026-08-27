@@ -63,6 +63,23 @@ const retentionSchema = z.object({
 
 const selfSignupSchema = z.object({ enabled: z.boolean() });
 
+/**
+ * The acting person, or a fault.
+ *
+ * Not `?? ""`: an empty id would be used as a database key and the caller would
+ * be told "person not found", which describes the register rather than the
+ * request that is actually broken. The global guard attaches a principal to
+ * every non-public route or rejects it, so reaching this throw means the guard
+ * stopped doing that and a 500 naming the guard is the honest answer.
+ */
+function requirePersonId(request: RequestWithPrincipal): string {
+  const principal = request.principal;
+  if (principal === undefined) {
+    throw new Error("The authorization guard did not attach a principal.");
+  }
+  return principal.personId;
+}
+
 const profileSchema = z.object({
   preferredLocale: z.enum(SUPPORTED_LOCALES),
 });
@@ -120,7 +137,7 @@ export class SettingsWriteController {
   async testSmtp(
     @Req() request: RequestWithPrincipal,
   ): Promise<{ sentTo: string; host: string }> {
-    return this.settings.sendTestMessage(request.principal?.personId ?? "");
+    return this.settings.sendTestMessage(requirePersonId(request));
   }
 
   @Put("retention")
@@ -155,7 +172,7 @@ export class ProfileSettingsController {
     @Body() body: unknown,
   ): Promise<{ preferredLocale: string }> {
     return this.settings.updateOwnProfile(
-      request.principal?.personId ?? "",
+      requirePersonId(request),
       profileSchema.parse(body),
     );
   }
