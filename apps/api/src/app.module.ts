@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 
+import { AddressBookModule } from "./address-book/address-book.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { AuthorizationModule } from "./authorization/authorization.module";
@@ -28,6 +29,7 @@ import { SignupModule } from "./signup/signup.module";
     AuthorizationModule,
     InvitationsModule,
     SignupModule,
+    AddressBookModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
