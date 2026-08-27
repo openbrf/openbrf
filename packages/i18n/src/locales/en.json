@@ -167,6 +167,7 @@
     "readOnlyNotice": "You can see these settings but not change them.",
     "errors": {
       "unknown": "That could not be saved just now. Please try again.",
+      "loadFailed": "The settings could not be read just now. Reload the page.",
       "forbidden": "Your account is not allowed to change this.",
       "housingCooperativeMissing": "Name the housing cooperative first; the other settings hang off it."
     },
@@ -174,7 +175,7 @@
       "title": "The housing cooperative",
       "description": "The name goes on the board, in emails and on the register extracts.",
       "name": "Name",
-      "namePlaceholder": "Brf Eksemplet",
+      "namePlaceholder": "BRF Example",
       "organizationNumber": "Organisation number",
       "organizationNumberHint": "Ten digits, for example 769600-1234. Printed on statutory extracts.",
       "defaultLocale": "Default language",
@@ -204,7 +205,7 @@
     },
     "apartments": {
       "title": "Apartments",
-      "description": "Apartment numbers follow the Lantmateriet convention: the first two digits are the floor, where the entrance floor is 10, and the last two number the apartments on the landing.",
+      "description": "Apartment numbers follow the Lantmäteriet convention: the first two digits identify the floor, where the entrance floor is 10, and the last two digits number the apartments on the landing.",
       "selectAddress": "Address",
       "generator": {
         "title": "Generate a table",
@@ -222,6 +223,7 @@
       },
       "addRow": "Add a row",
       "removeRow": "Remove row",
+      "removeApartment": "Remove apartment {{number}}",
       "commit": "Save these apartments",
       "committed": "Added {{created}}. Already registered: {{skipped}}.",
       "draftEmpty": "Nothing to save yet. Generate a table or add a row.",
@@ -290,7 +292,7 @@
       "description": "How long service data is kept after someone moves out. The date is computed from the move-out date, so changing this moves every pending date at once.",
       "days": "Days after move-out",
       "daysHint": "Between 30 and 3650 days. A fresh instance starts at 365.",
-      "statutoryNotice": "The member register and the access log are exempt. The law requires the member register to be retained, so no setting and no administrator can delete it.",
+      "statutoryNotice": "The member register and the audit log are exempt. The law requires the member register to be retained, so no setting and no administrator can delete it.",
       "errors": {
         "range": "Choose between 30 and 3650 days."
       }
@@ -350,7 +352,7 @@
       },
       "passkeys": {
         "title": "Passkeys",
-        "description": "Sign in with the fingerprint, face or screen lock of a device you own. A passkey cannot be phished and never leaves the device.",
+        "description": "Sign in with the fingerprint, face or screen lock of a device you own. A passkey cannot be phished, and its private key is never sent to this service.",
         "name": "Name for this device",
         "add": "Add a passkey",
         "adding": "Waiting for the device...",

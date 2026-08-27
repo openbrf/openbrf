@@ -167,6 +167,7 @@
     "readOnlyNotice": "Du kan se de här inställningarna men inte ändra dem.",
     "errors": {
       "unknown": "Det kunde inte sparas just nu. Försök igen.",
+      "loadFailed": "Inställningarna kunde inte hämtas just nu. Ladda om sidan.",
       "forbidden": "Ditt konto får inte ändra detta.",
       "housingCooperativeMissing": "Namnge föreningen först; de övriga inställningarna hänger på den."
     },
@@ -204,7 +205,7 @@
     },
     "apartments": {
       "title": "Lägenheter",
-      "description": "Lägenhetsnummer följer Lantmäteriets standard: de två första siffrorna är våningen, där entréplan är 10, och de två sista numrerar lägenheterna på våningsplanet.",
+      "description": "Lägenhetsnummer följer Lantmäteriets standard: de två första siffrorna anger våningen, där entréplan är 10, och de två sista numrerar lägenheterna på våningsplanet.",
       "selectAddress": "Adress",
       "generator": {
         "title": "Generera en tabell",
@@ -222,6 +223,7 @@
       },
       "addRow": "Lägg till rad",
       "removeRow": "Ta bort rad",
+      "removeApartment": "Ta bort lägenhet {{number}}",
       "commit": "Spara lägenheterna",
       "committed": "Lade till {{created}}. Redan registrerade: {{skipped}}.",
       "draftEmpty": "Inget att spara än. Generera en tabell eller lägg till en rad.",
@@ -290,7 +292,7 @@
       "description": "Hur länge servicedata sparas efter att någon flyttat ut. Datumet räknas fram från utflyttningsdatumet, så en ändring flyttar alla kommande datum på en gång.",
       "days": "Dagar efter utflyttning",
       "daysHint": "Mellan 30 och 3650 dagar. En ny instans börjar på 365.",
-      "statutoryNotice": "Medlemsförteckningen och åtkomstloggen omfattas inte. Lagen kräver att medlemsförteckningen bevaras, så ingen inställning och ingen administratör kan ta bort den.",
+      "statutoryNotice": "Medlemsförteckningen och granskningsloggen omfattas inte. Lagen kräver att medlemsförteckningen bevaras, så ingen inställning och ingen administratör kan ta bort den.",
       "errors": {
         "range": "Välj mellan 30 och 3650 dagar."
       }
@@ -350,7 +352,7 @@
       },
       "passkeys": {
         "title": "Nycklar",
-        "description": "Logga in med fingeravtryck, ansikte eller skärmlås på en enhet du äger. En nyckel kan inte nätfiskas och lämnar aldrig enheten.",
+        "description": "Logga in med fingeravtryck, ansikte eller skärmlås på en enhet du äger. En nyckel kan inte nätfiskas, och dess privata nyckel skickas aldrig till den här tjänsten.",
         "name": "Namn på enheten",
         "add": "Lägg till nyckel",
         "adding": "Väntar på enheten...",
