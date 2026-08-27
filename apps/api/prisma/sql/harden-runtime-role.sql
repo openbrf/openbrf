@@ -58,3 +58,20 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM openbrf
 -- Migrations are the owner's job, so the application cannot reshape the schema
 -- and cannot disable the triggers that back the rules above.
 REVOKE CREATE ON SCHEMA public FROM openbrf_app;
+
+-- The job queue lives in its own schema. Because the application holds no
+-- CREATE privilege, the schema is installed by the owner at deploy time with
+-- `pnpm --filter @openbrf/api db:jobs`, which must run BEFORE this script so
+-- the grants below have tables to apply to. The application then starts with
+-- pg-boss migration disabled.
+GRANT USAGE ON SCHEMA pgboss TO openbrf_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO openbrf_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO openbrf_app;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO openbrf_app;
+
+-- pg-boss creates partitions per queue while running, so future tables in that
+-- schema must be reachable too.
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO openbrf_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
+  GRANT USAGE, SELECT ON SEQUENCES TO openbrf_app;

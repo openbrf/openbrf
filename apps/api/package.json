@@ -12,7 +12,8 @@
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:int": "vitest run --config vitest.integration.config.mts"
+    "test:int": "vitest run --config vitest.integration.config.mts",
+    "db:jobs": "node scripts/install-job-schema.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.3",

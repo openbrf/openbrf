@@ -81,6 +81,9 @@ jobs:
       - name: Apply migrations
         run: pnpm --filter @openbrf/api db:deploy
 
+      - name: Install job schema
+        run: pnpm --filter @openbrf/api db:jobs
+
       - name: Integration tests
         run: pnpm --filter @openbrf/api test:int
 

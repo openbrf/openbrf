@@ -6,6 +6,7 @@ import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
+import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
 
 @Module({
@@ -15,6 +16,7 @@ import { MailModule } from "./mail/mail.module";
     CryptoModule,
     AuditModule,
     I18nModule,
+    JobsModule,
     MailModule,
   ],
   controllers: [HealthController],
