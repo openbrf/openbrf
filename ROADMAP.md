@@ -56,10 +56,17 @@ reachable without an interface, and the one unchecked row says why.
 - [x] Background job queue
 - [x] Versioned design token contract with WCAG AA contrast enforced in code
 - [x] Default theme in light and dark
+- [x] Theme engine: the token contract rendered to CSS, Tailwind utilities
+      mapped onto it so a theme restyles the whole interface, and light,
+      dark and follow-the-system switching
+- [x] Self-hosted typefaces, with no font CDN: loading a font from a third
+      party would disclose every visitor's IP address to it
 
 ### The interface
 
-Not started. This is the gap between the list above and anything usable.
+Barely begun. This is the gap between the list above and anything usable.
+The theming layer everything will be built on top of exists and renders, but
+no screen a board member or resident would recognise does yet.
 
 - [ ] Application shell, navigation and sign-in screens
 - [ ] First-boot setup wizard: association, addresses, apartments, SMTP,

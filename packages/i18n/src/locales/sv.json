@@ -47,5 +47,28 @@
       "body": "{{name}} flyttade ut från lägenhet {{apartment}} den {{movedOutOn}}. Tjänstedata är schemalagd för gallring {{purgeOn}}.",
       "action": "Öppna adressboken"
     }
+  },
+  "theme": {
+    "mode": {
+      "label": "Utseende",
+      "system": "System",
+      "light": "Ljust",
+      "dark": "Mörkt"
+    }
+  },
+  "legend": {
+    "title": "Färg som lag",
+    "trust": "Förtroendeuppdrag",
+    "ok": "Bekräftat",
+    "warn": "Skyddad / varsamhet",
+    "danger": "Fara",
+    "info": "Information"
+  },
+  "register": {
+    "column": {
+      "apartment": "Lgh",
+      "name": "Namn",
+      "movedIn": "Inflytt"
+    }
   }
 }

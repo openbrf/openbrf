@@ -1,1 +1,120 @@
+/*
+ * The application stylesheet.
+ *
+ * Order matters. The generated theme must be parsed before the Tailwind @theme
+ * block that maps onto it, and both must come before any component styles.
+ */
+
+/* Self-hosted typefaces. No font CDN, ever. */
+@import "./theme/fonts.css";
+
+/*
+ * The default theme's token values, generated from the token contract in
+ * packages/tokens. Regenerate with:
+ *   pnpm --filter @openbrf/web theme:generate
+ *
+ * This defines every --obrf-* custom property three times over: light values on
+ * :root, dark values under a prefers-color-scheme guard that an explicit light
+ * choice overrides, and dark values again under [data-theme="dark"] so an
+ * explicit choice wins in both directions.
+ */
+@import "./theme/porttavlan.generated.css";
+
 @import "tailwindcss";
+
+/*
+ * Tailwind's design tokens, mapped onto the contract.
+ *
+ * Every utility resolves through a --obrf-* custom property rather than a
+ * literal, which is what makes a theme able to restyle the whole interface at
+ * runtime: swapping the values under [data-theme] reaches shadcn components,
+ * our own views, and any plugin view that styles itself with these utilities.
+ *
+ * A hardcoded colour in a component defeats this and is a defect. That is why
+ * the palette below is the only place hex values are allowed to be absent: the
+ * indirection IS the contract.
+ */
+@theme inline {
+  /* Surfaces and text in the room */
+  --color-page: var(--obrf-surface-page);
+  --color-raised: var(--obrf-surface-raised);
+  --color-sunken: var(--obrf-surface-sunken);
+  --color-ink: var(--obrf-text-primary);
+  --color-ink-muted: var(--obrf-text-secondary);
+  --color-line: var(--obrf-border-subtle);
+  --color-line-strong: var(--obrf-border-strong);
+
+  /* The register surface */
+  --color-register: var(--obrf-surface-register);
+  --color-register-raised: var(--obrf-surface-register-raised);
+  --color-register-ink: var(--obrf-text-register);
+  --color-register-ink-muted: var(--obrf-text-register-secondary);
+  --color-register-line: var(--obrf-border-register);
+
+  /* Trust accent: positions of trust and trust actions only */
+  --color-trust: var(--obrf-accent-trust);
+  --color-trust-hover: var(--obrf-accent-trust-hover);
+  --color-trust-soft: var(--obrf-accent-trust-soft);
+  --color-trust-register: var(--obrf-accent-trust-register);
+  --color-on-trust: var(--obrf-on-accent-trust);
+
+  /* Status: colour as law. Each means exactly one thing. */
+  --color-ok: var(--obrf-status-ok);
+  --color-ok-soft: var(--obrf-status-ok-soft);
+  --color-warn: var(--obrf-status-warn);
+  --color-warn-soft: var(--obrf-status-warn-soft);
+  --color-warn-register: var(--obrf-status-warn-register);
+  --color-danger: var(--obrf-status-danger);
+  --color-danger-soft: var(--obrf-status-danger-soft);
+  --color-on-danger: var(--obrf-on-status-danger);
+  --color-info: var(--obrf-status-info);
+  --color-info-soft: var(--obrf-status-info-soft);
+
+  /* Form */
+  --radius-control: var(--obrf-radius-control);
+  --radius-panel: var(--obrf-radius-panel);
+  --shadow-raised: var(--obrf-shadow-raised);
+
+  /* Typography. The data face carries every register column. */
+  --font-ui: var(--obrf-font-ui);
+  --font-data: var(--obrf-font-data);
+}
+
+/*
+ * Base layer.
+ *
+ * The page background is set explicitly rather than left transparent, so the
+ * theme is in charge of it rather than the browser.
+ */
+@layer base {
+  html {
+    /* Respect a reduced-motion preference before any transition is declared. */
+    color-scheme: light dark;
+  }
+
+  body {
+    background-color: var(--obrf-surface-page);
+    color: var(--obrf-text-primary);
+    font-family: var(--obrf-font-ui);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+   * Focus is always visible and always the trust accent, per the design
+   * system. Removing an outline without replacing it is a defect.
+   */
+  :focus-visible {
+    outline: 2px solid var(--obrf-accent-trust);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
