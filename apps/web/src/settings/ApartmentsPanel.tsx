@@ -163,7 +163,10 @@ export function ApartmentsPanel({
   const generate = (): void => {
     const generated = generateApartmentNumbers({
       lowestFloor: clamp(lowestFloor, LOWEST_FLOOR, HIGHEST_FLOOR, 0),
-      floorCount: clamp(floorCount, 0, HIGHEST_FLOOR - LOWEST_FLOOR + 1, 1),
+      // One, not zero, matching the input's own min: zero floors generates
+      // nothing, and the setRows below would then silently discard whatever the
+      // board had already drafted with no notice saying why.
+      floorCount: clamp(floorCount, 1, HIGHEST_FLOOR - LOWEST_FLOOR + 1, 1),
       apartmentsPerFloor: clamp(perFloor, 1, MAX_APARTMENTS_PER_FLOOR, 1),
     });
 
@@ -265,7 +268,13 @@ export function ApartmentsPanel({
                     {editable ? (
                       <button
                         type="button"
-                        aria-label={t("settings.apartments.removeRow")}
+                        /* The number, not "remove row": these buttons delete a
+                           row of the apartment register with no confirmation,
+                           and a screen reader must not read out a list of
+                           identical names over rows that are not identical. */
+                        aria-label={t("settings.apartments.removeApartment", {
+                          number: apartment.number,
+                        })}
                         disabled={remove.state.kind === "saving"}
                         onClick={() => {
                           void remove.submit(apartment.id);

@@ -61,4 +61,33 @@ describe("announcing an outcome", () => {
     expect(live.firstElementChild?.getAttribute("aria-live")).toBe("polite");
     expect(live.firstElementChild?.getAttribute("role")).toBe("status");
   });
+
+  it("announces a live failure as an alert", () => {
+    /*
+     * A notice is mounted together with its message, and a status region
+     * inserted with its content can go unannounced - the reader registers the
+     * region and announces changes to it afterwards. role="alert" is the
+     * documented exception, announced on insertion, so a failure a board member
+     * is waiting on cannot land silently.
+     */
+    const { container } = render(
+      <Notice tone="danger" live>
+        {BODY}
+      </Notice>,
+    );
+
+    expect(container.firstElementChild?.getAttribute("role")).toBe("alert");
+    expect(container.firstElementChild?.getAttribute("aria-live")).toBe(
+      "assertive",
+    );
+  });
+
+  it("leaves a standing failure quiet", () => {
+    // Not every danger notice is an outcome: one that was on screen at load
+    // must not interrupt the reader every time the component re-renders.
+    const { container } = render(<Notice tone="danger">{BODY}</Notice>);
+
+    expect(container.firstElementChild?.getAttribute("role")).toBeNull();
+    expect(container.firstElementChild?.getAttribute("aria-live")).toBeNull();
+  });
 });

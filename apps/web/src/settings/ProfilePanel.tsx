@@ -22,12 +22,18 @@ export interface ProfilePanelProps {
  * why the label says so instead of calling it "language".
  */
 export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [preferredLocale, setPreferredLocale] = useState(
     viewer.preferredLocale,
   );
 
-  const save = useSaveAction(saveOwnProfile);
+  // Applied here rather than left to the next page load. The stored locale
+  // decides the language of every email and register extract this instance
+  // produces for this person, so a screen that keeps speaking the old language
+  // after saving reads as if the change had not taken.
+  const save = useSaveAction(saveOwnProfile, (saved) => {
+    void i18n.changeLanguage(saved.preferredLocale);
+  });
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();

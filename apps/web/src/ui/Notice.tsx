@@ -52,14 +52,37 @@ const TONE: Readonly<
   },
 };
 
+/**
+ * How a live notice announces itself.
+ *
+ * A notice is mounted together with its message, and a screen reader announces
+ * changes to a live region it has already registered - a `role="status"` region
+ * inserted with its content can therefore stay silent. `role="alert"` is the
+ * documented exception: assistive technology announces alert content on
+ * insertion, which is why it is the standard role for an error that appears in
+ * response to an action. So a live danger notice is an alert, and the outcomes
+ * that are not failures stay polite: a confirmation has no business
+ * interrupting whatever the reader is in the middle of.
+ */
+function liveAttributes(
+  tone: NoticeTone,
+  live: boolean | undefined,
+): { role?: "alert" | "status"; "aria-live"?: "assertive" | "polite" } {
+  if (live !== true) {
+    return {};
+  }
+  return tone === "danger"
+    ? { role: "alert", "aria-live": "assertive" }
+    : { role: "status", "aria-live": "polite" };
+}
+
 export function Notice({ tone, children, live }: NoticeProps): ReactElement {
   const { t } = useTranslation();
   const { classes, labelKey } = TONE[tone];
 
   return (
     <div
-      role={live === true ? "status" : undefined}
-      aria-live={live === true ? "polite" : undefined}
+      {...liveAttributes(tone, live)}
       className={`flex flex-col gap-1 rounded-control px-3 py-2.5 ${classes}`}
     >
       <span className="text-chip uppercase">{t(labelKey)}</span>

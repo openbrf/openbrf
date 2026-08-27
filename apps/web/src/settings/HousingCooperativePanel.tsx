@@ -102,7 +102,11 @@ export function HousingCooperativePanel({
             type="text"
             name="organizationNumber"
             disabled={!editable}
-            inputMode="numeric"
+            /* Text, not numeric: a Swedish organisation number is written
+               NNNNNN-NNNN, and a digits-only mobile keypad has no hyphen key.
+               The value is stored as typed and printed on statutory extracts,
+               so the field has to be able to produce the documented form. */
+            inputMode="text"
             value={organizationNumber}
             onChange={(event) => {
               setOrganizationNumber(event.target.value);

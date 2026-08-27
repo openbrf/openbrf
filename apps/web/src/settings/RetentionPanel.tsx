@@ -54,23 +54,32 @@ export function RetentionPanel({
       title={t("settings.retention.title")}
       description={t("settings.retention.description")}
       notice={
-        save.state.kind === "failed" ? (
-          <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                save.state.failure,
-                { "invalid-body": "settings.retention.errors.range" },
-                "settings.errors.unknown",
-              ),
-            )}
-          </Notice>
-        ) : save.state.kind === "saved" ? (
-          <Notice tone="ok" live>
-            {t("settings.saved")}
-          </Notice>
-        ) : (
+        /*
+         * The statutory notice stands, and the outcome joins it. It used to be
+         * the last branch of a chain, so a successful save replaced it - and
+         * nothing here remounts the panel, so it stayed gone for the rest of the
+         * session. A board answering an erasure request right after changing
+         * this value is exactly who needs to read that the member register and
+         * the audit log are out of its reach.
+         */
+        <>
           <Notice tone="info">{t("settings.retention.statutoryNotice")}</Notice>
-        )
+          {save.state.kind === "failed" ? (
+            <Notice tone="danger" live>
+              {t(
+                failureMessageKey(
+                  save.state.failure,
+                  { "invalid-body": "settings.retention.errors.range" },
+                  "settings.errors.unknown",
+                ),
+              )}
+            </Notice>
+          ) : save.state.kind === "saved" ? (
+            <Notice tone="ok" live>
+              {t("settings.saved")}
+            </Notice>
+          ) : null}
+        </>
       }
     >
       <form className="flex flex-col gap-4" onSubmit={onSubmit}>

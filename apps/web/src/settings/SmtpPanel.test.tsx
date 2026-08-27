@@ -174,6 +174,68 @@ describe("the test message", () => {
   });
 });
 
+describe("the default port", () => {
+  const portField = () => screen.getByLabelText(/^port$/i) as HTMLInputElement;
+
+  it("is the implicit-TLS port while the connection is encrypted", () => {
+    /*
+     * The checkbox is nodemailer's `secure` flag, which means implicit TLS: the
+     * handshake starts on connect, and that is what servers offer on 465. Port
+     * 587 opens in cleartext and upgrades through STARTTLS, so offering it here
+     * hands an administrator a pair that cannot connect.
+     */
+    render(<SmtpPanel value={{ ...EMPTY, secure: true }} />);
+
+    expect(portField().value).toBe("465");
+  });
+
+  it("is the submission port when the connection is not encrypted", () => {
+    render(<SmtpPanel value={{ ...EMPTY, secure: false }} />);
+
+    expect(portField().value).toBe("587");
+  });
+
+  it("follows the checkbox while the port is still a default", async () => {
+    const session = userEvent.setup();
+    render(<SmtpPanel value={{ ...EMPTY, secure: true }} />);
+
+    await session.click(screen.getByLabelText(/krypterad anslutning/i));
+
+    expect(portField().value).toBe("587");
+  });
+
+  it("leaves a port the administrator typed alone", async () => {
+    const session = userEvent.setup();
+    render(<SmtpPanel value={{ ...EMPTY, secure: true }} />);
+
+    await session.clear(portField());
+    await session.type(portField(), "2525");
+    await session.click(screen.getByLabelText(/krypterad anslutning/i));
+
+    expect(portField().value).toBe("2525");
+  });
+});
+
+describe("a successful save", () => {
+  it("is confirmed even when only the password changed", async () => {
+    /*
+     * The settings screen keys this panel on the host and on whether a password
+     * is stored, so replacing only the password changes neither key: the panel
+     * does not remount, and without its own confirmation the screen would look
+     * identical before and after the save.
+     */
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await session.type(screen.getByLabelText(/^lösenord/i), "hunter2hunter2");
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText("Sparat")).toBeTruthy();
+    });
+  });
+});
+
 describe("a board member who may only read", () => {
   it("gets the fields disabled and no save button", () => {
     render(<SmtpPanel value={CONFIGURED} editable={false} />);

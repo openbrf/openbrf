@@ -28,8 +28,23 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "no-email": "settings.smtp.errors.noEmail",
 };
 
-/** Default submission port for a server that speaks STARTTLS or implicit TLS. */
-const DEFAULT_PORT = "587";
+/**
+ * The port to offer when the settings name none, per transport.
+ *
+ * Not one number for both. The "encrypted connection" checkbox is nodemailer's
+ * `secure` flag, which means IMPLICIT TLS: the client starts the handshake the
+ * moment it connects, and that is what servers offer on 465. Port 587 is the
+ * submission port that opens in cleartext and upgrades through STARTTLS. Pairing
+ * 587 with an implicit-TLS connection asks for a handshake from a port that
+ * answers with a greeting, so the default combination the wizard used to present
+ * was one that cannot connect.
+ */
+const IMPLICIT_TLS_PORT = "465";
+const STARTTLS_SUBMISSION_PORT = "587";
+
+function defaultPortFor(secure: boolean): string {
+  return secure ? IMPLICIT_TLS_PORT : STARTTLS_SUBMISSION_PORT;
+}
 
 /**
  * How the instance sends mail.
@@ -54,7 +69,7 @@ export function SmtpPanel({
   const { t } = useTranslation();
   const [host, setHost] = useState(value.host ?? "");
   const [port, setPort] = useState(
-    value.port === null ? DEFAULT_PORT : String(value.port),
+    value.port === null ? defaultPortFor(value.secure) : String(value.port),
   );
   const [secure, setSecure] = useState(value.secure);
   const [user, setUser] = useState(value.user ?? "");
@@ -119,6 +134,15 @@ export function SmtpPanel({
         ) : test.state.kind === "saved" && testedAddress !== null ? (
           <Notice tone="ok" live>
             {t("settings.smtp.testSent", { email: testedAddress })}
+          </Notice>
+        ) : save.state.kind === "saved" ? (
+          /* Confirmed here rather than left to the standing "configured"
+             notice. The settings screen keys this panel on the host and on
+             whether a password is stored, so replacing only the password
+             changes neither key, the panel does not remount, and without this
+             branch the screen looks identical before and after the save. */
+          <Notice tone="ok" live>
+            {t("settings.saved")}
           </Notice>
         ) : configured ? (
           <Notice tone="ok">{t("settings.smtp.configured")}</Notice>
@@ -231,7 +255,14 @@ export function SmtpPanel({
             checked={secure}
             disabled={!editable}
             onChange={(event) => {
-              setSecure(event.target.checked);
+              const next = event.target.checked;
+              setSecure(next);
+              // The two transports listen on different ports, so a port still
+              // sitting on the other mode's default follows the switch. A port
+              // the administrator actually typed is left alone.
+              if (port === defaultPortFor(!next) || port === "") {
+                setPort(defaultPortFor(next));
+              }
             }}
             className="size-4"
           />

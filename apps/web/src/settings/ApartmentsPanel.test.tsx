@@ -97,6 +97,25 @@ describe("the generator", () => {
     ).toEqual(["1001", "1002", "1101", "1102"]);
   });
 
+  it("never silently empties the table on a floor count of zero", async () => {
+    /*
+     * The input declares min=1, but the clamp used to permit 0 - and 0 floors
+     * generates nothing, so the drafted table was replaced with an empty one and
+     * no notice said why. A board that had hand-edited a table would lose it.
+     */
+    const session = userEvent.setup();
+    renderPanel();
+
+    await generate(session, { floors: "2", perFloor: "1" });
+    expect(numberFields()).toHaveLength(2);
+
+    await generate(session, { floors: "0", perFloor: "1" });
+
+    expect(
+      numberFields().map((field) => (field as HTMLInputElement).value),
+    ).toEqual(["1001"]);
+  });
+
   it("keeps the leading zero for a floor below the entrance", async () => {
     const session = userEvent.setup();
     renderPanel();
@@ -216,9 +235,10 @@ describe("editing before committing", () => {
     await session.clear(second);
     await session.type(second, "1001");
 
-    expect(
-      screen.getByText(/1001.*mer än en gång|mer än en gång/i),
-    ).toBeTruthy();
+    // Both halves in one matcher: the alternation this replaced matched on the
+    // phrase alone, so the notice could have stopped naming the number and the
+    // test would still have passed.
+    expect(screen.getByText(/1001 finns med mer än en gång/i)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /spara lägenheterna/i }),
     ).toHaveProperty("disabled", true);
@@ -289,8 +309,16 @@ describe("apartments already in the register", () => {
     await waitFor(() => {
       expect(screen.getByText("1101")).toBeTruthy();
     });
+
+    /*
+     * Reached by the apartment's own number, which is the point: these buttons
+     * delete a row of the apartment register with no confirmation, so a screen
+     * reader must not be offered a list of identical "remove row" names over
+     * rows that are not identical. Naming it here is also what stops the label
+     * regressing to the shared one.
+     */
     await session.click(
-      screen.getAllByRole("button", { name: /ta bort rad/i })[0] as HTMLElement,
+      screen.getByRole("button", { name: /ta bort lägenhet 1101/i }),
     );
 
     // The register is append-only where it matters, so the refusal has to be
