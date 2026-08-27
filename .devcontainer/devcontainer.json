@@ -1,10 +1,10 @@
 {
   "name": "Open BRF",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-bookworm@sha256:3171cac7c483b2dcbbab44b49e6cbc2d52e2b2b7faf81177c2bcb3648b957cf3",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "postCreateCommand": "corepack enable pnpm && pnpm install",
+  "postCreateCommand": "bash -lc 'source $NVM_DIR/nvm.sh; nvm install && nvm use && pnpm install'",
   "forwardPorts": [3000, 5173, 5432],
   "customizations": {
     "vscode": {

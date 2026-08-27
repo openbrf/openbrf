@@ -44,7 +44,8 @@ Thank you for considering a contribution! This document explains how the project
 
 ## Development environment
 
-- **Node.js 26** (see `.nvmrc`, which the Dev Container and CI both follow) and **pnpm**. Note that 26 is still the Current line: it reaches Active LTS on 2026-10-28, and until then it can take breaking changes. Nothing in the repo or CI may require Bun (using it as a personal dev tool is fine).
+- **Node.js is pinned to an exact version in `.nvmrc`** (26.8.1), and the Dev Container and CI both install precisely that: CI through `node-version-file`, the container by running `nvm install` from `.nvmrc` on create. `engines` fences the 26 line (`>=26 <27`) so a stray 25 or 27 is rejected rather than silently tolerated. Bump `.nvmrc` and `engines` together. Note that 26 is still the Current line - it reaches Active LTS on 2026-10-28, and until then it can take breaking changes.
+- **pnpm** comes from the Dev Container image, which ships the version named in `packageManager`; pnpm self-manages that version elsewhere. Note that Node 26 no longer bundles **corepack**, so nothing here may depend on it. Nothing in the repo or CI may require Bun (using it as a personal dev tool is fine).
 - A **Dev Container** definition is provided - the fastest way to a working setup.
 - **Docker Compose** runs PostgreSQL and the app locally.
 - Monorepo layout: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/*`).
