@@ -1,22 +1,22 @@
-# Trademark Policy
+# Name and Logo Policy
 
-> **Status: draft.** This policy will be reviewed by counsel before public launch. A figurative mark (logo + wordmark) registration with EUIPO (classes 9 and 42) is planned.
+> **Status: draft.** "Open BRF" is **not a registered trademark**. Apteo AB plans to register a figurative mark (logo + wordmark) with EUIPO before public launch, and this policy will be reviewed by counsel at that point. Until then, this document states the project's policy and expectations, not a claim of registered rights.
 
-"Open BRF" and the Open BRF logo (together, "the marks") identify the official project maintained by Apteo AB. The code is open source and may be forked freely - **the marks may not**. This is the same model used by Nextcloud and Matomo: the license covers the code, never the name.
+The name "Open BRF" and the Open BRF logo identify the official project maintained by Apteo AB. The code is open source and may be forked freely - that is the point of the project. The name and logo are how users tell the official project apart from forks and third-party services, so we ask that they not be used in ways that blur that line. This follows the model used by Nextcloud and Matomo: the license covers the code, never the identity.
 
-## You may, without asking
+## Always fine, no need to ask
 
-- Use the marks to refer to the project truthfully ("built for Open BRF", "compatible with Open BRF", "a theme for Open BRF").
-- Self-host an **unmodified** Open BRF for your own association and keep calling it Open BRF.
-- Show "powered by Open BRF" attribution on an instance you run.
-- Use the marks in articles, talks, tutorials, and reviews about the project.
+- Using the name to refer to the project truthfully ("built for Open BRF", "compatible with Open BRF", "a theme for Open BRF").
+- Self-hosting an **unmodified** Open BRF for your own association and calling it Open BRF.
+- Showing "powered by Open BRF" attribution on an instance you run.
+- Using the name and logo in articles, talks, tutorials, and reviews about the project.
 
-## You may not, without written permission
+## What we ask you not to do
 
-- Name a fork, derived product, or service "Open BRF" or anything confusingly similar - forks are welcome, under their own name and logo.
-- Use the marks (or misspellings of them) in your company name, product name, domain name, or app store listing.
+- Name a fork, derived product, or service "Open BRF" or something confusingly similar - forks are welcome, under their own name and logo.
+- Use the name (or misspellings of it) in your company name, product name, domain name, or app store listing.
 - Offer commercial hosting or services in a way that implies they are official or endorsed by the project or Apteo AB. Say "X hosting for Open BRF", not "Open BRF hosting by X" - and state clearly that you are not affiliated.
-- Prefix plugin or theme names with the marks ("Open BRF Booking Pro"). Use the "... for Open BRF" form instead.
+- Prefix plugin or theme names with the project name ("Open BRF Booking Pro"). Use the "... for Open BRF" form instead.
 - Modify the logo or combine it with your own branding.
 
 ## Questions

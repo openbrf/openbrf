@@ -31,7 +31,7 @@ This is the part most open core projects leave vague. We won't:
 
 ## Forks and the name
 
-The code may be forked - that right is the product's core promise ("the association owns its data"). The **name and logo may not**: a fork must rename itself, per [TRADEMARK.md](TRADEMARK.md).
+The code may be forked - that right is the product's core promise ("the association owns its data"). The name and logo are not part of that right: forks are asked to rename themselves, per the [name and logo policy](TRADEMARK.md).
 
 ## Changing this document
 

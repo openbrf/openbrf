@@ -44,7 +44,7 @@ Everything in this repository is in English: code, comments, documentation, comm
 
 The Open BRF core is licensed under [AGPL-3.0](LICENSE) with the [Open BRF Module Exception](LICENSE-EXCEPTION.md), which lets plugins, themes, and modules built against the documented public APIs be licensed under terms of their authors' choosing.
 
-"Open BRF" and the Open BRF logo are trademarks of Apteo AB - see [TRADEMARK.md](TRADEMARK.md).
+The "Open BRF" name and logo identify the official project; how they may be used is described in the [name and logo policy](TRADEMARK.md).
 
 ## Commercial services
 
