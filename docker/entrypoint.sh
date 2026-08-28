@@ -11,9 +11,10 @@
 #   7. the owner's credentials are dropped, and the application starts as the
 #      runtime role
 #
-# Steps 4 to 6 are idempotent and run on every start, so an upgrade is
-# `docker compose -f docker-compose.prod.yml --env-file .env.production pull`
-# followed by the same `up -d` that started the instance, and nothing else.
+# Steps 4 to 6 are idempotent and run on every start, so an upgrade is a newer
+# image - `docker compose -f docker-compose.prod.yml --env-file .env.production
+# build` while none is published, `pull` once one is - followed by the same
+# `up -d` that started the instance, and nothing else.
 
 set -eu
 

@@ -70,8 +70,20 @@ The entrypoint runs, in this order, before the application listens:
 7. The owner's credentials are dropped from the environment, and the
    application starts, connecting as `openbrf_app`.
 
-Steps 4 to 6 are idempotent, so upgrading is one `pull` - or one `build` while
-there is no published image - and the same `up -d` that started the instance:
+Steps 4 to 6 are idempotent, so upgrading is a newer image and the same `up -d`
+that started the instance.
+
+There is no published image yet, so the image is built from the checkout. A
+`pull` has no registry to fetch it from and fails; an `up -d` on its own does
+not rebuild an image that already exists. The build is therefore its own step:
+
+```sh
+git pull
+docker compose -f docker-compose.prod.yml --env-file .env.production build
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+Once an image is published, the `git pull` and the `build` become one `pull`:
 
 ```sh
 docker compose -f docker-compose.prod.yml --env-file .env.production pull
