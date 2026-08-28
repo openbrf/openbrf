@@ -94,7 +94,8 @@ export async function acquireInstallLock(
   options: AcquireInstallLockOptions = {},
 ): Promise<InstallLock> {
   const token = randomUUID();
-  const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   let waiting = false;
 
   for (;;) {
@@ -102,29 +103,37 @@ export async function acquireInstallLock(
       return hold(path, token);
     }
 
+    /*
+     * Every path out of a failed claim passes through here and then through
+     * the wait below, so the loop runs at most timeoutMs / POLL_MS times
+     * whatever the claim failed on. The bound has to hold for reasons other
+     * than "another run is working", because some of them never resolve: an
+     * entry at this path that is not a readable file - a directory left by a
+     * mis-specified volume mount - makes the exclusive create report EEXIST
+     * for as long as the instance lives while there is nothing to read, and a
+     * claim whose removal is refused stays exactly where it is. Neither state
+     * changes on its own, so a retry that did not count against a deadline
+     * would spin at full speed inside `reconcile`, holding the queue worker
+     * open and leaving a board waiting for a restart that cannot come.
+     */
+    if (Date.now() >= deadline) {
+      throw new InstallLockError(
+        `The plugin installation at ${path} could not be claimed within ` +
+          `${String(timeoutMs)}ms.`,
+      );
+    }
+
     const seen = await observe(path);
-    if (seen === null) {
-      // Given up between the attempt and the look. Try again at once.
-      continue;
+    if (seen !== null && seen.mtimeMs <= Date.now() - LEASE_MS) {
+      if (await takeOver(path, seen)) {
+        options.onTakeOver?.();
+      }
+    } else if (seen !== null && !waiting) {
+      waiting = true;
+      options.onWait?.();
     }
 
-    if (seen.mtimeMs > Date.now() - LEASE_MS) {
-      if (!waiting) {
-        waiting = true;
-        options.onWait?.();
-      }
-      if (Date.now() >= deadline) {
-        throw new InstallLockError(
-          `The plugin installation at ${path} is still held by another run.`,
-        );
-      }
-      await delay(POLL_MS);
-      continue;
-    }
-
-    if (await takeOver(path, seen)) {
-      options.onTakeOver?.();
-    }
+    await delay(POLL_MS);
   }
 }
 
@@ -182,6 +191,11 @@ async function claim(path: string, token: string): Promise<boolean> {
  * removal is not the take-over - the exclusive create back in the loop is, so
  * several runs finding the same abandoned claim still produce exactly one
  * holder.
+ *
+ * Reports whether the claim was actually removed. A removal that was refused
+ * has changed nothing, and saying otherwise would have the caller announce a
+ * take-over that did not happen on every pass of a loop that is getting
+ * nowhere.
  */
 async function takeOver(path: string, seen: Claim): Promise<boolean> {
   const again = await observe(path);
@@ -194,10 +208,10 @@ async function takeOver(path: string, seen: Claim): Promise<boolean> {
     return false;
   }
 
-  await rm(path, { force: true }).catch(() => {
-    // Left for the next run to take over; the claim is abandoned either way.
-  });
-  return true;
+  return await rm(path, { force: true }).then(
+    () => true,
+    () => false,
+  );
 }
 
 function hold(path: string, token: string): InstallLock {

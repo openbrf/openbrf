@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -45,6 +53,28 @@ async function abandonedClaim(token: string): Promise<void> {
   await writeFile(lockPath, `${token}\n`, "utf8");
   const stopped = new Date(Date.now() - AN_HOUR);
   await utimes(lockPath, stopped, stopped);
+}
+
+/**
+ * Takes away the right to remove what is in `directory`, if it can.
+ *
+ * Removal permission comes from the containing directory, so this is what a
+ * volume that refuses one looks like. It reports whether the refusal actually
+ * took: rights that ignore a directory's mode leave nothing to observe, and a
+ * test that assumed otherwise would pass by accident there.
+ */
+async function denyRemoval(directory: string): Promise<boolean> {
+  const probe = join(directory, "probe");
+  await writeFile(probe, "x", "utf8");
+  await chmod(directory, 0o500);
+  const refused = await rm(probe, { force: true }).then(
+    () => false,
+    () => true,
+  );
+  if (!refused) {
+    await chmod(directory, 0o700);
+  }
+  return refused;
 }
 
 describe("acquireInstallLock", () => {
@@ -123,6 +153,54 @@ describe("acquireInstallLock", () => {
     );
     await lock.release();
   });
+
+  /**
+   * The bound has to hold for reasons other than "another run is working",
+   * because some of them never resolve on their own.
+   *
+   * A directory at the claim's path - a mis-specified volume mount is enough -
+   * makes the exclusive create report EEXIST for as long as the instance
+   * lives, while there is nothing there that reads as a claim. Nothing about
+   * that state changes, so a retry that did not count against the deadline
+   * would spin at full speed inside `reconcile`: the queued job would never
+   * complete, the worker would stop taking plugin installs, and a board would
+   * be left waiting for a restart that cannot come.
+   */
+  it("gives up on a claim path that is not a readable file", async () => {
+    await mkdir(lockPath);
+
+    await expect(
+      acquireInstallLock(lockPath, { timeoutMs: 10 }),
+    ).rejects.toBeInstanceOf(InstallLockError);
+  }, 5_000);
+
+  it("gives up rather than retrying a removal that is refused", async () => {
+    // The same defect on the other branch: a removal that cannot happen has
+    // changed nothing, so a run that treated it as progress would keep going
+    // and keep announcing a take-over it never performed.
+    await abandonedClaim("a-run-that-was-killed");
+    if (!(await denyRemoval(root))) {
+      // Running with rights that ignore the directory's mode, so there is no
+      // refusal here to observe.
+      return;
+    }
+
+    let tookOver = false;
+    try {
+      await expect(
+        acquireInstallLock(lockPath, {
+          timeoutMs: 10,
+          onTakeOver: () => {
+            tookOver = true;
+          },
+        }),
+      ).rejects.toBeInstanceOf(InstallLockError);
+    } finally {
+      await chmod(root, 0o700);
+    }
+
+    expect(tookOver).toBe(false);
+  }, 5_000);
 
   it("does not report a take-over when the tree was simply free", async () => {
     let tookOver = false;
