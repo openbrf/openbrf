@@ -216,16 +216,24 @@ metadata machinery.
 
 ### Plugins and themes
 
-The riskiest part of the architecture has been prototyped and its findings
-written down (see the architecture decision records in `docs/adr`). The plugin
-system itself is not built. Themes are, and they are the easier half by design:
-a theme carries no code at all, so installing one needs no restart and puts
-nothing into the running process.
+Both halves are built. The plugin system carries the manifest, the loader, the
+permissions-scoped SDK, catalog installation with a consent step, and a
+command-line tool; see the architecture decision records in `docs/adr` for the
+module resolution strategy it implements, and `docs/plugin-contract.md` for what
+a plugin author writes against. Themes are the easier half by design: a theme
+carries no code at all, so installing one needs no restart and puts nothing into
+the running process.
 
-- [ ] Plugin manifest, loader and permissions-scoped SDK
-- [ ] Plugin views loaded at runtime without rebuilding the application
-- [ ] Curated plugin catalog and installation from the admin interface
-- [ ] Command-line plugin management
+What neither has yet is the ecosystem around it. The public catalog, the
+published `@openbrf/plugin-sdk` package, the reference plugin and the example
+theme belong in repositories that do not exist, so an instance has nothing to
+install from until they do. Both install paths are so far proven against a
+catalog and packages built inside this repository.
+
+- [x] Plugin manifest, loader and permissions-scoped SDK
+- [x] Plugin views loaded at runtime without rebuilding the application
+- [x] Curated plugin catalog and installation from the admin interface
+- [x] Command-line plugin management
 - [x] Themes installable as data-only plugins, with inheritance. A theme is a
       manifest, token values and bundled font files. It installs from a
       catalog: the package is verified against the checksum the catalog states,
@@ -235,11 +243,7 @@ nothing into the running process.
       a font from a third party. A theme states only what it changes and
       inherits the rest; the default theme is built in, always inheritable and
       cannot be removed. A board member previews a theme in their own browser
-      before activating it, and activating one restarts nothing. What is
-      missing is the ecosystem around it: the public catalog and the example
-      theme belong in repositories that do not exist yet, so the install path
-      is so far proven against a catalog and packages built inside this
-      repository
+      before activating it, and activating one restarts nothing
 - [ ] Theme composer in the admin interface
 
 ## Core v1

@@ -42,3 +42,28 @@ export function loadEnvForIntegrationTests(): Env & { DATABASE_URL: string } {
   }
   return { ...env, DATABASE_URL: env.DATABASE_URL };
 }
+
+/**
+ * Puts one environment variable back the way a suite found it.
+ *
+ * `process.env` coerces assigned values to strings, so restoring a variable
+ * that was absent by assigning the saved `undefined` stores the literal string
+ * "undefined". `delete` is the only way to remove one. The runner reuses its
+ * worker process, so a later suite would read OPENBRF_DATA_DIR="undefined",
+ * resolve that against the working directory, and scan and write ./undefined.
+ */
+export function restoreEnvironmentVariable(
+  name: string,
+  previous: string | undefined,
+): void {
+  if (previous === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = previous;
+  }
+}
+
+/** A per-run suffix, so two overlapping runs cannot collide on a fixed id. */
+export function runSuffix(): string {
+  return process.hrtime.bigint().toString(36);
+}

@@ -537,6 +537,247 @@
       "info": "Information"
     }
   },
+  "plugins": {
+    "navLabel": "Tillägg",
+    "title": "Tillägg",
+    "intro": "Tillägg lägger till funktioner i den här instansen. De installeras från den granskade katalogen och körs med samma behörigheter som resten av programmet, därför godkänner styrelsen vad varje tillägg får göra innan det installeras.",
+    "loading": "Läser in tillägg",
+    "restartNotice": "Programmet startas om för att läsa in ändringen. Ladda om sidan om en liten stund.",
+    "restartTimedOut": "Programmet kom inte tillbaka inom förväntad tid. Ladda om sidan; om tillägget fortfarande inte finns med, titta i serverloggen.",
+    "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
+    "errors": {
+      "loadFailed": "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
+      "unknown": "Det gick inte just nu. Försök igen.",
+      "forbidden": "Ditt konto får inte se den här sidan."
+    },
+    "installed": {
+      "title": "Installerade tillägg",
+      "description": "Vad instansen kör, vad varje tillägg får göra och vilka personuppgifter det hanterar.",
+      "none": "Inga tillägg är installerade.",
+      "permissions": "Får",
+      "personalData": "Personuppgifter",
+      "state": {
+        "running": "Körs",
+        "disabled": "Avstängt",
+        "failed": "Installationen misslyckades",
+        "awaitingRestart": "Installerat, väntar på omstart"
+      },
+      "enable": "Slå på",
+      "disable": "Stäng av",
+      "settings": "Inställningar",
+      "hideSettings": "Dölj inställningar",
+      "remove": "Ta bort",
+      "removeConfirm": "Ja, ta bort",
+      "removeCancel": "Behåll",
+      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod."
+    },
+    "catalog": {
+      "title": "Katalog",
+      "description": "Den granskade katalog som instansen läser. Att installera från någon annan källa är en medveten ändring av instansens konfiguration.",
+      "reload": "Läs katalogen igen",
+      "loading": "Läser katalogen",
+      "none": "Katalogen listar inga tillägg.",
+      "install": "Installera",
+      "reinstall": "Installera igen",
+      "update": "Uppdatera till {{version}}",
+      "installedVersion": "Installerad: {{version}}",
+      "unsupported": "Kräver en nyare version av Open BRF",
+      "deprecated": "Underhålls inte längre",
+      "errors": {
+        "unreachable": "Katalogen kunde inte nås. Kontrollera instansens nätverksåtkomst och katalogens adress.",
+        "malformed": "Katalogen nåddes men kunde inte läsas. Den kan vara skadad eller skriven för en nyare version.",
+        "notPermitted": "Instansen pekar på en katalog utanför den granskade. Att installera därifrån måste tillåtas uttryckligen i instansens konfiguration.",
+        "unknown": "Katalogen kunde inte läsas just nu. Försök igen."
+      }
+    },
+    "consent": {
+      "title": "Granska innan installation",
+      "intro": "{{name}} {{version}} är på väg att installeras. Läs vad tillägget får göra innan du godkänner.",
+      "permissionsTitle": "Det här tillägget får",
+      "personalDataTitle": "Personuppgifter det kommer att hantera",
+      "noPermissions": "Ingenting utöver sina egna inställningar.",
+      "noPersonalData": "Inga.",
+      "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
+      "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",
+      "confirm": "Installera",
+      "installing": "Installerar...",
+      "cancel": "Avbryt",
+      "errors": {
+        "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till."
+      }
+    },
+    "permissions": {
+      "addressBookRead": "Läsa namn, lägenheter, vem som är boende och vem som är medlem, och inflyttnings- och utflyttningsdatum",
+      "addressBookReadContact": "Läsa e-postadresser och telefonnummer",
+      "mailSend": "Skicka e-post via föreningens egen server",
+      "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "unknown": "Något som den här versionen av Open BRF inte känner igen"
+    },
+    "personalData": {
+      "name": "Namn",
+      "apartment": "Lägenhet och adress",
+      "residency": "Inflyttnings- och utflyttningsdatum, och om personen är medlem",
+      "email": "E-postadress",
+      "phone": "Telefonnummer",
+      "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
+    },
+    "findings": {
+      "title": "Körs inte",
+      "description": "Ett tillägg som inte kan köras hoppas över i stället för att få stoppa instansen. Det här är de som hoppades över, och varför.",
+      "reasons": {
+        "disabled": "Avstängt på den här sidan.",
+        "notConsented": "Finns på datavolymen, men instansen har ingen notering om att det godkänts.",
+        "permissionsWidened": "Den installerade versionen begär {{permissions}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
+        "personalDataWidened": "Den installerade versionen hanterar {{categories}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
+        "moduleIdentity": "Det har med sig en egen kopia av {{packages}}, som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
+        "manifestInvalid": "Dess deklaration kunde inte läsas: {{issues}}",
+        "apiVersion": "Det är byggt för version {{apiVersion}} av tilläggskontraktet, som den här Open BRF inte har.",
+        "entryMissing": "Filen {{entry}} som det anger finns inte i paketet.",
+        "loadFailed": "Det misslyckades när det lästes in. Vad det kastade står i serverloggen.",
+        "entryInvalid": "Dess paket exporterar inte det som kontraktet kräver.",
+        "notOnVolume": "Det är noterat som installerat men finns inte på datavolymen.",
+        "moduleRefused": "Dess modul deklarerar beteende som skulle påverka resten av programmet, vilket ett tillägg inte får göra. Det nekades i stället för att köras.",
+        "moduleInvalid": "Dess paket lämnade ingen modul av den form som kontraktet kräver.",
+        "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta. Vad som misslyckades står i serverloggen.",
+        "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}"
+      }
+    },
+    "settings": {
+      "save": "Spara",
+      "saving": "Sparar...",
+      "saved": "Sparat",
+      "none": "Det här tillägget har inga inställningar.",
+      "errors": {
+        "invalid": "Något av värdena godtas inte. Kontrollera fälten och försök igen."
+      }
+    },
+    "view": {
+      "loading": "Läser in vyn",
+      "loadFailed": "Vyn från {{plugin}} kunde inte läsas in. Resten av sidan fungerar fortfarande.",
+      "notFound": "Det finns ingen vy som heter {{plugin}} på den här instansen, eller så erbjuds ditt konto den inte."
+    }
+  },
+  "media": {
+    "upload": {
+      "choose": "Välj en fil",
+      "replace": "Välj en annan fil",
+      "remove": "Ta bort",
+      "uploading": "Laddar upp ...",
+      "dimensions": "{{width}} gånger {{height}} bildpunkter",
+      "errors": {
+        "unsupportedType": "Filen är inte en PNG-, JPEG-, WebP- eller GIF-bild, oavsett vad den heter.",
+        "tooLarge": "Filen är större än vad den här instansen tar emot.",
+        "empty": "Filen är tom.",
+        "noFile": "Ingen fil valdes.",
+        "unknown": "Filen kunde inte laddas upp just nu. Försök igen."
+      }
+    }
+  },
+  "themeCatalog": {
+    "title": "Teman",
+    "intro": "Ett tema ändrar färger, typsnitt och form. Det innehåller ingen kod, så att installera eller byta tema slår igenom direkt och kräver ingen omstart.",
+    "loading": "Hämtar teman ...",
+    "panel": {
+      "title": "Teman",
+      "description": "Vilket tema den här instansen använder, och var du installerar ett annat.",
+      "active": "Aktivt tema: {{theme}}",
+      "previewing": "Du förhandsgranskar ett tema. Bara din egen webbläsare ser det.",
+      "open": "Hantera teman"
+    },
+    "installed": {
+      "title": "Installerade",
+      "description": "Standardtemat är inbyggt och går alltid att ärva från. Det kan inte tas bort.",
+      "active": "Aktivt",
+      "builtIn": "Inbyggt",
+      "inherits": "Ärver",
+      "typefaces": "Typsnitt",
+      "typeface": "{{family}} ({{license}})",
+      "viewVariant": "Layout",
+      "viewVariantValue": "{{slot}}: {{variant}}",
+      "preview": "Förhandsgranska",
+      "stopPreview": "Avsluta förhandsgranskning",
+      "activate": "Aktivera",
+      "remove": "Ta bort",
+      "done": "{{theme}} installerades."
+    },
+    "catalog": {
+      "title": "Katalog",
+      "description": "Teman som publicerats för Open BRF. Varje paket kontrolleras mot kontrollsumman katalogen anger och granskas sedan innan något installeras.",
+      "empty": "Katalogen listar inga teman.",
+      "install": "Installera",
+      "update": "Uppdatera till {{version}}",
+      "alreadyInstalled": "Installerat",
+      "contract": "Tokenkontrakt {{range}}"
+    },
+    "preview": {
+      "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
+      "activate": "Aktivera det här temat",
+      "stop": "Avsluta förhandsgranskning"
+    },
+    "warnings": {
+      "title": "Temat installerades med anmärkningar:"
+    },
+    "lint": {
+      "statutory": "Det här färgparet bär det lagstadgade registret, så ett tema som hamnar under kontrastkravet här avvisas i stället för att bara varnas för.",
+      "unrecognised": "Temat avvisades av en regel den här versionen inte känner till: {{rule}}.",
+      "reservedId": "{{themeId}} är standardtemats namn och är reserverat.",
+      "selfExtends": "{{themeId}} anger att det ärver från sig självt.",
+      "contractIncompatible": "Temat är skrivet för tokenkontrakt {{range}}, och den här instansen har {{contractVersion}}.",
+      "missingParent": "Temat ärver från {{themeId}}, som inte är installerat.",
+      "inheritanceCycle": "Arvskedjan går i cirkel vid {{themeId}}.",
+      "unknownManifestField": "Manifestet innehåller fältet {{field}} som den här versionen inte känner till. Det ignorerades.",
+      "unknownToken": "Temat sätter {{token}} i läget {{mode}}, vilket det här tokenkontraktet inte definierar. Det ignorerades.",
+      "missingToken": "{{token}} saknar värde i läget {{mode}} och har inget att härleda ett från.",
+      "unsafeTokenValue": {
+        "semicolonOrBrace": "Värdet för {{token}} i läget {{mode}} innehåller ; { eller }, vilket skulle avsluta deklarationen och låta temat skriva egen CSS.",
+        "angleBracket": "Värdet för {{token}} i läget {{mode}} innehåller < eller >, vilket skulle stänga stilelementet och låta temat skriva egen kod.",
+        "backslashEscape": "Värdet för {{token}} i läget {{mode}} innehåller en escape-sekvens med omvänt snedstreck, som kan dölja ett tecken den här kontrollen annars skulle avvisa.",
+        "atRule": "Värdet för {{token}} i läget {{mode}} innehåller @, vilket skulle inleda en at-regel som @import och hämta över nätet.",
+        "commentMarker": "Värdet för {{token}} i läget {{mode}} innehåller en kommentarmarkering, som skulle svälja deklarationerna efter sig.",
+        "url": "Värdet för {{token}} i läget {{mode}} laddar en URL, vilket skulle hämta från tredje part och lämna ut varje besökares adress till den.",
+        "expression": "Värdet för {{token}} i läget {{mode}} innehåller expression(), som är ett sätt att köra kod från en stilmall.",
+        "controlCharacter": "Värdet för {{token}} i läget {{mode}} innehåller ett styrtecken, vilket skulle låta värdet fortsätta på en egen rad.",
+        "unbalancedQuote": "Värdet för {{token}} i läget {{mode}} har ett citattecken som aldrig stängs, så det skulle svälja allt som står efter det.",
+        "unbalancedParenthesis": "Värdet för {{token}} i läget {{mode}} har en parentes som aldrig stängs, så den skulle svälja allt som står efter den.",
+        "unknown": "Värdet för {{token}} i läget {{mode}} avvisades av ett skäl den här versionen inte kan namnge."
+      },
+      "contrast": "I läget {{mode}} mäter {{foreground}} mot {{background}} {{ratio}}:1 och måste nå {{required}}:1.",
+      "executableContent": "Paketet innehåller {{file}}. Ett tema är data och innehåller ingen kod.",
+      "unexpectedFile": "Paketet innehåller {{file}}, som inte är en filtyp ett tema får bära med sig.",
+      "fontRemoteSource": "Typsnittet {{family}} pekar på {{source}}. Ett tema paketerar sina typsnittsfiler: att hämta ett från tredje part skulle lämna ut varje besökares adress till den.",
+      "fontFileMissing": "Typsnittet {{family}} anger {{file}}, som paketet inte innehåller.",
+      "fontFileUndeclared": "Paketet innehåller typsnittsfilen {{file}}, som inget typsnitt anger licens för.",
+      "fontFormat": "Typsnittet {{family}} anger {{file}}, som inte är en typsnittsfil.",
+      "fontLicenseMissing": "Typsnittet {{family}} anger ingen licens. Ett paketerat typsnitt är en vidaredistribution, och en som ingen kan kontrollera avvisas.",
+      "licenseFileMissing": "Typsnittet {{family}} anger licensfilen {{file}}, som paketet inte innehåller.",
+      "logoMissing": "Manifestet anger logotypen {{file}}, som paketet inte innehåller.",
+      "unknownViewVariant": "Temat begär layouten {{variant}} för {{slot}}, som den här versionen inte tillhandahåller.",
+      "themeHasDependants": "{{themeId}} ärver från det här temat."
+    },
+    "errors": {
+      "unknown": "Temana kunde inte hämtas just nu. Försök igen.",
+      "loadFailed": "De installerade temana kunde inte läsas.",
+      "forbidden": "Att installera och byta tema är en administratörs uppgift.",
+      "catalogNotConfigured": "Ingen temakatalog är konfigurerad för den här instansen.",
+      "catalogUnreachable": "Temakatalogen kunde inte nås.",
+      "catalogInvalid": "Temakatalogen svarade med något den här versionen inte kan läsa.",
+      "packageUnreachable": "Temapaketet kunde inte hämtas.",
+      "packageTooLarge": "Temapaketet är större än ett tema får vara.",
+      "checksumMismatch": "Det hämtade paketet stämmer inte med kontrollsumman katalogen anger, så det avvisades.",
+      "packageUnreadable": "Paketet kunde inte läsas som ett tema.",
+      "manifestInvalid": "Paketets theme.json är inget giltigt manifest.",
+      "identityMismatch": "Paketet beskriver inte det tema katalogen listade.",
+      "lintFailed": "Temat avvisades:",
+      "notInCatalog": "Katalogen listar inte längre det temat.",
+      "themeNotInstalled": "Det temat är inte installerat.",
+      "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
+      "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
+      "themeHasDependants": "Ett annat installerat tema ärver från det.",
+      "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
+      "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
+      "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan."
+    }
+  },
   "registers": {
     "nav": {
       "memberRegister": "Medlemsförteckning",
@@ -885,127 +1126,6 @@
         "postalCity": "Postort",
         "movedInOn": "Inflyttningsdatum",
         "movedOutOn": "Utflyttningsdatum"
-      }
-    }
-  },
-  "themeCatalog": {
-    "title": "Teman",
-    "intro": "Ett tema ändrar färger, typsnitt och form. Det innehåller ingen kod, så att installera eller byta tema slår igenom direkt och kräver ingen omstart.",
-    "loading": "Hämtar teman ...",
-    "panel": {
-      "title": "Teman",
-      "description": "Vilket tema den här instansen använder, och var du installerar ett annat.",
-      "active": "Aktivt tema: {{theme}}",
-      "previewing": "Du förhandsgranskar ett tema. Bara din egen webbläsare ser det.",
-      "open": "Hantera teman"
-    },
-    "installed": {
-      "title": "Installerade",
-      "description": "Standardtemat är inbyggt och går alltid att ärva från. Det kan inte tas bort.",
-      "active": "Aktivt",
-      "builtIn": "Inbyggt",
-      "inherits": "Ärver",
-      "typefaces": "Typsnitt",
-      "typeface": "{{family}} ({{license}})",
-      "viewVariant": "Layout",
-      "viewVariantValue": "{{slot}}: {{variant}}",
-      "preview": "Förhandsgranska",
-      "stopPreview": "Avsluta förhandsgranskning",
-      "activate": "Aktivera",
-      "remove": "Ta bort",
-      "done": "{{theme}} installerades."
-    },
-    "catalog": {
-      "title": "Katalog",
-      "description": "Teman som publicerats för Open BRF. Varje paket kontrolleras mot kontrollsumman katalogen anger och granskas sedan innan något installeras.",
-      "empty": "Katalogen listar inga teman.",
-      "install": "Installera",
-      "update": "Uppdatera till {{version}}",
-      "alreadyInstalled": "Installerat",
-      "contract": "Tokenkontrakt {{range}}"
-    },
-    "preview": {
-      "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
-      "activate": "Aktivera det här temat",
-      "stop": "Avsluta förhandsgranskning"
-    },
-    "warnings": {
-      "title": "Temat installerades med anmärkningar:"
-    },
-    "lint": {
-      "statutory": "Det här färgparet bär det lagstadgade registret, så ett tema som hamnar under kontrastkravet här avvisas i stället för att bara varnas för.",
-      "unrecognised": "Temat avvisades av en regel den här versionen inte känner till: {{rule}}.",
-      "reservedId": "{{themeId}} är standardtemats namn och är reserverat.",
-      "selfExtends": "{{themeId}} anger att det ärver från sig självt.",
-      "contractIncompatible": "Temat är skrivet för tokenkontrakt {{range}}, och den här instansen har {{contractVersion}}.",
-      "missingParent": "Temat ärver från {{themeId}}, som inte är installerat.",
-      "inheritanceCycle": "Arvskedjan går i cirkel vid {{themeId}}.",
-      "unknownManifestField": "Manifestet innehåller fältet {{field}} som den här versionen inte känner till. Det ignorerades.",
-      "unknownToken": "Temat sätter {{token}} i läget {{mode}}, vilket det här tokenkontraktet inte definierar. Det ignorerades.",
-      "missingToken": "{{token}} saknar värde i läget {{mode}} och har inget att härleda ett från.",
-      "unsafeTokenValue": {
-        "semicolonOrBrace": "Värdet för {{token}} i läget {{mode}} innehåller ; { eller }, vilket skulle avsluta deklarationen och låta temat skriva egen CSS.",
-        "angleBracket": "Värdet för {{token}} i läget {{mode}} innehåller < eller >, vilket skulle stänga stilelementet och låta temat skriva egen kod.",
-        "backslashEscape": "Värdet för {{token}} i läget {{mode}} innehåller en escape-sekvens med omvänt snedstreck, som kan dölja ett tecken den här kontrollen annars skulle avvisa.",
-        "atRule": "Värdet för {{token}} i läget {{mode}} innehåller @, vilket skulle inleda en at-regel som @import och hämta över nätet.",
-        "commentMarker": "Värdet för {{token}} i läget {{mode}} innehåller en kommentarmarkering, som skulle svälja deklarationerna efter sig.",
-        "url": "Värdet för {{token}} i läget {{mode}} laddar en URL, vilket skulle hämta från tredje part och lämna ut varje besökares adress till den.",
-        "expression": "Värdet för {{token}} i läget {{mode}} innehåller expression(), som är ett sätt att köra kod från en stilmall.",
-        "controlCharacter": "Värdet för {{token}} i läget {{mode}} innehåller ett styrtecken, vilket skulle låta värdet fortsätta på en egen rad.",
-        "unbalancedQuote": "Värdet för {{token}} i läget {{mode}} har ett citattecken som aldrig stängs, så det skulle svälja allt som står efter det.",
-        "unbalancedParenthesis": "Värdet för {{token}} i läget {{mode}} har en parentes som aldrig stängs, så den skulle svälja allt som står efter den.",
-        "unknown": "Värdet för {{token}} i läget {{mode}} avvisades av ett skäl den här versionen inte kan namnge."
-      },
-      "contrast": "I läget {{mode}} mäter {{foreground}} mot {{background}} {{ratio}}:1 och måste nå {{required}}:1.",
-      "executableContent": "Paketet innehåller {{file}}. Ett tema är data och innehåller ingen kod.",
-      "unexpectedFile": "Paketet innehåller {{file}}, som inte är en filtyp ett tema får bära med sig.",
-      "fontRemoteSource": "Typsnittet {{family}} pekar på {{source}}. Ett tema paketerar sina typsnittsfiler: att hämta ett från tredje part skulle lämna ut varje besökares adress till den.",
-      "fontFileMissing": "Typsnittet {{family}} anger {{file}}, som paketet inte innehåller.",
-      "fontFileUndeclared": "Paketet innehåller typsnittsfilen {{file}}, som inget typsnitt anger licens för.",
-      "fontFormat": "Typsnittet {{family}} anger {{file}}, som inte är en typsnittsfil.",
-      "fontLicenseMissing": "Typsnittet {{family}} anger ingen licens. Ett paketerat typsnitt är en vidaredistribution, och en som ingen kan kontrollera avvisas.",
-      "licenseFileMissing": "Typsnittet {{family}} anger licensfilen {{file}}, som paketet inte innehåller.",
-      "logoMissing": "Manifestet anger logotypen {{file}}, som paketet inte innehåller.",
-      "unknownViewVariant": "Temat begär layouten {{variant}} för {{slot}}, som den här versionen inte tillhandahåller.",
-      "themeHasDependants": "{{themeId}} ärver från det här temat."
-    },
-    "errors": {
-      "unknown": "Temana kunde inte hämtas just nu. Försök igen.",
-      "loadFailed": "De installerade temana kunde inte läsas.",
-      "forbidden": "Att installera och byta tema är en administratörs uppgift.",
-      "catalogNotConfigured": "Ingen temakatalog är konfigurerad för den här instansen.",
-      "catalogUnreachable": "Temakatalogen kunde inte nås.",
-      "catalogInvalid": "Temakatalogen svarade med något den här versionen inte kan läsa.",
-      "packageUnreachable": "Temapaketet kunde inte hämtas.",
-      "packageTooLarge": "Temapaketet är större än ett tema får vara.",
-      "checksumMismatch": "Det hämtade paketet stämmer inte med kontrollsumman katalogen anger, så det avvisades.",
-      "packageUnreadable": "Paketet kunde inte läsas som ett tema.",
-      "manifestInvalid": "Paketets theme.json är inget giltigt manifest.",
-      "identityMismatch": "Paketet beskriver inte det tema katalogen listade.",
-      "lintFailed": "Temat avvisades:",
-      "notInCatalog": "Katalogen listar inte längre det temat.",
-      "themeNotInstalled": "Det temat är inte installerat.",
-      "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
-      "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
-      "themeHasDependants": "Ett annat installerat tema ärver från det.",
-      "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
-      "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
-      "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan."
-    }
-  },
-  "media": {
-    "upload": {
-      "choose": "Välj en fil",
-      "replace": "Välj en annan fil",
-      "remove": "Ta bort",
-      "uploading": "Laddar upp ...",
-      "dimensions": "{{width}} gånger {{height}} bildpunkter",
-      "errors": {
-        "unsupportedType": "Filen är inte en PNG-, JPEG-, WebP- eller GIF-bild, oavsett vad den heter.",
-        "tooLarge": "Filen är större än vad den här instansen tar emot.",
-        "empty": "Filen är tom.",
-        "noFile": "Ingen fil valdes.",
-        "unknown": "Filen kunde inte laddas upp just nu. Försök igen."
       }
     }
   }

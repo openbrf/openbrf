@@ -72,7 +72,11 @@ function expandToken(token: string): Comparator[] | null {
     return [];
   }
 
-  const operatorMatch = /^(>=|<=|>|<|=|\^|~)?\s*(.+)$/.exec(token);
+  // No optional whitespace between the operator and the version: the caller
+  // split on whitespace, so a token never carries any, and allowing it here
+  // would only give the two groups several ways to divide the same run of
+  // spaces - quadratic backtracking over a string a theme author writes.
+  const operatorMatch = /^(>=|<=|>|<|=|\^|~)?(.+)$/.exec(token);
   const operator = operatorMatch?.[1] ?? "=";
   const rest = operatorMatch?.[2];
   if (rest === undefined) {

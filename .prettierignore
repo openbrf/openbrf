@@ -8,6 +8,11 @@ coverage/
 # Generated lockfiles
 pnpm-lock.yaml
 
+# Fixture build output. The fixture's own source is formatted like the rest.
+fixtures/.artifacts/
+fixtures/catalog/
+fixtures/example-plugin/dist/
+
 # Local tooling state (mirrors .gitignore)
 .impeccable/
 .claude/

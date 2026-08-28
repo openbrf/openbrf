@@ -16,7 +16,7 @@ import {
   useDebouncedValue,
 } from "../register/use-address-book";
 import { AppShell } from "../shell/AppShell";
-import { NAV_ITEMS } from "../shell/nav-items";
+import { navItemsFor } from "../shell/nav-items";
 import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import { SECONDARY_BUTTON } from "../ui/controls";
@@ -140,7 +140,26 @@ export function AddressBookRoute(): ReactElement {
       housingCooperativeName={t("app.housingCooperative")}
       logo={logo}
       personName={session?.user.name}
-      navItems={NAV_ITEMS}
+      /*
+       * The board view is served only to a principal holding addressBook:read,
+       * which in the capability model is granted together with
+       * association:read - so the answer the server already gave to the
+       * register request settles the navigation too, without a second call to
+       * ask who this is.
+       *
+       * Undefined until that answer arrives, which navItemsFor reads as "the
+       * viewer is not known yet" and answers with the full band. A defined
+       * empty list means "a resident", so passing it while the request is
+       * still out would drop the Plugins link and then put it back, which is
+       * the band shuffling that navItemsFor exists to prevent.
+       */
+      navItems={navItemsFor(
+        view.state === "board"
+          ? ["association:read"]
+          : view.state === "resident"
+            ? []
+            : undefined,
+      )}
       onSignOut={() => {
         /*
          * Navigating is part of signing out: the session is only checked in this

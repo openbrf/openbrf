@@ -513,19 +513,55 @@ model AuditLogEntry {
   @@map("audit_log_entry")
 }
 
+/// How far an installation has got.
+enum InstalledPluginStatus {
+  /// The board has consented and the row is the desired state; the data
+  /// volume does not carry the package yet.
+  PENDING
+
+  /// Present on the data volume and eligible to load at the next boot.
+  INSTALLED
+
+  /// The install job could not converge. lastError says why, and the row
+  /// stays so the board can retry or withdraw it rather than having the
+  /// failure disappear.
+  FAILED
+}
+
 /// A plugin installed from the curated catalog.
+///
+/// The row is the DESIRED state and /data/plugins is reconciled to it, never
+/// the other way round. That is what makes the install flow idempotent: the
+/// job rebuilds the whole dependency set from these rows, so a crash at any
+/// step converges on the next run rather than leaving the volume and the
+/// database disagreeing. It is also why a removal deletes the row - what is
+/// gone from here is gone from the volume at the next reconcile.
 model InstalledPlugin {
   /// The plugin id from its manifest, e.g. "occupancy-summary".
   id          String @id
   packageName String
   version     String
 
+  /// Where the archive came from. Kept so a reinstall on a volume-less
+  /// deployment needs the catalog only for browsing, not for recovery.
+  tarballUrl String @default("")
+
   /// sha512 of the verified tarball.
   checksum String
 
   enabled Boolean @default(true)
 
+  status InstalledPluginStatus @default(PENDING)
+
+  /// Why the last install attempt failed, for the admin screen. Cleared on
+  /// the next successful reconcile.
+  lastError String?
+
   /// Permissions and personal data categories as consented at install time.
+  ///
+  /// The loader compares the installed manifest against this snapshot and
+  /// refuses a plugin that asks for more than the board agreed to, so a
+  /// republished version cannot widen its own reach.
   consentedPermissions String[]
   declaredPersonalData String[]
 

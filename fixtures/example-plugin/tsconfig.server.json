@@ -1,0 +1,28 @@
+{
+  // The server bundle only. ADR 0003 requires a prebuilt CommonJS bundle whose
+  // only externals are host packages, so the emit target is CommonJS even
+  // though the package itself is an ES module: the `dist/server.cjs` extension
+  // settles the format regardless of the package type. The build script renames
+  // the emitted file, because an `outFile` of its own would give up the module
+  // structure tsc otherwise keeps.
+  //
+  // `moduleResolution` is deliberately left to follow `module`. The values that
+  // can be named alongside CommonJS emit are the ones tied to a different
+  // module format, and pinning one of those would be a resolution mode this
+  // file does not emit for.
+  //
+  // The view is deliberately outside `include`. Vite builds it into the Module
+  // Federation remote entry, and a second compiled copy of it in `dist` would be
+  // shipped by the `files` list and loaded by nothing.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "lib": ["ES2023"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["src/server.ts"]
+}

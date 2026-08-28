@@ -537,6 +537,247 @@
       "info": "Information"
     }
   },
+  "plugins": {
+    "navLabel": "Plugins",
+    "title": "Plugins",
+    "intro": "Plugins add features to this instance. They are installed from the curated catalog and run with the same privileges as the rest of the application, so the board agrees to what each one may do before it is installed.",
+    "loading": "Loading plugins",
+    "restartNotice": "The application is restarting to load the change. Reload this page in a moment.",
+    "restartTimedOut": "The application did not come back within the expected time. Reload this page; if the plugin is still not listed, check the server log.",
+    "disabledNotice": "Plugins are switched off on this instance. Nothing can be installed until they are switched on again.",
+    "errors": {
+      "loadFailed": "The list of plugins could not be read just now. Reload the page.",
+      "unknown": "That could not be done just now. Please try again.",
+      "forbidden": "Your account is not allowed to see this page."
+    },
+    "installed": {
+      "title": "Installed plugins",
+      "description": "What this instance runs, what each plugin may do, and which personal data it handles.",
+      "none": "No plugins are installed.",
+      "permissions": "May",
+      "personalData": "Personal data",
+      "state": {
+        "running": "Running",
+        "disabled": "Switched off",
+        "failed": "Installation failed",
+        "awaitingRestart": "Installed, awaiting restart"
+      },
+      "enable": "Switch on",
+      "disable": "Switch off",
+      "settings": "Settings",
+      "hideSettings": "Hide settings",
+      "remove": "Remove",
+      "removeConfirm": "Yes, remove it",
+      "removeCancel": "Keep it",
+      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code."
+    },
+    "catalog": {
+      "title": "Catalog",
+      "description": "The curated catalog this instance reads. Installing from anywhere else is a deliberate change to the instance's configuration.",
+      "reload": "Read the catalog again",
+      "loading": "Reading the catalog",
+      "none": "The catalog lists no plugins.",
+      "install": "Install",
+      "reinstall": "Install again",
+      "update": "Update to {{version}}",
+      "installedVersion": "Installed: {{version}}",
+      "unsupported": "Needs a newer version of Open BRF",
+      "deprecated": "No longer maintained",
+      "errors": {
+        "unreachable": "The catalog could not be reached. Check the instance's network access and the catalog address.",
+        "malformed": "The catalog was reached but could not be read. It may be damaged or written for a newer version.",
+        "notPermitted": "This instance is pointed at a catalog outside the curated one. Installing from it has to be allowed explicitly in the instance's configuration.",
+        "unknown": "The catalog could not be read just now. Please try again."
+      }
+    },
+    "consent": {
+      "title": "Review before installing",
+      "intro": "{{name}} {{version}} is about to be installed. Read what it may do before you agree.",
+      "permissionsTitle": "This plugin may",
+      "personalDataTitle": "Personal data it will handle",
+      "noPermissions": "Nothing beyond its own settings.",
+      "noPersonalData": "None.",
+      "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
+      "acknowledge": "I have read what this plugin may do and which personal data it will handle.",
+      "confirm": "Install",
+      "installing": "Installing...",
+      "cancel": "Cancel",
+      "errors": {
+        "failed": "The plugin could not be installed. The catalog entry may have changed since this screen was opened; read the catalog again and try once more."
+      }
+    },
+    "permissions": {
+      "addressBookRead": "Read names, apartments, who is a resident and who is a member, and move-in and move-out dates",
+      "addressBookReadContact": "Read email addresses and telephone numbers",
+      "mailSend": "Send email through the housing cooperative's own server",
+      "jobsSchedule": "Run scheduled work in the background",
+      "unknown": "Something this version of Open BRF does not recognise"
+    },
+    "personalData": {
+      "name": "Name",
+      "apartment": "Apartment and address",
+      "residency": "Move-in and move-out dates, and whether the person is a member",
+      "email": "Email address",
+      "phone": "Telephone number",
+      "unknown": "A category this version of Open BRF does not recognise"
+    },
+    "findings": {
+      "title": "Not running",
+      "description": "A plugin that cannot be run is skipped rather than allowed to stop the instance. These are the ones that were skipped, and why.",
+      "reasons": {
+        "disabled": "Switched off in this screen.",
+        "notConsented": "On the data volume, but this instance has no record of agreeing to run it.",
+        "permissionsWidened": "The installed version asks for {{permissions}}, which was not agreed to. Install it again to review the new declaration.",
+        "personalDataWidened": "The installed version handles {{categories}}, which was not agreed to. Install it again to review the new declaration.",
+        "moduleIdentity": "It carries its own copy of {{packages}}, which it has to share with the application. It was refused rather than run against a second copy.",
+        "manifestInvalid": "Its declaration could not be read: {{issues}}",
+        "apiVersion": "It is built for version {{apiVersion}} of the plugin contract, which this Open BRF does not implement.",
+        "entryMissing": "The file {{entry}} it declares is not in the package.",
+        "loadFailed": "It failed while being loaded. What it threw is recorded in the server log.",
+        "entryInvalid": "Its bundle does not export what the contract requires.",
+        "notOnVolume": "It is recorded as installed but is not on the data volume.",
+        "moduleRefused": "Its module declares behaviour that would act on the rest of the application, which a plugin may not do. It was refused rather than run.",
+        "moduleInvalid": "Its bundle returned no module of the shape the contract requires.",
+        "moduleFailed": "Its module could not be built into the application, so it was skipped to let the rest of the instance start. What failed is recorded in the server log.",
+        "unknown": "It was skipped for a reason this version has no wording for: {{reason}}"
+      }
+    },
+    "settings": {
+      "save": "Save",
+      "saving": "Saving...",
+      "saved": "Saved",
+      "none": "This plugin has no settings.",
+      "errors": {
+        "invalid": "One of the values is not accepted. Check the fields and try again."
+      }
+    },
+    "view": {
+      "loading": "Loading the view",
+      "loadFailed": "The view from {{plugin}} could not be loaded. The rest of this page still works.",
+      "notFound": "There is no view called {{plugin}} on this instance, or your account is not offered it."
+    }
+  },
+  "media": {
+    "upload": {
+      "choose": "Choose a file",
+      "replace": "Choose another file",
+      "remove": "Remove",
+      "uploading": "Uploading...",
+      "dimensions": "{{width}} by {{height}} pixels",
+      "errors": {
+        "unsupportedType": "That file is not a PNG, JPEG, WebP or GIF image, whatever it is named.",
+        "tooLarge": "That file is larger than this instance accepts.",
+        "empty": "That file is empty.",
+        "noFile": "No file was chosen.",
+        "unknown": "The file could not be uploaded just now. Please try again."
+      }
+    }
+  },
+  "themeCatalog": {
+    "title": "Themes",
+    "intro": "A theme changes colours, typefaces and shape. It carries no code, so installing or switching one takes effect immediately and needs no restart.",
+    "loading": "Loading themes...",
+    "panel": {
+      "title": "Themes",
+      "description": "Which theme this instance renders, and where to install another.",
+      "active": "Active theme: {{theme}}",
+      "previewing": "You are previewing a theme. Only your browser sees it.",
+      "open": "Manage themes"
+    },
+    "installed": {
+      "title": "Installed",
+      "description": "The default theme is built in and always available to inherit from. It cannot be removed.",
+      "active": "Active",
+      "builtIn": "Built in",
+      "inherits": "Inherits",
+      "typefaces": "Typefaces",
+      "typeface": "{{family}} ({{license}})",
+      "viewVariant": "Layout",
+      "viewVariantValue": "{{slot}}: {{variant}}",
+      "preview": "Preview",
+      "stopPreview": "Stop preview",
+      "activate": "Activate",
+      "remove": "Remove",
+      "done": "{{theme}} was installed."
+    },
+    "catalog": {
+      "title": "Catalog",
+      "description": "Themes published for Open BRF. Each package is checked against the checksum the catalog states and then linted before anything is installed.",
+      "empty": "The catalog lists no themes.",
+      "install": "Install",
+      "update": "Update to {{version}}",
+      "alreadyInstalled": "Installed",
+      "contract": "Token contract {{range}}"
+    },
+    "preview": {
+      "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
+      "activate": "Activate this theme",
+      "stop": "Stop preview"
+    },
+    "warnings": {
+      "title": "The theme installed with remarks:"
+    },
+    "lint": {
+      "statutory": "This colour pair carries the statutory register, so a theme that falls below the contrast bar here is refused rather than warned about.",
+      "unrecognised": "The theme was refused by a rule this version does not recognise: {{rule}}.",
+      "reservedId": "{{themeId}} is the default theme's name and is reserved.",
+      "selfExtends": "{{themeId}} states that it inherits from itself.",
+      "contractIncompatible": "The theme is written for token contract {{range}}, and this instance has {{contractVersion}}.",
+      "missingParent": "The theme inherits from {{themeId}}, which is not installed.",
+      "inheritanceCycle": "The inheritance chain loops at {{themeId}}.",
+      "unknownManifestField": "The manifest carries a field this version does not know: {{field}}. It was ignored.",
+      "unknownToken": "The theme sets {{token}} in {{mode}} mode, which this token contract does not define. It was ignored.",
+      "missingToken": "{{token}} has no value in {{mode}} mode and nothing to derive one from.",
+      "unsafeTokenValue": {
+        "semicolonOrBrace": "The value of {{token}} in {{mode}} mode contains ; { or }, which would end the declaration and let the theme write CSS of its own.",
+        "angleBracket": "The value of {{token}} in {{mode}} mode contains < or >, which would close the style element and let the theme write code of its own.",
+        "backslashEscape": "The value of {{token}} in {{mode}} mode contains a backslash escape, which can hide a character this check would otherwise refuse.",
+        "atRule": "The value of {{token}} in {{mode}} mode contains @, which would start an at-rule such as @import and fetch over the network.",
+        "commentMarker": "The value of {{token}} in {{mode}} mode contains a comment marker, which would swallow the declarations after it.",
+        "url": "The value of {{token}} in {{mode}} mode loads a URL, which would fetch from a third party and disclose every visitor's address to it.",
+        "expression": "The value of {{token}} in {{mode}} mode contains expression(), which is a way to run code from a stylesheet.",
+        "controlCharacter": "The value of {{token}} in {{mode}} mode contains a control character, which would let the value continue on a line of its own.",
+        "unbalancedQuote": "The value of {{token}} in {{mode}} mode has a quote that is never closed, so it would swallow everything written after it.",
+        "unbalancedParenthesis": "The value of {{token}} in {{mode}} mode has a parenthesis that is never closed, so it would swallow everything written after it.",
+        "unknown": "The value of {{token}} in {{mode}} mode was refused for a reason this version cannot name."
+      },
+      "contrast": "In {{mode}} mode, {{foreground}} on {{background}} measures {{ratio}}:1 and must reach {{required}}:1.",
+      "executableContent": "The package contains {{file}}. A theme is data and carries no code.",
+      "unexpectedFile": "The package contains {{file}}, which is not a file type a theme may carry.",
+      "fontRemoteSource": "The typeface {{family}} points at {{source}}. A theme bundles its font files: loading one from a third party would disclose every visitor's address to it.",
+      "fontFileMissing": "The typeface {{family}} declares {{file}}, which the package does not contain.",
+      "fontFileUndeclared": "The package contains the font file {{file}}, which no typeface declares a licence for.",
+      "fontFormat": "The typeface {{family}} declares {{file}}, which is not a font file.",
+      "fontLicenseMissing": "The typeface {{family}} states no licence. A bundled font is a redistribution, and one nobody can check is refused.",
+      "licenseFileMissing": "The typeface {{family}} names the licence file {{file}}, which the package does not contain.",
+      "logoMissing": "The manifest names the logo {{file}}, which the package does not contain.",
+      "unknownViewVariant": "The theme asks for the {{variant}} layout of {{slot}}, which this version does not maintain.",
+      "themeHasDependants": "{{themeId}} inherits from this theme."
+    },
+    "errors": {
+      "unknown": "The themes could not be loaded just now. Please try again.",
+      "loadFailed": "The installed themes could not be read.",
+      "forbidden": "Installing and switching themes is an administrator's job.",
+      "catalogNotConfigured": "No theme catalog is configured for this instance.",
+      "catalogUnreachable": "The theme catalog could not be reached.",
+      "catalogInvalid": "The theme catalog did not answer with anything this version can read.",
+      "packageUnreachable": "The theme package could not be downloaded.",
+      "packageTooLarge": "The theme package is larger than a theme is allowed to be.",
+      "checksumMismatch": "The downloaded package does not match the checksum the catalog states, so it was refused.",
+      "packageUnreadable": "The package could not be read as a theme.",
+      "manifestInvalid": "The package's theme.json is not a valid manifest.",
+      "identityMismatch": "The package does not describe the theme the catalog listed.",
+      "lintFailed": "The theme was refused:",
+      "notInCatalog": "The catalog no longer lists that theme.",
+      "themeNotInstalled": "That theme is not installed.",
+      "builtInTheme": "The default theme is built into the application and cannot be removed.",
+      "themeInUse": "That theme is the active one. Switch to another theme first.",
+      "themeHasDependants": "Another installed theme inherits from that one.",
+      "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
+      "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
+      "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page."
+    }
+  },
   "registers": {
     "nav": {
       "memberRegister": "Member register",
@@ -885,127 +1126,6 @@
         "postalCity": "City",
         "movedInOn": "Moved in on",
         "movedOutOn": "Moved out on"
-      }
-    }
-  },
-  "themeCatalog": {
-    "title": "Themes",
-    "intro": "A theme changes colours, typefaces and shape. It carries no code, so installing or switching one takes effect immediately and needs no restart.",
-    "loading": "Loading themes...",
-    "panel": {
-      "title": "Themes",
-      "description": "Which theme this instance renders, and where to install another.",
-      "active": "Active theme: {{theme}}",
-      "previewing": "You are previewing a theme. Only your browser sees it.",
-      "open": "Manage themes"
-    },
-    "installed": {
-      "title": "Installed",
-      "description": "The default theme is built in and always available to inherit from. It cannot be removed.",
-      "active": "Active",
-      "builtIn": "Built in",
-      "inherits": "Inherits",
-      "typefaces": "Typefaces",
-      "typeface": "{{family}} ({{license}})",
-      "viewVariant": "Layout",
-      "viewVariantValue": "{{slot}}: {{variant}}",
-      "preview": "Preview",
-      "stopPreview": "Stop preview",
-      "activate": "Activate",
-      "remove": "Remove",
-      "done": "{{theme}} was installed."
-    },
-    "catalog": {
-      "title": "Catalog",
-      "description": "Themes published for Open BRF. Each package is checked against the checksum the catalog states and then linted before anything is installed.",
-      "empty": "The catalog lists no themes.",
-      "install": "Install",
-      "update": "Update to {{version}}",
-      "alreadyInstalled": "Installed",
-      "contract": "Token contract {{range}}"
-    },
-    "preview": {
-      "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
-      "activate": "Activate this theme",
-      "stop": "Stop preview"
-    },
-    "warnings": {
-      "title": "The theme installed with remarks:"
-    },
-    "lint": {
-      "statutory": "This colour pair carries the statutory register, so a theme that falls below the contrast bar here is refused rather than warned about.",
-      "unrecognised": "The theme was refused by a rule this version does not recognise: {{rule}}.",
-      "reservedId": "{{themeId}} is the default theme's name and is reserved.",
-      "selfExtends": "{{themeId}} states that it inherits from itself.",
-      "contractIncompatible": "The theme is written for token contract {{range}}, and this instance has {{contractVersion}}.",
-      "missingParent": "The theme inherits from {{themeId}}, which is not installed.",
-      "inheritanceCycle": "The inheritance chain loops at {{themeId}}.",
-      "unknownManifestField": "The manifest carries a field this version does not know: {{field}}. It was ignored.",
-      "unknownToken": "The theme sets {{token}} in {{mode}} mode, which this token contract does not define. It was ignored.",
-      "missingToken": "{{token}} has no value in {{mode}} mode and nothing to derive one from.",
-      "unsafeTokenValue": {
-        "semicolonOrBrace": "The value of {{token}} in {{mode}} mode contains ; { or }, which would end the declaration and let the theme write CSS of its own.",
-        "angleBracket": "The value of {{token}} in {{mode}} mode contains < or >, which would close the style element and let the theme write code of its own.",
-        "backslashEscape": "The value of {{token}} in {{mode}} mode contains a backslash escape, which can hide a character this check would otherwise refuse.",
-        "atRule": "The value of {{token}} in {{mode}} mode contains @, which would start an at-rule such as @import and fetch over the network.",
-        "commentMarker": "The value of {{token}} in {{mode}} mode contains a comment marker, which would swallow the declarations after it.",
-        "url": "The value of {{token}} in {{mode}} mode loads a URL, which would fetch from a third party and disclose every visitor's address to it.",
-        "expression": "The value of {{token}} in {{mode}} mode contains expression(), which is a way to run code from a stylesheet.",
-        "controlCharacter": "The value of {{token}} in {{mode}} mode contains a control character, which would let the value continue on a line of its own.",
-        "unbalancedQuote": "The value of {{token}} in {{mode}} mode has a quote that is never closed, so it would swallow everything written after it.",
-        "unbalancedParenthesis": "The value of {{token}} in {{mode}} mode has a parenthesis that is never closed, so it would swallow everything written after it.",
-        "unknown": "The value of {{token}} in {{mode}} mode was refused for a reason this version cannot name."
-      },
-      "contrast": "In {{mode}} mode, {{foreground}} on {{background}} measures {{ratio}}:1 and must reach {{required}}:1.",
-      "executableContent": "The package contains {{file}}. A theme is data and carries no code.",
-      "unexpectedFile": "The package contains {{file}}, which is not a file type a theme may carry.",
-      "fontRemoteSource": "The typeface {{family}} points at {{source}}. A theme bundles its font files: loading one from a third party would disclose every visitor's address to it.",
-      "fontFileMissing": "The typeface {{family}} declares {{file}}, which the package does not contain.",
-      "fontFileUndeclared": "The package contains the font file {{file}}, which no typeface declares a licence for.",
-      "fontFormat": "The typeface {{family}} declares {{file}}, which is not a font file.",
-      "fontLicenseMissing": "The typeface {{family}} states no licence. A bundled font is a redistribution, and one nobody can check is refused.",
-      "licenseFileMissing": "The typeface {{family}} names the licence file {{file}}, which the package does not contain.",
-      "logoMissing": "The manifest names the logo {{file}}, which the package does not contain.",
-      "unknownViewVariant": "The theme asks for the {{variant}} layout of {{slot}}, which this version does not maintain.",
-      "themeHasDependants": "{{themeId}} inherits from this theme."
-    },
-    "errors": {
-      "unknown": "The themes could not be loaded just now. Please try again.",
-      "loadFailed": "The installed themes could not be read.",
-      "forbidden": "Installing and switching themes is an administrator's job.",
-      "catalogNotConfigured": "No theme catalog is configured for this instance.",
-      "catalogUnreachable": "The theme catalog could not be reached.",
-      "catalogInvalid": "The theme catalog did not answer with anything this version can read.",
-      "packageUnreachable": "The theme package could not be downloaded.",
-      "packageTooLarge": "The theme package is larger than a theme is allowed to be.",
-      "checksumMismatch": "The downloaded package does not match the checksum the catalog states, so it was refused.",
-      "packageUnreadable": "The package could not be read as a theme.",
-      "manifestInvalid": "The package's theme.json is not a valid manifest.",
-      "identityMismatch": "The package does not describe the theme the catalog listed.",
-      "lintFailed": "The theme was refused:",
-      "notInCatalog": "The catalog no longer lists that theme.",
-      "themeNotInstalled": "That theme is not installed.",
-      "builtInTheme": "The default theme is built into the application and cannot be removed.",
-      "themeInUse": "That theme is the active one. Switch to another theme first.",
-      "themeHasDependants": "Another installed theme inherits from that one.",
-      "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
-      "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
-      "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page."
-    }
-  },
-  "media": {
-    "upload": {
-      "choose": "Choose a file",
-      "replace": "Choose another file",
-      "remove": "Remove",
-      "uploading": "Uploading...",
-      "dimensions": "{{width}} by {{height}} pixels",
-      "errors": {
-        "unsupportedType": "That file is not a PNG, JPEG, WebP or GIF image, whatever it is named.",
-        "tooLarge": "That file is larger than this instance accepts.",
-        "empty": "That file is empty.",
-        "noFile": "No file was chosen.",
-        "unknown": "The file could not be uploaded just now. Please try again."
       }
     }
   }

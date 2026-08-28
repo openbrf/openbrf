@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "changeset": "changeset",
     "hooks:install": "git config core.hooksPath .githooks",
+    "fixtures:build": "node scripts/build-fixture-catalog.mjs",
     "verify": "turbo run lint typecheck test build && pnpm format:check && pnpm --filter @openbrf/web theme:check && pnpm lint:coderabbit",
     "lint:coderabbit": "node scripts/validate-coderabbit-config.mjs"
   },
