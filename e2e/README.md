@@ -27,7 +27,11 @@ While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and
   skips the rebuild. It also skips the fresh volumes, so `01-first-boot` will
-  fail; use it with `--grep` on a later spec.
+  fail; use it with `--grep` on a later spec. The first test in
+  `03-invitations` fails on a reused instance too, and has to: an invitation
+  activates an account for a person who has none, and the two it invites got
+  theirs on the run before. Everything else is re-runnable, because a person a
+  spec makes for itself is named for the run that made them (`src/identity.ts`).
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
@@ -70,7 +74,8 @@ Numbered against the phase 1 exit criteria.
 | 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                     | `05-address-book.spec.ts`               |
 | 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                             | `06-protected-personal-data.spec.ts`    |
 
-One spec is not numbered against a criterion.
+Two specs are not numbered against a criterion.
+
 `90-runtime-role-privileges.spec.ts` connects as `openbrf_app` - the role the
 entrypoint created and constrained with `prisma/sql/harden-runtime-role.sql` -
 and checks both halves of that hardening: the queue works (a queue is created, a
@@ -79,6 +84,14 @@ job is sent and a worker receives it) and the statutory archive still refuses an
 grant fails loudly if it is ever dropped rather than only when a background job
 does. It reads the database on the port `docker-compose.e2e.yml` publishes, so
 it needs no browser.
+
+`91-startup-and-connection-urls.spec.ts` covers what the image does with the
+database password and with a request that belongs to nobody: the first-boot
+check reports an unreachable database without writing the connection URL into
+the startup log, a password carrying `:`, `/` and `@` survives the URLs the
+entrypoint builds from it - which is why `stack.env` gives both roles one - and
+an unknown `/api` path answers the API's JSON 404 while a client route answers
+with the client, query string or no query string.
 
 ## Still to be written
 

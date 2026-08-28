@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
+import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, linkFrom, waitForMessage } from "../src/mailpit";
 import {
   activationTokenFrom,
@@ -34,10 +35,13 @@ const INVITED = [
   { name: "Nils Lindqvist", email: "nils@eksemplet.test" },
 ] as const;
 
+// Written by this spec rather than looked up in the shared register fixture, so
+// the identity is this run's: see src/identity.ts. The magic-link test below
+// needs the address to resolve to exactly one person.
 const EXTERNAL_BOARD_MEMBER = {
   firstName: "Margareta",
-  lastName: "Wallin",
-  email: "margareta@eksemplet.test",
+  lastName: uniqueSurname("Wallin"),
+  email: uniqueEmail("margareta"),
 } as const;
 
 async function signInThroughTheScreen(

@@ -23,6 +23,9 @@ import {
 
 test.describe.configure({ mode: "serial" });
 
+/** Enrolled below and removed again at the end of the same test. */
+const PASSKEY_NAME = "Testenhet";
+
 /**
  * Attaches a virtual authenticator to the page.
  *
@@ -90,11 +93,11 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     page.getByRole("heading", { name: "Inloggning och säkerhet" }),
   ).toBeVisible();
 
-  await page.getByLabel("Namn på enheten").fill("Testenhet");
+  await page.getByLabel("Namn på enheten").fill(PASSKEY_NAME);
   await page.getByRole("button", { name: "Lägg till nyckel" }).click();
   await expect(page.getByText("Nyckeln är tillagd.")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Ta bort nyckeln Testenhet" }),
+    page.getByRole("button", { name: `Ta bort nyckeln ${PASSKEY_NAME}` }),
   ).toBeVisible();
 
   // --- enrol an authenticator app -------------------------------------------
@@ -145,6 +148,17 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
   await page.getByLabel("Ditt lösenord").fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Slå av" }).click();
   await expect(page.getByText("Autentiseringsappen är av.")).toBeVisible();
+
+  // The key goes with it. It is a credential on the shared administrator
+  // account, and a run against a stack that was not recreated would otherwise
+  // add a second one under the same name and leave both behind.
+  await page
+    .getByRole("button", { name: `Ta bort nyckeln ${PASSKEY_NAME}` })
+    .click();
+  await expect(page.getByText("Inga nycklar än.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Ta bort nyckeln ${PASSKEY_NAME}` }),
+  ).toHaveCount(0);
 });
 
 test("a wrong password is refused without saying which half was wrong", async ({

@@ -123,9 +123,11 @@ export async function expectNoMessage(
 
 /** Pulls the one absolute URL out of an email body that matches a path. */
 export function linkFrom(text: string, path: string): string {
-  const pattern = new RegExp(
-    `https?://[^\\s"'<>\\]]*${path.replaceAll("/", "\\/")}[^\\s"'<>\\]]*`,
-  );
+  // The whole path is escaped, not only its slashes: a path holding ".", "?"
+  // or "+" would otherwise become a pattern that matches a different URL, or
+  // none, and the failure would read as "no link in the message body".
+  const literal = path.replaceAll(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+  const pattern = new RegExp(`https?://[^\\s"'<>\\]]*${literal}[^\\s"'<>\\]]*`);
   const found = pattern.exec(text);
   if (found === null) {
     throw new Error(`no ${path} link in the message body:\n${text}`);

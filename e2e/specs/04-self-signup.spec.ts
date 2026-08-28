@@ -1,5 +1,6 @@
 import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
+import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, waitForMessage } from "../src/mailpit";
 import {
   activationTokenFrom,
@@ -23,11 +24,20 @@ import {
 
 test.describe.configure({ mode: "serial" });
 
+// Written by this spec and never removed again, so the identity is this run's:
+// see src/identity.ts.
 const APPLICANT = {
   firstName: "Elsa",
-  lastName: "Norberg",
-  email: "elsa@eksemplet.test",
+  lastName: uniqueSurname("Norberg"),
+  email: uniqueEmail("elsa"),
   password: "hoststorm-lyktglas-2026",
+} as const;
+
+/** Refused before anything is written, and named per run for the same reason. */
+const TURNED_AWAY = {
+  firstName: "Gustav",
+  lastName: uniqueSurname("Ahlin"),
+  email: uniqueEmail("gustav"),
 } as const;
 
 test("a visitor asks for an account, the board approves, the account activates", async ({
@@ -103,9 +113,9 @@ test("with the toggle off the endpoint is closed", async ({
 
   try {
     const refused = await api.submitSignupRequest(page.request, stack.baseUrl, {
-      firstName: "Gustav",
-      lastName: "Ahlin",
-      email: "gustav@eksemplet.test",
+      firstName: TURNED_AWAY.firstName,
+      lastName: TURNED_AWAY.lastName,
+      email: TURNED_AWAY.email,
       claimedAddress: "Storgatan 12",
       claimedApartmentNumber: "1204",
     });

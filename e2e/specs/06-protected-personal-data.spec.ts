@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { auditEntriesFor } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
+import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox } from "../src/mailpit";
 import {
   ADMINISTRATOR,
@@ -26,10 +27,30 @@ import * as api from "../src/api";
 test.describe.configure({ mode: "serial" });
 
 const PROTECTED_PERSON = "Ingrid Persson";
+
+/** A neighbour of theirs in the shared register fixture, looked up by name. */
 const NEIGHBOUR = {
   name: "Nils Lindqvist",
   email: "nils@eksemplet.test",
   password: "granngarden-kastanj-2026",
+} as const;
+
+/** In the fixture too, and on the resident-facing board where they are not. */
+const VISIBLE_NEIGHBOUR = "Astrid Lindqvist";
+
+// The two below are written by this spec and never removed again, so their
+// identities are this run's: see src/identity.ts. A screen that opens them by
+// name has to find one person, and the register keeps everything a run leaves.
+const REVEALED = {
+  firstName: "Elisabet",
+  lastName: uniqueSurname("Rydberg"),
+  email: uniqueEmail("elisabet"),
+} as const;
+
+const FLAGGED = {
+  firstName: "Hedvig",
+  lastName: uniqueSurname("Almqvist"),
+  email: uniqueEmail("hedvig"),
 } as const;
 
 async function signInAsAdmin(page: Page): Promise<void> {
@@ -78,10 +99,11 @@ test("a reveal is an explicit act and lands in the audit log", async ({
   // A subject of this spec's own, because a reveal needs something to reveal
   // and the register fixture reaches its people through sign-up approval,
   // which records no personal identity number.
+  const fullName = `${REVEALED.firstName} ${REVEALED.lastName}`;
   const personId = await api.createPerson(request, stack.baseUrl, {
-    firstName: "Elisabet",
-    lastName: "Rydberg",
-    email: "elisabet@eksemplet.test",
+    firstName: REVEALED.firstName,
+    lastName: REVEALED.lastName,
+    email: REVEALED.email,
     phone: "0709876543",
     // A valid personal identity number under the Luhn checksum the register
     // enforces. It belongs to nobody: 1990-01-01 with an invented suffix.
@@ -92,12 +114,10 @@ test("a reveal is an explicit act and lands in the audit log", async ({
   const before = await auditEntriesFor(personId);
 
   await signInAsAdmin(page);
-  await page.getByLabel("Sök i registret").fill("Rydberg");
-  await page.getByRole("button", { name: "Öppna Elisabet Rydberg" }).click();
+  await page.getByLabel("Sök i registret").fill(REVEALED.lastName);
+  await page.getByRole("button", { name: `Öppna ${fullName}` }).click();
 
-  await expect(
-    page.getByRole("heading", { name: "Elisabet Rydberg" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: fullName })).toBeVisible();
   await expect(
     page.getByText(
       "Varje visning skrivs till granskningsloggen med ditt namn och de fält du sett.",
@@ -167,6 +187,11 @@ test("a neighbour does not see the protected person at all", async ({
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
+  // The heading is the shell; the rows arrive with the request that follows it.
+  // Waiting for a neighbour who must be on the board is what makes the check
+  // below an absence rather than an empty table on a fast machine.
+  await expect(page.getByText(VISIBLE_NEIGHBOUR)).toBeVisible();
+
   // A protected person is absent from a resident-facing list, not masked in it:
   // a masked row would still say where they live.
   await expect(page.getByText(PROTECTED_PERSON)).toHaveCount(0);
@@ -187,24 +212,33 @@ test("the flag can be set from the person view and that is recorded too", async 
 }) => {
   await signInAsAdministrator(request);
 
+  const fullName = `${FLAGGED.firstName} ${FLAGGED.lastName}`;
   const personId = await api.createPerson(request, stack.baseUrl, {
-    firstName: "Hedvig",
-    lastName: "Almqvist",
-    email: "hedvig@eksemplet.test",
+    firstName: FLAGGED.firstName,
+    lastName: FLAGGED.lastName,
+    email: FLAGGED.email,
     phone: "0701234567",
   });
 
   await signInAsAdmin(page);
-  await page.getByLabel("Sök i registret").fill("Almqvist");
-  await page.getByRole("button", { name: "Öppna Hedvig Almqvist" }).click();
+  await page.getByLabel("Sök i registret").fill(FLAGGED.lastName);
+  await page.getByRole("button", { name: `Öppna ${fullName}` }).click();
 
   await page.getByRole("button", { name: "Maskera den här personen" }).click();
   await expect(
     page.getByRole("button", { name: "Sluta maskera den här personen" }),
   ).toBeVisible();
 
-  const entries = await auditEntriesFor(personId);
-  expect(entries.map((entry) => entry.action)).toContain(
-    "PROTECTED_FLAG_CHANGED",
-  );
+  // Polled, like the reveal above: the entry is written after the response the
+  // button label reacted to, so reading the log once passes or fails on timing.
+  // Who applied or lifted protection on a register entry is the evidence a
+  // housing cooperative has to produce for an access request or a complaint, so
+  // an entry that was never written must not pass as one that arrived late.
+  await expect
+    .poll(
+      async () =>
+        (await auditEntriesFor(personId)).map((entry) => entry.action),
+      { message: "the flag change is recorded", timeout: 10_000 },
+    )
+    .toContain("PROTECTED_FLAG_CHANGED");
 });

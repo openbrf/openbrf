@@ -148,8 +148,15 @@ test("first boot walks the wizard and claims the instance", async ({
   // Signed in as the administrator the wizard just created. The top band shows
   // a generic label rather than the cooperative's own name today, so the name
   // is checked against the instance below instead of read off the screen.
+  //
+  // The band, not the page: the administrator is a person in the register too,
+  // so once the board's rows arrive the same name is on the screen twice and
+  // whether this saw one or two of them was a question of how fast the machine
+  // was.
   await expect(
-    page.getByText(`${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`),
+    page
+      .getByRole("banner")
+      .getByText(`${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Inställningar" })).toBeVisible();
 });

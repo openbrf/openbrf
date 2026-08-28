@@ -28,6 +28,25 @@ async function expectOk(
   }
 }
 
+/**
+ * A response body as JSON, or nothing at all when it is not JSON.
+ *
+ * Only for the calls that keep every status, where the body is whatever
+ * answered: a proxy's error page, a rate-limit page, or the empty body of a
+ * 204. Parsing those unconditionally raises a parse error, and the caller's
+ * assertion about the status - which is the thing it was checking - never runs.
+ */
+export function jsonBodyOrNothing(text: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 export type SetupState = { readonly setupRequired: boolean };
 
 export async function setupState(
@@ -266,11 +285,16 @@ export async function submitSignupRequest(
     claimedApartmentNumber: string;
   },
 ): Promise<{ status: number; id?: string; reason?: string }> {
+  // Every status is kept, because a refusal is what two of the callers are
+  // about, so the body is read the way a body of any shape has to be read.
   const response = await request.post(`${baseUrl}/api/signup-requests/submit`, {
     data: input,
     failOnStatusCode: false,
   });
-  const body = (await response.json()) as { id?: string; reason?: string };
+  const body = jsonBodyOrNothing(await response.text()) as {
+    id?: string;
+    reason?: string;
+  };
   return { status: response.status(), ...body };
 }
 
