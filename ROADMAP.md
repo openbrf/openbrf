@@ -245,7 +245,19 @@ foundation.
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
-      bookkeeping engine of our own.
+      bookkeeping engine of our own
+- [ ] Charges to members: a one-off cost put on a named member or apartment -
+      a key to the bike room, a replacement tag, a subletting fee, a repair
+      charged on - with the amount, the date, the reason, the VAT treatment
+      and whether it has already gone to the economic manager. The board
+      records the charge and exports the list as CSV or PDF for whoever keeps
+      the association's books. Open BRF holds the basis for the charge, not
+      the ledger: it never records a payment and never carries an outstanding
+      balance, because the accounting system is where a debt is settled and a
+      second answer to "has this been paid" is worse than none. A charge ties a
+      sum to a member or to an apartment, and an apartment leads back to the
+      people holding it, so it sits in the service tier under the same access
+      control, masking and audit log as the rest, and it is never public
 - [ ] Reporting to Lantmäteriet's cooperative housing register
       (bostadsrättsregister). Not a single export but a standing duty: an
       initial submission of the existing apartments, then a notification of
@@ -283,8 +295,15 @@ the same public plugin API that is available to anyone.
       pairing of a screen to a housing cooperative, remote configuration and
       unattended updates of the player
 - [ ] Premium themes
-- [ ] Advanced booking, advanced finances, maintenance planning, broker and
-      property manager packages
+- [ ] Advanced finances: everything that carries a charge or a fee out of
+      Open BRF and into somewhere else - posting to Fortnox and Visma,
+      autogiro and bankgiro files, payment reminders, a collections
+      integration and an approval step before a charge leaves. Recording a
+      charge and exporting the list is free and in the core, under Charges to
+      members; what is paid is the delivery, which is where Apteo's accounting
+      and payment agreements are
+- [ ] Advanced booking, maintenance planning, broker and property manager
+      packages
 
 ## How to read this page
 
