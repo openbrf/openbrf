@@ -38,6 +38,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-email": "^6.9.3",
+    "read-excel-file": "^9.3.10",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^4.4.3"
@@ -49,6 +50,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "fflate": "^0.8.3",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "^7.0.2001",
     "prisma": "7.10.0",

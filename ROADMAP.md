@@ -2,15 +2,15 @@
 
 **Can I run this in my housing cooperative today? No.** A first boot now walks
 you through creating the housing cooperative, its addresses and its apartments;
-the settings screens are there; and the address book holds people, with a
-resident who has protected personal data masked everywhere.
+the settings screens are there; the address book holds people, with a resident
+who has protected personal data masked everywhere; the member register and the
+apartment register have their own views and print correctly; someone can be
+moved in and out; and an existing member list imports from CSV or Excel.
 
-What is missing is most of what a cooperative is obliged to keep. The member
-register and the apartment register have no views and no printable extracts.
-Moving someone in or out is not built, which is also what writes the statutory
-member-register entry. An existing member list cannot be imported. And nobody
-can be invited from the interface yet. The project is not ready to hold your
-housing cooperative's data.
+What is missing is the way in and the way out. Nobody can be invited from the
+interface yet, and there is no deployable image or Compose file to run any of it
+from, nor an end-to-end test suite that says the whole path works. The project
+is not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -74,9 +74,9 @@ reachable without an interface, and the one unchecked row says why.
 ### The interface
 
 Under way. This is the gap between the list above and anything usable.
-There is now a frame, a way in, a way to configure the instance and a working
-register. The statutory register views, the move flows and the import are still
-ahead.
+There is now a frame, a way in, a way to configure the instance, the address
+book, the two statutory registers with their printable extracts, the move flows
+and the import.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
@@ -106,9 +106,35 @@ ahead.
       resident-facing variant with no contact column at all; and the audited
       reveal for masked fields
 
-- [ ] Member register and apartment register views, with printable extracts
-- [ ] Move-in and move-out flows
-- [ ] Import from CSV and Excel with column mapping
+- [x] Member register and apartment register views, with printable extracts:
+      two separate screens on two separate endpoints, because the member
+      register is public on request and the apartment register is confidential.
+      The member register extract carries names, postal addresses, apartments
+      and the membership dates and never a personal identity number; the
+      apartment register carries the holders, the initial share capital, the
+      participation share, the lien notes and the transfers, and is open to the
+      board and to each tenant-owner for their own entry. Identity numbers are
+      masked until the full statutory copy is asked for, and the audit log
+      records who took it and whose numbers it held. Both print through a print
+      stylesheet, so a browser's own "save as PDF" produces the document
+- [x] Move-in and move-out flows: moving in creates the residency, writes the
+      statutory member register entry when the person takes over a
+      tenant-ownership, records the transfer, and emails the welcome in the
+      recipient's own language. Moving out sets the date, shows the purge date
+      computed from the retention policy, records the transfer, closes the
+      membership in the register when the person's last tenant-ownership ends,
+      and has the board reminded on the day
+- [x] Import from CSV and Excel with column mapping: the columns are guessed
+      from their titles in either language and confirmed by hand, and a preview
+      shows every row that would be created, every person that would be matched
+      and every row with a problem before anything is written. A row matching
+      more than one person waits for a decision rather than picking one. An
+      update fills in what the register does not have and never overwrites what
+      it does. The register write itself runs in the background, in chunks, with
+      the rows it has done shown as it goes: a whole cooperative's list goes in
+      at once, the page can be closed while it runs, and an import interrupted by
+      a restart carries on from where it stopped rather than writing anything a
+      second time
 - [ ] Deployable production image and Compose file
 - [ ] End-to-end test suite
 
