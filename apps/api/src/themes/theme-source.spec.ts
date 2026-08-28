@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { Env } from "../config/env";
 import { buildThemeFixtureCatalog } from "../testing/theme-fixtures";
@@ -164,5 +172,55 @@ describe("CatalogThemeSource", () => {
     await expect(sourceOver(broken).listThemes()).rejects.toThrow(
       /does not match the expected shape/,
     );
+  });
+});
+
+/**
+ * A host that does not answer.
+ *
+ * The byte caps bound how much a catalog may send, not how long it may take to
+ * send it. The install runs inline in the request, so a host that completes the
+ * handshake and then goes quiet would hold the request handler and its database
+ * connection for as long as it liked. Both halves of the exchange therefore run
+ * under one deadline, and reaching it is an unreachable catalog rather than a
+ * server fault.
+ */
+describe("a catalog over HTTP", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("gives the request a deadline", async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", (_input: unknown, init: RequestInit) => {
+      signal = init.signal ?? undefined;
+      return Promise.reject(
+        new DOMException("The operation timed out.", "TimeoutError"),
+      );
+    });
+
+    await expect(
+      sourceOver("https://catalog.example.com/catalog.json").listThemes(),
+    ).rejects.toMatchObject({ reason: "catalog-unreachable" });
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("reports a body that stops part way through as unreachable", async () => {
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"entries":'));
+              controller.error(new Error("The connection went away."));
+            },
+          }),
+        ),
+      ),
+    );
+
+    await expect(
+      sourceOver("https://catalog.example.com/catalog.json").listThemes(),
+    ).rejects.toMatchObject({ reason: "catalog-unreachable" });
   });
 });

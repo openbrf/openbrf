@@ -76,6 +76,8 @@ type Action =
   | { kind: "idle" }
   | { kind: "working"; themeId: string }
   | { kind: "failed"; failure: ApiFailure }
+  /** Activated, but the re-read that follows it did not land. */
+  | { kind: "stale" }
   | { kind: "installed"; themeId: string; warnings: ThemeLintFinding[] };
 
 /** Findings the server attached to a refusal, when it attached any. */
@@ -165,8 +167,14 @@ export function ThemesScreen(): ReactElement {
     }
     setInstalled(result.value);
     runtime.preview(null);
-    await runtime.reload();
-    setAction({ kind: "idle" });
+    /*
+     * The activation is done either way: the server has switched. What can
+     * still fail is reading back what it now renders, and this browser is then
+     * showing the theme it had before. Saying so beats going quiet and leaving
+     * a board member to conclude the activation did not take.
+     */
+    const reloaded = await runtime.reload();
+    setAction(reloaded ? { kind: "idle" } : { kind: "stale" });
   };
 
   const onInstall = async (themeId: string): Promise<void> => {
@@ -192,6 +200,12 @@ export function ThemesScreen(): ReactElement {
       return;
     }
     setInstalled(result.value);
+    // A preview of the theme that has just been removed would keep its
+    // stylesheet on the page and offer to activate a theme the API no longer
+    // has.
+    if (runtime.previewing?.id === themeId) {
+      runtime.preview(null);
+    }
     await load();
     setAction({ kind: "idle" });
   };
@@ -249,6 +263,12 @@ export function ThemesScreen(): ReactElement {
             <span>{t(failureKey(action.failure))}</span>
             <LintFindings findings={findingsOf(action.failure)} />
           </span>
+        </Notice>
+      ) : null}
+
+      {action.kind === "stale" ? (
+        <Notice tone="warn" live>
+          {t("themeCatalog.errors.activatedNotReloaded")}
         </Notice>
       ) : null}
 

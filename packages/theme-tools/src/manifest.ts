@@ -86,7 +86,16 @@ const fontFile = z.object({
   style: z.enum(["normal", "italic"]).default("normal"),
 });
 
-const fontDeclaration = z.object({
+/**
+ * One typeface a theme bundles.
+ *
+ * Exported because the core stores these in a JSON column and reads them back
+ * on a route an anonymous request can reach. A column is not a checked type, so
+ * the reader parses against this schema rather than casting: the values that
+ * reach a `@font-face` rule are then the ones the install gate measured, even
+ * for a row written by an earlier version.
+ */
+export const themeFontDeclarationSchema = z.object({
   family: z.string().min(1).max(80),
   /**
    * The licence the font is distributed under, as an SPDX identifier or a
@@ -116,7 +125,7 @@ export const themeManifestSchema = z.object({
     })
     .default({ light: {}, dark: {} }),
 
-  fonts: z.array(fontDeclaration).max(8).default([]),
+  fonts: z.array(themeFontDeclarationSchema).max(8).default([]),
   logo: packagePath.optional(),
 
   /** Core-maintained view variants, keyed by the slot they fill. */

@@ -50,6 +50,16 @@ export class SettingsError extends DomainError {
             ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.BAD_REQUEST;
   }
+
+  /**
+   * The pairs that failed, so the screen can name them.
+   *
+   * Token names, a measured ratio and the ratio required: nothing here came
+   * from the request, which is what makes it publishable.
+   */
+  override details(): Record<string, readonly unknown[]> {
+    return { findings: this.findings };
+  }
 }
 
 export interface HousingCooperativeSettings {

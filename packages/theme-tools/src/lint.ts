@@ -68,6 +68,8 @@ export type ThemeLintRule =
   | "font-file-missing"
   | "font-file-undeclared"
   | "font-format"
+  /** A bundled font whose declaration states no licence. */
+  | "font-license-missing"
   | "license-file-missing"
   | "logo-missing"
   | "unknown-view-variant";
@@ -227,6 +229,12 @@ export function lintTheme(input: ThemeLintInput): ThemeLintResult {
   for (const font of manifest.fonts) {
     if (isRemoteReference(font.family)) {
       fail("font-remote-source", { family: font.family, source: font.family });
+    }
+    // The schema requires the field; only this reads it as a statement. A
+    // bundled font is a redistribution, and one whose licence is a run of
+    // spaces is a redistribution nobody can check.
+    if (font.license.trim().length === 0) {
+      fail("font-license-missing", { family: font.family });
     }
     if (font.licenseFile !== undefined && !files.has(font.licenseFile)) {
       fail("license-file-missing", {

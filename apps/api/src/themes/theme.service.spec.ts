@@ -52,7 +52,12 @@ interface Harness {
 
 function build(
   rows: InstalledTheme[] = [],
-  options: { activeThemeId?: string | null; association?: boolean } = {},
+  options: {
+    activeThemeId?: string | null;
+    association?: boolean;
+    /** Makes the filesystem removal fail, as a full volume or a lock would. */
+    removalFails?: boolean;
+  } = {},
 ): Harness {
   let active = options.activeThemeId ?? null;
   const exists = options.association ?? true;
@@ -112,7 +117,11 @@ function build(
   };
 
   const store = {
+    directoryFor: (id: string) => `/data/themes/${id}`,
     remove: vi.fn(async (id: string) => {
+      if (options.removalFails === true) {
+        throw new Error("The directory could not be removed.");
+      }
       removed.push(id);
     }),
     readAsset: vi.fn(async () => Buffer.from("asset")),
@@ -274,6 +283,54 @@ describe("removal", () => {
       /inherited by child-theme/,
     );
   });
+
+  /*
+   * The refusal names the themes that blocked it, so a board member is not left
+   * to work out which of the installed themes inherits from this one. They
+   * travel as codes, like every other refusal's particulars.
+   */
+  it("names the themes that blocked a removal", async () => {
+    const withChildren = build([
+      themeRow(),
+      themeRow({ id: "child-theme", extendsThemeId: "example-theme" }),
+      themeRow({ id: "other-child", extendsThemeId: "example-theme" }),
+    ]);
+
+    const refusal = await withChildren.service.uninstall("example-theme").then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+
+    expect(refusal).toBeInstanceOf(ThemeError);
+    expect((refusal as ThemeError).details()).toEqual({
+      findings: [
+        {
+          rule: "theme-has-dependants",
+          severity: "error",
+          detail: { themeId: "child-theme" },
+        },
+        {
+          rule: "theme-has-dependants",
+          severity: "error",
+          detail: { themeId: "other-child" },
+        },
+      ],
+    });
+  });
+
+  /*
+   * The row is what the instance reads, and it is already gone. Reporting a
+   * failure would send a board member to retry a removal that has happened,
+   * and the second attempt would answer that the theme is not installed.
+   */
+  it("completes the removal even when the files cannot be deleted", async () => {
+    const stuck = build([themeRow()], { removalFails: true });
+
+    const themes = await stuck.service.uninstall("example-theme");
+
+    expect(stuck.rows).toEqual([]);
+    expect(themes.some((theme) => theme.id === "example-theme")).toBe(false);
+  });
 });
 
 describe("resolved token maintenance", () => {
@@ -322,5 +379,89 @@ describe("assets", () => {
 
   it("serves nothing for a theme that is not installed", async () => {
     expect(await harness.service.asset("nothing", "logo.png")).toBeNull();
+  });
+
+  it("serves nothing for a path the theme never declared", async () => {
+    const withFont = build([
+      themeRow({
+        fonts: [
+          {
+            family: "Spline Sans Mono",
+            license: "OFL-1.1",
+            files: [
+              { path: "fonts/mono.woff2", weight: "400", style: "normal" },
+            ],
+          },
+        ] as never,
+      }),
+    ]);
+
+    // The theme is installed, so the allowlist is what answers rather than a
+    // missing row, and it answers for a traversal path like any other path
+    // nobody declared: there is no such asset.
+    for (const path of [
+      "../../../etc/passwd",
+      "fonts/../../secret.txt",
+      "/etc/passwd",
+    ]) {
+      expect(await withFont.service.asset("example-theme", path)).toBeNull();
+    }
+  });
+});
+
+/*
+ * A JSON column is not a checked type. The install lint validated what it
+ * wrote, but a row from an earlier version or one edited directly has no such
+ * guarantee, and one of the three readers is a route an anonymous request
+ * reaches. A malformed declaration is dropped rather than faulting it.
+ */
+describe("a fonts column that was not written by this version", () => {
+  const malformed = () =>
+    build([
+      themeRow({
+        fonts: [
+          { family: "No Files", license: "OFL-1.1" },
+          "not an object",
+          {
+            family: "Escaping",
+            license: "OFL-1.1",
+            files: [
+              {
+                path: "fonts/mono.woff2",
+                weight: "400; } body { display: none",
+                style: "normal",
+              },
+            ],
+          },
+          {
+            family: "Spline Sans Mono",
+            license: "OFL-1.1",
+            files: [
+              { path: "fonts/mono.woff2", weight: "400", style: "normal" },
+            ],
+          },
+        ] as never,
+      }),
+    ]);
+
+  it("answers the asset route instead of faulting on a declaration with no files", async () => {
+    const service = malformed().service;
+    expect(
+      await service.asset("example-theme", "fonts/mono.woff2"),
+    ).not.toBeNull();
+    expect(await service.asset("example-theme", "theme.json")).toBeNull();
+  });
+
+  it("renders only the declarations that hold to the manifest contract", async () => {
+    const rendering = await malformed().service.renderingOf("example-theme");
+    expect(rendering.fontFaces).toHaveLength(1);
+    expect(rendering.fontFaces[0]?.family).toBe("Spline Sans Mono");
+
+    const [summary] = (await malformed().service.list()).filter(
+      (theme) => theme.id === "example-theme",
+    );
+    expect(summary?.fonts).toEqual([
+      { family: "Spline Sans Mono", license: "OFL-1.1" },
+    ]);
   });
 });

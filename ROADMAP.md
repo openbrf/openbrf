@@ -165,7 +165,7 @@ nothing into the running process.
 
 - [ ] Plugin manifest, loader and permissions-scoped SDK
 - [ ] Plugin views loaded at runtime without rebuilding the application
-- [ ] Curated catalog and installation from the admin interface
+- [ ] Curated plugin catalog and installation from the admin interface
 - [ ] Command-line plugin management
 - [x] Themes installable as data-only plugins, with inheritance. A theme is a
       manifest, token values and bundled font files. It installs from a

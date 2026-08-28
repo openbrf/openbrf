@@ -324,9 +324,55 @@ describe("lintTheme", () => {
     expect(rules(result)).toContain("unsafe-token-value");
   });
 
+  it("refuses a bundled font whose licence is only whitespace", () => {
+    // The schema demands the field; this is what reads it as a statement. A
+    // font redistributed under a licence nobody can check is the thing the rule
+    // exists to stop.
+    const result = lint(
+      manifestOf({
+        fonts: [
+          {
+            family: "Inter",
+            license: " ",
+            files: [{ path: "fonts/inter-400.woff2" }],
+          },
+        ],
+      }),
+      { files: ["theme.json", "fonts/inter-400.woff2"] },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(rules(result)).toContain("font-license-missing");
+  });
+
   it("refuses a theme whose parent is not installed", () => {
     const result = lint(manifestOf({ extends: "never-installed" }));
     expect(rules(result)).toContain("missing-parent");
+    expect(result.resolved).toBeNull();
+  });
+
+  /*
+   * The two rules that bound chain walking. `extends` is author-supplied, so
+   * without them resolution would follow a loop until the process died.
+   */
+  it("refuses a theme that names itself as its parent", () => {
+    const result = lint(manifestOf({ extends: "example-theme" }));
+    expect(rules(result)).toContain("self-extends");
+    expect(rules(result)).toContain("inheritance-cycle");
+    expect(result.resolved).toBeNull();
+  });
+
+  it("refuses two themes that name each other", () => {
+    const other: ThemeChainEntry = {
+      id: "other-theme",
+      extends: "example-theme",
+      modes: { light: {}, dark: {} },
+    };
+    const result = lint(manifestOf({ extends: "other-theme" }), {
+      installed: [other],
+    });
+
+    expect(rules(result)).toContain("inheritance-cycle");
     expect(result.resolved).toBeNull();
   });
 

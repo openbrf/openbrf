@@ -35,9 +35,14 @@ const RULE_KEYS: Readonly<Record<string, TranslationKey>> = {
   "font-file-missing": "themeCatalog.lint.fontFileMissing",
   "font-file-undeclared": "themeCatalog.lint.fontFileUndeclared",
   "font-format": "themeCatalog.lint.fontFormat",
+  "font-license-missing": "themeCatalog.lint.fontLicenseMissing",
   "license-file-missing": "themeCatalog.lint.licenseFileMissing",
   "logo-missing": "themeCatalog.lint.logoMissing",
   "unknown-view-variant": "themeCatalog.lint.unknownViewVariant",
+  // Not a lint rule: the themes that block a removal arrive in the same shape,
+  // because a refusal's particulars travel as a code and its detail whatever
+  // produced them.
+  "theme-has-dependants": "themeCatalog.lint.themeHasDependants",
 };
 
 export function LintFindings({

@@ -577,9 +577,11 @@
       "fontFileMissing": "The typeface {{family}} declares {{file}}, which the package does not contain.",
       "fontFileUndeclared": "The package contains the font file {{file}}, which no typeface declares a licence for.",
       "fontFormat": "The typeface {{family}} declares {{file}}, which is not a font file.",
+      "fontLicenseMissing": "The typeface {{family}} states no licence. A bundled font is a redistribution, and one nobody can check is refused.",
       "licenseFileMissing": "The typeface {{family}} names the licence file {{file}}, which the package does not contain.",
       "logoMissing": "The manifest names the logo {{file}}, which the package does not contain.",
-      "unknownViewVariant": "The theme asks for the {{variant}} layout of {{slot}}, which this version does not maintain."
+      "unknownViewVariant": "The theme asks for the {{variant}} layout of {{slot}}, which this version does not maintain.",
+      "themeHasDependants": "{{themeId}} inherits from this theme."
     },
     "errors": {
       "unknown": "The themes could not be loaded just now. Please try again.",
@@ -601,7 +603,8 @@
       "themeInUse": "That theme is the active one. Switch to another theme first.",
       "themeHasDependants": "Another installed theme inherits from that one.",
       "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
-      "housingCooperativeMissing": "Create the housing cooperative before choosing a theme."
+      "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
+      "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page."
     }
   }
 }

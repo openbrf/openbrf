@@ -577,9 +577,11 @@
       "fontFileMissing": "Typsnittet {{family}} anger {{file}}, som paketet inte innehåller.",
       "fontFileUndeclared": "Paketet innehåller typsnittsfilen {{file}}, som inget typsnitt anger licens för.",
       "fontFormat": "Typsnittet {{family}} anger {{file}}, som inte är en typsnittsfil.",
+      "fontLicenseMissing": "Typsnittet {{family}} anger ingen licens. Ett paketerat typsnitt är en vidaredistribution, och en som ingen kan kontrollera avvisas.",
       "licenseFileMissing": "Typsnittet {{family}} anger licensfilen {{file}}, som paketet inte innehåller.",
       "logoMissing": "Manifestet anger logotypen {{file}}, som paketet inte innehåller.",
-      "unknownViewVariant": "Temat begär layouten {{variant}} för {{slot}}, som den här versionen inte tillhandahåller."
+      "unknownViewVariant": "Temat begär layouten {{variant}} för {{slot}}, som den här versionen inte tillhandahåller.",
+      "themeHasDependants": "{{themeId}} ärver från det här temat."
     },
     "errors": {
       "unknown": "Temana kunde inte hämtas just nu. Försök igen.",
@@ -601,7 +603,8 @@
       "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
       "themeHasDependants": "Ett annat installerat tema ärver från det.",
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
-      "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema."
+      "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
+      "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan."
     }
   }
 }

@@ -9,6 +9,7 @@ import {
   Req,
   Res,
 } from "@nestjs/common";
+import { isPackagePath } from "@openbrf/theme-tools";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
@@ -50,7 +51,19 @@ const activateSchema = z.object({
 
 const assetQuerySchema = z.object({
   theme: themeIdSchema,
-  file: z.string().min(1).max(200),
+  /*
+   * Held to the package path rules, which is what every path this route can
+   * legitimately be asked for satisfies: they come from a manifest that was
+   * parsed against the same rules. A traversal path is therefore refused here,
+   * before the theme is looked up at all - the declared-asset allowlist and the
+   * store's containment check both still run, and neither depends on this one
+   * having caught anything.
+   */
+  file: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine(isPackagePath, "must be a path a theme package may contain"),
 });
 
 /** Content types the asset route serves, keyed by extension. */

@@ -8,6 +8,14 @@ import { isPackagePath, type ThemeArchiveFiles } from "@openbrf/theme-tools";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 
+/** A theme's files written to the volume but not yet the installed version. */
+export interface StagedTheme {
+  /** Moves the staged files into place, replacing any earlier version. */
+  commit(): Promise<void>;
+  /** Removes the staged files. Any earlier version is left exactly as it was. */
+  discard(): Promise<void>;
+}
+
 /**
  * Installed themes on the data volume, under <data dir>/themes/<theme id>.
  *
@@ -17,9 +25,12 @@ import type { Env } from "../config/env";
  * the theme's own directory. The second check is what makes the first one
  * safe to rely on, because it holds regardless of what the first one missed.
  *
- * Writing is staged and then moved into place. A crash halfway through an
- * install leaves a staging directory behind rather than a half-written theme
- * the interface would try to render.
+ * Writing is staged, and committing it is a separate step the caller takes once
+ * the database has accepted the install. Two systems cannot share a
+ * transaction, so the database is made the decider: a transaction that fails
+ * leaves the previous version untouched, and a crash halfway through an install
+ * leaves a staging directory behind rather than a half-written theme the
+ * interface would try to render.
  */
 @Injectable()
 export class ThemeStore {
@@ -37,15 +48,16 @@ export class ThemeStore {
   }
 
   /**
-   * Writes a theme's files, replacing any earlier version of it.
+   * Writes a theme's files to a staging directory beside the installed one.
    *
    * The staging directory is a sibling rather than a temporary directory
    * elsewhere, so the move into place is a rename within one filesystem and
-   * therefore atomic. The previous version is moved aside first and deleted
-   * afterwards: a failure between the two leaves the new theme installed and a
-   * stale directory to clean up, rather than no theme at all.
+   * therefore atomic. Nothing the interface reads changes until the returned
+   * handle is committed, so a caller that fails after staging - a refused
+   * database transaction, say - discards it and the installed version is
+   * exactly what it was.
    */
-  async write(themeId: string, files: ThemeArchiveFiles): Promise<void> {
+  async stage(themeId: string, files: ThemeArchiveFiles): Promise<StagedTheme> {
     const suffix = randomBytes(6).toString("hex");
     const staging = join(this.root, `.staging-${themeId}-${suffix}`);
     const target = this.directoryFor(themeId);
@@ -62,26 +74,46 @@ export class ThemeStore {
         await mkdir(dirname(destination), { recursive: true });
         await writeFile(destination, contents);
       }
-
-      let replaced = false;
-      try {
-        await rename(target, displaced);
-        replaced = true;
-      } catch {
-        // Nothing to displace: this is a first install.
-      }
-
-      await rename(staging, target);
-
-      if (replaced) {
-        await rm(displaced, { recursive: true, force: true });
-      }
     } catch (cause) {
       await rm(staging, { recursive: true, force: true });
       throw cause;
     }
 
-    this.logger.log(`Wrote theme ${themeId} to ${target}`);
+    return {
+      commit: async () => {
+        /*
+         * The previous version is moved aside rather than deleted, and it goes
+         * back if the swap fails. It is the version the interface is rendering:
+         * losing it would leave the association's fonts and logo answering 404
+         * on every page until somebody reinstalled the theme.
+         */
+        let displacedPrevious = false;
+        try {
+          await rename(target, displaced);
+          displacedPrevious = true;
+        } catch {
+          // Nothing to displace: this is a first install.
+        }
+
+        try {
+          await rename(staging, target);
+        } catch (cause) {
+          if (displacedPrevious) {
+            await rename(displaced, target).catch(() => undefined);
+          }
+          await rm(staging, { recursive: true, force: true });
+          throw cause;
+        }
+
+        if (displacedPrevious) {
+          await rm(displaced, { recursive: true, force: true });
+        }
+        this.logger.log(`Wrote theme ${themeId} to ${target}`);
+      },
+      discard: async () => {
+        await rm(staging, { recursive: true, force: true });
+      },
+    };
   }
 
   async remove(themeId: string): Promise<void> {

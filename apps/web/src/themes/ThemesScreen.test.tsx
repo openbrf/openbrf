@@ -317,10 +317,90 @@ describe("previewing and activating", () => {
     });
   });
 
-  it("says why a theme cannot be removed", async () => {
+  /*
+   * The activation happened on the server either way. What can still fail is
+   * reading back what it now renders, and this browser is then a version
+   * behind. Going quiet would leave a board member to conclude the activation
+   * did not take, and click it again.
+   */
+  it("says so when it cannot read back what the instance now renders", async () => {
+    activateTheme.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...BUILT_IN, active: false },
+        { ...EXAMPLE, active: true },
+      ],
+    });
+    fetchActiveTheme
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { ...RENDERING, id: "porttavlan", builtIn: true },
+      })
+      .mockResolvedValue({
+        ok: false,
+        failure: { status: 0, reason: "offline" },
+      });
+
+    const session = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^aktivera$/i })).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: /^aktivera$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/kunde inte läsas om/i)).toBeTruthy();
+    });
+  });
+
+  /*
+   * A preview applies the removed theme's stylesheet to this browser, and its
+   * notice offers to activate it. Both have to go with the theme.
+   */
+  it("stops previewing a theme that has just been removed", async () => {
+    fetchThemePreview.mockResolvedValue({ ok: true, value: RENDERING });
+    uninstallTheme.mockResolvedValue({ ok: true, value: [BUILT_IN] });
+
+    const session = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /^förhandsgranska$/i }),
+      ).toBeTruthy();
+    });
+    await session.click(
+      screen.getByRole("button", { name: /^förhandsgranska$/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/bara din egen webbläsare/i)).toBeTruthy();
+    });
+
+    fetchInstalledThemes.mockResolvedValue({ ok: true, value: [BUILT_IN] });
+    await session.click(screen.getByRole("button", { name: /^ta bort$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/bara din egen webbläsare/i)).toBeNull();
+    });
+    expect(document.getElementById("openbrf-theme-tokens")).toBeNull();
+  });
+
+  it("names the themes that stop one from being removed", async () => {
     uninstallTheme.mockResolvedValue({
       ok: false,
-      failure: { status: 409, reason: "theme-has-dependants" },
+      failure: {
+        status: 409,
+        reason: "theme-has-dependants",
+        detail: [
+          {
+            rule: "theme-has-dependants",
+            severity: "error",
+            detail: { themeId: "child-theme" },
+          },
+        ],
+      },
     });
 
     const session = userEvent.setup();
@@ -332,7 +412,14 @@ describe("previewing and activating", () => {
     await session.click(screen.getByRole("button", { name: /^ta bort$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/ärver från det/i)).toBeTruthy();
+      expect(
+        screen.getByText(/ett annat installerat tema ärver från det/i),
+      ).toBeTruthy();
     });
+    // Which theme blocks it, not only that something does: otherwise a board
+    // member has to open every installed theme to find the one that inherits.
+    expect(
+      screen.getByText(/child-theme ärver från det här temat/i),
+    ).toBeTruthy();
   });
 });

@@ -238,6 +238,24 @@ unpacked, the package is read and linted, and only then is it written to
 entry about its name or version is refused - the checksum proves the bytes are
 the ones the catalog meant, not that they are what they claim to be.
 
+Storage and the database cannot share a transaction, so the database is made the
+decider. The package is written to a staging directory beside the installed
+theme, the row and the audit entry are written in one transaction, and moving
+the staged files into place is that transaction's last step. Anything that
+refuses the install - a failed lint, a rejected write, a swap that cannot be
+completed - therefore leaves the version already installed exactly as it was,
+and a swap that fails part way puts the displaced version back before the
+failure is reported. What no ordering closes without a distributed transaction
+is a connection lost between the files moving and the transaction committing,
+which leaves new files under the previous row until that theme is installed
+again.
+
+Removal is the same ordering read the other way. The row goes first, because the
+row is what the instance reads: the theme list, the rendering and the allowlist
+the asset route serves from are all built from it. Files that cannot be deleted
+afterwards are unreferenced rather than half-installed, and a reinstall of that
+id replaces them.
+
 **No restart.** A theme carries no code, so there is nothing to load into the
 running process: installing writes files and a row, activating writes one
 column, and the browser applies a stylesheet.

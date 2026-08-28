@@ -62,6 +62,17 @@ export class ThemeInstallError extends DomainError {
           ? HttpStatus.CONFLICT
           : HttpStatus.UNPROCESSABLE_ENTITY;
   }
+
+  /**
+   * What the install screen needs in order to say why a package was refused.
+   *
+   * Lint findings are rule codes with the numbers that were measured, and the
+   * archive and manifest issues name a path or a schema field. Neither carries
+   * anything the requester submitted beyond the catalog id they already know.
+   */
+  override details(): Record<string, readonly unknown[]> {
+    return { findings: this.findings, issues: this.issues };
+  }
 }
 
 /** A catalog entry as the install screen lists it. */
@@ -170,51 +181,67 @@ export class ThemeInstallService {
       );
     }
 
-    // Files first: a row whose fonts are missing renders worse than a directory
-    // with no row, which the next install simply overwrites.
-    await this.store.write(manifest.name, files);
+    /*
+     * Staged beside the installed version, not over it. Storage and the
+     * database cannot share a transaction, so the transaction below is made the
+     * decider: the files move into place as its last step, so anything that
+     * refuses the install leaves the version already installed exactly as it
+     * was rather than pairing an old row with new files. The only case left
+     * open is a connection lost between the two, which no ordering closes
+     * without a distributed transaction.
+     */
+    const staged = await this.store.stage(manifest.name, files);
 
     const resolved = lint.resolved;
-    await this.prisma.$transaction(async (tx) => {
-      const row = {
-        name: manifest.displayName,
-        version: manifest.version,
-        description: manifest.description ?? null,
-        contract: manifest.contract,
-        extendsThemeId: manifest.extends ?? null,
-        checksum: entry.sha512,
-        sourceUrl: entry.url,
-        catalogId: entry.id,
-        declaredLightTokens: manifest.modes.light as Prisma.InputJsonValue,
-        declaredDarkTokens: manifest.modes.dark as Prisma.InputJsonValue,
-        lightTokens: (resolved?.light ?? {}) as Prisma.InputJsonValue,
-        darkTokens: (resolved?.dark ?? {}) as Prisma.InputJsonValue,
-        viewVariants: manifest.viewVariants as Prisma.InputJsonValue,
-        fonts: manifest.fonts as unknown as Prisma.InputJsonValue,
-        logoPath: manifest.logo ?? null,
-      };
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const row = {
+          name: manifest.displayName,
+          version: manifest.version,
+          description: manifest.description ?? null,
+          contract: manifest.contract,
+          extendsThemeId: manifest.extends ?? null,
+          checksum: entry.sha512,
+          sourceUrl: entry.url,
+          catalogId: entry.id,
+          declaredLightTokens: manifest.modes.light as Prisma.InputJsonValue,
+          declaredDarkTokens: manifest.modes.dark as Prisma.InputJsonValue,
+          lightTokens: (resolved?.light ?? {}) as Prisma.InputJsonValue,
+          darkTokens: (resolved?.dark ?? {}) as Prisma.InputJsonValue,
+          viewVariants: manifest.viewVariants as Prisma.InputJsonValue,
+          fonts: manifest.fonts as unknown as Prisma.InputJsonValue,
+          logoPath: manifest.logo ?? null,
+        };
 
-      await tx.installedTheme.upsert({
-        where: { id: manifest.name },
-        create: { id: manifest.name, ...row },
-        update: row,
-      });
+        await tx.installedTheme.upsert({
+          where: { id: manifest.name },
+          create: { id: manifest.name, ...row },
+          update: row,
+        });
 
-      await this.audit.record(
-        {
-          action: "THEME_INSTALLED",
-          actorPersonId,
-          targetKind: "theme",
-          targetId: manifest.name,
-          context: {
-            version: manifest.version,
-            source: entry.url,
-            checksum: entry.sha512,
+        await this.audit.record(
+          {
+            action: "THEME_INSTALLED",
+            actorPersonId,
+            targetKind: "theme",
+            targetId: manifest.name,
+            context: {
+              version: manifest.version,
+              source: entry.url,
+              checksum: entry.sha512,
+            },
           },
-        },
-        tx,
-      );
-    });
+          tx,
+        );
+
+        // Last, so that a swap this cannot complete rolls the row back with it
+        // and the previous version keeps rendering.
+        await staged.commit();
+      });
+    } catch (cause) {
+      await staged.discard();
+      throw cause;
+    }
 
     // A reinstall changes what this theme's descendants render.
     await this.themes.recomputeResolvedTokens();

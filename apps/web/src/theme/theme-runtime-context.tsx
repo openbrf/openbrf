@@ -36,8 +36,8 @@ interface ThemeRuntimeValue {
   applied: ThemeRendering | null;
   /** Applies a theme to this browser only. Null returns to the active one. */
   preview: (rendering: ThemeRendering | null) => void;
-  /** Re-reads the active theme, e.g. after activating one. */
-  reload: () => Promise<void>;
+  /** Re-reads the active theme, e.g. after activating one. False when the read failed. */
+  reload: () => Promise<boolean>;
 }
 
 const ThemeRuntimeContext = createContext<ThemeRuntimeValue | undefined>(
@@ -64,11 +64,22 @@ export function ThemeRuntimeProvider({
     return result.ok ? result.value : null;
   }, []);
 
-  const reload = useCallback(async (): Promise<void> => {
+  /**
+   * Re-reads the active theme, answering whether the read landed.
+   *
+   * The rendering already applied is kept rather than cleared, because dropping
+   * it would repaint every open page over a moment of network trouble. What the
+   * caller gets instead is the failure: after an activation this browser is a
+   * version behind what the instance renders, and only the screen that asked
+   * for the activation is in a position to say so.
+   */
+  const reload = useCallback(async (): Promise<boolean> => {
     const rendering = await read();
-    if (rendering !== null) {
-      setActive(rendering);
+    if (rendering === null) {
+      return false;
     }
+    setActive(rendering);
+    return true;
   }, [read]);
 
   useEffect(() => {

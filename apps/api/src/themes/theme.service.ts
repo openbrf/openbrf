@@ -7,6 +7,7 @@ import {
   resolveViewVariant,
   type ThemeChainEntry,
   type ThemeFontDeclaration,
+  themeFontDeclarationSchema,
   type ThemeFontFaceSource,
   themeFontFaces,
   VIEW_VARIANT_SLOTS,
@@ -60,6 +61,25 @@ export class ThemeError extends DomainError {
       reason === "theme-not-installed"
         ? HttpStatus.NOT_FOUND
         : HttpStatus.CONFLICT;
+  }
+
+  /**
+   * The themes that block a removal, in the shape a refusal's particulars
+   * travel in.
+   *
+   * Sent as findings under a rule code because that is what the screen renders
+   * a refusal's particulars with, and because a board member told only that
+   * "another theme inherits from this one" has to go and find which. Theme ids
+   * and a rule code: nothing personal, and nothing from the request.
+   */
+  override details(): Record<string, readonly unknown[]> {
+    return {
+      findings: this.dependants.map((themeId) => ({
+        rule: "theme-has-dependants",
+        severity: "error",
+        detail: { themeId },
+      })),
+    };
   }
 }
 
@@ -121,8 +141,30 @@ export function asTokenRecord(value: unknown): PartialTokenSet {
   return tokens as PartialTokenSet;
 }
 
+/**
+ * Reads a JSON column back as font declarations, dropping anything malformed.
+ *
+ * Parsed rather than cast. The install lint validated what it wrote, but a row
+ * written by an earlier version or edited directly carries no such guarantee,
+ * and three callers read this column: the theme list, the rendering the browser
+ * applies, and the asset route an anonymous request can reach. A declaration
+ * that names no files would fault that route rather than serve a 404, and a
+ * weight or style that never went through the manifest schema would reach a
+ * `@font-face` rule. Both are refused here, at the point that trusts the
+ * column.
+ */
 function asFontDeclarations(value: unknown): ThemeFontDeclaration[] {
-  return Array.isArray(value) ? (value as ThemeFontDeclaration[]) : [];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const declarations: ThemeFontDeclaration[] = [];
+  for (const entry of value) {
+    const parsed = themeFontDeclarationSchema.safeParse(entry);
+    if (parsed.success) {
+      declarations.push(parsed.data);
+    }
+  }
+  return declarations;
 }
 
 function asVariantSelection(value: unknown): Record<string, string> {
@@ -449,8 +491,26 @@ export class ThemeService {
       );
     }
 
+    /*
+     * The row goes first, and it is what the instance reads. A directory with
+     * no row is unreferenced - nothing lists it, the asset route builds its
+     * allowlist from the row, and the next install of that id replaces it -
+     * while a row whose files are gone would leave a theme listed and offered
+     * for activation with its fonts and logo answering 404.
+     *
+     * So a failed removal is recorded and not raised: the uninstall did happen,
+     * and reporting it as a failure would send a board member to retry an
+     * operation that has already succeeded.
+     */
     await this.prisma.installedTheme.delete({ where: { id: themeId } });
-    await this.store.remove(themeId);
+    try {
+      await this.store.remove(themeId);
+    } catch (cause) {
+      this.logger.warn(
+        `Theme ${themeId} was uninstalled, but its files under ${this.store.directoryFor(themeId)} could not be removed. They are unreferenced and a reinstall of that id replaces them.`,
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
     await this.recomputeResolvedTokens();
 
     this.logger.log(`Uninstalled theme ${themeId}`);

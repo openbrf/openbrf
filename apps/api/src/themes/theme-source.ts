@@ -44,6 +44,17 @@ import { Inject } from "@nestjs/common";
 const MAX_PACKAGE_BYTES = 8 * 1024 * 1024;
 const MAX_CATALOG_BYTES = 1024 * 1024;
 
+/**
+ * How long a catalog or package fetch may take before it is abandoned.
+ *
+ * The byte caps above bound size, not time. A host that completes the handshake
+ * and then sends nothing would otherwise leave the fetch pending for as long as
+ * it cared to: the install runs inline in the request, so the request handler
+ * and its database connection would be held for exactly that long. A catalog is
+ * data, and a fetch that stalls is a failed fetch.
+ */
+const FETCH_TIMEOUT_MS = 30_000;
+
 export const catalogEntrySchema = z.object({
   id: z.string().min(1).max(120),
   type: z.enum(["theme", "plugin"]),
@@ -241,18 +252,27 @@ export class CatalogThemeSource implements ThemeSource {
     }
 
     const token = this.env.OPENBRF_CATALOG_TOKEN;
+    const unreachable = (cause: unknown): ThemeSourceError =>
+      new ThemeSourceError(
+        `Could not reach the ${what} at ${location.href}: ${(cause as Error).message}`,
+        what === "catalog" ? "catalog-unreachable" : "package-unreachable",
+      );
+
+    // One deadline for the whole exchange: the signal covers the response body
+    // as well, so a server that answers and then stops sending is abandoned on
+    // the same terms as one that never answers at all.
+    const deadline = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+
     let response: Response;
     try {
       response = await fetch(location, {
         headers:
           token === undefined ? {} : { authorization: `Bearer ${token}` },
         redirect: "follow",
+        signal: deadline,
       });
     } catch (cause) {
-      throw new ThemeSourceError(
-        `Could not reach the ${what} at ${location.href}: ${(cause as Error).message}`,
-        what === "catalog" ? "catalog-unreachable" : "package-unreachable",
-      );
+      throw unreachable(cause);
     }
 
     if (!response.ok) {
@@ -262,7 +282,16 @@ export class CatalogThemeSource implements ThemeSource {
       );
     }
 
-    return readCapped(response, limit, what);
+    try {
+      return await readCapped(response, limit, what);
+    } catch (cause) {
+      if (cause instanceof ThemeSourceError) {
+        throw cause;
+      }
+      // A body that stalls or breaks part way through arrives here, including
+      // the abort the deadline raises.
+      throw unreachable(cause);
+    }
   }
 }
 

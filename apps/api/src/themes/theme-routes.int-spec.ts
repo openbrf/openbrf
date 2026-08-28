@@ -96,11 +96,16 @@ describe("what an anonymous request may read", () => {
   it("refuses an asset path that is not one a package may contain", async () => {
     const response = await inject({
       method: "GET",
-      url: "/api/themes/asset?theme=not-installed&file=../../../etc/passwd",
+      url: "/api/themes/asset?theme=example-theme&file=../../../etc/passwd",
     });
-    // Refused before anything touches the filesystem: the query schema and the
-    // package path rules both reject it, and the store checks containment again.
-    expect([400, 404]).toContain(response.statusCode);
+    /*
+     * A bad request rather than a missing file, and that distinction is the
+     * assertion: the query schema holds `file` to the package path rules, so
+     * the path is refused before the theme is looked up at all. The theme named
+     * here is one that can exist, so a 404 would mean the refusal came from the
+     * row lookup instead and this route had let the path through.
+     */
+    expect(response.statusCode).toBe(400);
   });
 });
 

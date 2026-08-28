@@ -15,7 +15,13 @@ export {
 } from "./archive.ts";
 export type { ThemeArchiveFiles } from "./archive.ts";
 
-export { buildFontFaceStylesheet, cssString, themeFontFaces } from "./fonts.ts";
+export {
+  buildFontFaceStylesheet,
+  cssFontStyle,
+  cssFontWeight,
+  cssString,
+  themeFontFaces,
+} from "./fonts.ts";
 export type { ThemeFontFaceSource } from "./fonts.ts";
 
 export {
@@ -51,6 +57,7 @@ export {
   isPackagePath,
   KNOWN_MANIFEST_FIELDS,
   parseThemeManifest,
+  themeFontDeclarationSchema,
   themeManifestSchema,
 } from "./manifest.ts";
 export type {

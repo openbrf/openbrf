@@ -94,7 +94,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       reason: exception.reason,
       message: exception.message,
       /*
-       * The particulars, when the refusal has any.
+       * The particulars, when the refusal declares any.
        *
        * A refusal that names none is not actionable: "this theme was refused"
        * without the contrast pairs that failed, or "that colour cannot be read"
@@ -107,16 +107,22 @@ export class DomainExceptionFilter implements ExceptionFilter {
   }
 }
 
-/** The `findings` or `issues` a domain error carries, when it carries them. */
-function detailOf(exception: object): Record<string, unknown[]> {
-  const candidate = exception as { findings?: unknown; issues?: unknown };
-  if (Array.isArray(candidate.findings) && candidate.findings.length > 0) {
-    return { findings: candidate.findings };
+/**
+ * The particulars a domain error declares.
+ *
+ * Read from the error's own `details()` rather than discovered by inspecting
+ * its properties: a field reaches a response body because the rule that
+ * produced the failure declared it safe to send, and for no other reason. The
+ * ZodError branch above strips submitted values on purpose, and an opt-in
+ * contract is what gives every other failure the same guarantee.
+ */
+function detailOf(exception: object): Record<string, readonly unknown[]> {
+  if (!(exception instanceof DomainError) || exception.details === undefined) {
+    return {};
   }
-  if (Array.isArray(candidate.issues) && candidate.issues.length > 0) {
-    return { issues: candidate.issues };
-  }
-  return {};
+  return Object.fromEntries(
+    Object.entries(exception.details()).filter(([, value]) => value.length > 0),
+  );
 }
 
 /**

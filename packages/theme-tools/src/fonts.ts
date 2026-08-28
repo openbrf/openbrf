@@ -22,6 +22,34 @@ const FORMAT_BY_EXTENSION: Readonly<Record<string, string>> = {
   otf: "opentype",
 };
 
+/** The two styles a declaration may name. */
+const FONT_STYLES = new Set(["normal", "italic"]);
+
+/** A single CSS weight, or a variable font's range. */
+const FONT_WEIGHT_PATTERN = /^\d{3}(?: \d{3})?$/;
+
+/*
+ * Style and weight are the only two fields that reach a declaration unquoted,
+ * so they are the only two an unchecked value could write rules through. The
+ * manifest schema constrains both, but a face can also arrive from a stored
+ * row or over the network, and a boundary that writes CSS checks its own input
+ * rather than trusting that an earlier one did.
+ *
+ * A value outside the contract falls back rather than throwing: this runs while
+ * a page is rendering, and one malformed face is not a reason to leave the
+ * interface with no typefaces at all.
+ */
+
+/** The declared style, or upright when it is not one a declaration may name. */
+export function cssFontStyle(value: string): string {
+  return FONT_STYLES.has(value) ? value : "normal";
+}
+
+/** The declared weight, or regular when it is not a weight CSS can read. */
+export function cssFontWeight(value: string): string {
+  return FONT_WEIGHT_PATTERN.test(value) ? value : "400";
+}
+
 /** A CSS string literal. Refuses what it cannot represent rather than mangling it. */
 export function cssString(value: string): string {
   for (const character of value) {
@@ -80,8 +108,8 @@ export function buildFontFaceStylesheet(
       return [
         "@font-face {",
         `  font-family: ${cssString(face.family)};`,
-        `  font-style: ${face.style};`,
-        `  font-weight: ${face.weight};`,
+        `  font-style: ${cssFontStyle(face.style)};`,
+        `  font-weight: ${cssFontWeight(face.weight)};`,
         "  font-display: swap;",
         `  src: ${source};`,
         "}",

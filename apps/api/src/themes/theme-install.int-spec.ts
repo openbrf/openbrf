@@ -44,6 +44,17 @@ let catalogDirectory: string;
 let associationExisted = false;
 let previousActiveThemeId: string | null = null;
 
+/**
+ * The newest theme audit entry that already existed when this run started.
+ *
+ * The audit log is append-only - it is the statutory record of who installed
+ * and activated what, and an append-only trigger enforces it - so the entries
+ * earlier runs wrote are still in the table. An assertion that only matched on
+ * the action and the target would find one of those and pass with the
+ * `audit.record` call deleted. Everything after this boundary is this run's.
+ */
+let auditBoundary = new Date(0);
+
 beforeAll(async () => {
   catalogDirectory = await mkdtemp(join(tmpdir(), "openbrf-theme-catalog-"));
   dataDirectory = await mkdtemp(join(tmpdir(), "openbrf-theme-data-"));
@@ -89,6 +100,18 @@ beforeAll(async () => {
   await prisma.installedTheme.deleteMany({
     where: { id: { in: ["example-theme", "illegible-theme"] } },
   });
+
+  // Read from the table rather than from a clock, so the boundary needs no
+  // agreement between this process and the database about the time.
+  const latest = await prisma.auditLogEntry.findFirst({
+    where: {
+      action: { in: ["THEME_INSTALLED", "THEME_ACTIVATED"] },
+      targetId: "example-theme",
+    },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  auditBoundary = latest?.createdAt ?? new Date(0);
 });
 
 afterAll(async () => {
@@ -159,13 +182,40 @@ describe("installing a theme from the catalog", () => {
 
   it("records the install in the audit log", async () => {
     const entry = await prisma.auditLogEntry.findFirst({
-      where: { action: "THEME_INSTALLED", targetId: "example-theme" },
+      where: {
+        action: "THEME_INSTALLED",
+        targetId: "example-theme",
+        createdAt: { gt: auditBoundary },
+      },
       orderBy: { createdAt: "desc" },
     });
+    expect(entry).not.toBeNull();
     expect(entry?.targetKind).toBe("theme");
     expect((entry?.context as { version?: string } | null)?.version).toBe(
       "1.0.0",
     );
+  });
+
+  /*
+   * Served from the theme's own declarations rather than from whatever the
+   * directory holds. Asserted against an installed theme on purpose: one that
+   * is not installed answers nothing for every path, which would prove nothing
+   * about the allowlist.
+   */
+  it("serves the files the manifest declared, and only those", async () => {
+    expect(
+      await themes.asset("example-theme", "fonts/spline-sans-mono-latin.woff2"),
+    ).not.toBeNull();
+
+    for (const path of [
+      // In the package, never declared.
+      "theme.json",
+      // Neither in the package nor shaped like a path inside one.
+      "../../../etc/passwd",
+      "fonts/../../../etc/passwd",
+    ]) {
+      expect(await themes.asset("example-theme", path)).toBeNull();
+    }
   });
 
   /*
@@ -246,10 +296,15 @@ describe("preview and activation", () => {
     expect(active.fontFaces[0]?.url).toContain("/api/themes/asset?theme=");
 
     const entry = await prisma.auditLogEntry.findFirst({
-      where: { action: "THEME_ACTIVATED", targetId: "example-theme" },
+      where: {
+        action: "THEME_ACTIVATED",
+        targetId: "example-theme",
+        createdAt: { gt: auditBoundary },
+      },
       orderBy: { createdAt: "desc" },
     });
     expect(entry).not.toBeNull();
+    expect(entry?.targetKind).toBe("theme");
   });
 
   it("will not remove the theme it is rendering", async () => {

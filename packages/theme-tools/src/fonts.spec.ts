@@ -95,6 +95,46 @@ describe("buildFontFaceStylesheet", () => {
     expect(css).toContain('Evil\\"; }');
     expect(css).not.toContain('Evil"; }');
   });
+
+  /*
+   * Style and weight are the only two fields that reach a declaration unquoted.
+   * The manifest schema constrains both, but a face also arrives here from a
+   * stored row and over the network, and a boundary that writes CSS checks its
+   * own input rather than trusting that an earlier one did.
+   */
+  it("writes no rule a weight or style asked it to", () => {
+    const css = buildFontFaceStylesheet([
+      {
+        family: "Inter",
+        weight: "400; } :root { --obrf-text-register: #111; } @font-face { ",
+        style: "normal; } :root { --obrf-surface-register: #111; ",
+        url: "/fonts/inter.woff2",
+        format: "woff2",
+      },
+    ]);
+
+    expect(css).not.toContain("--obrf-text-register");
+    expect(css).not.toContain("--obrf-surface-register");
+    // The face still renders, in the upright regular the contract's defaults
+    // name: one malformed declaration is not a reason to drop the typeface.
+    expect(css).toContain("font-weight: 400;");
+    expect(css).toContain("font-style: normal;");
+  });
+
+  it("keeps a weight and style the contract does allow", () => {
+    const css = buildFontFaceStylesheet([
+      {
+        family: "Inter",
+        weight: "100 900",
+        style: "italic",
+        url: "/fonts/inter.woff2",
+        format: "woff2",
+      },
+    ]);
+
+    expect(css).toContain("font-weight: 100 900;");
+    expect(css).toContain("font-style: italic;");
+  });
 });
 
 describe("cssString", () => {
