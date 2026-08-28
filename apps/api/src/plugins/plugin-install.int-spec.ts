@@ -12,14 +12,18 @@ import type { Env } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
-import { dataPaths } from "../packaging/data-paths";
+import { type DataPaths, dataPaths } from "../packaging/data-paths";
 import { formatSha512, sha512 } from "../packaging/integrity";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import type { InstallLock } from "./install-lock";
 import { scanPluginDirectory } from "./plugin-directory";
-import { PluginInstallerService } from "./plugin-installer.service";
+import {
+  PluginInstallerService,
+  type ReconcileOutcome,
+} from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
@@ -50,6 +54,8 @@ const SUFFIX = runSuffix();
 const PLUGIN_ID = `occupancy-int-${SUFFIX}`;
 const PACKAGE_NAME = `openbrf-plugin-occupancy-int-${SUFFIX}`;
 const VERSION = "1.0.0";
+/** A second release of the same plugin, so two runs can want different sets. */
+const NEXT_VERSION = "1.1.0";
 
 let prisma: PrismaClient;
 let workspace: string;
@@ -66,11 +72,14 @@ let testEnv: Env;
  * only externals are host packages the contract, and a fixture that quietly
  * depended on something from a registry would not be testing that contract.
  */
-async function buildPluginTarball(directory: string): Promise<{
+async function buildPluginTarball(
+  directory: string,
+  version: string = VERSION,
+): Promise<{
   tarball: string;
   sha512: string;
 }> {
-  const source = join(directory, "package");
+  const source = join(directory, `package-${version}`);
   await mkdir(join(source, "dist"), { recursive: true });
   await mkdir(join(source, "locales"), { recursive: true });
 
@@ -79,7 +88,7 @@ async function buildPluginTarball(directory: string): Promise<{
     JSON.stringify(
       {
         name: PACKAGE_NAME,
-        version: VERSION,
+        version,
         private: false,
         main: "dist/server.cjs",
         files: ["dist", "locales"],
@@ -192,11 +201,15 @@ async function writeCatalog(
 }
 
 /** Installs the plugin's consent row, as the admin screen or the CLI would. */
-async function consent(digest: string, tarball: string): Promise<void> {
+async function consent(
+  digest: string,
+  tarball: string,
+  version: string = VERSION,
+): Promise<void> {
   await registry.consent({
     id: PLUGIN_ID,
     packageName: PACKAGE_NAME,
-    version: VERSION,
+    version,
     tarballUrl: pathToFileURL(tarball).href,
     checksum: digest,
     permissions: ["addressBook:read"],
@@ -206,6 +219,73 @@ async function consent(digest: string, tarball: string): Promise<void> {
 
 let tarball: string;
 let digest: string;
+let nextTarball: string;
+let nextDigest: string;
+
+const delay = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let settle: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, resolve: () => settle?.() };
+}
+
+interface RunHooks {
+  /** Called when the run reaches the point at which the tree has moved. */
+  atCommit?: () => void;
+  /** Awaited there, so one run can be held inside the other's window. */
+  hold?: () => Promise<void>;
+}
+
+/**
+ * A reconcile that says where it is and can be held there.
+ *
+ * The seams are the flow's own boundaries rather than anything added for the
+ * purpose: `converge` is the whole decision, from reading the rows to marking
+ * them installed, and `commit` is the moment the metadata catches up with a
+ * tree that has already been moved into place.
+ */
+class ObservedInstaller extends PluginInstallerService {
+  constructor(
+    private readonly label: string,
+    private readonly trace: string[],
+    private readonly hooks: RunHooks,
+  ) {
+    super(
+      testEnv,
+      registry,
+      new JobQueueService(testEnv),
+      new CatalogClient(testEnv),
+      new RestartCoordinator(testEnv),
+      { needsReconcile: () => false } as never,
+    );
+  }
+
+  protected override async converge(
+    paths: DataPaths,
+    lock: InstallLock,
+  ): Promise<ReconcileOutcome> {
+    this.trace.push(`${this.label} in`);
+    try {
+      return await super.converge(paths, lock);
+    } finally {
+      this.trace.push(`${this.label} out`);
+    }
+  }
+
+  protected override async commit(
+    root: string,
+    staging: string,
+    desired: Record<string, string>,
+  ): Promise<void> {
+    this.hooks.atCommit?.();
+    await this.hooks.hold?.();
+    await super.commit(root, staging, desired);
+  }
+}
 
 beforeAll(async () => {
   prisma = new PrismaClient({
@@ -219,6 +299,9 @@ beforeAll(async () => {
   const built = await buildPluginTarball(workspace);
   tarball = built.tarball;
   digest = built.sha512;
+  const next = await buildPluginTarball(workspace, NEXT_VERSION);
+  nextTarball = next.tarball;
+  nextDigest = next.sha512;
   await writeCatalog(catalogPath, tarball, digest);
 
   testEnv = {
@@ -351,4 +434,68 @@ describe("the plugin install flow", () => {
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
   }, 120_000);
+
+  /**
+   * Two processes reach the same tree. The admin screen enqueues a reconcile
+   * the server worker runs while the command-line tool can be running one of
+   * its own, and each run reads the rows, decides whether the tree matches,
+   * moves its own node_modules into place and then writes the package.json
+   * that says what it moved.
+   *
+   * Interleaved, one run's tree ends up described by the other run's
+   * package.json - and every later run believes that file, so a plugin reads
+   * as installed while the tree holds a different set entirely. The two runs
+   * here want genuinely different things, one an upgrade and one a removal,
+   * which is what makes a crossed commit visible rather than merely possible.
+   */
+  it("does not let a second run into the tree while the first is committing", async () => {
+    // A tree that already holds the plugin, so what follows is a change to an
+    // installation rather than a first install.
+    await consent(digest, tarball);
+    await installer.reconcile();
+
+    const root = dataPaths(dataDir).plugins;
+    const trace: string[] = [];
+    const committing = deferred();
+    const mayCommit = deferred();
+
+    // The run the admin screen enqueued, upgrading the plugin. It is held
+    // between moving the tree into place and recording what it moved.
+    await consent(nextDigest, nextTarball, NEXT_VERSION);
+    const enqueued = new ObservedInstaller("enqueued", trace, {
+      atCommit: committing.resolve,
+      hold: () => mayCommit.promise,
+    });
+    const upgrade = enqueued.reconcile();
+    await committing.promise;
+
+    // The command-line run, started in that window and wanting the plugin
+    // gone rather than upgraded.
+    await registry.remove(PLUGIN_ID);
+    const direct = new ObservedInstaller("direct", trace, {});
+    const removal = direct.reconcile();
+
+    // Long enough that a run nothing was holding back would be well into the
+    // tree by now.
+    await delay(1_000);
+    mayCommit.resolve();
+    await Promise.all([upgrade, removal]);
+
+    expect(trace).toEqual([
+      "enqueued in",
+      "enqueued out",
+      "direct in",
+      "direct out",
+    ]);
+
+    // The two halves of the installation describe the same set: the second run
+    // read the rows after the first had finished with them, so what it
+    // recorded is what it installed.
+    const metadata = JSON.parse(
+      await readFile(join(root, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+    expect(metadata.dependencies).toEqual({});
+    const scan = await scanPluginDirectory(root);
+    expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
+  }, 300_000);
 });

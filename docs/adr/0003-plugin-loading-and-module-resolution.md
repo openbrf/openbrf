@@ -165,6 +165,17 @@ CJS plugin bundle from a directory outside the repository:
   job must be idempotent so a crash at any step converges on the next boot;
   otherwise the install job re-runs after every restart and the container
   loops.
+- One reconcile runs at a time, across processes. The server worker and the
+  command-line tool both reconcile the same `/data/plugins`, and each run reads
+  the desired state, moves a `node_modules` into place and then writes the
+  `package.json` describing what it moved. Interleaved, one run's tree ends up
+  described by the other run's metadata, which every later run believes. The
+  claim is a file on the same volume whose modification time the holder keeps
+  current, rather than a database lock: the section spans an npm install, and
+  the pooled client cannot pin a connection for that long. A holder that stops
+  renewing has stopped working, so the next run takes the claim over once a
+  full lease has passed and rebuilds from the rows - the convergence rule
+  covers a crash while the tree is claimed exactly as it covers any other.
 - pnpm is not used for plugin installation. Its isolated layout makes the
   resolution assumptions above unreliable, so the runtime installer uses npm,
   and the production image must therefore contain the npm CLI (slim and

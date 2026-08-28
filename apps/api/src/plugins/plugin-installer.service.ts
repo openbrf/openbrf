@@ -25,9 +25,14 @@ import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
-import { dataPaths } from "../packaging/data-paths";
+import { type DataPaths, dataPaths } from "../packaging/data-paths";
 import { npmInstall } from "../packaging/npm-install";
 import { ensureArchive } from "../packaging/package-archive";
+import {
+  acquireInstallLock,
+  INSTALL_LOCK_FILE,
+  type InstallLock,
+} from "./install-lock";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -183,9 +188,55 @@ export class PluginInstallerService
    *
    * Safe to run at any time and from any state: it reads the desired set,
    * makes sure every archive is present and verified, and rebuilds the tree.
+   *
+   * One run at a time across the whole instance. Everything from reading the
+   * rows to marking them installed is a single decision about a single tree,
+   * and two processes reach it: the server worker consuming the queue the
+   * admin screen enqueues onto, and the command-line tool reconciling
+   * directly. Interleaved, one run's `node_modules` ends up described by the
+   * other run's `package.json` - and the next run trusts that file, so the two
+   * disagree from there on and a plugin can be marked installed while the tree
+   * holds a different set entirely. The claim covers the whole decision rather
+   * than the move alone, because a run acting on a registry snapshot another
+   * run has already superseded commits the wrong set however carefully it
+   * moves the files.
    */
   async reconcile(): Promise<ReconcileOutcome> {
     const paths = dataPaths(this.env.OPENBRF_DATA_DIR);
+    // The claim sits in the installation root, beside node_modules rather than
+    // inside it: the swap renames that directory and the scan only ever looks
+    // in it, so the claim is neither carried off by a run nor mistaken for a
+    // package.
+    await mkdir(paths.plugins, { recursive: true });
+    const lock = await acquireInstallLock(
+      join(paths.plugins, INSTALL_LOCK_FILE),
+      {
+        onWait: () => {
+          this.logger.log(
+            "Another run is installing plugins. Waiting for it to finish.",
+          );
+        },
+        onTakeOver: () => {
+          this.logger.warn(
+            "Took the plugin installation over from a run that stopped " +
+              "renewing its claim.",
+          );
+        },
+      },
+    );
+
+    try {
+      return await this.converge(paths, lock);
+    } finally {
+      await lock.release();
+    }
+  }
+
+  /** The reconcile itself. Only ever runs while this run holds the tree. */
+  protected async converge(
+    paths: DataPaths,
+    lock: InstallLock,
+  ): Promise<ReconcileOutcome> {
     const records = await this.registry.list();
     const outcome: ReconcileOutcome = {
       installed: [],
@@ -243,7 +294,13 @@ export class PluginInstallerService
     }
 
     try {
-      await this.rebuild(paths.plugins, paths.pluginStaging, desired, archives);
+      await this.rebuild(
+        paths.plugins,
+        paths.pluginStaging,
+        desired,
+        archives,
+        lock,
+      );
     } catch (cause) {
       const error = String(cause);
       this.logger.error(`The plugin installation could not be built: ${error}`);
@@ -296,13 +353,13 @@ export class PluginInstallerService
   /**
    * Builds the tree in a staging directory and moves it into place.
    *
-   * The move is two renames rather than an overwrite, because renaming onto a
-   * non-empty directory fails. The old tree is moved aside first and put back
-   * if the second rename does not happen, so a failure leaves the instance
-   * running what it was running rather than nothing at all. A crash between
-   * the two leaves no node_modules, which the next reconcile rebuilds - the
-   * reason the whole operation is defined as "converge on the desired set"
-   * rather than "apply this change".
+   * Three phases, in the order their names give: everything is assembled where
+   * nothing reads it, the finished tree is moved into place, and only then is
+   * the metadata describing it written. The boundaries are the recovery
+   * points - a crash in the first leaves the instance running what it was
+   * running, and a crash in either of the others leaves a tree the next run
+   * rebuilds, which is why the whole operation is defined as "converge on the
+   * desired set" rather than "apply this change".
    *
    * The staging tree is removed whether the run succeeds or fails, and trees
    * an earlier run abandoned are collected before this one starts. A run that
@@ -312,17 +369,17 @@ export class PluginInstallerService
    * instance down.
    *
    * The staging root is shared between processes, so it is not this run's to
-   * empty. The admin screen enqueues a reconcile the server worker runs, the
-   * command-line tool runs one of its own directly, and both reach the same
-   * directory: a second run can be copying archives into a tree of its own at
-   * this moment, and removing the root would take it out from under itself.
-   * Ownership is therefore held rather than assumed - see the lease below.
+   * empty even while it holds the installation: a run whose claim lapsed can
+   * still be writing into a tree of its own in there, and removing the root
+   * would take it out from under itself. Ownership of a tree is therefore held
+   * rather than assumed - see the lease below.
    */
   private async rebuild(
     root: string,
     stagingRoot: string,
     desired: Record<string, string>,
     archives: ReadonlyMap<string, string>,
+    lock: InstallLock,
   ): Promise<void> {
     await mkdir(stagingRoot, { recursive: true });
     for (const collected of await collectAbandonedStaging(stagingRoot)) {
@@ -346,7 +403,13 @@ export class PluginInstallerService
     renewal.unref();
 
     try {
-      await this.stageAndSwap(root, staging, desired, archives);
+      await this.stage(staging, archives);
+      // The last moment at which nothing has moved. A run whose claim was
+      // taken over stopped renewing for a full lease, so the tree it is about
+      // to replace is another run's current one rather than the one it read.
+      await lock.assertHeld();
+      await this.swap(root, staging);
+      await this.commit(root, staging, desired);
     } finally {
       clearInterval(renewal);
       await rm(staging, { recursive: true, force: true }).catch(() => {
@@ -359,15 +422,16 @@ export class PluginInstallerService
     }
   }
 
-  /** Builds the staging tree and swaps it in. Always called from `rebuild`. */
-  private async stageAndSwap(
-    root: string,
+  /**
+   * Builds the whole dependency set in this run's staging tree.
+   *
+   * Nothing outside the staging tree is touched, so a failure here leaves the
+   * instance running exactly what it was running.
+   */
+  private async stage(
     staging: string,
-    desired: Record<string, string>,
     archives: ReadonlyMap<string, string>,
   ): Promise<void> {
-    const previous = join(root, "node_modules.previous");
-
     await mkdir(join(staging, "archives"), { recursive: true });
 
     // The archives are copied into the staging directory and referenced from
@@ -406,8 +470,23 @@ export class PluginInstallerService
      * makes the move below one operation rather than two cases, and leaves the
      * volume in the shape the next run expects to find.
      */
+    await mkdir(join(staging, "node_modules"), { recursive: true });
+  }
+
+  /**
+   * Moves the staged tree into place.
+   *
+   * Two renames rather than an overwrite, because renaming onto a non-empty
+   * directory fails. The old tree is moved aside first and put back if the
+   * second rename does not happen, so a failure leaves the instance running
+   * what it was running rather than nothing at all. A crash between the two
+   * leaves no node_modules, which the next reconcile rebuilds - the reason the
+   * whole operation is defined as "converge on the desired set" rather than
+   * "apply this change".
+   */
+  protected async swap(root: string, staging: string): Promise<void> {
+    const previous = join(root, "node_modules.previous");
     const stagedModules = join(staging, "node_modules");
-    await mkdir(stagedModules, { recursive: true });
 
     await rm(previous, { recursive: true, force: true });
     const current = join(root, "node_modules");
@@ -430,9 +509,20 @@ export class PluginInstallerService
       }
       throw cause;
     }
+  }
 
-    // Written after the move, so a package.json naming a tree that is not
-    // there yet never exists: alreadyInstalled reads exactly this file.
+  /**
+   * Records what was moved into place.
+   *
+   * Written after the move, so a package.json naming a tree that is not there
+   * yet never exists: `alreadyInstalled` reads exactly this file, and a run
+   * that crashes before this point simply rebuilds on the next one.
+   */
+  protected async commit(
+    root: string,
+    staging: string,
+    desired: Record<string, string>,
+  ): Promise<void> {
     await writeFile(
       join(root, "package.json"),
       `${JSON.stringify(
@@ -454,7 +544,10 @@ export class PluginInstallerService
       // npm omits the lockfile when there is nothing to install.
     });
 
-    await rm(previous, { recursive: true, force: true });
+    await rm(join(root, "node_modules.previous"), {
+      recursive: true,
+      force: true,
+    });
   }
 }
 
