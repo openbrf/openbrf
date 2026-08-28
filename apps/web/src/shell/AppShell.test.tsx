@@ -194,14 +194,14 @@ describe("the housing cooperative's mark", () => {
      * does not collapse - would stop it giving the room back. Both variants are
      * therefore bounded in width as well and contained inside that box.
      */
-    for (const logo of [
-      { light: LIGHT, dark: DARK },
-      { light: LIGHT, dark: null },
+    for (const { logo, maxWidth } of [
+      { logo: { light: LIGHT, dark: DARK }, maxWidth: "max-w-36" },
+      { logo: { light: LIGHT, dark: null }, maxWidth: "max-w-32" },
     ]) {
       const view = renderShell({ logo });
       const className = mark()?.className ?? "";
 
-      expect(className).toMatch(/\bmax-w-\d/);
+      expect(className).toContain(maxWidth);
       expect(className).toContain("object-contain");
       view.unmount();
     }

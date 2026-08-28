@@ -103,6 +103,14 @@ function build(
     }),
   };
 
+  /*
+   * One object, so a caller can be checked against the client the transaction
+   * actually handed out rather than against "some client was passed". The root
+   * client would satisfy the weaker check while leaving the write outside the
+   * transaction.
+   */
+  const transactionClient = { mediaFile };
+
   const prisma = {
     mediaFile,
     /*
@@ -115,7 +123,7 @@ function build(
       const snapshot = new Map(rows);
       const writtenBefore = audited.length;
       try {
-        return await run({ mediaFile, transaction: true });
+        return await run(transactionClient);
       } catch (cause) {
         rows.clear();
         for (const [id, row] of snapshot) {
@@ -131,12 +139,12 @@ function build(
     record: vi.fn(
       async (
         entry: { action: string; targetId?: string },
-        client?: { transaction?: boolean },
+        client?: unknown,
       ) => {
         if (options.auditFailsOn === entry.action) {
           throw new Error("the audit entry could not be written");
         }
-        audited.push({ ...entry, inTransaction: client !== undefined });
+        audited.push({ ...entry, inTransaction: client === transactionClient });
       },
     ),
   };
