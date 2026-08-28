@@ -132,7 +132,14 @@ describe.each(LANGUAGES)("a refused value, read in %s", (language) => {
   it.each([...TOKEN_VALUE_PROBLEM_CODES])(
     "says in one language what %s means",
     async (code) => {
-      const sentence = await sentenceFor(language, refusalFor(code));
+      const finding = refusalFor(code);
+
+      // The lint has to have reported the code this case is about. Without
+      // this, a mapping that swapped two codes one for one would still render
+      // ten distinct sentences and satisfy everything below.
+      expect(finding.detail.problem).toBe(code);
+
+      const sentence = await sentenceFor(language, finding);
 
       // A whole sentence, in one language, naming the token and the mode.
       expect(sentence).toMatch(FRAME[language]);
