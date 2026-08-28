@@ -173,7 +173,8 @@ A neutral limewash room, one dark board surface, one brass accent, four semantic
 ## Reference values
 
 Every colour, the type scale, the radii, the spacing and the board's measurements
-are in `docs/design-refs/porttavlan-v0.3.md`, with the deliberate divergences.
+are in [docs/design-refs/porttavlan.md](docs/design-refs/porttavlan.md), with the
+deliberate divergences.
 
 ## Layout
 

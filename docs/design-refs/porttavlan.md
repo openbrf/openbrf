@@ -5,6 +5,7 @@ this file; anything that differs and is not listed under "Deliberate
 divergences" is drift.
 
 Design system: **Porttavlan v0.2.1**, address book canvas dated 2026-08-27.
+The values below are that canvas and the token contract it maps onto.
 
 ## Colours
 
@@ -44,19 +45,21 @@ The dark theme redefines the same names; its values are in `porttavlan.ts`.
 
 ## Type
 
-| Role     | Size | Weight | Letter-spacing |
-| -------- | ---- | ------ | -------------- |
-| display  | 30px | 700    | -              |
-| headline | 24px | 700    | -              |
-| title    | 18px | 600    | -              |
-| body     | 15px | 400    | -              |
-| small    | 13px | 400    | -              |
-| label    | 13px | 600    | 0.12em         |
-| data     | 13px | 400    | -              |
-| chip     | 11px | 600    | 0.08em         |
+| Role     | Size    | Weight  | Letter-spacing |
+| -------- | ------- | ------- | -------------- |
+| display  | 30px    | 700     | -              |
+| headline | 24px    | 700     | -              |
+| title    | 18px    | 600     | -              |
+| body     | 15px    | 400     | -              |
+| small    | 13px    | 400     | -              |
+| label    | 13px    | 600     | 0.12em         |
+| data     | 13-14px | 400-500 | -              |
+| chip     | 11px    | 600     | 0.08em         |
 
-Line heights: display 1.15, headline 1.25, title 1.3, body 1.55, small 1.5,
-label 1.2, chip 1.2, data 1.4.
+Data is 14px for an apartment number and 13px for a date or a phone number.
+
+Line heights: display 1.2, headline 1.3, title 1.4, body 1.55, small 1.4,
+label 1.0, data 1.0. The chip carries no line height of its own.
 
 ## The band
 
@@ -116,20 +119,21 @@ label 1.2, chip 1.2, data 1.4.
   `border-strong`.
 - Primary button 40px tall, 18px horizontal padding, `text-primary` ground,
   `surface-page` text.
-- Pagination: 32px squares, 4px radius; the current page uses the primary
-  ground.
+- Pagination: 32px squares on the desktop canvas, 4px radius; the current page
+  uses the primary ground. The hit area is 44px minimum wherever the control is
+  reachable by touch.
 
 ## Shape and spacing
 
-|                          | Value        |
-| ------------------------ | ------------ |
-| Controls, inputs, signs  | 4px radius   |
-| Cards, panels, the board | 8px radius   |
-| Pills                    | not used     |
-| Spacing                  | 4px base     |
-| Board rails              | 1px          |
-| Touch targets            | 44px minimum |
-| Elevation                | one shadow   |
+|                          | Value              |
+| ------------------------ | ------------------ |
+| Controls, inputs, signs  | 4px radius         |
+| Cards, panels, the board | 8px radius         |
+| Pills                    | not used           |
+| Spacing                  | 4/8/12/16/24/32/48 |
+| Board rails              | 1px                |
+| Touch targets            | 44px minimum       |
+| Elevation                | one shadow         |
 
 ## Deliberate divergences
 
@@ -141,6 +145,20 @@ held to. The value carries links and trust labels in the room, so it is text.
 unchanged and measures 7.26:1 on the board.
 
 `packages/tokens` enforces the pair, so `#8A6D28` fails the build.
+
+### Line heights
+
+| Role     | Design | Implemented |
+| -------- | ------ | ----------- |
+| display  | 1.2    | 1.15        |
+| headline | 1.3    | 1.25        |
+| title    | 1.4    | 1.3         |
+| small    | 1.4    | 1.5         |
+| label    | 1.0    | 1.2         |
+| data     | 1.0    | 1.4         |
+
+Body is 1.55 in both. A line height of 1.0 at 13px leaves no room for descenders
+in a register column, where the row below carries more of the same data.
 
 ### The stamp names the address book, not the member register
 
