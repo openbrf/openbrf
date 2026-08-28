@@ -89,6 +89,11 @@ if [ -n "${RUNTIME_DB_PASSWORD:-}" ]; then
   # /proc/<pid>/cmdline, which every process in the container can read; the
   # environment is not. The runtime password is read by the script itself with
   # \getenv, and the owner's travels in PGPASSWORD.
+  #
+  # A DATABASE_URL that cannot be read as a URL is refused rather than split,
+  # so these two lines fail and `set -e` stops the boot. That is deliberate:
+  # the alternative is psql taking the whole URL as an argument, password and
+  # all.
   owner_url="$(node /app/docker/database-url.mjs without-password DATABASE_URL)"
   owner_password="$(node /app/docker/database-url.mjs password DATABASE_URL)"
   if [ -n "${owner_password}" ]; then

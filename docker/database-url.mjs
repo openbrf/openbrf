@@ -19,6 +19,10 @@
 //   node docker/database-url.mjs password DATABASE_URL
 //   node docker/database-url.mjs without-password DATABASE_URL
 //
+// A URL that cannot be read as one is refused rather than passed on: it cannot
+// be taken apart, and passing it on puts the password straight back into the
+// argument the taking apart exists to keep it out of.
+//
 // The runtime role's name is not configurable: prisma/sql/harden-runtime-role.sql
 // creates and constrains that one role, by name.
 //
@@ -41,41 +45,57 @@ const ROLES = new Map([
 ]);
 
 /**
- * Parses a connection URL, or returns undefined when it is not one.
+ * Parses a connection URL, or refuses it when it cannot be read as one.
  *
- * libpq accepts shapes the URL parser rejects - a Unix socket connection puts
- * an empty host in the URL and the directory in a query parameter - and an
- * instance that connects today has to go on connecting. Such a URL is handed to
- * psql unchanged instead, exactly as before; the split below applies to the
- * URLs this script assembles, which is every URL the image builds itself.
+ * libpq accepts one shape the URL parser rejects: an authority whose host is
+ * empty, as in postgresql://user:password@/db?host=/var/run/postgresql. Nothing
+ * here can see into such a string, so nothing here can take the password out of
+ * it, and handing it to psql whole puts the owner's password into
+ * /proc/<pid>/cmdline - the one outcome this file exists to prevent, arrived at
+ * silently and only by the operators whose connection form the parser does not
+ * cover. It is refused instead, and the entrypoint stops on the refusal.
+ *
+ * The refusal costs no connection that works. Prisma reads DATABASE_URL with a
+ * URL parser of its own and rejects the same shape - P1013, "empty host in
+ * database URL" - so an instance carrying one cannot reach the migrations in
+ * step 4 whatever happens here; passing it on buys nothing but the leak. The
+ * spelling both parsers accept names a host and puts the socket directory in a
+ * query parameter, as
+ * postgresql://user:password@localhost/db?host=/var/run/postgresql, and that
+ * one is split here like any other.
  *
  * Nothing derived from the string is ever reported: a password containing a
  * delimiter moves the boundaries of every other component in it, so even the
- * host is not safe to echo.
+ * host is not safe to echo. The message names the variable and the shape to
+ * write, and quotes nothing the operator set.
  */
-function parseUrl(url) {
+function parseUrl(url, variable) {
   try {
     return new URL(url);
   } catch {
-    return undefined;
+    throw new Error(
+      `${variable} cannot be read as a connection URL, so the password in it ` +
+        "cannot be kept out of psql's arguments, which every process in the " +
+        "container can read. Write it as " +
+        "postgresql://user:password@host:port/database, percent-encoding the " +
+        "password; a Unix socket goes in a host query parameter, as " +
+        "postgresql://user:password@localhost/database?host=/var/run/postgresql.",
+    );
   }
 }
 
 /** The password held in a connection URL, decoded, or "" when it holds none. */
-export function passwordOf(url) {
-  const parsed = parseUrl(url);
-  if (parsed === undefined || parsed.password === "") {
+export function passwordOf(url, variable) {
+  const parsed = parseUrl(url, variable);
+  if (parsed.password === "") {
     return "";
   }
   return decodeURIComponent(parsed.password);
 }
 
 /** The same connection URL with its password removed. */
-export function withoutPassword(url) {
-  const parsed = parseUrl(url);
-  if (parsed === undefined) {
-    return url;
-  }
+export function withoutPassword(url, variable) {
+  const parsed = parseUrl(url, variable);
   parsed.password = "";
   return parsed.href;
 }
@@ -114,10 +134,20 @@ if (import.meta.main) {
 
   if (role !== undefined) {
     console.log(assemble(role));
-  } else if (requested === "password") {
-    console.log(passwordOf(urlFromEnvironment(process.argv[3])));
-  } else if (requested === "without-password") {
-    console.log(withoutPassword(urlFromEnvironment(process.argv[3])));
+  } else if (requested === "password" || requested === "without-password") {
+    const variable = process.argv[3];
+    const url = urlFromEnvironment(variable);
+    // Reported as a refusal rather than as an uncaught throw: the caller is a
+    // shell script under `set -e`, and what an operator reads is this line.
+    try {
+      console.log(
+        requested === "password"
+          ? passwordOf(url, variable)
+          : withoutPassword(url, variable),
+      );
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   } else {
     fail(
       `database-url.mjs takes ${[...ROLES.keys()].join(", ")}, password or without-password, not ${String(requested)}.`,

@@ -59,8 +59,18 @@ if (!connectionString) {
 // /proc/<pid>/cmdline, which every process in the container can read; the
 // environment is not, so PGPASSWORD carries it and the argument carries the
 // rest of the URL.
-const connectionArgument = withoutPassword(connectionString);
-const connectionPassword = passwordOf(connectionString);
+//
+// A URL that cannot be split stops the boot here, before psql is reached at
+// all: handing it over whole is what would put the password in that argument.
+let connectionArgument;
+let connectionPassword;
+try {
+  connectionArgument = withoutPassword(connectionString, "DATABASE_URL");
+  connectionPassword = passwordOf(connectionString, "DATABASE_URL");
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}
+
 const psqlEnvironment =
   connectionPassword === ""
     ? process.env
