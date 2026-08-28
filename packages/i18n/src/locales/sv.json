@@ -691,7 +691,7 @@
       "upload": "Fil",
       "mapping": "Kolumner",
       "preview": "Förhandsgranskning",
-      "done": "Klart"
+      "apply": "Import"
     },
     "upload": {
       "title": "Filen",
@@ -792,6 +792,19 @@
       "mapping-length-mismatch": "Kopplingen stämmer inte med filen. Ladda upp den igen.",
       "unknown": "Kopplingen går inte att använda."
     },
+    "run": {
+      "title": "Importen pågår",
+      "stopped": "Importen stoppade",
+      "file": "Från {{fileName}}",
+      "progress": "{{done}} av {{total}} rader",
+      "progressLabel": "Hur stor del av filen som importerats",
+      "queued": "Väntar på att starta",
+      "applying": "Skriver registret",
+      "applied": "Klar",
+      "failed": "Stoppad",
+      "keepsGoing": "Importen fortsätter även om du stänger sidan. Kom tillbaka hit för att se hur det gick.",
+      "another": "Importera en annan lista"
+    },
     "result": {
       "title": "Importen är klar",
       "personsCreated": "Tillagda personer",
@@ -808,13 +821,14 @@
       "fileTooLarge": "Filen är större än 512 kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
       "tooManyRows": "Filen har fler rader än en import klarar.",
-      "tooManyIdentityNumbers": "Filen innehåller fler personnummer än en import klarar. Importera den i mindre delar, eller lämna personnummerkolumnen utanför.",
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
+      "previewRequired": "Förhandsgranska importen innan du genomför den.",
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
-      "sessionAlreadyApplied": "Uppladdningen är redan importerad.",
+      "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
       "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
+      "applyInterrupted": "Importen stoppade innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "unknown": "Importen gick inte just nu. Försök igen."
     },
     "template": {

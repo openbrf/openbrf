@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -15,16 +15,20 @@ import {
 import { Notice } from "../ui/Notice";
 import {
   applyImport,
-  type ImportApplyResult,
+  fetchActiveImport,
+  fetchImportRun,
   type ImportDecision,
   type ImportField,
   IMPORT_FIELDS,
   IMPORT_TEMPLATE_URL,
   type ImportPreview,
   type ImportPreviewRow,
+  type ImportRunView,
   type ImportSessionView,
+  isImportRunning,
   previewImport,
   readFileAsBase64,
+  type StartedImportRun,
   uploadImport,
 } from "./import-api";
 import {
@@ -33,6 +37,8 @@ import {
   OUTCOME_LABEL,
   OUTCOME_TONE,
   problemMessage,
+  RUN_STATUS_LABEL,
+  RUN_TITLE,
 } from "./import-messages";
 
 /**
@@ -48,11 +54,29 @@ import {
  * more than one person is not resolved by the import: it waits, because the two
  * candidates are usually a parent and a child of the same name in the same
  * apartment.
+ *
+ * The fourth step is not this screen's work. Writing the register is a
+ * background job, and the screen only watches it: it asks the API how far the
+ * import has got and shows that. Which is also why closing the tab costs
+ * nothing - the progress lives on the import itself, so the screen finds it
+ * again by asking for the import that is running rather than by remembering
+ * anything.
  */
 
-type Step = "upload" | "mapping" | "preview" | "done";
+type Step = "upload" | "mapping" | "preview" | "apply";
 
-const STEPS: readonly Step[] = ["upload", "mapping", "preview", "done"];
+const STEPS: readonly Step[] = ["upload", "mapping", "preview", "apply"];
+
+/**
+ * How often the screen asks how far the import has got.
+ *
+ * Asking, rather than being told: the progress is a column on the import, one
+ * indexed row to read, and a running import is minutes at the very most. A
+ * stream would add a connection per watching browser and a second way for the
+ * same fact to travel, and it would still not spare the screen the read it does
+ * on load.
+ */
+const RUN_POLL_MS = 1500;
 
 const CELL = "px-3 py-2 text-left align-top";
 const HEAD_CELL = `${CELL} text-label uppercase text-ink-muted`;
@@ -72,13 +96,62 @@ export function ImportScreen(): ReactElement {
   const [decisions, setDecisions] = useState<Record<string, ImportDecision>>(
     {},
   );
-  const [result, setResult] = useState<ImportApplyResult | null>(null);
+  const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
   const needsDefaultMovedIn = !mapped.has("movedInOn");
+
+  /**
+   * Picks up an import that is already under way.
+   *
+   * A board member who reloaded, or who closed the tab and came back, holds
+   * nothing that identifies the import they started. The API answers that
+   * question instead, so what they see is the import rather than an empty form
+   * suggesting nothing ever happened.
+   */
+  useEffect(() => {
+    let abandoned = false;
+
+    void (async () => {
+      const response = await fetchActiveImport();
+      if (abandoned || !response.ok || response.value === null) {
+        return;
+      }
+      setRun(response.value);
+      setStep("apply");
+    })();
+
+    return () => {
+      abandoned = true;
+    };
+  }, []);
+
+  const watchedSessionId =
+    run !== null && isImportRunning(run.status) ? run.sessionId : null;
+
+  useEffect(() => {
+    if (watchedSessionId === null) {
+      return;
+    }
+    let abandoned = false;
+
+    const timer = setInterval(() => {
+      void (async () => {
+        const response = await fetchImportRun(watchedSessionId);
+        if (!abandoned && response.ok) {
+          setRun(response.value);
+        }
+      })();
+    }, RUN_POLL_MS);
+
+    return () => {
+      abandoned = true;
+      clearInterval(timer);
+    };
+  }, [watchedSessionId]);
 
   const upload = useCallback(async (file: File): Promise<void> => {
     setBusy(true);
@@ -136,28 +209,35 @@ export function ImportScreen(): ReactElement {
     }
     setBusy(true);
     setFailure(null);
-    const response = await applyImport(session.sessionId, {
-      mapping,
-      defaultRole: needsDefaultRole ? defaultRole : null,
-      defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
-      decisions,
-    });
+    const response = await applyImport(session.sessionId, { decisions });
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
+      if (response.failure.reason === "session-already-applied") {
+        // Somebody was quicker - the other tab, or the other board member. What
+        // this screen should show now is that import rather than a preview step
+        // that is over.
+        const started = await fetchActiveImport();
+        if (started.ok && started.value !== null) {
+          setRun(started.value);
+          setStep("apply");
+        }
+      }
       return;
     }
-    setResult(response.value);
-    setStep("done");
-  }, [
-    session,
-    mapping,
-    needsDefaultRole,
-    defaultRole,
-    needsDefaultMovedIn,
-    defaultMovedInOn,
-    decisions,
-  ]);
+    setRun(response.value);
+    setStep("apply");
+  }, [session, decisions]);
+
+  const restart = useCallback((): void => {
+    setRun(null);
+    setSession(null);
+    setPreview(null);
+    setDecisions({});
+    setMapping([]);
+    setFailure(null);
+    setStep("upload");
+  }, []);
 
   const undecided =
     preview?.rows.some(
@@ -240,7 +320,9 @@ export function ImportScreen(): ReactElement {
         />
       ) : null}
 
-      {step === "done" && result !== null ? <DoneStep result={result} /> : null}
+      {step === "apply" && run !== null && run.status !== "MAPPING" ? (
+        <ApplyStep run={{ ...run, status: run.status }} onRestart={restart} />
+      ) : null}
     </div>
   );
 }
@@ -665,24 +747,93 @@ function PreviewRow({
   );
 }
 
-function DoneStep({ result }: { result: ImportApplyResult }): ReactElement {
+/**
+ * The import, while it runs and once it has stopped.
+ *
+ * The same panel throughout, because it is the same import: the counts are what
+ * the job has committed so far and go on rising, and what changes at the end is
+ * only whether the import finished or stopped. A run that stopped says so and
+ * says how far it got, rather than showing a tidy result that would suggest the
+ * whole file was written.
+ */
+function ApplyStep({
+  run,
+  onRestart,
+}: {
+  run: StartedImportRun;
+  onRestart: () => void;
+}): ReactElement {
   const { t } = useTranslation();
 
+  const running = isImportRunning(run.status);
+  const percent =
+    run.rowsTotal === 0 ? 0 : Math.round((run.rowsDone / run.rowsTotal) * 100);
+
   const counts = [
-    ["import.result.personsCreated", result.personsCreated],
-    ["import.result.personsUpdated", result.personsUpdated],
-    ["import.result.residenciesCreated", result.residenciesCreated],
+    ["import.result.personsCreated", run.result.personsCreated],
+    ["import.result.personsUpdated", run.result.personsUpdated],
+    ["import.result.residenciesCreated", run.result.residenciesCreated],
     [
       "import.result.memberRegisterEntriesCreated",
-      result.memberRegisterEntriesCreated,
+      run.result.memberRegisterEntriesCreated,
     ],
-    ["import.result.skipped", result.skipped],
-    ["import.result.errors", result.errors],
+    ["import.result.skipped", run.result.skipped],
+    ["import.result.errors", run.result.errors],
   ] as const;
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
-      <h2 className="text-title">{t("import.result.title")}</h2>
+      <h2 className="text-title">{t(RUN_TITLE[run.status])}</h2>
+
+      <p className="text-body text-ink-muted">
+        {t("import.run.file", { fileName: run.fileName })}
+      </p>
+
+      <div className="flex flex-col gap-2">
+        <div
+          role="progressbar"
+          aria-label={t("import.run.progressLabel")}
+          aria-valuemin={0}
+          aria-valuemax={run.rowsTotal}
+          aria-valuenow={run.rowsDone}
+          className="h-2 w-full overflow-hidden rounded-control bg-sunken"
+        >
+          <div
+            className="h-full bg-ink transition-[width] duration-300 ease-out"
+            style={{ width: `${String(percent)}%` }}
+          />
+        </div>
+        {/*
+         * The state is written out beside the bar rather than left to the bar's
+         * length: a bar that has stopped moving looks the same whether the
+         * import finished, failed or is waiting for a worker.
+         *
+         * The state announces itself and the count does not. The state changes
+         * three times in a whole import, which is worth interrupting a reader
+         * for; the count changes every time the screen asks, and a live region
+         * around it would read a new number aloud every second and a half. The
+         * count is on the bar, where it is read when it is wanted.
+         */}
+        <p className="font-data text-data text-ink-muted">
+          <span aria-live="polite">{t(RUN_STATUS_LABEL[run.status])}</span>
+          <span>
+            {` - ${t("import.run.progress", {
+              done: run.rowsDone,
+              total: run.rowsTotal,
+            })}`}
+          </span>
+        </p>
+      </div>
+
+      {running ? (
+        <Notice tone="info">{t("import.run.keepsGoing")}</Notice>
+      ) : null}
+
+      {run.status === "FAILED" ? (
+        <Notice tone="danger" live>
+          {t(failureMessage(run.failureReason ?? ""))}
+        </Notice>
+      ) : null}
 
       <dl className="flex flex-wrap gap-x-6 gap-y-1">
         {counts.map(([key, value]) => (
@@ -695,9 +846,20 @@ function DoneStep({ result }: { result: ImportApplyResult }): ReactElement {
 
       <Notice tone="info">{t("import.result.registerNotice")}</Notice>
 
-      <Link to="/" className={SECONDARY_BUTTON}>
-        {t("import.result.toAddressBook")}
-      </Link>
+      {running ? null : (
+        <div className="flex flex-wrap gap-3">
+          <Link to="/" className={SECONDARY_BUTTON}>
+            {t("import.result.toAddressBook")}
+          </Link>
+          <button
+            type="button"
+            onClick={onRestart}
+            className={SECONDARY_BUTTON}
+          >
+            {t("import.run.another")}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

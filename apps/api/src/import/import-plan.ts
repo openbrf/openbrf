@@ -20,7 +20,10 @@
  * picking one silently puts a stranger's phone number in someone's record.
  */
 
-import { isValidPersonalIdentityNumber } from "../crypto/personal-data";
+import {
+  isValidPersonalIdentityNumber,
+  normalizePersonalIdentityNumber,
+} from "../crypto/personal-data";
 import {
   type ImportField,
   type ImportMapping,
@@ -70,7 +73,11 @@ export interface PreparedRow {
   /** 1-based, counting data rows only: the header is not row 1. */
   rowNumber: number;
   values: Partial<Record<ImportField, string>>;
-  /** Blind index of the row's identity number, when it has a valid one. */
+  /**
+   * Blind index of the row's identity number, when one was computed. Null when
+   * the row states none, states an unusable one, or when the register holds no
+   * identity number for it to be matched against.
+   */
   identityNumberIndex: string | null;
   /** Blind index of the row's email address, when it has a usable one. */
   emailIndex: string | null;
@@ -322,14 +329,24 @@ function matchPerson(
  * The same precedence as the register match, so a file that identifies people
  * by email in some rows and by identity number in others still collapses the
  * ones that are genuinely the same.
+ *
+ * The identity number is keyed by its normalized value rather than by its blind
+ * index. The key never leaves this pass, so the index buys nothing here - and
+ * the index is a truncated hash, so two different numbers colliding in it would
+ * fold two people into one. The row's own number is also the only key available
+ * when nothing indexed it, which is the case whenever the register holds no
+ * identity number to match against.
  */
 function withinFileKey(
   row: PreparedRow,
   person: PlannedPerson,
   apartment: RegisterApartment | null,
 ): string | null {
-  if (row.identityNumberIndex !== null) {
-    return `pin:${row.identityNumberIndex}`;
+  const identityNumber = hasIndexableIdentityNumber(row.values)
+    ? normalizePersonalIdentityNumber(row.values.personalIdentityNumber ?? "")
+    : null;
+  if (identityNumber !== null) {
+    return `pin:${identityNumber}`;
   }
   if (row.emailIndex !== null) {
     return `email:${row.emailIndex}`;

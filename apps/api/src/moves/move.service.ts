@@ -8,6 +8,7 @@ import type { Prisma } from "../generated/prisma/client";
 import type { ResidencyRole } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import {
   boardMoveOutReminderMail,
@@ -286,9 +287,12 @@ export class MoveService implements OnModuleInit {
         movedInOn,
       });
     } catch (error) {
+      // The failure is named by its class and the residency, never by what it
+      // was carrying: a rejection from a mail server quotes the envelope, and
+      // that envelope holds an address decrypted a few lines above this.
       this.logger.error(
-        `Welcome email failed for residency ${result.residency.id}`,
-        error,
+        `Welcome email failed for residency ${result.residency.id}: ` +
+          failureName(error),
       );
     }
 
@@ -362,6 +366,10 @@ export class MoveService implements OnModuleInit {
     const person = residency.person;
     const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
 
+    // Before the transaction, because creating a queue is the queue backend's
+    // own work on its own connection and has no business inside this one.
+    await this.jobs.ensureQueue(MOVE_OUT_REMINDER_QUEUE);
+
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.residency.update({
         where: { id: residency.id },
@@ -411,6 +419,12 @@ export class MoveService implements OnModuleInit {
               transfer: input.transfer,
             });
 
+      // Enqueued by this transaction, so the reminder commits with the move-out
+      // or neither does. It is the part that cannot be reconstructed: the EXIT
+      // row refuses a second move-out, so a reminder lost after the commit has
+      // no path back and nothing would ever notice it was missing.
+      await this.scheduleBoardReminder(tx, residency.id, movedOutOn);
+
       return { memberRegisterExitRecorded, transferId };
     });
 
@@ -422,11 +436,6 @@ export class MoveService implements OnModuleInit {
       throw new Error("A move-out with a date produced no purge date.");
     }
 
-    // The reminder is enqueued before the mail, because it is the part that
-    // cannot be reconstructed: the EXIT row has committed and refuses a second
-    // move-out, so a reminder dropped here has no path back.
-    await this.scheduleBoardReminder(residency.id, movedOutOn);
-
     try {
       await this.sendMoveOutMail({
         emailCipher: person.emailCipher,
@@ -437,9 +446,11 @@ export class MoveService implements OnModuleInit {
         purgeOn,
       });
     } catch (error) {
+      // As with the welcome email: the class of the failure and the residency,
+      // and nothing the failure was holding.
       this.logger.error(
-        `Move-out notice failed for residency ${residency.id}`,
-        error,
+        `Move-out notice failed for residency ${residency.id}: ` +
+          failureName(error),
       );
     }
 
@@ -533,11 +544,12 @@ export class MoveService implements OnModuleInit {
         });
         sent++;
       } catch (error) {
-        // Named by person id, never by address: a failed send must not put an
-        // email address in the log.
+        // Named by person id and by the class of the failure, never by address
+        // and never by the failure's own payload: this loop decrypts an address
+        // and hands it to a mail server, and a rejection quotes it back.
         this.logger.error(
-          `Move-out reminder failed for board member ${member.id}`,
-          error,
+          `Move-out reminder failed for board member ${member.id}: ` +
+            failureName(error),
         );
       }
     }
@@ -549,10 +561,12 @@ export class MoveService implements OnModuleInit {
   }
 
   private async scheduleBoardReminder(
+    tx: Prisma.TransactionClient,
     residencyId: string,
     movedOutOn: Date,
   ): Promise<void> {
-    await this.jobs.sendAt<BoardReminderJob>(
+    await this.jobs.sendAtInTransaction<BoardReminderJob>(
+      tx,
       MOVE_OUT_REMINDER_QUEUE,
       { residencyId },
       // A move-out entered after the fact is scheduled for a date already past,

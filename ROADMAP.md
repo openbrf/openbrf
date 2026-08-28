@@ -127,7 +127,11 @@ flows and the import.
       and every row with a problem before anything is written. A row matching
       more than one person waits for a decision rather than picking one. An
       update fills in what the register does not have and never overwrites what
-      it does
+      it does. The register write itself runs in the background, in chunks, with
+      the rows it has done shown as it goes: a whole cooperative's list goes in
+      at once, the page can be closed while it runs, and an import interrupted by
+      a restart carries on from where it stopped rather than writing anything a
+      second time
 - [ ] Deployable production image and Compose file
 - [ ] End-to-end test suite
 

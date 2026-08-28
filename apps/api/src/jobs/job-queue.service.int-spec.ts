@@ -20,6 +20,17 @@ let queue: JobQueueService;
 const suffix = process.hrtime.bigint().toString(36);
 const QUEUE_NAME = `test-queue-${suffix}`;
 const SCHEDULED_QUEUE = `test-scheduled-${suffix}`;
+const TRANSACTION_QUEUE = `test-transaction-${suffix}`;
+const RACE_QUEUES = [`test-race-a-${suffix}`, `test-race-b-${suffix}`];
+
+/** Jobs waiting on a queue, counted in the queue's own table. */
+async function queuedJobs(name: string): Promise<number> {
+  const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+    "SELECT count(*)::bigint AS count FROM pgboss.job WHERE name = $1",
+    name,
+  );
+  return Number(rows[0]?.count ?? 0);
+}
 
 /** Resolves when the handler runs, so the test never sleeps blindly. */
 function deferred<T>(): {
@@ -42,6 +53,12 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  // Every queue this file creates is removed again. createQueue writes a row
+  // that outlives the process, and the names carry a per-run suffix, so a suite
+  // that only stopped the service would leave one behind on every run.
+  for (const name of [QUEUE_NAME, SCHEDULED_QUEUE, TRANSACTION_QUEUE]) {
+    await queue.instance.deleteQueue(name);
+  }
   await queue.onModuleDestroy();
   await prisma.$disconnect();
 });
@@ -114,15 +131,45 @@ describe("JobQueueService", () => {
     };
 
     try {
-      await Promise.all([
-        service.ensureQueue(`test-race-a-${suffix}`),
-        service.ensureQueue(`test-race-b-${suffix}`),
-      ]);
+      await Promise.all(RACE_QUEUES.map((name) => service.ensureQueue(name)));
 
       expect(starts).toBe(1);
     } finally {
+      // In the finally, so a failed assertion still takes the two queues with
+      // it rather than leaving them for the next run.
+      for (const name of RACE_QUEUES) {
+        await service.instance.deleteQueue(name);
+      }
       await service.onModuleDestroy();
     }
+  }, 30_000);
+
+  it("writes a job with the transaction that sent it", async () => {
+    // The durability the move-out reminder and the import apply both rest on:
+    // the job row is inserted by the caller's transaction, so it is there if
+    // and only if the rows that decided to send it are.
+    await queue.ensureQueue(TRANSACTION_QUEUE);
+
+    await prisma.$transaction(async (tx) => {
+      await queue.sendInTransaction(tx, TRANSACTION_QUEUE, { attempt: 1 });
+    });
+
+    expect(await queuedJobs(TRANSACTION_QUEUE)).toBe(1);
+  }, 30_000);
+
+  it("takes the job back when the transaction rolls back", async () => {
+    await queue.ensureQueue(TRANSACTION_QUEUE);
+
+    await expect(
+      prisma.$transaction(async (tx) => {
+        await queue.sendInTransaction(tx, TRANSACTION_QUEUE, { attempt: 2 });
+        throw new Error("the write this job belonged to failed");
+      }),
+    ).rejects.toThrow("the write this job belonged to failed");
+
+    // Still only the one from the case above: a job sent by a transaction that
+    // did not commit was never sent.
+    expect(await queuedJobs(TRANSACTION_QUEUE)).toBe(1);
   }, 30_000);
 
   it("keeps its tables out of the application schema", async () => {

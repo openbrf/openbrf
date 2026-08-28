@@ -665,16 +665,20 @@ describe("when the mail server is refusing", () => {
     // be taken back: the member register refuses UPDATE and DELETE, and a
     // second move-out on the same residency is refused. So a mail failure must
     // not reject the request, and the reminder - the only part that cannot be
-    // reconstructed afterwards - is enqueued before the mail is attempted.
+    // reconstructed afterwards - is written by the same transaction as the
+    // register, which is before any message is attempted and before there is a
+    // committed move-out for it to be missing from.
     const order: string[] = [];
     const send = vi.spyOn(mail, "send").mockImplementation(async () => {
       order.push("mail");
       throw new Error("smtp refused the connection");
     });
     const jobs = app.get(JobQueueService);
-    const sendAt = vi.spyOn(jobs, "sendAt").mockImplementation(async () => {
-      order.push("reminder");
-    });
+    const sendAt = vi
+      .spyOn(jobs, "sendAtInTransaction")
+      .mockImplementation(async () => {
+        order.push("reminder");
+      });
 
     try {
       const moveIn = await moves.moveIn({

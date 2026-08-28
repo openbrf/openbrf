@@ -691,7 +691,7 @@
       "upload": "File",
       "mapping": "Columns",
       "preview": "Preview",
-      "done": "Done"
+      "apply": "Import"
     },
     "upload": {
       "title": "The file",
@@ -792,6 +792,19 @@
       "mapping-length-mismatch": "The mapping does not match the file. Upload it again.",
       "unknown": "The mapping cannot be applied."
     },
+    "run": {
+      "title": "The import is running",
+      "stopped": "The import stopped",
+      "file": "From {{fileName}}",
+      "progress": "{{done}} of {{total}} rows",
+      "progressLabel": "How much of the file has been imported",
+      "queued": "Waiting to start",
+      "applying": "Writing the register",
+      "applied": "Finished",
+      "failed": "Stopped",
+      "keepsGoing": "The import carries on if you close this page. Come back here to see how it went.",
+      "another": "Import another list"
+    },
     "result": {
       "title": "The import is done",
       "personsCreated": "People added",
@@ -808,13 +821,14 @@
       "fileTooLarge": "That file is larger than 512 kB.",
       "fileUnreadable": "That file could not be read as a spreadsheet.",
       "tooManyRows": "That file has more rows than one import can take.",
-      "tooManyIdentityNumbers": "That file carries more personal identity numbers than one import can take. Import it in smaller parts, or leave the personal identity number column out.",
       "mappingInvalid": "The mapping cannot be applied yet.",
+      "previewRequired": "Preview the import before you run it.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
-      "sessionAlreadyApplied": "That upload has already been imported.",
+      "sessionAlreadyApplied": "An import has already been started for that upload.",
       "ambiguousRowsUndecided": "Some rows still match more than one person.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
+      "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "unknown": "The import did not work just now. Please try again."
     },
     "template": {

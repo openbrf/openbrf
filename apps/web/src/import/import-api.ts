@@ -84,6 +84,46 @@ export interface ImportApplyResult {
   errors: number;
 }
 
+export type ImportRunStatus =
+  "MAPPING" | "QUEUED" | "APPLYING" | "APPLIED" | "FAILED";
+
+/**
+ * An import as it runs.
+ *
+ * The register write happens in a background job, so this is what the screen
+ * watches and what it finds again after a reload: the counts are what the job
+ * has committed so far, not a prediction, and `rowsDone` against `rowsTotal` is
+ * how far through the file it is.
+ */
+export interface ImportRunView {
+  sessionId: string;
+  fileName: string;
+  status: ImportRunStatus;
+  rowsDone: number;
+  rowsTotal: number;
+  result: ImportApplyResult;
+  /** The API's code for why it stopped early, or null. */
+  failureReason: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/**
+ * An import that has left the mapping step.
+ *
+ * The distinction is worth a type: a session still being mapped has no run to
+ * describe, and the screen shows it the mapping step rather than a progress bar
+ * for something that has not started.
+ */
+export interface StartedImportRun extends Omit<ImportRunView, "status"> {
+  status: Exclude<ImportRunStatus, "MAPPING">;
+}
+
+/** Whether the job still has work to do, and the screen still has to watch. */
+export function isImportRunning(status: ImportRunStatus): boolean {
+  return status === "QUEUED" || status === "APPLYING";
+}
+
 export type ImportDecision =
   | { action: "use-person"; personId: string }
   | { action: "create" }
@@ -117,15 +157,42 @@ export function previewImport(
   );
 }
 
+/**
+ * Starts the import.
+ *
+ * Only the decisions go up: the mapping the apply runs is the one the preview
+ * was taken with, so what is written is what the board looked at. The answer is
+ * the run to watch rather than a result, because nothing has been written yet.
+ */
 export function applyImport(
   sessionId: string,
-  input: ImportMappingInput & { decisions: Record<string, ImportDecision> },
-): Promise<ApiResult<ImportApplyResult>> {
+  input: { decisions: Record<string, ImportDecision> },
+): Promise<ApiResult<ImportRunView>> {
   return apiRequest(
     "POST",
     `/api/import/sessions/${encodeURIComponent(sessionId)}/apply`,
     input,
   );
+}
+
+/** How far the import has got. */
+export function fetchImportRun(
+  sessionId: string,
+): Promise<ApiResult<ImportRunView>> {
+  return apiRequest(
+    "GET",
+    `/api/import/sessions/${encodeURIComponent(sessionId)}/run`,
+  );
+}
+
+/**
+ * The import that is running, or the last one that ran.
+ *
+ * Asked for on load, because a board member who closed the tab has no session
+ * id left to ask with and still has to be able to see what happened.
+ */
+export function fetchActiveImport(): Promise<ApiResult<ImportRunView | null>> {
+  return apiRequest("GET", "/api/import/sessions/active");
 }
 
 /**

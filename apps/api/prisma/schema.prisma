@@ -682,9 +682,17 @@ enum ImportSourceFormat {
 enum ImportSessionStatus {
   /// Uploaded and parsed; a mapping is still being chosen or reviewed.
   MAPPING
-  /// The mapping was applied to the register. The session is kept only so the
-  /// screen can show the outcome; nothing reads its rows again.
+  /// The board asked for the import and the job is waiting for a worker.
+  QUEUED
+  /// A worker is writing the register, chunk by chunk. `rowsDone` says how far
+  /// it has got and is the point a restart resumes from.
+  APPLYING
+  /// Every row was processed. The session is kept only so the screen can show
+  /// the outcome; nothing reads its rows again.
   APPLIED
+  /// The apply stopped before the end. `failureReason` says why, and
+  /// `rowsDone` says how much of the register was written before it stopped.
+  FAILED
 }
 
 /// One uploaded member list, held between upload, column mapping, preview and
@@ -697,6 +705,11 @@ enum ImportSessionStatus {
 /// and often every personal identity number in one blob - and this table has no
 /// masking of its own. Service tier throughout: an upload is working material,
 /// never a record, so it carries an expiry rather than a retention rule.
+///
+/// The row also carries the apply: what the board previewed, what it decided,
+/// how far the job has got and what it has written. The register write is a
+/// chunked background job (ADR 0002), so the state that survives a restart has
+/// to be here rather than in a worker's memory.
 model ImportSession {
   id String @id @default(cuid())
 
@@ -715,14 +728,55 @@ model ImportSession {
 
   status ImportSessionStatus @default(MAPPING)
 
+  /// The mapping the preview was taken with, one entry per column of the file,
+  /// empty for a column that is not imported. The apply runs this rather than a
+  /// mapping sent with it, so what is written is what the board looked at.
+  mapping String[]
+
+  /// Applied to rows with no role column, and to rows with no move-in column.
+  /// The date is held as the calendar date it was chosen as, which is what the
+  /// planner reads.
+  defaultRole      ResidencyRole?
+  defaultMovedInOn String?
+
+  /// Rows the preview could not resolve to one person, as row number to the
+  /// persons it could equally well have been. Written by the preview and read
+  /// by the apply, which refuses to start while one of them has no decision.
+  ambiguousRows Json?
+
+  /// The board's answer for each ambiguous row: which person it is, that it is
+  /// a new one, or that it is not imported.
+  decisions Json?
+
+  /// Rows whose writes are committed. The cursor a chunk claims and a restart
+  /// resumes from: a chunk advances this in the same transaction as its writes,
+  /// so a chunk is either wholly applied and counted or not applied at all.
+  rowsDone Int @default(0)
+
+  /// What the apply has written so far, accumulated per chunk.
+  personsCreated               Int @default(0)
+  personsUpdated               Int @default(0)
+  residenciesCreated           Int @default(0)
+  memberRegisterEntriesCreated Int @default(0)
+  rowsSkipped                  Int @default(0)
+  rowsWithProblems             Int @default(0)
+
+  /// Why the apply stopped, when it stopped early. One of the import's own
+  /// reason codes, so the screen translates it like any other failure.
+  failureReason String?
+
   /// Person who uploaded the file. A plain column rather than a relation, for
   /// the same reason as AuditLogEntry.actorPersonId.
   createdById String?
 
-  createdAt DateTime  @default(now())
-  appliedAt DateTime?
+  createdAt   DateTime  @default(now())
+  previewedAt DateTime?
+  /// When the first chunk began, and when the last one ended - whether it ended
+  /// by finishing the file or by stopping.
+  startedAt   DateTime?
+  finishedAt  DateTime?
   /// After this the session is stale and is refused rather than applied.
-  expiresAt DateTime
+  expiresAt   DateTime
 
   @@index([status, expiresAt])
   @@map("import_session")

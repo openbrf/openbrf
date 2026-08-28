@@ -29,16 +29,25 @@ takes over a tenant-ownership, records a transfer when there is one, and sends
 the welcome email in the recipient's own language. Move-out sets the date,
 computes and displays the purge date from the retention policy, records the
 transfer, and closes the membership in the register when the person's last
-tenant-ownership ends. A job on the move-out date sends the board a summary.
+tenant-ownership ends. A job on the move-out date sends the board a summary, and
+that job is written by the same transaction as the register rows, so a move-out
+that is recorded is a move-out the board will be reminded of. A message that
+cannot be delivered is reported by residency and by the class of the failure,
+never by address and never by what the failure was carrying.
 
 Import reads a CSV file or an Excel workbook, guesses the column mapping from
 the titles in either language, and shows what would happen - creates, updates,
 rows with problems named one by one, and rows matching more than one person,
 which block the import until somebody decides. Persons are matched by personal
 identity number, then email, then apartment and exact name. An update fills in
-what the register does not have and never overwrites what it does. Applying
-claims the upload in the same transaction as the writes, so two applies of one
-upload cannot both write the register. A personal identity number costs 43.8 ms
-to index by design, so a file carrying more than 500 of them is refused with an
-explanation rather than left to time out. Uploads are deleted once they expire,
-and a template is downloadable in the reader's own language.
+what the register does not have and never overwrites what it does. A personal
+identity number costs 43.8 ms to index by design, so writing the register is a
+background job that walks the file in chunks rather than work done inside the
+request: the screen shows the rows done against the rows the file holds, the
+page can be closed while it runs, and an import interrupted by a restart carries
+on from the chunk it reached rather than writing anything a second time. The
+import that runs is the one that was previewed. Starting it claims the upload
+with a conditional update so two applies of one upload cannot both queue it, and
+each chunk claims its place in the file the same way, in the transaction that
+writes it. Uploads are deleted once they expire, and a template is downloadable
+in the reader's own language.

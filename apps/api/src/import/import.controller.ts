@@ -14,8 +14,8 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
+import type { ImportRunView } from "./import-run";
 import {
-  type ImportApplyResult,
   type ImportPreview,
   type ImportSessionView,
   ImportService,
@@ -51,7 +51,13 @@ const decisionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("skip") }),
 ]);
 
-const applySchema = mappingSchema.extend({
+/**
+ * What the board answered for the rows the preview could not resolve.
+ *
+ * The mapping is deliberately not part of this: the apply runs the mapping the
+ * preview was taken with, which is the one the board looked at.
+ */
+const applySchema = z.object({
   decisions: z.record(z.string(), decisionSchema).default({}),
 });
 
@@ -102,11 +108,24 @@ export class ImportController {
   }
 
   /**
+   * The import that is running, or the last one that ran.
+   *
+   * Answered without a session id because the screen that asks has none after a
+   * reload: it is how a board member who closed the tab finds out what happened
+   * to the import they started.
+   */
+  @Get("sessions/active")
+  async active(): Promise<ImportRunView | null> {
+    return this.imports.activeRun();
+  }
+
+  /**
    * What the mapping would do.
    *
-   * A POST although it changes nothing: the mapping is a structure rather than
-   * a couple of parameters, and putting a whole column mapping in a query string
-   * would put the file's column titles in every proxy log.
+   * A POST, and one that records what it showed: the mapping is a structure
+   * rather than a couple of parameters, putting a whole column mapping in a
+   * query string would put the file's column titles in every proxy log, and the
+   * apply runs what this step previewed.
    */
   @Post("sessions/:id/preview")
   @HttpCode(200)
@@ -122,19 +141,27 @@ export class ImportController {
     });
   }
 
+  /**
+   * Starts the import.
+   *
+   * Accepted rather than done: the register write is a background job, and this
+   * answers with the run to watch rather than with a result that does not exist
+   * yet.
+   */
   @Post("sessions/:id/apply")
-  @HttpCode(200)
+  @HttpCode(202)
   async apply(
     @Param("id") id: string,
     @Body() body: unknown,
-  ): Promise<ImportApplyResult> {
+  ): Promise<ImportRunView> {
     const input = applySchema.parse(body);
-    return this.imports.apply(id, {
-      mapping: input.mapping,
-      defaultRole: input.defaultRole ?? null,
-      defaultMovedInOn: input.defaultMovedInOn ?? null,
-      decisions: input.decisions,
-    });
+    return this.imports.apply(id, { decisions: input.decisions });
+  }
+
+  /** How far the import has got. Polled by the screen while it runs. */
+  @Get("sessions/:id/run")
+  async run(@Param("id") id: string): Promise<ImportRunView> {
+    return this.imports.run(id);
   }
 }
 

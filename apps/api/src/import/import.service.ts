@@ -3,31 +3,24 @@ import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
-import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import { DomainError } from "../http/domain-error";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { parseCsv, writeCsv } from "./csv";
 import {
+  type ImportDecisions,
+  ImportApplyService,
+} from "./import-apply.service";
+import {
   type ImportField,
   type ImportMapping,
   suggestMapping,
-  validateMapping,
 } from "./import-columns";
-import {
-  apartmentNameKey,
-  hasIndexableIdentityNumber,
-  type ImportOutcome,
-  type ImportPlan,
-  type ImportRole,
-  planImport,
-  type PlannedRow,
-  type PreparedRow,
-  readRow,
-  type RegisterSnapshot,
-} from "./import-plan";
+import { ImportError } from "./import-errors";
+import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
+import { ImportPlannerService } from "./import-planner.service";
+import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
 import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
 
 /**
@@ -43,53 +36,14 @@ import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
  * a preview taken from a different copy of the file than the apply is a preview
  * that can be wrong. They are held encrypted: a cooperative's member list is
  * the densest personal data this instance ever handles.
- */
-
-export type ImportErrorReason =
-  | "session-not-found"
-  | "session-expired"
-  | "session-already-applied"
-  | "file-empty"
-  | "file-too-large"
-  | "file-unreadable"
-  | "too-many-rows"
-  | "too-many-identity-numbers"
-  | "mapping-invalid"
-  | "ambiguous-rows-undecided"
-  | "decision-not-a-candidate";
-
-export class ImportError extends DomainError {
-  override readonly status: number;
-  override readonly reason: ImportErrorReason;
-
-  constructor(message: string, reason: ImportErrorReason) {
-    super(message);
-    this.reason = reason;
-    this.status =
-      reason === "session-not-found"
-        ? 404
-        : reason === "session-expired" || reason === "session-already-applied"
-          ? 409
-          : 400;
-  }
-}
-
-/**
- * Blind indexes computed during one request.
  *
- * Keyed by the normalized personal identity number rather than by a hash of
- * it. A hash would look like a protection it is not: the value space of a
- * personal identity number is small enough to reverse by brute force, and the
- * uploaded rows are decrypted in this same process for the length of the
- * request anyway. What keeps the exposure bounded is the lifetime - the map is
- * created per request and is gone when it returns, so nothing derived from an
- * identity number outlives the call that needed it.
- *
- * It exists because the apply path needs each index twice: once to match the
- * row against the register, once to write the person. At 43.8 ms a value that
- * is the difference between one pass and two.
+ * The first three steps answer inside the request. The fourth does not: writing
+ * the register is minutes of Argon2id on a real member list, so it is a chunked
+ * background job (ADR 0002) and this service only claims the session and queues
+ * it. What the board previewed is recorded on the session, and the apply runs
+ * that - so what is written is what was looked at, and the request that starts
+ * it neither decrypts a row nor computes an index.
  */
-type IdentityIndexCache = Map<string, string>;
 
 /** The largest upload accepted, decoded. A member list is far below this. */
 export const MAX_UPLOAD_BYTES = 512 * 1024;
@@ -105,25 +59,6 @@ export const IMPORT_PURGE_QUEUE = "import-session-purge";
 
 /** Rows shown on the mapping screen so a column can be recognised by content. */
 const SAMPLE_ROWS = 5;
-
-/**
- * How many personal identity numbers one import may index.
- *
- * The index for a personal identity number is deliberately expensive - 43.8 ms
- * per value, because the value space is small enough to sweep offline and a
- * cheap index would be reversible if the database leaked (ADR 0002). Nothing
- * else in an import comes close: an email index costs 0.07 ms.
- *
- * The cost is therefore set by how many identity numbers the file carries, not
- * by how many rows it has, and this is the cap on the expensive half alone. At
- * this ceiling a pass spends about 22 seconds in Argon2id, which a request can
- * finish; a file with no identity number column keeps the full row allowance.
- * A board past the ceiling has two ways through that need nobody's help: leave
- * the identity number column unmapped, or split the file. ADR 0002 records the
- * chunked job with progress reporting as the answer for larger files, and this
- * refusal is what keeps a request from being the wrong place to find that out.
- */
-export const MAX_INDEXED_IDENTITY_NUMBERS = 500;
 
 export interface ImportSessionView {
   sessionId: string;
@@ -167,20 +102,6 @@ export interface ImportPreview {
   rows: ImportPreviewRow[];
 }
 
-export type ImportDecision =
-  | { action: "use-person"; personId: string }
-  | { action: "create" }
-  | { action: "skip" };
-
-export interface ImportApplyResult {
-  personsCreated: number;
-  personsUpdated: number;
-  residenciesCreated: number;
-  memberRegisterEntriesCreated: number;
-  skipped: number;
-  errors: number;
-}
-
 export interface ImportMappingInput {
   mapping: ImportMapping;
   defaultRole: ImportRole | null;
@@ -197,6 +118,8 @@ export class ImportService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly i18n: I18nService,
     private readonly jobs: JobQueueService,
+    private readonly planner: ImportPlannerService,
+    private readonly applies: ImportApplyService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -223,10 +146,17 @@ export class ImportService implements OnModuleInit {
    * the uploaded member list, encrypted but complete, personal identity numbers
    * included. An upload nobody can act on any more is data kept for no purpose,
    * so it goes rather than sitting there until someone notices.
+   *
+   * An apply that is still running is left alone however old its upload is.
+   * Deleting the rows underneath a job would stop the import halfway through a
+   * register that cannot be corrected by editing.
    */
   async purgeExpiredSessions(now: Date = new Date()): Promise<number> {
     const { count } = await this.prisma.importSession.deleteMany({
-      where: { expiresAt: { lt: now } },
+      where: {
+        expiresAt: { lt: now },
+        status: { notIn: ["QUEUED", "APPLYING"] },
+      },
     });
     if (count > 0) {
       this.logger.log(`Purged ${String(count)} expired import sessions`);
@@ -299,13 +229,52 @@ export class ImportService implements OnModuleInit {
     };
   }
 
-  /** Works out what the mapping would do, without doing any of it. */
+  /**
+   * Works out what the mapping would do, without doing any of it.
+   *
+   * It also records what it showed: the mapping, the defaults, and which rows it
+   * could not resolve to one person. The apply reads that back rather than being
+   * told again, so the import that runs is the one the board looked at and a row
+   * needing a decision cannot be slipped past by applying a mapping nobody
+   * previewed.
+   */
   async preview(
     sessionId: string,
     input: ImportMappingInput,
   ): Promise<ImportPreview> {
-    const session = await this.loadSession(sessionId);
-    const plan = await this.plan(session, input, new Map());
+    const session = await this.loadForPreview(sessionId);
+
+    const plan = await this.planner.plan({
+      rows: await this.planner.decryptRows(session.rowsCipher),
+      columnCount: session.columns.length,
+      mapping: input.mapping,
+      defaultRole: input.defaultRole,
+      defaultMovedInOn: input.defaultMovedInOn,
+      // A preview matches; it writes nothing. An identity number is therefore
+      // only worth its 43.8 ms when the register holds one to match it against.
+      indexEveryIdentityNumber: false,
+      indexes: new Map(),
+    });
+
+    const ambiguousRows: Record<string, string[]> = {};
+    for (const row of plan.rows) {
+      if (row.outcome === "ambiguous") {
+        ambiguousRows[String(row.rowNumber)] = row.candidates.map(
+          (candidate) => candidate.personId,
+        );
+      }
+    }
+
+    await this.prisma.importSession.updateMany({
+      where: { id: sessionId, status: "MAPPING" },
+      data: {
+        mapping: input.mapping.map((field) => field ?? ""),
+        defaultRole: input.defaultRole,
+        defaultMovedInOn: input.defaultMovedInOn,
+        ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
+        previewedAt: new Date(),
+      },
+    });
 
     return {
       sessionId,
@@ -315,31 +284,36 @@ export class ImportService implements OnModuleInit {
   }
 
   /**
-   * Applies the mapping.
+   * Starts the apply.
    *
-   * The plan is computed again rather than taken from the preview, so the
-   * import acts on the register as it stands now. Between a board previewing an
-   * import and pressing apply, someone else may have added the very person the
-   * preview said would be created.
+   * Every ambiguous row needs a decision, and the rows that need one are the
+   * ones the preview found: applying with one unanswered would mean the import
+   * quietly decided something the preview said it could not.
    *
-   * Every ambiguous row needs a decision. Applying with one unanswered would
-   * mean the import quietly decided something the preview said it could not.
+   * Then the session is claimed and the job is queued, and that claim is the
+   * whole concurrency guard. Two applies of one session overlap easily - a
+   * double-clicked button is enough - and two jobs would each create the person,
+   * the residency and the statutory ENTRY row. member_register_entry refuses
+   * UPDATE and DELETE, so a member listed twice could only be answered with a
+   * further correction entry. The conditional update takes the row lock, so the
+   * second request finds nothing to claim and nothing is queued for it.
    */
   async apply(
     sessionId: string,
-    input: ImportMappingInput & {
-      decisions: Record<string, ImportDecision>;
-    },
-  ): Promise<ImportApplyResult> {
-    const session = await this.loadSession(sessionId);
-    const indexes: IdentityIndexCache = new Map();
-    const plan = await this.plan(session, input, indexes);
+    input: { decisions: ImportDecisions },
+  ): Promise<ImportRunView> {
+    const session = await this.loadForApply(sessionId);
+    if (session.previewedAt === null) {
+      throw new ImportError(
+        "That import has not been previewed.",
+        "preview-required",
+      );
+    }
 
-    for (const row of plan.rows) {
-      if (row.outcome !== "ambiguous") {
-        continue;
-      }
-      const decision = input.decisions[String(row.rowNumber)];
+    for (const [rowNumber, candidates] of Object.entries(
+      readAmbiguousRows(session.ambiguousRows),
+    )) {
+      const decision = input.decisions[rowNumber];
       if (decision === undefined) {
         throw new ImportError(
           "Some rows matched more than one person and have no decision.",
@@ -348,9 +322,7 @@ export class ImportService implements OnModuleInit {
       }
       if (
         decision.action === "use-person" &&
-        !row.candidates.some(
-          (candidate) => candidate.personId === decision.personId,
-        )
+        !candidates.includes(decision.personId)
       ) {
         throw new ImportError(
           "A decision names a person that row did not match.",
@@ -359,46 +331,66 @@ export class ImportService implements OnModuleInit {
       }
     }
 
-    // Every value that has to be encrypted is encrypted before the transaction
-    // opens. The index for a personal identity number costs tens of
-    // milliseconds by design, and two hundred of them inside a transaction
-    // would hold it open long past any sensible timeout.
-    const encrypted = await this.encryptRows(
-      plan.rows,
-      input.decisions,
-      indexes,
-    );
+    // Before the transaction: creating a queue is the queue backend's own work
+    // on its own connection and has no business inside this one.
+    await this.applies.ensureQueues();
 
-    const result = await this.prisma.$transaction(
-      async (tx) => {
-        // The session is claimed inside the transaction that writes, not after
-        // it. Two applies of one session overlap easily - a double-clicked
-        // button is enough - and both would pass loadSession, both would run
-        // write, and both would create the person, the residency and the
-        // statutory ENTRY row. member_register_entry refuses UPDATE and
-        // DELETE, so a member listed twice could only be answered with a
-        // further correction entry. The conditional update takes the row lock,
-        // so the second request finds nothing to claim and writes nothing.
-        const claimed = await tx.importSession.updateMany({
-          where: { id: sessionId, status: "MAPPING" },
-          data: { status: "APPLIED", appliedAt: new Date() },
-        });
-        if (claimed.count === 0) {
-          throw new ImportError(
-            "That import has already been applied.",
-            "session-already-applied",
-          );
-        }
-        return this.write(tx, plan, input.decisions, encrypted);
-      },
-      { timeout: 120_000, maxWait: 20_000 },
-    );
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.importSession.updateMany({
+        where: { id: sessionId, status: "MAPPING" },
+        data: {
+          status: "QUEUED",
+          decisions: input.decisions as Prisma.InputJsonValue,
+        },
+      });
+      if (claim.count === 0) {
+        return false;
+      }
+      // The job is written by this transaction too, so the claim and the work
+      // it claims commit together. A session left claimed with no job behind it
+      // is an import that never runs and never says so.
+      await this.applies.enqueueInTransaction(tx, sessionId);
+      return true;
+    });
+    if (!claimed) {
+      throw new ImportError(
+        "That import has already been started.",
+        "session-already-applied",
+      );
+    }
 
-    this.logger.log(
-      `Import session ${sessionId} applied: ${String(result.personsCreated)} created, ` +
-        `${String(result.personsUpdated)} updated`,
-    );
-    return result;
+    this.logger.log(`Import session ${sessionId}: apply queued`);
+    return this.run(sessionId);
+  }
+
+  /** How far the apply has got, read from the session itself. */
+  async run(sessionId: string): Promise<ImportRunView> {
+    const session = await this.prisma.importSession.findUnique({
+      where: { id: sessionId },
+      select: IMPORT_RUN_SELECT,
+    });
+    if (session === null) {
+      throw new ImportError("No such import.", "session-not-found");
+    }
+    return toRunView(session);
+  }
+
+  /**
+   * The import worth showing on the screen, if there is one.
+   *
+   * What a board member coming back to the screen needs is the import that was
+   * started, whether it is still running or finished while the tab was closed.
+   * The most recent session that has left the mapping step is that import, and
+   * it stays answerable for as long as the upload does - after which the purge
+   * removes it and the screen offers a fresh upload again.
+   */
+  async activeRun(): Promise<ImportRunView | null> {
+    const session = await this.prisma.importSession.findFirst({
+      where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
+      select: IMPORT_RUN_SELECT,
+    });
+    return session === null ? null : toRunView(session);
   }
 
   /**
@@ -436,530 +428,75 @@ export class ImportService implements OnModuleInit {
     }
   }
 
-  private async loadSession(sessionId: string): Promise<{
-    id: string;
+  private async loadForPreview(sessionId: string): Promise<{
     columns: string[];
     rowsCipher: string;
   }> {
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
-        id: true,
         columns: true,
         rowsCipher: true,
         status: true,
         expiresAt: true,
       },
     });
-    if (session === null) {
-      throw new ImportError("No such import.", "session-not-found");
-    }
-    if (session.status === "APPLIED") {
-      throw new ImportError(
-        "That import has already been applied.",
-        "session-already-applied",
-      );
-    }
-    if (session.expiresAt.getTime() < Date.now()) {
-      throw new ImportError("That upload has expired.", "session-expired");
-    }
-    return session;
+    return requireMapping(session);
   }
 
-  private async plan(
-    session: { id: string; columns: string[]; rowsCipher: string },
-    input: ImportMappingInput,
-    indexes: IdentityIndexCache,
-  ): Promise<ImportPlan> {
-    const mappingProblems = validateMapping({
-      mapping: input.mapping,
-      columnCount: session.columns.length,
-      defaultRole: input.defaultRole,
-      defaultMovedInOn: input.defaultMovedInOn,
-    });
-    if (mappingProblems.length > 0) {
-      throw new ImportError(
-        `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
-        "mapping-invalid",
-      );
-    }
-
-    const rows = JSON.parse(
-      await this.encryption.decrypt("importSession.rows", session.rowsCipher),
-    ) as string[][];
-
-    const rowValues = rows.map((cells) => readRow(cells, input.mapping));
-    this.checkIdentityNumberBudget(rowValues);
-
-    const prepared: PreparedRow[] = [];
-    for (const [index, values] of rowValues.entries()) {
-      prepared.push({
-        rowNumber: index + 1,
-        values,
-        identityNumberIndex: hasIndexableIdentityNumber(values)
-          ? await this.identityNumberIndex(
-              values.personalIdentityNumber ?? "",
-              indexes,
-            )
-          : null,
-        emailIndex:
-          values.email === undefined
-            ? null
-            : await this.encryption.computeIndex("person.email", values.email),
-      });
-    }
-
-    const snapshot = await this.snapshot();
-    return planImport(prepared, snapshot, {
-      defaultRole: input.defaultRole,
-      defaultMovedInOn: input.defaultMovedInOn,
-    });
-  }
-
-  /**
-   * Refuses a mapping whose identity numbers cost more than a request has.
-   *
-   * Counted before any of them is indexed, and by distinct value, because the
-   * per-request cache means a number repeated across rows is paid for once. A
-   * board that runs into this is told before it waits rather than after.
-   */
-  private checkIdentityNumberBudget(
-    rowValues: readonly Partial<Record<ImportField, string>>[],
-  ): void {
-    const distinct = new Set<string>();
-    for (const values of rowValues) {
-      if (!hasIndexableIdentityNumber(values)) {
-        continue;
-      }
-      const normalized = normalizePersonalIdentityNumber(
-        values.personalIdentityNumber ?? "",
-      );
-      if (normalized !== null) {
-        distinct.add(normalized);
-      }
-    }
-
-    if (distinct.size > MAX_INDEXED_IDENTITY_NUMBERS) {
-      throw new ImportError(
-        `That file carries ${String(distinct.size)} personal identity numbers, ` +
-          `and at most ${String(MAX_INDEXED_IDENTITY_NUMBERS)} can be imported ` +
-          "at a time.",
-        "too-many-identity-numbers",
-      );
-    }
-  }
-
-  /**
-   * The register as matching needs to see it.
-   *
-   * Loaded whole rather than queried per row: a per-row lookup on a two hundred
-   * row file is two hundred round trips, and the register of one housing
-   * cooperative is small enough to hold in memory. Only the columns matching
-   * needs are read - no ciphertext leaves the database here.
-   */
-  private async snapshot(): Promise<RegisterSnapshot> {
-    const now = new Date();
-
-    const [apartments, persons] = await Promise.all([
-      this.prisma.apartment.findMany({
-        select: {
-          id: true,
-          number: true,
-          addressId: true,
-          address: { select: { street: true, number: true } },
-        },
-      }),
-      this.prisma.person.findMany({
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          emailIndex: true,
-          personalIdentityNumberIndex: true,
-          residencies: {
-            where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
-            select: { apartmentId: true },
-          },
-        },
-      }),
-    ]);
-
-    const personsByIdentityNumber = new Map<string, string[]>();
-    const personsByEmail = new Map<string, string[]>();
-    const personsByApartmentAndName = new Map<string, string[]>();
-    const personNames = new Map<string, string>();
-
-    for (const person of persons) {
-      personNames.set(
-        person.id,
-        `${person.firstName} ${person.lastName}`.trim(),
-      );
-      if (person.personalIdentityNumberIndex !== null) {
-        push(
-          personsByIdentityNumber,
-          person.personalIdentityNumberIndex,
-          person.id,
-        );
-      }
-      if (person.emailIndex !== null) {
-        push(personsByEmail, person.emailIndex, person.id);
-      }
-      for (const residency of person.residencies) {
-        push(
-          personsByApartmentAndName,
-          apartmentNameKey(
-            residency.apartmentId,
-            person.firstName,
-            person.lastName,
-          ),
-          person.id,
-        );
-      }
-    }
-
-    return {
-      apartments: apartments.map((apartment) => ({
-        id: apartment.id,
-        number: apartment.number,
-        addressId: apartment.addressId,
-        addressLabel: `${apartment.address.street} ${apartment.address.number}`,
-      })),
-      personsByIdentityNumber,
-      personsByEmail,
-      personsByApartmentAndName,
-      personNames,
-    };
-  }
-
-  private async identityNumberIndex(
-    value: string,
-    indexes: IdentityIndexCache,
-  ): Promise<string | null> {
-    const normalized = normalizePersonalIdentityNumber(value);
-    if (normalized === null) {
-      return null;
-    }
-
-    const cached = indexes.get(normalized);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    const index = await this.encryption.computeIndex(
-      "person.personalIdentityNumber",
-      value,
-    );
-    if (index !== null) {
-      indexes.set(normalized, index);
-    }
-    return index;
-  }
-
-  /** Ciphertexts and indexes for every row that will be written. */
-  private async encryptRows(
-    rows: readonly PlannedRow[],
-    decisions: Record<string, ImportDecision>,
-    indexes: IdentityIndexCache,
-  ): Promise<Map<number, EncryptedRowValues>> {
-    const encrypted = new Map<number, EncryptedRowValues>();
-
-    for (const row of rows) {
-      if (!willWrite(row, decisions)) {
-        continue;
-      }
-      encrypted.set(row.rowNumber, {
-        email:
-          row.person.email === null
-            ? null
-            : await this.encryption.encrypt("person.email", row.person.email),
-        phone:
-          row.person.phone === null
-            ? null
-            : await this.encryption.encrypt("person.phone", row.person.phone),
-        personalIdentityNumber:
-          row.person.personalIdentityNumber === null
-            ? null
-            : {
-                cipher: (
-                  await this.encryption.encrypt(
-                    "person.personalIdentityNumber",
-                    row.person.personalIdentityNumber,
-                  )
-                ).cipher,
-                index: await this.identityNumberIndex(
-                  row.person.personalIdentityNumber,
-                  indexes,
-                ),
-              },
-      });
-    }
-
-    return encrypted;
-  }
-
-  private async write(
-    tx: Prisma.TransactionClient,
-    plan: ImportPlan,
-    decisions: Record<string, ImportDecision>,
-    encrypted: ReadonlyMap<number, EncryptedRowValues>,
-  ): Promise<ImportApplyResult> {
-    const result: ImportApplyResult = {
-      personsCreated: 0,
-      personsUpdated: 0,
-      residenciesCreated: 0,
-      memberRegisterEntriesCreated: 0,
-      skipped: 0,
-      errors: 0,
-    };
-
-    /** Persons this run created, so a second row reaches the same one. */
-    const createdByRow = new Map<number, string>();
-
-    for (const row of plan.rows) {
-      if (row.outcome === "error") {
-        result.errors++;
-        continue;
-      }
-
-      const target = resolveTarget(row, decisions, createdByRow);
-      if (target.action === "skip") {
-        result.skipped++;
-        continue;
-      }
-
-      const personId = await this.upsertPerson(
-        tx,
-        row,
-        target.action === "update" ? target.personId : null,
-        encrypted,
-        createdByRow,
-        result,
-      );
-      if (personId === null) {
-        result.skipped++;
-        continue;
-      }
-
-      await this.writeResidency(tx, row, personId, result);
-    }
-
-    return result;
-  }
-
-  /**
-   * Finds or creates the person a row writes to.
-   *
-   * Returns null when the row is skipped. An update fills in what the register
-   * does not have and never overwrites what it does: a spreadsheet is not a
-   * more reliable source than the register it is being loaded into, and a bulk
-   * overwrite is how a register stops being evidence.
-   */
-  private async upsertPerson(
-    tx: Prisma.TransactionClient,
-    row: PlannedRow,
-    target: string | null,
-    encrypted: ReadonlyMap<number, EncryptedRowValues>,
-    createdByRow: Map<number, string>,
-    result: ImportApplyResult,
-  ): Promise<string | null> {
-    const values = encrypted.get(row.rowNumber);
-    if (values === undefined) {
-      return null;
-    }
-
-    if (target === null) {
-      const created = await tx.person.create({
-        data: {
-          firstName: row.person.firstName,
-          lastName: row.person.lastName,
-          postalStreet: row.person.postalStreet,
-          postalCode: row.person.postalCode,
-          postalCity: row.person.postalCity,
-          emailCipher: values.email?.cipher ?? null,
-          emailIndex: values.email?.index ?? null,
-          phoneCipher: values.phone?.cipher ?? null,
-          phoneIndex: values.phone?.index ?? null,
-          personalIdentityNumberCipher:
-            values.personalIdentityNumber?.cipher ?? null,
-          personalIdentityNumberIndex:
-            values.personalIdentityNumber?.index ?? null,
-        },
-        select: { id: true },
-      });
-      createdByRow.set(row.rowNumber, created.id);
-      result.personsCreated++;
-      return created.id;
-    }
-
-    const existing = await tx.person.findUnique({
-      where: { id: target },
+  private async loadForApply(sessionId: string): Promise<{
+    previewedAt: Date | null;
+    ambiguousRows: Prisma.JsonValue;
+  }> {
+    // The uploaded rows are deliberately not read here. Starting an import
+    // decrypts nothing and indexes nothing: that is the job's work.
+    const session = await this.prisma.importSession.findUnique({
+      where: { id: sessionId },
       select: {
-        id: true,
-        postalStreet: true,
-        postalCode: true,
-        postalCity: true,
-        emailCipher: true,
-        phoneCipher: true,
-        personalIdentityNumberCipher: true,
+        previewedAt: true,
+        ambiguousRows: true,
+        status: true,
+        expiresAt: true,
       },
     });
-    if (existing === null) {
-      return null;
-    }
-
-    const data: Prisma.PersonUpdateInput = {};
-    if (existing.postalStreet === null && row.person.postalStreet !== null) {
-      data.postalStreet = row.person.postalStreet;
-    }
-    if (existing.postalCode === null && row.person.postalCode !== null) {
-      data.postalCode = row.person.postalCode;
-    }
-    if (existing.postalCity === null && row.person.postalCity !== null) {
-      data.postalCity = row.person.postalCity;
-    }
-    if (existing.emailCipher === null && values.email !== null) {
-      data.emailCipher = values.email.cipher;
-      data.emailIndex = values.email.index;
-    }
-    if (existing.phoneCipher === null && values.phone !== null) {
-      data.phoneCipher = values.phone.cipher;
-      data.phoneIndex = values.phone.index;
-    }
-    if (
-      existing.personalIdentityNumberCipher === null &&
-      values.personalIdentityNumber !== null
-    ) {
-      data.personalIdentityNumberCipher = values.personalIdentityNumber.cipher;
-      data.personalIdentityNumberIndex = values.personalIdentityNumber.index;
-    }
-
-    if (Object.keys(data).length > 0) {
-      await tx.person.update({ where: { id: existing.id }, data });
-    }
-    result.personsUpdated++;
-    return existing.id;
-  }
-
-  /**
-   * Writes the residency and, when the row makes someone a member, the
-   * statutory register entries that go with it.
-   *
-   * The same rule as the move flows: the ENTRY row is written when a membership
-   * begins and the EXIT row when the last tenant-ownership ends, so a member
-   * with two apartments is recorded as one membership rather than two.
-   */
-  private async writeResidency(
-    tx: Prisma.TransactionClient,
-    row: PlannedRow,
-    personId: string,
-    result: ImportApplyResult,
-  ): Promise<void> {
-    if (row.apartment === null || row.role === null || row.movedInOn === null) {
-      return;
-    }
-
-    const movedInOn = new Date(`${row.movedInOn}T00:00:00.000Z`);
-    const movedOutOn =
-      row.movedOutOn === null
-        ? null
-        : new Date(`${row.movedOutOn}T00:00:00.000Z`);
-
-    const existing = await tx.residency.count({
-      where: { personId, apartmentId: row.apartment.id },
-    });
-    if (existing > 0) {
-      return;
-    }
-
-    const alreadyMember =
-      row.role === "MEMBER"
-        ? (await tx.residency.count({
-            where: {
-              personId,
-              role: "MEMBER",
-              OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedInOn } }],
-            },
-          })) > 0
-        : false;
-
-    await tx.residency.create({
-      data: {
-        personId,
-        apartmentId: row.apartment.id,
-        role: row.role,
-        movedInOn,
-        movedOutOn,
-      },
-    });
-    result.residenciesCreated++;
-
-    if (row.role !== "MEMBER") {
-      return;
-    }
-
-    const person = await tx.person.findUniqueOrThrow({
-      where: { id: personId },
-      select: {
-        firstName: true,
-        lastName: true,
-        postalStreet: true,
-        postalCode: true,
-        postalCity: true,
-      },
-    });
-    const recorded = {
-      recordedFirstName: person.firstName,
-      recordedLastName: person.lastName,
-      recordedPostalStreet: person.postalStreet,
-      recordedPostalCode: person.postalCode,
-      recordedPostalCity: person.postalCity,
-    };
-
-    if (!alreadyMember) {
-      await tx.memberRegisterEntry.create({
-        data: {
-          personId,
-          apartmentId: row.apartment.id,
-          eventType: "ENTRY",
-          eventOn: movedInOn,
-          ...recorded,
-        },
-      });
-      result.memberRegisterEntriesCreated++;
-    }
-
-    if (movedOutOn === null) {
-      return;
-    }
-
-    // A row for someone who has already left has to close its own membership,
-    // or the register would show them as a member for ever.
-    const stillHeld = await tx.residency.count({
-      where: {
-        personId,
-        role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedOutOn } }],
-      },
-    });
-    if (stillHeld === 0) {
-      await tx.memberRegisterEntry.create({
-        data: {
-          personId,
-          apartmentId: row.apartment.id,
-          eventType: "EXIT",
-          eventOn: movedOutOn,
-          ...recorded,
-        },
-      });
-      result.memberRegisterEntriesCreated++;
-    }
+    return requireMapping(session);
   }
 }
 
-interface EncryptedRowValues {
-  email: { cipher: string; index: string | null } | null;
-  phone: { cipher: string; index: string | null } | null;
-  personalIdentityNumber: { cipher: string; index: string | null } | null;
+/** An upload still waiting for its import, or the reason it is not one. */
+function requireMapping<T extends { status: string; expiresAt: Date } | null>(
+  session: T,
+): NonNullable<T> {
+  if (session === null) {
+    throw new ImportError("No such import.", "session-not-found");
+  }
+  if (session.status !== "MAPPING") {
+    throw new ImportError(
+      "That import has already been started.",
+      "session-already-applied",
+    );
+  }
+  if (session.expiresAt.getTime() < Date.now()) {
+    throw new ImportError("That upload has expired.", "session-expired");
+  }
+  return session;
+}
+
+/** The rows the preview could not resolve, read back from the session. */
+function readAmbiguousRows(value: unknown): Record<string, string[]> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const rows: Record<string, string[]> = {};
+  for (const [rowNumber, candidates] of Object.entries(value)) {
+    if (Array.isArray(candidates)) {
+      rows[rowNumber] = candidates.filter(
+        (candidate): candidate is string => typeof candidate === "string",
+      );
+    }
+  }
+  return rows;
 }
 
 /** Columns of the downloadable template, in the order they are written. */
@@ -1010,7 +547,7 @@ const TEMPLATE_EXAMPLE: Record<(typeof TEMPLATE_COLUMNS)[number], string> = {
  * rather than an error the board can act on.
  */
 function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
-  // Every xlsx is a zip archive, and every zip starts "PK".
+  // Every xlsx is a zip archive, and every zip starts "PK".
   if (
     bytes.byteLength >= 4 &&
     bytes[0] === 0x50 &&
@@ -1021,68 +558,6 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
     return "XLSX";
   }
   return fileName.toLowerCase().endsWith(".xlsx") ? "XLSX" : "CSV";
-}
-
-function push(map: Map<string, string[]>, key: string, value: string): void {
-  const existing = map.get(key);
-  if (existing === undefined) {
-    map.set(key, [value]);
-  } else {
-    existing.push(value);
-  }
-}
-
-function willWrite(
-  row: PlannedRow,
-  decisions: Record<string, ImportDecision>,
-): boolean {
-  if (row.outcome === "error") {
-    return false;
-  }
-  if (row.outcome !== "ambiguous") {
-    return true;
-  }
-  return decisions[String(row.rowNumber)]?.action !== "skip";
-}
-
-/** Where a row's writes go, once the board's decisions are taken into account. */
-type RowTarget =
-  | { action: "skip" }
-  | { action: "create" }
-  | { action: "update"; personId: string };
-
-/**
- * The person a row writes to.
- *
- * An ambiguous row is decided by the board and by nothing else - the apply step
- * refuses to run at all while one is unanswered. A row that shares a new person
- * with an earlier row follows that row, and is skipped when the earlier one was.
- */
-function resolveTarget(
-  row: PlannedRow,
-  decisions: Record<string, ImportDecision>,
-  createdByRow: ReadonlyMap<number, string>,
-): RowTarget {
-  if (row.outcome === "ambiguous") {
-    const decision = decisions[String(row.rowNumber)];
-    if (decision === undefined || decision.action === "skip") {
-      return { action: "skip" };
-    }
-    return decision.action === "create"
-      ? { action: "create" }
-      : { action: "update", personId: decision.personId };
-  }
-
-  if (row.matchedPersonId !== null) {
-    return { action: "update", personId: row.matchedPersonId };
-  }
-  if (row.sameAsRowNumber !== null) {
-    const earlier = createdByRow.get(row.sameAsRowNumber);
-    return earlier === undefined
-      ? { action: "skip" }
-      : { action: "update", personId: earlier };
-  }
-  return { action: "create" };
 }
 
 function toPreviewRow(row: PlannedRow): ImportPreviewRow {
