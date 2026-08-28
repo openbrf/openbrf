@@ -24,7 +24,7 @@ Target dates: pilot in a real housing cooperative **December 2026**, public v1
 The first milestone worth anyone's attention is a working, deployable address
 book. Concretely, all of this has to be true at once:
 
-- `docker compose up` gives a working instance
+- one `docker compose` command gives a working instance
 - a first-boot wizard creates the housing cooperative, its addresses and its
   apartments
 - the board can sign in, invite people, and see the register
@@ -75,8 +75,11 @@ Every checked item below is implemented and covered by tests.
 
 Under way. This is the gap between the list above and anything usable.
 There is now a frame, a way in, a way to configure the instance and a working
-register, and all of it runs from a single `docker compose up`. The statutory
-register views, the move flows and the import are still ahead.
+register. A housing cooperative runs all of it with
+`docker compose -f docker-compose.prod.yml --env-file .env.production up -d`;
+locally the application runs from source beside the PostgreSQL that
+`docker compose up` starts. The statutory register views, the move flows and the
+import are still ahead.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
