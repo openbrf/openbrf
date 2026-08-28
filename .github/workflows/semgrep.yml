@@ -55,6 +55,13 @@ jobs:
       # and not that id with the repeat dropped. A shortened id fails silently:
       # the rule still matches, the job still fails, and nothing in the output
       # says the suppression went unrecognised.
+      #
+      # Findings go to the log as well as into the file: --text writes them to
+      # stdout and --sarif-output keeps the copy the upload job needs. Without
+      # the text output a red check reports a count and nothing else, and on a
+      # pull request from a fork there is no other channel at all - that token
+      # cannot write code scanning results, so the log is the only place a
+      # finding can be read.
       - name: Run Semgrep
         env:
           # renovate: datasource=docker depName=semgrep/semgrep
@@ -67,7 +74,8 @@ jobs:
             --config=p/nodejs \
             --config=p/github-actions \
             --metrics=off \
-            --sarif --output=semgrep.sarif \
+            --text \
+            --sarif-output=semgrep.sarif \
             --error \
             --strict \
             --exclude='*.test.ts' \
@@ -75,12 +83,42 @@ jobs:
             --exclude='*.spec.ts' \
             --exclude='*.spec.tsx'
 
-      # A finding fails the step above and the SARIF still has to reach the
-      # upload job, so this one runs regardless of that exit status. A run that
-      # produced no SARIF at all is a broken scan rather than a clean one, and
-      # says so here instead of failing later as a missing artifact.
-      - name: Upload SARIF artifact
+      # Code scanning opens an alert for a result that carries an inSource
+      # suppression instead of reading it as suppressed, so a `// nosemgrep:`
+      # line produces a green scan and an open alert for the same finding -
+      # a dashboard entry nobody can action and the scan already answered.
+      # The SARIF keeps those results; the dashboard should not. Dropping them
+      # here rather than in the upload job leaves the artifact and the
+      # dashboard showing one set rather than two.
+      #
+      # A run that wrote no SARIF at all is a broken scan rather than a clean
+      # one, and says so here, at the first step that reads the file.
+      - name: Drop suppressed findings from the SARIF
+        id: filter_sarif
         if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if [ ! -f semgrep.sarif ]; then
+            echo "The scan wrote no SARIF, so it did not run to completion." >&2
+            exit 1
+          fi
+          before=$(jq '[.runs[] | (.results // [])[]] | length' semgrep.sarif)
+          jq '.runs[] |= (.results = ((.results // [])
+                | map(select(((.suppressions // []) | length) == 0))))' \
+            semgrep.sarif > semgrep.filtered.sarif
+          after=$(jq '[.runs[] | (.results // [])[]] | length' semgrep.filtered.sarif)
+          mv semgrep.filtered.sarif semgrep.sarif
+          echo "Suppressed findings dropped from the SARIF: $((before - after))"
+
+      # A finding fails the scan step and the SARIF still has to reach the
+      # upload job, so this one runs regardless of that exit status. It does
+      # not run regardless of the step above it: a jq or mv failure there
+      # leaves semgrep.sarif holding the suppressed results the filter exists
+      # to remove, and !cancelled() alone would carry them through this step
+      # and the upload job to the dashboard. Gating on that step's outcome
+      # fails the run closed instead - no artifact, so nothing to upload.
+      - name: Upload SARIF artifact
+        if: ${{ !cancelled() && steps.filter_sarif.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: semgrep-sarif
