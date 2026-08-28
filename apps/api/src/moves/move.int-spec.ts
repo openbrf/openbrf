@@ -18,7 +18,7 @@ import type {
 } from "../mail/templates";
 import { computePurgeDate } from "../retention/purge-date";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
-import { MoveService } from "./move.service";
+import { MoveError, MoveService } from "./move.service";
 
 /**
  * One message as the spy captured it.
@@ -71,6 +71,11 @@ const apartments = {
   outage: `mv-apartment-e-${suffix}`,
   /** Used by the reminder that reaches only part of the board. */
   partial: `mv-apartment-f-${suffix}`,
+  /** Taken over by one person in two move-ins running at the same instant. */
+  raceA: `mv-apartment-g-${suffix}`,
+  raceB: `mv-apartment-h-${suffix}`,
+  /** Moved out of twice, the second against a precondition already stale. */
+  stale: `mv-apartment-i-${suffix}`,
 };
 
 const actors = {
@@ -111,6 +116,16 @@ const actors = {
   mover: {
     personId: `mv-mover-${suffix}`,
     email: `mv-mover-${suffix}@exempel.se`,
+  },
+  /** Takes over two apartments at once: two residencies, one membership. */
+  racer: {
+    personId: `mv-racer-${suffix}`,
+    email: `mv-racer-${suffix}@exempel.se`,
+  },
+  /** Moved out twice, the second request holding a stale precondition. */
+  stale: {
+    personId: `mv-stale-${suffix}`,
+    email: `mv-stale-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -179,6 +194,15 @@ async function registerEntries(personId: string) {
     orderBy: [{ eventOn: "asc" }],
     select: { eventType: true, eventOn: true, apartmentId: true },
   });
+}
+
+/** Resolves when the code under test reaches a chosen point. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 beforeAll(async () => {
@@ -261,6 +285,16 @@ beforeAll(async () => {
     personId: actors.mover.personId,
     firstName: "Mats",
     email: actors.mover.email,
+  });
+  await createPerson({
+    personId: actors.racer.personId,
+    firstName: "Ronja",
+    email: actors.racer.email,
+  });
+  await createPerson({
+    personId: actors.stale.personId,
+    firstName: "Stina",
+    email: actors.stale.email,
   });
 
   await prisma.residency.create({
@@ -492,6 +526,95 @@ describe("moving in", () => {
     );
   });
 
+  it("writes one register entry when two move-ins for the same person overlap", async () => {
+    // Whether a move-in begins a membership is read inside the transaction,
+    // before the row that would answer the question exists. Two move-ins for
+    // one person running at the same instant each read "no membership running"
+    // and each append an ENTRY - to a register that refuses UPDATE and DELETE,
+    // so the duplicate stays. Two tenant-ownerships are one membership, and the
+    // second transaction has to see the first one's row.
+    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+
+    try {
+      await Promise.all([
+        moves.moveIn({
+          personId: actors.racer.personId,
+          apartmentId: apartments.raceA,
+          role: "MEMBER",
+          movedInOn: "2025-01-01",
+        }),
+        moves.moveIn({
+          personId: actors.racer.personId,
+          apartmentId: apartments.raceB,
+          role: "MEMBER",
+          movedInOn: "2025-01-01",
+        }),
+      ]);
+
+      expect(
+        await prisma.residency.count({
+          where: { personId: actors.racer.personId },
+        }),
+      ).toBe(2);
+      expect(
+        (await registerEntries(actors.racer.personId)).map(
+          (entry) => entry.eventType,
+        ),
+      ).toEqual(["ENTRY"]);
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("refuses a transfer with no reference to its agreement, and moves nobody in", async () => {
+    // The apartment register extract states a reference for every transfer it
+    // lists (BRL 9 kap.), and a transfer row cannot be deleted afterwards, so a
+    // reference that is merely optional is one the extract can be asked to
+    // print and not have. The refusal takes the whole move-in with it: the
+    // residency and the register entry share the transaction the transfer is
+    // written in.
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.leaver.personId,
+        apartmentId: apartments.raceA,
+        role: "MEMBER",
+        movedInOn: "2026-04-01",
+        transfer: { transferredOn: "2026-03-20", agreementReference: "   " },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "transfer-reference-required",
+    );
+    expect(
+      await prisma.residency.count({
+        where: {
+          personId: actors.leaver.personId,
+          apartmentId: apartments.raceA,
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("keeps a transfer without a reference out of the database as well", async () => {
+    // The service refuses one, and so does the table: the invariant belongs to
+    // the register rather than to the one code path that happens to write it
+    // today.
+    await expect(
+      prisma.transfer.create({
+        data: {
+          apartmentId: apartments.raceB,
+          toPersonId: actors.leaver.personId,
+          transferredOn: new Date("2026-03-20T00:00:00.000Z"),
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
   it("refuses an apartment that is not in the register", async () => {
     const response = await inject({
       method: "POST",
@@ -645,6 +768,66 @@ describe("moving out", () => {
     expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
       "moved-out-before-moved-in",
     );
+  });
+
+  it("refuses a move-out whose precondition went stale, rather than closing the membership twice", async () => {
+    // The residency and its move-out date are read before the transaction
+    // opens, so that check is only as fresh as the moment it ran. Two requests
+    // arriving together both passed it, and an unconditional update let both go
+    // on to append an EXIT row to a register that refuses to have rows removed.
+    //
+    // The overlap is built rather than raced. Creating the reminder queue sits
+    // between the check and the transaction, so holding the first request there
+    // while the second runs to completion reproduces exactly the stale
+    // precondition, without depending on how two requests happen to interleave.
+    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const jobs = app.get(JobQueueService);
+    const createQueue = jobs.ensureQueue.bind(jobs);
+    const held = deferred<undefined>();
+    const reached = deferred<undefined>();
+    let first = true;
+    const gate = vi
+      .spyOn(jobs, "ensureQueue")
+      .mockImplementation(async (name) => {
+        if (first) {
+          first = false;
+          reached.resolve(undefined);
+          await held.promise;
+        }
+        await createQueue(name);
+      });
+
+    try {
+      const moveIn = await moves.moveIn({
+        personId: actors.stale.personId,
+        apartmentId: apartments.stale,
+        role: "MEMBER",
+        movedInOn: "2024-05-01",
+      });
+
+      const staleRequest = moves
+        .moveOut({ residencyId: moveIn.residencyId, movedOutOn: "2026-08-01" })
+        .catch((error: unknown) => error);
+      await reached.promise;
+
+      await moves.moveOut({
+        residencyId: moveIn.residencyId,
+        movedOutOn: "2026-08-01",
+      });
+      held.resolve(undefined);
+
+      const outcome = await staleRequest;
+      expect(outcome).toBeInstanceOf(MoveError);
+      expect((outcome as MoveError).reason).toBe("already-moved-out");
+      expect(
+        (await registerEntries(actors.stale.personId)).map(
+          (entry) => entry.eventType,
+        ),
+      ).toEqual(["ENTRY", "EXIT"]);
+    } finally {
+      gate.mockRestore();
+      send.mockRestore();
+    }
   });
 
   it("keeps the archive entry immutable once written", async () => {

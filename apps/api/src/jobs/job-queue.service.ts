@@ -155,6 +155,15 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    // A start still in flight is drained before the flag is read. `started` is
+    // set by start()'s own continuation, so a shutdown arriving while
+    // boss.start() is awaited would see it false, return, and leave a backend
+    // that finishes starting a moment later with nothing to stop it: connections
+    // held and a worker polling for jobs in a process that has closed. A start
+    // that failed is not this method's to report - its caller already has the
+    // rejection - and it leaves nothing running to stop.
+    await this.starting?.catch(() => undefined);
+
     if (!this.started) {
       return;
     }

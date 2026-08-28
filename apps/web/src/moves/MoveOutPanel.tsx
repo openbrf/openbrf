@@ -22,11 +22,13 @@ import { PersonSearch, type PersonOption } from "./PersonSearch";
  *
  * What the panel reports afterwards is the point of it. A move-out is three
  * things at once, and only the first is reversible: the residency ends, the
- * service data gets an erasure date derived from the retention policy, and -
- * when this was the person's last tenant-ownership - the membership is closed
- * in the statutory member register, which nobody can edit afterwards. The panel
- * says which of them happened rather than leaving a board member to find out
- * later.
+ * service data gets a purge date derived from the retention policy, and - when
+ * this was the person's last tenant-ownership - the membership is closed in the
+ * statutory member register, which nobody can edit afterwards. The panel says
+ * which of them happened rather than leaving a board member to find out later.
+ *
+ * The purge date and the reminder date are register dates, so both are set in
+ * the data face: DESIGN.md puts every date on the mono grid.
  */
 
 export interface MoveOutTarget {
@@ -66,6 +68,13 @@ export function MoveOutPanel({
       setFailure("moves.errors.transferPersonRequired");
       return;
     }
+    if (recordTransfer && agreementReference.trim() === "") {
+      // Said here rather than left to the server, which refuses it too: the
+      // apartment register extract states a reference for every transfer, and a
+      // transfer row cannot be deleted once written.
+      setFailure("moves.errors.transferReferenceRequired");
+      return;
+    }
     setSubmitting(true);
     setFailure(null);
 
@@ -78,10 +87,7 @@ export function MoveOutPanel({
               toPersonId: toPerson.personId,
               transferredOn,
               price: price.trim() === "" ? null : price.trim(),
-              agreementReference:
-                agreementReference.trim() === ""
-                  ? null
-                  : agreementReference.trim(),
+              agreementReference: agreementReference.trim(),
             }
           : undefined,
     });
@@ -210,6 +216,7 @@ export function MoveOutPanel({
                     <input
                       id="move-out-agreement"
                       type="text"
+                      required
                       value={agreementReference}
                       onChange={(event) => {
                         setAgreementReference(event.target.value);
@@ -270,7 +277,7 @@ export function MoveOutPanel({
               {t("moves.transfer.recorded")}
             </p>
           )}
-          <p className="text-small text-ink-muted">
+          <p className="font-data text-data text-ink-muted">
             {t("moves.out.boardReminder", { date: result.boardReminderOn })}
           </p>
 

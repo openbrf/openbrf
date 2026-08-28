@@ -136,6 +136,13 @@ export function MoveInPanel({
     if (person === null || apartmentId === "") {
       return;
     }
+    if (recordTransfer && agreementReference.trim() === "") {
+      // Said here rather than left to the server, which refuses it too: the
+      // apartment register extract states a reference for every transfer, and a
+      // transfer row cannot be deleted once written.
+      setFailure("moves.errors.transferReferenceRequired");
+      return;
+    }
     setSubmitting(true);
     setFailure(null);
 
@@ -152,10 +159,7 @@ export function MoveInPanel({
             transferredOn,
             fromPersonId: fromPersonId === "" ? null : fromPersonId,
             price: price.trim() === "" ? null : price.trim(),
-            agreementReference:
-              agreementReference.trim() === ""
-                ? null
-                : agreementReference.trim(),
+            agreementReference: agreementReference.trim(),
           }
         : undefined,
     });
@@ -360,6 +364,7 @@ export function MoveInPanel({
                     <input
                       id="move-in-agreement"
                       type="text"
+                      required
                       value={agreementReference}
                       onChange={(event) => {
                         setAgreementReference(event.target.value);

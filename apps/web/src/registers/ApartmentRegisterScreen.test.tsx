@@ -10,9 +10,10 @@ import type { ApartmentRegisterExtract } from "./registers-api";
  * The apartment register extract.
  *
  * Two things are pinned here. The screen a board opens carries no personal
- * identity numbers, so it is safe to show in a meeting; producing the copy that
- * does is a deliberate act, and the screen says the copy is written to the audit
- * log. And a tenant-owner who is refused the whole register gets their own entry
+ * identity numbers, and says so without suggesting that the register has
+ * therefore stopped being confidential; producing the copy that does carry them
+ * is a deliberate act, and the screen says the copy is written to the audit log.
+ * And a tenant-owner who is refused the whole register gets their own entry
  * instead, which is what BRL 9 kap. entitles them to.
  */
 
@@ -78,6 +79,17 @@ const MASKED: ApartmentRegisterExtract = {
           price: "3450000.00",
           agreementReference: "Overlatelseavtal 2019-42",
         },
+        {
+          // Recorded before a reference was required of every transfer. There
+          // is none to be found for it and the row cannot be deleted, so the
+          // extract has to say so.
+          id: "transfer-0",
+          transferredOn: "2014-03-02",
+          fromName: null,
+          toName: "Karin Ohman",
+          price: null,
+          agreementReference: null,
+        },
       ],
     },
   ],
@@ -141,6 +153,31 @@ describe("the board's copy", () => {
     expect(
       await screen.findByText(/skrivs till granskningsloggen/i),
     ).toBeTruthy();
+  });
+
+  it("names a transfer that carries no agreement reference", async () => {
+    // A reference is required of every transfer recorded from now on, and the
+    // row cannot be deleted, so one written before that requirement leaves a
+    // gap in a statutory document. Rendering nothing where the reference would
+    // be hides it; the extract says which transfer has none.
+    render(<ApartmentRegisterScreen />);
+
+    expect(
+      await screen.findByText("Ingen avtalshänvisning registrerad"),
+    ).toBeTruthy();
+  });
+
+  it("does not offer the masked screen as one that may be shown to others", async () => {
+    // Masking the personal identity numbers does not make the apartment
+    // register public. The holders, the initial share capital, the
+    // participation share, the lien notes and the transfers are all still on
+    // the screen, and BRL 9 kap. keeps the register to the board and to the
+    // tenant-owner it concerns. A notice inviting a board to put it on a
+    // projector would be the interface advising a disclosure the law forbids.
+    render(<ApartmentRegisterScreen />);
+
+    expect(await screen.findByText(/Det gör det inte offentligt/)).toBeTruthy();
+    expect(screen.queryByText(/går att visa för andra/)).toBeNull();
   });
 
   it("produces the full statutory extract on a deliberate click", async () => {

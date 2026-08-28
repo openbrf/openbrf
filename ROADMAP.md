@@ -74,9 +74,9 @@ reachable without an interface, and the one unchecked row says why.
 ### The interface
 
 Under way. This is the gap between the list above and anything usable.
-There is now a frame, a way in, a way to configure the instance, a working
-register, the two statutory registers with their printable extracts, the move
-flows and the import.
+There is now a frame, a way in, a way to configure the instance, the address
+book, the two statutory registers with their printable extracts, the move flows
+and the import.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches

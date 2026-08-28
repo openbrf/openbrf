@@ -404,7 +404,7 @@
         "light": "Logo",
         "lightHint": "Used in the room, in the emails the association sends, and on its own website.",
         "dark": "Logo for dark backgrounds",
-        "darkHint": "Optional. The top band is dark, so a mark drawn in dark ink disappears on it. Without this variant the band puts the mark above on a light plate instead.",
+        "darkHint": "Optional. The top band is dark, so a mark drawn in dark ink disappears on it. Without this variant the band puts the mark on a light plate instead.",
         "none": "No logo uploaded yet.",
         "onLight": "On a light surface",
         "onDarkBand": "In the dark band",
@@ -596,7 +596,7 @@
       "identity": {
         "masked": "Masked",
         "notOnFile": "Not on file",
-        "notice": "The extract is produced without personal identity numbers, so this screen is safe to show. The full statutory extract contains them, and every copy is written to the audit log with your name.",
+        "notice": "The extract is produced without personal identity numbers. That does not make it public: the holders, the initial share capital, the participation share, the lien notes and the transfers are on this screen, and the apartment register is confidential. The full statutory extract carries the numbers as well, and every copy is written to the audit log with your name.",
         "include": "Produce the full statutory extract",
         "including": "Producing",
         "included": "This copy contains personal identity numbers. Producing it was written to the audit log.",
@@ -626,6 +626,7 @@
         "to": "To",
         "price": "Price",
         "agreement": "Agreement",
+        "noAgreement": "No agreement reference recorded",
         "firstGrant": "First grant",
         "none": "No transfers recorded"
       },
@@ -668,7 +669,7 @@
       "action": "Move out",
       "actionLabel": "Move out of apartment {{apartment}}",
       "done": "The move-out from apartment {{apartment}} is registered.",
-      "purgeOn": "Service data is erased on {{date}}.",
+      "purgeOn": "Service data is purged on {{date}}.",
       "registerExit": "The membership was closed in the member register.",
       "registerKept": "The member register entry itself is retained as the law requires. No retention setting reaches it.",
       "boardReminder": "The board is reminded on {{date}} to finish the handover."
@@ -682,7 +683,7 @@
       "toPerson": "New holder",
       "price": "Price",
       "agreementReference": "Agreement reference",
-      "agreementReferenceHint": "A case number, or where the paper copy is filed. It is printed in the apartment register extract.",
+      "agreementReferenceHint": "Required: a case number, or where the paper copy is filed. It is printed in the apartment register extract, which states one for every transfer.",
       "recorded": "The transfer was recorded in the apartment register.",
       "changePerson": "Choose somebody else"
     },
@@ -695,6 +696,7 @@
       "movedOutBeforeMovedIn": "A move-out cannot be earlier than the move-in.",
       "transferPersonNotFound": "The other party to the transfer is not in the register. Add them first.",
       "transferPersonRequired": "Choose the new holder, or turn off recording a transfer.",
+      "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every transfer, and a transfer cannot be removed once recorded.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },

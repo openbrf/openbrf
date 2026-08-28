@@ -404,7 +404,7 @@
         "light": "Logotyp",
         "lightHint": "Används i rummet, i de e-postmeddelanden föreningen skickar och på dess egen webbplats.",
         "dark": "Logotyp för mörk bakgrund",
-        "darkHint": "Valfri. Toppbandet är mörkt, så ett märke ritat i mörk färg försvinner där. Utan den här varianten lägger bandet i stället märket ovan på en ljus platta.",
+        "darkHint": "Valfri. Toppbandet är mörkt, så ett märke ritat i mörk färg försvinner där. Utan den här varianten lägger bandet i stället märket på en ljus platta.",
         "none": "Ingen logotyp uppladdad än.",
         "onLight": "På ljus yta",
         "onDarkBand": "I det mörka bandet",
@@ -596,7 +596,7 @@
       "identity": {
         "masked": "Maskerat",
         "notOnFile": "Saknas",
-        "notice": "Utdraget tas fram utan personnummer, så den här skärmen går att visa för andra. Det fullständiga lagstadgade utdraget innehåller dem, och varje sådan kopia skrivs till granskningsloggen med ditt namn.",
+        "notice": "Utdraget tas fram utan personnummer. Det gör det inte offentligt: innehavarna, insatsen, andelstalet, pantnoteringarna och överlåtelserna står kvar på skärmen, och lägenhetsförteckningen är konfidentiell. Det fullständiga lagstadgade utdraget innehåller även personnumren, och varje sådan kopia skrivs till granskningsloggen med ditt namn.",
         "include": "Ta fram det fullständiga lagstadgade utdraget",
         "including": "Tar fram",
         "included": "Den här kopian innehåller personnummer. Att den togs fram skrevs till granskningsloggen.",
@@ -626,6 +626,7 @@
         "to": "Till",
         "price": "Pris",
         "agreement": "Avtal",
+        "noAgreement": "Ingen avtalshänvisning registrerad",
         "firstGrant": "Upplåtelse",
         "none": "Inga överlåtelser registrerade"
       },
@@ -682,7 +683,7 @@
       "toPerson": "Ny innehavare",
       "price": "Pris",
       "agreementReference": "Avtalshänvisning",
-      "agreementReferenceHint": "Ett ärendenummer, eller var pappersexemplaret förvaras. Den skrivs ut i utdraget ur lägenhetsförteckningen.",
+      "agreementReferenceHint": "Obligatorisk: ett ärendenummer, eller var pappersexemplaret förvaras. Den skrivs ut i utdraget ur lägenhetsförteckningen, som anger en för varje överlåtelse.",
       "recorded": "Överlåtelsen registrerades i lägenhetsförteckningen.",
       "changePerson": "Välj någon annan"
     },
@@ -695,6 +696,7 @@
       "movedOutBeforeMovedIn": "Utflyttningen kan inte ligga före inflyttningen.",
       "transferPersonNotFound": "Motparten i överlåtelsen finns inte i registret. Lägg till personen först.",
       "transferPersonRequired": "Välj den nya innehavaren, eller stäng av registrering av överlåtelse.",
+      "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje överlåtelse, och en överlåtelse går inte att ta bort när den väl är registrerad.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

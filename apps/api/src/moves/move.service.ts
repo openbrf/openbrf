@@ -39,6 +39,14 @@ import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
  * added. That is why the register write and the residency write share one
  * transaction: half of this pair committing is the one failure mode that cannot
  * be cleaned up afterwards.
+ *
+ * One transaction is not enough on its own, because both flows read the
+ * person's other residencies to decide what the register write should be. Two
+ * transitions for the same person running at once would each read a state the
+ * other is about to invalidate, so each transaction takes the person's
+ * transition lock before it reads anything (see lockResidencyTransitions), and
+ * the move-out closes the residency with a conditional update so a second one
+ * is refused rather than writing a second EXIT.
  */
 
 export type MoveErrorReason =
@@ -48,7 +56,25 @@ export type MoveErrorReason =
   | "already-resident"
   | "already-moved-out"
   | "moved-out-before-moved-in"
-  | "transfer-person-not-found";
+  | "transfer-person-not-found"
+  | "transfer-reference-required";
+
+/**
+ * The status each refusal answers with.
+ *
+ * A map rather than a chain of comparisons, so a reason added to the union and
+ * not given a status fails the build instead of defaulting to a conflict.
+ */
+const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
+  "person-not-found": 404,
+  "apartment-not-found": 404,
+  "residency-not-found": 404,
+  "transfer-person-not-found": 404,
+  "already-resident": 409,
+  "already-moved-out": 409,
+  "moved-out-before-moved-in": 409,
+  "transfer-reference-required": 400,
+};
 
 export class MoveError extends DomainError {
   override readonly status: number;
@@ -57,13 +83,7 @@ export class MoveError extends DomainError {
   constructor(message: string, reason: MoveErrorReason) {
     super(message);
     this.reason = reason;
-    this.status =
-      reason === "person-not-found" ||
-      reason === "apartment-not-found" ||
-      reason === "residency-not-found" ||
-      reason === "transfer-person-not-found"
-        ? 404
-        : 409;
+    this.status = MOVE_ERROR_STATUS[reason];
   }
 }
 
@@ -73,7 +93,13 @@ export interface TransferInput {
   transferredOn: string;
   /** Decimal string, when the price is recorded. */
   price?: string | null;
-  /** The board's reference to the agreement, e.g. a case number. */
+  /**
+   * The board's reference to the agreement: a case number, or where the paper
+   * copy is filed. Required. The apartment register extract states a reference
+   * for every transfer it lists (BRL 9 kap.), and a transfer row cannot be
+   * deleted once written, so a transfer with nothing to point at is refused
+   * rather than recorded.
+   */
   agreementReference?: string | null;
 }
 
@@ -111,7 +137,7 @@ export interface MoveOutInput {
 export interface MoveOutResult {
   residencyId: string;
   movedOutOn: string;
-  /** Derived from the retention policy; service data is erased on this date. */
+  /** Derived from the retention policy; service data is purged on this date. */
   purgeOn: string;
   /** True when this move-out ended the person's membership. */
   memberRegisterExitRecorded: boolean;
@@ -204,6 +230,8 @@ export class MoveService implements OnModuleInit {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await lockResidencyTransitions(tx, person.id);
+
       const existing = await tx.residency.count({
         where: {
           personId: person.id,
@@ -371,10 +399,24 @@ export class MoveService implements OnModuleInit {
     await this.jobs.ensureQueue(MOVE_OUT_REMINDER_QUEUE);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      await tx.residency.update({
-        where: { id: residency.id },
+      await lockResidencyTransitions(tx, person.id);
+
+      // Conditional on the residency still being open, because the check above
+      // ran before this transaction and is only as fresh as the moment it was
+      // read. Two move-outs on the same residency both passed it, and an
+      // unconditional update let both go on to append an EXIT row to a register
+      // that refuses to have rows removed. The loser sees no row and is refused
+      // exactly as a second sequential attempt is.
+      const claimed = await tx.residency.updateMany({
+        where: { id: residency.id, movedOutOn: null },
         data: { movedOutOn },
       });
+      if (claimed.count === 0) {
+        throw new MoveError(
+          "That residency already has a move-out date.",
+          "already-moved-out",
+        );
+      }
 
       // Membership ends with the LAST tenant-ownership, not with this one. A
       // member who sells one of two apartments is still a member, and an EXIT
@@ -598,6 +640,20 @@ export class MoveService implements OnModuleInit {
       transfer: TransferInput;
     },
   ): Promise<string> {
+    // Refused rather than stored as null. The apartment register extract has to
+    // state a reference for every transfer it lists, and this row is one the
+    // database will not let anyone delete, so a transfer with nothing to point
+    // at can only be answered afterwards by an entry saying the reference is
+    // missing. The same requirement is a CHECK constraint on the table; this is
+    // what turns it into a refusal a board can read instead of a driver error.
+    const agreementReference = input.transfer.agreementReference?.trim() ?? "";
+    if (agreementReference === "") {
+      throw new MoveError(
+        "A transfer needs a reference to its agreement.",
+        "transfer-reference-required",
+      );
+    }
+
     const transfer = await tx.transfer.create({
       data: {
         apartmentId: input.apartmentId,
@@ -605,7 +661,7 @@ export class MoveService implements OnModuleInit {
         toPersonId: input.toPersonId,
         transferredOn: parseDate(input.transfer.transferredOn),
         price: input.transfer.price ?? null,
-        agreementReference: input.transfer.agreementReference ?? null,
+        agreementReference,
       },
       select: { id: true },
     });
@@ -661,6 +717,41 @@ export class MoveService implements OnModuleInit {
     });
     return true;
   }
+}
+
+/**
+ * Serializes one person's residency transitions for the length of the
+ * transaction.
+ *
+ * Both flows decide what to write into the member register by counting the
+ * person's other tenant-ownerships, and that count is read before the row that
+ * would change its answer exists. Two transitions for the same person running
+ * at once each read a state the other is about to invalidate: two move-ins
+ * would both find no membership running and both append an ENTRY, and two
+ * move-outs would each see the other's apartment as still held and neither
+ * would append the EXIT. The register refuses UPDATE and DELETE, so the first
+ * mistake cannot be removed and the second can only be answered by a later
+ * correction row.
+ *
+ * An advisory lock rather than a constraint, because the invariant is "one
+ * membership per person for as long as a tenant-ownership is held" and it is
+ * derived from a set of residency rows. No single row carries it, so no unique
+ * index can state it. Taken as the first statement in the transaction, and
+ * released by the commit or the rollback with nothing left to remember to
+ * unlock.
+ *
+ * The key is namespaced and hashed to the int4 the lock space is addressed in.
+ * A collision between two persons costs one of them a short wait and nothing
+ * else.
+ *
+ * Run through $executeRaw rather than $queryRaw because the lock function
+ * returns void, which the client has no column type for.
+ */
+async function lockResidencyTransitions(
+  tx: Prisma.TransactionClient,
+  personId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency:${personId}`}))`;
 }
 
 /**

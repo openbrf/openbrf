@@ -586,7 +586,15 @@ function ApartmentEntry({
                     {`${t("registers.apartment.transfers.price")} ${transfer.price}`}
                   </span>
                 )}
-                {transfer.agreementReference === null ? null : (
+                {transfer.agreementReference === null ? (
+                  // Named rather than left blank. A reference is required of
+                  // every transfer, so a row without one is a gap in a
+                  // statutory document, and a board reading the extract has to
+                  // see that rather than an empty space where it would be.
+                  <span className="text-small text-warn">
+                    {t("registers.apartment.transfers.noAgreement")}
+                  </span>
+                ) : (
                   <span className="font-data text-data text-ink-muted">
                     {`${t("registers.apartment.transfers.agreement")} ${transfer.agreementReference}`}
                   </span>

@@ -144,6 +144,45 @@ describe("JobQueueService", () => {
     }
   }, 30_000);
 
+  it("stops a backend that was still starting when the process closed", async () => {
+    // Shutdown decides what to do from `started`, and start() sets that only in
+    // the continuation after boss.start() resolves. A destroy arriving inside
+    // that window used to return at once, and the backend finished starting
+    // into a process that had already closed: a pool held open and a worker
+    // still polling, with nothing left that would ever stop it.
+    const service = new JobQueueService(env);
+    const boss = service.instance;
+    const realStart = boss.start.bind(boss);
+    const realStop = boss.stop.bind(boss);
+
+    // Resolves when the start is under way; held until the shutdown has been
+    // asked for, so the two overlap by construction rather than by timing.
+    const underway = deferred<undefined>();
+    const release = deferred<undefined>();
+    let stops = 0;
+
+    boss.start = async () => {
+      underway.resolve(undefined);
+      await release.promise;
+      return realStart();
+    };
+    boss.stop = async (options?: Parameters<typeof realStop>[0]) => {
+      stops += 1;
+      await realStop(options);
+    };
+
+    const starting = service.start();
+    await underway.promise;
+
+    const destroying = service.onModuleDestroy();
+    release.resolve(undefined);
+
+    await starting;
+    await destroying;
+
+    expect(stops).toBe(1);
+  }, 30_000);
+
   it("writes a job with the transaction that sent it", async () => {
     // The durability the move-out reminder and the import apply both rest on:
     // the job row is inserted by the caller's transaction, so it is there if

@@ -35,6 +35,18 @@ that is recorded is a move-out the board will be reminded of. A message that
 cannot be delivered is reported by residency and by the class of the failure,
 never by address and never by what the failure was carrying.
 
+Both flows read the person's other residencies to decide what to write into the
+member register, so each takes that person's transition lock before it reads:
+two move-ins arriving together record one membership rather than two entries in
+a register that refuses to have rows removed. A move-out closes the residency
+with a conditional update, so the second of two requests on the same residency
+is refused rather than closing the membership a second time. A transfer is
+recorded only with a reference to its agreement - a case number, or where the
+paper copy is filed - because the apartment register extract states one for
+every transfer it lists and a transfer cannot be deleted once written. The
+database requires the same, and the extract names a transfer recorded before
+that requirement as having no reference rather than printing an empty space.
+
 Import reads a CSV file or an Excel workbook, guesses the column mapping from
 the titles in either language, and shows what would happen - creates, updates,
 rows with problems named one by one, and rows matching more than one person,

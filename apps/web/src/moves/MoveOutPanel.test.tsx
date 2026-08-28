@@ -9,10 +9,10 @@ import { MoveOutPanel } from "./MoveOutPanel";
  * What a move-out tells the board afterwards.
  *
  * A move-out is three things at once and only the first is reversible: the
- * residency ends, the service data gets an erasure date derived from the
- * retention policy, and the membership is closed in a statutory register nobody
- * can edit. A panel that reported only the first would leave a board member
- * believing the register can be corrected later, which it cannot.
+ * residency ends, the service data gets a purge date derived from the retention
+ * policy, and the membership is closed in a statutory register nobody can edit.
+ * A panel that reported only the first would leave a board member believing the
+ * register can be corrected later, which it cannot.
  */
 
 const moveOut = vi.fn();
@@ -78,7 +78,7 @@ async function moveSomeoneOut(session: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("after the move-out", () => {
-  it("states the date the service data is erased", async () => {
+  it("states the date the service data is purged", async () => {
     const session = userEvent.setup();
     await moveSomeoneOut(session);
 
@@ -106,6 +106,22 @@ describe("after the move-out", () => {
     await moveSomeoneOut(session);
 
     expect(screen.getByText(/påminns 2026-06-30/)).toBeTruthy();
+  });
+
+  it("sets both dates in the data face", async () => {
+    // DESIGN.md puts every date on the mono grid. These two sit one under the
+    // other in the same result block, so one of them in the UI face is the
+    // mismatch the grid exists to prevent.
+    const session = userEvent.setup();
+    await moveSomeoneOut(session);
+
+    for (const line of [
+      screen.getByText(/Servicedata gallras 2027-06-30/),
+      screen.getByText(/påminns 2026-06-30/),
+    ]) {
+      expect(line.className).toContain("font-data");
+      expect(line.className).toContain("text-data");
+    }
   });
 });
 
@@ -151,8 +167,9 @@ describe("recording a transfer", () => {
 
   it("sends the agreement the board entered, and nothing it did not", async () => {
     // A transfer written into the apartment register is not something a later
-    // correction tidies away, so what leaves this panel is worth pinning: an
-    // optional field left blank travels as null rather than as an empty string.
+    // correction tidies away, so what leaves this panel is worth pinning: the
+    // agreement reference travels trimmed, and the price - which is optional -
+    // travels as null when it was left blank rather than as an empty string.
     const session = userEvent.setup();
     render(<MoveOutPanel target={TARGET} onClose={noop} onMoved={noop} />);
 
@@ -168,7 +185,10 @@ describe("recording a transfer", () => {
       await screen.findByRole("button", { name: NEW_HOLDER.name }),
     );
     await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-06-15");
-    await session.type(screen.getByLabelText(/Pris/), "3450000");
+    await session.type(
+      screen.getByLabelText(/Avtalshänvisning/),
+      "  Overlatelseavtal 2026-42  ",
+    );
     await session.click(screen.getByRole("button", { name: /^Flytta ut$/ }));
     await screen.findByRole("status");
 
@@ -178,11 +198,41 @@ describe("recording a transfer", () => {
       transfer: {
         toPersonId: NEW_HOLDER.personId,
         transferredOn: "2026-06-15",
-        price: "3450000",
         // Left blank, and sent as absent rather than as "".
-        agreementReference: null,
+        price: null,
+        agreementReference: "Overlatelseavtal 2026-42",
       },
     });
+  });
+
+  it("refuses a transfer whose agreement reference is blank", async () => {
+    // The apartment register extract states a reference for every transfer it
+    // lists, and a transfer cannot be removed once recorded. The field is
+    // `required`, so the browser refuses an empty one; what is left to the
+    // panel is a field that only looks filled. Sending that and letting the
+    // server refuse it would put the explanation a step away from the field it
+    // belongs to.
+    const session = userEvent.setup();
+    render(<MoveOutPanel target={TARGET} onClose={noop} onMoved={noop} />);
+
+    await session.type(
+      screen.getByLabelText(/Utflyttningsdatum/),
+      "2026-06-30",
+    );
+    await session.click(
+      screen.getByRole("checkbox", { name: /Registrera överlåtelse/ }),
+    );
+    await session.type(screen.getByLabelText(/Ny innehavare/), "Nils");
+    await session.click(
+      await screen.findByRole("button", { name: NEW_HOLDER.name }),
+    );
+    await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-06-15");
+    await session.type(screen.getByLabelText(/Avtalshänvisning/), "   ");
+    await session.click(screen.getByRole("button", { name: /^Flytta ut$/ }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/Ange en hänvisning till avtalet/)).toBeTruthy();
+    expect(moveOut).not.toHaveBeenCalled();
   });
 
   it("says so rather than doing nothing when no new holder was chosen", async () => {
@@ -199,6 +249,10 @@ describe("recording a transfer", () => {
       screen.getByRole("checkbox", { name: /Registrera överlåtelse/ }),
     );
     await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-06-15");
+    await session.type(
+      screen.getByLabelText(/Avtalshänvisning/),
+      "Overlatelseavtal 2026-42",
+    );
     await session.click(screen.getByRole("button", { name: /^Flytta ut$/ }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();

@@ -76,7 +76,13 @@ export interface ApartmentRegisterTransfer {
   fromName: string | null;
   toName: string;
   price: string | null;
-  /** The board's reference to the agreement, or the uploaded document's path. */
+  /**
+   * The board's reference to the agreement, or the uploaded document's path.
+   * Required of every transfer recorded from now on, and null only for a row
+   * written before the constraint that says so
+   * (20260828170000_transfer_agreement_reference_required). The extract names
+   * such a row as having no reference rather than printing an empty space.
+   */
   agreementReference: string | null;
 }
 

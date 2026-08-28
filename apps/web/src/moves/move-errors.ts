@@ -22,6 +22,7 @@ const MESSAGES: Record<MoveErrorReason, TranslationKey> = {
   "already-moved-out": "moves.errors.alreadyMovedOut",
   "moved-out-before-moved-in": "moves.errors.movedOutBeforeMovedIn",
   "transfer-person-not-found": "moves.errors.transferPersonNotFound",
+  "transfer-reference-required": "moves.errors.transferReferenceRequired",
 };
 
 export function failureMessage(reason: string): TranslationKey {

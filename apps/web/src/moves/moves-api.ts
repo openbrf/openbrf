@@ -27,13 +27,15 @@ export type MoveErrorReason =
   | "already-resident"
   | "already-moved-out"
   | "moved-out-before-moved-in"
-  | "transfer-person-not-found";
+  | "transfer-person-not-found"
+  | "transfer-reference-required";
 
 export interface TransferInput {
   /** ISO calendar date. */
   transferredOn: string;
   price?: string | null;
-  agreementReference?: string | null;
+  /** Required: the apartment register extract states one for every transfer. */
+  agreementReference: string;
 }
 
 export interface MoveInInput {
