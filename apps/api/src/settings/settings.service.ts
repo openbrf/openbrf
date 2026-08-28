@@ -10,6 +10,7 @@ import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { smtpTestMail } from "../mail/templates";
+import { mediaUrl, MediaService } from "../media/media.service";
 
 /**
  * A contrast pair that stopped a colour from being saved, in the shape the
@@ -70,10 +71,31 @@ export interface HousingCooperativeSettings {
   setupCompletedAt: string | null;
 }
 
+/** One uploaded logo, as the branding screen and the band need it. */
+export interface LogoView {
+  /**
+   * Where to fetch it: a path on this instance's own origin, whichever driver
+   * holds the bytes. Never an address at a storage endpoint.
+   */
+  url: string;
+  fileName: string;
+  width: number | null;
+  height: number | null;
+}
+
+/** Which of the two logo slots a request means. */
+export type LogoSlot = "light" | "dark";
+
 export interface BrandingSettings {
   primaryColor: string | null;
-  /** Relative path in the uploads volume. Uploading one is not built yet. */
-  logoPath: string | null;
+  /** The housing cooperative's mark. Null until one is uploaded. */
+  logo: LogoView | null;
+  /**
+   * The variant for dark surfaces. Optional: when it is absent the interface
+   * renders the mark above on a light plate in the dark band, rather than
+   * letting a dark-ink mark disappear into it.
+   */
+  logoDark: LogoView | null;
 }
 
 export interface SmtpSettingsView {
@@ -142,11 +164,13 @@ export class SettingsService {
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly mail: MailService,
+    private readonly media: MediaService,
   ) {}
 
   async read(): Promise<InstanceSettings> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },
+      include: { logo: true, logoDark: true },
     });
 
     if (association === null) {
@@ -165,7 +189,8 @@ export class SettingsService {
       },
       branding: {
         primaryColor: association.primaryColor,
-        logoPath: association.logoPath,
+        logo: toLogoView(association.logo),
+        logoDark: toLogoView(association.logoDark),
       },
       smtp: {
         host: association.smtpHost,
@@ -233,14 +258,11 @@ export class SettingsService {
     await this.requireAssociation();
 
     if (input.primaryColor === null) {
-      const cleared = await this.prisma.association.update({
+      await this.prisma.association.update({
         where: { id: 1 },
         data: { primaryColor: null },
       });
-      return {
-        primaryColor: cleared.primaryColor,
-        logoPath: cleared.logoPath,
-      };
+      return this.readBranding();
     }
 
     const result = primaryColorOverride(input.primaryColor, PORTTAVLAN);
@@ -279,16 +301,112 @@ export class SettingsService {
      * accent must not be able to reach them.
      */
     const stored = normalizeColor(input.primaryColor) ?? input.primaryColor;
-    const association = await this.prisma.association.update({
+    await this.prisma.association.update({
       where: { id: 1 },
       data: { primaryColor: stored },
     });
 
     this.logger.log("Updated the primary colour");
-    return {
-      primaryColor: association.primaryColor,
-      logoPath: association.logoPath,
-    };
+    return this.readBranding();
+  }
+
+  /**
+   * Stores an uploaded logo in one of the two slots.
+   *
+   * The file goes through the media layer like any other, so it is identified
+   * from its own bytes, given a generated key, and served from this instance's
+   * own origin - which is what an email client and, later, a public visitor
+   * will fetch. It is recorded as PUBLIC for exactly that reason: a mark that
+   * needed a session could not appear in the message announcing a general
+   * meeting.
+   *
+   * The identifiable-persons declaration is recorded as false rather than asked
+   * for. This slot holds the association's mark, published to everyone who
+   * receives its email or opens its website; an image of people is not one, and
+   * the screen says so where the file is chosen.
+   *
+   * Replacing a logo deletes the file it replaces. A logo has exactly one
+   * referent, so keeping the previous one would leave personal-data-free but
+   * unreachable objects accumulating in the bucket forever.
+   */
+  async updateLogo(input: {
+    slot: LogoSlot;
+    bytes: Buffer;
+    fileName: string;
+    actorPersonId: string | null;
+  }): Promise<BrandingSettings> {
+    await this.requireAssociation();
+
+    const uploaded = await this.media.upload({
+      bytes: input.bytes,
+      fileName: input.fileName,
+      visibility: "PUBLIC",
+      showsIdentifiablePersons: false,
+      uploadedByPersonId: input.actorPersonId,
+      prefix: "branding",
+    });
+
+    const previous = await this.replaceLogoReference(input.slot, uploaded.id);
+    if (previous !== null) {
+      await this.media.remove(previous, input.actorPersonId);
+    }
+
+    this.logger.log(`Updated the ${input.slot} logo`);
+    return this.readBranding();
+  }
+
+  /** Clears one of the slots and deletes the file it held. */
+  async removeLogo(
+    slot: LogoSlot,
+    actorPersonId: string | null,
+  ): Promise<BrandingSettings> {
+    await this.requireAssociation();
+
+    const previous = await this.replaceLogoReference(slot, null);
+    if (previous !== null) {
+      await this.media.remove(previous, actorPersonId);
+    }
+
+    this.logger.log(`Cleared the ${slot} logo`);
+    return this.readBranding();
+  }
+
+  /**
+   * Points a slot at a file and reports what it pointed at before.
+   *
+   * The reference is moved before the old file is deleted, never after: an
+   * interrupted delete leaves an unreferenced object, while an interrupted
+   * update would leave the branding pointing at bytes that are already gone.
+   *
+   * Read and write in one transaction, so two administrators saving a logo at
+   * the same moment cannot both read the same previous id and both try to
+   * delete it - which would leave one of the two new files unreferenced.
+   */
+  private async replaceLogoReference(
+    slot: LogoSlot,
+    fileId: string | null,
+  ): Promise<string | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.association.findUnique({
+        where: { id: 1 },
+        select: { logoFileId: true, logoDarkFileId: true },
+      });
+      const previous =
+        (slot === "dark" ? before?.logoDarkFileId : before?.logoFileId) ?? null;
+
+      await tx.association.update({
+        where: { id: 1 },
+        data:
+          slot === "dark" ? { logoDarkFileId: fileId } : { logoFileId: fileId },
+      });
+
+      return previous === fileId ? null : previous;
+    });
+  }
+
+  /** The branding block on its own, for the writes that return only it. */
+  private async readBranding(): Promise<BrandingSettings> {
+    return (await this.read()).branding;
   }
 
   async updateSmtp(input: SmtpInput): Promise<SmtpSettingsView> {
@@ -461,4 +579,24 @@ export class SettingsService {
       );
     }
   }
+}
+
+/** The stored file as the branding screen needs it, or null when unset. */
+function toLogoView(
+  file: {
+    id: string;
+    fileName: string;
+    width: number | null;
+    height: number | null;
+  } | null,
+): LogoView | null {
+  if (file === null) {
+    return null;
+  }
+  return {
+    url: mediaUrl(file.id),
+    fileName: file.fileName,
+    width: file.width,
+    height: file.height,
+  };
 }

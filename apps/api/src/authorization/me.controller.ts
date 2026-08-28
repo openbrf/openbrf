@@ -1,6 +1,7 @@
 import { Controller, Get, Req } from "@nestjs/common";
 
 import { PrismaService } from "../database/prisma.service";
+import { mediaUrl } from "../media/media.service";
 import type { RequestWithPrincipal } from "./authorization.guard";
 import type { Capability } from "./capabilities";
 import { RequireCapability } from "./require-capability.decorator";
@@ -22,7 +23,14 @@ export interface ViewerView {
   housingCooperative: {
     name: string;
     primaryColor: string | null;
-    logoPath: string | null;
+    /**
+     * Where the band fetches the housing cooperative's mark: a path on this
+     * instance's own origin, or null when none is uploaded. `logoDarkUrl` is
+     * the variant for the dark band; when it is null the band renders the mark
+     * above on a light plate instead.
+     */
+    logoUrl: string | null;
+    logoDarkUrl: string | null;
   } | null;
 }
 
@@ -69,7 +77,12 @@ export class MeController {
       }),
       this.prisma.association.findUnique({
         where: { id: 1 },
-        select: { name: true, primaryColor: true, logoPath: true },
+        select: {
+          name: true,
+          primaryColor: true,
+          logoFileId: true,
+          logoDarkFileId: true,
+        },
       }),
     ]);
 
@@ -88,7 +101,21 @@ export class MeController {
       lastName: person.lastName,
       preferredLocale: person.preferredLocale,
       capabilities: [...principal.capabilities],
-      housingCooperative: association,
+      housingCooperative:
+        association === null
+          ? null
+          : {
+              name: association.name,
+              primaryColor: association.primaryColor,
+              logoUrl:
+                association.logoFileId === null
+                  ? null
+                  : mediaUrl(association.logoFileId),
+              logoDarkUrl:
+                association.logoDarkFileId === null
+                  ? null
+                  : mediaUrl(association.logoDarkFileId),
+            },
     };
   }
 }

@@ -136,3 +136,74 @@ describe("AppShell", () => {
     expect(main.textContent).toContain(CHILD_TEXT);
   });
 });
+
+/**
+ * The mark in the band.
+ *
+ * The band is dark and a logo is somebody else's artwork, most of it drawn in
+ * dark ink on white. What the shell does about that is the point of these
+ * cases: with a variant made for dark surfaces it uses that one, and without it
+ * puts the mark on a light plate rather than letting it disappear.
+ */
+describe("the housing cooperative's mark", () => {
+  const LIGHT = "/api/media/light-1";
+  const DARK = "/api/media/dark-1";
+
+  /** The mark carries no alt text: the name beside it is already there. */
+  const mark = () => screen.queryByRole("presentation");
+
+  it("is absent until one is uploaded", () => {
+    renderShell({ logo: { light: null, dark: null } });
+
+    expect(mark()).toBeNull();
+  });
+
+  it("uses the dark-surface variant when there is one", () => {
+    renderShell({ logo: { light: LIGHT, dark: DARK } });
+
+    const image = mark();
+
+    expect(image?.getAttribute("src")).toBe(DARK);
+    expect(image?.parentElement?.className ?? "").not.toContain("bg-raised");
+  });
+
+  it("puts the plain mark on a light plate when there is not", () => {
+    renderShell({ logo: { light: LIGHT, dark: null } });
+
+    const image = mark();
+
+    expect(image?.getAttribute("src")).toBe(LIGHT);
+    // The plate is the deliberate fallback: a dark-ink mark straight on the
+    // band would be invisible, and the settings screen previews this exact
+    // case so a board sees it rather than discovers it.
+    expect(image?.parentElement?.className ?? "").toContain("bg-raised");
+  });
+
+  it("says nothing to a screen reader that the name has not said", () => {
+    renderShell({ logo: { light: LIGHT, dark: null } });
+
+    expect(mark()?.getAttribute("alt")).toBe("");
+    expect(screen.getByText("Brf Eksemplet")).toBeTruthy();
+  });
+
+  it("cannot take the band from the name and the navigation", () => {
+    /*
+     * A mark's proportions are the association's own, and nothing in the upload
+     * bounds them. Constrained by height alone, one twenty times as wide as it
+     * is tall would fill the band, and shrink-0 - which is there so the mark
+     * does not collapse - would stop it giving the room back. Both variants are
+     * therefore bounded in width as well and contained inside that box.
+     */
+    for (const { logo, maxWidth } of [
+      { logo: { light: LIGHT, dark: DARK }, maxWidth: "max-w-36" },
+      { logo: { light: LIGHT, dark: null }, maxWidth: "max-w-32" },
+    ]) {
+      const view = renderShell({ logo });
+      const className = mark()?.className ?? "";
+
+      expect(className).toContain(maxWidth);
+      expect(className).toContain("object-contain");
+      view.unmount();
+    }
+  });
+});

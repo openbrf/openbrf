@@ -29,7 +29,8 @@ const ASSOCIATION = {
   id: 1,
   name: "Brf Eksemplet",
   primaryColor: "#8A6D28",
-  logoPath: null,
+  logoFileId: null,
+  logoDarkFileId: null,
   smtpHost: null,
   smtpFromAddress: null,
   smtpPasswordCipher: null,
@@ -190,6 +191,50 @@ describe("MailService rendering", () => {
     // part of the transparency the product is positioned on.
     expect(rendered.html).toContain("medlemsförteckningen");
     expect(rendered.html).toContain("2028-07-31");
+  });
+});
+
+describe("the logo in a message", () => {
+  async function renderWith(logoFileId: string | null): Promise<string> {
+    const i18n = new I18nService();
+    await i18n.init();
+    const prisma = {
+      association: {
+        findUnique: vi.fn().mockResolvedValue({ ...ASSOCIATION, logoFileId }),
+      },
+    } as unknown as PrismaService;
+    const service = new MailService(TEST_ENV, prisma, i18n, {
+      decrypt: vi.fn(),
+    } as unknown as FieldEncryptionService);
+
+    const rendered = await service.renderMail({
+      locale: "sv",
+      template: invitationMail,
+      props: {
+        recipientName: "Anna",
+        activationUrl: "https://brf.example.se/activate/abc",
+        expiresAt: new Date("2026-09-03T10:00:00Z"),
+      },
+    });
+    return rendered.html;
+  }
+
+  it("points at the association's own origin, never at storage", async () => {
+    /*
+     * A mail client fetches this URL directly, from whatever network the
+     * recipient is on. Pointing it at a bucket would disclose to the storage
+     * provider that this person opened this message and when - which is the
+     * same reason the platform serves the file itself rather than redirecting.
+     */
+    const html = await renderWith("file-1");
+
+    expect(html).toContain("https://brf.example.se/api/media/file-1");
+  });
+
+  it("shows no mark at all until one is uploaded", async () => {
+    const html = await renderWith(null);
+
+    expect(html).not.toContain("/api/media/");
   });
 });
 
