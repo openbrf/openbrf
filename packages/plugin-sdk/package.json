@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@nestjs/common": "^11.2.3",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^7.0.2",
@@ -38,5 +39,13 @@
     "type": "git",
     "url": "git+https://github.com/openbrf/openbrf.git",
     "directory": "packages/plugin-sdk"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": {
+      "optional": true
+    }
   }
 }

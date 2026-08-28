@@ -42,6 +42,9 @@ export const FINDING_LABELS: Readonly<Record<string, TranslationKey>> = {
   "entry-missing": "plugins.findings.reasons.entryMissing",
   "load-failed": "plugins.findings.reasons.loadFailed",
   "entry-invalid": "plugins.findings.reasons.entryInvalid",
+  "module-invalid": "plugins.findings.reasons.moduleInvalid",
+  "module-refused": "plugins.findings.reasons.moduleRefused",
+  "module-failed": "plugins.findings.reasons.moduleFailed",
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
 };
 

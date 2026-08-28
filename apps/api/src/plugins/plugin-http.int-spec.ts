@@ -6,20 +6,19 @@ import { dirname, join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import {
-  FastifyAdapter,
-  type NestFastifyApplication,
-} from "@nestjs/platform-fastify";
+import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -28,12 +27,17 @@ import { RestartCoordinator } from "./restart-coordinator.service";
  * The plugin endpoints over HTTP, through the Fastify bridge.
  *
  * These have to be exercised through a real router rather than by calling the
- * controllers: the surface is entirely made of wildcard routes, a guard, and a
- * path that is joined onto a directory, and none of those three has any
- * meaning when the handler is called directly.
+ * controllers: what is under test is a plugin's own NestJS controllers sitting
+ * inside the application's global guard at a capability floor the host raised,
+ * and none of that has any meaning when a handler is called directly.
  *
- * The plugin is installed before the application boots, because the loader
- * runs once at start-up - which is the whole reason installing one ends by
+ * The application is started through the same bootstrap the process uses,
+ * rather than by assembling a container here: the boot sequence - bridge,
+ * load, build, bind - is itself the thing under test, and a harness that
+ * assembled its own would be testing something else.
+ *
+ * The plugin is installed before the application boots, because plugins are
+ * loaded once at start-up - which is the whole reason installing one ends by
  * replacing the process.
  */
 
@@ -178,12 +182,9 @@ beforeAll(async () => {
   ).reconcile();
   await bootstrapModule.close();
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
-  app = moduleRef.createNestApplication<NestFastifyApplication>(
-    new FastifyAdapter(),
-  );
+  // The boot the supervisor performs after an install: load what is on the
+  // volume, build the application around it, bind the host objects.
+  app = await createApplication(await loadPluginsAtBoot(testEnv));
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -315,8 +316,14 @@ describe("the plugin administration endpoints", () => {
   });
 });
 
-describe("a plugin's own routes", () => {
-  it("serves the route the plugin declared", async () => {
+describe("a plugin's own controllers", () => {
+  /**
+   * A NestJS controller from the plugin's bundle, constructed by the
+   * application's own injector: the answer comes from an injected provider,
+   * so dependency injection resolved against the one NestJS instance the
+   * resolution bridge exists to guarantee.
+   */
+  it("serves the routes the plugin's controller declared", async () => {
     const response = await inject({
       method: "GET",
       url: `/api/plugin/${PLUGIN_ID}/summary`,
@@ -329,6 +336,40 @@ describe("a plugin's own routes", () => {
     });
   });
 
+  /**
+   * The late binding, seen from the outside. `startedWith` is what the
+   * plugin's provider read from the host in its own onModuleInit - so the host
+   * object was answering by the time the application's lifecycle hooks ran,
+   * which is the whole of what the contract promises a plugin author.
+   */
+  it("ran the plugin's lifecycle hook against a live host", async () => {
+    const response = await inject({
+      method: "GET",
+      url: `/api/plugin/${PLUGIN_ID}/summary`,
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.json()).toMatchObject({ startedWith: expect.any(String) });
+  });
+
+  /** A guard the plugin declared, running in addition to the host's. */
+  it("applies the plugin's own guard", async () => {
+    const allowed = await inject({
+      method: "GET",
+      url: `/api/plugin/${PLUGIN_ID}/apartments?grouping=floor`,
+      headers: { cookie: adminCookie },
+    });
+    const refused = await inject({
+      method: "GET",
+      url: `/api/plugin/${PLUGIN_ID}/apartments?grouping=nonsense`,
+      headers: { cookie: adminCookie },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.json()).toMatchObject({ grouping: "floor" });
+    expect(refused.statusCode).toBe(403);
+  });
+
   it("answers 404 for a path the plugin does not serve", async () => {
     const response = await inject({
       method: "GET",
@@ -337,9 +378,6 @@ describe("a plugin's own routes", () => {
     });
 
     expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({
-      reason: "plugin-route-not-found",
-    });
   });
 
   it("requires a session", async () => {
@@ -352,9 +390,10 @@ describe("a plugin's own routes", () => {
   });
 
   /**
-   * The capability floor. The plugin declared no capability on its route, and
-   * it reads the register - so a signed-in account that may not read the
-   * address book must not reach it through the plugin either.
+   * The capability floor, enforced by the application's own guard rather than
+   * by anything the plugin can reach. The plugin declared no capability on its
+   * routes and it reads the register, so a signed-in account that may not read
+   * the address book must not reach it through the plugin either.
    */
   it("refuses a caller below the floor its permissions imply", async () => {
     const response = await inject({
@@ -364,7 +403,6 @@ describe("a plugin's own routes", () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(response.json()).toMatchObject({ reason: "plugin-forbidden" });
   });
 
   it("answers 404 for a plugin that is not installed", async () => {
@@ -490,6 +528,47 @@ describe("the plugin views endpoint", () => {
           remoteEntry: `/api/plugins/${PLUGIN_ID}/client/remoteEntry.js`,
         },
       ],
+    });
+  });
+});
+
+/**
+ * Last, because it switches the plugin off for the rest of the process.
+ *
+ * A plugin's routes stay in the router once the application has been built -
+ * NestJS has no way to remove one - so switching a plugin off has to bite
+ * somewhere else. A board turning off a misbehaving plugin cannot be told to
+ * wait for a restart.
+ */
+describe("switching a plugin off", () => {
+  it("stops its routes, its view and its host access at once", async () => {
+    await app.get(PluginAdminService).setEnabled(PLUGIN_ID, false);
+
+    const route = await inject({
+      method: "GET",
+      url: `/api/plugin/${PLUGIN_ID}/summary`,
+      headers: { cookie: adminCookie },
+    });
+    expect(route.statusCode).toBe(404);
+    expect(route.json()).toMatchObject({ reason: "plugin-not-found" });
+
+    const views = await inject({
+      method: "GET",
+      url: "/api/plugin-views",
+      headers: { cookie: outsiderCookie },
+    });
+    expect(views.json()).toMatchObject({ views: [] });
+
+    // The settings form outlives the switch: turning a plugin off is not a
+    // reason to lose what it was configured with.
+    const settings = await inject({
+      method: "GET",
+      url: `/api/plugins/${PLUGIN_ID}/settings`,
+      headers: { cookie: adminCookie },
+    });
+    expect(settings.statusCode).toBe(200);
+    expect(settings.json()).toMatchObject({
+      schema: { fields: expect.any(Array) },
     });
   });
 });

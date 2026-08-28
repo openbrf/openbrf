@@ -10,12 +10,13 @@ command-line tool.
 
 A plugin is installed from the curated catalog as a tarball verified by its
 sha512, and the board sees what it may do and which personal data it will
-handle before agreeing to it. Installed plugins contribute HTTP routes served
-inside the application's own authorization guard, a React view loaded at
-runtime without rebuilding the application, background work on namespaced
-queues, and a settings form the host renders from their declaration. Their
-Swedish and English strings are merged at runtime under a namespace of their
-own.
+handle before agreeing to it. Installed plugins contribute a NestJS module,
+imported into the application at start-up with its controllers mounted under
+the plugin's own prefix, inside the application's authorization guard and at
+the capability floor its permissions imply; a React view loaded at runtime
+without rebuilding the application; background work on namespaced queues; and
+a settings form the host renders from their declaration. Their Swedish and
+English strings are merged at runtime under a namespace of their own.
 
 A malformed or refused plugin is skipped and reported rather than allowed to
 stop the instance, and the install flow is idempotent: the database holds what

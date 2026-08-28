@@ -99,21 +99,25 @@ async function buildPluginTarball(directory: string): Promise<{
 
   await writeFile(
     join(source, "dist", "server.cjs"),
-    `exports.createPlugin = function createPlugin(host) {
-  return {
-    routes: [
-      {
-        method: "GET",
-        path: "/summary",
-        handle: async function handle() {
-          return host.addressBook.summary();
-        },
-      },
-    ],
-    onStart: function onStart() {
-      host.logger.info("started");
-    },
-  };
+    `const { Controller, Get, Module } = require("@nestjs/common");
+
+class SummaryController {
+  summary() {
+    return { ok: true };
+  }
+}
+Get("summary")(
+  SummaryController.prototype,
+  "summary",
+  Object.getOwnPropertyDescriptor(SummaryController.prototype, "summary"),
+);
+Controller()(SummaryController);
+
+class SummaryModule {}
+Module({})(SummaryModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: SummaryModule, controllers: [SummaryController] };
 };
 `,
     "utf8",

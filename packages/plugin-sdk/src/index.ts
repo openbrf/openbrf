@@ -18,19 +18,17 @@ export {
   type PluginAddressBook,
   type PluginApartment,
   type PluginHost,
+  PluginHostUnavailableError,
   type PluginJobs,
   type PluginLogger,
   type PluginMail,
   type PluginMailMessage,
   type PluginOccupancySummary,
   PluginPermissionError,
-  type PluginRequest,
   type PluginResident,
-  type PluginRoute,
-  type PluginServerContribution,
-  type PluginServerFactory,
   type PluginSettings,
 } from "./host.ts";
+export type { PluginModuleFactory } from "./module.ts";
 export {
   assertPluginPackage,
   CURRENT_PLUGIN_API_VERSION,

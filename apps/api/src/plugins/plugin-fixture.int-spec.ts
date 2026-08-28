@@ -17,10 +17,10 @@ import { CatalogClient } from "../packaging/catalog.client";
 import { dataPaths } from "../packaging/data-paths";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { type BootPlugin, loadPlugins, type PluginBoot } from "./plugin-boot";
 import { scanPluginDirectory } from "./plugin-directory";
-import { PluginHostFactory } from "./plugin-host.factory";
+import { PluginHostBinding } from "./plugin-host";
 import { PluginInstallerService } from "./plugin-installer.service";
-import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
@@ -30,9 +30,10 @@ import { RestartCoordinator } from "./restart-coordinator.service";
  * This is the whole contract in one pass and against the real artefacts: a
  * package built by its own toolchain against the published SDK's types, packed
  * into a tarball, listed in a catalog with its sha512, downloaded, verified,
- * installed with npm, loaded, and asked to serve a request through the scoped
- * SDK - with its Swedish and English strings merged under its own namespace
- * along the way.
+ * installed with npm, and loaded - contributing a NestJS module whose
+ * controllers the host seals onto its own prefix, with its Swedish and English
+ * strings merged under its own namespace along the way. What those controllers
+ * then answer over HTTP is plugin-http.int-spec.ts.
  *
  * The catalog is a local file and the tarball is built in this repository, so
  * the same verification code runs with no network. That is the harness the
@@ -73,7 +74,8 @@ let workspace: string;
 let testEnv: Env;
 let registry: PluginRegistryService;
 let installer: PluginInstallerService;
-let loader: PluginLoaderService;
+let binding: PluginHostBinding;
+let boot: PluginBoot;
 let i18n: I18nService;
 let entry: CatalogPluginEntry;
 
@@ -138,30 +140,30 @@ beforeAll(async () => {
   i18n = new I18nService();
   await i18n.init();
 
-  loader = new PluginLoaderService(
-    testEnv,
+  binding = new PluginHostBinding();
+  binding.bind({
     registry,
-    new PluginHostFactory(
-      registry,
-      {} as never,
-      {} as never,
-      {
-        summary: async () => ({ apartments: 42, residents: 68, members: 51 }),
-        apartments: async () =>
-          Array.from({ length: 40 }, (_, index) => ({
-            id: `apartment-${String(index)}`,
-            number: String(1001 + index),
-            floor: 1,
-            address: { id: "address-1", street: "Storgatan", number: "12" },
-          })),
-        residents: async () => [],
-      } as never,
-    ),
-    i18n,
-  );
+    jobs: {} as never,
+    mail: {} as never,
+    addressBook: {
+      summary: async () => ({ apartments: 42, residents: 68, members: 51 }),
+      apartments: async () =>
+        Array.from({ length: 40 }, (_, index) => ({
+          id: `apartment-${String(index)}`,
+          number: String(1001 + index),
+          floor: 1,
+          address: { id: "address-1", street: "Storgatan", number: "12" },
+        })),
+      residents: async () => [],
+    } as never,
+  });
 
   await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
 }, 420_000);
+
+function loaded(): BootPlugin | undefined {
+  return boot.plugins.find((plugin) => plugin.id === PLUGIN_ID);
+}
 
 afterAll(async () => {
   await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
@@ -194,53 +196,31 @@ describe("the reference plugin", () => {
     expect(discovered?.serverEntry).toMatch(/dist\/server\.cjs$/);
     expect(discovered?.clientEntry).toMatch(/dist\/remoteEntry\.js$/);
 
-    await loader.onModuleInit();
-
-    const loaded = loader.get(PLUGIN_ID);
-    expect(loaded).not.toBeNull();
-    expect([...(loaded?.routes.keys() ?? [])].sort()).toEqual([
-      "GET /apartments",
-      "GET /summary",
-    ]);
-  }, 420_000);
-
-  it("serves its route through the scoped address-book service", async () => {
-    const route = loader.get(PLUGIN_ID)?.routes.get("GET /summary");
-    expect(route).toBeDefined();
-
-    const answer = (await route?.route.handle({
-      query: {},
-      body: null,
-      personId: "person-1",
-    })) as { heading: string; summary: { apartments: number } };
-
-    expect(answer.summary.apartments).toBe(42);
-    // The manifest's declared default, applied by the host rather than guessed
-    // by the plugin.
-    expect(answer.heading).toBe("Occupancy");
-  });
-
-  it("applies the settings the board stored", async () => {
-    await registry.writeSettings(PLUGIN_ID, {
-      heading: "Belaggning",
-      rowLimit: 3,
-      showMembers: false,
-      grouping: "floor",
+    boot = await loadPlugins({
+      env: testEnv,
+      records: await registry.list(),
+      binding,
     });
 
-    const route = loader.get(PLUGIN_ID)?.routes.get("GET /apartments");
-    const answer = (await route?.route.handle({
-      query: {},
-      body: null,
-      personId: "person-1",
-    })) as { apartments: unknown[] };
+    expect(boot.findings).toEqual([]);
+    expect(loaded()).toBeDefined();
+  }, 420_000);
 
-    // The plugin read a value written after it was loaded, which is what the
-    // settings service reading on every call is for.
-    expect(answer.apartments).toHaveLength(3);
+  /**
+   * The bundle is compiled TypeScript that requires @nestjs/common from
+   * /data/plugins, where CJS resolution can never reach the application's own
+   * node_modules. That its decorators produced a module the host could seal is
+   * the resolution bridge and the identity assertion both working against a
+   * real installed package rather than a hand-written fixture.
+   */
+  it("contributes a NestJS module the host mounts under its own prefix", () => {
+    expect(loaded()?.module).not.toBeNull();
+    expect(loaded()?.controllers).toEqual([`api/plugin/${PLUGIN_ID}`]);
+    expect(loaded()?.module?.providers).toHaveLength(2);
   });
 
   it("merges its Swedish and English strings under its own namespace", () => {
+    i18n.addPluginResources(PLUGIN_ID, loaded()?.locales ?? {});
     expect(i18n.translatorFor("sv")(`plugin-${PLUGIN_ID}:view.title`)).not.toBe(
       "view.title",
     );
@@ -255,12 +235,28 @@ describe("the reference plugin", () => {
   });
 
   it("declares a settings schema the host can render", () => {
-    const schema = loader.manifestFor(PLUGIN_ID)?.settingsSchema;
+    const schema = loaded()?.manifest.settingsSchema;
     expect(schema?.fields.map((field) => field.type).sort()).toEqual([
       "boolean",
       "number",
       "select",
       "text",
     ]);
+  });
+
+  /**
+   * The permissions the board consented to, taken from the database rather
+   * than from the manifest the package shipped with.
+   */
+  it("receives a host scoped to what was consented to", async () => {
+    const host = loaded()?.host;
+
+    expect(host?.permissions).toEqual(["addressBook:read"]);
+    await expect(host?.addressBook.summary()).resolves.toMatchObject({
+      apartments: 42,
+    });
+    await expect(
+      host?.mail.send({ to: "a@exempel.se", subject: "x", text: "y" }),
+    ).rejects.toThrow();
   });
 });

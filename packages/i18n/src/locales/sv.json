@@ -611,6 +611,9 @@
         "loadFailed": "Det misslyckades när det lästes in.",
         "entryInvalid": "Dess paket exporterar inte det som kontraktet kräver.",
         "notOnVolume": "Det är noterat som installerat men finns inte på datavolymen.",
+        "moduleRefused": "Dess modul deklarerar beteende som skulle påverka resten av programmet, vilket ett tillägg inte får göra. Det nekades i stället för att köras.",
+        "moduleInvalid": "Dess paket lämnade ingen modul av den form som kontraktet kräver.",
+        "moduleFailed": "Dess modul kunde inte byggas in i programmet. Det hoppades över så att resten av instansen kunde starta.",
         "unknown": "Det hoppades över av en anledning som den här sidan saknar formulering för. Detaljen nedan är serverns egen."
       }
     },

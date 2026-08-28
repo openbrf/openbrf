@@ -13,6 +13,12 @@
     "module": "Preserve",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    // The server entry point is a NestJS module, and NestJS resolves a
+    // provider's constructor arguments from the metadata these two emit. A
+    // plugin built without them ships controllers whose dependencies cannot be
+    // resolved, which fails at load rather than at build.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "noEmit": true
   },
   "include": ["src"]

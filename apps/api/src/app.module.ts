@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { type DynamicModule, Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
 
 import { AddressBookModule } from "./address-book/address-book.module";
@@ -39,11 +39,26 @@ import { SignupModule } from "./signup/signup.module";
     AddressesModule,
     AddressBookModule,
     PackagingModule,
-    // Last: the loader runs plugin code at start-up, and everything a plugin
-    // receives through the SDK has to be constructed before it does.
     PluginsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
 })
-export class AppModule {}
+export class AppModule {
+  /**
+   * The application with the installed plugins' own modules in its graph.
+   *
+   * A plugin contributes a NestJS module, and NestJS registers controllers
+   * only for modules present when the container is built - a module added
+   * afterwards can contribute providers and nothing else. So the modules are
+   * loaded from the data volume before `NestFactory.create` and imported here
+   * (ADR 0003). They come last, after the modules a plugin's own providers may
+   * resolve against.
+   *
+   * Importing AppModule directly is still the plugin-free application, which
+   * is what everything that does not need a plugin should use.
+   */
+  static withPlugins(modules: readonly DynamicModule[]): DynamicModule {
+    return { module: AppModule, imports: [...modules] };
+  }
+}

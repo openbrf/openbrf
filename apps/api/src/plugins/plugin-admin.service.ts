@@ -288,10 +288,11 @@ export class PluginAdminService {
    * Turns a plugin off without uninstalling it.
    *
    * Takes effect immediately for everything the host controls - its routes
-   * stop answering, its view disappears - without waiting for a restart. Code
-   * already loaded into this process stays loaded until the next one, which is
-   * why a disabled plugin's own background worker is stopped by the host
-   * rather than trusted to stop itself.
+   * answer as though it were not installed, its view disappears, and every
+   * host service it holds refuses - without waiting for a restart. Its NestJS
+   * providers stay constructed and its code stays in this process until the
+   * next boot, which is a property of loading CommonJS at all; what it can
+   * reach the association's data through is not.
    */
   async setEnabled(
     id: string,
@@ -302,10 +303,12 @@ export class PluginAdminService {
       throw new PluginNotFoundError(id);
     }
 
-    // Disabling takes effect at once: the dispatcher and the view list both
-    // read the loaded set, and both drop the plugin as soon as the row says
-    // so. Enabling cannot - the code was never required into this process -
-    // so the process is replaced, exactly as an install does it.
+    // Disabling takes effect at once: the guard in front of a plugin's routes
+    // and the view list both read the loaded set, and both drop the plugin as
+    // soon as the row says so. Enabling cannot - the code was never required
+    // into this process, and a module cannot be added to a running NestJS
+    // application with its controllers - so the process is replaced, exactly
+    // as an install does it.
     const needsRestart = enabled && this.loader.get(id) === null;
     if (needsRestart) {
       // The row is already committed; there is no job whose completion has to

@@ -12,17 +12,19 @@ does not implement.
 
 An npm package, distributed as a tarball, that contributes any of:
 
-- **HTTP routes**, served by the host under `/api/plugin/<id>/`.
+- **A NestJS module**, imported into the application at start-up. Its
+  controllers are mounted under `/api/plugin/<id>/`; its providers, guards and
+  lifecycle hooks are the framework's own.
 - **A view**, a React component the browser loads at runtime through Module
   Federation and renders inside the application frame.
 - **Background work**, on queues the host namespaces to the plugin.
 - **Settings**, declared rather than drawn: the host renders the form and
   validates the values.
 
-A plugin never registers a controller, never opens a port, and never draws a
-settings screen of its own. Everything it contributes goes through the host,
-which is what keeps a plugin's endpoint inside the application's own session
-and authorization checks rather than beside them.
+A plugin never opens a port and never draws a settings screen of its own.
+Every route it contributes is mounted by the host, under the host's prefix and
+inside the host's authorization guard, so a plugin's endpoint can never be the
+one on an instance that skipped the session check.
 
 ## The manifest
 
@@ -106,46 +108,104 @@ the admin screen; reinstalling it shows the new declaration for consent.
 ## The server entry point
 
 A **prebuilt CommonJS bundle** whose only externals are host packages. It
-exports `createPlugin`, which receives the host object and returns what the
-plugin contributes.
+exports `createPlugin`, which receives the host object and returns a NestJS
+`DynamicModule`.
 
 ```ts
-import type { PluginServerFactory } from "@openbrf/plugin-sdk";
+import { Controller, Get, Injectable, Module } from "@nestjs/common";
+import type { PluginModuleFactory } from "@openbrf/plugin-sdk";
 
-export const createPlugin: PluginServerFactory = (host) => ({
-  routes: [
-    {
-      method: "GET",
-      path: "/summary",
-      async handle() {
-        return host.addressBook.summary();
-      },
-    },
-  ],
-  onStart() {
-    host.logger.info("ready");
-  },
-});
+export const createPlugin: PluginModuleFactory = (host) => {
+  @Injectable()
+  class OccupancyService {
+    async summary() {
+      return host.addressBook.summary();
+    }
+  }
+
+  @Controller()
+  class OccupancyController {
+    constructor(private readonly service: OccupancyService) {}
+
+    @Get("summary")
+    async summary() {
+      return this.service.summary();
+    }
+  }
+
+  @Module({})
+  class OccupancyModule {}
+
+  return {
+    module: OccupancyModule,
+    controllers: [OccupancyController],
+    providers: [OccupancyService],
+  };
+};
 ```
 
-Import only **types** from `@openbrf/plugin-sdk`. The SDK is a build-time
-dependency: everything a plugin uses at runtime is injected by the host, and
-the package is not resolvable from an installed plugin's directory. A bundle
-that requires nothing is a bundle that cannot fail to resolve something.
+`@nestjs/common` and `@nestjs/core` are **peer dependencies**. Declare them as
+such and never bundle them: the host puts its own `node_modules` on
+`NODE_PATH` so a plugin resolves the one running NestJS instance, and it
+refuses to register a plugin that resolved a second copy - a duplicate breaks
+dependency injection in ways that surface long after the install looked
+successful (ADR 0003).
+
+Everything else must come from `@openbrf/plugin-sdk` as a **type-only** import.
+The SDK is a build-time dependency: everything a plugin uses at runtime is
+injected by the host, and the package is not resolvable from an installed
+plugin's directory.
+
+Build with `experimentalDecorators` and `emitDecoratorMetadata`. NestJS
+resolves a provider's constructor arguments from the metadata those emit, and
+a plugin built without them ships controllers whose dependencies cannot be
+resolved.
 
 CommonJS, not ESM. Only CJS resolution honours the `NODE_PATH` bridge that
-lets a plugin reach the host's packages at all (ADR 0003).
+lets a plugin reach the host's packages at all.
+
+### When the host object is usable
+
+The module factory runs before the application exists, so the object it
+receives is late-bound: its services resolve when they are used. They are live
+from `onModuleInit` onwards - from a lifecycle hook, a guard or a request
+handler - and not from a provider's constructor, which is where NestJS asks
+for start-up work in any case. A call made too early throws
+`PluginHostUnavailableError` rather than reading a half-built application.
+
+The same error is thrown after the board switches the plugin off. Its module
+stays constructed until the next boot, so a timer or job worker it started of
+its own keeps running, and must not still be reading the register.
 
 ### Routes
 
-Mounted under `/api/plugin/<id>/`, inside the application's authorization
-guard. A route may declare a `capability`; the host raises it to the floor
-implied by the plugin's own permissions, so a plugin that reads the register
-cannot expose that reading to a caller the core would not let read it.
+Controllers are mounted under `/api/plugin/<id>/` whatever path they declare,
+inside the application's authorization guard. Each is raised to the capability
+floor implied by the plugin's own permissions, so a plugin that reads the
+register cannot expose that reading to a caller the core would not let read
+it. A controller may require **more** with `@RequireCapability`; it cannot
+require less, and `@Public()` on a plugin route has no effect.
 
-A handler receives the parsed query, the parsed JSON body and the signed-in
-person's id, and returns a value the host serialises. A handler that throws is
-answered as a bad gateway and logged with the plugin's id.
+A handler that throws is answered as a bad gateway and logged with the
+plugin's id. A handler that throws an `HttpException` of its own is answered
+with what it asked for.
+
+### What a plugin's module may not do
+
+A NestJS module can declare things whose effect is application-wide. A module
+doing any of the following is refused at load and reported on the admin
+screen, the same way a malformed manifest is:
+
+- providing `APP_GUARD`, `APP_INTERCEPTOR`, `APP_FILTER` or `APP_PIPE`, which
+  would act on the application's own routes;
+- registering middleware through `NestModule.configure`, for the same reason;
+- declaring itself `@Global()`, which would export its providers into every
+  module in the application;
+- declaring a controller or route path that steps outside the plugin's prefix.
+
+Guards, interceptors, filters and pipes scoped to the plugin's own
+controllers - `@UseGuards` and the rest - are unaffected. They narrow what
+reaches a handler and cannot widen it.
 
 ## The client entry point
 
@@ -260,8 +320,11 @@ idempotent - the database holds the desired state and `/data/plugins` is
 reconciled to it - so a crash at any step converges on the next run rather
 than leaving the two disagreeing.
 
-Installing a plugin therefore restarts the application. Removing one does too.
-Switching one off does not: it stops serving immediately.
+Installing a plugin therefore restarts the application. Removing one does too,
+and so does switching one back on - a plugin's module has to be in the graph
+when the application is built, and NestJS cannot add one to a running
+application with its controllers. Switching a plugin **off** does not restart
+anything: it stops serving immediately.
 
 ## Operator configuration
 
@@ -298,6 +361,9 @@ screen lists everything on the data volume that is not running and why:
 | `api-version-unsupported` | Built against a contract version this instance does not implement. |
 | `entry-missing`           | A declared entry file is not in the package.                       |
 | `entry-invalid`           | The server bundle does not export `createPlugin`.                  |
+| `module-invalid`          | `createPlugin` returned no NestJS dynamic module.                  |
+| `module-refused`          | Its module declares behaviour a plugin may not register.           |
+| `module-failed`           | Its module could not be built into the application.                |
 | `module-identity`         | The package carries its own copy of a host package it must share.  |
 | `permissions-widened`     | It asks for more than was consented to.                            |
 | `not-consented`           | On the volume with no record of consent.                           |

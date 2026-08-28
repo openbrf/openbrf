@@ -28,14 +28,64 @@ determines the installer, the directory layout, and the boot sequence.
 
 ## Decision
 
+### The contract
+
 - **Plugins ship a prebuilt CJS bundle** whose only externals are the host
-  packages. `import()` of that bundle returns a factory producing a NestJS
-  `DynamicModule`, which receives a host-injected, permissions-scoped SDK
-  object. Plugins never import `@nestjs/*` for values at runtime beyond what
-  the host resolves for them.
-- **Bridge host module resolution with `NODE_PATH`** set to the API's
-  `node_modules` directory at process start. CJS `require` honours it, which
-  is what the plugin bundles use.
+  packages. `require` of that bundle yields a `createPlugin` factory that
+  receives a host-injected, permissions-scoped SDK object and returns a NestJS
+  `DynamicModule`. A plugin's controllers, providers, guards and lifecycle
+  hooks are the framework's own.
+- **Plugin modules are loaded before `NestFactory.create` and imported into
+  `AppModule`.** NestJS registers controllers only for the modules present when
+  the container is built; a module added afterwards through
+  `LazyModuleLoader` contributes providers and nothing else, so a plugin
+  registered post-boot would serve no routes at all.
+- **Boot is the only moment a plugin is ever loaded**, and that follows from
+  the install flow rather than constraining it. Installing or removing a plugin
+  ends by replacing the process (see the sequence under Consequences), so what
+  runs is always what is on the data volume when the process starts. Enabling a
+  plugin that is not loaded restarts for the same reason. Themes install
+  without a restart; plugins do not.
+- **The host object is late-bound.** A plugin's factory runs before the
+  application exists, so what it receives resolves the application's services
+  when they are used rather than when it is built. They are bound once, between
+  `NestFactory.create` and `app.init()` - after every provider has been
+  constructed and before any lifecycle hook or request handler runs. A plugin
+  may therefore use the host from `onModuleInit` onwards and not from a
+  constructor, which is where NestJS asks for start-up work in any case. A call
+  made too early throws a named error rather than reading a half-built
+  application.
+
+### What the host keeps over a plugin's module
+
+A plugin's module is checked and rewritten before it is handed to NestJS.
+Registering an unmodified third-party module would hand it the framework's
+application-wide reach.
+
+- **Controllers are moved under `/api/plugin/<id>/`**, whatever path they
+  declare, so a plugin cannot register a route that shadows a core one.
+- **Each controller is raised to the capability floor its plugin's declared
+  permissions imply**, merged into whatever the controller asked for so the
+  floor can be exceeded and not lowered. The application's own global guard
+  enforces the result, and an attempt to mark a plugin route `@Public()` is
+  overridden.
+- **A module that registers application-wide behaviour is refused**: a global
+  guard, interceptor, filter or pipe, middleware, or a `@Global()` module.
+  Each of those would act on the core's routes as well as the plugin's.
+- **A disabled plugin's routes answer as though it were not installed**, and
+  every host service it holds refuses. NestJS cannot remove a route from a
+  running router, so a global guard in front of the plugin's controllers is
+  what makes switching one off take effect without a restart.
+
+### Resolution
+
+- **Bridge host module resolution with `NODE_PATH`** set at process start to
+  every directory the shared host packages resolve from - one per package, not
+  one in total. Under npm's flat tree that is a single directory; under pnpm's
+  isolated store each package has its own, and bridging only the first would
+  leave a plugin able to resolve `@nestjs/common` and not `@nestjs/core` in
+  development while working in the image. CJS `require` honours `NODE_PATH`,
+  which is what the plugin bundles use.
 - **Install with `npm install --omit=peer`.** npm 7 and later installs
   `peerDependencies` automatically, which would place a second copy of
   `@nestjs/common` beside the plugin and silently defeat the bridge.
@@ -48,7 +98,10 @@ determines the installer, the directory layout, and the boot sequence.
   copy can appear to work for simple decorators and fail much later.
 - **Malformed or failing plugins are skipped and reported**, never fatal to
   boot. A broken plugin must not be able to take the association's register
-  offline.
+  offline. This covers the module a plugin contributes as well as its package:
+  a module whose providers do not resolve fails the whole container, so the
+  bootstrap drops the plugin NestJS names in the error and builds the
+  application again.
 
 ### Spike outcome (measured 2026-08-27)
 
@@ -86,6 +139,25 @@ CJS plugin bundle from a directory outside the repository:
 - The API process must be started with `NODE_PATH` set. This is part of the
   container entrypoint and the dev scripts, not something the operator
   configures.
+- The boot sequence is fixed and shared with the integration suite: bridge
+  resolution, read the consent rows, scan the volume, load and seal each
+  consented plugin's module, build the application around them, bind the host
+  objects, listen. The consent rows are read through a short-lived database
+  client of its own, because they decide which bundles may be executed at all
+  and nothing that can refuse a plugin may run after the code that executes it.
+- A plugin's providers are constructed while the container is built, which is
+  before the host object answers. The contract is therefore that host services
+  are available from `onModuleInit` onwards; a plugin doing work in a
+  constructor gets a named error saying so.
+- Switching a plugin off does not unload it. Its module stays constructed and
+  its code stays in this process's module cache until the next boot, which is a
+  property of loading CommonJS at all. What it can reach the association's data
+  through does not: the host object refuses once the plugin stops serving, so a
+  timer or job worker it started of its own loses the register with it.
+- A plugin's own controller failure is answered as a bad gateway and logged
+  with the plugin's id, so an operator can tell a fault in software the
+  instance hosts from a fault in the application. A plugin answering with an
+  `HttpException` of its own is left alone.
 - The install job is a sequence with a defined commit point: download,
   verify the sha512, install into a staging directory, move atomically into
   `/data/plugins`, mark the pg-boss job complete and await the database
@@ -103,42 +175,6 @@ CJS plugin bundle from a directory outside the repository:
   server, so plugin frontend development uses `vite build --watch` with
   `vite preview`.
 
-## Implementation note (2026-08-28)
-
-The resolution half of this decision is implemented exactly as recorded: the
-`NODE_PATH` bridge, `npm install --omit=peer`, `/data/plugins/package.json` as
-the source of truth, the module identity assertion, and skip-and-report.
-
-The **shape of what a plugin's factory returns** is narrower than the
-"produces a NestJS `DynamicModule`" above. A plugin declares HTTP routes and
-the host serves them through one dispatcher controller. The reason is a
-property of NestJS rather than a preference: a module loaded after the
-application has bootstrapped can contribute providers through
-`LazyModuleLoader`, but its controllers are never registered, so routes on a
-post-boot dynamic module would not be served at all. Registering plugin
-modules in the graph at `NestFactory.create` time would work, but the host
-object a plugin receives is built from services that do not exist until the
-container does, so the factory would have to be handed a placeholder to fill
-in later.
-
-Serving routes through a dispatcher is also the stronger position: a plugin
-route is reached through the application's own guard, principal and exception
-filter, so it cannot be the one endpoint on an instance that forgot to check a
-session, and a plugin needs nothing from `@nestjs/*` in order to serve HTTP.
-
-The resolution work above is not made redundant by that. A plugin may still
-resolve host packages, the identity assertion runs against every installed
-package, and a duplicate copy is still refused - which is what keeps the door
-open to widening the contract later without discovering at that point that the
-bridge never worked.
-
-One detail is wider than recorded above: the bridge adds one `NODE_PATH` entry
-per directory the shared packages resolve from, not one in total. Under npm's
-flat tree that is a single directory; under pnpm's isolated store each package
-has its own, and bridging only the first would leave a plugin able to resolve
-`@nestjs/common` and not `@nestjs/core` in development while working in the
-image.
-
 ## Revisit triggers
 
 - **A JS sandbox becomes viable** (`isolated-vm` is in maintenance mode today;
@@ -149,5 +185,9 @@ image.
   bundles move to ESM: re-run the identity spike, since ESM resolution does
   not honour `NODE_PATH`.
 - **Plugin count per instance grows** to where boot-time loading is slow:
-  reconsider lazy registration, keeping in mind the known NestJS
-  `LazyModuleLoader` issues with nested dynamic modules.
+  reconsider lazy registration, keeping in mind that `LazyModuleLoader`
+  registers providers and not controllers, so a lazily registered plugin would
+  need a different way to serve HTTP.
+- **NestJS gains a supported way to add or remove a module's controllers on a
+  running application**: the global guard in front of a plugin's routes and the
+  restart on enabling a plugin both exist because it has none.

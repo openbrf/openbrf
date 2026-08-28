@@ -112,12 +112,33 @@ if (!bundleSource.includes("exports.createPlugin")) {
   );
 }
 // ADR 0003: a plugin ships a prebuilt bundle whose only externals are host
-// packages. This one has none at all, and the check is here rather than in a
-// test because the property is a property of the emit.
-if (/\brequire\s*\(/.test(bundleSource)) {
+// packages. The check is here rather than in a test because the property is a
+// property of the emit: a bundle reaching for anything else would resolve it
+// from /data/plugins, where the host's node_modules cannot be seen and the
+// install deliberately places no copy.
+const HOST_PACKAGES = new Set(["@nestjs/common", "@nestjs/core"]);
+const required = [
+  ...bundleSource.matchAll(/\brequire\(\s*["']([^"']+)["']\s*\)/g),
+].map(([, specifier]) => specifier);
+const foreign = required.filter((specifier) => !HOST_PACKAGES.has(specifier));
+if (foreign.length > 0) {
   throw new Error(
-    `${serverBundle} contains a require call. The reference plugin must ` +
-      "bundle to nothing but its own code.",
+    `${serverBundle} requires ${foreign.join(", ")}. A plugin's only ` +
+      `externals may be the host packages (${[...HOST_PACKAGES].join(", ")}).`,
+  );
+}
+if (/\brequire\s*\(\s*[^"']/.test(bundleSource)) {
+  throw new Error(
+    `${serverBundle} contains a require call whose target is not a string ` +
+      "literal, so what it resolves cannot be checked here.",
+  );
+}
+// The bridge is what makes those requires resolve at all, so a reference
+// plugin that stopped making them would stop exercising it.
+if (!required.includes("@nestjs/common")) {
+  throw new Error(
+    `${serverBundle} does not require @nestjs/common. The reference plugin ` +
+      "contributes a NestJS module, which is the contract it exists to prove.",
   );
 }
 

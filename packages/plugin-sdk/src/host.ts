@@ -137,6 +137,20 @@ export interface PluginAddressBook {
   summary(): Promise<PluginOccupancySummary>;
 }
 
+/**
+ * The host object a plugin's module factory receives.
+ *
+ * It is late-bound: the services behind it are the application's own, and the
+ * application is built after the factory has run. Every member below is
+ * therefore usable from a lifecycle hook (`onModuleInit` onwards), a guard or
+ * a request handler, and not from a provider's constructor - which is where
+ * NestJS asks for work to be done in any case. A call made too early throws
+ * rather than reading a half-built application.
+ *
+ * A plugin the board has switched off keeps its object, and every service on
+ * it refuses. Disabling has to bite immediately, and a plugin whose own timer
+ * outlived the switch must not still be reading the register through it.
+ */
 export interface PluginHost {
   /** The plugin's own id, as declared in its manifest. */
   id: string;
@@ -150,59 +164,19 @@ export interface PluginHost {
 }
 
 /**
- * One HTTP route a plugin contributes.
+ * A host service was used before the application finished starting, or after
+ * the plugin stopped serving.
  *
- * Mounted by the host under `/api/plugins/<id>/`, inside the application's own
- * authorization guard rather than beside it, so a plugin route cannot be the
- * one endpoint on the instance that forgot to check a session.
+ * Both cases are the plugin reaching for the host at a moment the host cannot
+ * answer for: the first is work done in a constructor that belongs in
+ * `onModuleInit`, the second is a plugin the board switched off.
  */
-export interface PluginRoute {
-  method: "GET" | "POST";
-  /** Relative to the plugin's mount point. Leading slash optional. */
-  path: string;
-  /**
-   * The capability a caller needs. Defaults to "self:manage", i.e. any signed
-   * in account. The host raises it to the floor implied by the plugin's own
-   * permissions, so a plugin that reads the register cannot expose that
-   * reading to a caller the core would not let read it.
-   */
-  capability?: string;
-  /**
-   * Answers the request. The returned value is serialised as JSON by the host.
-   *
-   * `unknown` alone rather than a union with a promise: `unknown` already
-   * covers both, and the host awaits whatever comes back.
-   */
-  handle(request: PluginRequest): unknown;
+export class PluginHostUnavailableError extends Error {
+  constructor(
+    readonly pluginId: string,
+    readonly detail: string,
+  ) {
+    super(`Plugin "${pluginId}" used a host service ${detail}`);
+    this.name = "PluginHostUnavailableError";
+  }
 }
-
-export interface PluginRequest {
-  /** Parsed query string. */
-  query: Record<string, string>;
-  /** Parsed JSON body, or null for a request without one. */
-  body: unknown;
-  /** The signed-in person's id. */
-  personId: string;
-}
-
-/**
- * What a plugin's server entry point returns.
- *
- * Routes are the whole of the backend surface in v0. A plugin declares them,
- * the host mounts them inside its own authorization guard, and the plugin
- * never registers a controller of its own - which is what makes it impossible
- * for a plugin endpoint to be the one on the instance that skipped the
- * session check.
- */
-export interface PluginServerContribution {
-  routes?: readonly PluginRoute[];
-  /** Run once after the plugin is registered, at host start-up. */
-  onStart?(): Promise<void> | void;
-  /** Run when the host shuts down, before the process exits. */
-  onStop?(): Promise<void> | void;
-}
-
-/** The factory a plugin's server bundle exports as `createPlugin`. */
-export type PluginServerFactory = (
-  host: PluginHost,
-) => PluginServerContribution | Promise<PluginServerContribution>;

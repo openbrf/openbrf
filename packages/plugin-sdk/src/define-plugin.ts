@@ -1,4 +1,4 @@
-import type { PluginServerFactory } from "./host.ts";
+import type { PluginModuleFactory } from "./module.ts";
 
 /**
  * Declares a plugin's server entry point.
@@ -12,7 +12,7 @@ import type { PluginServerFactory } from "./host.ts";
  * time - costs the running instance nothing.
  */
 export function definePlugin(
-  factory: PluginServerFactory,
-): PluginServerFactory {
+  factory: PluginModuleFactory,
+): PluginModuleFactory {
   return factory;
 }

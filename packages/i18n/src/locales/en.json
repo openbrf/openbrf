@@ -611,6 +611,9 @@
         "loadFailed": "It failed while being loaded.",
         "entryInvalid": "Its bundle does not export what the contract requires.",
         "notOnVolume": "It is recorded as installed but is not on the data volume.",
+        "moduleRefused": "Its module declares behaviour that would act on the rest of the application, which a plugin may not do. It was refused rather than run.",
+        "moduleInvalid": "Its bundle returned no module of the shape the contract requires.",
+        "moduleFailed": "Its module could not be built into the application. It was skipped so the rest of the instance could start.",
         "unknown": "It was skipped for a reason this screen has no wording for. The detail below is the server's own."
       }
     },
