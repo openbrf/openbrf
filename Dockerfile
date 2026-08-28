@@ -78,6 +78,8 @@ COPY --from=build --chown=node:node /app /app
 COPY docker/entrypoint.sh /usr/local/bin/openbrf-entrypoint
 COPY docker/database-url.mjs /app/docker/database-url.mjs
 COPY docker/first-boot.mjs /app/docker/first-boot.mjs
+COPY docker/with-owner-url.mjs /app/docker/with-owner-url.mjs
+COPY docker/harden-runtime-role.mjs /app/docker/harden-runtime-role.mjs
 
 # The plugin install job runs `npm install <tarball>` into the data volume, so
 # the CLI has to exist in the runtime image and not only in the build stage.

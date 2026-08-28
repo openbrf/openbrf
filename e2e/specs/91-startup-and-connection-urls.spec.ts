@@ -81,6 +81,9 @@ test("the first-boot check reports a failure without the database URL", () => {
 });
 
 test("a connection URL that cannot be taken apart is refused, not passed on", () => {
+  // The socket probe at the end runs the wait loop out, thirty seconds.
+  test.setTimeout(210_000);
+
   // libpq accepts an authority whose host is empty; the URL parser does not.
   // Such a URL cannot be split, so the password in it cannot be moved out of
   // psql's arguments, and the image refuses the boot rather than putting it
@@ -88,77 +91,71 @@ test("a connection URL that cannot be taken apart is refused, not passed on", ()
   // migrated is being turned away.
   const unsplittable = `postgresql://openbrf:${DECOY_PASSWORD}@/openbrf?host=${DECOY_SOCKET}`;
 
-  for (const subcommand of ["without-password", "password"]) {
-    const { status, output } = runInAppContainer(
-      ["node", "/app/docker/database-url.mjs", subcommand, "DATABASE_URL"],
-      { DATABASE_URL: unsplittable },
-      60_000,
-    );
-
-    expect(status, `${subcommand} refuses`).toBe(1);
-    // The refusal names the variable to fix and the shape to write.
-    expect(output, subcommand).toContain("DATABASE_URL");
-    expect(output, subcommand).toContain(REFUSAL_SHAPE);
-    expect(
-      output.includes(DECOY_PASSWORD),
-      `${subcommand} echoes no password`,
-    ).toBe(false);
-    expect(
-      output.includes(DECOY_SOCKET),
-      `${subcommand} echoes nothing from the URL`,
-    ).toBe(false);
-  }
-
-  // And the caller stops with it, before psql is reached at all. Were the URL
-  // passed on whole instead, this would spend thirty seconds connecting with
-  // the password in /proc/<pid>/cmdline, and end on the wait loop's own
+  // Both scripts that split a URL, driven as the entrypoint drives them. Were
+  // the URL passed on whole instead, each would spend thirty seconds connecting
+  // with the password in /proc/<pid>/cmdline and end on the wait loop's own
   // failure - which is also status 1, and also names DATABASE_URL. So the
   // refusal is what is asserted, and the wait loop's message is asserted
   // against: the two together are what distinguish the two endings.
-  const firstBoot = runInAppContainer(
-    ["node", "/app/docker/first-boot.mjs"],
-    {
-      DATABASE_URL: unsplittable,
-      OPENBRF_DATA_DIR: "/tmp/unsplittable-probe",
-      OPENBRF_ENCRYPTION_KEY: "",
-    },
-    60_000,
-  );
+  for (const script of [
+    "/app/docker/first-boot.mjs",
+    "/app/docker/harden-runtime-role.mjs",
+  ]) {
+    const { status, output } = runInAppContainer(
+      ["node", script],
+      {
+        DATABASE_URL: unsplittable,
+        OPENBRF_DATA_DIR: "/tmp/unsplittable-probe",
+        OPENBRF_ENCRYPTION_KEY: "",
+      },
+      60_000,
+    );
 
-  expect(firstBoot.status, "the first-boot check refuses it too").toBe(1);
-  expect(firstBoot.output).toContain("DATABASE_URL");
-  expect(firstBoot.output, "it stopped on the refusal").toContain(
-    REFUSAL_SHAPE,
-  );
-  expect(
-    firstBoot.output.includes(WAITED_FOR_A_DATABASE),
-    "psql was never given the URL",
-  ).toBe(false);
-  expect(
-    firstBoot.output.includes(DECOY_PASSWORD),
-    "the startup log holds no database password",
-  ).toBe(false);
+    expect(status, `${script} refuses it`).toBe(1);
+    // The refusal names the variable to fix and the shape to write.
+    expect(output, script).toContain("DATABASE_URL");
+    expect(output, `${script} stopped on the refusal`).toContain(REFUSAL_SHAPE);
+    expect(
+      output.includes(WAITED_FOR_A_DATABASE),
+      `${script} never gave psql the URL`,
+    ).toBe(false);
+    expect(
+      output.includes(DECOY_PASSWORD),
+      `${script} echoes no password`,
+    ).toBe(false);
+    expect(
+      output.includes(DECOY_SOCKET),
+      `${script} echoes nothing from the URL`,
+    ).toBe(false);
+  }
 
   // A Unix socket connection is not what is being refused: the spelling that
   // names a host and puts the directory in a query parameter is the one Prisma
-  // documents, and it is split like any other.
+  // documents, and it is split like any other. Nothing prints a split URL any
+  // more, so what shows it was split is that the wait loop was reached at all -
+  // the refusal above stops before psql, this one gets as far as trying.
   const socket = runInAppContainer(
-    [
-      "node",
-      "/app/docker/database-url.mjs",
-      "without-password",
-      "DATABASE_URL",
-    ],
+    ["node", "/app/docker/first-boot.mjs"],
     {
       DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@localhost/openbrf?host=${DECOY_SOCKET}`,
+      OPENBRF_DATA_DIR: "/tmp/socket-probe",
+      OPENBRF_ENCRYPTION_KEY: "",
     },
-    60_000,
+    150_000,
   );
 
-  expect(socket.status, "a socket URL that parses still works").toBe(0);
-  expect(socket.output.trim()).toBe(
-    `postgresql://openbrf@localhost/openbrf?host=${DECOY_SOCKET}`,
+  expect(socket.status, "a socket URL that parses is not refused").toBe(1);
+  expect(socket.output, "it reached psql instead").toContain(
+    WAITED_FOR_A_DATABASE,
   );
+  expect(
+    socket.output.includes(REFUSAL_SHAPE),
+    "a socket URL is not what the refusal is for",
+  ).toBe(false);
+  expect(
+    socket.output.includes(DECOY_PASSWORD),
+    "the startup log holds no database password",
+  ).toBe(false);
 });
 
 test("a password holding URL delimiters reaches the database intact", async () => {

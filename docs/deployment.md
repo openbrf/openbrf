@@ -56,9 +56,13 @@ onwards.
 
 The entrypoint runs, in this order, before the application listens:
 
-1. The two database connection URLs are assembled from the host, the port, the
-   database name and each role's password, percent-encoding as it goes. A
-   `DATABASE_URL` or `DATABASE_URL_RUNTIME` that is already set is left alone.
+1. The application's connection URL is assembled from the host, the port, the
+   database name and the runtime role's password, percent-encoding as it goes.
+   A `DATABASE_URL_RUNTIME` that is already set is left alone. The owner's URL
+   is built the same way, but separately for each of steps 3 to 6 and inside the
+   process that uses it, so it is never a variable in the entrypoint's shell and
+   is never written to a stream. A `DATABASE_URL` that is already set is used as
+   given.
 2. The data volume's directories are created and checked for writability.
 3. The field encryption key is provisioned if, and only if, this is a genuine
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
