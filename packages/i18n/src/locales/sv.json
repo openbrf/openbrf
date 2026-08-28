@@ -65,14 +65,153 @@
     "info": "Information"
   },
   "register": {
+    "heading": "Adressbok",
     "column": {
       "apartmentNumber": "Lgh",
       "name": "Namn",
+      "role": "Roll",
       "contact": "Kontakt",
-      "movedIn": "Inflytt"
+      "movedIn": "Inflytt",
+      "movedOut": "Utflytt"
     },
-    "masked": "maskerad",
-    "caption": "Utdrag ur medlemsförteckningen"
+    "house": {
+      "label": "Adress",
+      "all": "Alla adresser"
+    },
+    "filter": {
+      "label": "Filtrera registret",
+      "all": "Alla",
+      "members": "Medlemmar",
+      "residents": "Boende",
+      "board": "Styrelse",
+      "movedOut": "Utflyttade"
+    },
+    "group": {
+      "ground": "Entreplan {{prefix}}",
+      "floor": "Plan {{floor}} {{prefix}}",
+      "unknownFloor": "Plan saknas i registret",
+      "withoutApartment": "Utan lägenhet"
+    },
+    "sign": {
+      "chair": "Ordförande",
+      "boardMember": "Ledamot",
+      "deputyBoardMember": "Suppleant",
+      "member": "Medlem",
+      "resident": "Boende",
+      "protected": "Skyddad",
+      "movedOut": "Utflyttad"
+    },
+    "stats": {
+      "apartments": "Lägenheter",
+      "persons": "Personer",
+      "members": "Medlemmar"
+    },
+    "search": {
+      "label": "Sök i registret",
+      "placeholder": "Namn eller lägenhetsnummer",
+      "hint": "Namn och lägenhetsnummer matchas medan du skriver. E-postadress och telefonnummer måste skrivas fullständigt: de är krypterade, så bara ett komplett värde kan slås upp.",
+      "residentHint": "Namn och lägenhetsnummer matchas medan du skriver. Kontaktuppgifter stannar hos styrelsen och kan inte sökas här."
+    },
+    "pagination": {
+      "status": "Sida {{page}} av {{pages}}",
+      "previous": "Föregående",
+      "next": "Nästa"
+    },
+    "stamp": {
+      "addressBook": "Adressbok - {{scope}} - {{date}}"
+    },
+    "purge": {
+      "label": "Gallras",
+      "explanation": "Servicedata gallras detta datum. Posten i medlemsförteckningen bevaras så länge lagen kräver."
+    },
+    "contact": {
+      "none": "Saknas",
+      "masked": "Maskerad"
+    },
+    "empty": {
+      "title": "Inget matchar",
+      "description": "Ingen post matchar det här filtret. Rensa sökningen eller välj ett annat filter."
+    },
+    "loading": "Hämtar registret",
+    "error": {
+      "title": "Registret kunde inte hämtas",
+      "retry": "Försök igen"
+    },
+    "actions": {
+      "addPerson": "Lägg till person",
+      "openPerson": "Öppna {{name}}",
+      "openApartment": "Öppna lägenhet {{number}}"
+    },
+    "person": {
+      "close": "Stäng",
+      "postalAddress": "Postadress",
+      "alternativeAddress": "Alternativ adress",
+      "noAlternativeAddress": "Ingen alternativ adress registrerad",
+      "email": "E-postadress",
+      "phone": "Telefonnummer",
+      "personalIdentityNumber": "Personnummer",
+      "notOnFile": "Saknas",
+      "residencies": "Boenden",
+      "noResidencies": "Ingen lägenhet i registret",
+      "boardPositions": "Förtroendeuppdrag",
+      "systemRoles": "Systemroller",
+      "account": "Konto",
+      "accountActive": "Aktivt",
+      "accountInvited": "Inbjuden, inte aktiverat",
+      "accountNone": "Inget konto",
+      "twoFactor": "Autentiseringsapp registrerad",
+      "isMember": "Innehar bostadsrätt",
+      "notMember": "Innehar ingen bostadsrätt",
+      "protectedFlag": "Skyddade personuppgifter",
+      "protectedOn": "Maskeras överallt; varje visning loggas i granskningsloggen",
+      "protectedOff": "Maskeras inte",
+      "protect": "Maskera den här personen",
+      "unprotect": "Sluta maskera den här personen",
+      "systemRole": {
+        "admin": "Administratör",
+        "propertyManager": "Förvaltare"
+      },
+      "current": "Pågående",
+      "ended": "Avslutat",
+      "electedOn": "Vald",
+      "endedOn": "Avslutades",
+      "protectionFailed": "Maskeringen kunde inte ändras. Försök igen."
+    },
+    "reveal": {
+      "action": "Visa",
+      "ariaLabel": "Visa {{field}}",
+      "working": "Visar",
+      "logged": "Varje visning skrivs till granskningsloggen med ditt namn och de fält du sett.",
+      "hide": "Dölj igen",
+      "failed": "Det kunde inte visas."
+    },
+    "addPerson": {
+      "heading": "Lägg till person",
+      "description": "Lägger till en person i registret. Att placera någon i en lägenhet är inflyttsflödet, som också skriver posten i medlemsförteckningen.",
+      "firstName": "Förnamn",
+      "lastName": "Efternamn",
+      "email": "E-postadress",
+      "phone": "Telefonnummer",
+      "postalStreet": "Gatuadress",
+      "postalCode": "Postnummer",
+      "postalCity": "Ort",
+      "protectedPersonalData": "Skyddade personuppgifter",
+      "protectedHint": "Maskerar personens kontaktuppgifter och postadress överallt, och loggar varje visning.",
+      "submit": "Lägg till i registret",
+      "cancel": "Avbryt",
+      "working": "Lägger till",
+      "failed": "Personen kunde inte läggas till."
+    },
+    "apartment": {
+      "heading": "Lägenhet {{number}}",
+      "headingLabel": "Lägenhet",
+      "participationShare": "Andelstal",
+      "noParticipationShare": "Ej registrerat",
+      "residents": "Nuvarande boende",
+      "history": "Tidigare boende",
+      "noHistory": "Inga tidigare boende",
+      "registerNotice": "Pantnoteringar och insats hör till lägenhetsförteckningen, som är ett separat och konfidentiellt dokument."
+    }
   },
   "person": {
     "protectedPersonalData": "Skyddade personuppgifter"

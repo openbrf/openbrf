@@ -8,6 +8,8 @@ import {
 import type { FastifyReply } from "fastify";
 import { ZodError } from "zod";
 
+import { AddressBookError } from "../address-book/address-book.service";
+import { PersonError } from "../address-book/person.service";
 import { InvitationError } from "../invitations/invitation.service";
 import { MailNotConfiguredError } from "../mail/mail.service";
 import { SignupRequestError } from "../signup/signup-request.service";
@@ -29,6 +31,8 @@ import { DomainError } from "./domain-error";
   ZodError,
   InvitationError,
   SignupRequestError,
+  AddressBookError,
+  PersonError,
   MailNotConfiguredError,
   DomainError,
 )
@@ -40,6 +44,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
       | ZodError
       | InvitationError
       | SignupRequestError
+      | AddressBookError
+      | PersonError
       | MailNotConfiguredError
       | DomainError,
     host: ArgumentsHost,
@@ -75,12 +81,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    const status =
-      exception instanceof DomainError
-        ? exception.status
-        : exception instanceof InvitationError
-          ? invitationStatus(exception.reason)
-          : signupStatus(exception.reason);
+    const status = statusFor(exception);
 
     if (status >= 500) {
       this.logger.error(exception.message, exception.stack);
@@ -93,6 +94,61 @@ export class DomainExceptionFilter implements ExceptionFilter {
       reason: exception.reason,
       message: exception.message,
     });
+  }
+}
+
+/**
+ * The status a domain error answers with.
+ *
+ * Written as a dispatch on the error type rather than a chain of ternaries so
+ * adding a domain error to @Catch above without giving it a status is a compile
+ * error rather than a 500 in production.
+ */
+function statusFor(
+  exception:
+    | InvitationError
+    | SignupRequestError
+    | AddressBookError
+    | PersonError
+    | DomainError,
+): number {
+  // A DomainError declares its own status, which keeps it next to the rule that
+  // produced it. The errors below predate that base class and are still mapped
+  // here; converging them onto it is a tidy-up for its own change, not for a
+  // merge resolution.
+  if (exception instanceof DomainError) {
+    return exception.status;
+  }
+  if (exception instanceof InvitationError) {
+    return invitationStatus(exception.reason);
+  }
+  if (exception instanceof SignupRequestError) {
+    return signupStatus(exception.reason);
+  }
+  if (exception instanceof AddressBookError) {
+    return addressBookStatus(exception.reason);
+  }
+  return personStatus(exception.reason);
+}
+
+function addressBookStatus(reason: AddressBookError["reason"]): number {
+  switch (reason) {
+    case "apartment-not-found":
+      return HttpStatus.NOT_FOUND;
+  }
+}
+
+function personStatus(reason: PersonError["reason"]): number {
+  switch (reason) {
+    case "person-not-found":
+      return HttpStatus.NOT_FOUND;
+    case "invalid-email":
+    case "invalid-personal-identity-number":
+      return HttpStatus.BAD_REQUEST;
+    case "field-not-masked":
+      // The request was understood and refused on its merits: there is nothing
+      // masked here to reveal, so revealing it would only pad the audit log.
+      return HttpStatus.UNPROCESSABLE_ENTITY;
   }
 }
 

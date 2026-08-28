@@ -1,11 +1,16 @@
 # Roadmap and status
 
 **Can I run this in my housing cooperative today? No.** A first boot now walks
-you through creating the housing cooperative, its addresses and its apartments,
-and the settings screens are there - but the register itself is not. There is
-nowhere to enter a person, nothing to look up, and no way to invite anyone until
-the address book lands. The foundations underneath are built and tested. The
-project is not ready to hold your housing cooperative's data.
+you through creating the housing cooperative, its addresses and its apartments;
+the settings screens are there; and the address book holds people, with a
+resident who has protected personal data masked everywhere.
+
+What is missing is most of what a cooperative is obliged to keep. The member
+register and the apartment register have no views and no printable extracts.
+Moving someone in or out is not built, which is also what writes the statutory
+member-register entry. An existing member list cannot be imported. And nobody
+can be invited from the interface yet. The project is not ready to hold your
+housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -69,8 +74,9 @@ reachable without an interface, and the one unchecked row says why.
 ### The interface
 
 Under way. This is the gap between the list above and anything usable.
-There is now a frame, a way in, and a way to configure the instance; the
-screens that do the housing cooperative's work are still ahead.
+There is now a frame, a way in, a way to configure the instance and a working
+register. The statutory register views, the move flows and the import are still
+ahead.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
@@ -91,7 +97,12 @@ screens that do the housing cooperative's work are still ahead.
       for; changing them stays with an admin
 - [ ] Uploading the housing cooperative's logo. The accent colour is in place;
       the logo needs an upload path and file serving that do not exist yet
-- [ ] The address book itself
+- [x] The address book itself: the board per the design system, with house
+      tabs, floor-grouped rows, filter tabs, search, the colour-as-law legend
+      and a register stamp; a person and an apartment view; the
+      resident-facing variant with no contact column at all; and the audited
+      reveal for masked fields
+
 - [ ] Member register and apartment register views, with printable extracts
 - [ ] Move-in and move-out flows
 - [ ] Import from CSV and Excel with column mapping
