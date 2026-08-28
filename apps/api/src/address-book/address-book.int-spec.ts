@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -43,9 +45,11 @@ let retentionDays: number;
  * indexes: a digit inside a fixture email address would let a search for that
  * address also return rows this suite never created, and against a register
  * carrying the demo data, enough of them to fill the page. Base 26 leaves q to
- * z unused, so mapping the digits onto those letters keeps the token unique.
+ * z unused, so mapping the digits onto those letters keeps the token unique:
+ * it carries the whole clock reading, which no two runs on one machine share.
  *
- * A fixture value that normalizes to digits carries the digit token below.
+ * A fixture value that normalizes to digits is drawn separately, below, because
+ * its format has no room for a reading this long.
  */
 const suffix = process.hrtime
   .bigint()
@@ -53,32 +57,49 @@ const suffix = process.hrtime
   .replace(/\d/g, (digit) => "qrstuvwxyz".charAt(Number(digit)));
 
 /**
- * A second token unique to this run, in digits.
+ * The subscriber digits of this run's phone numbers.
  *
  * A phone number and a personal identity number reach their blind indexes
  * through normalizers that keep the digits and drop everything else, so the
- * letters above normalize away: a fixture carrying them would store the same
- * index every run, in the fields whose only purpose is to be looked up by
- * value. The demo register holds fixed numbers of both kinds, and a fixture
- * equal to one of those collides on the first seeded database it meets.
+ * letters above normalize away and cannot keep two runs' numbers apart. The
+ * demo register holds fixed numbers of both kinds, and a fixture equal to one
+ * of those collides on the first seeded database it meets.
+ *
+ * Unlike the token above, these values cannot carry a whole clock reading: the
+ * format bounds them. A Swedish mobile number is 07X plus seven subscriber
+ * digits, and this takes all seven, drawn rather than derived from the clock so
+ * that runs an exact interval apart cannot land on the same value. Seven digits
+ * is what the format has, so two runs carry the same numbers about once in ten
+ * million; nothing coordinates between runs to rule that out. Each run deletes
+ * its own rows, so the pair has to be a run overlapping with the leftovers of
+ * one that died before its cleanup, and what it would look like is a second row
+ * in the phone searches below.
  */
-const digitToken = process.hrtime.bigint().toString().slice(-7);
-
-/** A day of the month from the same token, so the birth dates differ per run. */
-const birthDay = String((Number(digitToken.slice(0, 2)) % 28) + 1).padStart(
-  2,
-  "0",
-);
+const phoneDigits = String(randomInt(10_000_000)).padStart(7, "0");
 
 /**
  * A synthetic personal identity number for this run.
+ *
+ * This format holds less than it looks. The check digit is determined by the
+ * nine digits before it, and a date has to be one that existed, so the room is
+ * the birth date and the three-digit serial: 65 years x 12 months x 28 days x
+ * 1000 serials, near enough 22 million numbers, which is the same order as the
+ * phone numbers above. Days stop at 28 so that every draw is a date that
+ * existed without month-length arithmetic; the 8 per cent of dates that gives
+ * up costs about a tenth of a bit.
  *
  * The check digit comes from the production validator rather than a second Luhn
  * implementation here, so the fixture is exactly as valid as what the register
  * accepts. Luhn admits one check digit for any nine-digit prefix, so the loop
  * always finds it.
  */
-function personalIdentityNumberFor(birthDate: string, serial: string): string {
+function personalIdentityNumberForThisRun(): string {
+  const year = String(1940 + randomInt(65));
+  const month = String(1 + randomInt(12)).padStart(2, "0");
+  const day = String(1 + randomInt(28)).padStart(2, "0");
+  const serial = String(randomInt(1000)).padStart(3, "0");
+  const birthDate = `${year}${month}${day}`;
+
   for (let checkDigit = 0; checkDigit <= 9; checkDigit++) {
     const candidate = `${birthDate}-${serial}${String(checkDigit)}`;
     if (isValidPersonalIdentityNumber(candidate)) {
@@ -107,24 +128,18 @@ const actors = {
     personId: `ab-resident-${suffix}`,
     email: `ab-resident-${suffix}@exempel.se`,
     /** As a resident writes it, which is the shape the ciphertext keeps. */
-    phone: `070-${digitToken.slice(0, 3)} ${digitToken.slice(3, 5)} ${digitToken.slice(5, 7)}`,
+    phone: `070-${phoneDigits.slice(0, 3)} ${phoneDigits.slice(3, 5)} ${phoneDigits.slice(5, 7)}`,
     /** The same number for a caller abroad: both must land on one index. */
-    phoneInternational: `+4670${digitToken}`,
+    phoneInternational: `+4670${phoneDigits}`,
     /** Synthetic and checksum-valid, as the demo fixtures are. */
-    personalIdentityNumber: personalIdentityNumberFor(
-      `197506${birthDay}`,
-      digitToken.slice(2, 5),
-    ),
+    personalIdentityNumber: personalIdentityNumberForThisRun(),
   },
   protectedPerson: {
     personId: `ab-protected-${suffix}`,
     email: `ab-protected-${suffix}@exempel.se`,
-    phone: `072-${digitToken.slice(0, 3)} ${digitToken.slice(3, 5)} ${digitToken.slice(5, 7)}`,
+    phone: `072-${phoneDigits.slice(0, 3)} ${phoneDigits.slice(3, 5)} ${phoneDigits.slice(5, 7)}`,
     /** Synthetic and checksum-valid, as the demo fixtures are. */
-    personalIdentityNumber: personalIdentityNumberFor(
-      `198211${birthDay}`,
-      digitToken.slice(4, 7),
-    ),
+    personalIdentityNumber: personalIdentityNumberForThisRun(),
   },
   movedOut: {
     personId: `ab-moved-out-${suffix}`,
@@ -1179,7 +1194,7 @@ describe("adding a person", () => {
         firstName: "Nils",
         lastName: surname,
         email,
-        phone: `073${digitToken}`,
+        phone: `073${phoneDigits}`,
       },
       headers: { cookie },
     });
