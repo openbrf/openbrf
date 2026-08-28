@@ -53,7 +53,7 @@ const MAX_CATALOG_BYTES = 1024 * 1024;
  * and its database connection would be held for exactly that long. A catalog is
  * data, and a fetch that stalls is a failed fetch.
  */
-const FETCH_TIMEOUT_MS = 30_000;
+export const FETCH_TIMEOUT_MS = 30_000;
 
 export const catalogEntrySchema = z.object({
   id: z.string().min(1).max(120),
@@ -260,37 +260,50 @@ export class CatalogThemeSource implements ThemeSource {
 
     // One deadline for the whole exchange: the signal covers the response body
     // as well, so a server that answers and then stops sending is abandoned on
-    // the same terms as one that never answers at all.
-    const deadline = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-
-    let response: Response;
-    try {
-      response = await fetch(location, {
-        headers:
-          token === undefined ? {} : { authorization: `Bearer ${token}` },
-        redirect: "follow",
-        signal: deadline,
-      });
-    } catch (cause) {
-      throw unreachable(cause);
-    }
-
-    if (!response.ok) {
-      throw new ThemeSourceError(
-        `The ${what} at ${location.href} answered ${String(response.status)}.`,
-        what === "catalog" ? "catalog-unreachable" : "package-unreachable",
+    // the same terms as one that never answers at all. The timer is cleared
+    // once the exchange ends, so a read that finished leaves nothing pending.
+    const deadline = new AbortController();
+    const expiry = setTimeout(() => {
+      deadline.abort(
+        new DOMException(
+          `The ${what} at ${location.href} did not answer within ${String(FETCH_TIMEOUT_MS)} ms.`,
+          "TimeoutError",
+        ),
       );
-    }
+    }, FETCH_TIMEOUT_MS);
 
     try {
-      return await readCapped(response, limit, what);
-    } catch (cause) {
-      if (cause instanceof ThemeSourceError) {
-        throw cause;
+      let response: Response;
+      try {
+        response = await fetch(location, {
+          headers:
+            token === undefined ? {} : { authorization: `Bearer ${token}` },
+          redirect: "follow",
+          signal: deadline.signal,
+        });
+      } catch (cause) {
+        throw unreachable(cause);
       }
-      // A body that stalls or breaks part way through arrives here, including
-      // the abort the deadline raises.
-      throw unreachable(cause);
+
+      if (!response.ok) {
+        throw new ThemeSourceError(
+          `The ${what} at ${location.href} answered ${String(response.status)}.`,
+          what === "catalog" ? "catalog-unreachable" : "package-unreachable",
+        );
+      }
+
+      try {
+        return await readCapped(response, limit, what);
+      } catch (cause) {
+        if (cause instanceof ThemeSourceError) {
+          throw cause;
+        }
+        // A body that stalls or breaks part way through arrives here, including
+        // the abort the deadline raises.
+        throw unreachable(cause);
+      }
+    } finally {
+      clearTimeout(expiry);
     }
   }
 }

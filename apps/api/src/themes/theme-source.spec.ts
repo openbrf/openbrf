@@ -18,6 +18,7 @@ import {
   catalogLocation,
   CatalogThemeSource,
   checksumMatches,
+  FETCH_TIMEOUT_MS,
   normalizeSha512,
   ThemeSourceError,
 } from "./theme-source";
@@ -188,21 +189,39 @@ describe("CatalogThemeSource", () => {
 describe("a catalog over HTTP", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
-  it("gives the request a deadline", async () => {
+  it("abandons a host that answers and then goes quiet", async () => {
+    vi.useFakeTimers();
+
     let signal: AbortSignal | undefined;
     vi.stubGlobal("fetch", (_input: unknown, init: RequestInit) => {
       signal = init.signal ?? undefined;
-      return Promise.reject(
-        new DOMException("The operation timed out.", "TimeoutError"),
-      );
+      // A host that completes the handshake and then sends nothing: this
+      // request settles only if something abandons it.
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          reject(init.signal?.reason);
+        });
+      });
     });
 
-    await expect(
-      sourceOver("https://catalog.example.com/catalog.json").listThemes(),
-    ).rejects.toMatchObject({ reason: "catalog-unreachable" });
-    expect(signal).toBeInstanceOf(AbortSignal);
+    const listing = sourceOver(
+      "https://catalog.example.com/catalog.json",
+    ).listThemes();
+    const refused = expect(listing).rejects.toMatchObject({
+      reason: "catalog-unreachable",
+    });
+
+    // A moment short of the deadline the request is still open: the byte caps
+    // bound how much a host may send, not how long it may take.
+    await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS - 1);
+    expect(signal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await refused;
   });
 
   it("reports a body that stops part way through as unreachable", async () => {
