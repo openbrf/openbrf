@@ -93,8 +93,30 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // Machine-readable, so a client can react without matching on prose.
       reason: exception.reason,
       message: exception.message,
+      /*
+       * The particulars, when the refusal has any.
+       *
+       * A refusal that names none is not actionable: "this theme was refused"
+       * without the contrast pairs that failed, or "that colour cannot be read"
+       * without the measured ratio, leaves the person looking at the screen no
+       * way to fix it. Both travel as codes and numbers, never prose, so the
+       * interface translates them like every other failure.
+       */
+      ...detailOf(exception),
     });
   }
+}
+
+/** The `findings` or `issues` a domain error carries, when it carries them. */
+function detailOf(exception: object): Record<string, unknown[]> {
+  const candidate = exception as { findings?: unknown; issues?: unknown };
+  if (Array.isArray(candidate.findings) && candidate.findings.length > 0) {
+    return { findings: candidate.findings };
+  }
+  if (Array.isArray(candidate.issues) && candidate.issues.length > 0) {
+    return { issues: candidate.issues };
+  }
+  return {};
 }
 
 /**

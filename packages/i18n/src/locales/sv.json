@@ -513,5 +513,95 @@
       "danger": "Fel",
       "info": "Information"
     }
+  },
+  "themeCatalog": {
+    "title": "Teman",
+    "intro": "Ett tema ändrar färger, typsnitt och form. Det innehåller ingen kod, så att installera eller byta tema slår igenom direkt och kräver ingen omstart.",
+    "loading": "Hämtar teman ...",
+    "panel": {
+      "title": "Teman",
+      "description": "Vilket tema den här instansen använder, och var du installerar ett annat.",
+      "active": "Aktivt tema: {{theme}}",
+      "previewing": "Du förhandsgranskar ett tema. Bara din egen webbläsare ser det.",
+      "open": "Hantera teman"
+    },
+    "installed": {
+      "title": "Installerade",
+      "description": "Standardtemat är inbyggt och går alltid att ärva från. Det kan inte tas bort.",
+      "active": "Aktivt",
+      "builtIn": "Inbyggt",
+      "inherits": "Ärver",
+      "typefaces": "Typsnitt",
+      "typeface": "{{family}} ({{license}})",
+      "viewVariant": "Layout",
+      "viewVariantValue": "{{slot}}: {{variant}}",
+      "preview": "Förhandsgranska",
+      "stopPreview": "Avsluta förhandsgranskning",
+      "activate": "Aktivera",
+      "remove": "Ta bort",
+      "done": "{{theme}} installerades."
+    },
+    "catalog": {
+      "title": "Katalog",
+      "description": "Teman som publicerats för Open BRF. Varje paket kontrolleras mot kontrollsumman katalogen anger och granskas sedan innan något installeras.",
+      "empty": "Katalogen listar inga teman.",
+      "install": "Installera",
+      "update": "Uppdatera till {{version}}",
+      "alreadyInstalled": "Installerat",
+      "contract": "Tokenkontrakt {{range}}"
+    },
+    "preview": {
+      "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
+      "activate": "Aktivera det här temat",
+      "stop": "Avsluta förhandsgranskning"
+    },
+    "warnings": {
+      "title": "Temat installerades med anmärkningar:"
+    },
+    "lint": {
+      "statutory": "Det här paret läses det lagstadgade registret på.",
+      "unrecognised": "Temat avvisades av en regel den här versionen inte känner till: {{rule}}.",
+      "reservedId": "{{themeId}} är standardtemats namn och är reserverat.",
+      "selfExtends": "{{themeId}} anger att det ärver från sig självt.",
+      "contractIncompatible": "Temat är skrivet för tokenkontrakt {{range}}, och den här instansen har {{contractVersion}}.",
+      "missingParent": "Temat ärver från {{themeId}}, som inte är installerat.",
+      "inheritanceCycle": "Arvskedjan går i cirkel vid {{themeId}}.",
+      "unknownManifestField": "Manifestet innehåller fältet {{field}} som den här versionen inte känner till. Det ignorerades.",
+      "unknownToken": "Temat sätter {{token}} i läget {{mode}}, vilket det här tokenkontraktet inte definierar. Det ignorerades.",
+      "missingToken": "{{token}} saknar värde i läget {{mode}} och har inget att härleda ett från.",
+      "unsafeTokenValue": "Värdet för {{token}} i läget {{mode}} {{problem}}.",
+      "contrast": "I läget {{mode}} mäter {{foreground}} mot {{background}} {{ratio}}:1 och måste nå {{required}}:1.",
+      "executableContent": "Paketet innehåller {{file}}. Ett tema är data och innehåller ingen kod.",
+      "unexpectedFile": "Paketet innehåller {{file}}, som inte är en filtyp ett tema får bära med sig.",
+      "fontRemoteSource": "Typsnittet {{family}} pekar på {{source}}. Ett tema paketerar sina typsnittsfiler: att hämta ett från tredje part skulle lämna ut varje besökares adress till den.",
+      "fontFileMissing": "Typsnittet {{family}} anger {{file}}, som paketet inte innehåller.",
+      "fontFileUndeclared": "Paketet innehåller typsnittsfilen {{file}}, som inget typsnitt anger licens för.",
+      "fontFormat": "Typsnittet {{family}} anger {{file}}, som inte är en typsnittsfil.",
+      "licenseFileMissing": "Typsnittet {{family}} anger licensfilen {{file}}, som paketet inte innehåller.",
+      "logoMissing": "Manifestet anger logotypen {{file}}, som paketet inte innehåller.",
+      "unknownViewVariant": "Temat begär layouten {{variant}} för {{slot}}, som den här versionen inte tillhandahåller."
+    },
+    "errors": {
+      "unknown": "Temana kunde inte hämtas just nu. Försök igen.",
+      "loadFailed": "De installerade temana kunde inte läsas.",
+      "forbidden": "Att installera och byta tema är en administratörs uppgift.",
+      "catalogNotConfigured": "Ingen temakatalog är konfigurerad för den här instansen.",
+      "catalogUnreachable": "Temakatalogen kunde inte nås.",
+      "catalogInvalid": "Temakatalogen svarade med något den här versionen inte kan läsa.",
+      "packageUnreachable": "Temapaketet kunde inte hämtas.",
+      "packageTooLarge": "Temapaketet är större än ett tema får vara.",
+      "checksumMismatch": "Det hämtade paketet stämmer inte med kontrollsumman katalogen anger, så det avvisades.",
+      "packageUnreadable": "Paketet kunde inte läsas som ett tema.",
+      "manifestInvalid": "Paketets theme.json är inget giltigt manifest.",
+      "identityMismatch": "Paketet beskriver inte det tema katalogen listade.",
+      "lintFailed": "Temat avvisades:",
+      "notInCatalog": "Katalogen listar inte längre det temat.",
+      "themeNotInstalled": "Det temat är inte installerat.",
+      "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
+      "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
+      "themeHasDependants": "Ett annat installerat tema ärver från det.",
+      "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
+      "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema."
+    }
   }
 }

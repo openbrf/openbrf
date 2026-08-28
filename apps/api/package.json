@@ -23,6 +23,7 @@
     "@nestjs/platform-fastify": "^11.2.3",
     "@openbrf/i18n": "workspace:*",
     "@openbrf/shared": "workspace:*",
+    "@openbrf/theme-tools": "workspace:*",
     "@openbrf/tokens": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",

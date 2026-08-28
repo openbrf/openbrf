@@ -18,6 +18,7 @@ import { MailModule } from "./mail/mail.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
+import { ThemesModule } from "./themes/themes.module";
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SignupModule } from "./signup/signup.module";
     SettingsModule,
     AddressesModule,
     AddressBookModule,
+    ThemesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],

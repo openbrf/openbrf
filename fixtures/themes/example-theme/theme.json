@@ -1,0 +1,48 @@
+{
+  "name": "example-theme",
+  "displayName": "Example",
+  "version": "1.0.0",
+  "contract": "^1.0.0",
+  "extends": "porttavlan",
+  "description": "A theme that inherits the default and changes the trust accent to green, bundling its own typeface.",
+  "modes": {
+    "light": {
+      "accent-trust": "#2F5D50",
+      "accent-trust-hover": "#264C42",
+      "accent-trust-soft": "#DCE8E4",
+      "accent-trust-register": "#7FBFAA",
+      "on-accent-trust": "#FFFFFF",
+      "font-data": "'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+    },
+    "dark": {
+      "accent-trust": "#7FBFAA",
+      "accent-trust-hover": "#93CCB9",
+      "accent-trust-soft": "#1E2E29",
+      "accent-trust-register": "#7FBFAA",
+      "on-accent-trust": "#17181A",
+      "font-data": "'Spline Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+    }
+  },
+  "fonts": [
+    {
+      "family": "Spline Sans Mono",
+      "license": "OFL-1.1",
+      "licenseFile": "fonts/OFL.txt",
+      "files": [
+        {
+          "path": "fonts/spline-sans-mono-latin.woff2",
+          "weight": "400 700",
+          "style": "normal"
+        }
+      ]
+    }
+  ],
+  "viewVariants": {
+    "memberRegister": "table"
+  },
+  "license": "CC0-1.0",
+  "requires": {
+    "openbrf": ">=1.0.0"
+  },
+  "recommends": {}
+}

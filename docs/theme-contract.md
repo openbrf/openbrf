@@ -128,12 +128,130 @@ what it changes. The default theme is always inheritable. A missing value falls
 back through the contract's own derivation chain, so stating `status-warn` alone
 still yields `status-warn-soft` and `status-warn-register`.
 
+Resolution happens in two steps, in this order. First the chain from the root
+ancestor down to the theme itself is merged, so a value a theme states wins over
+the same value in its parent. Then the fallback chain above fills whatever is
+still missing.
+
+The two modes inherit separately: a theme that changes only the light accent
+keeps its parent's dark one.
+
+A parent that is not installed, and a chain that loops, are both refused at
+install time rather than resolved around. A theme cannot be removed while
+another installed theme inherits from it.
+
+## The package format
+
+A theme is distributed as a gzipped tar archive holding regular files only, with
+`theme.json` at its root. If every entry sits under one directory, that
+directory is stripped, so it makes no difference whether the archive was rooted
+at the theme's folder or not.
+
+```json
+{
+  "name": "example-theme",
+  "displayName": "Example",
+  "version": "1.0.0",
+  "contract": "^1.0.0",
+  "extends": "porttavlan",
+  "description": "One sentence about the theme.",
+  "modes": {
+    "light": { "accent-trust": "#2F5D50" },
+    "dark": { "accent-trust": "#7FBFAA" }
+  },
+  "fonts": [
+    {
+      "family": "Spline Sans Mono",
+      "license": "OFL-1.1",
+      "licenseFile": "fonts/OFL.txt",
+      "files": [{ "path": "fonts/mono.woff2", "weight": "400 700" }]
+    }
+  ],
+  "logo": "logo.png",
+  "viewVariants": { "memberRegister": "table" }
+}
+```
+
+`name` is the theme's identity: lowercase words joined by hyphens, and unique in
+the catalog. `porttavlan` is reserved for the default theme, which is built into
+the core and never installed. `version` is a release version; a pre-release is
+refused, because a theme published to a catalog is by definition published.
+
+`contract` states which versions of this contract the theme was written against.
+The supported range syntax is deliberately a subset of semver: `*`, an exact
+version, `^`, `~`, `>`, `>=`, `<` and `<=`, joined by a space for AND and by `||`
+for OR. A range outside that subset is refused rather than guessed at, because a
+range the core cannot read is one it cannot honour.
+
+Every path in the package is relative, has no parent segment and no backslash.
+The file types a package may contain are `.json`, `.woff2`, `.woff`, `.ttf`,
+`.otf`, `.png`, `.webp`, `.txt` and `.md`. Anything that could execute is
+refused, SVG included: an SVG is a document that can carry script and external
+references, and a theme's logo is served from the association's own origin.
+
+### Fields accepted and ignored
+
+`license`, `requires` and `recommends` are accepted and have no behaviour. There
+is no licence validation and no dependency resolution: a theme declaring
+`requires` installs exactly as if it had not. They are accepted so a theme
+written against the fuller contract installs here unchanged, rather than the
+format having to be forked the day dependency resolution ships.
+
+Unknown top-level fields are ignored too, and reported as a warning so a
+misspelled `extends` is still visible to the author. The same holds for token
+names: a theme written against a later minor may state a token this core has
+never heard of, and the contract's own minor-version rule says that must still
+install, so the value is dropped and the name reported.
+
+## View variants
+
+A theme cannot ship components. What it can do is pick among layouts the core
+maintains, which is what `viewVariants` selects:
+
+| Slot             | Variants | Default |
+| ---------------- | -------- | ------- |
+| `memberRegister` | `table`  | `table` |
+
+A slot or a variant the core does not maintain is refused at install time: an
+unrecognised variant means the theme was built against a different core, and
+installing it would render nothing. A slot the theme says nothing about renders
+the default.
+
 ## Fonts
 
 Themes bundle their font files and declare each licence. **No external font
 CDN**: loading fonts from a third party leaks every viewer's IP address to it,
 which is a GDPR problem in the EU. The core self-hosts its own faces for the
 same reason.
+
+Concretely, the install lint refuses a theme when a font source points anywhere
+outside the package, when a declared file is missing from it, when a font file
+in the package is not covered by a declaration, or when a declaration carries no
+licence. Bundled files are served from the association's own instance.
+
+## Installing
+
+A theme is installed from a catalog: the entry names a tarball URL and its
+sha512, the download is verified against that checksum before anything is
+unpacked, the package is read and linted, and only then is it written to
+`/data/themes` and recorded. A package whose manifest disagrees with the catalog
+entry about its name or version is refused - the checksum proves the bytes are
+the ones the catalog meant, not that they are what they claim to be.
+
+**No restart.** A theme carries no code, so there is nothing to load into the
+running process: installing writes files and a row, activating writes one
+column, and the browser applies a stylesheet.
+
+A board member can preview an installed theme before activating it. The preview
+is the same resolution activation would produce, applied to that one browser
+session and to nothing else; nothing is written and no other viewer is affected.
+
+## Writing a theme
+
+`@openbrf/theme-tools` is the same package the core runs at install time:
+`parseThemeManifest`, `lintTheme`, `resolveThemeChain` and the archive reader
+and writer. A theme repository's CI can therefore run the exact check the core
+will run, and see the same refusal, before the theme is published.
 
 ## What is themeable, and what is not
 
