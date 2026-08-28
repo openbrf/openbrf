@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
 import type { BrowserContext, Locator, Page } from "@playwright/test";
@@ -127,6 +127,17 @@ const EMAIL_ADDRESS = /\b[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
  */
 const RESERVED_EMAIL_SUFFIX = ".test";
 
+/**
+ * Reads the page and refuses anything that must not be published.
+ *
+ * Run on both sides of the shutter. The page is read and the picture is taken
+ * as two separate acts, so a screen whose data arrives while it is being
+ * photographed can put content in the image that the read before it never saw:
+ * a `waitFor` that is a static heading is satisfied before the request filling
+ * the page comes back. The read after the picture is the one that covers the
+ * picture - whatever reached the image is in the page by then - and the read
+ * before it is what fails a bad screen without spending a picture on it.
+ */
 async function assertSafeToPublish(page: Page, name: string): Promise<void> {
   // What a filled-in form shows is in the field's value, not in the document's
   // text, and the setup wizard is photographed with its forms filled in.
@@ -273,23 +284,25 @@ async function settle(page: Page, screen: Screen): Promise<void> {
   });
 }
 
-async function capture(
-  page: Page,
-  screen: Screen,
-  theme: (typeof THEMES)[number],
-): Promise<string> {
-  const path = resolve(OUTPUT_DIR, `${screen.name}-${theme}.png`);
-  const options = { path, animations: "disabled", caret: "hide" } as const;
+/**
+ * Takes the picture, and does not write it.
+ *
+ * The bytes are held rather than sent straight to a file so that the check
+ * standing between them and the disk is a check the image cannot get past. A
+ * screenshot written by the capture itself is a published image whose check
+ * runs afterwards, and a failure then is a failure that leaves the file behind.
+ */
+async function photograph(page: Page, screen: Screen): Promise<Buffer> {
+  const options = { animations: "disabled", caret: "hide" } as const;
 
   const what = screen.capture ?? "viewport";
   if (what === "viewport") {
-    await page.screenshot(options);
-  } else if (what === "page") {
-    await page.screenshot({ ...options, fullPage: true });
-  } else {
-    await locate(page, what).screenshot(options);
+    return page.screenshot(options);
   }
-  return path;
+  if (what === "page") {
+    return page.screenshot({ ...options, fullPage: true });
+  }
+  return locate(page, what).screenshot(options);
 }
 
 test("captures every declared screen in light and dark", async ({
@@ -392,7 +405,13 @@ test("captures every declared screen in light and dark", async ({
 
         await settle(page, screen);
         await assertSafeToPublish(page, screen.name);
-        const path = await capture(page, screen, theme);
+        const image = await photograph(page, screen);
+        // The picture is already taken, so this is the read that covers it.
+        // Nothing reaches the disk until it passes.
+        await assertSafeToPublish(page, screen.name);
+
+        const path = resolve(OUTPUT_DIR, `${screen.name}-${theme}.png`);
+        await writeFile(path, image);
         console.log(`  ${relative(repositoryRoot, path)}`);
       }
     }
