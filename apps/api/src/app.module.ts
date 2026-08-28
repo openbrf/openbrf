@@ -15,9 +15,11 @@ import { I18nModule } from "./i18n/i18n.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { MediaModule } from "./media/media.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
+import { StorageModule } from "./storage/storage.module";
 
 @Module({
   imports: [
@@ -27,6 +29,8 @@ import { SignupModule } from "./signup/signup.module";
     AuditModule,
     I18nModule,
     JobsModule,
+    StorageModule,
+    MediaModule,
     MailModule,
     AuthModule,
     AuthorizationModule,
