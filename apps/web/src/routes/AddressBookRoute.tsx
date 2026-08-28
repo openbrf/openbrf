@@ -15,6 +15,7 @@ import {
 } from "../register/use-address-book";
 import { AppShell } from "../shell/AppShell";
 import { NAV_ITEMS } from "../shell/nav-items";
+import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 
 /** Which panel, if any, sits beside the board. */
@@ -127,9 +128,12 @@ export function AddressBookRoute(): ReactElement {
       ? view.page.stats
       : null;
 
+  const logo = useHousingCooperativeLogo();
+
   return (
     <AppShell
       housingCooperativeName={t("app.housingCooperative")}
+      logo={logo}
       personName={session?.user.name}
       navItems={NAV_ITEMS}
       onSignOut={() => {

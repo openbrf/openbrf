@@ -46,6 +46,10 @@ export function SettingsRoute(): ReactElement {
       housingCooperativeName={
         viewer?.housingCooperative?.name ?? t("app.housingCooperative")
       }
+      logo={{
+        light: viewer?.housingCooperative?.logoUrl ?? null,
+        dark: viewer?.housingCooperative?.logoDarkUrl ?? null,
+      }}
       personName={
         viewer === null
           ? undefined
