@@ -12,6 +12,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
+import { failureName } from "../logging/failure";
 
 /**
  * Making a plugin's NestJS module safe to register in the application.
@@ -282,11 +283,7 @@ function sealController(
   // the guard reads the handler first and a method-level opt-out would win.
   const prototype: unknown = controller.prototype;
   if (typeof prototype === "object" && prototype !== null) {
-    for (const name of handlerNames(prototype)) {
-      const handler: unknown = (prototype as Record<string, unknown>)[name];
-      if (typeof handler !== "function") {
-        continue;
-      }
+    for (const { name, handler } of handlers(prototype)) {
       if (reflect(handler, METHOD_METADATA) === undefined) {
         continue;
       }
@@ -337,7 +334,7 @@ function sealController(
 }
 
 /**
- * Every method name a controller answers on, inherited ones included.
+ * Every method a controller answers on, inherited ones included.
  *
  * NestJS discovers route handlers across the whole prototype chain, so a
  * controller that inherits a decorated method from a base class serves that
@@ -350,9 +347,18 @@ function sealController(
  * Walked in the same order NestJS walks it, stopping short of Object.prototype
  * and keeping the first name seen, so a subclass override is the function that
  * gets sealed rather than the base's.
+ *
+ * Read from the property descriptor rather than by name. Reading
+ * `prototype[name]` calls a getter, which is the plugin's own code running
+ * inside the gate that decides whether the plugin may run at all - and a
+ * getter that throws would take the whole boot down, because this is the one
+ * path in the load where a plugin's defect is a refusal rather than an
+ * exception. A descriptor answers what the property is without evaluating it,
+ * so an accessor is skipped: NestJS routes to methods, and a property that has
+ * to be called to find out what it holds is not one.
  */
-function handlerNames(prototype: object): string[] {
-  const names: string[] = [];
+function handlers(prototype: object): { name: string; handler: object }[] {
+  const found: { name: string; handler: object }[] = [];
   const seen = new Set<string>(["constructor"]);
 
   for (
@@ -365,11 +371,17 @@ function handlerNames(prototype: object): string[] {
         continue;
       }
       seen.add(name);
-      names.push(name);
+      const value: unknown = Object.getOwnPropertyDescriptor(
+        current,
+        name,
+      )?.value;
+      if (typeof value === "function") {
+        found.push({ name, handler: value });
+      }
     }
   }
 
-  return names;
+  return found;
 }
 
 /**
@@ -414,8 +426,12 @@ function resolveForwardReference(
   try {
     return { entry: (forwardRef as () => unknown)() };
   } catch (cause) {
+    // The thunk is the plugin's, so what it threw is the plugin's text and
+    // stays out of the refusal, which is written to the log.
     return {
-      refusal: `A forward reference in the module graph could not be resolved: ${String(cause)}`,
+      refusal:
+        "A forward reference in the module graph threw " +
+        `${failureName(cause)} and could not be resolved.`,
     };
   }
 }

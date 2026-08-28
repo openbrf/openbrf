@@ -42,16 +42,36 @@ describe("drain", () => {
     const outcome = await drain(
       {
         close: async () => {
-          throw new Error("socket already gone");
+          throw new TypeError("socket already gone");
         },
       },
       50,
     );
 
-    expect(outcome).toEqual({
-      kind: "failed",
-      detail: "Error: socket already gone",
-    });
+    expect(outcome).toEqual({ kind: "failed", detail: "TypeError" });
+  });
+
+  /**
+   * Closing runs every module's shutdown hook, and a loaded plugin's is one of
+   * them - so what a rejection says here is text the plugin composed, out of
+   * whatever it had in hand. The caller writes this to the log, which is
+   * outside the masking and audit rules that cover a resident's details
+   * everywhere else.
+   */
+  it("does not carry what the close said into what the caller logs", async () => {
+    const revealing = "flush failed for anna.andersson@exempel.se";
+
+    const outcome = await drain(
+      {
+        close: async () => {
+          throw new Error(revealing);
+        },
+      },
+      50,
+    );
+
+    expect(JSON.stringify(outcome)).not.toContain("anna.andersson");
+    expect(outcome).toEqual({ kind: "failed", detail: "Error" });
   });
 
   it("treats a missing application as already closed", async () => {

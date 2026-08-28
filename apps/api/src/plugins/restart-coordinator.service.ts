@@ -4,6 +4,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { failureName } from "../logging/failure";
 
 /**
  * Something that can be closed so in-flight requests finish. INestApplication
@@ -176,9 +177,12 @@ export async function drain(
 
   const closing = application.close().then(
     (): DrainOutcome => ({ kind: "closed" }),
+    // Closing runs every module's shutdown hook, a loaded plugin's included,
+    // so what a rejection says is the plugin's own text. The caller logs this,
+    // and the class of the failure is what it is entitled to.
     (cause: unknown): DrainOutcome => ({
       kind: "failed",
-      detail: String(cause),
+      detail: failureName(cause),
     }),
   );
 

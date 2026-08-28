@@ -10,6 +10,7 @@ import { Reflector } from "@nestjs/core";
 import { catchError, type Observable, throwError } from "rxjs";
 
 import { DomainError } from "../http/domain-error";
+import { failureFrames, failureName } from "../logging/failure";
 import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
 import { PluginHandlerError } from "./plugin.errors";
 
@@ -57,34 +58,11 @@ export class PluginErrorInterceptor implements NestInterceptor {
         this.logger.error(
           `Plugin "${pluginId}" failed handling ` +
             `${context.getClass().name}.${context.getHandler().name}: ` +
-            failureIdentity(cause),
-          callFrames(cause),
+            failureName(cause),
+          failureFrames(cause),
         );
         return throwError(() => new PluginHandlerError(pluginId));
       }),
     );
   }
-}
-
-/** What was thrown, without any of what it says. */
-function failureIdentity(cause: unknown): string {
-  return cause instanceof Error ? cause.name : typeof cause;
-}
-
-/**
- * The stack's call frames, with its first line dropped.
- *
- * A V8 stack begins with `Name: message`, so handing the whole string to the
- * logger would put the plugin's text back in the log by another route. The
- * `at ...` lines are file paths and function names, which is what an operator
- * needs to decide whose bug it is.
- */
-function callFrames(cause: unknown): string | undefined {
-  if (!(cause instanceof Error) || typeof cause.stack !== "string") {
-    return undefined;
-  }
-  const frames = cause.stack
-    .split("\n")
-    .filter((line) => line.trimStart().startsWith("at "));
-  return frames.length === 0 ? undefined : frames.join("\n");
 }

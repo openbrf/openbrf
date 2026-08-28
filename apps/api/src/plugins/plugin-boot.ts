@@ -14,6 +14,7 @@ import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { type Locale, SUPPORTED_LOCALES } from "../i18n/i18n.service";
+import { failureFrames, failureName } from "../logging/failure";
 import { dataPaths } from "../packaging/data-paths";
 import { npmAvailable } from "../packaging/npm-install";
 import {
@@ -281,6 +282,25 @@ function fail(
   logger.warn(`Plugin "${discovered.id}" not loaded: ${log}`);
 }
 
+/**
+ * What an operator needs to place a bundle that threw while it was loading.
+ *
+ * The plugin wrote the message its bundle threw, and a plugin that reads the
+ * register through its consented host services can have a resident's details
+ * in hand when it does. So the message is not here and never reaches the log:
+ * what does is the class of the failure, the file that was required, and the
+ * call frames - enough to say which package, where in it, and what kind of
+ * fault, without any of what it was holding.
+ */
+function loadFailureLog(discovered: DiscoveredPlugin, cause: unknown): string {
+  const frames = failureFrames(cause);
+  const entry = discovered.serverEntry ?? discovered.directory;
+  return (
+    `its bundle threw ${failureName(cause)} while being loaded from ${entry}` +
+    (frames === undefined ? "" : `\n${frames}`)
+  );
+}
+
 /** A finding as one line, for the log. */
 function describe(reason: string, detail: PluginFindingDetail): string {
   const values = Object.entries(detail).map(([name, value]) =>
@@ -404,17 +424,13 @@ async function register(
     }
     contributed = await (factory as (host: PluginHost) => unknown)(host);
   } catch (cause) {
-    // The plugin composed that message, so it can hold anything the plugin was
-    // handling when it threw - a resident's name or contact details included.
-    // The code is what crosses the wire; the text an operator needs goes to
-    // the container log, which is where the masking rules put it anyway.
     fail(
       boot,
       logger,
       discovered,
       "load-failed",
       {},
-      `its bundle threw while being loaded: ${String(cause)}`,
+      loadFailureLog(discovered, cause),
     );
     return;
   }

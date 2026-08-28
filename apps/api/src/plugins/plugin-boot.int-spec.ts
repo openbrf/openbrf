@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Logger } from "@nestjs/common";
 import { PATH_METADATA } from "@nestjs/common/constants";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { PluginHost } from "@openbrf/plugin-sdk";
@@ -9,7 +10,7 @@ import {
   PluginHostUnavailableError,
   PluginPermissionError,
 } from "@openbrf/plugin-sdk";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import type { Env } from "../config/env";
@@ -70,6 +71,8 @@ let testEnv: Env;
 let registry: PluginRegistryService;
 let binding: PluginHostBinding;
 let boot: PluginBoot;
+/** Everything the load wrote to the log, as one string to search. */
+let warnings = "";
 
 interface PackageOptions {
   id: string;
@@ -285,11 +288,19 @@ exports.createPlugin = function createPlugin() {
   await registry.setEnabled(DISABLED, false);
 
   binding = new PluginHostBinding();
-  boot = await loadPlugins({
-    env: testEnv,
-    records: await registry.list(),
-    binding,
-  });
+  // Recorded rather than replaced, so the run's own output is unchanged and
+  // the assertions below can read what a failing plugin put in the log.
+  const warn = vi.spyOn(Logger.prototype, "warn");
+  try {
+    boot = await loadPlugins({
+      env: testEnv,
+      records: await registry.list(),
+      binding,
+    });
+  } finally {
+    warnings = JSON.stringify(warn.mock.calls);
+    warn.mockRestore();
+  }
 }, 120_000);
 
 afterAll(async () => {
@@ -342,15 +353,41 @@ describe("loading plugins at boot", () => {
   });
 
   /**
-   * The rule across every finding rather than one of them. What a plugin's own
-   * code composed goes to the container log, where the instance's masking and
-   * audit rules already put it; the admin screen is served a code and the
-   * values its own sentence needs.
+   * The rule across every finding rather than one of them: the admin screen is
+   * served a code and the values its own sentence needs, never a sentence this
+   * process composed.
    */
   it("keeps what a plugin's own code said off the wire", () => {
     expect(JSON.stringify(boot.findings)).not.toContain(
       "this plugin is broken",
     );
+  });
+
+  /**
+   * And not in the log either, which is the part no other control covers.
+   *
+   * A plugin composes the message it throws out of whatever it was handling,
+   * and one reading the register through its consented host services can be
+   * holding a resident's address or a personal identity number. Protected
+   * personal data is masked server-side and every reveal is written to the
+   * audit log in the same transaction as the read; a container log is outside
+   * both, so a copy there is a disclosure to everyone with log access and a
+   * retention breach at once.
+   */
+  it("keeps what a plugin's own code said out of the log as well", () => {
+    expect(warnings).not.toContain("this plugin is broken");
+  });
+
+  /**
+   * The other half of the same rule. "Log nothing" is easy and leaves an
+   * operator with a plugin that will not load and no way to find out why, so
+   * what a refusal does carry is the package, the file that was required and
+   * the class of the failure - none of which is composed from data.
+   */
+  it("says which package, which file and what kind of failure", () => {
+    expect(warnings).toContain(FAILING);
+    expect(warnings).toContain("Error");
+    expect(warnings).toContain("dist/server.cjs");
   });
 
   it("skips a module that reaches outside what a plugin may register", () => {
