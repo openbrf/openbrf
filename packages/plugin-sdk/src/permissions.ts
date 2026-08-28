@@ -14,7 +14,8 @@
  */
 export const PLUGIN_PERMISSIONS = [
   /**
-   * Apartments, names, residency roles and board positions. Never contact
+   * Apartments, names, who is a resident, who is a member and who holds a
+   * board position. Never contact
    * details, never personal identity numbers, and never a person flagged with
    * protected personal data - those are excluded from every plugin read
    * regardless of permission (plan section 4.4).

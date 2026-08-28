@@ -61,7 +61,9 @@ describe("the declaration", () => {
     const { container } = renderPanel();
 
     expect(
-      screen.getByText("Läsa namn, lägenheter och roller i boendet"),
+      screen.getByText(
+        "Läsa namn, lägenheter och vem som är boende och vem som är medlem",
+      ),
     ).toBeTruthy();
     expect(
       screen.getByText("Läsa e-postadresser och telefonnummer"),
