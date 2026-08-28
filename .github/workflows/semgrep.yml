@@ -1,0 +1,75 @@
+name: Semgrep
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege rather than whatever the repository default happens to be.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Semgrep scan
+    runs-on: ubuntu-latest
+
+    # Job-level permissions replace the read-only default above rather than
+    # extend it, so the checkout's contents: read has to be repeated here.
+    permissions:
+      contents: read
+      # Only the upload step needs this, and only on push: a pull request from
+      # a fork gets a read-only token and cannot write code scanning results.
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+
+      # --strict fails the job on a file semgrep could not parse, so a scan
+      # that quietly skipped code is a red build rather than a green one. The
+      # test files are excluded because semgrep's TypeScript parser rejects
+      # `importOriginal<typeof import("...")>()`, the vitest idiom this suite
+      # uses; without the exclusion --strict fails on every run.
+      #
+      # Through the image rather than pip: an unpinned `pip install` would cost
+      # the Scorecard Pinned-Dependencies check, and the image refuses to scan
+      # unless the code is mounted at /src. The rulesets are fetched from the
+      # Semgrep registry at run time, so they are not pinned the way the image
+      # is - the registry decides which rules a given run applies.
+      - name: Run Semgrep
+        env:
+          # renovate: datasource=docker depName=semgrep/semgrep
+          SEMGREP_IMAGE: semgrep/semgrep:1.174.0@sha256:f1f7b71861c7b28b6e0f661225a2c4f58a484f5d0f182465c6d6b3b22f972ade
+        run: |
+          docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
+            semgrep scan \
+            --config=p/typescript \
+            --config=p/react \
+            --config=p/nodejs \
+            --config=p/github-actions \
+            --metrics=off \
+            --sarif --output=semgrep.sarif \
+            --error \
+            --strict \
+            --exclude='*.test.ts' \
+            --exclude='*.test.tsx' \
+            --exclude='*.spec.ts' \
+            --exclude='*.spec.tsx'
+
+      # A finding fails the step above, so this one has to run regardless to
+      # get it onto the dashboard. Fork pull requests skip it and rely on the
+      # failing step alone, since their token cannot upload.
+      - name: Upload to code scanning
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
