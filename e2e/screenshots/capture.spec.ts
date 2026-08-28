@@ -10,6 +10,7 @@ import {
   ensureRegisterFixture,
 } from "../src/provision";
 import { repositoryRoot, stack } from "../src/stack";
+import { assertSafeToPublish, freezeScripts } from "./safety";
 import {
   SCREENS,
   type Action,
@@ -91,81 +92,6 @@ const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
 };
 
 // --- what may appear in a published image ------------------------------------
-
-/**
- * A personal identity number, in either of the forms the register accepts.
- *
- * These images are attached to pull requests on a public repository about a
- * statutory personal-data register, so this is checked rather than trusted:
- * every screen is scanned before it is written, and a match fails the run.
- */
-const IDENTITY_NUMBER = /\b\d{6}(?:\d{2})?[-+]\d{4}\b/g;
-
-/**
- * Whether a match could be a personal identity number at all.
- *
- * A Swedish organisation number has the same shape and appears all over these
- * screens - the cooperative's own, and the example in the hint under the field
- * asking for it. The two are told apart by the date: a personal identity
- * number begins with one, and an organisation number is issued with its month
- * digits raised past twelve precisely so that it cannot. A coordination number
- * is a personal identity number with sixty added to the day, so the day is
- * allowed to run past the end of a month.
- */
-function couldBeADate(candidate: string): boolean {
-  const [date = ""] = candidate.split(/[-+]/);
-  const month = Number(date.slice(-4, -2));
-  const day = Number(date.slice(-2));
-  return month >= 1 && month <= 12 && day >= 1 && day <= 91;
-}
-
-const EMAIL_ADDRESS = /\b[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
-
-/**
- * Reserved by RFC 2606 and resolvable by nobody, which is why the fixtures use
- * it. An address on any other domain is a real one until proved otherwise.
- */
-const RESERVED_EMAIL_SUFFIX = ".test";
-
-/**
- * Reads the page and refuses anything that must not be published.
- *
- * Run on both sides of the shutter. The page is read and the picture is taken
- * as two separate acts, so a screen whose data arrives while it is being
- * photographed can put content in the image that the read before it never saw:
- * a `waitFor` that is a static heading is satisfied before the request filling
- * the page comes back. The read after the picture is the one that covers the
- * picture - whatever reached the image is in the page by then - and the read
- * before it is what fails a bad screen without spending a picture on it.
- */
-async function assertSafeToPublish(page: Page, name: string): Promise<void> {
-  // What a filled-in form shows is in the field's value, not in the document's
-  // text, and the setup wizard is photographed with its forms filled in.
-  const typed = await page
-    .locator("input, textarea")
-    .evaluateAll((fields) =>
-      fields
-        .map((field) => (field as HTMLInputElement | HTMLTextAreaElement).value)
-        .filter((value) => value !== ""),
-    );
-  const text = [await page.locator("body").innerText(), ...typed].join("\n");
-
-  const identityNumbers = [...text.matchAll(IDENTITY_NUMBER)]
-    .map((match) => match[0])
-    .filter(couldBeADate);
-  expect(
-    identityNumbers,
-    `${name} shows something shaped like a personal identity number. Screenshots are published; seed data that cannot appear in one.`,
-  ).toEqual([]);
-
-  const addresses = [...text.matchAll(EMAIL_ADDRESS)]
-    .map((match) => match[0])
-    .filter((candidate) => !candidate.endsWith(RESERVED_EMAIL_SUFFIX));
-  expect(
-    addresses,
-    `${name} shows an email address outside the reserved ${RESERVED_EMAIL_SUFFIX} domain. Screenshots are published; seed data that cannot appear in one.`,
-  ).toEqual([]);
-}
 
 // --- resolving a declared target ---------------------------------------------
 
@@ -404,12 +330,24 @@ test("captures every declared screen in light and dark", async ({
         );
 
         await settle(page, screen);
-        await assertSafeToPublish(page, screen.name);
-        const image = await photograph(page, screen);
-        // The picture is already taken, so this is the read that covers it.
-        // Nothing reaches the disk until it passes.
-        await assertSafeToPublish(page, screen.name);
 
+        // Held still for the whole of it, so the page that is checked is the
+        // page that is photographed rather than the page as it was a moment
+        // before. The second read costs a few milliseconds and is what would
+        // notice a freeze that had stopped working.
+        const thaw = await freezeScripts(page, context);
+        let image: Buffer;
+        try {
+          await assertSafeToPublish(page, screen.name);
+          image = await photograph(page, screen);
+          await assertSafeToPublish(page, screen.name);
+        } finally {
+          await thaw();
+        }
+
+        // Written only now: a picture the check refused is a picture that never
+        // reaches the disk, where `page.screenshot({ path })` would have left
+        // one behind.
         const path = resolve(OUTPUT_DIR, `${screen.name}-${theme}.png`);
         await writeFile(path, image);
         console.log(`  ${relative(repositoryRoot, path)}`);
