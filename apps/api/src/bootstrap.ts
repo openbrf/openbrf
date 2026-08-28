@@ -9,6 +9,7 @@ import { AppModule } from "./app.module";
 import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
+import { failureFrames, failureName } from "./logging/failure";
 import {
   type BootPlugin,
   loadPlugins,
@@ -77,11 +78,12 @@ export async function loadPluginsAtBoot(
  *
  * A plugin whose providers do not resolve fails the whole container, and a
  * broken plugin must not be able to take the association's register offline
- * (ADR 0003). NestJS names the module in the error it throws, which is enough
- * to identify the plugin; when it is not, the most recently added plugin is
- * dropped instead. Either way the attempt is repeated until the application
- * builds, and a failure with no plugins left in the graph is the
- * application's own and is not caught.
+ * (ADR 0003). NestJS names the module in the error it throws, and a failure
+ * raised inside a bundle leaves that bundle in the stack, so the plugin at
+ * fault is identified rather than guessed at; the attempt is then repeated
+ * until the application builds. A failure that implicates no plugin is the
+ * application's own and is not caught - `blame` says why nothing is dropped
+ * on no evidence.
  */
 export async function createApplication(
   boot: PluginBoot,
@@ -109,18 +111,18 @@ export async function createApplication(
       if (culprit === null) {
         throw cause;
       }
+      // The class and the frames, never the message. NestJS composes that from
+      // the plugin's own provider and parameter names, and a plugin's
+      // constructor throws holding whatever it had just read.
       logger.error(
         `Plugin "${culprit.id}" could not be built into the application and ` +
-          "was skipped.",
-        cause,
+          `was skipped: ${failureName(cause)}`,
+        failureFrames(cause),
       );
       culprit.context.serving = false;
       boot.plugins = boot.plugins.filter((plugin) => plugin !== culprit);
       boot.dormant.set(culprit.id, culprit.manifest);
-      // The reason is logged above with the error itself and travels as a code
-      // alone. NestJS composes that message from the plugin's own provider and
-      // parameter names, which can hold anything the package chose to call
-      // them, so it is an operator's to read and not a board's.
+      // The reason travels as a code alone, for the same reason.
       boot.findings.push({
         id: culprit.id,
         directory: culprit.directory,
@@ -131,19 +133,77 @@ export async function createApplication(
   }
 }
 
-/** Which plugin to drop, or null when the failure is not a plugin's. */
-function blame(boot: PluginBoot, cause: unknown): BootPlugin | null {
+/**
+ * Which plugin to drop, or null when nothing implicates one.
+ *
+ * Two kinds of evidence, because the two kinds of failure leave different
+ * traces. A dependency that cannot be resolved is thrown by NestJS and names
+ * the module it was building, which is the first check. A provider whose
+ * constructor throws names no module at all but leaves its own file in the
+ * stack, which is the second.
+ *
+ * Nothing is dropped without evidence. Dropping whichever plugin was added
+ * last would disable a package that was working and record it for the board as
+ * broken, which is a false statement about something the board consented to
+ * and cannot tell apart from a true one. When the fault is the application's
+ * own it is worse still: every installed plugin is made dormant one at a time
+ * on the way to failing anyway. A failure this cannot place is the
+ * application's to answer for, so it is rethrown.
+ *
+ * The error's text is read here and goes nowhere: it is matched against names
+ * this application chose, never logged or served.
+ *
+ * Exported for its test: the alternative is driving a container into each
+ * failure shape, which tests NestJS rather than the attribution.
+ */
+export function blame(boot: PluginBoot, cause: unknown): BootPlugin | null {
   const candidates = boot.plugins.filter((plugin) => plugin.module !== null);
   if (candidates.length === 0) {
     return null;
   }
 
-  // An anonymous module class has no name to look for, and matching on the
-  // empty string would blame every plugin at once.
   const message = String(cause);
   const named = candidates.filter((plugin) => {
+    // An anonymous module class has no name to look for, and matching on the
+    // empty string would name every plugin at once.
     const name = plugin.module?.module.name ?? "";
-    return name !== "" && message.includes(name);
+    return name !== "" && mentions(message, name);
   });
-  return named.length === 1 ? (named[0] ?? null) : (candidates.at(-1) ?? null);
+  if (named.length === 1) {
+    return named[0] ?? null;
+  }
+
+  const frames = failureFrames(cause) ?? "";
+  const traced = candidates.filter((plugin) =>
+    frames.includes(plugin.directory),
+  );
+  return traced.length === 1 ? (traced[0] ?? null) : null;
+}
+
+/**
+ * Whether the message names the module, as a word rather than a substring.
+ *
+ * A bundler shortens a class name to a character or two, and `includes` on one
+ * of those matches almost any sentence - which would read as a confident,
+ * unique attribution to the wrong plugin. Scanned rather than matched with a
+ * constructed pattern: the name comes from a package this process did not
+ * write.
+ */
+function mentions(message: string, name: string): boolean {
+  const isWordCharacter = (character: string | undefined): boolean =>
+    character !== undefined && /[\w$]/.test(character);
+
+  for (
+    let at = message.indexOf(name);
+    at !== -1;
+    at = message.indexOf(name, at + 1)
+  ) {
+    if (
+      !isWordCharacter(message[at - 1]) &&
+      !isWordCharacter(message[at + name.length])
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

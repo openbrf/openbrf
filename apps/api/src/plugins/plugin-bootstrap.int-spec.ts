@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
@@ -13,6 +14,7 @@ import { dataPaths } from "../packaging/data-paths";
 import {
   loadEnvForIntegrationTests,
   restoreEnvironmentVariable,
+  runSuffix,
 } from "../testing/integration-env";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
@@ -33,8 +35,16 @@ import { PluginRegistryService } from "./plugin-registry.service";
 
 const env = loadEnvForIntegrationTests();
 
-const GOOD = "bootstrap-good";
-const UNBUILDABLE = "bootstrap-unbuildable";
+/*
+ * Per-run identifiers. This suite writes its own packages and its own consent
+ * rows and cleans them up by id, so a fixed id makes two overlapping runs each
+ * other's teardown - and the failure that produces names a plugin neither run
+ * was testing. The fixture suite is the one that cannot do this: the id it
+ * installs is the one its catalog entry declares.
+ */
+const SUFFIX = runSuffix();
+const GOOD = `bootstrap-good-${SUFFIX}`;
+const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
 const ALL_IDS = [GOOD, UNBUILDABLE];
 
 /** A module the injector cannot construct: a provider with a missing dependency. */
@@ -98,6 +108,8 @@ let registry: PluginRegistryService;
 let app: NestFastifyApplication | undefined;
 let workspace: string | undefined;
 let previousDataDir: string | undefined;
+/** What the bootstrap logged about the plugin it dropped. */
+let errors = "";
 
 /**
  * The running application.
@@ -178,7 +190,20 @@ beforeAll(async () => {
     OPENBRF_PLUGINS_ENABLED: true,
   };
 
-  const started = await createApplication(await loadPluginsAtBoot(testEnv));
+  // Recorded rather than replaced, so the run's own output is unchanged and
+  // the assertions below can read what the dropped plugin put in the log.
+  const error = vi.spyOn(Logger.prototype, "error");
+  let started: NestFastifyApplication;
+  try {
+    started = await createApplication(await loadPluginsAtBoot(testEnv));
+  } finally {
+    errors = JSON.stringify(
+      error.mock.calls.filter((call) =>
+        String(call[0]).includes("could not be built into the application"),
+      ),
+    );
+    error.mockRestore();
+  }
   app = started;
   await started.init();
   await started.getHttpAdapter().getInstance().ready();
@@ -264,6 +289,17 @@ describe("booting with a plugin the application cannot be built around", () => {
 
     expect(finding?.detail).toEqual({});
     expect(JSON.stringify(report)).not.toContain("NeedsAbsent");
+  });
+
+  /**
+   * Nor into the log, which is the part no other control covers. What it does
+   * carry is the plugin and the class of the failure, so an operator has the
+   * two things that place it.
+   */
+  it("logs the plugin and the class of the failure, not its message", () => {
+    expect(errors).not.toContain("NeedsAbsent");
+    expect(errors).toContain(UNBUILDABLE);
+    expect(errors).toContain("Error");
   });
 
   it("does not serve the dropped plugin's routes", async () => {
