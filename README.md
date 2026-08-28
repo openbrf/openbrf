@@ -12,7 +12,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 - The statutory registers under Swedish law: the member register (public on request) and the confidential apartment register, kept strictly separate
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - News and mailings, document archive, issue reporting with photos
-- The association's public website with a page CMS: public and member-only pages in one menu, a broker information page generated from association facts, contact and fault-report forms, and news that can email the members on publish
+- The association's public website with a page CMS: public and member-only pages in one menu, a broker information page generated from association facts, contact and issue report forms, and news that can email the members on publish
 - Roles for board members, residents, and external property managers
 - Sign-in with passwords, magic links, passkeys (WebAuthn), and TOTP
 - Swedish + English UI (full i18n), light + dark themes, and a WordPress-like plugin and theme system

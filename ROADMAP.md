@@ -127,7 +127,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
       application moving under `/app`
 - [ ] Page editor: rich text with insertable data blocks - news teasers,
       document list, board roster, association facts, FAQ, and the contact
-      and fault-report forms. Editing pages, menu and news is a capability
+      and issue report forms. Editing pages, menu and news is a capability
       granted to the board by default and grantable to others; site-wide
       settings stay with an admin
 - [ ] Menu editor: top level plus one dropdown level; pages, generated pages
@@ -148,7 +148,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
 - [ ] Broker information page generated from association facts, and the
       public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
-      submission), fault reports that create real issues, and an
+      submission), issue reports that go straight into the issues module, and an
       apply-for-account page (a setting, on by default)
 
 ### Plugins and themes
@@ -189,7 +189,7 @@ Free, open source, and never moved behind a paywall.
       many cooperatives pay for today: the association's own site at the domain
       root, public and member-only pages in one editable menu, a broker
       information page generated from association facts, contact and
-      fault-report forms, and news that can email the members on publish.
+      issue report forms, and news that can email the members on publish.
       Server-rendered with no JavaScript required, no cookies and no
       third-party requests on public pages - so no cookie banner. Personal
       data reaches a public page only through per-person publication consent,

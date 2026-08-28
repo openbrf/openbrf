@@ -10,7 +10,7 @@ web
 
 ## Stack
 
-TypeScript 100 % (#22). NestJS with Fastify adapter (#23). React 19 SPA via Vite for the application, no SSR; TanStack Router + Query, shadcn/ui, Tailwind (#24). The public website is server-rendered HTML from the API, styled by the theme tokens (#60). PostgreSQL + Prisma + pg-boss (#25-26). Better Auth: password, magic link, passkeys/WebAuthn, TOTP, OIDC (#26, #29). Monorepo: pnpm workspaces + Turborepo (apps/api, apps/web, packages/shared, packages/i18n, packages/moduler). Node LTS (24 now, 26 after Oct 2026); nothing may require Bun (#33). Docker Compose deployment (#32). Mobile app later via Capacitor wrapping the same web build (#30).
+TypeScript 100 % (#22). NestJS with Fastify adapter (#23). React 19 SPA via Vite for the application, no SSR; TanStack Router + Query, shadcn/ui, Tailwind (#24). The public website is server-rendered HTML from the API, styled by the theme tokens (#60). PostgreSQL + Prisma + pg-boss (#25-26). Better Auth: password, magic link, passkeys/WebAuthn, TOTP, OIDC (#26, #29). Monorepo: pnpm workspaces + Turborepo (apps/api, apps/web, packages/shared, packages/i18n, packages/moduler). Node 26 (Current now, Active LTS from Oct 2026); nothing may require Bun (#33). Docker Compose deployment (#32). Mobile app later via Capacitor wrapping the same web build (#30).
 
 ## Users
 
@@ -40,7 +40,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 ## Capabilities and Constraints
 
-- Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents), news/mailings, public website (page CMS with data blocks, menu editor, public/member visibility, broker page, contact + fault-report forms, publication consent guardrails; file storage on local disk or S3) (#59-61), document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
+- Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents), news/mailings, public website (page CMS with data blocks, menu editor, public/member visibility, broker information page, contact + issue report forms, publication consent guardrails; file storage on local disk or S3) (#59-61), document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
 - v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances, Lantmäteriet export (legal deadline Dec 2027).
 - Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, premium themes.
 - Theming: theme engine in core, light + dark from the start, fully token-based (CSS custom properties, data-theme attribute, follows prefers-color-scheme with per-user override) (#39-40). Components reference only tokens, never hex.
