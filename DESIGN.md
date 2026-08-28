@@ -223,6 +223,6 @@ The register table as a dark board: `--tavla` panel (8px radius, one shadow), a 
 
 ### Don't:
 - **Don't** use pills, gradients, glassmorphism, extra shadow levels, or emoji.
-- **Don't** use brass for anything but trust roles, trust actions, and active/selected states.
+- **Don't** use brass for anything but trust roles, trust actions, active/selected states, and the navigation count plate.
 - **Don't** put personal ID numbers, masked or not, outside the register views; Skyddad rows mask contact data everywhere.
 - **Don't** hardcode `#FFFFFF`/hex in components - the one recorded defect class the review caught; use `--on-massing`/`--on-danger`.

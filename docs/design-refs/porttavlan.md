@@ -162,8 +162,17 @@ in a register column, where the row below carries more of the same data.
 
 ### The stamp names the address book, not the member register
 
-The design's stamp reads "Utdrag ur medlemsförteckningen". The address book
-carries members and non-member residents together, while the member register
-under BRL 9 kap. 9 § carries members only and is held available to anyone who
-asks. The stamp therefore names the address book, and `stampKey` is a prop so
-the member register view can pass its own.
+The design's stamp reads "Utdrag ur medlemsförteckningen", which identifies an
+extract from the member register. The address book carries members and
+non-member residents together, while the member register under BRL 9 kap. 9 §
+carries members only and is held available to anyone who asks. A single board
+therefore cannot carry one stamp.
+
+`stampKey` is a prop, and the label is chosen per view:
+
+| View            | Key                          | Label                              |
+| --------------- | ---------------------------- | ---------------------------------- |
+| Address book    | `register.stamp.addressBook` | `Adressbok - {{scope}} - {{date}}` |
+| Member register | supplied by that view        | `Utdrag ur medlemsförteckningen`   |
+
+The member register view does not exist yet, and no key is reserved for it.
