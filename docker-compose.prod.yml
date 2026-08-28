@@ -60,8 +60,16 @@ services:
       # member register and the audit log append-only. The owner runs
       # migrations; the application connects as openbrf_app, which the
       # entrypoint creates and constrains from RUNTIME_DB_PASSWORD.
-      DATABASE_URL: postgresql://openbrf:${POSTGRES_PASSWORD}@db:5432/openbrf
-      DATABASE_URL_RUNTIME: postgresql://openbrf_app:${RUNTIME_DB_PASSWORD}@db:5432/openbrf
+      #
+      # The parts rather than the two connection URLs: a password is a URL
+      # component, one holding :, /, @, ? or # has to be percent-encoded, and
+      # interpolation here cannot encode anything. The entrypoint assembles
+      # both URLs from these, encoding as it goes.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: openbrf
+      POSTGRES_USER: openbrf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
       RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?set RUNTIME_DB_PASSWORD in the env file}
 
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in the env file}

@@ -76,6 +76,7 @@ RUN apt-get update \
 COPY --from=build --chown=node:node /app /app
 
 COPY docker/entrypoint.sh /usr/local/bin/openbrf-entrypoint
+COPY docker/database-url.mjs /app/docker/database-url.mjs
 COPY docker/first-boot.mjs /app/docker/first-boot.mjs
 
 # The plugin install job runs `npm install <tarball>` into the data volume, so

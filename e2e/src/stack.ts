@@ -79,18 +79,30 @@ function required(name: string): string {
   return value;
 }
 
+/**
+ * One connection URL, with the password percent-encoded.
+ *
+ * A password is a URL component. The suite gives both roles one containing :,
+ * / and @ on purpose, because that is what the entrypoint has to survive when
+ * it assembles the application's own URLs, and a suite that only ever used hex
+ * would never notice it stopped.
+ */
+function connectionUrl(role: string, passwordVariable: string): string {
+  return `postgresql://${role}:${encodeURIComponent(required(passwordVariable))}@127.0.0.1:${required("E2E_DB_PORT")}/openbrf`;
+}
+
 export const stack = {
   baseUrl: required("APP_URL"),
   mailpitUrl: `http://127.0.0.1:${required("E2E_MAILPIT_PORT")}`,
   /** The owner connection, used only to read the append-only audit log. */
-  databaseUrl: `postgresql://openbrf:${required("POSTGRES_PASSWORD")}@127.0.0.1:${required("E2E_DB_PORT")}/openbrf`,
+  databaseUrl: connectionUrl("openbrf", "POSTGRES_PASSWORD"),
   /**
    * The connection the application itself uses: openbrf_app, as the entrypoint
    * created and constrained it. Nothing in the suite should reach for this to
    * set data up - it is here so a spec can prove what that role can and cannot
    * do, which is only meaningful against the role the deployed image made.
    */
-  runtimeDatabaseUrl: `postgresql://openbrf_app:${required("RUNTIME_DB_PASSWORD")}@127.0.0.1:${required("E2E_DB_PORT")}/openbrf`,
+  runtimeDatabaseUrl: connectionUrl("openbrf_app", "RUNTIME_DB_PASSWORD"),
   /** Reachable from the app container, not from the host. */
   smtpHost: "mailpit",
   smtpPort: 1025,
@@ -118,6 +130,51 @@ export function startStack(): void {
 
 export function stopStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+}
+
+/**
+ * Runs a command inside the application container and returns what it wrote.
+ *
+ * The entrypoint's own scripts are the deployed artefact too, and they talk to
+ * psql, which lives in the image rather than on the machine driving the suite.
+ * Only the command's own streams are returned: an error object from the runner
+ * would carry the docker command line, and this exists to check what a script
+ * does and does not put in a log.
+ */
+export function runInAppContainer(
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+  timeoutMs: number,
+): { status: number; output: string } {
+  const overrides = Object.entries(environment).flatMap(([name, value]) => [
+    "--env",
+    `${name}=${value}`,
+  ]);
+  try {
+    const stdout = execFileSync(
+      "docker",
+      // No pseudo-TTY: the two streams stay apart, and nothing here is
+      // attached to a terminal in CI.
+      [...COMPOSE_ARGS, "exec", "-T", ...overrides, "app", ...command],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        timeout: timeoutMs,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    return { status: 0, output: stdout };
+  } catch (failure) {
+    const result = failure as {
+      status?: number | null;
+      stdout?: string | null;
+      stderr?: string | null;
+    };
+    return {
+      status: result.status ?? -1,
+      output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    };
+  }
 }
 
 /** Prints the application's logs. Called when the suite fails, not otherwise. */

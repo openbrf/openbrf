@@ -10,9 +10,9 @@ PostgreSQL container, and nothing else to install.
 ## What you need
 
 - Docker with Compose v2
-- A machine that can reach the address members will type, with TLS in front of
-  it. Passkeys need a secure origin, and so does a session cookie that is worth
-  anything.
+- A machine reachable at the public https:// address members will use, with TLS
+  in front of it. Passkeys need a secure origin, and so does a session cookie
+  that is worth anything.
 
 ## Starting an instance
 
@@ -28,13 +28,13 @@ Fill in the four values `.env.production` asks for, generating each with
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Hex is not a style preference: these go into PostgreSQL connection URLs, where a
-password containing `:`, `/`, `@`, `?` or `#` must be percent-encoded and fails
-authentication silently when it is not.
+Any character is allowed in the two database passwords. They end up inside
+PostgreSQL connection URLs, where `:`, `/`, `@`, `?` and `#` are delimiters, and
+the entrypoint percent-encodes them as it builds those URLs.
 
-Set `APP_URL` to the address members will type. Invitation and sign-in links are
-built from it, and the session cookie is issued for it, so a wrong value here
-produces links that go nowhere.
+Set `APP_URL` to the public https:// address members will use. Invitation and
+sign-in links are built from it, and the session cookie is issued for it, so a
+wrong value here produces links that go nowhere.
 
 Then:
 
@@ -56,17 +56,20 @@ onwards.
 
 The entrypoint runs, in this order, before the application listens:
 
-1. The data volume's directories are created and checked for writability.
-2. The field encryption key is provisioned if, and only if, this is a genuine
+1. The two database connection URLs are assembled from the host, the port, the
+   database name and each role's password, percent-encoding as it goes. A
+   `DATABASE_URL` or `DATABASE_URL_RUNTIME` that is already set is left alone.
+2. The data volume's directories are created and checked for writability.
+3. The field encryption key is provisioned if, and only if, this is a genuine
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
-3. Database migrations are applied, as the schema owner.
-4. The job queue schema is installed or migrated, as the owner.
-5. The application's own database role, `openbrf_app`, is created and
+4. Database migrations are applied, as the schema owner.
+5. The job queue schema is installed or migrated, as the owner.
+6. The application's own database role, `openbrf_app`, is created and
    constrained.
-6. The application starts, connecting as `openbrf_app`.
+7. The application starts, connecting as `openbrf_app`.
 
-Steps 3 to 5 are idempotent, so upgrading is `docker compose pull` - or
+Steps 4 to 6 are idempotent, so upgrading is `docker compose pull` - or
 `docker compose build` while there is no published image - followed by
 `docker compose up -d`, and nothing else.
 
@@ -84,9 +87,10 @@ every start, so the privileges are reapplied after any migration that added a
 table.
 
 An operator who manages that role themselves can leave `RUNTIME_DB_PASSWORD`
-unset and set `DATABASE_URL_RUNTIME` instead; the entrypoint then skips step 5.
+unset and set `DATABASE_URL_RUNTIME` instead; the entrypoint then skips step 6.
 It refuses to start with neither, because the alternative is an application
-connecting as the owner.
+connecting as the owner. A `DATABASE_URL_RUNTIME` supplied that way is used as
+written, so its password has to be percent-encoded already.
 
 ## Backups
 

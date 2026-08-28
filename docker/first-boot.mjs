@@ -53,23 +53,39 @@ if (!connectionString) {
   );
 }
 
-/** Runs one query and returns the single value it selects, trimmed. */
+/**
+ * Runs one query and returns the single value it selects, trimmed.
+ *
+ * A failure is replaced rather than passed on. psql takes the connection string
+ * as an argument; Node puts the whole command line into the message of the
+ * error it throws, and libpq echoes the string it could not parse. Either way
+ * the database password would reach whatever reads the error - and this runs
+ * during startup, so that is the container's log, which is shipped off the
+ * host, readable by anyone with Docker access and the first thing pasted into
+ * a bug report. Nothing derived from the connection string is reported here,
+ * not even the host, because a password containing a delimiter moves the
+ * boundaries of every other component in it.
+ */
 function query(sql) {
-  return execFileSync(
-    "psql",
-    [
-      "--quiet",
-      "--no-psqlrc",
-      "--tuples-only",
-      "--no-align",
-      "--set",
-      "ON_ERROR_STOP=on",
-      connectionString,
-      "--command",
-      sql,
-    ],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  ).trim();
+  try {
+    return execFileSync(
+      "psql",
+      [
+        "--quiet",
+        "--no-psqlrc",
+        "--tuples-only",
+        "--no-align",
+        "--set",
+        "ON_ERROR_STOP=on",
+        connectionString,
+        "--command",
+        sql,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    ).trim();
+  } catch {
+    throw new Error("psql could not run a statement against DATABASE_URL");
+  }
 }
 
 /**
@@ -82,10 +98,12 @@ function waitForDatabase() {
     try {
       query("SELECT 1");
       return;
-    } catch (error) {
+    } catch {
       if (attempt === CONNECT_ATTEMPTS) {
         fail(
-          `the database did not accept a connection within ${CONNECT_ATTEMPTS} seconds: ${String(error)}`,
+          `the database did not accept a connection within ${CONNECT_ATTEMPTS} seconds. ` +
+            "Check that it is running, and that DATABASE_URL names the right host, port, " +
+            "database and role.",
         );
       }
       // A busy wait is acceptable here: this runs once, before the server.
