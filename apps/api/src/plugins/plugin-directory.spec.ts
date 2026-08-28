@@ -204,7 +204,7 @@ describe("scanPluginDirectory", () => {
 
     const skipped = scan.skipped.find((entry) => entry.directory === directory);
     expect(skipped?.packageName).toBe("openbrf-plugin-broken");
-    expect(skipped?.detail).not.toBe("");
+    expect(skipped?.detail["issues"]).not.toBe("");
   });
 
   it("skips a plugin declaring an apiVersion this host does not implement", async () => {

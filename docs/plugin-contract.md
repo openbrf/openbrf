@@ -372,3 +372,11 @@ lists everything on the data volume that is not running and why:
 | `disabled`                | Switched off in the admin interface.                               |
 | `load-failed`             | It threw while being loaded.                                       |
 | `not-on-volume`           | Recorded as installed but not present.                             |
+
+The set is exported as `PLUGIN_FINDING_REASONS` from `@openbrf/plugin-sdk`. A
+finding carries one of these codes and a `detail` object holding the values its
+sentence needs - a version number, a file name, the categories a republished
+package added - and never a sentence of its own: the admin screen is Swedish by
+default while the server is English throughout, so the wording belongs to the
+interface. English prose about a refusal goes to the server's log, where the
+person debugging the package is reading.

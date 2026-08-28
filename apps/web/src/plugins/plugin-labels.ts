@@ -1,6 +1,8 @@
-import type {
-  PluginPermission,
-  PluginPersonalDataCategory,
+import {
+  PLUGIN_FINDING_REASONS,
+  type PluginFindingReason,
+  type PluginPermission,
+  type PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 
 import type { TranslationKey } from "../i18n/translation-key";
@@ -63,12 +65,16 @@ export function personalDataLabel(category: string): TranslationKey {
 /**
  * Why a plugin on the data volume is not running.
  *
- * The server reports a code; the board reads a sentence. An unrecognised code
- * falls back to a general one rather than being hidden: a plugin that is not
- * running for a reason this screen does not have words for is still a plugin
- * that is not running.
+ * The server reports a code; the board reads a sentence. Typed against the
+ * contract's own union rather than against string, so a reason added to the
+ * plugin contract fails to compile here until somebody has written the
+ * sentence for it - the difference between a board member always getting a
+ * sentence and usually getting one. The values are checked too: a key that
+ * does not exist in the resources is not a TranslationKey.
  */
-export const FINDING_LABELS: Readonly<Record<string, TranslationKey>> = {
+export const FINDING_LABELS: Readonly<
+  Record<PluginFindingReason, TranslationKey>
+> = {
   disabled: "plugins.findings.reasons.disabled",
   "not-consented": "plugins.findings.reasons.notConsented",
   "permissions-widened": "plugins.findings.reasons.permissionsWidened",
@@ -85,6 +91,20 @@ export const FINDING_LABELS: Readonly<Record<string, TranslationKey>> = {
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
 };
 
+/**
+ * The sentence a reason is read as.
+ *
+ * Walked rather than indexed, so the code arriving as a string is narrowed to
+ * the union without a cast. An unrecognised code falls back to a general
+ * sentence rather than being hidden: a plugin that is not running for a reason
+ * this version has no words for is still a plugin that is not running, and the
+ * fallback names the code so it can be looked up.
+ */
 export function findingLabel(reason: string): TranslationKey {
-  return FINDING_LABELS[reason] ?? "plugins.findings.reasons.unknown";
+  for (const code of PLUGIN_FINDING_REASONS) {
+    if (reason === code) {
+      return FINDING_LABELS[code];
+    }
+  }
+  return "plugins.findings.reasons.unknown";
 }

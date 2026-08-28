@@ -3,7 +3,12 @@ import { join } from "node:path";
 
 import type { DynamicModule } from "@nestjs/common";
 import { Logger } from "@nestjs/common";
-import type { PluginHost, PluginManifest } from "@openbrf/plugin-sdk";
+import type {
+  PluginFindingDetail,
+  PluginFindingReason,
+  PluginHost,
+  PluginManifest,
+} from "@openbrf/plugin-sdk";
 
 import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
@@ -67,12 +72,20 @@ export interface BootPlugin {
   locales: Partial<Record<Locale, Record<string, unknown>>>;
 }
 
-/** Why a plugin present on the volume is not running. */
+/**
+ * Why a plugin present on the volume is not running.
+ *
+ * A code and the values its sentence needs, never a sentence. This is served
+ * to the admin screen, which is Swedish by default while this process is
+ * English throughout: a sentence composed here would be an English sentence in
+ * a board member's panel, so the browser owns the wording and the codes are
+ * the contract's own.
+ */
 export interface PluginFinding {
   id: string | null;
   directory: string;
-  reason: string;
-  detail: string;
+  reason: PluginFindingReason;
+  detail: PluginFindingDetail;
 }
 
 export interface PluginBoot {
@@ -216,8 +229,7 @@ export async function loadPlugins(
         id: record.id,
         directory: paths.plugins,
         reason: "not-on-volume",
-        detail:
-          "The plugin is recorded as installed but is not on the data volume.",
+        detail: {},
       });
     }
   }
@@ -237,16 +249,27 @@ function note(boot: PluginBoot, logger: Logger, skipped: SkippedPlugin): void {
     detail: skipped.detail,
   });
   logger.warn(
-    `Skipping ${skipped.packageName ?? skipped.directory}: ${skipped.detail}`,
+    `Skipping ${skipped.packageName ?? skipped.directory}: ` +
+      `${describe(skipped.reason, skipped.detail)}`,
   );
 }
 
+/**
+ * Records a refusal.
+ *
+ * `log` is separate from `detail` because the two have different readers. The
+ * detail is what a translated sentence is completed with and crosses the wire;
+ * the log is English prose for whoever is reading the container's output, and
+ * naming a NestJS decorator there is useful in a way it never is on a board's
+ * screen.
+ */
 function fail(
   boot: PluginBoot,
   logger: Logger,
   discovered: DiscoveredPlugin,
-  reason: string,
-  detail: string,
+  reason: PluginFindingReason,
+  detail: PluginFindingDetail = {},
+  log = describe(reason, detail),
 ): void {
   boot.dormant.set(discovered.id, discovered.manifest);
   boot.findings.push({
@@ -255,7 +278,17 @@ function fail(
     reason,
     detail,
   });
-  logger.warn(`Plugin "${discovered.id}" not loaded: ${detail}`);
+  logger.warn(`Plugin "${discovered.id}" not loaded: ${log}`);
+}
+
+/** A finding as one line, for the log. */
+function describe(reason: string, detail: PluginFindingDetail): string {
+  const values = Object.entries(detail).map(([name, value]) =>
+    Array.isArray(value)
+      ? `${name}=${value.join(",")}`
+      : `${name}=${String(value)}`,
+  );
+  return values.length === 0 ? reason : `${reason} (${values.join(" ")})`;
 }
 
 async function register(
@@ -272,24 +305,12 @@ async function register(
     // run. The database is the desired state, so this is drift to be
     // reconciled away, not a plugin to load.
     boot.reconcileNeeded = true;
-    fail(
-      boot,
-      logger,
-      discovered,
-      "not-consented",
-      "No record of consent to run it.",
-    );
+    fail(boot, logger, discovered, "not-consented");
     return;
   }
 
   if (!record.enabled) {
-    fail(
-      boot,
-      logger,
-      discovered,
-      "disabled",
-      "Disabled in the admin interface.",
-    );
+    fail(boot, logger, discovered, "disabled");
     return;
   }
 
@@ -299,14 +320,9 @@ async function register(
   );
   if (widened.length > 0) {
     // A republished version that asks for more than the board agreed to.
-    fail(
-      boot,
-      logger,
-      discovered,
-      "permissions-widened",
-      `The installed package asks for ${widened.join(", ")}, which was not ` +
-        "consented to. Reinstall it to review the new permissions.",
-    );
+    fail(boot, logger, discovered, "permissions-widened", {
+      permissions: widened,
+    });
     return;
   }
 
@@ -319,19 +335,14 @@ async function register(
      * The same gate on the other half of the declaration. A republished
      * version can keep its permissions unchanged and still start handling
      * categories the board never saw - email or residency added to a plugin
-     * that declared only a name - and the board's agreement to a stated set of
+     * that declared only a name - and the board's samtycke to a stated set of
      * personal data is the legal basis for that processing. The stored
      * snapshot is what it agreed to, so anything beyond it needs fresh
      * consent rather than a boot.
      */
-    fail(
-      boot,
-      logger,
-      discovered,
-      "personal-data-widened",
-      `The installed package handles ${added.join(", ")}, which was not ` +
-        "consented to. Reinstall it to review the new declaration.",
-    );
+    fail(boot, logger, discovered, "personal-data-widened", {
+      categories: added,
+    });
     return;
   }
 
@@ -345,6 +356,9 @@ async function register(
       logger,
       discovered,
       "module-identity",
+      { packages: conflicts.map((conflict) => conflict.package) },
+      // The resolved paths are what an operator needs to see and are of no use
+      // to a board, so they go to the log rather than onto the wire.
       conflicts
         .map(
           (conflict) =>
@@ -385,18 +399,12 @@ async function register(
   try {
     const factory = requirePluginBundle(discovered.serverEntry);
     if (typeof factory !== "function") {
-      fail(
-        boot,
-        logger,
-        discovered,
-        "entry-invalid",
-        "The server bundle does not export a createPlugin factory.",
-      );
+      fail(boot, logger, discovered, "entry-invalid");
       return;
     }
     contributed = await (factory as (host: PluginHost) => unknown)(host);
   } catch (cause) {
-    fail(boot, logger, discovered, "load-failed", String(cause));
+    fail(boot, logger, discovered, "load-failed", { error: String(cause) });
     return;
   }
 
@@ -405,7 +413,7 @@ async function register(
     floor: routeCapabilityFloor(record.consentedPermissions),
   });
   if (!sealed.ok) {
-    fail(boot, logger, discovered, sealed.reason, sealed.detail);
+    fail(boot, logger, discovered, sealed.reason, {}, sealed.log);
     return;
   }
 

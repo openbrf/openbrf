@@ -335,14 +335,19 @@ describe("loading plugins at boot", () => {
   it("skips a bundle that throws while being loaded", () => {
     expect(loaded(FAILING)).toBeUndefined();
     expect(finding(FAILING)?.reason).toBe("load-failed");
-    expect(finding(FAILING)?.detail).toContain("this plugin is broken");
+    expect(finding(FAILING)?.detail["error"]).toContain(
+      "this plugin is broken",
+    );
     expect(loaded(GOOD)).toBeDefined();
   });
 
   it("skips a module that reaches outside what a plugin may register", () => {
     expect(loaded(REFUSED)).toBeUndefined();
     expect(finding(REFUSED)?.reason).toBe("module-refused");
-    expect(finding(REFUSED)?.detail).toContain("application-wide");
+    // The refusal names a NestJS construct, which is the plugin author's
+    // business and not a board's: it goes to the log, and what crosses the
+    // wire is the code the screen reads its own sentence from.
+    expect(finding(REFUSED)?.detail).toEqual({});
     expect(loaded(GOOD)).toBeDefined();
   });
 
@@ -369,7 +374,7 @@ describe("loading plugins at boot", () => {
   it("refuses a package that widened its own permissions", () => {
     expect(loaded(WIDENED)).toBeUndefined();
     expect(finding(WIDENED)?.reason).toBe("permissions-widened");
-    expect(finding(WIDENED)?.detail).toContain("mail:send");
+    expect(finding(WIDENED)?.detail["permissions"]).toContain("mail:send");
   });
 
   /**
@@ -377,14 +382,15 @@ describe("loading plugins at boot", () => {
    *
    * A republished version can leave its permissions exactly as they were and
    * still start handling a personal-data category the board never saw - email
-   * added to a plugin that declared only a name. The board's agreement to a
-   * stated set of personal data is the legal basis for processing it, so the
-   * stored snapshot has to gate this the way it gates the permissions.
+   * added to a plugin that declared only a name. The board's samtycke to a
+   * stated set of personal data is the legal basis for processing it (GDPR
+   * art. 6.1 a), so the stored snapshot has to gate this the way it gates the
+   * permissions.
    */
   it("refuses a plugin that added a personal-data category since consent", () => {
     expect(loaded(PD_WIDENED)).toBeUndefined();
     expect(finding(PD_WIDENED)?.reason).toBe("personal-data-widened");
-    expect(finding(PD_WIDENED)?.detail).toContain("email");
+    expect(finding(PD_WIDENED)?.detail["categories"]).toContain("email");
   });
 
   it("raises the plugin's controllers to the floor its permissions imply", () => {

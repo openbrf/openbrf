@@ -33,12 +33,21 @@ export interface PluginSummary {
   view: { module: string; titleKey: string } | null;
 }
 
-/** Why a plugin present on the data volume is not running. */
+/**
+ * Why a plugin present on the data volume is not running.
+ *
+ * `reason` is a code, not a sentence, and `detail` holds the values the
+ * sentence is completed with. `reason` is typed as a string rather than as the
+ * contract's union for the same reason every other wire shape here is: the
+ * browser applies what the API sent, it does not decide which codes exist. The
+ * table that turns a code into a sentence is typed against the union instead,
+ * so the exhaustiveness is checked where the sentences are.
+ */
 export interface PluginFinding {
   id: string | null;
   directory: string;
   reason: string;
-  detail: string;
+  detail: Record<string, string | number | string[]>;
 }
 
 export interface PluginsOverview {

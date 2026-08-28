@@ -619,19 +619,19 @@
       "reasons": {
         "disabled": "Switched off in this screen.",
         "notConsented": "On the data volume, but this instance has no record of agreeing to run it.",
-        "permissionsWidened": "The installed version asks for more than was agreed to. Install it again to review the new declaration.",
-        "personalDataWidened": "The installed version handles personal data that was not agreed to. Install it again to review the new declaration.",
-        "moduleIdentity": "It carries its own copy of a package it has to share with the application. It was refused rather than run against a second copy.",
-        "manifestInvalid": "Its declaration could not be read.",
-        "apiVersion": "It is built for a version of the plugin contract this Open BRF does not implement.",
-        "entryMissing": "A file it declares is not in the package.",
-        "loadFailed": "It failed while being loaded.",
+        "permissionsWidened": "The installed version asks for {{permissions}}, which was not agreed to. Install it again to review the new declaration.",
+        "personalDataWidened": "The installed version handles {{categories}}, which was not agreed to. Install it again to review the new declaration.",
+        "moduleIdentity": "It carries its own copy of {{packages}}, which it has to share with the application. It was refused rather than run against a second copy.",
+        "manifestInvalid": "Its declaration could not be read: {{issues}}",
+        "apiVersion": "It is built for version {{apiVersion}} of the plugin contract, which this Open BRF does not implement.",
+        "entryMissing": "The file {{entry}} it declares is not in the package.",
+        "loadFailed": "It failed while being loaded: {{error}}",
         "entryInvalid": "Its bundle does not export what the contract requires.",
         "notOnVolume": "It is recorded as installed but is not on the data volume.",
         "moduleRefused": "Its module declares behaviour that would act on the rest of the application, which a plugin may not do. It was refused rather than run.",
         "moduleInvalid": "Its bundle returned no module of the shape the contract requires.",
-        "moduleFailed": "Its module could not be built into the application. It was skipped so the rest of the instance could start.",
-        "unknown": "It was skipped for a reason this screen has no wording for. The detail below is the server's own."
+        "moduleFailed": "Its module could not be built into the application, so it was skipped to let the rest of the instance start: {{error}}",
+        "unknown": "It was skipped for a reason this version has no wording for: {{reason}}"
       }
     },
     "settings": {

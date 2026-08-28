@@ -333,7 +333,7 @@ describe("sealing a plugin's module", () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(result.ok ? "" : result.detail).toContain("application-wide");
+      expect(result.ok ? "" : result.log).toContain("application-wide");
     });
 
     it("refuses a global module", () => {
@@ -344,7 +344,7 @@ describe("sealing a plugin's module", () => {
       const result = seal({ module: GlobalPluginModule });
 
       expect(result.ok).toBe(false);
-      expect(result.ok ? "" : result.detail).toContain("global");
+      expect(result.ok ? "" : result.log).toContain("global");
     });
 
     it("refuses a module that registers middleware", () => {
@@ -358,7 +358,7 @@ describe("sealing a plugin's module", () => {
       const result = seal({ module: MiddlewarePluginModule });
 
       expect(result.ok).toBe(false);
-      expect(result.ok ? "" : result.detail).toContain("middleware");
+      expect(result.ok ? "" : result.log).toContain("middleware");
     });
 
     it("refuses an application-wide provider hidden in a nested module", () => {
@@ -388,7 +388,7 @@ describe("sealing a plugin's module", () => {
       const result = seal({ module: PluginModule, controllers: [Escape] });
 
       expect(result.ok).toBe(false);
-      expect(result.ok ? "" : result.detail).toContain("steps outside");
+      expect(result.ok ? "" : result.log).toContain("steps outside");
     });
 
     it("refuses a route path that steps outside the plugin's prefix", () => {
@@ -449,7 +449,7 @@ describe("sealing a plugin's module", () => {
       });
 
       expect(result.ok).toBe(false);
-      expect(result.ok ? "" : result.detail).toContain("promise");
+      expect(result.ok ? "" : result.log).toContain("promise");
     });
   });
 });

@@ -68,7 +68,20 @@ export interface SealOptions {
 
 export type SealResult =
   | { ok: true; module: DynamicModule; controllers: string[] }
-  | { ok: false; reason: "module-invalid" | "module-refused"; detail: string };
+  | {
+      ok: false;
+      reason: "module-invalid" | "module-refused";
+      /**
+       * The operator's line, in English.
+       *
+       * Named for the log rather than for the screen, because it names a
+       * framework construct the plugin's author misused. The board reads the
+       * sentence the reason code is translated into and reinstalls or asks the
+       * author either way; which decorator was at fault is what the person
+       * reading the container's output needs.
+       */
+      log: string;
+    };
 
 /**
  * Where a plugin's routes are mounted.
@@ -95,7 +108,7 @@ export function sealPluginModule(
     return {
       ok: false,
       reason: "module-invalid",
-      detail:
+      log:
         "The server bundle's createPlugin did not return a NestJS dynamic " +
         "module: an object with a `module` class, and optionally controllers, " +
         "providers and imports.",
@@ -109,7 +122,7 @@ export function sealPluginModule(
     depth: 0,
   });
   if (refusal !== null) {
-    return { ok: false, reason: "module-refused", detail: refusal };
+    return { ok: false, reason: "module-refused", log: refusal };
   }
 
   const prefix = pluginRoutePrefix(options.pluginId);
@@ -118,7 +131,7 @@ export function sealPluginModule(
   for (const controller of controllers) {
     const sealed = sealController(controller, prefix, options);
     if (!sealed.ok) {
-      return { ok: false, reason: "module-refused", detail: sealed.detail };
+      return { ok: false, reason: "module-refused", log: sealed.log };
     }
     names.push(sealed.path);
   }
@@ -227,23 +240,23 @@ function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
-): { ok: true; path: string } | { ok: false; detail: string } {
+): { ok: true; path: string } | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
       ok: false,
-      detail: "A controller in the module graph is not a class.",
+      log: "A controller in the module graph is not a class.",
     };
   }
   if (reflect(controller, CONTROLLER_WATERMARK) !== true) {
     return {
       ok: false,
-      detail: `"${controller.name}" is listed as a controller but is not decorated with @Controller.`,
+      log: `"${controller.name}" is listed as a controller but is not decorated with @Controller.`,
     };
   }
   if (ownMetadata(controller, PLUGIN_ID_METADATA) !== undefined) {
     return {
       ok: false,
-      detail: `The controller "${controller.name}" appears in more than one plugin module.`,
+      log: `The controller "${controller.name}" appears in more than one plugin module.`,
     };
   }
 
@@ -256,7 +269,7 @@ function sealController(
     if (own === null) {
       return {
         ok: false,
-        detail:
+        log:
           `The controller "${controller.name}" declares the path ` +
           `${JSON.stringify(path)}, which steps outside the plugin's own prefix.`,
       };
@@ -284,7 +297,7 @@ function sealController(
         if (path !== undefined && normalizeSegment(path) === null) {
           return {
             ok: false,
-            detail:
+            log:
               `The route ${controller.name}.${name} declares the path ` +
               `${JSON.stringify(path)}, which steps outside the plugin's own prefix.`,
           };

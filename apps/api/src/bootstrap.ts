@@ -121,7 +121,7 @@ export async function createApplication(
         id: culprit.id,
         directory: culprit.directory,
         reason: "module-failed",
-        detail: String(cause),
+        detail: { error: String(cause) },
       });
     }
   }

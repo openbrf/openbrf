@@ -15,6 +15,11 @@ export {
 } from "./api-version.ts";
 export { definePlugin } from "./define-plugin.ts";
 export {
+  PLUGIN_FINDING_REASONS,
+  type PluginFindingDetail,
+  type PluginFindingReason,
+} from "./findings.ts";
+export {
   type PluginAddressBook,
   type PluginApartment,
   type PluginHost,

@@ -619,19 +619,19 @@
       "reasons": {
         "disabled": "Avstängt på den här sidan.",
         "notConsented": "Finns på datavolymen, men instansen har ingen notering om att det godkänts.",
-        "permissionsWidened": "Den installerade versionen begär mer än det som godkändes. Installera om för att granska den nya deklarationen.",
-        "personalDataWidened": "Den installerade versionen hanterar personuppgifter som inte godkändes. Installera om för att granska den nya deklarationen.",
-        "moduleIdentity": "Det har med sig en egen kopia av ett paket som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
-        "manifestInvalid": "Dess deklaration kunde inte läsas.",
-        "apiVersion": "Det är byggt för en version av tilläggskontraktet som den här Open BRF inte har.",
-        "entryMissing": "En fil som det anger finns inte i paketet.",
-        "loadFailed": "Det misslyckades när det lästes in.",
+        "permissionsWidened": "Den installerade versionen begär {{permissions}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
+        "personalDataWidened": "Den installerade versionen hanterar {{categories}}, vilket inte har godkänts. Installera om för att granska den nya deklarationen.",
+        "moduleIdentity": "Det har med sig en egen kopia av {{packages}}, som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
+        "manifestInvalid": "Dess deklaration kunde inte läsas: {{issues}}",
+        "apiVersion": "Det är byggt för version {{apiVersion}} av tilläggskontraktet, som den här Open BRF inte har.",
+        "entryMissing": "Filen {{entry}} som det anger finns inte i paketet.",
+        "loadFailed": "Det misslyckades när det lästes in: {{error}}",
         "entryInvalid": "Dess paket exporterar inte det som kontraktet kräver.",
         "notOnVolume": "Det är noterat som installerat men finns inte på datavolymen.",
         "moduleRefused": "Dess modul deklarerar beteende som skulle påverka resten av programmet, vilket ett tillägg inte får göra. Det nekades i stället för att köras.",
         "moduleInvalid": "Dess paket lämnade ingen modul av den form som kontraktet kräver.",
-        "moduleFailed": "Dess modul kunde inte byggas in i programmet. Det hoppades över så att resten av instansen kunde starta.",
-        "unknown": "Det hoppades över av en anledning som den här sidan saknar formulering för. Detaljen nedan är serverns egen."
+        "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta: {{error}}",
+        "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}"
       }
     },
     "settings": {

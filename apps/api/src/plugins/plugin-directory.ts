@@ -4,6 +4,8 @@ import { join, relative, resolve, sep } from "node:path";
 import {
   isSupportedApiVersion,
   parsePluginPackage,
+  type PluginFindingDetail,
+  type PluginFindingReason,
   type PluginManifest,
 } from "@openbrf/plugin-sdk";
 
@@ -30,18 +32,25 @@ export interface DiscoveredPlugin {
   clientEntry: string | null;
 }
 
-export type SkipReason =
-  | "not-a-plugin"
-  | "manifest-invalid"
-  | "api-version-unsupported"
-  | "entry-missing"
-  | "unreadable";
+/**
+ * Why a candidate directory was skipped.
+ *
+ * Narrowed from the contract's own set rather than declared here, so a skip
+ * cannot name a code the admin screen has no sentence for. A directory that is
+ * not a plugin at all is not in it: that is not a skip and not a finding, it is
+ * one of the transitive dependencies npm puts in the same tree.
+ */
+export type SkipReason = Extract<
+  PluginFindingReason,
+  "manifest-invalid" | "api-version-unsupported" | "entry-missing"
+>;
 
 export interface SkippedPlugin {
   directory: string;
   packageName: string | null;
   reason: SkipReason;
-  detail: string;
+  /** Values for the sentence the admin screen reads the reason as. */
+  detail: PluginFindingDetail;
 }
 
 export interface DirectoryScan {
@@ -121,7 +130,7 @@ export async function readPluginDirectory(
       directory,
       packageName,
       reason: "manifest-invalid",
-      detail: parsed.issues.join("; "),
+      detail: { issues: parsed.issues.join("; ") },
     };
   }
 
@@ -132,9 +141,7 @@ export async function readPluginDirectory(
       directory,
       packageName: name,
       reason: "api-version-unsupported",
-      detail:
-        `The plugin declares apiVersion ${String(manifest.apiVersion)}, ` +
-        `which this version of Open BRF does not implement.`,
+      detail: { apiVersion: manifest.apiVersion },
     };
   }
 
@@ -144,7 +151,7 @@ export async function readPluginDirectory(
       directory,
       packageName: name,
       reason: "entry-missing",
-      detail: `The declared server entry ${serverEntry.missing} is not in the package.`,
+      detail: { entry: serverEntry.missing },
     };
   }
 
@@ -154,7 +161,7 @@ export async function readPluginDirectory(
       directory,
       packageName: name,
       reason: "entry-missing",
-      detail: `The declared client entry ${clientEntry.missing} is not in the package.`,
+      detail: { entry: clientEntry.missing },
     };
   }
 
