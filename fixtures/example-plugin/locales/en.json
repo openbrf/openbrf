@@ -1,0 +1,17 @@
+{
+  "view.title": "Residents and apartments",
+  "view.loading": "Loading ...",
+  "view.error": "The figures could not be loaded.",
+  "view.apartments": "Apartments",
+  "view.residents": "Residents",
+  "view.members": "Members",
+  "view.grouping": "Grouping: {{label}}",
+  "view.rowLimit": "Showing at most {{rows}} rows",
+  "settings.heading.label": "Heading",
+  "settings.heading.hint": "Shown at the top of the view.",
+  "settings.showMembers.label": "Show the number of members",
+  "settings.rowLimit.label": "Maximum number of rows",
+  "settings.grouping.label": "Group by",
+  "settings.grouping.address": "Address",
+  "settings.grouping.floor": "Floor"
+}

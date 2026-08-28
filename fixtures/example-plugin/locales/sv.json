@@ -1,0 +1,17 @@
+{
+  "view.title": "Boende och lägenheter",
+  "view.loading": "Hämtar uppgifter ...",
+  "view.error": "Uppgifterna kunde inte hämtas.",
+  "view.apartments": "Lägenheter",
+  "view.residents": "Boende",
+  "view.members": "Medlemmar",
+  "view.grouping": "Gruppering: {{label}}",
+  "view.rowLimit": "Visar högst {{rows}} rader",
+  "settings.heading.label": "Rubrik",
+  "settings.heading.hint": "Visas överst i vyn.",
+  "settings.showMembers.label": "Visa antalet medlemmar",
+  "settings.rowLimit.label": "Högsta antal rader",
+  "settings.grouping.label": "Gruppera efter",
+  "settings.grouping.address": "Adress",
+  "settings.grouping.floor": "Våning"
+}

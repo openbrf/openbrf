@@ -38,11 +38,14 @@ Statutes referenced below:
 | personnummer | personal identity number | Swedish national ID. Only where legally justified; never in public views. |
 | publiceringssamtycke | **publication consent** | A person's recorded consent to appear on a page the association publishes. No personal data reaches a public page without one, and protected personal data never reaches one at all. An image upload therefore declares whether it shows identifiable persons: that declaration is what ties a photograph to this consent. |
 | registerutdrag | data subject access report | Per-person GDPR report. |
+| samtycke | **consent** | A recorded agreement that is the legal basis for processing personal data (GDPR art. 6.1 a). The board's samtycke to a plugin's stated permissions and personal-data categories is what lets it run, and a republished version that widens either is refused until the board consents again. The per-person case of appearing on a published page is publiceringssamtycke, below. |
 | skyddade personuppgifter | **protected personal data** | Persons with protected identity: masked in all public views, exports, and lists; access is logged. |
 | stadgar | bylaws | The association's statutes. |
 | styrelse | **board** | The elected board of the association. |
 | styrelseledamot / ledamot | board member | |
 | suppleant | deputy board member | |
+| tema | **theme** | An installable package that restyles an instance. The other package type beside a plugin, and not a kind of one: a theme is pure data - a manifest, light and dark token sets, fonts, a logo and a choice of core view variants - and contains no JavaScript, so it declares no permissions, handles no personal data, and puts nothing in the running process. It decides what a token looks like and never what it means, because colour carries legal semantics in a statutory register. Checked against a contrast matrix at install time, and installed or switched without a restart, since there is no code to load. |
+| tillägg | **plugin** | An installable package that adds behaviour or a view to an instance. Installed from the curated catalog, declares what it may do and which personal data it handles, and is consented to by the board before it runs. Its code runs in the instance's own process, so installing or switching one on ends by restarting it. A theme is the other package type and is not a plugin. |
 | upphörande | termination | A bostadsrätt ceasing to exist. A register event in its own right, distinct from a transfer to a new holder; reported by the cooperative (Lag (2026:484), 3 kap.). |
 | upplåtelse | grant | The act of first granting a bostadsrätt to a holder; reported by the cooperative (Lag (2026:484), 3 kap.). The contract that does so is the upplåtelseavtal (grant agreement). |
 | upplåtelseavtal | grant agreement | The contract first granting a bostadsrätt. |

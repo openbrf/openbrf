@@ -1,0 +1,96 @@
+{
+  "name": "@openbrf/example-plugin",
+  "version": "1.0.0",
+  "private": false,
+  "description": "Reference Open BRF plugin: the whole install contract in one package.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "files": [
+    "dist",
+    "locales"
+  ],
+  "scripts": {
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:client": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "openbrf": {
+    "apiVersion": 1,
+    "id": "occupancy",
+    "entry": {
+      "server": "./dist/server.cjs",
+      "client": "./dist/remoteEntry.js"
+    },
+    "permissions": [
+      "addressBook:read"
+    ],
+    "personalData": [
+      "name",
+      "apartment",
+      "residency"
+    ],
+    "view": {
+      "module": "./View",
+      "titleKey": "view.title"
+    },
+    "settingsSchema": {
+      "fields": [
+        {
+          "key": "heading",
+          "labelKey": "settings.heading.label",
+          "hintKey": "settings.heading.hint",
+          "type": "text",
+          "default": "Occupancy"
+        },
+        {
+          "key": "showMembers",
+          "labelKey": "settings.showMembers.label",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "key": "rowLimit",
+          "labelKey": "settings.rowLimit.label",
+          "type": "number",
+          "integer": true,
+          "min": 1,
+          "max": 200,
+          "default": 25
+        },
+        {
+          "key": "grouping",
+          "labelKey": "settings.grouping.label",
+          "type": "select",
+          "default": "address",
+          "options": [
+            {
+              "value": "address",
+              "labelKey": "settings.grouping.address"
+            },
+            {
+              "value": "floor",
+              "labelKey": "settings.grouping.floor"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@module-federation/vite": "1.21.0",
+    "@nestjs/common": "11.2.3",
+    "@openbrf/plugin-sdk": "file:../../packages/plugin-sdk",
+    "@types/react": "19.2.18",
+    "@vitejs/plugin-react": "6.1.0",
+    "i18next": "26.4.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-i18next": "17.0.12",
+    "rxjs": "7.8.2",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.0"
+  }
+}
