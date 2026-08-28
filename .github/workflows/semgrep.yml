@@ -33,6 +33,12 @@ jobs:
           # runner's git config where later steps and scripts can read it.
           persist-credentials: false
 
+      # --strict fails the job on a file semgrep could not parse, so a scan
+      # that quietly skipped code is a red build rather than a green one. The
+      # test files are excluded because semgrep's TypeScript parser rejects
+      # `importOriginal<typeof import("...")>()`, the vitest idiom this suite
+      # uses; without the exclusion --strict fails on every run.
+      #
       # Through the image rather than pip: an unpinned `pip install` would cost
       # the Scorecard Pinned-Dependencies check, and the image refuses to scan
       # unless the code is mounted at /src. The rulesets are fetched from the
@@ -51,7 +57,12 @@ jobs:
             --config=p/github-actions \
             --metrics=off \
             --sarif --output=semgrep.sarif \
-            --error
+            --error \
+            --strict \
+            --exclude='*.test.ts' \
+            --exclude='*.test.tsx' \
+            --exclude='*.spec.ts' \
+            --exclude='*.spec.tsx'
 
       # A finding fails the step above, so this one has to run regardless to
       # get it onto the dashboard. Fork pull requests skip it and rely on the
