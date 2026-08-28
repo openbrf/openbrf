@@ -1,9 +1,13 @@
+import { randomUUID } from "node:crypto";
 import {
   copyFile,
   mkdir,
+  readdir,
   readFile,
   rename,
   rm,
+  stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -30,6 +34,21 @@ import { RestartCoordinator } from "./restart-coordinator.service";
 
 /** The queue the admin screen and the CLI both enqueue onto. */
 export const PLUGIN_INSTALL_QUEUE = "plugin-install";
+
+/** What a run's own staging tree is called, and the file that claims it. */
+const STAGING_PREFIX = "run-";
+const LEASE_SUFFIX = ".lease";
+
+/**
+ * How long a staging tree may go unrenewed before another run collects it.
+ *
+ * Time since the last sign of life, not time since the run began, so a slow
+ * npm install over a slow network is never mistaken for an abandoned one.
+ */
+const STAGING_LEASE_MS = 60_000;
+
+/** Comfortably inside the lease, so a busy event loop does not lose one. */
+const STAGING_RENEWAL_MS = 10_000;
 
 export interface PluginInstallJob {
   /** Which plugin triggered the run. Informational: the run reconciles all. */
@@ -285,11 +304,19 @@ export class PluginInstallerService
    * reason the whole operation is defined as "converge on the desired set"
    * rather than "apply this change".
    *
-   * The staging tree is removed whether the run succeeds or fails, and the
-   * whole staging root is pruned before a run starts. A run that is killed
-   * mid-install leaves a tree nothing else knows is dead, and each one holds a
-   * full copy of every archive: an unreachable registry or a killed npm,
-   * repeated, would otherwise fill the data volume and take the instance down.
+   * The staging tree is removed whether the run succeeds or fails, and trees
+   * an earlier run abandoned are collected before this one starts. A run that
+   * is killed mid-install leaves a tree nothing else knows is dead, and each
+   * one holds a full copy of every archive: an unreachable registry or a
+   * killed npm, repeated, would otherwise fill the data volume and take the
+   * instance down.
+   *
+   * The staging root is shared between processes, so it is not this run's to
+   * empty. The admin screen enqueues a reconcile the server worker runs, the
+   * command-line tool runs one of its own directly, and both reach the same
+   * directory: a second run can be copying archives into a tree of its own at
+   * this moment, and removing the root would take it out from under itself.
+   * Ownership is therefore held rather than assumed - see the lease below.
    */
   private async rebuild(
     root: string,
@@ -297,19 +324,37 @@ export class PluginInstallerService
     desired: Record<string, string>,
     archives: ReadonlyMap<string, string>,
   ): Promise<void> {
-    const staging = join(stagingRoot, `run-${String(Date.now())}`);
+    await mkdir(stagingRoot, { recursive: true });
+    for (const collected of await collectAbandonedStaging(stagingRoot)) {
+      this.logger.warn(`Collected an abandoned staging tree at ${collected}.`);
+    }
 
-    // The root, not just this run's path: trees left by an earlier process
-    // are collected here because nothing else is in a position to know they
-    // are no longer in use.
-    await rm(stagingRoot, { recursive: true, force: true });
+    const staging = join(stagingRoot, `${STAGING_PREFIX}${randomUUID()}`);
+    const lease = `${staging}${LEASE_SUFFIX}`;
+
+    // Written before the tree exists, so no tree is ever seen without one and
+    // a missing lease is a reliable sign of an abandoned run rather than of a
+    // run that has not claimed its tree yet.
+    await writeFile(lease, `${new Date().toISOString()}\n`, "utf8");
+    const renewal = setInterval(() => {
+      const now = new Date();
+      void utimes(lease, now, now).catch(() => {
+        // Nothing to renew. The run's own cleanup below is what matters.
+      });
+    }, STAGING_RENEWAL_MS);
+    // The lease must never be a reason the process stays up.
+    renewal.unref();
 
     try {
       await this.stageAndSwap(root, staging, desired, archives);
     } finally {
+      clearInterval(renewal);
       await rm(staging, { recursive: true, force: true }).catch(() => {
-        // A staging tree that cannot be removed is collected by the prune at
-        // the start of the next run; failing here would mask the real error.
+        // A staging tree that cannot be removed is collected by a later run
+        // once the lease lapses; failing here would mask the real error.
+      });
+      await rm(lease, { force: true }).catch(() => {
+        // Same: the lease is stale from here on either way.
       });
     }
   }
@@ -429,6 +474,100 @@ export function buildDependencySet(
     dependencies[packageName] = `file:./archives/${basename(archive)}`;
   }
   return sorted(dependencies);
+}
+
+/**
+ * Removes the staging trees no run is still working in, and names them.
+ *
+ * A run renews its lease while it works, so an unrenewed one belongs to a run
+ * that stopped without cleaning up - the only kind of tree another process is
+ * entitled to remove. Removing the staging root outright would be simpler and
+ * is wrong: the admin screen enqueues a reconcile the server worker runs while
+ * the command-line tool can be running one of its own, so a tree in there may
+ * be being written to by a live process at this moment.
+ *
+ * A crash still converges. The trees a killed process left are collected by
+ * whichever run comes along once the lease has lapsed, so repeated failures -
+ * an unreachable registry, a killed npm - cannot accumulate on the volume,
+ * while a run that is merely slow keeps its tree for as long as it needs it.
+ */
+export async function collectAbandonedStaging(
+  stagingRoot: string,
+): Promise<string[]> {
+  const cutoff = Date.now() - STAGING_LEASE_MS;
+  const collected: string[] = [];
+
+  for (const name of await stagingRuns(stagingRoot)) {
+    const tree = join(stagingRoot, name);
+    const lease = `${tree}${LEASE_SUFFIX}`;
+    if ((await lastRenewed(lease)) > cutoff) {
+      continue;
+    }
+    // Asked before the removal, so a lease whose tree the run had already
+    // taken away is not reported as a tree that was reclaimed.
+    const held = await present(tree);
+    const removed = await rm(tree, { recursive: true, force: true }).then(
+      () => true,
+      () => false,
+    );
+    await rm(lease, { force: true }).catch(() => {
+      // Collected by a later run; a lease file costs nothing to leave.
+    });
+    if (held && removed) {
+      collected.push(tree);
+    }
+  }
+
+  return collected;
+}
+
+/**
+ * Every run the staging root still holds, named from its tree or its lease.
+ *
+ * Both, because the two are removed in sequence and a process killed between
+ * them leaves one without the other. Anything else in the directory is left
+ * alone: this function's whole purpose is not to assume what is in there.
+ */
+async function stagingRuns(stagingRoot: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(stagingRoot);
+  } catch {
+    // Nothing has been staged here yet.
+    return [];
+  }
+
+  const names = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.startsWith(STAGING_PREFIX)) {
+      continue;
+    }
+    names.add(
+      entry.endsWith(LEASE_SUFFIX)
+        ? entry.slice(0, -LEASE_SUFFIX.length)
+        : entry,
+    );
+  }
+  return [...names];
+}
+
+/** When the run last said it was alive, or 0 when it never did. */
+async function lastRenewed(lease: string): Promise<number> {
+  try {
+    return (await stat(lease)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/** Whether the path is there at all. */
+async function present(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sorted(input: Record<string, string>): Record<string, string> {
