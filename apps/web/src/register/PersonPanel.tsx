@@ -83,12 +83,22 @@ export interface PersonPanelProps {
   onClose: () => void;
   /** Called after a change that the board's rows would show differently. */
   onChanged: () => void;
+  /**
+   * Opens the move-out flow for one residency. Omitted where there is no such
+   * flow to open, which is what keeps this panel usable on its own.
+   */
+  onMoveOut?: (residency: {
+    residencyId: string;
+    personName: string;
+    apartmentNumber: string;
+  }) => void;
 }
 
 export function PersonPanel({
   personId,
   onClose,
   onChanged,
+  onMoveOut,
 }: PersonPanelProps): ReactElement {
   const { t } = useTranslation();
   const heading = usePanelHeadingFocus();
@@ -393,6 +403,31 @@ export function PersonPanel({
                         {`${t("register.purge.label")} ${residency.purgeOn}`}
                       </span>
                     )}
+                    {/*
+                     * Moving out is offered per residency rather than per
+                     * person: someone holding two apartments sells one of them,
+                     * and the member register entry depends on which.
+                     */}
+                    {residency.movedOutOn === null &&
+                    onMoveOut !== undefined ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onMoveOut({
+                            residencyId: residency.residencyId,
+                            personName:
+                              `${person.firstName} ${person.lastName}`.trim(),
+                            apartmentNumber: `${residency.addressLabel} ${residency.apartmentNumber}`,
+                          });
+                        }}
+                        aria-label={t("moves.out.actionLabel", {
+                          apartment: residency.apartmentNumber,
+                        })}
+                        className={`${SECONDARY_BUTTON} self-start`}
+                      >
+                        {t("moves.out.action")}
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>

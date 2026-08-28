@@ -21,6 +21,7 @@ Statutes referenced below:
 | förvaltare / vicevärd | **property manager** | External role with access to issue handling only, never the address book. |
 | gallring | purging | GDPR retention deletion in the service tier; the statutory archive tier is exempt (7-year lock). |
 | granskningslogg | **audit log** | The append-only record of accesses and changes (AuditLogEntry). Never "access log": the record covers changes as well as reads, and the retention screen has to say which record a retention policy cannot reach. |
+| inflyttning / utflyttning | **move-in** / **move-out** | The flow that starts or ends a residency. A move-in as a member writes the member register entry; a move-out writes the exit entry when the person's last tenant-ownership ends. |
 | insats | initial share capital | The original capital contribution tied to an apartment. |
 | lägenhetsförteckning | **apartment register** | Statutory register of apartments incl. liens and share capital (BRL 9 kap.). Confidential - only the tenant-owner may see their own entry. Never blended with the member register. |
 | lägenhetsnummer | apartment number | Lantmäteriet numbering (e.g. 1101). Always rendered in the mono grid. |
@@ -42,6 +43,7 @@ Statutes referenced below:
 | upphörande | termination | A bostadsrätt ceasing to exist. A register event in its own right, distinct from a transfer to a new holder; reported by the cooperative (Lag (2026:484), 3 kap.). |
 | upplåtelse | grant | The act of first granting a bostadsrätt to a holder; reported by the cooperative (Lag (2026:484), 3 kap.). The contract that does so is the upplåtelseavtal (grant agreement). |
 | upplåtelseavtal | grant agreement | The contract first granting a bostadsrätt. |
+| utdrag ur förteckning | **register extract** | A copy of a statutory register, produced on request. The member register extract is public; the apartment register extract goes to the board and to the tenant-owner it concerns. Distinct from the GDPR registerutdrag, which is a data subject access report. |
 | utflyttad | moved out | Register state with dashed outline + purge date in the UI. |
 | årsavgift / månadsavgift | annual fee / monthly fee | The fee the tenant-owner pays the association. |
 

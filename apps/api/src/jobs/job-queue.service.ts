@@ -105,6 +105,13 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     if (this.ensuredQueues.has(name)) {
       return;
     }
+    // Starting here rather than only at boot, because onModuleInit does not
+    // start the queue under test: a move-out entered in an integration test
+    // still has to leave its board reminder in the queue, and a job silently
+    // dropped because nothing had started the backend is the kind of gap a
+    // green suite would hide. start() is idempotent, and registering a worker
+    // is still an explicit act, so nothing races a job under test.
+    await this.start();
     await this.boss.createQueue(name);
     this.ensuredQueues.add(name);
   }

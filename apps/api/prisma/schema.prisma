@@ -394,6 +394,13 @@ model Transfer {
   /// Uploaded transfer agreement, relative to the uploads volume.
   agreementDocumentPath String?
 
+  /// The board's own reference to the transfer agreement, e.g. a case number
+  /// or where the paper copy is filed. The apartment register extract has to
+  /// state a reference for every transfer (BRL 9 kap.), and until documents can
+  /// be uploaded there is nowhere else for one to live. Kept once uploads
+  /// exist: a cooperative that files its agreements on paper still needs it.
+  agreementReference String?
+
   createdAt DateTime @default(now())
 
   @@index([apartmentId, transferredOn])
@@ -657,4 +664,62 @@ model Passkey {
 
   @@index([userId])
   @@map("auth_passkey")
+}
+
+// ---------------------------------------------------------------------------
+// Import.
+// ---------------------------------------------------------------------------
+
+enum ImportSourceFormat {
+  CSV
+  XLSX
+}
+
+enum ImportSessionStatus {
+  /// Uploaded and parsed; a mapping is still being chosen or reviewed.
+  MAPPING
+  /// The mapping was applied to the register. The session is kept only so the
+  /// screen can show the outcome; nothing reads its rows again.
+  APPLIED
+}
+
+/// One uploaded member list, held between upload, column mapping, preview and
+/// apply.
+///
+/// The rows are stored because the flow spans four requests and re-uploading
+/// the file at each step would make the preview describe a file the apply step
+/// never saw. They are stored **encrypted**: a cooperative's member list is the
+/// densest personal data the instance ever handles - every name, address, email
+/// and often every personal identity number in one blob - and this table has no
+/// masking of its own. Service tier throughout: an upload is working material,
+/// never a record, so it carries an expiry rather than a retention rule.
+model ImportSession {
+  id String @id @default(cuid())
+
+  /// Shown back to the board so it can tell two uploads apart.
+  fileName String
+  format   ImportSourceFormat
+
+  /// The header row as read from the file, in file order. Plaintext: these are
+  /// the uploader's own column titles, not the people in the rows below them.
+  columns String[]
+
+  /// The data rows as a JSON array of string arrays, encrypted as one value
+  /// (ADR 0002). There is no blind index: nothing searches an upload.
+  rowsCipher String
+  rowCount   Int
+
+  status ImportSessionStatus @default(MAPPING)
+
+  /// Person who uploaded the file. A plain column rather than a relation, for
+  /// the same reason as AuditLogEntry.actorPersonId.
+  createdById String?
+
+  createdAt DateTime  @default(now())
+  appliedAt DateTime?
+  /// After this the session is stale and is refused rather than applied.
+  expiresAt DateTime
+
+  @@index([status, expiresAt])
+  @@map("import_session")
 }
