@@ -90,10 +90,15 @@ async function waitForFreshStep(parameters: TotpParameters): Promise<void> {
  * account back anyway. What it cannot do is reported with a soft assertion: the
  * test still fails, but it fails with whatever broke first rather than with the
  * tidy-up that followed.
+ *
+ * `passkeyEnrolled` says whether this run put a key on the account, which is
+ * what tells a cleanup with nothing to remove from one that has stopped finding
+ * what it removes.
  */
 async function removeSecondFactors(
   page: Page,
   totp: TotpParameters | undefined,
+  passkeyEnrolled: boolean,
 ): Promise<void> {
   try {
     await page.goto("/settings");
@@ -140,10 +145,23 @@ async function removeSecondFactors(
     }
 
     // Only the credential this spec enrols, found by the name it gave it. A run
-    // after a failed one can find more than one under that name.
+    // after a failed one can find more than one under that name. Other keys on
+    // the account are none of this cleanup's business, so it is what it removed
+    // that is checked here and not that the list ended up empty.
     const removeKey = page.getByRole("button", {
       name: `Ta bort nyckeln ${PASSKEY_NAME}`,
     });
+
+    // The list starts empty and fills in from a request, so a page that has not
+    // answered yet looks exactly like an account with no keys. count() does not
+    // retry, so a cleanup that read that first render would remove nothing and
+    // still pass every assertion below. When this run enrolled a key, wait for
+    // it before counting.
+    if (passkeyEnrolled) {
+      await expect(removeKey.first()).toBeVisible();
+    }
+
+    let removed = 0;
     for (
       let remaining = await removeKey.count();
       remaining > 0;
@@ -151,9 +169,18 @@ async function removeSecondFactors(
     ) {
       await removeKey.first().click();
       await expect(removeKey).toHaveCount(remaining - 1);
+      removed += 1;
     }
     await expect(removeKey).toHaveCount(0);
-    await expect(page.getByText("Inga nycklar än.")).toBeVisible();
+
+    // A cleanup that quietly removes nothing is what leaves a second credential
+    // on the shared account, so a run that enrolled one has to account for it.
+    if (passkeyEnrolled) {
+      expect(
+        removed,
+        "the key this run enrolled came off the account",
+      ).toBeGreaterThan(0);
+    }
   } catch (failure) {
     expect
       .soft(failure, "the second factors came off the administrator account")
@@ -169,8 +196,10 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
   await attachVirtualAuthenticator(page);
 
   // Declared out here so the cleanup can complete a sign-in that the
-  // authenticator app now stands in the way of, whatever went wrong below.
+  // authenticator app now stands in the way of, whatever went wrong below, and
+  // so it knows whether there is a key on the account to take off again.
   let totp: TotpParameters | undefined;
+  let passkeyEnrolled = false;
 
   try {
     // --- password -----------------------------------------------------------
@@ -188,6 +217,10 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     await page.getByLabel("Namn på enheten").fill(PASSKEY_NAME);
     await page.getByRole("button", { name: "Lägg till nyckel" }).click();
     await expect(page.getByText("Nyckeln är tillagd.")).toBeVisible();
+    // Recorded before anything else is asserted: the credential is on the
+    // account from here on, so the cleanup has to take it off even if the next
+    // line is what fails.
+    passkeyEnrolled = true;
     await expect(
       page.getByRole("button", { name: `Ta bort nyckeln ${PASSKEY_NAME}` }),
     ).toBeVisible();
@@ -242,7 +275,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     // The criterion is proved above, and what it left behind is a credential
     // and a switched-on authenticator app on the account the specs after this
     // one sign in as. Both come off whether the assertions passed or not.
-    await removeSecondFactors(page, totp);
+    await removeSecondFactors(page, totp, passkeyEnrolled);
   }
 });
 
