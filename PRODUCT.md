@@ -36,13 +36,13 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 - Protected personal data (skyddade personuppgifter) must be masked in all public views, exports, and lists, with access logging.
 - Board work is episodic and duty-driven; residents' use is occasional and mobile-first.
 - Full i18n sv + en in v1: all code and keys in English, no hardcoded strings, i18next everywhere (#34).
-- Plugin system is a v1 core feature: WordPress-like install via admin UI from a curated catalog; themes are plugins delivering token sets (#35, #40).
+- Plugin system is a v1 core feature: WordPress-like install via admin UI from a curated catalog. A theme is the other installable package type and not a kind of plugin: it is pure data - token sets, fonts, a logo and a choice of core view variants - so it declares no permissions, handles no personal data, and is switched without a restart (#35, #40).
 
 ## Capabilities and Constraints
 
 - Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents), news/mailings, public website (page CMS with data blocks, menu editor, public/member visibility, broker information page, contact + issue report forms, publication consent guardrails; file storage on local disk or S3) (#59-61), document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
 - v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances incl. charges to members (one-off costs such as a bike-room key recorded per member/apartment and exported as a debiting list for the economic manager - basis only, never payment status, never our own ledger) (#62), Lantmäteriet export (legal deadline Dec 2027).
-- Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, digital signage, Booking Pro, Ekonomi Pro (accounting-system posting, autogiro/bankgiro files, reminders, collections, approval flow - the delivery half of charges, #62), premium themes.
+- Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, digital signage, Booking Pro, Ekonomi Pro (accounting-system posting, autogiro/bankgiro files, reminders, collections, approval flow - the delivery half of charges, #62). Premium themes are paid as well, but ship as themes rather than as plugins.
 - Theming: theme engine in core, light + dark from the start, fully token-based (CSS custom properties, data-theme attribute, follows prefers-color-scheme with per-user override) (#39-40). Components reference only tokens, never hex.
 - Personal ID numbers only where clearly justified, never in public views. Children's accounts: own consent from age 13.
 
@@ -63,7 +63,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 1. **The association owns its data** - exit, export, and transparency are features, never afterthoughts.
 2. **Generous, published, never-retracted free tier** - paid is what requires Apteo's central infrastructure, never a walled-off core feature.
 3. **Swedish law is the spec** - BRL/EFL/GDPR requirements are hard constraints that shape data model and UI states (masking, retention, register separation).
-4. **Tokens before pixels** - every visual value flows through the theme engine; a theme plugin can restyle everything.
+4. **Tokens before pixels** - every visual value flows through the theme engine; a theme can restyle everything without shipping a line of code.
 5. **Boards are volunteers** - clarity and low cognitive load beat feature density; the register must be trustworthy at a glance (registerklass).
 
 ## Accessibility & Inclusion
