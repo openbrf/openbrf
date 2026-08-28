@@ -95,7 +95,7 @@ describe("a row", () => {
 
     expect(
       screen.getByText(
-        "Läsa namn, lägenheter och vem som är boende och vem som är medlem; Skicka e-post via föreningens egen server",
+        "Läsa namn, lägenheter, vem som är boende och vem som är medlem, och inflyttnings- och utflyttningsdatum; Skicka e-post via föreningens egen server",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Namn; E-postadress")).toBeTruthy();

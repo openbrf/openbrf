@@ -14,11 +14,14 @@
  */
 export const PLUGIN_PERMISSIONS = [
   /**
-   * Apartments, names, who is a resident, who is a member and who holds a
-   * board position. Never contact
-   * details, never personal identity numbers, and never a person flagged with
-   * protected personal data - those are excluded from every plugin read
-   * regardless of permission (plan section 4.4).
+   * Apartments, names, who is a resident, who is a member, and when a person
+   * moved in or out. Never contact details, never personal identity numbers,
+   * and never a person flagged with protected personal data - those are
+   * excluded from every plugin read regardless of permission (plan section
+   * 4.4).
+   *
+   * Board positions are not in it. Who sits on the board is a core capability,
+   * read nowhere in the host object a plugin is given.
    */
   "addressBook:read",
   /**
@@ -53,7 +56,7 @@ export const PLUGIN_PERSONAL_DATA_CATEGORIES = [
   "name",
   /** Which apartment and address a person is connected to. */
   "apartment",
-  /** Move-in and move-out dates, membership role. */
+  /** Move-in and move-out dates, and whether the person is a member. */
   "residency",
   "email",
   "phone",

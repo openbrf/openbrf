@@ -62,7 +62,7 @@ describe("the declaration", () => {
 
     expect(
       screen.getByText(
-        "Läsa namn, lägenheter och vem som är boende och vem som är medlem",
+        "Läsa namn, lägenheter, vem som är boende och vem som är medlem, och inflyttnings- och utflyttningsdatum",
       ),
     ).toBeTruthy();
     expect(

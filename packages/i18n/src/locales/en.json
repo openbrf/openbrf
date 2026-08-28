@@ -599,7 +599,7 @@
       }
     },
     "permissions": {
-      "addressBookRead": "Read names, apartments, and who is a resident and who is a member",
+      "addressBookRead": "Read names, apartments, who is a resident and who is a member, and move-in and move-out dates",
       "addressBookReadContact": "Read email addresses and telephone numbers",
       "mailSend": "Send email through the housing cooperative's own server",
       "jobsSchedule": "Run scheduled work in the background",

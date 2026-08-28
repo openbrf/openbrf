@@ -78,12 +78,12 @@ Entry paths are relative and may not step outside the package.
 
 ## Permissions
 
-| Permission                | Grants                                                      |
-| ------------------------- | ----------------------------------------------------------- |
-| `addressBook:read`        | Apartments, names, residency roles and dates.               |
-| `addressBook:readContact` | Additionally email addresses and telephone numbers.         |
-| `mail:send`               | Sending mail through the instance's configured SMTP server. |
-| `jobs:schedule`           | Registering workers and enqueuing or scheduling jobs.       |
+| Permission                | Grants                                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `addressBook:read`        | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
+| `addressBook:readContact` | Additionally email addresses and telephone numbers.                                       |
+| `mail:send`               | Sending mail through the instance's configured SMTP server.                               |
+| `jobs:schedule`           | Registering workers and enqueuing or scheduling jobs.                                     |
 
 Three rules hold on every register read regardless of what a plugin asked for,
 because they are the product's own and a plugin is not a reason to relax them:

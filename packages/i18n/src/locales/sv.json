@@ -599,7 +599,7 @@
       }
     },
     "permissions": {
-      "addressBookRead": "Läsa namn, lägenheter och vem som är boende och vem som är medlem",
+      "addressBookRead": "Läsa namn, lägenheter, vem som är boende och vem som är medlem, och inflyttnings- och utflyttningsdatum",
       "addressBookReadContact": "Läsa e-postadresser och telefonnummer",
       "mailSend": "Skicka e-post via föreningens egen server",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
