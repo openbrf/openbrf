@@ -38,9 +38,11 @@ function row(
     recordedPostalCode: "11122",
     recordedPostalCity: "Stockholm",
     correctsEntryId: null,
-    createdAt: new Date(
-      `2020-01-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
-    ),
+    // Built by arithmetic rather than formatted into the seconds field, which
+    // stops being a valid instant at the sixtieth row. createdAt is the
+    // tiebreaker the same-day ordering depends on, and an Invalid Date there
+    // would make that ordering arbitrary instead of failing.
+    createdAt: new Date(Date.UTC(2020, 0, 1) + sequence * 1000),
     ...overrides,
     eventOn: new Date(`${overrides.eventOn}T00:00:00.000Z`),
   };

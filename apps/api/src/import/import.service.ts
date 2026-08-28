@@ -1,13 +1,14 @@
-import { createHash } from "node:crypto";
+import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
-import { Injectable, Logger } from "@nestjs/common";
-
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { I18nService } from "../i18n/i18n.service";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { parseCsv, writeCsv } from "./csv";
 import {
   type ImportField,
@@ -52,6 +53,7 @@ export type ImportErrorReason =
   | "file-too-large"
   | "file-unreadable"
   | "too-many-rows"
+  | "too-many-identity-numbers"
   | "mapping-invalid"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate";
@@ -72,26 +74,56 @@ export class ImportError extends DomainError {
   }
 }
 
+/**
+ * Blind indexes computed during one request.
+ *
+ * Keyed by the normalized personal identity number rather than by a hash of
+ * it. A hash would look like a protection it is not: the value space of a
+ * personal identity number is small enough to reverse by brute force, and the
+ * uploaded rows are decrypted in this same process for the length of the
+ * request anyway. What keeps the exposure bounded is the lifetime - the map is
+ * created per request and is gone when it returns, so nothing derived from an
+ * identity number outlives the call that needed it.
+ *
+ * It exists because the apply path needs each index twice: once to match the
+ * row against the register, once to write the person. At 43.8 ms a value that
+ * is the difference between one pass and two.
+ */
+type IdentityIndexCache = Map<string, string>;
+
 /** The largest upload accepted, decoded. A member list is far below this. */
 export const MAX_UPLOAD_BYTES = 512 * 1024;
 
 /** How long an upload stays usable before it has to be made again. */
 const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
+/** How often expired uploads are deleted. */
+const PURGE_CRON = "23 3 * * *";
+
+/** Queue the scheduled purge of expired uploads runs on. */
+export const IMPORT_PURGE_QUEUE = "import-session-purge";
+
 /** Rows shown on the mapping screen so a column can be recognised by content. */
 const SAMPLE_ROWS = 5;
 
 /**
- * Blind indexes kept for the life of the process.
+ * How many personal identity numbers one import may index.
  *
- * The index for a personal identity number is deliberately expensive - roughly
- * 44 ms, because the value has almost no entropy and a cheap index would be
- * sweepable if the database leaked (ADR 0002). A file with two hundred of them
- * therefore costs nine seconds per pass, and an import makes at least two: one
- * to preview, one to apply. The cache is keyed by a hash of the value rather
- * than by the value, so no personal identity number is retained here.
+ * The index for a personal identity number is deliberately expensive - 43.8 ms
+ * per value, because the value space is small enough to sweep offline and a
+ * cheap index would be reversible if the database leaked (ADR 0002). Nothing
+ * else in an import comes close: an email index costs 0.07 ms.
+ *
+ * The cost is therefore set by how many identity numbers the file carries, not
+ * by how many rows it has, and this is the cap on the expensive half alone. At
+ * this ceiling a pass spends about 22 seconds in Argon2id, which a request can
+ * finish; a file with no identity number column keeps the full row allowance.
+ * A board past the ceiling has two ways through that need nobody's help: leave
+ * the identity number column unmapped, or split the file. ADR 0002 records the
+ * chunked job with progress reporting as the answer for larger files, and this
+ * refusal is what keeps a request from being the wrong place to find that out.
  */
-const INDEX_CACHE_LIMIT = 20_000;
+export const MAX_INDEXED_IDENTITY_NUMBERS = 500;
 
 export interface ImportSessionView {
   sessionId: string;
@@ -156,15 +188,51 @@ export interface ImportMappingInput {
 }
 
 @Injectable()
-export class ImportService {
+export class ImportService implements OnModuleInit {
   private readonly logger = new Logger(ImportService.name);
-  private readonly identityIndexCache = new Map<string, string>();
 
   constructor(
+    @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly i18n: I18nService,
+    private readonly jobs: JobQueueService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (this.env.NODE_ENV === "test") {
+      // Integration tests drive the purge themselves, so a worker does not run
+      // against the sessions a test is in the middle of using.
+      return;
+    }
+    await this.startPurgeWorker();
+  }
+
+  /** Registers the purge. Public so an integration test can drive the job. */
+  async startPurgeWorker(): Promise<void> {
+    await this.jobs.work(IMPORT_PURGE_QUEUE, async () => {
+      await this.purgeExpiredSessions();
+    });
+    await this.jobs.schedule(IMPORT_PURGE_QUEUE, PURGE_CRON, {});
+  }
+
+  /**
+   * Deletes uploads that can no longer be used.
+   *
+   * Refusing an expired session is not enough on its own: the row still holds
+   * the uploaded member list, encrypted but complete, personal identity numbers
+   * included. An upload nobody can act on any more is data kept for no purpose,
+   * so it goes rather than sitting there until someone notices.
+   */
+  async purgeExpiredSessions(now: Date = new Date()): Promise<number> {
+    const { count } = await this.prisma.importSession.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
+    if (count > 0) {
+      this.logger.log(`Purged ${String(count)} expired import sessions`);
+    }
+    return count;
+  }
 
   /** Parses an uploaded file and holds it for the mapping step. */
   async upload(input: {
@@ -237,7 +305,7 @@ export class ImportService {
     input: ImportMappingInput,
   ): Promise<ImportPreview> {
     const session = await this.loadSession(sessionId);
-    const plan = await this.plan(session, input);
+    const plan = await this.plan(session, input, new Map());
 
     return {
       sessionId,
@@ -264,7 +332,8 @@ export class ImportService {
     },
   ): Promise<ImportApplyResult> {
     const session = await this.loadSession(sessionId);
-    const plan = await this.plan(session, input);
+    const indexes: IdentityIndexCache = new Map();
+    const plan = await this.plan(session, input, indexes);
 
     for (const row of plan.rows) {
       if (row.outcome !== "ambiguous") {
@@ -294,17 +363,36 @@ export class ImportService {
     // opens. The index for a personal identity number costs tens of
     // milliseconds by design, and two hundred of them inside a transaction
     // would hold it open long past any sensible timeout.
-    const encrypted = await this.encryptRows(plan.rows, input.decisions);
-
-    const result = await this.prisma.$transaction(
-      async (tx) => this.write(tx, plan, input.decisions, encrypted),
-      { timeout: 120_000, maxWait: 20_000 },
+    const encrypted = await this.encryptRows(
+      plan.rows,
+      input.decisions,
+      indexes,
     );
 
-    await this.prisma.importSession.update({
-      where: { id: sessionId },
-      data: { status: "APPLIED", appliedAt: new Date() },
-    });
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // The session is claimed inside the transaction that writes, not after
+        // it. Two applies of one session overlap easily - a double-clicked
+        // button is enough - and both would pass loadSession, both would run
+        // write, and both would create the person, the residency and the
+        // statutory ENTRY row. member_register_entry refuses UPDATE and
+        // DELETE, so a member listed twice could only be answered with a
+        // further correction entry. The conditional update takes the row lock,
+        // so the second request finds nothing to claim and writes nothing.
+        const claimed = await tx.importSession.updateMany({
+          where: { id: sessionId, status: "MAPPING" },
+          data: { status: "APPLIED", appliedAt: new Date() },
+        });
+        if (claimed.count === 0) {
+          throw new ImportError(
+            "That import has already been applied.",
+            "session-already-applied",
+          );
+        }
+        return this.write(tx, plan, input.decisions, encrypted);
+      },
+      { timeout: 120_000, maxWait: 20_000 },
+    );
 
     this.logger.log(
       `Import session ${sessionId} applied: ${String(result.personsCreated)} created, ` +
@@ -381,6 +469,7 @@ export class ImportService {
   private async plan(
     session: { id: string; columns: string[]; rowsCipher: string },
     input: ImportMappingInput,
+    indexes: IdentityIndexCache,
   ): Promise<ImportPlan> {
     const mappingProblems = validateMapping({
       mapping: input.mapping,
@@ -399,14 +488,19 @@ export class ImportService {
       await this.encryption.decrypt("importSession.rows", session.rowsCipher),
     ) as string[][];
 
+    const rowValues = rows.map((cells) => readRow(cells, input.mapping));
+    this.checkIdentityNumberBudget(rowValues);
+
     const prepared: PreparedRow[] = [];
-    for (const [index, cells] of rows.entries()) {
-      const values = readRow(cells, input.mapping);
+    for (const [index, values] of rowValues.entries()) {
       prepared.push({
         rowNumber: index + 1,
         values,
         identityNumberIndex: hasIndexableIdentityNumber(values)
-          ? await this.identityNumberIndex(values.personalIdentityNumber ?? "")
+          ? await this.identityNumberIndex(
+              values.personalIdentityNumber ?? "",
+              indexes,
+            )
           : null,
         emailIndex:
           values.email === undefined
@@ -420,6 +514,39 @@ export class ImportService {
       defaultRole: input.defaultRole,
       defaultMovedInOn: input.defaultMovedInOn,
     });
+  }
+
+  /**
+   * Refuses a mapping whose identity numbers cost more than a request has.
+   *
+   * Counted before any of them is indexed, and by distinct value, because the
+   * per-request cache means a number repeated across rows is paid for once. A
+   * board that runs into this is told before it waits rather than after.
+   */
+  private checkIdentityNumberBudget(
+    rowValues: readonly Partial<Record<ImportField, string>>[],
+  ): void {
+    const distinct = new Set<string>();
+    for (const values of rowValues) {
+      if (!hasIndexableIdentityNumber(values)) {
+        continue;
+      }
+      const normalized = normalizePersonalIdentityNumber(
+        values.personalIdentityNumber ?? "",
+      );
+      if (normalized !== null) {
+        distinct.add(normalized);
+      }
+    }
+
+    if (distinct.size > MAX_INDEXED_IDENTITY_NUMBERS) {
+      throw new ImportError(
+        `That file carries ${String(distinct.size)} personal identity numbers, ` +
+          `and at most ${String(MAX_INDEXED_IDENTITY_NUMBERS)} can be imported ` +
+          "at a time.",
+        "too-many-identity-numbers",
+      );
+    }
   }
 
   /**
@@ -504,14 +631,16 @@ export class ImportService {
     };
   }
 
-  private async identityNumberIndex(value: string): Promise<string | null> {
+  private async identityNumberIndex(
+    value: string,
+    indexes: IdentityIndexCache,
+  ): Promise<string | null> {
     const normalized = normalizePersonalIdentityNumber(value);
     if (normalized === null) {
       return null;
     }
-    const key = createHash("sha256").update(normalized).digest("hex");
 
-    const cached = this.identityIndexCache.get(key);
+    const cached = indexes.get(normalized);
     if (cached !== undefined) {
       return cached;
     }
@@ -521,10 +650,7 @@ export class ImportService {
       value,
     );
     if (index !== null) {
-      if (this.identityIndexCache.size >= INDEX_CACHE_LIMIT) {
-        this.identityIndexCache.clear();
-      }
-      this.identityIndexCache.set(key, index);
+      indexes.set(normalized, index);
     }
     return index;
   }
@@ -533,6 +659,7 @@ export class ImportService {
   private async encryptRows(
     rows: readonly PlannedRow[],
     decisions: Record<string, ImportDecision>,
+    indexes: IdentityIndexCache,
   ): Promise<Map<number, EncryptedRowValues>> {
     const encrypted = new Map<number, EncryptedRowValues>();
 
@@ -561,6 +688,7 @@ export class ImportService {
                 ).cipher,
                 index: await this.identityNumberIndex(
                   row.person.personalIdentityNumber,
+                  indexes,
                 ),
               },
       });

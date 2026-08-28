@@ -100,6 +100,31 @@ describe("JobQueueService", () => {
     }
   }, 30_000);
 
+  it("starts the backend once when two callers race to ensure a queue", async () => {
+    // ensureQueue starts the backend, and several feature modules call it. Two
+    // that overlap would both read `started === false` across the await and
+    // start pg-boss twice.
+    const service = new JobQueueService(env);
+    const boss = service.instance;
+    const realStart = boss.start.bind(boss);
+    let starts = 0;
+    boss.start = async () => {
+      starts += 1;
+      return realStart();
+    };
+
+    try {
+      await Promise.all([
+        service.ensureQueue(`test-race-a-${suffix}`),
+        service.ensureQueue(`test-race-b-${suffix}`),
+      ]);
+
+      expect(starts).toBe(1);
+    } finally {
+      await service.onModuleDestroy();
+    }
+  }, 30_000);
+
   it("keeps its tables out of the application schema", async () => {
     const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
       "SELECT count(*)::bigint AS count FROM information_schema.tables WHERE table_schema = 'pgboss'",

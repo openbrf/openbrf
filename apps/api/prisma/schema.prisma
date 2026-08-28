@@ -434,6 +434,10 @@ enum AuditAction {
   PROTECTED_FLAG_CHANGED
   MEMBER_REGISTER_EXTRACT_GENERATED
   APARTMENT_REGISTER_EXTRACT_GENERATED
+  /// A lien note was recorded against an apartment.
+  APARTMENT_REGISTER_LIEN_NOTED
+  /// A lien note was released. Its release date is a statutory date of record.
+  APARTMENT_REGISTER_LIEN_RELEASED
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED

@@ -37,6 +37,14 @@ export function PersonSearch({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<PersonOption[]>([]);
+  /**
+   * Kept apart from an empty result on purpose. "Nobody by that name" and "we
+   * could not ask" are different answers, and in this flow the difference has
+   * consequences: a board member who believes the person is absent adds a
+   * second record for someone already in the register, and the move-in then
+   * writes a member register entry against the duplicate.
+   */
+  const [failed, setFailed] = useState(false);
   const search = useDebouncedValue(query);
 
   // Two characters before anything is asked for. A one-letter search returns
@@ -54,6 +62,7 @@ export function PersonSearch({
     const controller = new AbortController();
     void (async () => {
       try {
+        setFailed(false);
         const page = await fetchBoardRegister(
           { filter: "all", search, page: 1 },
           controller.signal,
@@ -64,8 +73,14 @@ export function PersonSearch({
           seen.set(row.personId, { personId: row.personId, name: row.name });
         }
         setOptions([...seen.values()]);
-      } catch {
+      } catch (error) {
+        // A superseded search is not a failure, and its cleanup has already run
+        // for a component that may be gone.
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
         setOptions([]);
+        setFailed(true);
       }
     })();
 
@@ -90,7 +105,13 @@ export function PersonSearch({
             }}
             className="min-h-11 rounded-control border border-line px-3 text-small text-ink-muted"
           >
-            {t("moves.cancel")}
+            {/*
+             * Its own key rather than moves.cancel, which the panels use for
+             * the button that closes the whole form: two buttons reading
+             * "Avbryt" and doing different things is a lost form for anyone who
+             * hits the wrong one, and the same name twice for a screen reader.
+             */}
+            {t("moves.transfer.changePerson")}
           </button>
         </span>
       </div>
@@ -114,7 +135,11 @@ export function PersonSearch({
       </label>
       <p className={HINT}>{t("moves.in.personHint")}</p>
 
-      {!searching ? null : visible.length === 0 ? (
+      {!searching ? null : failed ? (
+        <p role="alert" className={HINT}>
+          {t("moves.in.personSearchFailed")}
+        </p>
+      ) : visible.length === 0 ? (
         <p className={HINT}>{t("moves.in.noPersonMatch")}</p>
       ) : (
         <ul className="flex flex-col">

@@ -272,13 +272,25 @@ export class MoveService implements OnModuleInit {
       return { residency, memberRegisterEntryRecorded, transferId };
     });
 
-    const welcomeEmailSent = await this.sendMoveInMail({
-      emailCipher: person.emailCipher,
-      locale: person.preferredLocale,
-      recipientName: `${person.firstName} ${person.lastName}`.trim(),
-      apartmentNumber: apartment.number,
-      movedInOn,
-    });
+    // Best effort, and deliberately so: the residency and the register entry
+    // have committed by now, and the ENTRY row cannot be taken back. Letting a
+    // mail outage reject the request would report a written register as a
+    // failure and invite a retry that cannot succeed.
+    let welcomeEmailSent = false;
+    try {
+      welcomeEmailSent = await this.sendMoveInMail({
+        emailCipher: person.emailCipher,
+        locale: person.preferredLocale,
+        recipientName: `${person.firstName} ${person.lastName}`.trim(),
+        apartmentNumber: apartment.number,
+        movedInOn,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Welcome email failed for residency ${result.residency.id}`,
+        error,
+      );
+    }
 
     this.logger.log(
       `Moved person ${person.id} into apartment ${apartment.id} as ${input.role}`,
@@ -410,16 +422,26 @@ export class MoveService implements OnModuleInit {
       throw new Error("A move-out with a date produced no purge date.");
     }
 
-    await this.sendMoveOutMail({
-      emailCipher: person.emailCipher,
-      locale: person.preferredLocale,
-      recipientName: `${person.firstName} ${person.lastName}`.trim(),
-      apartmentNumber: residency.apartment.number,
-      movedOutOn,
-      purgeOn,
-    });
-
+    // The reminder is enqueued before the mail, because it is the part that
+    // cannot be reconstructed: the EXIT row has committed and refuses a second
+    // move-out, so a reminder dropped here has no path back.
     await this.scheduleBoardReminder(residency.id, movedOutOn);
+
+    try {
+      await this.sendMoveOutMail({
+        emailCipher: person.emailCipher,
+        locale: person.preferredLocale,
+        recipientName: `${person.firstName} ${person.lastName}`.trim(),
+        apartmentNumber: residency.apartment.number,
+        movedOutOn,
+        purgeOn,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Move-out notice failed for residency ${residency.id}`,
+        error,
+      );
+    }
 
     this.logger.log(
       `Moved person ${person.id} out of apartment ${residency.apartment.id}`,
@@ -487,24 +509,37 @@ export class MoveService implements OnModuleInit {
       if (member.emailCipher === null) {
         continue;
       }
-      const to = await this.encryption.decrypt(
-        "person.email",
-        member.emailCipher,
-      );
-      await this.mail.send({
-        to,
-        locale: member.preferredLocale,
-        template: boardMoveOutReminderMail,
-        props: {
-          recipientName: `${member.firstName} ${member.lastName}`.trim(),
-          personName:
-            `${residency.person.firstName} ${residency.person.lastName}`.trim(),
-          apartmentNumber: residency.apartment.number,
-          movedOutOn: residency.movedOutOn,
-          purgeOn,
-        },
-      });
-      sent++;
+      // Per recipient, so one unreachable address does not abandon the board
+      // members after it. A rejection here would fail the whole job, and the
+      // retry starts at the first board member again - the ones before the
+      // failure would get the reminder twice and the ones after it never.
+      try {
+        const to = await this.encryption.decrypt(
+          "person.email",
+          member.emailCipher,
+        );
+        await this.mail.send({
+          to,
+          locale: member.preferredLocale,
+          template: boardMoveOutReminderMail,
+          props: {
+            recipientName: `${member.firstName} ${member.lastName}`.trim(),
+            personName:
+              `${residency.person.firstName} ${residency.person.lastName}`.trim(),
+            apartmentNumber: residency.apartment.number,
+            movedOutOn: residency.movedOutOn,
+            purgeOn,
+          },
+        });
+        sent++;
+      } catch (error) {
+        // Named by person id, never by address: a failed send must not put an
+        // email address in the log.
+        this.logger.error(
+          `Move-out reminder failed for board member ${member.id}`,
+          error,
+        );
+      }
     }
 
     this.logger.log(

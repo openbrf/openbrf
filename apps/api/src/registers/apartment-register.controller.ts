@@ -94,12 +94,13 @@ export class ApartmentRegisterController {
     @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
   ): Promise<ApartmentRegisterExtract> {
-    const { apartmentId } = revealSchema.parse(body);
+    const { apartmentId, reason } = revealSchema.parse(body);
     return this.register.extract({
       actorPersonId: actingPersonId(request),
       audience: "board",
       apartmentId: apartmentId ?? null,
       includeIdentityNumbers: true,
+      reason: reason ?? null,
     });
   }
 
@@ -112,15 +113,27 @@ export class ApartmentRegisterController {
    */
   @Post("liens")
   @RequireCapability("apartmentRegister:read", "addressBook:write")
-  async addLien(@Body() body: unknown): Promise<ApartmentRegisterLien> {
-    return this.register.addLien(lienSchema.parse(body));
+  async addLien(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ApartmentRegisterLien> {
+    return this.register.addLien({
+      ...lienSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
   }
 
   @Post("liens/release")
   @HttpCode(200)
   @RequireCapability("apartmentRegister:read", "addressBook:write")
-  async releaseLien(@Body() body: unknown): Promise<ApartmentRegisterLien> {
-    return this.register.releaseLien(releaseLienSchema.parse(body));
+  async releaseLien(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ApartmentRegisterLien> {
+    return this.register.releaseLien({
+      ...releaseLienSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
   }
 }
 
@@ -160,7 +173,9 @@ export class OwnApartmentRegisterController {
    *
    * No protectedData:reveal here: the number being disclosed is the caller's
    * own, and requiring a capability the board holds would mean a tenant-owner
-   * could never obtain the statutory extract the law entitles them to. It is
+   * could never obtain the statutory extract the law entitles them to. The
+   * service is what keeps that justification true - a holder's copy carries
+   * their own number and masks every co-holder's and previous holder's. It is
    * audited exactly as the board's is.
    */
   @Post("reveal")
@@ -169,12 +184,13 @@ export class OwnApartmentRegisterController {
     @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
   ): Promise<ApartmentRegisterExtract> {
-    const { apartmentId } = revealSchema.parse(body);
+    const { apartmentId, reason } = revealSchema.parse(body);
     return this.register.extract({
       actorPersonId: actingPersonId(request),
       audience: "holder",
       apartmentId: apartmentId ?? null,
       includeIdentityNumbers: true,
+      reason: reason ?? null,
     });
   }
 }

@@ -52,14 +52,28 @@ vi.mock("./import-api", async (importOriginal) => ({
     applyImport(sessionId, input),
 }));
 
+/**
+ * The uploaded file carries a personal identity number, because a real member
+ * list does.
+ *
+ * The session stays in the screen's state for the whole flow, which is what
+ * gives the privacy assertion below something to catch: the number is a value
+ * the component is holding when the preview renders, and the preview has to
+ * report it as present without putting it on the page.
+ */
 const SESSION: ImportSessionView = {
   sessionId: "session-1",
   fileName: "medlemmar.csv",
   format: "CSV",
-  columns: ["Lgh", "Namn", "E-post"],
+  columns: ["Lgh", "Namn", "E-post", "Personnummer"],
   rowCount: 3,
-  sample: [["1103", "Anna Lindqvist", "anna@exempel.se"]],
-  suggestedMapping: ["apartmentNumber", "fullName", "email"],
+  sample: [["1103", "Anna Lindqvist", "anna@exempel.se", IDENTITY_NUMBER]],
+  suggestedMapping: [
+    "apartmentNumber",
+    "fullName",
+    "email",
+    "personalIdentityNumber",
+  ],
   expiresAt: "2026-08-29T00:00:00.000Z",
 };
 
@@ -209,6 +223,26 @@ describe("the mapping step", () => {
     expect((selects[2] as HTMLSelectElement).value).toBe("email");
   });
 
+  it("names each column in the accessible name of its own select", async () => {
+    // One name shared by every combobox leaves a screen-reader user with no
+    // way to tell which column they are on, and a column sent to the wrong
+    // field writes a register entry that cannot be corrected by editing.
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+    await screen.findByText(/Kolumnerna/);
+
+    for (const column of SESSION.columns) {
+      expect(
+        screen.getByRole("combobox", {
+          name: new RegExp(`Fält i registret för ${column}`),
+        }),
+      ).toBeTruthy();
+    }
+  });
+
   it("asks for a role for the whole file when no column carries one", async () => {
     // Nothing may guess this: a row read as "member" writes an entry in a
     // register that cannot be deleted.
@@ -237,6 +271,10 @@ describe("the preview", () => {
 
     expect(screen.getByText(/innehåller ett personnummer/i)).toBeTruthy();
     expect(screen.queryByText(IDENTITY_NUMBER)).toBeNull();
+    // Not only that one value: nothing shaped like a personal identity number
+    // belongs on this screen. A preview is not a register view, and the file's
+    // own numbers are in the session the screen is holding while it renders.
+    expect(document.body.textContent).not.toMatch(/\d{6,8}[-+]\d{4}/);
   });
 
   it("names what is wrong with a row rather than dropping it", async () => {

@@ -47,6 +47,8 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly boss: PgBoss;
   private readonly ensuredQueues = new Set<string>();
   private started = false;
+  /** Held while a start is in flight, so parallel callers await the same one. */
+  private starting: Promise<void> | null = null;
 
   constructor(@Inject(ENV) private readonly env: Env) {
     const isProduction = env.NODE_ENV === "production";
@@ -76,13 +78,32 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     await this.start();
   }
 
+  /**
+   * Starts the queue backend, once per process whoever asks first.
+   *
+   * The promise is memoized rather than a boolean checked before an await:
+   * ensureQueue calls start(), several feature modules call ensureQueue, and
+   * two of those overlapping would both see `started === false` and start
+   * pg-boss twice.
+   */
   async start(): Promise<void> {
     if (this.started) {
       return;
     }
-    await this.boss.start();
-    this.started = true;
-    this.logger.log(`Job queue started (schema "${JOB_SCHEMA}")`);
+    this.starting ??= (async () => {
+      await this.boss.start();
+      this.started = true;
+      this.logger.log(`Job queue started (schema "${JOB_SCHEMA}")`);
+    })();
+
+    try {
+      await this.starting;
+    } catch (error) {
+      // A failed start must not leave a rejected promise behind for every
+      // later caller to await: the next one tries again.
+      this.starting = null;
+      throw error;
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -94,6 +115,7 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     // staging and commit steps.
     await this.boss.stop({ graceful: true });
     this.started = false;
+    this.starting = null;
   }
 
   /**
@@ -109,8 +131,9 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     // start the queue under test: a move-out entered in an integration test
     // still has to leave its board reminder in the queue, and a job silently
     // dropped because nothing had started the backend is the kind of gap a
-    // green suite would hide. start() is idempotent, and registering a worker
-    // is still an explicit act, so nothing races a job under test.
+    // green suite would hide. start() is idempotent for parallel callers as
+    // well as sequential ones, and registering a worker is still an explicit
+    // act, so nothing races a job under test.
     await this.start();
     await this.boss.createQueue(name);
     this.ensuredQueues.add(name);

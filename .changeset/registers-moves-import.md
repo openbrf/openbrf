@@ -16,8 +16,13 @@ lien notes with their dates of record and transfers with their agreement
 references; it is confidential, open to the board and to each tenant-owner for
 their own entry. Identity numbers arrive masked, and producing the full
 statutory copy is a separate request whose audit entry names everyone it
-disclosed. Both extracts print through a print stylesheet rather than a PDF
-engine.
+disclosed and why it was asked for. The board's copy carries every holder's
+number; a tenant-owner's own copy carries theirs alone, because an apartment
+lists its co-holders and its previous holders too. Noting a lien and releasing
+one are recorded in the audit log like every read of the register, and a note
+that already carries a release date keeps it: that date is the statutory date
+of record on a row nobody can delete. Both extracts print through a print
+stylesheet rather than a PDF engine.
 
 Move-in creates the residency, writes the member register entry when the person
 takes over a tenant-ownership, records a transfer when there is one, and sends
@@ -31,5 +36,9 @@ the titles in either language, and shows what would happen - creates, updates,
 rows with problems named one by one, and rows matching more than one person,
 which block the import until somebody decides. Persons are matched by personal
 identity number, then email, then apartment and exact name. An update fills in
-what the register does not have and never overwrites what it does. A template
-is downloadable in the reader's own language.
+what the register does not have and never overwrites what it does. Applying
+claims the upload in the same transaction as the writes, so two applies of one
+upload cannot both write the register. A personal identity number costs 43.8 ms
+to index by design, so a file carrying more than 500 of them is refused with an
+explanation rather than left to time out. Uploads are deleted once they expire,
+and a template is downloadable in the reader's own language.

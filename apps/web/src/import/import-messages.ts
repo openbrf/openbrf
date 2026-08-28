@@ -15,6 +15,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "file-too-large": "import.errors.fileTooLarge",
   "file-unreadable": "import.errors.fileUnreadable",
   "too-many-rows": "import.errors.tooManyRows",
+  "too-many-identity-numbers": "import.errors.tooManyIdentityNumbers",
   "mapping-invalid": "import.errors.mappingInvalid",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",

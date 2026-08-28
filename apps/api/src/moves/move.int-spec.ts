@@ -67,6 +67,10 @@ const apartments = {
   second: `mv-apartment-b-${suffix}`,
   third: `mv-apartment-c-${suffix}`,
   reminder: `mv-apartment-d-${suffix}`,
+  /** Moved in and out again while the mail server is refusing. */
+  outage: `mv-apartment-e-${suffix}`,
+  /** Used by the reminder that reaches only part of the board. */
+  partial: `mv-apartment-f-${suffix}`,
 };
 
 const actors = {
@@ -97,6 +101,16 @@ const actors = {
   leaver: {
     personId: `mv-leaver-${suffix}`,
     email: `mv-leaver-${suffix}@exempel.se`,
+  },
+  /** A second board member, so a reminder has more than one recipient. */
+  deputy: {
+    personId: `mv-deputy-${suffix}`,
+    email: `mv-deputy-${suffix}@exempel.se`,
+  },
+  /** Moves while the mail server is refusing every message. */
+  mover: {
+    personId: `mv-mover-${suffix}`,
+    email: `mv-mover-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -238,6 +252,16 @@ beforeAll(async () => {
     firstName: "Lena",
     email: actors.leaver.email,
   });
+  await createPerson({
+    personId: actors.deputy.personId,
+    firstName: "Doris",
+    email: actors.deputy.email,
+  });
+  await createPerson({
+    personId: actors.mover.personId,
+    firstName: "Mats",
+    email: actors.mover.email,
+  });
 
   await prisma.residency.create({
     data: {
@@ -248,12 +272,19 @@ beforeAll(async () => {
     },
   });
 
-  await prisma.boardPosition.create({
-    data: {
-      personId: actors.board.personId,
-      position: "CHAIR",
-      electedOn: new Date("2025-05-15T00:00:00.000Z"),
-    },
+  await prisma.boardPosition.createMany({
+    data: [
+      {
+        personId: actors.board.personId,
+        position: "CHAIR",
+        electedOn: new Date("2025-05-15T00:00:00.000Z"),
+      },
+      {
+        personId: actors.deputy.personId,
+        position: "DEPUTY_BOARD_MEMBER",
+        electedOn: new Date("2025-05-15T00:00:00.000Z"),
+      },
+    ],
   });
 
   const auth = app.get(AuthService);
@@ -625,6 +656,92 @@ describe("moving out", () => {
     await expect(
       prisma.memberRegisterEntry.delete({ where: { id: exit.id } }),
     ).rejects.toThrow();
+  });
+});
+
+describe("when the mail server is refusing", () => {
+  it("keeps the register write and the board reminder", async () => {
+    // Both writes have committed by the time a message is sent, and neither can
+    // be taken back: the member register refuses UPDATE and DELETE, and a
+    // second move-out on the same residency is refused. So a mail failure must
+    // not reject the request, and the reminder - the only part that cannot be
+    // reconstructed afterwards - is enqueued before the mail is attempted.
+    const order: string[] = [];
+    const send = vi.spyOn(mail, "send").mockImplementation(async () => {
+      order.push("mail");
+      throw new Error("smtp refused the connection");
+    });
+    const jobs = app.get(JobQueueService);
+    const sendAt = vi.spyOn(jobs, "sendAt").mockImplementation(async () => {
+      order.push("reminder");
+    });
+
+    try {
+      const moveIn = await moves.moveIn({
+        personId: actors.mover.personId,
+        apartmentId: apartments.outage,
+        role: "MEMBER",
+        movedInOn: "2024-02-01",
+      });
+      expect(moveIn.memberRegisterEntryRecorded).toBe(true);
+      // Reported as not sent rather than reported as a failed move-in.
+      expect(moveIn.welcomeEmailSent).toBe(false);
+
+      order.length = 0;
+      const moveOut = await moves.moveOut({
+        residencyId: moveIn.residencyId,
+        movedOutOn: "2026-02-01",
+      });
+
+      expect(moveOut.memberRegisterExitRecorded).toBe(true);
+      expect(order).toEqual(["reminder", "mail"]);
+      expect(sendAt).toHaveBeenCalledTimes(1);
+      expect(
+        (await registerEntries(actors.mover.personId)).map(
+          (entry) => entry.eventType,
+        ),
+      ).toEqual(["ENTRY", "EXIT"]);
+    } finally {
+      send.mockRestore();
+      sendAt.mockRestore();
+    }
+  });
+
+  it("sends the reminder to the rest of the board past a failing recipient", async () => {
+    // The job is retried from the first recipient, so a rejection escaping the
+    // loop would send the reminder twice to everyone before the failure and
+    // never to anyone after it.
+    const residency = await prisma.residency.create({
+      data: {
+        personId: actors.mover.personId,
+        apartmentId: apartments.partial,
+        role: "RESIDENT",
+        movedInOn: new Date("2024-03-01T00:00:00.000Z"),
+        movedOutOn: new Date("2026-03-01T00:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+
+    let attempts = 0;
+    const send = vi.spyOn(mail, "send").mockImplementation(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("mailbox unavailable");
+      }
+    });
+
+    try {
+      const sent = await moves.sendBoardMoveOutReminder(residency.id);
+
+      // Counted against what was attempted rather than an absolute: the
+      // integration database carries the seeded association's board as well as
+      // this suite's, and how many people sit on it is not what is under test.
+      expect(attempts).toBeGreaterThan(1);
+      // Every recipient was attempted, and only the delivered ones counted.
+      expect(sent).toBe(attempts - 1);
+    } finally {
+      send.mockRestore();
+    }
   });
 });
 

@@ -367,7 +367,15 @@ describe("validating a row", () => {
       DEFAULTS,
     );
 
-    expect(plan.rows[0]?.problems.length).toBeGreaterThanOrEqual(4);
+    // Named rather than counted. A count still passes when one reason is
+    // quietly replaced by another, and what this row is here to prove is that
+    // the board is told all four faults at once rather than one per attempt.
+    expect(plan.rows[0]?.problems).toEqual([
+      { field: "fullName", reason: "name-not-splittable" },
+      { field: "apartmentNumber", reason: "apartment-not-found" },
+      { field: "role", reason: "role-unrecognised" },
+      { field: "movedInOn", reason: "date-not-iso" },
+    ]);
   });
 });
 

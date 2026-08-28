@@ -59,6 +59,11 @@ export function MoveOutPanel({
 
   const submit = async (): Promise<void> => {
     if (recordTransfer && toPerson === null) {
+      // The person picker is not a native control, so `required` cannot reach
+      // it and the browser will not refuse this for us. Returning in silence
+      // would leave the button looking broken, with nothing said and no live
+      // region updated.
+      setFailure("moves.errors.transferPersonRequired");
       return;
     }
     setSubmitting(true);

@@ -554,7 +554,7 @@
       "count": "Entries",
       "maskedAddress": "Protected, not printed",
       "alternativeAddress": "Alternative address",
-      "noIdentityNumbers": "This extract carries no personal identity numbers. The register is public on request, so it never may.",
+      "noIdentityNumbers": "This extract carries no personal identity numbers. The register is public on request, so it may never contain one.",
       "empty": {
         "title": "No memberships recorded",
         "description": "Memberships are recorded when someone moves in as a member, and by the import. Nothing has been recorded yet."
@@ -630,6 +630,7 @@
       "personPlaceholder": "Search by name",
       "personHint": "Only people already in the register can be moved in. Add them first if they are missing.",
       "noPersonMatch": "Nobody matches that name.",
+      "personSearchFailed": "The register could not be searched just now. Try again.",
       "apartment": "Apartment",
       "role": "Role",
       "roleMember": "Member - holds the tenant-ownership",
@@ -667,7 +668,8 @@
       "price": "Price",
       "agreementReference": "Agreement reference",
       "agreementReferenceHint": "A case number, or where the paper copy is filed. It is printed in the apartment register extract.",
-      "recorded": "The transfer was recorded in the apartment register."
+      "recorded": "The transfer was recorded in the apartment register.",
+      "changePerson": "Choose somebody else"
     },
     "errors": {
       "personNotFound": "That person is no longer in the register. Reload the page.",
@@ -677,6 +679,7 @@
       "alreadyMovedOut": "That residency already has a move-out date.",
       "movedOutBeforeMovedIn": "A move-out cannot be earlier than the move-in.",
       "transferPersonNotFound": "The other party to the transfer is not in the register. Add them first.",
+      "transferPersonRequired": "Choose the new holder, or turn off recording a transfer.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },
@@ -706,6 +709,7 @@
       "fileSummary": "{{fileName}}: {{rows}} rows, {{columns}} columns",
       "column": "Column in the file",
       "field": "Register field",
+      "fieldFor": "Register field for {{column}}",
       "sample": "First values",
       "ignore": "Do not import",
       "defaults": "For every row",
@@ -804,6 +808,7 @@
       "fileTooLarge": "That file is larger than 512 kB.",
       "fileUnreadable": "That file could not be read as a spreadsheet.",
       "tooManyRows": "That file has more rows than one import can take.",
+      "tooManyIdentityNumbers": "That file carries more personal identity numbers than one import can take. Import it in smaller parts, or leave the personal identity number column out.",
       "mappingInvalid": "The mapping cannot be applied yet.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",

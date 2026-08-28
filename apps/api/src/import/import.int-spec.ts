@@ -13,10 +13,12 @@ import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
 import type { ImportField } from "./import-columns";
-import type {
-  ImportApplyResult,
-  ImportPreview,
-  ImportSessionView,
+import {
+  type ImportApplyResult,
+  type ImportPreview,
+  ImportService,
+  type ImportSessionView,
+  MAX_INDEXED_IDENTITY_NUMBERS,
 } from "./import.service";
 
 /**
@@ -74,6 +76,8 @@ const actors = {
 
 const twinFirstName = "Dubbel";
 const newcomerEmail = `imp-nina-${suffix}@exempel.se`;
+/** A second newcomer, used by the concurrent-apply case and nowhere else. */
+const raceEmail = `imp-race-${suffix}@exempel.se`;
 
 const personIds = [
   actors.board.personId,
@@ -340,9 +344,16 @@ afterAll(async () => {
   await prisma.importSession.deleteMany({
     where: { createdById: actors.board.personId },
   });
-  // Persons created by the import, and the apartments they were placed in, stay
-  // behind the member register entries that name them: the archive is
-  // append-only and its foreign keys are what keep it readable.
+  // The fixture persons hold no member register entry, so they go: an
+  // integration suite shares its database, and rows left behind accumulate on
+  // every run. What stays is what the archive names - the persons the imports
+  // created, apartments `a` and `d` that their ENTRY rows point at, and the
+  // address those belong to. The archive is append-only and its foreign keys
+  // are what keep it readable.
+  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  await prisma.apartment.deleteMany({
+    where: { id: { in: [apartments.b, apartments.c] } },
+  });
   await app.close();
 });
 
@@ -692,4 +703,157 @@ describe("applying", () => {
       "session-already-applied",
     );
   }, 60_000);
+});
+
+describe("two applies of one session", () => {
+  it("writes the register once when they overlap", async () => {
+    // A double-clicked button is enough to produce this. Both requests read a
+    // session in MAPPING and both would run the writes, creating the person,
+    // the residency and the statutory ENTRY row twice. member_register_entry
+    // refuses UPDATE and DELETE, so a member listed twice could only be
+    // answered with a further correction entry - the session has to be claimed
+    // by the same transaction that writes.
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "en-rad.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2104",
+            "Race",
+            surname,
+            "Medlem",
+            raceEmail,
+            "",
+            "2022-09-01",
+          ],
+        ]),
+      ),
+    );
+
+    const applyOnce = () =>
+      inject({
+        method: "POST",
+        url: `/api/import/sessions/${session.sessionId}/apply`,
+        payload: { mapping: session.suggestedMapping, decisions: {} },
+        headers: { cookie },
+      });
+
+    const [first, second] = await Promise.all([applyOnce(), applyOnce()]);
+    const codes = [first.statusCode, second.statusCode].sort((a, b) => a - b);
+    expect(codes).toEqual([200, 409]);
+
+    const created = await prisma.person.findMany({
+      where: { firstName: "Race", lastName: surname },
+      select: { id: true, memberRegisterEntries: { select: { id: true } } },
+    });
+    expect(created).toHaveLength(1);
+    expect(created[0]?.memberRegisterEntries).toHaveLength(1);
+  }, 60_000);
+});
+
+/**
+ * Synthetic personal identity numbers, checksum-valid so the planner treats
+ * them as indexable. Built rather than listed: what matters is how many
+ * distinct ones the file carries.
+ */
+function identityNumbers(count: number): string[] {
+  const numbers: string[] = [];
+  for (let serial = 0; numbers.length < count; serial++) {
+    const nine = `900101${String(serial).padStart(3, "0")}`;
+    let sum = 0;
+    for (let position = 0; position < 9; position++) {
+      const digit = Number(nine[position]);
+      const weighted = position % 2 === 0 ? digit * 2 : digit;
+      sum += weighted > 9 ? weighted - 9 : weighted;
+    }
+    numbers.push(`${nine}${String((10 - (sum % 10)) % 10)}`);
+  }
+  return numbers;
+}
+
+describe("a file carrying more identity numbers than a request can index", () => {
+  it("is refused before any of them is indexed", async () => {
+    // Each one costs 43.8 ms in Argon2id by design (ADR 0002), so the ceiling
+    // is what keeps a preview inside a request rather than timing out behind a
+    // proxy after several minutes. The board is told, and told what to do.
+    const cookie = await signIn(actors.board.email);
+    const rows = identityNumbers(MAX_INDEXED_IDENTITY_NUMBERS + 1).map(
+      (identityNumber, index) => [
+        addressLabel,
+        "2101",
+        `Manga${String(index)}`,
+        surname,
+        "Boende",
+        "",
+        "",
+        "2021-04-01",
+        identityNumber,
+      ],
+    );
+    const session = await upload(
+      cookie,
+      "manga.csv",
+      encode(writeCsv([[...HEADERS, "Personnummer"], ...rows])),
+    );
+
+    const started = Date.now();
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "too-many-identity-numbers",
+    );
+    // Refused rather than half-computed: indexing even a tenth of them would
+    // take longer than this.
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 60_000);
+});
+
+describe("expired uploads", () => {
+  it("are deleted rather than left holding the member list", async () => {
+    // Refusing an expired session is not the same as removing it: the row
+    // still carries the uploaded rows, personal identity numbers included.
+    const imports = app.get(ImportService);
+    const expired = await prisma.importSession.create({
+      data: {
+        fileName: "gammal.csv",
+        format: "CSV",
+        columns: HEADERS,
+        rowsCipher: (
+          await encryption.encrypt("importSession.rows", JSON.stringify([]))
+        ).cipher,
+        rowCount: 0,
+        createdById: actors.board.personId,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+      select: { id: true },
+    });
+    const current = await upload(
+      await signIn(actors.board.email),
+      "aktuell.csv",
+      encode(writeCsv(fixtureRows())),
+    );
+
+    await imports.purgeExpiredSessions();
+
+    expect(
+      await prisma.importSession.findUnique({ where: { id: expired.id } }),
+    ).toBeNull();
+    // An upload still inside its lifetime is untouched: the board is in the
+    // middle of mapping it.
+    expect(
+      await prisma.importSession.findUnique({
+        where: { id: current.sessionId },
+      }),
+    ).not.toBeNull();
+  });
 });

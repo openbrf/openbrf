@@ -61,9 +61,14 @@ const actors = {
     email: `reg-protected-${suffix}@exempel.se`,
     personalIdentityNumber: "811228-9874",
   },
+  /**
+   * Held the same apartment before the current member. Carries a number of
+   * their own, so a holder's own extract has something it must refuse.
+   */
   formerMember: {
     personId: `reg-former-${suffix}`,
     email: `reg-former-${suffix}@exempel.se`,
+    personalIdentityNumber: "010101-1005",
   },
   resident: {
     personId: `reg-resident-${suffix}`,
@@ -208,6 +213,7 @@ beforeAll(async () => {
     personId: actors.formerMember.personId,
     firstName: "Frida",
     email: actors.formerMember.email,
+    personalIdentityNumber: actors.formerMember.personalIdentityNumber,
   });
   await createPerson({
     personId: actors.resident.personId,
@@ -624,10 +630,11 @@ describe("the apartment register extract", () => {
     });
     expect(entries.length).toBe(before + 1);
     // The entry names whose numbers the copy disclosed. A count would not
-    // answer the only question worth asking afterwards.
+    // answer the only question worth asking afterwards. The board's copy is
+    // the whole statutory document, so it names the previous holder too.
     expect(entries[0]?.context).toMatchObject({
       fields: ["personalIdentityNumber"],
-      personIds: [actors.member.personId],
+      personIds: [actors.member.personId, actors.formerMember.personId],
     });
   });
 
@@ -703,10 +710,112 @@ describe("a tenant-owner's own entry", () => {
 
     expect(response.statusCode).toBe(200);
     const extract = JSON.parse(response.body) as ApartmentRegisterExtract;
-    expect(extract.rows[0]?.holders[0]?.personalIdentityNumber).toEqual({
+    const own = extract.rows[0]?.holders.find(
+      (holder) => holder.personId === actors.member.personId,
+    );
+    expect(own?.personalIdentityNumber).toEqual({
       state: "visible",
       value: actors.member.personalIdentityNumber,
     });
+  });
+
+  it("masks the previous holder's identity number on that same copy", async () => {
+    // The apartment lists every holder it has ever had. The route carries no
+    // protectedData:reveal precisely because the number being disclosed is the
+    // caller's own, and that is only true while somebody else's stays masked.
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/mine/reveal",
+      payload: {},
+      headers: { cookie: await signIn(actors.member.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain(
+      actors.formerMember.personalIdentityNumber,
+    );
+    const extract = JSON.parse(response.body) as ApartmentRegisterExtract;
+    const former = extract.rows[0]?.holders.find(
+      (holder) => holder.personId === actors.formerMember.personId,
+    );
+    expect(former?.personalIdentityNumber).toEqual({
+      state: "masked",
+      hasValue: true,
+    });
+  });
+
+  it("names only the holder's own number in the audit entry", async () => {
+    const entriesBefore = await prisma.auditLogEntry.count({
+      where: {
+        action: "PROTECTED_DATA_REVEALED",
+        actorPersonId: actors.member.personId,
+      },
+    });
+
+    await inject({
+      method: "POST",
+      url: "/api/apartment-register/mine/reveal",
+      payload: {},
+      headers: { cookie: await signIn(actors.member.email) },
+    });
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "PROTECTED_DATA_REVEALED",
+        actorPersonId: actors.member.personId,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entries.length).toBe(entriesBefore + 1);
+    expect(entries[0]?.context).toMatchObject({
+      personIds: [actors.member.personId],
+    });
+  });
+});
+
+describe("why a full extract was taken", () => {
+  it("records the stated reason on the audit entry", async () => {
+    // The reason a disclosure was made is the other half of the question a
+    // data protection officer asks, so it is stored rather than validated and
+    // dropped.
+    const reason = `Overlatelse ${suffix}`;
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/reveal",
+      payload: { apartmentId: apartments.held, reason },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "PROTECTED_DATA_REVEALED",
+        actorPersonId: actors.board.personId,
+        targetKind: "apartmentRegister",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry.context).toMatchObject({ reason });
+  });
+
+  it("says so when no reason was given", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/reveal",
+      payload: { apartmentId: apartments.held },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "PROTECTED_DATA_REVEALED",
+        actorPersonId: actors.board.personId,
+        targetKind: "apartmentRegister",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry.context).toMatchObject({ reason: null });
   });
 });
 
@@ -757,6 +866,99 @@ describe("recording a lien note", () => {
     expect(JSON.parse(released.body) as { releasedOn: string }).toMatchObject({
       releasedOn: "2026-06-01",
     });
+  });
+
+  it("writes an audit entry for the note and for the release", async () => {
+    // Changing the apartment register is logged like reading it. The record
+    // covers changes as well as accesses, and a lien note carries a statutory
+    // date of record on a row nobody can delete.
+    const cookie = await signIn(actors.board.email);
+    const created = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens",
+      payload: {
+        apartmentId: apartments.other,
+        creditor: `Loggbanken ${suffix}`,
+        notedOn: "2026-04-01",
+      },
+      headers: { cookie },
+    });
+    expect(created.statusCode).toBe(201);
+    const lien = JSON.parse(created.body) as { id: string };
+
+    const noted = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "APARTMENT_REGISTER_LIEN_NOTED",
+        targetKind: "lienNote",
+        targetId: lien.id,
+      },
+    });
+    expect(noted.actorPersonId).toBe(actors.board.personId);
+    expect(noted.context).toMatchObject({
+      apartmentId: apartments.other,
+      notedOn: "2026-04-01",
+    });
+
+    const released = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens/release",
+      payload: { lienId: lien.id, releasedOn: "2026-05-02" },
+      headers: { cookie },
+    });
+    expect(released.statusCode).toBe(200);
+
+    const releaseEntry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "APARTMENT_REGISTER_LIEN_RELEASED",
+        targetKind: "lienNote",
+        targetId: lien.id,
+      },
+    });
+    expect(releaseEntry.actorPersonId).toBe(actors.board.personId);
+    expect(releaseEntry.context).toMatchObject({ releasedOn: "2026-05-02" });
+  });
+
+  it("refuses a second release rather than rewriting the recorded date", async () => {
+    // The release date is the statutory date of record on a row the database
+    // will not let anyone delete. Overwriting it would lose the recorded date
+    // with nothing left saying what it had been.
+    const cookie = await signIn(actors.board.email);
+    const created = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens",
+      payload: {
+        apartmentId: apartments.other,
+        creditor: `Tvabanken ${suffix}`,
+        notedOn: "2026-04-02",
+      },
+      headers: { cookie },
+    });
+    const lien = JSON.parse(created.body) as { id: string };
+
+    const first = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens/release",
+      payload: { lienId: lien.id, releasedOn: "2026-05-03" },
+      headers: { cookie },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens/release",
+      payload: { lienId: lien.id, releasedOn: "2026-09-30" },
+      headers: { cookie },
+    });
+    expect(second.statusCode).toBe(409);
+    expect((JSON.parse(second.body) as { reason: string }).reason).toBe(
+      "lien-already-released",
+    );
+
+    const stored = await prisma.lienNote.findUniqueOrThrow({
+      where: { id: lien.id },
+      select: { releasedOn: true },
+    });
+    expect(stored.releasedOn?.toISOString().slice(0, 10)).toBe("2026-05-03");
   });
 });
 

@@ -372,7 +372,16 @@ function MappingStep({
                 </td>
                 <td className={CELL}>
                   <select
-                    aria-label={t("import.mapping.field")}
+                    /*
+                     * Named after the column it maps, not after the table
+                     * heading. Every select would otherwise carry the same
+                     * accessible name, leaving a screen reader user moving
+                     * between them with no way to tell which column they are
+                     * on - and a column sent to personalIdentityNumber or role
+                     * by mistake writes a register entry that cannot be
+                     * corrected by editing.
+                     */
+                    aria-label={t("import.mapping.fieldFor", { column })}
                     value={mapping[index] ?? ""}
                     onChange={(event) => {
                       const next = [...mapping];

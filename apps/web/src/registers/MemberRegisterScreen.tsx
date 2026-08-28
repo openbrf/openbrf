@@ -44,10 +44,18 @@ const SCOPES: readonly MemberRegisterScope[] = ["current", "all"];
  * A protected member's address is what protection exists to withhold, so the
  * document says it is protected rather than leaving the cell blank: a gap reads
  * as a register that lost the address.
+ *
+ * The row's own protected flag decides, not only the shape the server sent.
+ * Masking is a server-side contract and this screen is not what enforces it,
+ * but this extract is public on request: if a protected member's row ever
+ * arrived carrying a visible address, printing it would be the one mistake on
+ * this screen that cannot be taken back once the paper is handed over.
  */
 function postalAddress(row: MemberRegisterRow, maskedLabel: string): string {
-  if (row.postalAddress.state === "masked") {
-    return row.postalAddress.alternativePostalAddress ?? maskedLabel;
+  if (row.protectedPersonalData || row.postalAddress.state === "masked") {
+    return row.postalAddress.state === "masked"
+      ? (row.postalAddress.alternativePostalAddress ?? maskedLabel)
+      : maskedLabel;
   }
   return (
     [

@@ -23,22 +23,25 @@ import { DomainError } from "../http/domain-error";
  * can be wrong, and the wrong value here publishes personal identity numbers.
  *
  * The personal identity number is masked by default even here, and disclosed
- * only when the caller asks for the full statutory document. The disclosure is
- * written to the audit log naming every person it covered, because "who has
- * seen these identity numbers" is the question the log exists to answer.
+ * only when the caller asks for the full statutory document. The board's copy
+ * carries every holder's; a tenant-owner's own copy carries theirs alone, since
+ * an apartment lists its co-holders and its previous holders too and none of
+ * those numbers is theirs to read. The disclosure is written to the audit log
+ * naming every person it covered, because "who has seen these identity numbers"
+ * is the question the log exists to answer.
  */
+
+export type ApartmentRegisterErrorReason =
+  "apartment-not-found" | "lien-not-found" | "lien-already-released";
 
 export class ApartmentRegisterError extends DomainError {
   override readonly status: number;
-  override readonly reason: "apartment-not-found" | "lien-not-found";
+  override readonly reason: ApartmentRegisterErrorReason;
 
-  constructor(
-    message: string,
-    reason: "apartment-not-found" | "lien-not-found",
-  ) {
+  constructor(message: string, reason: ApartmentRegisterErrorReason) {
     super(message);
     this.reason = reason;
-    this.status = 404;
+    this.status = reason === "lien-already-released" ? 409 : 404;
   }
 }
 
@@ -106,6 +109,12 @@ export interface ApartmentRegisterQuery {
   /** Null reads every apartment the audience is entitled to. */
   apartmentId: string | null;
   includeIdentityNumbers: boolean;
+  /**
+   * Why the identity numbers were asked for, as the caller stated it. Written
+   * into the audit entry: "who saw these numbers" is only half the question a
+   * data protection officer asks afterwards.
+   */
+  reason?: string | null;
 }
 
 @Injectable()
@@ -159,6 +168,7 @@ export class ApartmentRegisterService {
               .map((holder) => holder.personId),
           );
 
+          const reason = (query.reason ?? "").trim();
           await this.audit.record(
             {
               action: "PROTECTED_DATA_REVEALED",
@@ -169,6 +179,9 @@ export class ApartmentRegisterService {
                 via: "apartment-register-extract",
                 personIds: [...new Set(disclosed)],
                 protectedPersonIds: [...new Set(protectedPersons)],
+                // Stated or not, the entry says which: an absent reason is a
+                // fact about the disclosure rather than a missing field.
+                reason: reason === "" ? null : reason,
               },
             },
             tx,
@@ -180,8 +193,16 @@ export class ApartmentRegisterService {
     );
   }
 
-  /** The board records a lien note (pantnotering) against an apartment. */
+  /**
+   * The board records a lien note (pantnotering) against an apartment.
+   *
+   * The write and its audit entry share a transaction, exactly as every read of
+   * this register does. The log covers changes as well as accesses, and a lien
+   * noted against an apartment with nothing saying who noted it would leave the
+   * board unable to answer for a statutory date of record.
+   */
   async addLien(input: {
+    actorPersonId: string;
     apartmentId: string;
     creditor: string;
     notedOn: string;
@@ -198,19 +219,36 @@ export class ApartmentRegisterService {
       );
     }
 
-    const lien = await this.prisma.lienNote.create({
-      data: {
-        apartmentId: input.apartmentId,
-        creditor: input.creditor,
-        notedOn: new Date(input.notedOn),
-        amount:
-          input.amount === undefined || input.amount === null
-            ? null
-            : input.amount,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const lien = await tx.lienNote.create({
+        data: {
+          apartmentId: input.apartmentId,
+          creditor: input.creditor,
+          notedOn: new Date(input.notedOn),
+          amount:
+            input.amount === undefined || input.amount === null
+              ? null
+              : input.amount,
+        },
+      });
 
-    return toLien(lien);
+      await this.audit.record(
+        {
+          action: "APARTMENT_REGISTER_LIEN_NOTED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "lienNote",
+          targetId: lien.id,
+          context: {
+            apartmentId: input.apartmentId,
+            creditor: input.creditor,
+            notedOn: isoDate(lien.notedOn),
+          },
+        },
+        tx,
+      );
+
+      return toLien(lien);
+    });
   }
 
   /**
@@ -219,25 +257,66 @@ export class ApartmentRegisterService {
    * Released rather than removed: the runtime role holds no DELETE on this
    * table, and a lien that was once recorded is part of the apartment's history
    * whether or not it still binds.
+   *
+   * A note that already carries a release date is refused rather than rewritten.
+   * The release date is the statutory date of record on a row the database will
+   * not let anyone delete, so overwriting it would lose the recorded date with
+   * nothing left saying what it had been.
    */
   async releaseLien(input: {
+    actorPersonId: string;
     lienId: string;
     releasedOn: string;
   }): Promise<ApartmentRegisterLien> {
     const existing = await this.prisma.lienNote.findUnique({
       where: { id: input.lienId },
-      select: { id: true },
+      select: { id: true, apartmentId: true, releasedOn: true },
     });
     if (existing === null) {
       throw new ApartmentRegisterError("No such lien note.", "lien-not-found");
     }
+    if (existing.releasedOn !== null) {
+      throw new ApartmentRegisterError(
+        "That lien note was already released.",
+        "lien-already-released",
+      );
+    }
 
-    const lien = await this.prisma.lienNote.update({
-      where: { id: input.lienId },
-      data: { releasedOn: new Date(input.releasedOn) },
+    return this.prisma.$transaction(async (tx) => {
+      // Conditional on the note still being unreleased, so two releases
+      // arriving together cannot both write: the loser sees no row and is
+      // answered with the same refusal as a sequential second attempt.
+      const claimed = await tx.lienNote.updateMany({
+        where: { id: input.lienId, releasedOn: null },
+        data: { releasedOn: new Date(input.releasedOn) },
+      });
+      if (claimed.count === 0) {
+        throw new ApartmentRegisterError(
+          "That lien note was already released.",
+          "lien-already-released",
+        );
+      }
+
+      const lien = await tx.lienNote.findUniqueOrThrow({
+        where: { id: input.lienId },
+      });
+
+      await this.audit.record(
+        {
+          action: "APARTMENT_REGISTER_LIEN_RELEASED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "lienNote",
+          targetId: lien.id,
+          context: {
+            apartmentId: existing.apartmentId,
+            releasedOn: isoDate(lien.releasedOn),
+          },
+        },
+        tx,
+      );
+
+      return toLien(lien);
     });
-
-    return toLien(lien);
   }
 
   /**
@@ -359,13 +438,24 @@ export class ApartmentRegisterService {
     for (const apartment of apartments) {
       const holders: ApartmentRegisterHolder[] = [];
       for (const residency of apartment.residencies) {
+        // A tenant-owner's own extract discloses their own number and nobody
+        // else's. The apartment lists every holder it has ever had, so a
+        // co-holder's and a previous holder's numbers are on this row too, and
+        // the masking matrix answers "another resident, signed in" with never.
+        // The board's full statutory copy, which carries all of them, is a
+        // separate request behind protectedData:reveal.
+        const mayReadIdentityNumber =
+          query.includeIdentityNumbers &&
+          (query.audience === "board" ||
+            residency.person.id === query.actorPersonId);
+
         holders.push({
           personId: residency.person.id,
           name: `${residency.person.firstName} ${residency.person.lastName}`.trim(),
           protectedPersonalData: residency.person.protectedPersonalData,
           personalIdentityNumber: await this.identityNumber(
             residency.person.personalIdentityNumberCipher,
-            query.includeIdentityNumbers,
+            mayReadIdentityNumber,
           ),
           heldFrom: isoDate(residency.movedInOn) ?? "",
           heldUntil: isoDate(residency.movedOutOn),

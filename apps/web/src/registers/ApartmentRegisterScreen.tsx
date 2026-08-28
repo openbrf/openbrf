@@ -619,7 +619,20 @@ function Pair({
   );
 }
 
-/** Today as an ISO calendar date, which is what a release date defaults to. */
+/**
+ * Today as an ISO calendar date, which is what a release date defaults to.
+ *
+ * Built from the local year, month and day rather than sliced off the UTC
+ * instant. Sweden runs an hour or two ahead of UTC, so a release recorded
+ * between local midnight and 02:00 would otherwise be stored a day early - and
+ * that value is the statutory release date on a row the database will not let
+ * anyone delete.
+ */
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  return [
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 }

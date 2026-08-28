@@ -628,8 +628,9 @@
       "description": "Placerar en person i en lägenhet. En bostadsrätt skriver också posten i den lagstadgade medlemsförteckningen, som inte går att ändra eller ta bort efteråt.",
       "person": "Person",
       "personPlaceholder": "Sök på namn",
-      "personHint": "Bara personer som redan finns i registret kan flyttas in. Lägg till personen först om hon saknas.",
+      "personHint": "Bara personer som redan finns i registret kan flyttas in. Lägg till personen först om den saknas i registret.",
       "noPersonMatch": "Ingen matchar det namnet.",
+      "personSearchFailed": "Registret gick inte att söka i just nu. Försök igen.",
       "apartment": "Lägenhet",
       "role": "Roll",
       "roleMember": "Medlem - innehar bostadsrätten",
@@ -667,7 +668,8 @@
       "price": "Pris",
       "agreementReference": "Avtalshänvisning",
       "agreementReferenceHint": "Ett ärendenummer, eller var pappersexemplaret förvaras. Den skrivs ut i utdraget ur lägenhetsförteckningen.",
-      "recorded": "Överlåtelsen registrerades i lägenhetsförteckningen."
+      "recorded": "Överlåtelsen registrerades i lägenhetsförteckningen.",
+      "changePerson": "Välj någon annan"
     },
     "errors": {
       "personNotFound": "Personen finns inte längre i registret. Ladda om sidan.",
@@ -677,6 +679,7 @@
       "alreadyMovedOut": "Boendet har redan ett utflyttningsdatum.",
       "movedOutBeforeMovedIn": "Utflyttningen kan inte ligga före inflyttningen.",
       "transferPersonNotFound": "Motparten i överlåtelsen finns inte i registret. Lägg till personen först.",
+      "transferPersonRequired": "Välj den nya innehavaren, eller stäng av registrering av överlåtelse.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },
@@ -706,6 +709,7 @@
       "fileSummary": "{{fileName}}: {{rows}} rader, {{columns}} kolumner",
       "column": "Kolumn i filen",
       "field": "Fält i registret",
+      "fieldFor": "Fält i registret för {{column}}",
       "sample": "Första värdena",
       "ignore": "Importera inte",
       "defaults": "För varje rad",
@@ -804,6 +808,7 @@
       "fileTooLarge": "Filen är större än 512 kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
       "tooManyRows": "Filen har fler rader än en import klarar.",
+      "tooManyIdentityNumbers": "Filen innehåller fler personnummer än en import klarar. Importera den i mindre delar, eller lämna personnummerkolumnen utanför.",
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",

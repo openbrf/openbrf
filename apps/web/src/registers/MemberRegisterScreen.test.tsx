@@ -23,6 +23,7 @@ vi.mock("./registers-api", () => ({
 }));
 
 const PROTECTED_ADDRESS = "Hemliga gatan 1";
+const ALTERNATIVE_ADDRESS = "c/o Skatteverket, Box 1, 111 22 Stockholm";
 
 const EXTRACT: MemberRegisterExtract = {
   housingCooperative: {
@@ -54,10 +55,20 @@ const EXTRACT: MemberRegisterExtract = {
       ],
     },
     {
+      // A protected member whose row arrived carrying a visible address.
+      // Masking is the server's contract and this fixture breaks it on
+      // purpose: the extract is public on request, so the screen withholds the
+      // address on the row's own protected flag rather than on the shape it
+      // was handed.
       key: "person-sara:entry-2",
       personId: "person-sara",
       name: "Sara Berg",
-      postalAddress: { state: "masked", alternativePostalAddress: null },
+      postalAddress: {
+        state: "visible",
+        street: PROTECTED_ADDRESS,
+        postalCode: "11133",
+        city: "Stockholm",
+      },
       protectedPersonalData: true,
       enteredOn: "2021-02-01",
       exitedOn: null,
@@ -65,6 +76,28 @@ const EXTRACT: MemberRegisterExtract = {
         {
           id: "apartment-1201",
           number: "1201",
+          addressLabel: "Storgatan 12",
+        },
+      ],
+    },
+    {
+      // Protected, with an address the person agreed may stand in for theirs.
+      // The permitted alternative is printed; nothing else about where they
+      // live is.
+      key: "person-nils:entry-3",
+      personId: "person-nils",
+      name: "Nils Ek",
+      postalAddress: {
+        state: "masked",
+        alternativePostalAddress: ALTERNATIVE_ADDRESS,
+      },
+      protectedPersonalData: true,
+      enteredOn: "2022-09-01",
+      exitedOn: null,
+      apartments: [
+        {
+          id: "apartment-1202",
+          number: "1202",
           addressLabel: "Storgatan 12",
         },
       ],
@@ -109,11 +142,23 @@ describe("the extract", () => {
   });
 
   it("does not print a protected member's address", async () => {
+    // The fixture hands this row a visible address, which is the mistake the
+    // assertion is here to catch: the extract is public on request, and an
+    // address printed on it cannot be recalled once the copy is handed over.
     render(<MemberRegisterScreen />);
 
     expect(await screen.findByText("Sara Berg")).toBeTruthy();
     expect(screen.queryByText(new RegExp(PROTECTED_ADDRESS))).toBeNull();
     expect(screen.getByText(/Skyddad, skrivs inte ut/)).toBeTruthy();
+  });
+
+  it("prints the alternative address a protected member agreed to", async () => {
+    // The register has to state an address, and a person with protected data
+    // may give one that is safe to print. Withholding that too would leave the
+    // document saying less than the person asked it to.
+    render(<MemberRegisterScreen />);
+
+    expect(await screen.findByText(ALTERNATIVE_ADDRESS)).toBeTruthy();
   });
 
   it("keeps an unprotected member's address, which the register has to state", async () => {
