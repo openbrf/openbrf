@@ -625,12 +625,12 @@
         "manifestInvalid": "Its declaration could not be read: {{issues}}",
         "apiVersion": "It is built for version {{apiVersion}} of the plugin contract, which this Open BRF does not implement.",
         "entryMissing": "The file {{entry}} it declares is not in the package.",
-        "loadFailed": "It failed while being loaded: {{error}}",
+        "loadFailed": "It failed while being loaded. What it threw is recorded in the server log.",
         "entryInvalid": "Its bundle does not export what the contract requires.",
         "notOnVolume": "It is recorded as installed but is not on the data volume.",
         "moduleRefused": "Its module declares behaviour that would act on the rest of the application, which a plugin may not do. It was refused rather than run.",
         "moduleInvalid": "Its bundle returned no module of the shape the contract requires.",
-        "moduleFailed": "Its module could not be built into the application, so it was skipped to let the rest of the instance start: {{error}}",
+        "moduleFailed": "Its module could not be built into the application, so it was skipped to let the rest of the instance start. What failed is recorded in the server log.",
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}"
       }
     },

@@ -625,12 +625,12 @@
         "manifestInvalid": "Dess deklaration kunde inte läsas: {{issues}}",
         "apiVersion": "Det är byggt för version {{apiVersion}} av tilläggskontraktet, som den här Open BRF inte har.",
         "entryMissing": "Filen {{entry}} som det anger finns inte i paketet.",
-        "loadFailed": "Det misslyckades när det lästes in: {{error}}",
+        "loadFailed": "Det misslyckades när det lästes in. Vad det kastade står i serverloggen.",
         "entryInvalid": "Dess paket exporterar inte det som kontraktet kräver.",
         "notOnVolume": "Det är noterat som installerat men finns inte på datavolymen.",
         "moduleRefused": "Dess modul deklarerar beteende som skulle påverka resten av programmet, vilket ett tillägg inte får göra. Det nekades i stället för att köras.",
         "moduleInvalid": "Dess paket lämnade ingen modul av den form som kontraktet kräver.",
-        "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta: {{error}}",
+        "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta. Vad som misslyckades står i serverloggen.",
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}"
       }
     },

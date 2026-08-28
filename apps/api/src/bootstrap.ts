@@ -117,11 +117,15 @@ export async function createApplication(
       culprit.context.serving = false;
       boot.plugins = boot.plugins.filter((plugin) => plugin !== culprit);
       boot.dormant.set(culprit.id, culprit.manifest);
+      // The reason is logged above with the error itself and travels as a code
+      // alone. NestJS composes that message from the plugin's own provider and
+      // parameter names, which can hold anything the package chose to call
+      // them, so it is an operator's to read and not a board's.
       boot.findings.push({
         id: culprit.id,
         directory: culprit.directory,
         reason: "module-failed",
-        detail: { error: String(cause) },
+        detail: {},
       });
     }
   }

@@ -404,7 +404,18 @@ async function register(
     }
     contributed = await (factory as (host: PluginHost) => unknown)(host);
   } catch (cause) {
-    fail(boot, logger, discovered, "load-failed", { error: String(cause) });
+    // The plugin composed that message, so it can hold anything the plugin was
+    // handling when it threw - a resident's name or contact details included.
+    // The code is what crosses the wire; the text an operator needs goes to
+    // the container log, which is where the masking rules put it anyway.
+    fail(
+      boot,
+      logger,
+      discovered,
+      "load-failed",
+      {},
+      `its bundle threw while being loaded: ${String(cause)}`,
+    );
     return;
   }
 

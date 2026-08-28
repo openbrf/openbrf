@@ -335,10 +335,22 @@ describe("loading plugins at boot", () => {
   it("skips a bundle that throws while being loaded", () => {
     expect(loaded(FAILING)).toBeUndefined();
     expect(finding(FAILING)?.reason).toBe("load-failed");
-    expect(finding(FAILING)?.detail["error"]).toContain(
+    // Nothing but the code. The plugin wrote that message and can have been
+    // holding a resident's details when it threw.
+    expect(finding(FAILING)?.detail).toEqual({});
+    expect(loaded(GOOD)).toBeDefined();
+  });
+
+  /**
+   * The rule across every finding rather than one of them. What a plugin's own
+   * code composed goes to the container log, where the instance's masking and
+   * audit rules already put it; the admin screen is served a code and the
+   * values its own sentence needs.
+   */
+  it("keeps what a plugin's own code said off the wire", () => {
+    expect(JSON.stringify(boot.findings)).not.toContain(
       "this plugin is broken",
     );
-    expect(loaded(GOOD)).toBeDefined();
   });
 
   it("skips a module that reaches outside what a plugin may register", () => {

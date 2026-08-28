@@ -28,15 +28,16 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     "entry-invalid": {},
     "module-invalid": {},
     "module-refused": {},
-    "module-failed": {
-      error: "Error: Nest could not resolve OccupancyService",
-    },
+    // Empty on purpose, like every other refusal a plugin's own code composed
+    // the words for: what NestJS or the bundle said goes to the server log,
+    // and only the code crosses the wire.
+    "module-failed": {},
     "module-identity": { packages: ["@nestjs/common"] },
     "permissions-widened": { permissions: ["mail:send"] },
     "personal-data-widened": { categories: ["email", "residency"] },
     "not-consented": {},
     disabled: {},
-    "load-failed": { error: "Error: this plugin is broken" },
+    "load-failed": {},
     "not-on-volume": {},
   };
 
