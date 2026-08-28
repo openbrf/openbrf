@@ -91,16 +91,41 @@ export async function assertSafeToPublish(
   page: Page,
   name: string,
 ): Promise<void> {
-  // What a filled-in form shows is in the field's value, not in the document's
-  // text, and the setup wizard is photographed with its forms filled in.
-  const typed = await page
-    .locator("input, textarea")
-    .evaluateAll((fields) =>
-      fields
-        .map((field) => (field as HTMLInputElement | HTMLTextAreaElement).value)
-        .filter((value) => value !== ""),
-    );
-  const text = [await page.locator("body").innerText(), ...typed].join("\n");
+  // What the picture paints and what `innerText` returns are not the same set,
+  // and the difference is where something would hide. A filled-in form carries
+  // its content in the field's value and an empty one paints its placeholder;
+  // generated content is painted from a stylesheet and reaches no text node at
+  // all; SVG text is laid out by a box model `innerText` does not walk. The
+  // first of those is not hypothetical - the setup wizard is photographed with
+  // its forms filled in - and the rest are cheap to read while the page is
+  // already held still.
+  const painted = await page.evaluate(() => {
+    const found: string[] = [];
+
+    for (const field of document.querySelectorAll("input, textarea")) {
+      const typed = field as HTMLInputElement | HTMLTextAreaElement;
+      found.push(typed.value, typed.placeholder);
+    }
+
+    for (const element of document.querySelectorAll("*")) {
+      for (const part of ["::before", "::after"]) {
+        const { content } = getComputedStyle(element, part);
+        // `none` and `normal` are the two ways of saying there is nothing
+        // there; anything else is a string the browser draws.
+        if (content !== "none" && content !== "normal") {
+          found.push(content);
+        }
+      }
+    }
+
+    for (const drawn of document.querySelectorAll("text, tspan")) {
+      found.push(drawn.textContent ?? "");
+    }
+
+    return found.filter((value) => value !== "");
+  });
+
+  const text = [await page.locator("body").innerText(), ...painted].join("\n");
 
   const identityNumbers = [...text.matchAll(IDENTITY_NUMBER)]
     .map((match) => match[0])

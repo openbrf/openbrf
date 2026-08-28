@@ -18,7 +18,7 @@ import { assertSafeToPublish, freezeScripts } from "../screenshots/safety";
  */
 
 /** Shaped like a personal identity number, and belonging to nobody. */
-const LOOKS_LIKE_AN_IDENTITY_NUMBER = "19850101-0000";
+const LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER = "19850101-0000";
 
 /**
  * A page that puts the forbidden content up shortly after it loads.
@@ -36,23 +36,84 @@ const LATE_CONTENT = `
       <script>
         setTimeout(() => {
           document.getElementById("rows").textContent =
-            "${LOOKS_LIKE_AN_IDENTITY_NUMBER}";
+            "${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}";
         }, 50);
       </script>
     </body>
   </html>
 `;
 
-test("refuses a screen showing something shaped like an identity number", async ({
+test("refuses a screen showing something shaped like a personal identity number", async ({
   page,
 }) => {
   await page.setContent(LATE_CONTENT);
-  await expect(page.locator("#rows")).toHaveText(LOOKS_LIKE_AN_IDENTITY_NUMBER);
+  await expect(page.locator("#rows")).toHaveText(
+    LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER,
+  );
 
   await expect(assertSafeToPublish(page, "late-content")).rejects.toThrow(
     /personal identity number/,
   );
 });
+
+/**
+ * The same number, painted from a stylesheet rather than written into the
+ * document. Generated content reaches no text node, so `innerText` does not
+ * return it - and the picture paints it all the same.
+ */
+const GENERATED_BY_CSS = `
+  <!doctype html>
+  <html lang="sv">
+    <head>
+      <style>
+        #stamp::after {
+          content: "${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}";
+        }
+      </style>
+    </head>
+    <body>
+      <h1>Adressbok</h1>
+      <p id="stamp"></p>
+    </body>
+  </html>
+`;
+
+/** And again as a placeholder, which an empty field paints and no value holds. */
+const PAINTED_AS_PLACEHOLDER = `
+  <!doctype html>
+  <html lang="sv">
+    <body>
+      <h1>Adressbok</h1>
+      <input
+        aria-label="Personnummer"
+        placeholder="${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}"
+      />
+    </body>
+  </html>
+`;
+
+// One placement per case, and nothing carrying the number twice: a page that
+// hid it in two places at once would pass this file with either half of the
+// guard removed.
+for (const [placement, markup] of [
+  ["generated content", GENERATED_BY_CSS],
+  ["a placeholder", PAINTED_AS_PLACEHOLDER],
+] as const) {
+  test(`refuses one shown as ${placement}, which the document's text does not carry`, async ({
+    page,
+  }) => {
+    await page.setContent(markup);
+
+    // The gap this covers, stated rather than assumed: a check reading the
+    // document's text alone would pass this screen.
+    const written = await page.locator("body").innerText();
+    expect(written).not.toContain(LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER);
+
+    await expect(assertSafeToPublish(page, placement)).rejects.toThrow(
+      /personal identity number/,
+    );
+  });
+}
 
 test("holds the page still, so nothing arrives between the read and the picture", async ({
   page,
@@ -84,9 +145,11 @@ test("holds the page still, so nothing arrives between the read and the picture"
     setTimeout(() => {
       document.querySelector("#rows")!.textContent = value;
     }, 10);
-  }, LOOKS_LIKE_AN_IDENTITY_NUMBER);
+  }, LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER);
 
-  await expect(page.locator("#rows")).toHaveText(LOOKS_LIKE_AN_IDENTITY_NUMBER);
+  await expect(page.locator("#rows")).toHaveText(
+    LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER,
+  );
   await expect(assertSafeToPublish(page, "thawed")).rejects.toThrow(
     /personal identity number/,
   );
