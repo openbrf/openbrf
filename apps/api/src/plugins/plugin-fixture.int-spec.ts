@@ -69,7 +69,7 @@ const REPO_ROOT = repositoryRoot();
 const CATALOG = join(REPO_ROOT, "fixtures", "catalog", "catalog.json");
 const PLUGIN_ID = "occupancy";
 
-let prisma: PrismaClient;
+let prisma: PrismaClient | undefined;
 let workspace: string;
 let testEnv: Env;
 let registry: PluginRegistryService;
@@ -104,9 +104,10 @@ async function ensureFixture(): Promise<void> {
 beforeAll(async () => {
   await ensureFixture();
 
-  prisma = new PrismaClient({
+  const client = new PrismaClient({
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });
+  prisma = client;
 
   workspace = await mkdtemp(join(tmpdir(), "openbrf-plugin-fixture-"));
   testEnv = {
@@ -120,7 +121,7 @@ beforeAll(async () => {
   };
 
   registry = new PluginRegistryService(
-    prisma as unknown as ConstructorParameters<typeof PluginRegistryService>[0],
+    client as unknown as ConstructorParameters<typeof PluginRegistryService>[0],
   );
 
   const catalog = new CatalogClient(testEnv);
@@ -158,7 +159,7 @@ beforeAll(async () => {
     } as never,
   });
 
-  await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
+  await client.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
 }, 420_000);
 
 function loaded(): BootPlugin | undefined {
@@ -166,15 +167,24 @@ function loaded(): BootPlugin | undefined {
 }
 
 afterAll(async () => {
-  // Guarded: beforeAll builds the fixture, a database client and a workspace
-  // in that order, and an unconditional dereference here would throw a
-  // TypeError that replaces the setup failure in the report and leaves the
-  // temporary workspace behind.
+  /*
+   * beforeAll builds the fixture, a database client and a workspace in that
+   * order and can fail at any of them, so the client may not exist - which is
+   * the only thing guarded here. A deletion that fails is not: the integration
+   * suites share one database, and swallowing the failure would leave an
+   * installed-plugin row behind for whatever runs next and still report a
+   * green run. The disconnect and the workspace are in `finally` either way,
+   * so nothing is held open by the failure being allowed through.
+   */
   try {
-    await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
-    await prisma.$disconnect();
-  } catch {
-    // No client, or the row was never written.
+    if (prisma !== undefined) {
+      const client = prisma;
+      try {
+        await client.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
+      } finally {
+        await client.$disconnect();
+      }
+    }
   } finally {
     await rm(workspace, { recursive: true, force: true }).catch(() => {
       // The workspace was never created.

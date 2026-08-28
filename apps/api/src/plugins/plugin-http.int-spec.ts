@@ -77,7 +77,7 @@ const outsider = {
 };
 
 let app: NestFastifyApplication;
-let prisma: PrismaService;
+let prisma: PrismaService | undefined;
 let workspace: string;
 let previousDataDir: string | undefined;
 let previousCatalogUrl: string | undefined;
@@ -191,11 +191,12 @@ beforeAll(async () => {
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
-  prisma = app.get(PrismaService);
+  const client = app.get(PrismaService);
+  prisma = client;
   const auth = app.get(AuthService);
 
   for (const person of [admin, outsider]) {
-    await prisma.person.create({
+    await client.person.create({
       data: {
         id: person.personId,
         firstName: "Test",
@@ -211,7 +212,7 @@ beforeAll(async () => {
     });
   }
 
-  await prisma.systemRole.create({
+  await client.systemRole.create({
     data: { personId: admin.personId, role: "ADMIN" },
   });
 
@@ -221,45 +222,50 @@ beforeAll(async () => {
 
 afterAll(async () => {
   /*
-   * Every step is guarded, because beforeAll builds a fixture, a database
-   * client, an application and a workspace in that order and can fail at any
-   * of them. An unconditional dereference here would throw a TypeError that
-   * replaces the setup failure in the report and skips the cleanup that was
-   * still possible - and the environment restore, which the next suite in this
-   * worker depends on, has to happen either way.
+   * beforeAll builds a fixture, a database client, an application and a
+   * workspace in that order and can fail at any of them, so the client may not
+   * exist - which is the only thing guarded here. A deletion that fails is
+   * not: integration files run one at a time against one database, so a person
+   * or an installed-plugin row left behind is there for whatever runs next,
+   * and swallowing the failure would report that as a green run. It would also
+   * skip every deletion after it, which is how one failure becomes six rows.
+   *
+   * Everything that has to happen whatever the deletions did is in `finally`:
+   * closing the application, restoring the environment the next suite in this
+   * worker reads, and removing the workspace.
    */
   try {
-    const personIds = [admin.personId, outsider.personId];
-    await prisma.systemRole.deleteMany({
-      where: { personId: { in: personIds } },
-    });
-    await prisma.session.deleteMany({
-      where: { user: { personId: { in: personIds } } },
-    });
-    await prisma.account.deleteMany({
-      where: { user: { personId: { in: personIds } } },
-    });
-    await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
-    await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
-  } catch {
-    // No client, or the rows were never written.
-  }
-
-  try {
-    await app.close();
-  } catch {
-    // The application never started.
+    if (prisma !== undefined) {
+      const personIds = [admin.personId, outsider.personId];
+      await prisma.systemRole.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await prisma.session.deleteMany({
+        where: { user: { personId: { in: personIds } } },
+      });
+      await prisma.account.deleteMany({
+        where: { user: { personId: { in: personIds } } },
+      });
+      await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+      await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
+    }
   } finally {
-    restoreEnvironmentVariable("OPENBRF_DATA_DIR", previousDataDir);
-    restoreEnvironmentVariable("OPENBRF_CATALOG_URL", previousCatalogUrl);
-    restoreEnvironmentVariable(
-      "OPENBRF_UNCURATED_PLUGINS_ENABLED",
-      previousUncurated,
-    );
-    await rm(workspace, { recursive: true, force: true }).catch(() => {
-      // The workspace was never created.
-    });
+    try {
+      await app.close();
+    } catch {
+      // The application never started.
+    } finally {
+      restoreEnvironmentVariable("OPENBRF_DATA_DIR", previousDataDir);
+      restoreEnvironmentVariable("OPENBRF_CATALOG_URL", previousCatalogUrl);
+      restoreEnvironmentVariable(
+        "OPENBRF_UNCURATED_PLUGINS_ENABLED",
+        previousUncurated,
+      );
+      await rm(workspace, { recursive: true, force: true }).catch(() => {
+        // The workspace was never created.
+      });
+    }
   }
 });
 
