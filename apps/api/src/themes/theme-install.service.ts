@@ -5,6 +5,7 @@ import {
   lintTheme,
   readThemePackage,
   resolveThemeChain,
+  type ThemeArchiveFiles,
   type ThemeChainEntry,
   type ThemeLintFinding,
   type ThemeManifest,
@@ -14,17 +15,29 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import {
+  COMPOSED_AUDIT_SOURCE,
+  composedChecksum,
+  composedManifest,
+  composedSourceUrl,
+  type ComposeThemeInput,
+} from "./theme-compose";
 import { CatalogThemeSource, type CatalogEntry } from "./theme-source";
 import { ThemeStore } from "./theme-store";
 import { ThemeService, type ThemeSummary } from "./theme.service";
 
 /**
- * Installing a theme from the catalog.
+ * Installing a theme from the catalog, and composing one here.
  *
  * The path is: read the catalog, download the package, verify its sha512,
  * refuse it unless the lint passes, write it to the data volume, record it.
  * No restart at any point - a theme carries no code, so there is nothing to
  * load into the process (decision 43).
+ *
+ * A theme composed on the instance joins that path at the lint. It has no
+ * catalog entry and no download, so there is nothing to verify a checksum
+ * against, and everything from the lint onwards is the same code: a board can
+ * no more compose an illegible theme than install one.
  *
  * The lint is a gate rather than a report. A theme that fails it never reaches
  * the data volume, so a board cannot install one that renders the statutory
@@ -48,6 +61,8 @@ export class ThemeInstallError extends DomainError {
       | "manifest-invalid"
       | "identity-mismatch"
       | "lint-failed"
+      /** Composing over a theme this instance installed from a catalog. */
+      | "theme-not-composed"
       | "housing-cooperative-missing",
     /** Populated for lint-failed, so the screen can name every rule that failed. */
     readonly findings: readonly ThemeLintFinding[] = [],
@@ -58,7 +73,8 @@ export class ThemeInstallError extends DomainError {
     this.status =
       reason === "not-in-catalog"
         ? HttpStatus.NOT_FOUND
-        : reason === "housing-cooperative-missing"
+        : reason === "housing-cooperative-missing" ||
+            reason === "theme-not-composed"
           ? HttpStatus.CONFLICT
           : HttpStatus.UNPROCESSABLE_ENTITY;
   }
@@ -73,6 +89,24 @@ export class ThemeInstallError extends DomainError {
   override details(): Record<string, readonly unknown[]> {
     return { findings: this.findings, issues: this.issues };
   }
+}
+
+/**
+ * Where a theme's files came from, as the installed row records it.
+ *
+ * `catalogId` is the marking that matters: null means nobody published this
+ * theme, so it was composed on this instance and the composer may edit it. The
+ * audit source is separate from `sourceUrl` because a composed theme's URL
+ * names the instance rather than a place a package can be fetched from.
+ */
+interface ThemeProvenance {
+  /** sha512 of the package bytes, hex. */
+  checksum: string;
+  sourceUrl: string;
+  /** The catalog entry this came from. Null marks a composed theme. */
+  catalogId: string | null;
+  /** What the audit entry names as the source. */
+  auditSource: string;
 }
 
 /** A catalog entry as the install screen lists it. */
@@ -132,16 +166,9 @@ export class ThemeInstallService {
     catalogId: string,
     actorPersonId: string | null,
   ): Promise<ThemeInstallResult> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { id: true },
-    });
-    if (association === null) {
-      throw new ThemeInstallError(
-        "Create the housing cooperative before installing a theme.",
-        "housing-cooperative-missing",
-      );
-    }
+    await this.assertHousingCooperativeExists(
+      "Create the housing cooperative before installing a theme.",
+    );
 
     const entries = await this.source.listThemes();
     const entry = entries.find((candidate) => candidate.id === catalogId);
@@ -168,6 +195,107 @@ export class ThemeInstallService {
     const { manifest, files, raw } = read.package;
     this.assertIdentityMatches(entry, manifest);
 
+    return this.admit(
+      manifest,
+      files,
+      raw,
+      {
+        checksum: entry.sha512,
+        sourceUrl: entry.url,
+        catalogId: entry.id,
+        auditSource: entry.url,
+      },
+      actorPersonId,
+    );
+  }
+
+  /**
+   * Composes a theme on this instance.
+   *
+   * The composer authors a manifest instead of downloading one, and then takes
+   * exactly the same admission as a catalog package: the same lint gate, the
+   * same staged write, the same row. That is the point of routing it through
+   * `admit` rather than writing a row directly - a board cannot compose a theme
+   * that renders the statutory register below WCAG AA any more than they can
+   * install one, and there is no second implementation of the gate to drift.
+   *
+   * No catalog has to be configured. Composing needs no network at all, which
+   * is what makes it the answer for an instance that has no catalog to install
+   * from.
+   *
+   * Editing is the same call: the id already installed is composed again at the
+   * next patch version. Two administrators composing the same id at once means
+   * the later save wins, and the version each of them sees afterwards is what
+   * makes that visible.
+   */
+  async compose(
+    input: ComposeThemeInput,
+    actorPersonId: string | null,
+  ): Promise<ThemeInstallResult> {
+    await this.assertHousingCooperativeExists(
+      "Create the housing cooperative before composing a theme.",
+    );
+
+    const existing = await this.prisma.installedTheme.findUnique({
+      where: { id: input.id },
+      select: { version: true, catalogId: true },
+    });
+
+    /*
+     * A theme that came from a catalog is not editable here. Composing over it
+     * would replace a package whose bytes match a published checksum with one
+     * written on this instance, and the next update from the catalog would take
+     * the board's own values away again without anybody having asked it to.
+     */
+    if (existing !== null && existing.catalogId !== null) {
+      throw new ThemeInstallError(
+        `The theme ${input.id} came from the catalog and is not composed on this instance.`,
+        "theme-not-composed",
+      );
+    }
+
+    const composed = composedManifest(input, existing?.version ?? null);
+    if (!composed.ok) {
+      throw new ThemeInstallError(
+        `The composed theme ${input.id} does not describe a valid manifest.`,
+        "manifest-invalid",
+        [],
+        composed.issues,
+      );
+    }
+
+    const { manifest, files, raw } = composed.composed;
+    return this.admit(
+      manifest,
+      files,
+      raw,
+      {
+        checksum: composedChecksum(files),
+        sourceUrl: composedSourceUrl(manifest.name),
+        catalogId: null,
+        auditSource: COMPOSED_AUDIT_SOURCE,
+      },
+      actorPersonId,
+    );
+  }
+
+  /**
+   * The admission a theme goes through however it was authored.
+   *
+   * Lint, stage, record, swap - in that order, and the order is the guarantee.
+   * A theme that fails the lint never reaches the data volume, and the database
+   * transaction is the decider for the two systems that cannot share one: the
+   * files move into place as its last step, so anything that refuses the write
+   * leaves the version already installed exactly as it was rather than pairing
+   * an old row with new files.
+   */
+  private async admit(
+    manifest: ThemeManifest,
+    files: ThemeArchiveFiles,
+    raw: Readonly<Record<string, unknown>>,
+    provenance: ThemeProvenance,
+    actorPersonId: string | null,
+  ): Promise<ThemeInstallResult> {
     const lint = await this.lintAgainstInstalled(
       manifest,
       [...files.keys()],
@@ -201,9 +329,9 @@ export class ThemeInstallService {
           description: manifest.description ?? null,
           contract: manifest.contract,
           extendsThemeId: manifest.extends ?? null,
-          checksum: entry.sha512,
-          sourceUrl: entry.url,
-          catalogId: entry.id,
+          checksum: provenance.checksum,
+          sourceUrl: provenance.sourceUrl,
+          catalogId: provenance.catalogId,
           declaredLightTokens: manifest.modes.light as Prisma.InputJsonValue,
           declaredDarkTokens: manifest.modes.dark as Prisma.InputJsonValue,
           lightTokens: (resolved?.light ?? {}) as Prisma.InputJsonValue,
@@ -227,8 +355,8 @@ export class ThemeInstallService {
             targetId: manifest.name,
             context: {
               version: manifest.version,
-              source: entry.url,
-              checksum: entry.sha512,
+              source: provenance.auditSource,
+              checksum: provenance.checksum,
             },
           },
           tx,
@@ -247,7 +375,7 @@ export class ThemeInstallService {
     await this.themes.recomputeResolvedTokens();
 
     this.logger.log(
-      `Installed theme ${manifest.name}@${manifest.version} from ${entry.url}`,
+      `Installed theme ${manifest.name}@${manifest.version} from ${provenance.sourceUrl}`,
     );
 
     const summaries = await this.themes.list();
@@ -264,6 +392,17 @@ export class ThemeInstallService {
         (finding) => finding.severity === "warning",
       ),
     };
+  }
+
+  /** Refuses anything that configures an instance nobody has claimed yet. */
+  private async assertHousingCooperativeExists(message: string): Promise<void> {
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: { id: true },
+    });
+    if (association === null) {
+      throw new ThemeInstallError(message, "housing-cooperative-missing");
+    }
   }
 
   /**
