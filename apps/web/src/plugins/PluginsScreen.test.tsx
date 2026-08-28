@@ -67,7 +67,8 @@ function viewerWith(capabilities: string[]): Viewer {
     housingCooperative: {
       name: "Brf Eksemplet",
       primaryColor: null,
-      logoPath: null,
+      logoUrl: null,
+      logoDarkUrl: null,
     },
   };
 }

@@ -25,6 +25,14 @@ const TEST_ENV: Env = {
   DATABASE_URL_RUNTIME: undefined,
   OPENBRF_CATALOG_URL: undefined,
   OPENBRF_CATALOG_TOKEN: undefined,
+  OPENBRF_STORAGE_DRIVER: "local",
+  OPENBRF_S3_ENDPOINT: undefined,
+  OPENBRF_S3_REGION: "us-east-1",
+  OPENBRF_S3_BUCKET: undefined,
+  OPENBRF_S3_ACCESS_KEY_ID: undefined,
+  OPENBRF_S3_SECRET_ACCESS_KEY: undefined,
+  OPENBRF_S3_FORCE_PATH_STYLE: false,
+  OPENBRF_MAX_UPLOAD_BYTES: 10 * 1024 * 1024,
 };
 
 describe("FieldEncryptionService", () => {

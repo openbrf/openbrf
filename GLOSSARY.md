@@ -33,6 +33,7 @@ Statutes referenced below:
 | överlåtelse | transfer | Sale/transfer of a bostadsrätt between holders. |
 | pantsättning / pantnotering | **lien** / lien note | Recorded in the apartment register; confidential. |
 | personnummer | personal identity number | Swedish national ID. Only where legally justified; never in public views. |
+| publiceringssamtycke | **publication consent** | A person's recorded consent to appear on a page the association publishes. No personal data reaches a public page without one, and protected personal data never reaches one at all. An image upload therefore declares whether it shows identifiable persons: that declaration is what ties a photograph to this consent. |
 | registerutdrag | data subject access report | Per-person GDPR report. |
 | skyddade personuppgifter | **protected personal data** | Persons with protected identity: masked in all public views, exports, and lists; access is logged. |
 | stadgar | bylaws | The association's statutes. |

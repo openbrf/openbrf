@@ -61,7 +61,7 @@ const SETTINGS: InstanceSettings = {
     defaultLocale: "sv",
     setupCompletedAt: "2026-08-27T10:00:00.000Z",
   },
-  branding: { primaryColor: null, logoPath: null },
+  branding: { primaryColor: null, logo: null, logoDark: null },
   smtp: {
     host: "smtp.example.se",
     port: 587,
@@ -85,7 +85,8 @@ function viewerWith(capabilities: string[]): Viewer {
     housingCooperative: {
       name: "Brf Eksemplet",
       primaryColor: null,
-      logoPath: null,
+      logoUrl: null,
+      logoDarkUrl: null,
     },
   };
 }
