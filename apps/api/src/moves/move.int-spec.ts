@@ -615,6 +615,100 @@ describe("moving in", () => {
     ).rejects.toThrow();
   });
 
+  /*
+   * Every string String.prototype.trim reduces to nothing, which is what the
+   * service treats as no reference at all. The table has to refuse the same
+   * set: the service is not the only writer, and a constraint that accepts a
+   * tab where the service refuses one is not the boundary it was added to be.
+   *
+   * Written as escapes rather than as the characters themselves. A source file
+   * carrying invisible code points cannot be read or reviewed, and a test whose
+   * whole subject is invisible characters is the last place to hide any.
+   */
+  const blankReferences: readonly (readonly [string, string])[] = [
+    ["empty", ""],
+    ["spaces", "   "],
+    ["a tab", "\u0009"],
+    ["a line feed", "\u000A"],
+    ["a vertical tab", "\u000B"],
+    ["a form feed", "\u000C"],
+    ["a carriage return", "\u000D"],
+    ["a non-breaking space", "\u00A0"],
+    ["an ogham space mark", "\u1680"],
+    ["an en quad", "\u2000"],
+    ["a hair space", "\u200A"],
+    ["a line separator", "\u2028"],
+    ["a paragraph separator", "\u2029"],
+    ["a narrow non-breaking space", "\u202F"],
+    ["a medium mathematical space", "\u205F"],
+    ["an ideographic space", "\u3000"],
+    ["a byte order mark", "\uFEFF"],
+    ["mixed whitespace", "\u0009 \u000A\u00A0\uFEFF"],
+  ];
+
+  it.each(blankReferences)(
+    "keeps a transfer whose reference is only %s out of the database",
+    async (_label, reference) => {
+      await expect(
+        prisma.transfer.create({
+          data: {
+            apartmentId: apartments.raceB,
+            toPersonId: actors.leaver.personId,
+            transferredOn: new Date("2026-03-20T00:00:00.000Z"),
+            agreementReference: reference,
+          },
+        }),
+      ).rejects.toThrow();
+
+      // The document path satisfies the same requirement, so it has to refuse
+      // the same set rather than leaving a second way in.
+      await expect(
+        prisma.transfer.create({
+          data: {
+            apartmentId: apartments.raceB,
+            toPersonId: actors.leaver.personId,
+            transferredOn: new Date("2026-03-20T00:00:00.000Z"),
+            agreementDocumentPath: reference,
+          },
+        }),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("accepts a reference made of a character that only looks blank", async () => {
+    /*
+     * The control for the case above. A zero-width space is not whitespace:
+     * String.prototype.trim keeps it, so the constraint has to keep it too.
+     * Without this, a constraint that refused everything unprintable would pass
+     * every case above for the wrong reason.
+     *
+     * Rolled back rather than deleted afterwards. A transfer is a statutory row
+     * and the table's own trigger refuses a DELETE, so a test that committed one
+     * would have to leave it in the register.
+     */
+    class Rollback extends Error {}
+
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const transfer = await tx.transfer.create({
+          data: {
+            apartmentId: apartments.raceB,
+            toPersonId: actors.leaver.personId,
+            transferredOn: new Date("2026-03-20T00:00:00.000Z"),
+            agreementReference: "\u200B",
+          },
+          select: { id: true },
+        });
+        expect(transfer.id).toBeTruthy();
+        throw new Rollback();
+      }),
+    ).rejects.toThrow(Rollback);
+
+    expect(
+      await prisma.transfer.count({ where: { apartmentId: apartments.raceB } }),
+    ).toBe(0);
+  });
+
   it("refuses an apartment that is not in the register", async () => {
     const response = await inject({
       method: "POST",

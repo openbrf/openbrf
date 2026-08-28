@@ -413,12 +413,15 @@ model Transfer {
   /// paper still needs it.
   ///
   /// Nullable in Prisma but not free: a CHECK constraint requires one of this
-  /// and agreementDocumentPath to be present, so an uploaded agreement
-  /// satisfies the same requirement without a second migration. Prisma has no
-  /// syntax for a CHECK, so it lives in
-  /// 20260828170000_transfer_agreement_reference_required, added NOT VALID
-  /// because a row written before it has no reference to be found and inventing
-  /// one would be a statement in a statutory register that nobody made.
+  /// and agreementDocumentPath to hold at least one non-whitespace character,
+  /// so an uploaded agreement satisfies the same requirement without a second
+  /// migration. Prisma has no syntax for a CHECK, so it lives in
+  /// 20260828170000_transfer_agreement_reference_required and is tightened to
+  /// the full whitespace set in
+  /// 20260828180000_transfer_agreement_reference_non_whitespace. Added NOT
+  /// VALID because a row written before it has no reference to be found and
+  /// inventing one would be a statement in a statutory register that nobody
+  /// made.
   agreementReference String?
 
   createdAt DateTime @default(now())
