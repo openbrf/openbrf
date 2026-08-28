@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -174,6 +175,69 @@ export function runInAppContainer(
       status: result.status ?? -1,
       output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
     };
+  }
+}
+
+/**
+ * The production compose file resolved against an env file holding exactly
+ * these variables, as `docker compose config` renders it.
+ *
+ * Without the e2e overlay and without stack.env, because what an operator
+ * following docs/deployment.md runs is docker-compose.prod.yml and their own
+ * .env.production. A variable that file does not name never reaches the image,
+ * however carefully it is set, so the rendering is where a documented
+ * configuration path can be shown to exist at all. Nothing is started.
+ */
+export function productionComposeConfig(
+  variables: Readonly<Record<string, string>>,
+): { status: number; output: string } {
+  const directory = mkdtempSync(join(tmpdir(), "openbrf-compose-"));
+  const envFile = join(directory, "env");
+  writeFileSync(
+    envFile,
+    Object.entries(variables)
+      .map(([name, value]) => `${name}=${value}\n`)
+      .join(""),
+  );
+  try {
+    return {
+      status: 0,
+      output: execFileSync(
+        "docker",
+        [
+          "compose",
+          // A project of its own, and `config` starts nothing, so this can
+          // never reach the suite's containers or anyone else's.
+          "-p",
+          `${PROJECT_NAME}-config`,
+          "-f",
+          resolve(repositoryRoot, "docker-compose.prod.yml"),
+          "--env-file",
+          envFile,
+          "config",
+          "--format",
+          "json",
+        ],
+        {
+          cwd: repositoryRoot,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: 60_000,
+        },
+      ),
+    };
+  } catch (failure) {
+    const result = failure as {
+      status?: number | null;
+      stdout?: string | null;
+      stderr?: string | null;
+    };
+    return {
+      status: result.status ?? -1,
+      output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 }
 

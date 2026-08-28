@@ -119,10 +119,18 @@ connection to reach for, and the append-only guards on the member register and
 the audit log stay beyond it.
 
 An operator who manages that role themselves can leave `RUNTIME_DB_PASSWORD`
-unset and set `DATABASE_URL_RUNTIME` instead; the entrypoint then skips step 6.
-It refuses to start with neither, because the alternative is an application
-connecting as the owner. A `DATABASE_URL_RUNTIME` supplied that way is used as
-written, so its password has to be percent-encoded already.
+empty in `.env.production` and set `DATABASE_URL_RUNTIME` there instead; the
+entrypoint then skips step 6 and constrains nothing, so the role has to be
+granted no more than
+[harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) grants
+it. A `DATABASE_URL_RUNTIME` supplied that way is used as written, so its
+password has to be percent-encoded already.
+
+Neither variable is required by the Compose file, because requiring either one
+would make the other impossible to use. The entrypoint is what refuses a
+production start that has neither, because the alternative is an application
+connecting as the owner - so that refusal, rather than a missing value in the
+env file, is the error an operator who has set up neither will read.
 
 ## Backups
 

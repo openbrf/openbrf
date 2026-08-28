@@ -58,8 +58,7 @@ services:
 
       # Two roles, because a table owner can disable the triggers that keep the
       # member register and the audit log append-only. The owner runs
-      # migrations; the application connects as openbrf_app, which the
-      # entrypoint creates and constrains from RUNTIME_DB_PASSWORD.
+      # migrations; the application connects as openbrf_app.
       #
       # The parts rather than the two connection URLs: a password is a URL
       # component, one holding :, /, @, ? or # has to be percent-encoded, and
@@ -70,7 +69,22 @@ services:
       POSTGRES_DB: openbrf
       POSTGRES_USER: openbrf
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
-      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?set RUNTIME_DB_PASSWORD in the env file}
+
+      # Two ways to give the application its own connection, and exactly one of
+      # them has to arrive. Neither is required here, because requiring either
+      # would make the other impossible to use: an operator supplying the URL
+      # would still be made to invent a password that is never used, and one
+      # supplying the password cannot be made to write a URL. The entrypoint is
+      # what refuses a production start that has neither, and its message names
+      # both, so the check stays in the one place that can see which arrived.
+      #
+      # RUNTIME_DB_PASSWORD is the ordinary path: the entrypoint creates
+      # openbrf_app from it and reapplies its constraints on every start.
+      # DATABASE_URL_RUNTIME is for an operator who manages that role
+      # themselves; the entrypoint leaves the role alone and uses the URL as
+      # written, so its password has to be percent-encoded already.
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
+      DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
 
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in the env file}
 

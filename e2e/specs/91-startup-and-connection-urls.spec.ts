@@ -2,7 +2,11 @@ import { expect, test } from "@playwright/test";
 import pg from "pg";
 
 import { jsonBodyOrNothing } from "../src/api";
-import { runInAppContainer, stack } from "../src/stack";
+import {
+  productionComposeConfig,
+  runInAppContainer,
+  stack,
+} from "../src/stack";
 
 /**
  * What the deployed image does with the database password, and what it does
@@ -177,6 +181,119 @@ test("a password holding URL delimiters reaches the database intact", async () =
   } finally {
     await client.end();
   }
+});
+
+/**
+ * What a production start needs whichever way the runtime role arrives.
+ *
+ * These are not secrets and guard nothing: no container is started from them,
+ * and only the rendered configuration is read.
+ */
+const COMPOSE_REQUIRED = {
+  APP_URL: "https://example.invalid",
+  POSTGRES_PASSWORD: "owner-password-for-rendering",
+  BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+};
+
+/** The app service's environment out of a rendered configuration. */
+function appEnvironment(output: string): Record<string, string | null> {
+  const config = JSON.parse(output) as {
+    services: { app: { environment: Record<string, string | null> } };
+  };
+  return config.services.app.environment;
+}
+
+test("both documented ways to supply the runtime connection reach the container", () => {
+  // docs/deployment.md offers two, and the entrypoint acts on both:
+  // RUNTIME_DB_PASSWORD, which it turns into the openbrf_app role it creates
+  // and constrains, and DATABASE_URL_RUNTIME, for an operator who manages that
+  // role themselves. Neither is any use unless docker-compose.prod.yml maps it
+  // into the container: a variable that file does not name is simply absent,
+  // however carefully the env file sets it, and a documented path that ends
+  // there cannot be followed at all.
+  const externallyManagedUrl =
+    "postgresql://openbrf_app:enc%40ded@db:5432/openbrf";
+
+  const externallyManaged = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    DATABASE_URL_RUNTIME: externallyManagedUrl,
+  });
+  expect(
+    externallyManaged.status,
+    `an env file with no RUNTIME_DB_PASSWORD renders: ${externallyManaged.output}`,
+  ).toBe(0);
+  const managed = appEnvironment(externallyManaged.output);
+  expect(managed.DATABASE_URL_RUNTIME).toBe(externallyManagedUrl);
+  // Empty, which the entrypoint's -n test and the API's env schema both read
+  // as absent, so the entrypoint leaves the operator's role alone.
+  expect(managed.RUNTIME_DB_PASSWORD).toBe("");
+
+  const entrypointManaged = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(entrypointManaged.status, entrypointManaged.output).toBe(0);
+  const ordinary = appEnvironment(entrypointManaged.output);
+  expect(ordinary.RUNTIME_DB_PASSWORD).toBe("runtime-password");
+  expect(ordinary.DATABASE_URL_RUNTIME).toBe("");
+
+  // With neither, the configuration still renders. Refusing here would report
+  // whichever variable was named first as missing, which is wrong half the
+  // time; the entrypoint is the only place that can see which of the two
+  // arrived, and the test below is what holds it to refusing.
+  const neither = productionComposeConfig(COMPOSE_REQUIRED);
+  expect(neither.status, neither.output).toBe(0);
+  const nothing = appEnvironment(neither.output);
+  expect(nothing.RUNTIME_DB_PASSWORD).toBe("");
+  expect(nothing.DATABASE_URL_RUNTIME).toBe("");
+});
+
+test("the owner's password is still required by the compose file", () => {
+  // The database container is created from it, so there is no second way to
+  // supply it and nothing further on that could report its absence better.
+  const { status, output } = productionComposeConfig({
+    APP_URL: COMPOSE_REQUIRED.APP_URL,
+    BETTER_AUTH_SECRET: COMPOSE_REQUIRED.BETTER_AUTH_SECRET,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+
+  expect(status, "rendering fails without it").not.toBe(0);
+  // The compose file's own wording, so an unrelated rendering error cannot
+  // stand in for it.
+  expect(output).toContain("set POSTGRES_PASSWORD in the env file");
+});
+
+test("the entrypoint refuses a production start with no runtime connection", () => {
+  test.setTimeout(120_000);
+
+  // Now that neither runtime variable is required by the compose file, this
+  // refusal is the only thing between an operator who set up neither and an
+  // application connecting as the schema owner - which could disable the
+  // triggers keeping the member register and the audit log append-only.
+  //
+  // Steps 4 and 5 run against the live database on the way here. Both are
+  // idempotent and already applied, which is exactly what a container restart
+  // does, so this costs the suite nothing it has not already paid.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      DATABASE_URL_RUNTIME: "",
+      NODE_ENV: "production",
+    },
+    120_000,
+  );
+
+  expect(status, `the boot stops: ${output}`).toBe(1);
+  // The refusal names both ways out, so an operator reads what to set rather
+  // than which variable happened to be checked first.
+  expect(output).toContain(
+    "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set",
+  );
+  expect(
+    output.includes("openbrf: starting"),
+    "the server was never reached",
+  ).toBe(false);
 });
 
 test("an unknown API path answers JSON, and a client route answers the client", async ({
