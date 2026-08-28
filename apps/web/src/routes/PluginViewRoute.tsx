@@ -17,6 +17,20 @@ import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
 import { Notice } from "../ui/Notice";
 
+/** What was read for one plugin, kept with the id it was read for. */
+interface ViewOutcome {
+  pluginId: string;
+  view: PluginViewDescriptor | null;
+  /**
+   * The view list could not be read at all.
+   *
+   * Distinct from "no such view", because the two say opposite things to the
+   * person reading the screen: one means this plugin is not on the instance or
+   * is not offered to them, which is settled, and the other means try again.
+   */
+  failed: boolean;
+}
+
 /**
  * A plugin's own screen.
  *
@@ -31,16 +45,18 @@ export function PluginViewRoute(): ReactElement {
   const { pluginId } = useParams({ from: "/plugin/$pluginId" });
 
   const [viewer, setViewer] = useState<Viewer | null>(null);
-  const [view, setView] = useState<PluginViewDescriptor | null>(null);
-  const [ready, setReady] = useState(false);
+  const [outcome, setOutcome] = useState<ViewOutcome | null>(null);
+
   /**
-   * The view list could not be read at all.
+   * The answer, but only if it is this plugin's.
    *
-   * Distinct from "no such view", because the two say opposite things to the
-   * person reading the screen: one means this plugin is not on the instance or
-   * is not offered to them, which is settled, and the other means try again.
+   * Derived rather than reset, so nothing has to remember to clear anything.
+   * An answer is stored with the id it was read for, and a route change makes
+   * the previous plugin's answer stop matching by itself: the screen goes back
+   * to loading, and a request that was still in flight for the plugin that was
+   * open a moment ago cannot put its view - or its error - on this one.
    */
-  const [failed, setFailed] = useState(false);
+  const current = outcome?.pluginId === pluginId ? outcome : null;
 
   useEffect(() => {
     let active = true;
@@ -59,19 +75,24 @@ export function PluginViewRoute(): ReactElement {
           viewerResult.value.housingCooperative?.primaryColor ?? null,
         );
       }
-      if (viewsResult.ok) {
-        const found =
-          viewsResult.value.views.find(
-            (candidate) => candidate.id === pluginId,
-          ) ?? null;
-        setView(found);
-        if (found !== null) {
-          await loadPluginTranslations(found.id);
-        }
-      } else {
-        setFailed(true);
+      if (!viewsResult.ok) {
+        setOutcome({ pluginId, view: null, failed: true });
+        return;
       }
-      setReady(true);
+
+      const found =
+        viewsResult.value.views.find(
+          (candidate) => candidate.id === pluginId,
+        ) ?? null;
+      if (found !== null) {
+        // A second trip, and by the time it answers the URL can name another
+        // plugin whose own request has already settled.
+        await loadPluginTranslations(found.id);
+        if (!active) {
+          return;
+        }
+      }
+      setOutcome({ pluginId, view: found, failed: false });
     };
 
     void load();
@@ -101,20 +122,20 @@ export function PluginViewRoute(): ReactElement {
         });
       }}
     >
-      {!ready ? (
+      {current === null ? (
         <p role="status" className="text-body text-ink-muted">
           {t("plugins.view.loading")}
         </p>
-      ) : failed ? (
+      ) : current.failed ? (
         <Notice tone="danger" live>
           {t("plugins.errors.unknown")}
         </Notice>
-      ) : view === null ? (
+      ) : current.view === null ? (
         <Notice tone="warn" live>
           {t("plugins.view.notFound", { plugin: pluginId })}
         </Notice>
       ) : (
-        <PluginScreen view={view} />
+        <PluginScreen view={current.view} />
       )}
     </AppShell>
   );
