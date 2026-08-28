@@ -31,9 +31,6 @@ Statutes referenced below:
 | medlemsförteckning | **member register** | Statutory register of members. BRL 9 kap. 8 § requires it and 9 § fixes its contents and its availability to anyone who asks; EFL 5 kap. 6-7 §§ apply through BRL 9 kap. 9 b §. Must never be blended with the apartment register in UI or data model. |
 | motion | motion | Member proposal to the general meeting. |
 | ordförande | chair | Board chair - a position of trust (brass in the design system). |
-| överlåtelse | transfer | Sale/transfer of a bostadsrätt between holders. |
-| överlåtelseavtal | **transfer agreement** | The contract transferring a bostadsrätt, as the upplåtelseavtal (grant agreement) is the one that first grants it. |
-| överlåtelseavtalets referens | **agreement reference** | What the apartment register records to identify a transfer's transfer agreement: the board's own reference - a case number, or where the paper copy is filed - or the path of an uploaded copy. Every transfer states one, because the register extract lists it and a transfer cannot be removed once written. Never "contract number": the reference need not be a number and need not come from the contract. |
 | pantsättning / pantnotering | **lien** / lien note | Recorded in the apartment register; confidential. |
 | personnummer | personal identity number | Swedish national ID. Only where legally justified; never in public views. |
 | publiceringssamtycke | **publication consent** | A person's recorded consent to appear on a page the association publishes. No personal data reaches a public page without one, and protected personal data never reaches one at all. An image upload therefore declares whether it shows identifiable persons: that declaration is what ties a photograph to this consent. |
@@ -49,7 +46,12 @@ Statutes referenced below:
 | utdrag ur förteckning | **register extract** | A copy of a statutory register, produced on request. The member register extract is public; the apartment register extract goes to the board and to the tenant-owner it concerns. Distinct from the GDPR registerutdrag, which is a data subject access report. |
 | utflyttad | moved out | Register state with dashed outline + purge date in the UI. |
 | årsavgift / månadsavgift | annual fee / monthly fee | The fee the tenant-owner pays the association. |
+| överlåtelse | transfer | Sale/transfer of a bostadsrätt between holders. |
+| överlåtelseavtal | **transfer agreement** | The contract transferring a bostadsrätt, as the upplåtelseavtal (grant agreement) is the one that first grants it. |
+| överlåtelseavtalets referens | **agreement reference** | What the apartment register records to identify a transfer's transfer agreement: the board's own reference - a case number, or where the paper copy is filed - or the path of an uploaded copy. Every transfer states one, because the register extract lists it and a transfer cannot be removed once written. Never "contract number": the reference need not be a number and need not come from the contract. |
 
 ## Adding terms
 
 Add the term in the same PR that introduces it in code, keep the table alphabetized by the Swedish column, and cite the statute at chapter level (only cite an exact section when verified against the current text at [riksdagen.se](https://www.riksdagen.se)).
+
+Alphabetized in the Swedish alphabet, where å, ä and ö are letters in their own right and sort after z rather than as variants of a and o. `årsavgift` therefore follows `utflyttad`, and the `överlåtelse` rows come last.
