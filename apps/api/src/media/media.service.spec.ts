@@ -61,6 +61,7 @@ interface Fakes {
     findUnique: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
   };
+  transactionMediaFile: { delete: ReturnType<typeof vi.fn> };
 }
 
 function build(
@@ -104,12 +105,25 @@ function build(
   };
 
   /*
+   * A delegate of its own, not the root one under another name. Both write to
+   * the same rows, so the service behaves identically either way and only the
+   * spy tells them apart: a delete issued on the root client outside the
+   * transaction would leave the row gone with no audit entry, and sharing one
+   * delegate would let that pass.
+   */
+  const transactionMediaFile = {
+    delete: vi.fn(async ({ where }: { where: { id: string } }) => {
+      rows.delete(where.id);
+    }),
+  };
+
+  /*
    * One object, so a caller can be checked against the client the transaction
    * actually handed out rather than against "some client was passed". The root
    * client would satisfy the weaker check while leaving the write outside the
    * transaction.
    */
-  const transactionClient = { mediaFile };
+  const transactionClient = { mediaFile: transactionMediaFile };
 
   const prisma = {
     mediaFile,
@@ -155,7 +169,15 @@ function build(
     audit as unknown as AuditLogService,
   );
 
-  return { service, rows, objects, audited, storage, mediaFile };
+  return {
+    service,
+    rows,
+    objects,
+    audited,
+    storage,
+    mediaFile,
+    transactionMediaFile,
+  };
 }
 
 function principal(overrides: Partial<Principal> = {}): Principal {
@@ -509,6 +531,11 @@ describe("removing", () => {
     const id = await stored();
 
     await fakes.service.remove(id, "person-1");
+
+    expect(fakes.transactionMediaFile.delete).toHaveBeenCalledWith({
+      where: { id },
+    });
+    expect(fakes.mediaFile.delete).not.toHaveBeenCalled();
 
     expect(fakes.audited).toContainEqual(
       expect.objectContaining({
