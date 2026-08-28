@@ -34,7 +34,11 @@ While writing a spec:
 ## How it is put together
 
 - `src/stack.ts` owns the compose invocation and reads `stack.env`, so the
-  suite and the stack cannot drift apart.
+  suite and the stack cannot drift apart. It knows two stacks: this one, and the
+  screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`.
+- `pg-boss` is a dependency here, pinned to the exact version the API uses.
+  `90-runtime-role-privileges` drives the queue the way the application does,
+  and a different version would prove something about a different client.
 - `src/provision.ts` builds the instance every spec after the first one expects,
   idempotently and over HTTP. The first-boot spec builds the same instance
   through the wizard, screen by screen, because that is what it is testing.
@@ -65,6 +69,16 @@ Numbered against the phase 1 exit criteria.
 | 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                | `04-self-signup.spec.ts`                |
 | 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                     | `05-address-book.spec.ts`               |
 | 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                             | `06-protected-personal-data.spec.ts`    |
+
+One spec is not numbered against a criterion.
+`90-runtime-role-privileges.spec.ts` connects as `openbrf_app` - the role the
+entrypoint created and constrained with `prisma/sql/harden-runtime-role.sql` -
+and checks both halves of that hardening: the queue works (a queue is created, a
+job is sent and a worker receives it) and the statutory archive still refuses an
+`UPDATE`. It also exercises the `CREATE` on the `pgboss` schema directly, so the
+grant fails loudly if it is ever dropped rather than only when a background job
+does. It reads the database on the port `docker-compose.e2e.yml` publishes, so
+it needs no browser.
 
 ## Still to be written
 
@@ -108,3 +122,124 @@ than pretending they are not there:
 - **A residency is only written by sign-up approval.** No other endpoint creates
   one, so the register fixture goes through that path to put people on
   apartments. Move-in owns this once stage S7 builds it.
+
+## Screenshots for a pull request
+
+`CONTRIBUTING.md` requires light and dark screenshots in the pull request
+description for UI work. This package produces them, because it already boots
+the production stack, signs people in and seeds a register.
+
+```sh
+pnpm screenshots
+```
+
+It builds the image, brings up a stack of its own from empty volumes, walks
+every declared screen and writes two PNGs per screen into `screenshots/` at the
+repository root. That directory is git-ignored: the images belong in a pull
+request description, not in the history. Drag them out of it and drop them into
+the description.
+
+The stack is a second one, not the suite's: compose project `openbrf-shots`, on
+ports 3011, 5443 and 8126, configured by `screenshots.env`. A capture and a
+suite run can therefore happen at the same time. More importantly the two
+instances hold different data, which the next section is about.
+
+### Seeded data has to be safe to publish
+
+**This is a requirement, not a convention.** The images go into pull requests on
+a public repository about a statutory personal-data register, so anything a
+capture can photograph is published.
+
+The capture builds the demo cooperative - Brf Eksemplet, Storgatan 12 and 14 -
+through `src/provision.ts`, which seeds four people with no personal identity
+number, no phone number, and email addresses on `.test`, the TLD RFC 2606
+reserves so that nothing can resolve. It never runs `db:seed`, whose demo data
+carries a plausible-looking personal identity number and Swedish mobile numbers,
+and which refuses to run against a production image in any case.
+
+That is checked rather than trusted. Before each image is written, the capture
+reads the rendered text and every filled-in field, and fails the run on anything
+shaped like a personal identity number, or on any email address outside `.test`.
+A Swedish organisation number has the same shape and is not one; the two are
+told apart by the date a personal identity number begins with, which an
+organisation number is issued unable to carry. A screen that needs new fixture
+data has to keep both rules true.
+
+The separate stack is part of the same rule: the suite creates people carrying a
+personal identity number and a phone number in order to test masking, and a
+capture must never be able to reach them.
+
+### Adding a screen
+
+Append an entry to `screenshots/screens.ts`. It is a list of data, and adding to
+it is not writing a test:
+
+```ts
+{
+  name: "member-register-extract",   // the file stem, so <name>-light.png
+  as: "administrator",               // "nobody" | "administrator" | "resident"
+  goto: "/register/members",         // omit to stay where the entry above left off
+  prepare: [                         // clicks and fills, when a URL is not enough
+    { click: { button: "Skriv ut utdrag" } },
+  ],
+  waitFor: { heading: "Medlemsförteckning" },
+  capture: "page",                   // "viewport" (default), "page", or a target
+}
+```
+
+The pieces:
+
+- **Order matters, and each entry starts where the one above it stopped.** An
+  instance is unclaimed exactly once, so the setup wizard comes first, and its
+  seven steps are seven entries on one URL: the wizard keeps its step in React
+  state, so `prepare` drives it forward rather than navigating to it.
+- **`as`** establishes a session. Omit it to carry on in the current one.
+  Anything other than `nobody` provisions the cooperative and its register
+  first, so an entry never has to arrange that itself.
+- **A target** is `{ heading }`, `{ button }`, `{ combobox }`, `{ label }`,
+  `{ text }` or `{ panel }` (a settings card, found by its level-2 heading).
+  There are no test ids in the client on purpose, so these are the names a
+  person reads or hears. A string matches exactly, except in `{ label }` and
+  `{ combobox }`, where it matches from the beginning: a field's `<label>` wraps
+  its hint as well as its word, so `{ label: "Organisationsnummer" }` finds the
+  field whose hint follows it, while staying anchored so `{ label: "Namn" }`
+  does not also reach "Förnamn". A regular expression always matches as written,
+  which is the way out when a name is ambiguous. Matching two things is an
+  error, so that an entry which has quietly started finding a second one fails
+  instead of photographing whichever came first; add `first: true` where several
+  matches are the nature of the screen, as with a control repeated once per
+  register row.
+- **`waitFor`** proves the right screen rendered and is what the capture waits
+  for. It is not optional: it is what stops an image being taken of the screen
+  before it.
+- **An action** is `{ click }`, `{ fill, value }`, `{ select, option }` or
+  `{ see }`. A screen needing a kind that is not there - a file upload, for the
+  import steps - adds it to the `Action` union and to `perform` in
+  `capture.spec.ts`, once, and every later screen has it.
+
+Both themes come for free. The client follows the operating system unless
+somebody has chosen otherwise, and it subscribes to the media query while it
+does, so the capture photographs each screen, flips the emulated preference and
+photographs it again without navigating - which is the only way a wizard step,
+held in React state, can be shown in both. The viewport, pixel density and
+motion setting are fixed in `capture.spec.ts`, and animations are stopped at the
+capture, so a rerun differs only where the interface differs.
+
+### Screens waiting on other branches
+
+These do not exist yet. Each one is an entry appended to `screens.ts` in the
+pull request that builds the screen, not later:
+
+- **The member and apartment register extracts, and the import steps.** The two
+  registers as separate printable views, and the upload, column mapping, preview
+  and result of an import. The mapping and preview steps are the case that will
+  want a file-upload action.
+- **The plugin catalog, the consent screen and a plugin's settings form.** The
+  catalog as it lists what can be installed, the permissions and personal-data
+  declaration a board consents to, and the form an installed plugin contributes.
+- **The theme admin screen, its preview and its lint refusal.** Including the
+  refusal, which is a screen in its own right: what a board sees when a theme is
+  rejected at install time.
+- **The appearance panel's logo states.** No logo, a logo set, and a logo that
+  was refused. `{ panel: "Utseende" }` already photographs that card on its own,
+  so these are three entries differing only in what `prepare` sets up.

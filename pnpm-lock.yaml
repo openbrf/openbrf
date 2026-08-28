@@ -251,6 +251,9 @@ importers:
       pg:
         specifier: ^8.19.0
         version: 8.23.0
+      pg-boss:
+        specifier: 12.28.0
+        version: 12.28.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

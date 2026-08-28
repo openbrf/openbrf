@@ -43,6 +43,11 @@
       "outputs": [],
       "cache": false,
       "passThroughEnv": ["CI", "DOCKER_*", "OPENBRF_E2E_*"]
+    },
+    "screenshots": {
+      "outputs": [],
+      "cache": false,
+      "passThroughEnv": ["CI", "DOCKER_*", "OPENBRF_E2E_*"]
     }
   }
 }

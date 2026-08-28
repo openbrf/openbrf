@@ -7,6 +7,7 @@
     "lint": "oxlint --config ../.oxlintrc.json --type-aware .",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "screenshots": "OPENBRF_E2E_PROFILE=screenshots playwright test --config playwright.screenshots.config.ts",
     "browsers": "playwright install --with-deps chromium"
   },
   "devDependencies": {
@@ -16,6 +17,7 @@
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "^7.0.2001",
     "pg": "^8.19.0",
+    "pg-boss": "12.28.0",
     "typescript": "^7.0.2"
   }
 }

@@ -17,9 +17,32 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = resolve(here, "../..");
 export const e2eRoot = resolve(here, "..");
 
-export const PROJECT_NAME = "openbrf-e2e";
+/**
+ * Which stack this process drives.
+ *
+ * The screenshot task runs one of its own, under its own compose project and on
+ * its own ports, selected with OPENBRF_E2E_PROFILE=screenshots. Two reasons,
+ * and the second is the important one:
+ *
+ *   - a capture and a suite run can happen at the same time without fighting
+ *     over a container, a volume or a port;
+ *   - the two instances hold different data. The suite creates people carrying
+ *     a personal identity number and a phone number in order to test masking,
+ *     and a capture writes images that end up in a public pull request.
+ */
+const PROFILES = {
+  e2e: { project: "openbrf-e2e", envFile: "stack.env" },
+  screenshots: { project: "openbrf-shots", envFile: "screenshots.env" },
+} as const;
 
-const ENV_FILE = resolve(e2eRoot, "stack.env");
+const profile =
+  process.env.OPENBRF_E2E_PROFILE === "screenshots"
+    ? PROFILES.screenshots
+    : PROFILES.e2e;
+
+export const PROJECT_NAME = profile.project;
+
+const ENV_FILE = resolve(e2eRoot, profile.envFile);
 
 const COMPOSE_ARGS = [
   "compose",
@@ -61,6 +84,13 @@ export const stack = {
   mailpitUrl: `http://127.0.0.1:${required("E2E_MAILPIT_PORT")}`,
   /** The owner connection, used only to read the append-only audit log. */
   databaseUrl: `postgresql://openbrf:${required("POSTGRES_PASSWORD")}@127.0.0.1:${required("E2E_DB_PORT")}/openbrf`,
+  /**
+   * The connection the application itself uses: openbrf_app, as the entrypoint
+   * created and constrained it. Nothing in the suite should reach for this to
+   * set data up - it is here so a spec can prove what that role can and cannot
+   * do, which is only meaningful against the role the deployed image made.
+   */
+  runtimeDatabaseUrl: `postgresql://openbrf_app:${required("RUNTIME_DB_PASSWORD")}@127.0.0.1:${required("E2E_DB_PORT")}/openbrf`,
   /** Reachable from the app container, not from the host. */
   smtpHost: "mailpit",
   smtpPort: 1025,

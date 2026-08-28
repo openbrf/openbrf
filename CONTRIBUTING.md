@@ -78,7 +78,7 @@ CI is the gate - local hooks are a convenience, never a requirement. Run `pnpm h
 
 UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). In addition to the general rules:
 
-- **Screenshots in both themes are required** in the PR description: light and dark, before/after where relevant.
+- **Screenshots in both themes are required** in the PR description: light and dark, before/after where relevant. `pnpm screenshots` produces them from the production stack and writes them to `screenshots/`; a screen you build is added to the list in `e2e/screenshots/screens.ts` in the same pull request. See [e2e/README.md](e2e/README.md), including the rule that seeded data has to be safe to publish - these images go into a public pull request about a statutory personal-data register.
 - Tokens only - never raw color values (see above).
 - Register data uses the shared monospace grid; states carry a text label plus a pattern (color is never the only signal); WCAG AA (4.5:1) holds even at 13px.
 - Touch targets are at least 44px on mobile.
