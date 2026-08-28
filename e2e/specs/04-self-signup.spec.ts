@@ -7,6 +7,7 @@ import {
   ensureInstance,
   signInAsAdministrator,
 } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 4.
@@ -97,7 +98,7 @@ test("a visitor asks for an account, the board approves, the account activates",
     password: APPLICANT.password,
   });
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(APPLICANT.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(APPLICANT.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();

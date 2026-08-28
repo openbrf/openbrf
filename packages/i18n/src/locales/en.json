@@ -1128,5 +1128,18 @@
         "movedOutOn": "Moved out on"
       }
     }
+  },
+  "site": {
+    "signIn": "Sign in",
+    "orgNumberLabel": "Organisation number {{number}}",
+    "notFound": {
+      "title": "The page does not exist",
+      "body": "The address may have been written differently, or the page may have been taken down."
+    },
+    "seed": {
+      "slug": "home",
+      "title": "Welcome",
+      "body": "{{association}} is a housing cooperative. This page is the association's own, and the board writes what stands here."
+    }
   }
 }

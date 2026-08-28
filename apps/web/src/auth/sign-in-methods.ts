@@ -149,6 +149,10 @@ export async function requestMagicLink(input: {
 }): Promise<SignInOutcome> {
   const { error } = await authClient.signIn.magicLink({
     email: input.email,
+    // Where the verification lands. Better Auth's magic-link plugin has no
+    // instance-wide default for this, and its own is the origin's root - which
+    // is the association's public website, not the application.
+    callbackURL: "/app",
   });
 
   if (error !== null && error !== undefined) {

@@ -34,7 +34,9 @@ the entrypoint percent-encodes them as it builds those URLs.
 
 Set `APP_URL` to the public https:// address members will use. Invitation and
 sign-in links are built from it, and the session cookie is issued for it, so a
-wrong value here produces links that go nowhere.
+wrong value here produces links that go nowhere. It is the origin and nothing
+more: the association's own website is served at that address, and the
+application at `/app` below it.
 
 Then:
 
@@ -42,15 +44,22 @@ Then:
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-Open `APP_URL`. The first visitor gets the setup wizard, which creates the first
-administrator account, the housing cooperative, its addresses and its
-apartments, the email settings and the accent colour. Everything after the
-administrator account and the name can be skipped and finished later in
-settings.
+Open `APP_URL`. An unclaimed instance sends every visitor to the setup wizard,
+which creates the first administrator account, the housing cooperative, its
+addresses and its apartments, the email settings and the accent colour.
+Everything after the administrator account and the name can be skipped and
+finished later in settings.
 
 The wizard is public only while the instance is unclaimed - no account exists
 and setup has never been completed - and admin-only from its second screen
 onwards.
+
+Once the instance is claimed, `APP_URL` serves the association's own public
+website and the application moves to `/app` under it. Finishing the wizard
+writes one page so the address answers with something; the board edits it from
+there. The public pages are plain HTML rendered by the API through the active
+theme: they run no JavaScript, set no cookie and fetch nothing from any other
+host, which is also why the site needs no cookie banner.
 
 ## What happens on every start
 

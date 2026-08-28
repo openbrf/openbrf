@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { expect, test } from "../src/fixtures";
 import { ADMINISTRATOR, ensureRegisterFixture } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 5.
@@ -21,7 +22,7 @@ import { ADMINISTRATOR, ensureRegisterFixture } from "../src/provision";
 test.describe.configure({ mode: "serial" });
 
 async function signInAsAdmin(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })

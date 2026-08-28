@@ -956,3 +956,63 @@ model MediaFile {
   @@index([createdAt])
   @@map("media_file")
 }
+
+// ---------------------------------------------------------------------------
+// The public website.
+// ---------------------------------------------------------------------------
+
+/// Who may read a page.
+enum PageVisibility {
+  /// Anyone, with no session. This is what the housing cooperative publishes
+  /// to the street: a visitor, a prospective buyer, a broker.
+  PUBLIC
+  /// Anyone signed in. A page nobody may read without an account is answered
+  /// the same way a page that does not exist is, so the anonymous visitor
+  /// cannot learn which of the two they asked for.
+  MEMBER
+}
+
+/// A page on the association's own website.
+///
+/// Service tier: this is the cooperative's own writing about itself, not
+/// register content. It carries no personal data by construction - the
+/// rendering path reaches neither the registers nor the address book - and it
+/// is therefore ordinary purgeable, editable, deletable data with no
+/// append-only trigger and no retention floor.
+///
+/// The body is versioned JSON rather than markup: `{ version: 1, blocks: [...] }`.
+/// Storing a block list rather than HTML is what lets the renderer decide what
+/// a block becomes, so a page written today cannot carry a script or a
+/// third-party embed into a future renderer. A block type the renderer does
+/// not know is skipped rather than rendered, so a newer editor writing into an
+/// older instance degrades to less content instead of to broken output.
+model Page {
+  id String @id @default(cuid())
+
+  /// The path segment the page is served at, directly under the root. Unique
+  /// because the URL is the identity: two pages claiming one address would
+  /// make which of them a visitor sees an accident of ordering.
+  slug String @unique
+
+  title   String
+  content Json
+
+  visibility PageVisibility @default(PUBLIC)
+
+  /// Whether the page is served at all. A page is written before it is meant
+  /// to be read, and an unpublished one is answered exactly as a missing one.
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+
+  /// Where the page sits among its siblings. Also decides the home page: the
+  /// lowest order among published public pages, oldest first on a tie. There
+  /// is no isHome flag - the menu the board arranges is the ordering, and a
+  /// second way to say which page is first would be a second way to disagree.
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visibility, published, sortOrder])
+  @@map("page")
+}

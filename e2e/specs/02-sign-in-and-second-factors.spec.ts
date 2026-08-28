@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { expect, test } from "../src/fixtures";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
+import { appPath } from "../src/stack";
 import {
   parseOtpauthUri,
   secondsLeftInStep,
@@ -50,7 +51,7 @@ async function attachVirtualAuthenticator(page: Page): Promise<void> {
 }
 
 async function signInWithPassword(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })
@@ -60,7 +61,7 @@ async function signInWithPassword(page: Page): Promise<void> {
 
 async function signOut(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Logga ut" }).click();
-  await expect(page).toHaveURL(/\/sign-in$/);
+  await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
 }
 
 /**
@@ -102,7 +103,7 @@ async function removeSecondFactors(
   authenticatorOn: boolean,
 ): Promise<void> {
   try {
-    await page.goto("/settings");
+    await page.goto(appPath("/settings"));
 
     // Signed out, or signed in: the route is closed without a session, so one
     // of the two is what rendered.
@@ -134,7 +135,7 @@ async function removeSecondFactors(
         await expect(signedIn).toBeVisible();
       }
 
-      await page.goto("/settings");
+      await page.goto(appPath("/settings"));
     }
     await expect(security).toBeVisible();
 
@@ -220,7 +221,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     ).toBeVisible();
 
     // --- enrol a passkey ----------------------------------------------------
-    await page.goto("/settings");
+    await page.goto(appPath("/settings"));
     await expect(
       page.getByRole("heading", { name: "Inloggning och säkerhet" }),
     ).toBeVisible();
@@ -284,7 +285,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     await expect(
       page.getByRole("heading", { name: "Adressbok" }),
     ).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(new RegExp(`${appPath()}/?$`));
   } finally {
     // --- put the account back the way the other specs expect it -------------
     // The criterion is proved above, and what it left behind is a credential
@@ -300,7 +301,7 @@ test("a wrong password is refused without saying which half was wrong", async ({
 }) => {
   await ensureInstance(request);
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })
@@ -310,5 +311,5 @@ test("a wrong password is refused without saying which half was wrong", async ({
   await expect(page.getByRole("status")).toContainText(
     "De uppgifterna fungerade inte.",
   );
-  await expect(page).toHaveURL(/\/sign-in$/);
+  await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
 });

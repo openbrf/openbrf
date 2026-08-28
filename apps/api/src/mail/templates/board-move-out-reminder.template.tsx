@@ -1,6 +1,7 @@
 import { Text } from "react-email";
 import type { ReactElement } from "react";
 
+import { APP_BASE_PATH } from "../../http/app-base-path";
 import type { MailTemplate } from "../mail-template";
 import { MAIL_COLORS, MailAction, MailLayout } from "./layout";
 
@@ -58,7 +59,7 @@ export const boardMoveOutReminderMail: MailTemplate<BoardMoveOutReminderMailProp
 
           <MailAction
             context={context}
-            href={`${appUrl}/address-book`}
+            href={`${appUrl}${APP_BASE_PATH}`}
             label={t("email.boardMoveOutReminder.action")}
           />
         </MailLayout>

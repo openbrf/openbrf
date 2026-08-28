@@ -200,7 +200,12 @@ const routeTree = rootRoute.addChildren([
   addressBookRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+/*
+ * Every route below sits under /app: the association's own public website has
+ * the root. The basepath is applied to navigation and to redirects alike, so
+ * the route definitions above are written - and read - as the paths they are.
+ */
+export const router = createRouter({ routeTree, basepath: "/app" });
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -9,7 +9,7 @@ import {
   ensureAccountFor,
   ensureRegisterFixture,
 } from "../src/provision";
-import { repositoryRoot, stack } from "../src/stack";
+import { appPath, repositoryRoot, stack } from "../src/stack";
 import {
   SCREENS,
   type Action,
@@ -238,7 +238,7 @@ async function signIn(
   page: Page,
   account: { email: string; password: string },
 ): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(account.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(account.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();

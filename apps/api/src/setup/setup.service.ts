@@ -5,7 +5,12 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "../i18n/i18n.service";
+import {
+  DEFAULT_LOCALE,
+  I18nService,
+  SUPPORTED_LOCALES,
+} from "../i18n/i18n.service";
+import { PagesService } from "../site/pages.service";
 
 export class SetupError extends DomainError {
   readonly status: number;
@@ -75,6 +80,8 @@ export class SetupService {
     private readonly auth: AuthService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    private readonly pages: PagesService,
+    private readonly i18n: I18nService,
   ) {}
 
   async state(): Promise<SetupState> {
@@ -184,7 +191,12 @@ export class SetupService {
   async complete(actorPersonId: string): Promise<{ completedAt: Date }> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },
-      select: { setupCompletedAt: true },
+      select: {
+        setupCompletedAt: true,
+        name: true,
+        organizationNumber: true,
+        defaultLocale: true,
+      },
     });
 
     if (association === null) {
@@ -203,6 +215,37 @@ export class SetupService {
       where: { id: 1 },
       data: { setupCompletedAt: completedAt },
     });
+
+    /*
+     * The association's public address starts answering here.
+     *
+     * A claimed instance serves its own website at the root, and an instance
+     * with no page at all would answer the address its operator was given with
+     * a not-found. So finishing the wizard writes one page - the cooperative's
+     * name and the facts it is registered under - which the board then edits.
+     *
+     * It writes nothing if any page already exists, so re-running the wizard
+     * from settings cannot produce a second front page or overwrite what has
+     * been written since. The page is not the reason setup succeeds: a failure
+     * to write it must not undo a completion that has already been stamped, so
+     * it is reported rather than thrown.
+     */
+    try {
+      await this.pages.seedDefaultPage(
+        this.i18n.translatorFor(association.defaultLocale),
+        {
+          name: association.name,
+          organizationNumber: association.organizationNumber,
+        },
+      );
+    } catch (cause) {
+      this.logger.error(
+        "Setup finished, but the association's first page could not be " +
+          "written. The public address answers with a not-found until a page " +
+          "is created.",
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
 
     this.logger.log(`Setup completed by person ${actorPersonId}`);
     return { completedAt };

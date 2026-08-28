@@ -9,6 +9,7 @@ import {
   ensureRegisterFixture,
   signInAsAdministrator,
 } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 3.
@@ -49,7 +50,7 @@ async function signInThroughTheScreen(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(email);
   await page.getByLabel("Lösenord", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
@@ -84,7 +85,7 @@ test("a member and a resident on one apartment each activate and sign in", async
       page.getByRole("heading", { name: "Adressbok" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Logga ut" }).click();
-    await expect(page).toHaveURL(/\/sign-in$/);
+    await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
   }
 });
 
@@ -119,7 +120,7 @@ test("a sign-in link arrives by email and signs its recipient in", async ({
 }) => {
   await clearMailbox();
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(EXTERNAL_BOARD_MEMBER.email);
   await page
     .getByRole("button", {

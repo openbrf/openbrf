@@ -163,18 +163,24 @@ locally the application runs from source beside the PostgreSQL that
       with every reveal landing in the audit log. The remaining seven have no
       spec here yet. The statutory register views, the move flows and the import
       are built and carry their own tests, but nothing drives them through a
-      browser against the image; the rest wait on features that are not built
+      browser against the image; the rest wait on features that are not built.
+      Beside the numbered criteria, one spec holds the public website to what it
+      promises its readers: no script runs, no cookie is set, every request the
+      page makes goes to the association's own instance, and a member-only page
+      is indistinguishable from one that does not exist
 
 ### The public website
 
 Decided into v1 on 2026-08-28: the association's own website, replacing the
-separate website vendor many cooperatives pay for today. The storage layer
-underneath it is built; the site itself is not. The site takes the domain root
-and the application moves under `/app`; pages are rendered by the API as plain
-HTML through the theme tokens, and the public ones need no JavaScript, set no
-cookies and make no third-party requests - which also means no cookie banner.
-Search engine optimisation is a non-goal: page titles, and no sitemap or
-metadata machinery.
+separate website vendor many cooperatives pay for today. The foundation is
+built: the site takes the domain root, the application is served under `/app`,
+and a page is rendered by the API as plain HTML through the theme tokens. A
+public page needs no JavaScript, sets no cookies and makes no third-party
+requests - which also means no cookie banner. What is missing is everything an
+association writes with: the page editor, the menu, news and the public forms.
+Until the editor lands, an instance gets the one page the setup wizard writes
+when the cooperative is claimed. Search engine optimisation is a non-goal: page
+titles, and no sitemap or metadata machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
@@ -186,8 +192,16 @@ metadata machinery.
       bytes rather than from the type or the name the request declared, and
       its storage key is generated rather than taken from either. The same
       work unblocks the logo upload above
-- [ ] Server-rendered public pages styled by the theme tokens, with the
-      application moving under `/app`
+- [x] Server-rendered public pages styled by the theme tokens, with the
+      application moved under `/app`. A page is stored as a versioned block
+      list rather than as markup, so the renderer decides what a block becomes
+      and no stored page can carry a script or a third-party address into a
+      later renderer. The stylesheet is assembled from the active theme on the
+      server and inlined, the typefaces are served from the association's own
+      origin, and the content security policy names no script source at all.
+      Member-only pages are readable by anyone signed in and answered to
+      everyone else with the same not-found document, byte for byte, that an
+      address with no page behind it gets
 - [ ] Page editor: rich text with insertable data blocks - news teasers,
       document list, board roster, association facts, FAQ, and the contact
       and issue report forms. Editing pages, menu and news is a capability
@@ -195,9 +209,9 @@ metadata machinery.
       settings stay with an admin
 - [ ] Menu editor: top level plus one dropdown level; pages, generated pages
       and external links
-- [ ] Public and member-only visibility on pages and news in one site menu,
-      gated by sign-in. An anonymous request for a member-only page gets the
-      same 404 as for a page that does not exist
+- [ ] Public and member-only visibility in one site menu, gated by sign-in.
+      Visibility on a page is built and the two answers are already identical
+      byte for byte; news and the menu itself are not
 - [ ] News on the site, member-only by default, with "email this to the
       members" at publish - a toggle, on by default, sent once through the
       job queue in each recipient's language, and never re-sent on edit

@@ -5,6 +5,7 @@ import { registerMultipart } from "./http/multipart";
 import { serveSinglePageApp } from "./http/serve-single-page-app";
 import { bridgeHostResolution } from "./plugins/plugin-resolution";
 import { RestartCoordinator } from "./plugins/restart-coordinator.service";
+import { SITE_HTML_HEADERS, SiteRenderer } from "./site/site-renderer.service";
 
 async function bootstrap(): Promise<void> {
   // Before anything else, because an installed plugin's CommonJS bundle can
@@ -33,7 +34,24 @@ async function bootstrap(): Promise<void> {
 
   // Last, because it claims every GET the API did not answer - including the
   // routes an installed plugin registered through createApplication above.
-  await serveSinglePageApp(app, process.env.OPENBRF_WEB_ROOT);
+  //
+  // The route that claims them answers an address the client does not own with
+  // the association's own not-found page, rendered by the same code the page
+  // routes use. Two renderings would eventually differ, and the difference
+  // would be exactly the signal that tells an anonymous visitor a member-only
+  // page exists.
+  const site = app.get(SiteRenderer);
+  await serveSinglePageApp(
+    app,
+    process.env.OPENBRF_WEB_ROOT,
+    async (request, reply) => {
+      const acceptLanguage = request.headers["accept-language"];
+      const html = await site.notFound(
+        typeof acceptLanguage === "string" ? acceptLanguage : undefined,
+      );
+      void reply.code(404).headers(SITE_HTML_HEADERS).send(html);
+    },
+  );
 
   await app.listen(Number(process.env.PORT ?? 3000), "0.0.0.0");
 }

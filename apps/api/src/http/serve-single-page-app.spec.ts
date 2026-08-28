@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isApiRequest } from "./serve-single-page-app";
+import { isApiRequest, isAppRequest } from "./serve-single-page-app";
 
 /**
  * The wildcard route this decides for is the last thing a request meets, so a
@@ -26,12 +26,48 @@ describe("isApiRequest", () => {
 
   it("leaves the client's own routes to the client", () => {
     expect(isApiRequest("/")).toBe(false);
-    expect(isApiRequest("/settings")).toBe(false);
-    expect(isApiRequest("/settings?panel=email")).toBe(false);
+    expect(isApiRequest("/app")).toBe(false);
+    expect(isApiRequest("/app/settings")).toBe(false);
+    expect(isApiRequest("/app/settings?panel=email")).toBe(false);
   });
 
   it("does not claim a path that merely begins with the same letters", () => {
     expect(isApiRequest("/apiary")).toBe(false);
     expect(isApiRequest("/healthcheck")).toBe(false);
+  });
+});
+
+/**
+ * The other half of the same decision, and the one that decides between the
+ * client and the association's own website.
+ *
+ * The prefix has to match a whole path segment. A cooperative may well publish
+ * a page at /apple or /application-form, and answering either with the client's
+ * index.html would take a published page off its website with no error
+ * anywhere.
+ */
+describe("isAppRequest", () => {
+  it("claims the client's prefix and everything under it", () => {
+    expect(isAppRequest("/app")).toBe(true);
+    expect(isAppRequest("/app/")).toBe(true);
+    expect(isAppRequest("/app/settings")).toBe(true);
+    expect(isAppRequest("/app/activate?token=abc")).toBe(true);
+  });
+
+  it("claims it with a query string or a fragment as well", () => {
+    expect(isAppRequest("/app?x=1")).toBe(true);
+    expect(isAppRequest("/app#top")).toBe(true);
+  });
+
+  it("does not claim a page whose address merely begins the same way", () => {
+    expect(isAppRequest("/apple")).toBe(false);
+    expect(isAppRequest("/application-form")).toBe(false);
+    expect(isAppRequest("/appar")).toBe(false);
+  });
+
+  it("leaves the website's own addresses alone", () => {
+    expect(isAppRequest("/")).toBe(false);
+    expect(isAppRequest("/hem")).toBe(false);
+    expect(isAppRequest("/api/address-book")).toBe(false);
   });
 });

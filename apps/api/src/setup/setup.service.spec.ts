@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
+import { I18nService } from "../i18n/i18n.service";
+import type { PagesService } from "../site/pages.service";
 import { SetupError, SetupService } from "./setup.service";
 
 /**
@@ -28,6 +30,16 @@ const TEST_ENV = {
   OPENBRF_PLUGINS_ENABLED: false,
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
 } as Env;
+
+/**
+ * The real translator, so the seeded page's slug is asserted against the
+ * catalog rather than against a fake that would agree with anything.
+ */
+const i18n = new I18nService();
+
+beforeAll(async () => {
+  await i18n.init();
+});
 
 const ADMINISTRATOR = {
   firstName: "Holger",
@@ -58,6 +70,7 @@ interface Fakes {
   };
   auth: { createAccountForPerson: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
+  pages: { seedDefaultPage: ReturnType<typeof vi.fn> };
 }
 
 /**
@@ -69,10 +82,13 @@ interface Fakes {
 function build(
   options: { accounts?: number; setupCompletedAt?: Date | null } = {},
 ): Fakes {
-  const association =
-    options.setupCompletedAt === undefined
-      ? { setupCompletedAt: null }
-      : { setupCompletedAt: options.setupCompletedAt };
+  const association = {
+    setupCompletedAt:
+      options.setupCompletedAt === undefined ? null : options.setupCompletedAt,
+    name: "Brf Talgoxen",
+    organizationNumber: "769600-1234",
+    defaultLocale: "sv",
+  };
 
   const prisma = {
     user: {
@@ -106,15 +122,20 @@ function build(
     createAccountForPerson: vi.fn().mockResolvedValue({ userId: "user-1" }),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
+  const pages = {
+    seedDefaultPage: vi.fn().mockResolvedValue({ created: true }),
+  };
 
   const service = new SetupService(
     client as unknown as PrismaService,
     auth as unknown as AuthService,
     new FieldEncryptionService(TEST_ENV),
     audit as unknown as AuditLogService,
+    pages as unknown as PagesService,
+    i18n,
   );
 
-  return { service, prisma, auth, audit };
+  return { service, prisma, auth, audit, pages };
 }
 
 describe("setup state", () => {
@@ -336,6 +357,55 @@ describe("completing setup", () => {
 
     await expect(service.complete("person-1")).resolves.toEqual({
       completedAt: first,
+    });
+  });
+
+  it("asks for the association's first page, in the association's language", async () => {
+    const { service, pages } = build();
+
+    await service.complete("person-1");
+
+    expect(pages.seedDefaultPage).toHaveBeenCalledTimes(1);
+    const [translator, association] = pages.seedDefaultPage.mock.calls[0] as [
+      (key: string) => string,
+      { name: string; organizationNumber: string | null },
+    ];
+    expect(association).toEqual({
+      name: "Brf Talgoxen",
+      organizationNumber: "769600-1234",
+    });
+    // The wizard's own language, not a visitor's: the seeded page is what the
+    // association's website says before anyone has edited it.
+    expect(translator("site.seed.slug")).toBe("hem");
+  });
+
+  it("re-completing does not ask for a second page", async () => {
+    // The service is asked once per completion and answers "already written"
+    // itself; what this pins is that a second completion cannot produce a page
+    // the board has to go and delete.
+    const { service, pages } = build({
+      accounts: 1,
+      setupCompletedAt: new Date("2026-08-01T10:00:00Z"),
+    });
+    pages.seedDefaultPage.mockResolvedValue({ created: false });
+
+    await service.complete("person-1");
+
+    expect(pages.seedDefaultPage).toHaveBeenCalledTimes(1);
+    expect(await pages.seedDefaultPage.mock.results[0]?.value).toEqual({
+      created: false,
+    });
+  });
+
+  it("still completes when the first page cannot be written", async () => {
+    // The page is a courtesy; the completion is a state change that has already
+    // been stamped. Undoing it because the courtesy failed would leave the
+    // instance unclaimed with an administrator already in it.
+    const { service, pages } = build();
+    pages.seedDefaultPage.mockRejectedValue(new Error("no database"));
+
+    await expect(service.complete("person-1")).resolves.toMatchObject({
+      completedAt: expect.any(Date) as Date,
     });
   });
 });
