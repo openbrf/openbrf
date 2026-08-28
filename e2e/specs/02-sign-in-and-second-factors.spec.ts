@@ -91,14 +91,15 @@ async function waitForFreshStep(parameters: TotpParameters): Promise<void> {
  * test still fails, but it fails with whatever broke first rather than with the
  * tidy-up that followed.
  *
- * `passkeyEnrolled` says whether this run put a key on the account, which is
- * what tells a cleanup with nothing to remove from one that has stopped finding
- * what it removes.
+ * `passkeyEnrolled` and `authenticatorOn` say what this run actually left on
+ * the account, which is what tells a cleanup with nothing to remove from one
+ * that has stopped finding what it removes.
  */
 async function removeSecondFactors(
   page: Page,
   totp: TotpParameters | undefined,
   passkeyEnrolled: boolean,
+  authenticatorOn: boolean,
 ): Promise<void> {
   try {
     await page.goto("/settings");
@@ -137,7 +138,16 @@ async function removeSecondFactors(
     }
     await expect(security).toBeVisible();
 
+    // The security screen fills in from a request, and isVisible() does not
+    // retry: read before that answer arrives it reports no authenticator app
+    // on an account that has one, the branch below is skipped, and the app is
+    // left on for every spec that signs in as this account afterwards - which
+    // is a failure five specs later rather than here. When this run switched
+    // it on, wait for the control before deciding.
     const switchOff = page.getByRole("button", { name: "Slå av" });
+    if (authenticatorOn) {
+      await expect(switchOff).toBeVisible();
+    }
     if (await switchOff.isVisible()) {
       await page.getByLabel("Ditt lösenord").fill(ADMINISTRATOR.password);
       await switchOff.click();
@@ -200,6 +210,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
   // so it knows whether there is a key on the account to take off again.
   let totp: TotpParameters | undefined;
   let passkeyEnrolled = false;
+  let authenticatorOn = false;
 
   try {
     // --- password -----------------------------------------------------------
@@ -242,6 +253,10 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     await page.getByLabel("Kod från appen").fill(totpCode(totp));
     await page.getByRole("button", { name: "Bekräfta koden" }).click();
     await expect(page.getByText("Autentiseringsappen är på.")).toBeVisible();
+    // Recorded here rather than where the URI was read: from this line on the
+    // account demands a code, and the cleanup has to be certain of that rather
+    // than infer it from having got far enough to parse the enrolment.
+    authenticatorOn = true;
 
     await signOut(page);
 
@@ -275,7 +290,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     // The criterion is proved above, and what it left behind is a credential
     // and a switched-on authenticator app on the account the specs after this
     // one sign in as. Both come off whether the assertions passed or not.
-    await removeSecondFactors(page, totp, passkeyEnrolled);
+    await removeSecondFactors(page, totp, passkeyEnrolled, authenticatorOn);
   }
 });
 
