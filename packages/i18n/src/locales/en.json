@@ -211,6 +211,12 @@
       "history": "Earlier residents",
       "noHistory": "No earlier residents",
       "registerNotice": "Liens and initial share capital are apartment register content, which is a separate confidential document."
+    },
+    "noValue": {
+      "apartment": "No apartment",
+      "movedIn": "No move-in date recorded",
+      "movedOut": "Has not moved out",
+      "value": "Not recorded"
     }
   },
   "person": {
@@ -404,7 +410,7 @@
         "light": "Logo",
         "lightHint": "Used in the room, in the emails the housing cooperative sends, and on its own website.",
         "dark": "Logo for dark backgrounds",
-        "darkHint": "Optional. The top band is dark, so a mark drawn in dark ink disappears on it. Without this variant the band puts the mark above on a light plate instead.",
+        "darkHint": "Optional. The top band is dark, so a mark drawn in dark ink disappears on it. Without this variant the band puts the mark on a light plate instead.",
         "none": "No logo uploaded yet.",
         "onLight": "On a light surface",
         "onDarkBand": "In the dark band",
@@ -768,6 +774,357 @@
       "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page."
+    }
+  },
+  "registers": {
+    "nav": {
+      "memberRegister": "Member register",
+      "apartmentRegister": "Apartment register",
+      "ownApartmentRegister": "My apartment register entry"
+    },
+    "common": {
+      "print": "Print",
+      "printHint": "Prints as a document. The navigation and the buttons are left out of the page.",
+      "loading": "Loading the register",
+      "error": "The register could not be read just now.",
+      "retry": "Try again",
+      "organizationNumber": "Organisation number",
+      "notRecorded": "Not recorded",
+      "back": "Back to the address book",
+      "separateRegisters": "The member register and the apartment register are two separate documents under two different rules. They are never shown on one screen."
+    },
+    "member": {
+      "heading": "Member register",
+      "description": "The statutory register of members, EFL 5 kap. via BRL 9 kap. It is public on request, and it never contains a personal identity number.",
+      "scope": {
+        "label": "Show",
+        "current": "Current members",
+        "all": "Including former members"
+      },
+      "scopeName": {
+        "current": "current members",
+        "all": "current and former members"
+      },
+      "column": {
+        "name": "Name",
+        "postalAddress": "Postal address",
+        "apartment": "Apartment",
+        "enteredOn": "Member since",
+        "exitedOn": "Membership ended"
+      },
+      "stamp": "Extract from the member register - {{scope}} - {{date}}",
+      "count": "Entries",
+      "maskedAddress": "Protected, not printed",
+      "alternativeAddress": "Alternative address",
+      "noIdentityNumbers": "This extract carries no personal identity numbers. The register is public on request, so it may never contain one.",
+      "empty": {
+        "title": "No memberships recorded",
+        "description": "Memberships are recorded when someone moves in as a member, and by the import. Nothing has been recorded yet."
+      },
+      "noValue": {
+        "postalAddress": "No postal address recorded",
+        "apartments": "No apartment recorded",
+        "enteredOn": "No date of entry recorded",
+        "exitedOn": "The membership has not ended"
+      }
+    },
+    "apartment": {
+      "heading": "Apartment register",
+      "description": "The statutory register of apartments, BRL 9 kap. It is confidential: the board reads it, and each tenant-owner reads their own entry.",
+      "ownHeading": "Your entry in the apartment register",
+      "ownDescription": "What the cooperative records for the apartment you hold. Nobody else's entry is reachable from here.",
+      "column": {
+        "designation": "Apartment",
+        "holder": "Holder",
+        "heldFrom": "Held from",
+        "heldUntil": "Held until",
+        "personalIdentityNumber": "Personal identity number",
+        "initialShareCapital": "Initial share capital",
+        "participationShare": "Participation share"
+      },
+      "stamp": "Extract from the apartment register - {{scope}} - {{date}}",
+      "scopeAll": "all apartments",
+      "protectedHolder": "Protected personal data",
+      "noHolders": "No holder recorded",
+      "identity": {
+        "masked": "Masked",
+        "notOnFile": "Not on file",
+        "notice": "The extract is produced without personal identity numbers. That does not make it public: the holders, the initial share capital, the participation share, the lien notes and the transfers are on this screen, and the apartment register is confidential. The full statutory extract carries the numbers as well, and every copy is written to the audit log with your name.",
+        "include": "Produce the full statutory extract",
+        "including": "Producing",
+        "included": "This copy contains personal identity numbers. Producing it was written to the audit log.",
+        "hide": "Hide them again",
+        "failed": "The full extract could not be produced."
+      },
+      "liens": {
+        "heading": "Liens",
+        "creditor": "Creditor",
+        "notedOn": "Noted",
+        "releasedOn": "Released",
+        "amount": "Amount",
+        "none": "No liens noted",
+        "add": "Note a lien",
+        "adding": "Noting",
+        "cancel": "Cancel",
+        "submit": "Note the lien",
+        "release": "Release",
+        "releaseLabel": "Release the lien from {{creditor}}",
+        "releasing": "Releasing",
+        "failed": "The lien could not be recorded. Check the creditor and the date."
+      },
+      "transfers": {
+        "heading": "Transfers",
+        "transferredOn": "Date",
+        "from": "From",
+        "to": "To",
+        "parties": "{{from}} → {{to}}",
+        "price": "Price",
+        "agreement": "Agreement",
+        "noAgreement": "No agreement reference recorded",
+        "firstGrant": "First grant",
+        "none": "No transfers recorded"
+      },
+      "empty": {
+        "title": "No apartments",
+        "description": "Add the addresses and their apartments in settings, and they appear here."
+      },
+      "ownEmpty": "You do not hold a tenant-ownership, so the apartment register has no entry for you. Ask the board if you believe that is wrong.",
+      "noValue": {
+        "heldUntil": "Still held"
+      }
+    }
+  },
+  "moves": {
+    "cancel": "Cancel",
+    "in": {
+      "heading": "Move in",
+      "description": "Places a person in an apartment. A tenant-ownership also writes the entry in the statutory member register, which cannot be edited or deleted afterwards.",
+      "person": "Person",
+      "personPlaceholder": "Search by name",
+      "personHint": "Only people already in the register can be moved in. Add them first if they are missing.",
+      "noPersonMatch": "Nobody matches that name.",
+      "personSearchFailed": "The register could not be searched just now. Try again.",
+      "apartment": "Apartment",
+      "role": "Role",
+      "roleMember": "Member - holds the tenant-ownership",
+      "roleResident": "Resident - lives here without holding it",
+      "movedInOn": "Move-in date",
+      "submit": "Move in",
+      "working": "Moving in",
+      "done": "{{name}} is registered at apartment {{apartment}}.",
+      "registerEntry": "An entry was written in the member register.",
+      "welcomeSent": "A welcome email was sent, in the recipient's own language.",
+      "welcomeSkipped": "No welcome email was sent: this person has no email address on file."
+    },
+    "out": {
+      "heading": "Move out",
+      "description": "Ends a residency. When it is the person's last tenant-ownership, the membership is closed in the statutory member register.",
+      "residency": "Residency",
+      "movedOutOn": "Move-out date",
+      "submit": "Move out",
+      "working": "Moving out",
+      "action": "Move out",
+      "actionLabel": "Move out of apartment {{apartment}}",
+      "done": "The move-out from apartment {{apartment}} is registered.",
+      "purgeOn": "Service data is purged on {{date}}.",
+      "registerExit": "The membership was closed in the member register.",
+      "registerKept": "The member register entry itself is retained as the law requires. No retention setting reaches it.",
+      "boardReminder": "The board is reminded on {{date}} to finish the handover."
+    },
+    "transfer": {
+      "record": "Record a transfer",
+      "hint": "For a sale: the date of the agreement, the other party, and a reference to where the agreement is filed.",
+      "transferredOn": "Agreement date",
+      "fromPerson": "Previous holder",
+      "fromPersonNone": "First grant - no previous holder",
+      "toPerson": "New holder",
+      "price": "Price",
+      "agreementReference": "Agreement reference",
+      "agreementReferenceHint": "Required: a case number, or where the paper copy is filed. It is printed in the apartment register extract, which states one for every transfer.",
+      "recorded": "The transfer was recorded in the apartment register.",
+      "changePerson": "Choose somebody else"
+    },
+    "errors": {
+      "personNotFound": "That person is no longer in the register. Reload the page.",
+      "apartmentNotFound": "That apartment is no longer there. Reload the page.",
+      "residencyNotFound": "That residency is no longer there. Reload the page.",
+      "alreadyResident": "This person already has a residency on that apartment.",
+      "alreadyMovedOut": "That residency already has a move-out date.",
+      "movedOutBeforeMovedIn": "A move-out cannot be earlier than the move-in.",
+      "transferPersonNotFound": "The other party to the transfer is not in the register. Add them first.",
+      "transferPersonRequired": "Choose the new holder, or turn off recording a transfer.",
+      "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every transfer, and a transfer cannot be removed once recorded.",
+      "unknown": "That could not be saved just now. Please try again."
+    }
+  },
+  "import": {
+    "heading": "Import a member list",
+    "description": "Loads an existing member list once: a file, a mapping you confirm, a preview you approve, and then the register is written.",
+    "open": "Import list",
+    "step": {
+      "upload": "File",
+      "mapping": "Columns",
+      "preview": "Preview",
+      "apply": "Import"
+    },
+    "upload": {
+      "title": "The file",
+      "description": "A CSV file or an Excel workbook. Only the first sheet of a workbook is read.",
+      "file": "Choose a file",
+      "accept": "CSV or Excel (.csv, .xlsx), at most 512 kB.",
+      "submit": "Read the file",
+      "working": "Reading",
+      "template": "Download a template",
+      "templateHint": "A file with the column titles already filled in, in your own language."
+    },
+    "mapping": {
+      "title": "The columns",
+      "description": "Each column of your file goes to one field of the register, or to none. The guess below comes from the column titles; check it before continuing.",
+      "fileSummary": "{{fileName}}: {{rows}} rows, {{columns}} columns",
+      "column": "Column in the file",
+      "field": "Register field",
+      "fieldFor": "Register field for {{column}}",
+      "sample": "First values",
+      "ignore": "Do not import",
+      "defaults": "For every row",
+      "defaultRole": "Role",
+      "defaultRoleHint": "Needed because your file has no role column. Nothing guesses this: a member also gets an entry in the statutory register.",
+      "defaultMovedInOn": "Move-in date",
+      "defaultMovedInOnHint": "Needed because your file has no move-in column. It is also the membership date in the member register.",
+      "submit": "Preview the import",
+      "working": "Working out what would happen",
+      "back": "Choose another file"
+    },
+    "field": {
+      "addressLabel": "Address",
+      "apartmentNumber": "Apartment number",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "fullName": "Name, first and last together",
+      "role": "Role",
+      "email": "Email address",
+      "phone": "Phone number",
+      "personalIdentityNumber": "Personal identity number",
+      "postalStreet": "Postal address",
+      "postalCode": "Postal code",
+      "postalCity": "City",
+      "movedInOn": "Move-in date",
+      "movedOutOn": "Move-out date"
+    },
+    "preview": {
+      "title": "What this would do",
+      "description": "Nothing has been written yet. An update fills in what the register does not have; it never overwrites a value the register already holds.",
+      "row": "Row",
+      "outcome": "Outcome",
+      "name": "Name",
+      "apartment": "Apartment",
+      "role": "Role",
+      "matchedBy": "Matched on",
+      "problems": "Problem",
+      "identityNumberOnFile": "The file has a personal identity number for this row.",
+      "decision": "This row is",
+      "decisionCreate": "A new person",
+      "decisionSkip": "Not imported",
+      "undecided": "Some rows match more than one person. Choose which one each is before applying.",
+      "apply": "Apply the import",
+      "applying": "Importing",
+      "back": "Change the mapping",
+      "noValue": {
+        "apartment": "No apartment matched",
+        "problems": "No problems"
+      }
+    },
+    "outcome": {
+      "create": "New",
+      "update": "Update",
+      "ambiguous": "Needs a decision",
+      "error": "Not imported"
+    },
+    "matchedBy": {
+      "personalIdentityNumber": "Personal identity number",
+      "email": "Email address",
+      "apartmentAndName": "Apartment and name",
+      "earlierRow": "An earlier row of this file"
+    },
+    "problem": {
+      "name-missing": "The row has no name.",
+      "name-not-splittable": "That name cannot be read as a first and a last name.",
+      "apartment-missing": "The row has no apartment number.",
+      "apartment-not-found": "No apartment in the register matches that address and number.",
+      "apartment-ambiguous": "That apartment number exists at more than one address. Map an address column.",
+      "role-missing": "The row has no role and no role was chosen for the file.",
+      "role-unrecognised": "That role is not \"member\" or \"resident\".",
+      "moved-in-missing": "The row has no move-in date and none was chosen for the file.",
+      "date-not-iso": "Dates have to be written as YYYY-MM-DD.",
+      "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
+      "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
+      "invalid-email": "That is not an email address the register can store.",
+      "unknown": "The row could not be read."
+    },
+    "mappingProblem": {
+      "name-column-missing": "Map a name column: either one name column, or a first name and a last name.",
+      "apartment-column-missing": "Map the apartment number column.",
+      "role-missing": "Map a role column, or choose the role for every row.",
+      "moved-in-missing": "Map a move-in date column, or choose the date for every row.",
+      "duplicate-field": "Two columns are mapped to the same field.",
+      "mapping-length-mismatch": "The mapping does not match the file. Upload it again.",
+      "unknown": "The mapping cannot be applied."
+    },
+    "run": {
+      "title": "The import is running",
+      "stopped": "The import stopped",
+      "file": "From {{fileName}}",
+      "progress": "{{done}} of {{total}} rows",
+      "progressLabel": "How much of the file has been imported",
+      "queued": "Waiting to start",
+      "applying": "Writing the register",
+      "applied": "Finished",
+      "failed": "Stopped",
+      "keepsGoing": "The import carries on if you close this page. Come back here to see how it went.",
+      "another": "Import another list"
+    },
+    "result": {
+      "title": "The import is done",
+      "personsCreated": "People added",
+      "personsUpdated": "People updated",
+      "residenciesCreated": "Residencies created",
+      "memberRegisterEntriesCreated": "Member register entries written",
+      "skipped": "Rows skipped",
+      "errors": "Rows with a problem",
+      "registerNotice": "The member register entries are part of the statutory archive and cannot be edited or deleted. A mistake is corrected by a new entry.",
+      "toAddressBook": "Open the address book"
+    },
+    "errors": {
+      "fileEmpty": "That file has no rows below its column titles.",
+      "fileTooLarge": "That file is larger than 512 kB.",
+      "fileUnreadable": "That file could not be read as a spreadsheet.",
+      "tooManyRows": "That file has more rows than one import can take.",
+      "mappingInvalid": "The mapping cannot be applied yet.",
+      "previewRequired": "Preview the import before you run it.",
+      "sessionNotFound": "That upload is no longer there. Upload the file again.",
+      "sessionExpired": "That upload has expired. Upload the file again.",
+      "sessionAlreadyApplied": "An import has already been started for that upload.",
+      "ambiguousRowsUndecided": "Some rows still match more than one person.",
+      "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
+      "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
+      "unknown": "The import did not work just now. Please try again."
+    },
+    "template": {
+      "column": {
+        "addressLabel": "Address",
+        "apartmentNumber": "Apartment number",
+        "firstName": "First name",
+        "lastName": "Last name",
+        "role": "Role",
+        "email": "Email address",
+        "phone": "Phone number",
+        "personalIdentityNumber": "Personal identity number",
+        "postalStreet": "Postal address",
+        "postalCode": "Postal code",
+        "postalCity": "City",
+        "movedInOn": "Moved in on",
+        "movedOutOn": "Moved out on"
+      }
     }
   }
 }

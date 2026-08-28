@@ -32,9 +32,17 @@ afterAll(async () => {
 
 describe("demo data", () => {
   it("produces the counts the design canvas shows", async () => {
+    // Scoped to the seeded ids, as the person count already is. Suites that
+    // write to the statutory archive leave their fixture addresses behind:
+    // the member register entry naming an apartment cannot be deleted, and the
+    // apartment and its address cannot be deleted while it names them. That is
+    // the register working as designed, so the assertion counts the demo data
+    // rather than the database.
     const [addresses, apartments, persons] = await Promise.all([
-      prisma.address.count(),
-      prisma.apartment.count(),
+      prisma.address.count({ where: { id: { startsWith: "seed-address-" } } }),
+      prisma.apartment.count({
+        where: { address: { id: { startsWith: "seed-address-" } } },
+      }),
       prisma.person.count({ where: { id: { startsWith: "seed-person-" } } }),
     ]);
 

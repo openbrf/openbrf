@@ -16,11 +16,15 @@ Statutes referenced below:
 | bostadsrättsförening (BRF) | housing cooperative; keep **BRF** as abbreviation | The association itself. "BRF" is established and used as-is in names and prose. |
 | bostadsrättsregister | cooperative housing register | The state register of cooperative apartments kept by Lantmäteriet (Lag (2026:484) om bostadsrättsregister, 3 kap.). The cooperative reports grant, transfer and termination, each within two weeks, though the transfer window runs from the membership decision and the statute assigns the report to a juridical person in defined cases; liens are reported by the lienholder, not the cooperative. |
 | dataskyddsförordningen | GDPR | Keep "GDPR". |
+| debitering | **charge** | A one-off cost put on a named member or apartment: a key to the bike room, a replacement tag, a subletting fee, a repair charged on. Open BRF records the basis for the charge - amount, date, reason, VAT treatment - and never the payment; the ledger belongs to the accounting system. |
+| debiteringslängd | **debiting list** | In Open BRF: the export of charge basis per member or apartment, handed to whoever keeps the association's books as CSV or PDF. The statutory debiteringslängd of a joint facility association (samfällighetsförening) is a separate artifact governed by Lag (1973:1150) om förvaltning av samfälligheter, 42 §, which requires it to state the amount assessed, what falls on each member and when payment is due. |
+| ekonomisk förvaltare | **economic manager** | The external bookkeeping and fee-invoicing service many associations buy (SBC, Nabo, Fastum and the like). Distinct from *property manager* (förvaltare/vicevärd), who handles the building and issues; an economic manager receives exports and has no account in Open BRF. |
 | felanmälan | **issue report** | Resident-reported maintenance issue; the module is "issues". |
 | föreningsstämma / stämma | **general meeting** | Annual or extraordinary meeting of members. Postal voting is prohibited in a BRF (BRL 9 kap. 14 §) and is never built. |
 | förvaltare / vicevärd | **property manager** | External role with access to issue handling only, never the address book. |
 | gallring | purging | GDPR retention deletion in the service tier; the statutory archive tier is exempt (7-year lock). |
 | granskningslogg | **audit log** | The append-only record of accesses and changes (AuditLogEntry). Never "access log": the record covers changes as well as reads, and the retention screen has to say which record a retention policy cannot reach. |
+| inflyttning / utflyttning | **move-in** / **move-out** | The flow that starts or ends a residency. A move-in as a member writes the member register entry; a move-out writes the exit entry when the person's last tenant-ownership ends. |
 | insats | initial share capital | The original capital contribution tied to an apartment. |
 | lägenhetsförteckning | **apartment register** | Statutory register of apartments incl. liens and share capital (BRL 9 kap.). Confidential - only the tenant-owner may see their own entry. Never blended with the member register. |
 | lägenhetsnummer | apartment number | Lantmäteriet numbering (e.g. 1101). Always rendered in the mono grid. |
@@ -30,7 +34,6 @@ Statutes referenced below:
 | medlemsförteckning | **member register** | Statutory register of members. BRL 9 kap. 8 § requires it and 9 § fixes its contents and its availability to anyone who asks; EFL 5 kap. 6-7 §§ apply through BRL 9 kap. 9 b §. Must never be blended with the apartment register in UI or data model. |
 | motion | motion | Member proposal to the general meeting. |
 | ordförande | chair | Board chair - a position of trust (brass in the design system). |
-| överlåtelse | transfer | Sale/transfer of a bostadsrätt between holders. |
 | pantsättning / pantnotering | **lien** / lien note | Recorded in the apartment register; confidential. |
 | personnummer | personal identity number | Swedish national ID. Only where legally justified; never in public views. |
 | publiceringssamtycke | **publication consent** | A person's recorded consent to appear on a page the association publishes. No personal data reaches a public page without one, and protected personal data never reaches one at all. An image upload therefore declares whether it shows identifiable persons: that declaration is what ties a photograph to this consent. |
@@ -46,9 +49,15 @@ Statutes referenced below:
 | upphörande | termination | A bostadsrätt ceasing to exist. A register event in its own right, distinct from a transfer to a new holder; reported by the cooperative (Lag (2026:484), 3 kap.). |
 | upplåtelse | grant | The act of first granting a bostadsrätt to a holder; reported by the cooperative (Lag (2026:484), 3 kap.). The contract that does so is the upplåtelseavtal (grant agreement). |
 | upplåtelseavtal | grant agreement | The contract first granting a bostadsrätt. |
+| utdrag ur förteckning | **register extract** | A copy of a statutory register, produced on request. The member register extract is public; the apartment register extract goes to the board and to the tenant-owner it concerns. Distinct from the GDPR registerutdrag, which is a data subject access report. |
 | utflyttad | moved out | Register state with dashed outline + purge date in the UI. |
 | årsavgift / månadsavgift | annual fee / monthly fee | The fee the tenant-owner pays the association. |
+| överlåtelse | transfer | Sale/transfer of a bostadsrätt between holders. |
+| överlåtelseavtal | **transfer agreement** | The contract transferring a bostadsrätt, as the upplåtelseavtal (grant agreement) is the one that first grants it. |
+| överlåtelseavtalets referens | **agreement reference** | What the apartment register records to identify a transfer's transfer agreement: the board's own reference - a case number, or where the paper copy is filed - or the path of an uploaded copy. Every transfer states one, because the register extract lists it and a transfer cannot be removed once written. Never "contract number": the reference need not be a number and need not come from the contract. |
 
 ## Adding terms
 
 Add the term in the same PR that introduces it in code, keep the table alphabetized by the Swedish column, and cite the statute at chapter level (only cite an exact section when verified against the current text at [riksdagen.se](https://www.riksdagen.se)).
+
+Alphabetized in the Swedish alphabet, where å, ä and ö are letters in their own right and sort after z rather than as variants of a and o. `årsavgift` therefore follows `utflyttad`, and the `överlåtelse` rows come last.

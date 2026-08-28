@@ -1,20 +1,29 @@
 /**
- * Naming a failure in the log without repeating what it said.
+ * Naming a failure in the log without repeating what it carried.
  *
  * An exception message is composed where it is thrown, out of whatever the
- * code was handling at that moment. On this platform that is a resident's
- * address, an email, a personal identity number: protected personal data is
- * masked server-side and every reveal is written to the audit log in the same
- * transaction as the read, so a copy of it in an unstructured container log is
- * a disclosure to everyone with log access and a retention breach at once. The
- * log is outside both controls by construction, which is why the message never
- * reaches it.
+ * code was handling at that moment, and three parts of this application throw
+ * over exactly that kind of thing. A mail server's rejection quotes the
+ * envelope it rejected, and that envelope holds an address decrypted a few
+ * lines earlier. A constraint violation names the value that broke it. A
+ * plugin composes its own message, and one reading the register through its
+ * consented host services can be holding a resident's details when it does.
  *
- * What is left is still enough to diagnose with, and that matters as much:
- * "log nothing" turns a plugin that will not load into a plugin that cannot be
- * fixed. The class of the failure, the identifier the runtime gave it and the
- * call frames are all chosen when code is written rather than composed from
- * what it is processing, and that is the distinction this file draws.
+ * None of it belongs in an application log. Protected personal data is masked
+ * server-side and every reveal is written to the audit log in the same
+ * transaction as the read; a container log is outside both by construction,
+ * and is read by more people and kept longer than the data it would be
+ * repeating.
+ *
+ * What travels instead is the class of the failure - a transport error, a
+ * database error, a type error - which says which layer gave way and nothing
+ * about whom it happened to, together with the identifier the runtime assigned
+ * it and, where the caller has one, its own: a residency, a board member, an
+ * import session, a plugin id. That is enough to find the row and run the call
+ * again, which matters as much as the silence does - "log nothing" turns a
+ * plugin that will not load into one that cannot be fixed. All of it is chosen
+ * when code is written rather than composed from what is being processed, and
+ * that is the distinction this file draws.
  */
 
 /**
@@ -35,6 +44,13 @@ const MAX_FRAMES = 20;
  * `ERR_MODULE_NOT_FOUND`, `ENOENT` - assigned by the runtime or written into a
  * class declaration, not interpolated from a value the way a message is. That
  * is what makes them safe to log where the message is not.
+ *
+ * The code is worth the second field. It is the whole difference between a
+ * unique constraint and a foreign key on a database failure (`P2002` against
+ * `P2003`), between a refused connection and a rejected envelope on a mail
+ * one, and between a missing dependency and a bundle built the wrong way on a
+ * plugin that will not load - and it names none of the values involved in any
+ * of them.
  *
  * Both are still strings the throwing code owns, so both are reduced to a
  * bounded, single-line token. That is not a claim that nothing can be smuggled

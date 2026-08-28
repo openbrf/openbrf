@@ -92,8 +92,8 @@ export interface BrandingSettings {
   logo: LogoView | null;
   /**
    * The variant for dark surfaces. Optional: when it is absent the interface
-   * renders the mark above on a light plate in the dark band, rather than
-   * letting a dark-ink mark disappear into it.
+   * renders the mark on a light plate in the dark band, rather than letting a
+   * dark-ink mark disappear into it.
    */
   logoDark: LogoView | null;
 }

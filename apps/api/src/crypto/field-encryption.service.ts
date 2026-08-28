@@ -30,7 +30,8 @@ export type EncryptedFieldId =
   | "person.phone"
   | "person.personalIdentityNumber"
   | "signupRequest.email"
-  | "association.smtpPassword";
+  | "association.smtpPassword"
+  | "importSession.rows";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
 type Normalizer = (value: string) => string | null;
@@ -94,6 +95,16 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   "association.smtpPassword": {
     table: "association",
     field: "smtpPassword",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  // An uploaded member list, held between the mapping and apply steps of an
+  // import. Not indexed: nothing searches an upload, and the value is a whole
+  // file rather than one person's field.
+  "importSession.rows": {
+    table: "import_session",
+    field: "rows",
     indexed: false,
     fastHash: true,
     normalize: () => null,

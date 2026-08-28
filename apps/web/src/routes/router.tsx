@@ -9,6 +9,9 @@ import {
 import { fetchSetupState } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AddressBookRoute } from "./AddressBookRoute";
+import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
+import { ImportRoute } from "./ImportRoute";
+import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
 import { SettingsRoute } from "./SettingsRoute";
@@ -84,14 +87,17 @@ const setupRoute = createRoute({
   component: SetupRoute,
 });
 
+/** Sends anyone without a session to sign in, before the screen renders. */
+async function requireSession(): Promise<void> {
+  if (!(await hasSession())) {
+    throw redirect({ to: "/sign-in" });
+  }
+}
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  beforeLoad: async () => {
-    if (!(await hasSession())) {
-      throw redirect({ to: "/sign-in" });
-    }
-  },
+  beforeLoad: requireSession,
   component: SettingsRoute,
 });
 
@@ -134,11 +140,7 @@ const pluginViewRoute = createRoute({
 const themesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/themes",
-  beforeLoad: async () => {
-    if (!(await hasSession())) {
-      throw redirect({ to: "/sign-in" });
-    }
-  },
+  beforeLoad: requireSession,
   component: ThemesRoute,
 });
 
@@ -155,6 +157,36 @@ const addressBookRoute = createRoute({
   component: AddressBookRoute,
 });
 
+/**
+ * The two statutory registers, on two routes.
+ *
+ * Separate paths rather than one screen with a parameter: the member register
+ * is public on request and the apartment register is confidential, and a single
+ * route serving both would be one wrong value away from handing out the wrong
+ * one. Access is the API's decision - both routes only require a session, and
+ * the endpoints behind them refuse what the viewer is not entitled to.
+ */
+const memberRegisterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/registers/members",
+  beforeLoad: requireSession,
+  component: MemberRegisterRoute,
+});
+
+const apartmentRegisterRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/registers/apartments",
+  beforeLoad: requireSession,
+  component: ApartmentRegisterRoute,
+});
+
+const importRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/import",
+  beforeLoad: requireSession,
+  component: ImportRoute,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   setupRoute,
@@ -162,6 +194,9 @@ const routeTree = rootRoute.addChildren([
   pluginsRoute,
   pluginViewRoute,
   themesRoute,
+  memberRegisterRoute,
+  apartmentRegisterRoute,
+  importRoute,
   addressBookRoute,
 ]);
 

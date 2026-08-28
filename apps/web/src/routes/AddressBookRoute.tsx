@@ -1,9 +1,11 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import { authClient, useSession } from "../auth/auth-client";
+import { MoveInPanel } from "../moves/MoveInPanel";
+import { MoveOutPanel, type MoveOutTarget } from "../moves/MoveOutPanel";
 import { AddPersonPanel } from "../register/AddPersonPanel";
 import { ApartmentPanel } from "../register/ApartmentPanel";
 import { Board } from "../register/Board";
@@ -17,13 +19,16 @@ import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
+import { SECONDARY_BUTTON } from "../ui/controls";
 
 /** Which panel, if any, sits beside the board. */
 type OpenPanel =
   | { kind: "none" }
   | { kind: "person"; personId: string }
   | { kind: "apartment"; apartmentId: string }
-  | { kind: "addPerson" };
+  | { kind: "addPerson" }
+  | { kind: "moveIn" }
+  | { kind: "moveOut"; target: MoveOutTarget };
 
 /**
  * The address book.
@@ -200,19 +205,50 @@ export function AddressBookRoute(): ReactElement {
             )}
           </div>
 
+          {/*
+           * The statutory registers are reached from here rather than from the
+           * navigation band: they are documents produced out of the address
+           * book, and each has its own screen because the two may never be
+           * blended. The links are offered to everyone signed in - a
+           * tenant-owner is entitled to their own apartment register entry, and
+           * the API decides what each of them receives.
+           */}
           <div className="flex flex-wrap items-center gap-3">
             {view.state === "board" ? (
-              <button
-                type="button"
-                onClick={() => {
-                  rememberOpener();
-                  setPanel({ kind: "addPerson" });
-                }}
-                className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
-              >
-                {t("register.actions.addPerson")}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    rememberOpener();
+                    setPanel({ kind: "addPerson" });
+                  }}
+                  className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
+                >
+                  {t("register.actions.addPerson")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    rememberOpener();
+                    setPanel({ kind: "moveIn" });
+                  }}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("moves.in.heading")}
+                </button>
+                <Link to="/import" className={SECONDARY_BUTTON}>
+                  {t("import.open")}
+                </Link>
+                <Link to="/registers/members" className={SECONDARY_BUTTON}>
+                  {t("registers.nav.memberRegister")}
+                </Link>
+              </>
             ) : null}
+            <Link to="/registers/apartments" className={SECONDARY_BUTTON}>
+              {view.state === "board"
+                ? t("registers.nav.apartmentRegister")
+                : t("registers.nav.ownApartmentRegister")}
+            </Link>
             <ThemeModeToggle />
           </div>
         </div>
@@ -291,6 +327,22 @@ export function AddressBookRoute(): ReactElement {
               personId={panel.personId}
               onClose={closePanel}
               onChanged={reload}
+              onMoveOut={(target) => {
+                setPanel({ kind: "moveOut", target });
+              }}
+            />
+          ) : null}
+
+          {panel.kind === "moveIn" ? (
+            <MoveInPanel onClose={closePanel} onMoved={reload} />
+          ) : null}
+
+          {panel.kind === "moveOut" ? (
+            <MoveOutPanel
+              key={panel.target.residencyId}
+              target={panel.target}
+              onClose={closePanel}
+              onMoved={reload}
             />
           ) : null}
 

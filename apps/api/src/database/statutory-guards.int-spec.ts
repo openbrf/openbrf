@@ -84,6 +84,9 @@ beforeAll(async () => {
       apartmentId: APARTMENT_ID,
       toPersonId: PERSON_ID,
       transferredOn: new Date("2019-06-01"),
+      // Required by transfer_agreement_reference_present: the apartment
+      // register extract states a reference for every transfer it lists.
+      agreementReference: `Upplatelseavtal ${TRANSFER_ID}`,
     },
   });
   await prisma.lienNote.create({
