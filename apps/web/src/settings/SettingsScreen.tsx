@@ -16,6 +16,7 @@ import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { SelfSignupPanel } from "./SelfSignupPanel";
 import { SmtpPanel } from "./SmtpPanel";
+import { ThemesPanel } from "../themes/ThemesPanel";
 
 export interface SettingsScreenProps {
   viewer: Viewer;
@@ -212,6 +213,10 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
                 enabled={settings.selfSignup.enabled}
                 editable={canManage}
               />
+
+              {/* Installing and switching themes is an administrator's job,
+                  and the API refuses the calls for anyone else. */}
+              {canManage ? <ThemesPanel /> : null}
             </>
           )}
         </>

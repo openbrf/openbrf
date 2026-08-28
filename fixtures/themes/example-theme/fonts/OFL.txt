@@ -1,0 +1,8 @@
+Spline Sans Mono is licensed under the SIL Open Font License, Version 1.1.
+
+Copyright 2021 The Spline Sans Mono Project Authors
+(https://github.com/SorkinType/SplineSansMono)
+
+The full licence text is published at https://openfontlicense.org and ships
+with the upstream font release. A theme bundles its font files and declares
+this licence in theme.json; the install lint refuses a theme that does neither.

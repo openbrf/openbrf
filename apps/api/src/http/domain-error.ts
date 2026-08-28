@@ -17,6 +17,23 @@ export abstract class DomainError extends Error {
   abstract readonly status: number;
   abstract readonly reason: string;
 
+  /**
+   * The particulars this failure publishes, keyed by the field they travel in.
+   *
+   * Opt-in, and declared by the error that owns them. A refusal that names none
+   * is often not actionable - "this theme was refused" without the contrast
+   * pairs that failed leaves the person looking at the screen no way to fix it
+   * - but which fields are safe to send is a decision for the rule that
+   * produced the failure, not for the filter that serialises it. Undeclared, an
+   * error answers with its status, reason and message and nothing else, so a
+   * field holding submitted values cannot reach a response body by being named
+   * the right thing.
+   *
+   * Every value is codes and numbers rather than prose, because the interface
+   * translates them, and never personal data.
+   */
+  details?(): Record<string, readonly unknown[]>;
+
   constructor(message: string) {
     super(message);
     this.name = new.target.name;

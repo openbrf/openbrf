@@ -1,0 +1,18 @@
+{
+  "name": "illegible-theme",
+  "displayName": "Illegible",
+  "version": "1.0.0",
+  "contract": "^1.0.0",
+  "extends": "porttavlan",
+  "description": "Renders the statutory register at 1.1:1. Exists so the install gate has something it must refuse.",
+  "modes": {
+    "light": {
+      "text-register": "#202124",
+      "text-register-secondary": "#1F2023"
+    },
+    "dark": {
+      "text-register": "#151618",
+      "text-register-secondary": "#141517"
+    }
+  }
+}
