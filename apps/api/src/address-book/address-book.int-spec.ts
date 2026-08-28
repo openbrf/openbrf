@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { isValidPersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { computePurgeDate } from "../retention/purge-date";
@@ -43,11 +44,50 @@ let retentionDays: number;
  * address also return rows this suite never created, and against a register
  * carrying the demo data, enough of them to fill the page. Base 26 leaves q to
  * z unused, so mapping the digits onto those letters keeps the token unique.
+ *
+ * A fixture value that normalizes to digits carries the digit token below.
  */
 const suffix = process.hrtime
   .bigint()
   .toString(26)
   .replace(/\d/g, (digit) => "qrstuvwxyz".charAt(Number(digit)));
+
+/**
+ * A second token unique to this run, in digits.
+ *
+ * A phone number and a personal identity number reach their blind indexes
+ * through normalizers that keep the digits and drop everything else, so the
+ * letters above normalize away: a fixture carrying them would store the same
+ * index every run, in the fields whose only purpose is to be looked up by
+ * value. The demo register holds fixed numbers of both kinds, and a fixture
+ * equal to one of those collides on the first seeded database it meets.
+ */
+const digitToken = process.hrtime.bigint().toString().slice(-7);
+
+/** A day of the month from the same token, so the birth dates differ per run. */
+const birthDay = String((Number(digitToken.slice(0, 2)) % 28) + 1).padStart(
+  2,
+  "0",
+);
+
+/**
+ * A synthetic personal identity number for this run.
+ *
+ * The check digit comes from the production validator rather than a second Luhn
+ * implementation here, so the fixture is exactly as valid as what the register
+ * accepts. Luhn admits one check digit for any nine-digit prefix, so the loop
+ * always finds it.
+ */
+function personalIdentityNumberFor(birthDate: string, serial: string): string {
+  for (let checkDigit = 0; checkDigit <= 9; checkDigit++) {
+    const candidate = `${birthDate}-${serial}${String(checkDigit)}`;
+    if (isValidPersonalIdentityNumber(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error(`No check digit completes ${birthDate}-${serial}.`);
+}
+
 const PASSWORD = "a-long-enough-password";
 const surname = `Boklund${suffix}`;
 
@@ -66,16 +106,25 @@ const actors = {
   resident: {
     personId: `ab-resident-${suffix}`,
     email: `ab-resident-${suffix}@exempel.se`,
-    phone: "070-111 22 33",
+    /** As a resident writes it, which is the shape the ciphertext keeps. */
+    phone: `070-${digitToken.slice(0, 3)} ${digitToken.slice(3, 5)} ${digitToken.slice(5, 7)}`,
+    /** The same number for a caller abroad: both must land on one index. */
+    phoneInternational: `+4670${digitToken}`,
     /** Synthetic and checksum-valid, as the demo fixtures are. */
-    personalIdentityNumber: "121212-1212",
+    personalIdentityNumber: personalIdentityNumberFor(
+      `197506${birthDay}`,
+      digitToken.slice(2, 5),
+    ),
   },
   protectedPerson: {
     personId: `ab-protected-${suffix}`,
     email: `ab-protected-${suffix}@exempel.se`,
-    phone: `070-900 ${suffix.slice(0, 2)} 11`,
+    phone: `072-${digitToken.slice(0, 3)} ${digitToken.slice(3, 5)} ${digitToken.slice(5, 7)}`,
     /** Synthetic and checksum-valid, as the demo fixtures are. */
-    personalIdentityNumber: "811228-9874",
+    personalIdentityNumber: personalIdentityNumberFor(
+      `198211${birthDay}`,
+      digitToken.slice(4, 7),
+    ),
   },
   movedOut: {
     personId: `ab-moved-out-${suffix}`,
@@ -402,7 +451,7 @@ describe("the board's view", () => {
     expect(row.contact).toEqual({
       state: "visible",
       email: actors.resident.email,
-      phone: "070-111 22 33",
+      phone: actors.resident.phone,
     });
   });
 
@@ -456,8 +505,12 @@ describe("the board's view", () => {
     const { body } = await boardRows(cookie);
 
     expect(body).not.toContain("personalIdentityNumber");
-    expect(body).not.toContain("8112289874");
-    expect(body).not.toContain("811228-9874");
+    for (const actor of [actors.resident, actors.protectedPerson]) {
+      expect(body).not.toContain(actor.personalIdentityNumber);
+      // The normalized twelve digits, which is the form an index or a careless
+      // serializer would carry.
+      expect(body).not.toContain(actor.personalIdentityNumber.replace("-", ""));
+    }
   });
 
   it("never sends apartment register content: no liens, no initial share capital", async () => {
@@ -606,7 +659,7 @@ describe("search", () => {
     const cookie = await signIn(actors.board.email);
     const { rows } = await boardRows(
       cookie,
-      `&search=${encodeURIComponent("+46701112233")}`,
+      `&search=${encodeURIComponent(actors.resident.phoneInternational)}`,
     );
 
     expect(personIdsIn(rows)).toEqual([actors.resident.personId]);
@@ -637,7 +690,7 @@ describe("the resident-facing directory", () => {
     // not masked, so there is nothing for a client bug to reveal.
     expect(response.body).not.toContain("contact");
     expect(response.body).not.toContain(actors.resident.email);
-    expect(response.body).not.toContain("070-111 22 33");
+    expect(response.body).not.toContain(actors.resident.phone);
     expect(response.body).not.toContain("purgeOn");
   });
 
@@ -775,7 +828,7 @@ describe("the resident-facing directory", () => {
     // no name part, so the phone blind index is the only route by which this
     // term can return a row. That is what makes the board's answer and the
     // resident's answer differ here.
-    const term = encodeURIComponent("+46701112233");
+    const term = encodeURIComponent(actors.resident.phoneInternational);
 
     const board = await inject({
       method: "GET",
@@ -1003,7 +1056,11 @@ describe("the person view", () => {
     };
 
     expect(detail.hasPersonalIdentityNumber).toBe(true);
-    expect(response.body).not.toContain("811228");
+    // Not even the birth date half of it, which a partial serialisation of the
+    // field would carry.
+    expect(response.body).not.toContain(
+      actors.protectedPerson.personalIdentityNumber.slice(0, 8),
+    );
   });
 
   it("derives membership from a current member residency", async () => {
@@ -1122,7 +1179,7 @@ describe("adding a person", () => {
         firstName: "Nils",
         lastName: surname,
         email,
-        phone: "0701234567",
+        phone: `073${digitToken}`,
       },
       headers: { cookie },
     });
