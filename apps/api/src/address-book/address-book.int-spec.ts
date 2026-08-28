@@ -33,7 +33,21 @@ let prisma: PrismaService;
 let encryption: FieldEncryptionService;
 let retentionDays: number;
 
-const suffix = process.hrtime.bigint().toString(36);
+/**
+ * A token unique to this run, in letters only.
+ *
+ * Fixture ids, names and email addresses carry it so that one run's rows cannot
+ * be taken for another's. It holds no digit, because a search term is matched
+ * against apartment numbers by prefix as well as against names and blind
+ * indexes: a digit inside a fixture email address would let a search for that
+ * address also return rows this suite never created, and against a register
+ * carrying the demo data, enough of them to fill the page. Base 26 leaves q to
+ * z unused, so mapping the digits onto those letters keeps the token unique.
+ */
+const suffix = process.hrtime
+  .bigint()
+  .toString(26)
+  .replace(/\d/g, (digit) => "qrstuvwxyz".charAt(Number(digit)));
 const PASSWORD = "a-long-enough-password";
 const surname = `Boklund${suffix}`;
 
@@ -180,6 +194,18 @@ function rowFor(rows: AddressBookRow[], personId: string): AddressBookRow {
     throw new Error(`No row for person ${personId}`);
   }
   return row;
+}
+
+/**
+ * The persons a page returned, sorted.
+ *
+ * A search assertion names the whole set of rows the term may return, because
+ * one that only looks for the row it expects passes just as happily on a page
+ * that was never filtered. Sorted, because the order rows arrive in is a
+ * separate rule with its own test.
+ */
+function personIdsIn(rows: readonly { personId: string }[]): string[] {
+  return rows.map((row) => row.personId).toSorted();
 }
 
 beforeAll(async () => {
@@ -502,6 +528,12 @@ describe("the on-board filters", () => {
     });
     const { rows } = JSON.parse(response.body) as { rows: AddressBookRow[] };
 
+    // The surname belongs to this run, so the two fixture people who hold a
+    // position are the whole page. A list of every board member in the register
+    // would contain this one too, and prove nothing about the search.
+    expect(personIdsIn(rows)).toEqual(
+      [actors.board.personId, actors.external.personId].toSorted(),
+    );
     const external = rowFor(rows, actors.external.personId);
     expect(external.apartment).toBeNull();
     expect(external.signs).toEqual(["BOARD_MEMBER"]);
@@ -509,40 +541,63 @@ describe("the on-board filters", () => {
 });
 
 describe("search", () => {
+  /** Everyone this suite gave an apartment at the fixture address. */
+  const atTheAddress = [
+    actors.board.personId,
+    actors.resident.personId,
+    actors.protectedPerson.personId,
+    actors.movedOut.personId,
+  ].toSorted();
+
   it("matches a name incrementally", async () => {
     const cookie = await signIn(actors.board.email);
-    const { rows } = await boardRows(cookie, `&search=${surname.slice(0, 6)}`);
 
-    expect(rows.length).toBeGreaterThan(0);
+    // Everyone at this address carries the fixture surname, so a prefix of it
+    // reaches all of them.
+    const { rows } = await boardRows(cookie, `&search=${surname.slice(0, 6)}`);
+    expect(personIdsIn(rows)).toEqual(atTheAddress);
+
+    // A single first name narrows the same page to one row: a query that had
+    // stopped narrowing would return the other three as well.
+    const narrowed = await boardRows(cookie, "&search=Rita");
+    expect(personIdsIn(narrowed.rows)).toEqual([actors.resident.personId]);
   });
 
   it("matches an apartment number incrementally", async () => {
     const cookie = await signIn(actors.board.email);
-    const { rows } = await boardRows(cookie, "&search=100");
 
-    expect(rows.length).toBeGreaterThan(0);
+    // "100" is a prefix of all three fixture apartments.
+    const { rows } = await boardRows(cookie, "&search=100");
+    expect(personIdsIn(rows)).toEqual(atTheAddress);
+
+    // The whole number reaches the two people who live in that apartment; the
+    // neighbours in 1001 and 1003 are what a query that had stopped narrowing
+    // would add.
+    const narrowed = await boardRows(cookie, "&search=1002");
+    expect(personIdsIn(narrowed.rows)).toEqual(
+      [actors.resident.personId, actors.protectedPerson.personId].toSorted(),
+    );
   });
 
   it("matches an email only on the complete address, through the blind index", async () => {
     const cookie = await signIn(actors.board.email);
 
+    // An address belongs to one person, so one row is the whole answer.
     const whole = await boardRows(
       cookie,
       `&search=${encodeURIComponent(actors.resident.email)}`,
     );
-    expect(whole.rows.map((row) => row.personId)).toContain(
-      actors.resident.personId,
-    );
+    expect(personIdsIn(whole.rows)).toEqual([actors.resident.personId]);
 
     // A blind index answers equality and nothing else (ADR 0002). A fragment
     // finding nothing is the documented behaviour, not a bug - the UI says so.
+    // It matches no name part and no apartment number either, so the empty page
+    // is the complete result rather than one that merely hides this person.
     const fragment = await boardRows(
       cookie,
       `&search=${encodeURIComponent(actors.resident.email.slice(0, 12))}`,
     );
-    expect(fragment.rows.map((row) => row.personId)).not.toContain(
-      actors.resident.personId,
-    );
+    expect(personIdsIn(fragment.rows)).toEqual([]);
   });
 
   it("matches a phone number written in a different shape", async () => {
@@ -554,7 +609,7 @@ describe("search", () => {
       `&search=${encodeURIComponent("+46701112233")}`,
     );
 
-    expect(rows.map((row) => row.personId)).toContain(actors.resident.personId);
+    expect(personIdsIn(rows)).toEqual([actors.resident.personId]);
   });
 });
 
@@ -734,10 +789,10 @@ describe("the resident-facing directory", () => {
     });
 
     expect(
-      (JSON.parse(board.body) as { rows: { personId: string }[] }).rows.map(
-        (row) => row.personId,
+      personIdsIn(
+        (JSON.parse(board.body) as { rows: { personId: string }[] }).rows,
       ),
-    ).toContain(actors.resident.personId);
+    ).toEqual([actors.resident.personId]);
     expect(directory.statusCode).toBe(200);
     expect(
       (JSON.parse(directory.body) as { rows: unknown[]; total: number }).rows,
@@ -1087,7 +1142,11 @@ describe("adding a person", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(found.body) as { rows: AddressBookRow[] };
-    expect(rows.map((row) => row.personId)).toContain(personId);
+    // The address is unique to this run, so a search of the whole register
+    // returns this person and nobody else. Finding the person merely among the
+    // rows would pass on a page the term never filtered, and would fail on a
+    // register large enough to push the new row off that page.
+    expect(personIdsIn(rows)).toEqual([personId]);
   });
 
   it("refuses a personal identity number that fails its own checksum", async () => {
