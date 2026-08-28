@@ -20,6 +20,7 @@ import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
 import { StorageModule } from "./storage/storage.module";
+import { ThemesModule } from "./themes/themes.module";
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { StorageModule } from "./storage/storage.module";
     SettingsModule,
     AddressesModule,
     AddressBookModule,
+    ThemesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
