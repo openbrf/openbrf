@@ -188,6 +188,14 @@ the same public plugin API that is available to anyone.
 - [ ] AI package: document assistant, issue triage, meeting support
 - [ ] Recurring address book import with review
 - [ ] Parking space sharing between neighbours
+- [ ] Digital signage: a display mode for screens in the entrance, stairwell
+      and laundry room - news, the event calendar, meeting notices and
+      free/busy availability per bookable resource on a rotation. Read-only,
+      and carries no personal data: nothing from the registers, and no names,
+      apartment numbers or booking history from the bookings either. Paid for
+      what surrounds the screen rather than the view itself: Apteo-hosted
+      pairing of a screen to a housing cooperative, remote configuration and
+      unattended updates of the player
 - [ ] Premium themes
 - [ ] Advanced booking, advanced finances, maintenance planning, broker and
       property manager packages
