@@ -53,8 +53,19 @@ export interface PluginSettings {
 export interface PluginMailMessage {
   to: string;
   subject: string;
+  /**
+   * The body, as text.
+   *
+   * Blank lines separate paragraphs; the host renders them in the house style
+   * and escapes them. There is no markup parameter, and that is the point: a
+   * message sent here leaves under the cooperative's own address and passes
+   * its DKIM signature, so a link, an image or a styled block a plugin put in
+   * it would be a link, an image or a styled block the cooperative appears to
+   * have written. A plugin that interpolates a resident's own text into a
+   * body - the ordinary case, and the one that actually happens - cannot turn
+   * it into markup from here.
+   */
   text: string;
-  html?: string;
 }
 
 /**

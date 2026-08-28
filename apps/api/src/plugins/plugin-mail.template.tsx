@@ -7,9 +7,8 @@ import { MAIL_COLORS, MAIL_FONT_STACK } from "../mail/templates/layout";
 export interface PluginMailProps {
   /** The plugin's own subject line, already in the recipient's language. */
   subject: string;
+  /** The body. Blank lines separate paragraphs; markup is not a parameter. */
   text: string;
-  /** Optional HTML body. When absent the text is rendered as paragraphs. */
-  html?: string;
   /** Shown in the footer so a recipient knows what sent this. */
   pluginId: string;
 }
@@ -26,6 +25,18 @@ export interface PluginMailProps {
  * What it does keep is the house palette and type stack, and a footer naming
  * the plugin - so a resident who receives something unexpected can tell the
  * board which plugin to look at.
+ *
+ * The body is text and the markup is this file's. A plugin used to be able to
+ * hand over an HTML body, which was rendered as it arrived: that put a link,
+ * an image or a styled block of a plugin's choosing into a message leaving
+ * under the cooperative's own address and passing its DKIM signature, which is
+ * a phishing message the association has signed for. The permission exists to
+ * make plugin mail attributable to the cooperative, so what it carries is the
+ * cooperative's business. It is not a boundary against a package that means
+ * harm - a bundle runs at full process privilege and can open its own
+ * connection (ADR 0003) - but the case this rules out is the ordinary one: a
+ * plugin interpolating a resident's own text into a body and turning it into
+ * markup without meaning to.
  *
  * Nothing here goes through i18next: the subject and body arrive already
  * written by the plugin, which is responsible for rendering them in the
@@ -61,28 +72,24 @@ export const pluginMail: MailTemplate<PluginMailProps> = {
               padding: "32px",
             }}
           >
-            {props.html === undefined ? (
-              props.text.split(/\n{2,}/).map((paragraph, index) => (
-                <Text
-                  // Paragraphs of a plain-text body have no identity beyond
-                  // their position, and the list is rendered once and never
-                  // reordered.
-                  // eslint-disable-next-line react/no-array-index-key
-                  key={index}
-                  style={{
-                    color: MAIL_COLORS.ink,
-                    fontSize: "15px",
-                    lineHeight: 1.55,
-                    margin: "0 0 12px 0",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {paragraph}
-                </Text>
-              ))
-            ) : (
-              <div dangerouslySetInnerHTML={{ __html: props.html }} />
-            )}
+            {props.text.split(/\n{2,}/).map((paragraph, index) => (
+              <Text
+                // Paragraphs of a plain-text body have no identity beyond
+                // their position, and the list is rendered once and never
+                // reordered.
+                // eslint-disable-next-line react/no-array-index-key
+                key={index}
+                style={{
+                  color: MAIL_COLORS.ink,
+                  fontSize: "15px",
+                  lineHeight: 1.55,
+                  margin: "0 0 12px 0",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {paragraph}
+              </Text>
+            ))}
 
             <Text
               style={{

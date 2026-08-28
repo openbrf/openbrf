@@ -228,7 +228,6 @@ function pluginMailService(
         props: {
           subject: message.subject,
           text: message.text,
-          html: message.html,
           pluginId,
         },
       });
