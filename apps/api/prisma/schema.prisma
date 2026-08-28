@@ -43,7 +43,18 @@ model Association {
   defaultLocale      String  @default("sv")
 
   /// Branding available on the free tier (decision 40).
-  logoPath     String?
+  ///
+  /// The logo is a reference to an uploaded file rather than a path: the bytes
+  /// may sit on the data volume or in a bucket, and neither address is ever
+  /// published, because the API streams the file from this instance's own
+  /// origin. The second slot is the variant for dark surfaces - the
+  /// application's top band is dark, and a mark drawn in dark ink disappears on
+  /// it. When it is unset, the primary mark is rendered on a light plate.
+  logoFileId     String?
+  logo           MediaFile? @relation("AssociationLogo", fields: [logoFileId], references: [id], onDelete: SetNull)
+  logoDarkFileId String?
+  logoDark       MediaFile? @relation("AssociationLogoDark", fields: [logoDarkFileId], references: [id], onDelete: SetNull)
+
   primaryColor String?
 
   /// Service-tier retention: days after move-out before service data is
@@ -203,10 +214,10 @@ model Residency {
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
 
-  role      ResidencyRole
-  movedInOn DateTime      @db.Date
+  role       ResidencyRole
+  movedInOn  DateTime      @db.Date
   /// Null while the residency is current.
-  movedOutOn DateTime? @db.Date
+  movedOutOn DateTime?     @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -276,8 +287,8 @@ model Invitation {
   /// Hash of the invitation token. The token itself is only ever in the email.
   tokenHash String @unique
 
-  expiresAt  DateTime
-  acceptedAt DateTime?
+  expiresAt   DateTime
+  acceptedAt  DateTime?
   /// Person who sent the invitation, when it was not the system.
   invitedById String?
 
@@ -389,7 +400,7 @@ model Transfer {
 
   transferredOn DateTime @db.Date
   /// Purchase price, when recorded.
-  price Decimal? @db.Decimal(14, 2)
+  price         Decimal? @db.Decimal(14, 2)
 
   /// Uploaded transfer agreement, relative to the uploads volume.
   agreementDocumentPath String?
@@ -407,7 +418,7 @@ model LienNote {
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
 
-  creditor String
+  creditor   String
   /// Statutory date of record (anteckningsdag).
   notedOn    DateTime  @db.Date
   releasedOn DateTime? @db.Date
@@ -434,6 +445,13 @@ enum AuditAction {
   PLUGIN_REMOVED
   THEME_INSTALLED
   THEME_ACTIVATED
+  /// A file was uploaded, or removed from the instance.
+  MEDIA_UPLOADED
+  MEDIA_DELETED
+  /// A file whose access is restricted to a capability was served. Files that
+  /// are public, or readable by anyone signed in, are not logged: one entry per
+  /// image request would bury the accesses the law requires to be recorded.
+  MEDIA_ACCESSED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -485,8 +503,8 @@ model InstalledPlugin {
   enabled Boolean @default(true)
 
   /// Permissions and personal data categories as consented at install time.
-  consentedPermissions  String[]
-  declaredPersonalData  String[]
+  consentedPermissions String[]
+  declaredPersonalData String[]
 
   /// Values for the manifest's settingsSchema.
   settings Json?
@@ -544,13 +562,13 @@ model InstalledTheme {
 /// A sign-in account. Exactly one per person, and a person may have none:
 /// someone can sit in the register without ever activating an account.
 model User {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String   @unique
+  emailVerified Boolean  @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   /// Set when the person enrols TOTP.
   twoFactorEnabled Boolean? @default(false)
@@ -561,10 +579,10 @@ model User {
   personId String @unique
   person   Person @relation(fields: [personId], references: [id], onDelete: Restrict)
 
-  sessions  Session[]
-  accounts  Account[]
+  sessions   Session[]
+  accounts   Account[]
   twoFactors TwoFactor[]
-  passkeys  Passkey[]
+  passkeys   Passkey[]
 
   @@map("auth_user")
 }
@@ -657,4 +675,79 @@ model Passkey {
 
   @@index([userId])
   @@map("auth_passkey")
+}
+
+/// Who may fetch a stored file.
+enum MediaVisibility {
+  /// Anyone, with no session. The housing cooperative's logo has to be this:
+  /// an email client renders it with no cookie to send, and the public website
+  /// will serve it to visitors who have no account at all.
+  PUBLIC
+  /// Anyone signed in. A file that additionally names a required capability is
+  /// narrowed to holders of it, and every serve of one is written to the audit
+  /// log.
+  INTERNAL
+}
+
+/// An uploaded file.
+///
+/// The bytes live in whichever storage driver the instance is configured for;
+/// this row is the only index of them, and the only thing that decides who may
+/// read them. The storage key is generated here and never derived from the name
+/// the file arrived under.
+model MediaFile {
+  id String @id @default(cuid())
+
+  /// Where the bytes are in the configured storage driver. Generated, never
+  /// client-controlled.
+  storageKey String @unique
+
+  /// Identified from the bytes, not taken from the request. This is the type
+  /// the file is served with, so trusting the declared one would let an upload
+  /// choose how a browser interprets it.
+  contentType String
+  byteSize    Int
+  /// SHA-256 of the stored bytes, hex encoded. Doubles as the entity tag on
+  /// the serving path.
+  checksum    String
+
+  /// The name the file was uploaded under, kept for the download disposition
+  /// and for the interface to show. Never used to build a storage key.
+  fileName String
+
+  /// Pixel dimensions, read out of the image header. Null for anything that is
+  /// not an image.
+  width  Int?
+  height Int?
+
+  /// Whether this image shows identifiable persons, as declared by whoever
+  /// uploaded it. Required for an image and null for anything else.
+  ///
+  /// Recorded rather than acted on here. It is the input the publication
+  /// guardrails need: a person may appear on a public page only with a recorded
+  /// publication consent (publiceringssamtycke), and an image nobody has
+  /// declared cannot be checked against that rule.
+  showsIdentifiablePersons Boolean?
+
+  visibility MediaVisibility @default(INTERNAL)
+
+  /// Narrows an INTERNAL file to holders of one capability, by its name in the
+  /// capability model. Null leaves it readable by anyone signed in.
+  requiredCapability String?
+
+  /// Who uploaded it.
+  ///
+  /// Deliberately a plain column and not a relation, for the reason the audit
+  /// log gives: a referential action would either rewrite this row or veto
+  /// erasure of the person it names. The record stands as it was written.
+  uploadedByPersonId String?
+
+  associationLogo     Association[] @relation("AssociationLogo")
+  associationLogoDark Association[] @relation("AssociationLogoDark")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@map("media_file")
 }

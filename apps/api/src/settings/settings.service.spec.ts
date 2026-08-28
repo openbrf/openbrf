@@ -4,6 +4,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
+import type { MediaService } from "../media/media.service";
 import { SettingsService } from "./settings.service";
 
 /**
@@ -35,7 +36,10 @@ const STORED = {
   name: "Brf Eksemplet",
   organizationNumber: "769600-1234",
   defaultLocale: "sv",
-  logoPath: null as string | null,
+  logoFileId: null as string | null,
+  logo: null as { id: string; fileName: string } | null,
+  logoDarkFileId: null as string | null,
+  logoDark: null as { id: string; fileName: string } | null,
   primaryColor: null as string | null,
   retentionDaysAfterMoveOut: 365,
   selfSignupEnabled: false,
@@ -110,10 +114,15 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
 
   const mail = { send: vi.fn().mockResolvedValue(undefined) };
 
+  // No logo is uploaded in this suite: these cases are about the SMTP secret
+  // and the contrast gate, and the media layer has its own tests.
+  const media = { upload: vi.fn(), remove: vi.fn() };
+
   const service = new SettingsService(
     prisma as unknown as PrismaService,
     new FieldEncryptionService(TEST_ENV),
     mail as unknown as MailService,
+    media as unknown as MediaService,
   );
 
   return { service, prisma, mail, current: () => row };

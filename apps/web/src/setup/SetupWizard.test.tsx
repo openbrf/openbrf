@@ -36,7 +36,7 @@ const SETTINGS = {
     defaultLocale: "sv",
     setupCompletedAt: null,
   },
-  branding: { primaryColor: null, logoPath: null },
+  branding: { primaryColor: null, logo: null, logoDark: null },
   smtp: {
     host: null,
     port: null,
