@@ -66,8 +66,23 @@ describe("choosing the driver", () => {
   });
 
   it("refuses an upload limit past the ceiling", () => {
-    // The limit is what stops a request filling the disk, so a mistyped value
-    // has removed the protection rather than relaxed it.
+    /*
+     * The limit is what stops a request filling the disk or the heap, so a
+     * mistyped value has removed the protection rather than relaxed it.
+     *
+     * The ceiling is stated as a number here rather than imported, so raising
+     * it in env.ts has to be a deliberate edit in two places. An upload is
+     * held in memory in full while it is identified, checksummed and signed,
+     * and 32 MiB is what an instance in a modest container survives.
+     */
+    const CEILING = 32 * 1024 * 1024;
+
+    expect(
+      loadEnv({ ...BASE, OPENBRF_MAX_UPLOAD_BYTES: String(CEILING) }),
+    ).toMatchObject({ OPENBRF_MAX_UPLOAD_BYTES: CEILING });
+    expect(() =>
+      loadEnv({ ...BASE, OPENBRF_MAX_UPLOAD_BYTES: String(CEILING + 1) }),
+    ).toThrow(/OPENBRF_MAX_UPLOAD_BYTES/);
     expect(() =>
       loadEnv({ ...BASE, OPENBRF_MAX_UPLOAD_BYTES: "999999999999" }),
     ).toThrow(/OPENBRF_MAX_UPLOAD_BYTES/);

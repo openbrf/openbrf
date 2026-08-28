@@ -60,8 +60,14 @@ const personIds = [admin.personId, resident.personId];
  */
 const MAX_UPLOAD_BYTES = 512;
 
-/** What the association row held before the suite, so it can be put back. */
-let previousLogo: { logoFileId: string | null; logoDarkFileId: string | null };
+/**
+ * What the association row held before the suite, so it can be put back.
+ *
+ * Initialised rather than declared, so a beforeAll that fails before reading
+ * the row still leaves the teardown a value to restore.
+ */
+let previousLogo: { logoFileId: string | null; logoDarkFileId: string | null } =
+  { logoFileId: null, logoDarkFileId: null };
 let associationCreatedHere = false;
 
 let ipCounter = 0;
@@ -211,37 +217,80 @@ beforeAll(async () => {
   }
 }, 180_000);
 
-afterAll(async () => {
-  if (prisma !== undefined) {
-    await prisma.association.update({
-      where: { id: 1 },
-      data: { logoFileId: null, logoDarkFileId: null },
-    });
-    await prisma.mediaFile.deleteMany({
-      where: { uploadedByPersonId: { in: personIds } },
-    });
-
-    if (associationCreatedHere) {
-      await prisma.association.deleteMany({ where: { id: 1 } });
-    } else {
-      await prisma.association.update({ where: { id: 1 }, data: previousLogo });
-    }
-
-    await prisma.session.deleteMany({
-      where: { user: { personId: { in: personIds } } },
-    });
-    await prisma.account.deleteMany({
-      where: { user: { personId: { in: personIds } } },
-    });
-    await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-    await prisma.systemRole.deleteMany({
-      where: { personId: { in: personIds } },
-    });
-    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+/**
+ * Runs every cleanup step, then reports whichever of them failed.
+ *
+ * One step must not be able to stop the next. This database is shared with the
+ * other integration suites, so a row this one leaves behind turns up later as a
+ * stranger in a suite that scans the person table - and the run most likely to
+ * strand rows is the one whose setup failed part way, which is exactly when an
+ * early step throws. Failures are still raised at the end rather than
+ * swallowed, so a teardown that stops working is visible.
+ */
+async function cleanUp(
+  steps: readonly (() => Promise<unknown>)[],
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const step of steps) {
+    await step().catch((cause: unknown) => failures.push(cause));
   }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "The media suite could not clean up after itself.",
+    );
+  }
+}
 
-  await app?.close();
-  await bucket?.close();
+afterAll(async () => {
+  try {
+    if (prisma !== undefined) {
+      await cleanUp([
+        /*
+         * updateMany rather than update throughout: update throws P2025 when
+         * the association row is not there, which happens when the setup above
+         * failed between reading the row and creating it, or when another
+         * suite removed it. A missing row here is simply nothing to do.
+         */
+        () =>
+          prisma.association.updateMany({
+            where: { id: 1 },
+            data: { logoFileId: null, logoDarkFileId: null },
+          }),
+        () =>
+          prisma.mediaFile.deleteMany({
+            where: { uploadedByPersonId: { in: personIds } },
+          }),
+        () =>
+          associationCreatedHere
+            ? prisma.association.deleteMany({ where: { id: 1 } })
+            : prisma.association.updateMany({
+                where: { id: 1 },
+                data: previousLogo,
+              }),
+        () =>
+          prisma.session.deleteMany({
+            where: { user: { personId: { in: personIds } } },
+          }),
+        () =>
+          prisma.account.deleteMany({
+            where: { user: { personId: { in: personIds } } },
+          }),
+        () =>
+          prisma.user.deleteMany({ where: { personId: { in: personIds } } }),
+        () =>
+          prisma.systemRole.deleteMany({
+            where: { personId: { in: personIds } },
+          }),
+        () => prisma.person.deleteMany({ where: { id: { in: personIds } } }),
+      ]);
+    }
+  } finally {
+    // Closed whatever the database did, so a failed cleanup does not also leak
+    // a listening socket and an open pool into the rest of the run.
+    await app?.close();
+    await bucket?.close();
+  }
 });
 
 describe("uploading the housing cooperative's logo", () => {
@@ -365,6 +414,31 @@ describe("uploading the housing cooperative's logo", () => {
     expect(anonymous.statusCode).toBe(401);
   });
 
+  it("keeps a Swedish file name intact all the way back out", async () => {
+    /*
+     * The ordinary case in a Swedish housing cooperative, not an exotic one.
+     * A header value is ASCII and Node writes one as latin1, so the name also
+     * goes out percent-encoded in the RFC 6266 filename* parameter; the plain
+     * parameter carries a transliteration for a client that reads only that.
+     */
+    const cookie = await signIn(admin.email);
+    const branding = (
+      await uploadLogo(cookie, "light", pngBytes(60, 20), "gård.png")
+    ).json() as BrandingBody;
+
+    const response = await inject({
+      method: "GET",
+      url: branding.logo?.url ?? "",
+    });
+    const disposition = String(response.headers["content-disposition"]);
+
+    expect(branding.logo?.fileName).toBe("gård.png");
+    expect(disposition).toContain("filename*=UTF-8''g%C3%A5rd.png");
+    // Nothing above printable ASCII anywhere in the value, which is what
+    // reaches the client as mojibake when it is there.
+    expect(disposition).toMatch(/^[\x20-\x7e]*$/);
+  });
+
   it("has no slot other than the two it defines", async () => {
     const cookie = await signIn(admin.email);
 
@@ -476,6 +550,50 @@ describe("serving a file with S3 behind it", () => {
 
     expect(anonymous.statusCode).toBe(404);
     expect(signedIn.statusCode).toBe(200);
+  });
+
+  it("serves a capability-restricted file to a holder only, and records the read", async () => {
+    /*
+     * A file narrowed to one capability is the case the audit log exists for.
+     * memberRegister:read is an admin's, never a resident's, so the two answers
+     * below are decided by the capability rather than by having a session at
+     * all - and the read that succeeds has to leave exactly one row behind. The
+     * whole route is exercised here rather than the service alone, because the
+     * principal that the check runs against is resolved from the session by the
+     * controller and a unit test supplies it ready-made.
+     */
+    const restricted = await app.get(MediaService).upload({
+      bytes: pngBytes(24, 24),
+      fileName: "medlemsforteckning.png",
+      visibility: "INTERNAL",
+      requiredCapability: "memberRegister:read",
+      showsIdentifiablePersons: false,
+      uploadedByPersonId: admin.personId,
+    });
+
+    const asResident = await inject({
+      method: "GET",
+      url: restricted.url,
+      headers: { cookie: await signIn(resident.email) },
+    });
+    const asAdmin = await inject({
+      method: "GET",
+      url: restricted.url,
+      headers: { cookie: await signIn(admin.email) },
+    });
+
+    const reads = await prisma.auditLogEntry.findMany({
+      where: { action: "MEDIA_ACCESSED", targetId: restricted.id },
+    });
+
+    // The same answer as for a file that is not there: a resident must not be
+    // able to learn that a particular restricted file exists.
+    expect(asResident.statusCode).toBe(404);
+    expect(asAdmin.statusCode).toBe(200);
+    // One row for the one read that happened, naming who made it. A refused
+    // request is not an access and must not be recorded as one.
+    expect(reads).toHaveLength(1);
+    expect(reads[0]?.actorPersonId).toBe(admin.personId);
   });
 
   it("answers for a file that does not exist the same way", async () => {

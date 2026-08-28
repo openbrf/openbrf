@@ -185,4 +185,25 @@ describe("the housing cooperative's mark", () => {
     expect(mark()?.getAttribute("alt")).toBe("");
     expect(screen.getByText("Brf Eksemplet")).toBeTruthy();
   });
+
+  it("cannot take the band from the name and the navigation", () => {
+    /*
+     * A mark's proportions are the association's own, and nothing in the upload
+     * bounds them. Constrained by height alone, one twenty times as wide as it
+     * is tall would fill the band, and shrink-0 - which is there so the mark
+     * does not collapse - would stop it giving the room back. Both variants are
+     * therefore bounded in width as well and contained inside that box.
+     */
+    for (const logo of [
+      { light: LIGHT, dark: DARK },
+      { light: LIGHT, dark: null },
+    ]) {
+      const view = renderShell({ logo });
+      const className = mark()?.className ?? "";
+
+      expect(className).toMatch(/\bmax-w-\d/);
+      expect(className).toContain("object-contain");
+      view.unmount();
+    }
+  });
 });

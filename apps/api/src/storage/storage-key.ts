@@ -24,11 +24,11 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
  *
  * Random rather than derived from anything, for two reasons. A key built from
  * the file's own name would carry whatever the uploader called it into the
- * storage provider's access log, which is a place personal data has no business
- * being. And a key that could be guessed would still be reachable if a bucket
- * were ever misconfigured for public reads, so the platform's promise that
- * files are served through its own authorization would rest on the bucket's
- * settings instead of on the key.
+ * request logs the storage provider keeps, which is a place personal data has
+ * no business being. And a key that could be guessed would still be reachable
+ * if a bucket were ever misconfigured for public reads, so the platform's
+ * promise that files are served through its own authorization would rest on
+ * the bucket's settings instead of on the key.
  */
 export function generateStorageKey(
   prefix: "branding" | "media",

@@ -42,6 +42,13 @@ export interface AppShellProps {
  * drawn. The settings screen shows the same two cases, so the board sees which
  * of them applies to them.
  *
+ * The mark is bounded in both directions, not only in height. Its proportions
+ * are the association's own and can be anything: a mark twenty times as wide as
+ * it is tall is a valid image, and constrained by height alone it would fill the
+ * band, while shrink-0 - which is there so the mark does not collapse - stops it
+ * yielding the room back to the cooperative's name and the navigation. Bounded
+ * both ways it is contained instead, whatever artwork a board uploads.
+ *
  * The alt text is empty on purpose: the cooperative's name sits beside this in
  * text, and a screen reader announcing it twice serves nobody.
  */
@@ -53,14 +60,24 @@ function BandLogo({
   dark: string | null;
 }): ReactElement | null {
   if (dark !== null) {
-    return <img src={dark} alt="" className="max-h-9 w-auto shrink-0" />;
+    return (
+      <img
+        src={dark}
+        alt=""
+        className="max-h-9 w-auto max-w-36 shrink-0 object-contain"
+      />
+    );
   }
   if (light === null) {
     return null;
   }
   return (
     <span className="inline-flex shrink-0 items-center rounded-control bg-raised px-2 py-1">
-      <img src={light} alt="" className="max-h-7 w-auto" />
+      <img
+        src={light}
+        alt=""
+        className="max-h-7 w-auto max-w-32 object-contain"
+      />
     </span>
   );
 }

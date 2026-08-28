@@ -14,7 +14,19 @@ export interface S3StorageConfig {
   secretAccessKey: string;
   /** Bucket in the path rather than in the host name. */
   forcePathStyle: boolean;
+  /** How long the bucket has to answer. Defaults to 30 seconds. */
+  requestTimeoutMs?: number;
 }
+
+/**
+ * How long a storage request may go unanswered.
+ *
+ * A bucket that refuses the connection fails at once, but one that accepts it
+ * and then says nothing does not: without a deadline the socket's own timeout
+ * is the only bound, and an upload or a deletion stays pending for minutes
+ * while the request that started it holds a worker.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Files in an S3-compatible bucket.
@@ -106,15 +118,41 @@ export class S3StorageDriver implements StorageDriver {
     }
   }
 
+  /**
+   * One signed request, with a deadline on the answer.
+   *
+   * The deadline covers the time to the response headers, and the timer is
+   * cleared the moment they arrive. That is the whole reason it is an
+   * AbortController rather than AbortSignal.timeout: a GET's headers are
+   * followed by the file itself, streamed straight into a reply, and a signal
+   * still armed at that point would cut the transfer off part way and serve a
+   * truncated image. A PUT's body is sent before the headers come back, so the
+   * same deadline bounds the upload too.
+   *
+   * It also bounds the client's own retries, which are attempted inside this
+   * call and would otherwise add their backoff on top of every attempt.
+   */
   private async send(key: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const deadline = setTimeout(() => {
+      controller.abort();
+    }, this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+
     try {
-      return await this.client.fetch(this.urlFor(key), init);
+      return await this.client.fetch(this.urlFor(key), {
+        ...init,
+        signal: controller.signal,
+      });
     } catch (cause) {
       throw new StorageError(
-        `The storage bucket could not be reached for ${key}.`,
+        controller.signal.aborted
+          ? `The storage bucket did not answer for ${key} in time.`
+          : `The storage bucket could not be reached for ${key}.`,
         this.kind,
         { cause },
       );
+    } finally {
+      clearTimeout(deadline);
     }
   }
 

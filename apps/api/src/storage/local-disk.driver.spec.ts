@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -93,19 +93,47 @@ describe("the local disk driver", () => {
 
   it("does not serve a half-written file", async () => {
     /*
-     * The staging file is an implementation detail with a visible
-     * consequence: a reader arriving mid-write must find the whole file or
-     * nothing, never a prefix. Its presence next to the target is what proves
-     * the write does not happen in place.
+     * A reader arriving during a write must find the whole file or nothing,
+     * never a prefix, which is why the bytes are written beside the target and
+     * renamed onto it rather than into it.
+     *
+     * The inode is what makes that observable after the fact. A rename moves a
+     * different file onto the name, so the name points at a new inode; writing
+     * in place would truncate and refill the one already there and keep it. An
+     * assertion on the contents alone passes either way.
      */
-    const target = path.join(dataDir, "uploads", "media/2026/08/five.png");
-    await driver.put("media/2026/08/five.png", Buffer.from("x"));
-    await writeFile(`${target}.leftover.part`, "partial");
+    const key = "media/2026/08/five.png";
+    const target = path.join(dataDir, "uploads", key);
+    await driver.put(key, Buffer.from("x"));
+    const before = await stat(target);
 
-    await driver.put("media/2026/08/five.png", Buffer.from("yy"));
+    await driver.put(key, Buffer.from("yy"));
+    const after = await stat(target);
 
-    expect(await collect(await driver.open("media/2026/08/five.png"))).toEqual(
-      Buffer.from("yy"),
+    expect(await collect(await driver.open(key))).toEqual(Buffer.from("yy"));
+    expect(after.ino).not.toBe(before.ino);
+    // And the staging file is not left behind for a later reader to trip over.
+    const entries = await readdir(path.dirname(target));
+    expect(entries.filter((name) => name.endsWith(".part"))).toEqual([]);
+  });
+
+  it("leaves nothing staged behind when the write cannot be completed", async () => {
+    /*
+     * A directory at the target makes the rename fail after the staging write
+     * has already succeeded, which is the one window in which a staging file
+     * exists and the operation is about to be abandoned. It must be cleaned up:
+     * an uploads directory that accumulates half-written objects costs the
+     * operator disk for files nothing will ever read.
+     */
+    const key = "media/2026/08/six.png";
+    const target = path.join(dataDir, "uploads", key);
+    await mkdir(target, { recursive: true });
+
+    await expect(driver.put(key, Buffer.from("x"))).rejects.toThrow(
+      StorageError,
     );
+
+    const entries = await readdir(path.dirname(target));
+    expect(entries.filter((name) => name.endsWith(".part"))).toEqual([]);
   });
 });

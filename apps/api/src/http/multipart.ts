@@ -76,6 +76,12 @@ export function isTooLarge(error: unknown): boolean {
  * `toBuffer()` throws when the file exceeds the configured limit, and that
  * throw is the enforcement: the stream is cut off rather than drained, so an
  * oversized upload costs the limit and not the whole body.
+ *
+ * The whole file lands in memory here, which is why the configured limit has a
+ * ceiling it cannot be raised past (see MAX_UPLOAD_CEILING_BYTES): everything
+ * downstream needs the complete bytes anyway - the type is identified from
+ * them, a checksum is taken over them, and the S3 driver signs them - so the
+ * cost of one request is bounded by configuration rather than by the caller.
  */
 export async function readSingleFile(
   request: FastifyRequest,

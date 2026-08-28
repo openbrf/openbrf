@@ -38,22 +38,37 @@ interface Row {
   uploadedByPersonId: string | null;
 }
 
+/** One recorded audit write, plus whether it joined the caller's transaction. */
+interface AuditedEntry {
+  action: string;
+  targetId?: string | null;
+  /** True when the entry was written on a transaction client. */
+  inTransaction: boolean;
+}
+
 interface Fakes {
   service: MediaService;
   rows: Map<string, Row>;
   objects: Map<string, Buffer>;
-  audited: { action: string; targetId?: string | null }[];
+  audited: AuditedEntry[];
   storage: {
     put: ReturnType<typeof vi.fn>;
     open: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
   };
+  mediaFile: {
+    create: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+  };
 }
 
-function build(options: { createFails?: boolean } = {}): Fakes {
+function build(
+  options: { createFails?: boolean; auditFailsOn?: string } = {},
+): Fakes {
   const rows = new Map<string, Row>();
   const objects = new Map<string, Buffer>();
-  const audited: { action: string; targetId?: string | null }[] = [];
+  const audited: AuditedEntry[] = [];
   let nextId = 0;
 
   const storage = {
@@ -69,31 +84,61 @@ function build(options: { createFails?: boolean } = {}): Fakes {
     }),
   };
 
+  const mediaFile = {
+    create: vi.fn(async ({ data }: { data: Omit<Row, "id"> }) => {
+      if (options.createFails === true) {
+        throw new Error("the row could not be written");
+      }
+      nextId += 1;
+      const row: Row = { id: `file-${String(nextId)}`, ...data };
+      rows.set(row.id, row);
+      return row;
+    }),
+    findUnique: vi.fn(
+      async ({ where }: { where: { id: string } }) =>
+        rows.get(where.id) ?? null,
+    ),
+    delete: vi.fn(async ({ where }: { where: { id: string } }) => {
+      rows.delete(where.id);
+    }),
+  };
+
   const prisma = {
-    mediaFile: {
-      create: vi.fn(async ({ data }: { data: Omit<Row, "id"> }) => {
-        if (options.createFails === true) {
-          throw new Error("the row could not be written");
+    mediaFile,
+    /*
+     * Rolls back, because that is the property under test rather than a
+     * convenience. A statement that succeeded inside a transaction whose later
+     * statement threw did not happen, and a fake that kept it would let a
+     * service pass a test the database would fail.
+     */
+    $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
+      const snapshot = new Map(rows);
+      const writtenBefore = audited.length;
+      try {
+        return await run({ mediaFile, transaction: true });
+      } catch (cause) {
+        rows.clear();
+        for (const [id, row] of snapshot) {
+          rows.set(id, row);
         }
-        nextId += 1;
-        const row: Row = { id: `file-${String(nextId)}`, ...data };
-        rows.set(row.id, row);
-        return row;
-      }),
-      findUnique: vi.fn(
-        async ({ where }: { where: { id: string } }) =>
-          rows.get(where.id) ?? null,
-      ),
-      delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-        rows.delete(where.id);
-      }),
-    },
+        audited.length = writtenBefore;
+        throw cause;
+      }
+    }),
   };
 
   const audit = {
-    record: vi.fn(async (entry: { action: string; targetId?: string }) => {
-      audited.push(entry);
-    }),
+    record: vi.fn(
+      async (
+        entry: { action: string; targetId?: string },
+        client?: { transaction?: boolean },
+      ) => {
+        if (options.auditFailsOn === entry.action) {
+          throw new Error("the audit entry could not be written");
+        }
+        audited.push({ ...entry, inTransaction: client !== undefined });
+      },
+    ),
   };
 
   const service = new MediaService(
@@ -102,7 +147,7 @@ function build(options: { createFails?: boolean } = {}): Fakes {
     audit as unknown as AuditLogService,
   );
 
-  return { service, rows, objects, audited, storage };
+  return { service, rows, objects, audited, storage, mediaFile };
 }
 
 function principal(overrides: Partial<Principal> = {}): Principal {
@@ -424,24 +469,73 @@ describe("serving", () => {
 });
 
 describe("removing", () => {
-  it("removes the row, the bytes and writes the audit entry", async () => {
-    const file = await fakes.service.upload({
+  async function stored(fixture: Fakes = fakes): Promise<string> {
+    const file = await fixture.service.upload({
       bytes: pngBytes(10, 10),
       fileName: "logotyp.png",
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
     });
+    return file.id;
+  }
 
-    await fakes.service.remove(file.id, "person-1");
+  it("removes the row, the bytes and writes the audit entry", async () => {
+    const id = await stored();
+
+    await fakes.service.remove(id, "person-1");
 
     expect(fakes.rows.size).toBe(0);
     expect(fakes.objects.size).toBe(0);
     expect(fakes.audited).toContainEqual(
-      expect.objectContaining({ action: "MEDIA_DELETED", targetId: file.id }),
+      expect.objectContaining({ action: "MEDIA_DELETED", targetId: id }),
     );
+  });
+
+  it("writes the entry on the transaction that deletes the row", async () => {
+    /*
+     * Not a detail of how it is written. The entry is the statutory evidence
+     * that the deletion happened and who asked for it, and the log is
+     * append-only, so the two have to share one fate: an entry on the root
+     * client could be lost while the deletion stood.
+     */
+    const id = await stored();
+
+    await fakes.service.remove(id, "person-1");
+
+    expect(fakes.audited).toContainEqual(
+      expect.objectContaining({
+        action: "MEDIA_DELETED",
+        targetId: id,
+        inTransaction: true,
+      }),
+    );
+  });
+
+  it("keeps the file when the deletion cannot be recorded", async () => {
+    const failing = build({ auditFailsOn: "MEDIA_DELETED" });
+    const id = await stored(failing);
+
+    await expect(failing.service.remove(id, "person-1")).rejects.toThrow();
+
+    // The entry cannot be added afterwards, so the file must still be there to
+    // be deleted again once the log can accept it. The bytes in particular are
+    // beyond recovery: nothing rolls a storage backend back.
+    expect(failing.rows.has(id)).toBe(true);
+    expect(failing.objects.size).toBe(1);
+    expect(failing.storage.remove).not.toHaveBeenCalled();
   });
 
   it("does nothing for a file that is not there", async () => {
     await expect(fakes.service.remove("file-absent")).resolves.toBeUndefined();
+
+    /*
+     * Stated as the absence of the side effects rather than as the absence of
+     * a throw. An entry for a deletion that never happened cannot be taken
+     * back, and a removal call carrying an undefined key is a request to the
+     * storage backend that nobody made.
+     */
+    expect(fakes.audited).toEqual([]);
+    expect(fakes.mediaFile.delete).not.toHaveBeenCalled();
+    expect(fakes.storage.remove).not.toHaveBeenCalled();
   });
 });

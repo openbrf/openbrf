@@ -50,7 +50,24 @@ export async function startS3TestServer(): Promise<S3TestServer> {
   const requests: S3TestServer["requests"] = [];
 
   const server = createServer((request, response) => {
-    void handle(request, response, objects, requests);
+    handle(request, response, objects, requests).catch(() => {
+      /*
+       * Answered here rather than left to reject. A socket error while the
+       * body is read, or a write to a socket the client has already dropped,
+       * would otherwise surface as an unhandled rejection, and the runner
+       * attributes one of those to whichever test happens to be running - not
+       * to the request that caused it.
+       */
+      try {
+        if (!response.headersSent) {
+          response.writeHead(500);
+        }
+        response.end();
+      } catch {
+        // The socket is gone, which is the usual reason for being here.
+        response.destroy();
+      }
+    });
   });
 
   await new Promise<void>((resolve) => {

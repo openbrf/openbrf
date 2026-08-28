@@ -273,9 +273,19 @@ export class MediaService {
   /**
    * Removes a file and its bytes.
    *
-   * The row goes first: a row without bytes serves a 404, while bytes without a
-   * row are unreachable but still stored, and only one of those two is a
-   * disclosure risk after somebody asked for a file to be deleted.
+   * The row and its audit entry are written in one transaction, because the
+   * entry is the evidence that the deletion happened and who asked for it. The
+   * log is append-only in the database, so an entry that fails to be written
+   * cannot be added afterwards: deleting first and recording second would, on
+   * a failed insert, destroy a file with nothing left to show that it ever
+   * existed or that anyone authorised its removal.
+   *
+   * The bytes go after the transaction commits, and in that order for the same
+   * reason the upload writes them first: a row without bytes serves a 404,
+   * while bytes without a row are unreachable but still stored, and only one of
+   * those two is a disclosure risk after somebody asked for a file to be
+   * deleted. Storage cannot take part in the transaction, so removing the
+   * object before the commit would destroy a file the database still holds.
    */
   async remove(id: string, actorPersonId?: string | null): Promise<void> {
     const file = await this.prisma.mediaFile.findUnique({ where: { id } });
@@ -283,13 +293,18 @@ export class MediaService {
       return;
     }
 
-    await this.prisma.mediaFile.delete({ where: { id } });
-    await this.audit.record({
-      action: "MEDIA_DELETED",
-      actorPersonId: actorPersonId ?? null,
-      targetKind: "media",
-      targetId: id,
-      context: { fileName: file.fileName },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.mediaFile.delete({ where: { id } });
+      await this.audit.record(
+        {
+          action: "MEDIA_DELETED",
+          actorPersonId: actorPersonId ?? null,
+          targetKind: "media",
+          targetId: id,
+          context: { fileName: file.fileName },
+        },
+        tx,
+      );
     });
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {

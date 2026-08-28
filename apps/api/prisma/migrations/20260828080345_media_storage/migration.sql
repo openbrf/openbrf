@@ -20,6 +20,15 @@ ALTER TYPE "AuditAction" ADD VALUE 'MEDIA_DELETED';
 ALTER TYPE "AuditAction" ADD VALUE 'MEDIA_ACCESSED';
 
 -- AlterTable
+--
+-- "logoPath" is dropped rather than migrated, and no backfill accompanies it.
+-- The column was added by 20260827122535_init with no default and no code path
+-- that writes it: there is no route, no service method, no seed and no earlier
+-- migration that assigns a value, so every row that can exist holds NULL and a
+-- backfill would copy nothing. The mark is now a reference to media_file, which
+-- carries the bytes, the content type identified from those bytes and the
+-- visibility the serving route authorizes against - none of which a bare path
+-- could hold.
 ALTER TABLE "association" DROP COLUMN "logoPath",
 ADD COLUMN     "logoDarkFileId" TEXT,
 ADD COLUMN     "logoFileId" TEXT;

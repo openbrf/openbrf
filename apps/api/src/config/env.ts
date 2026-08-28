@@ -24,13 +24,22 @@ function envBoolean(defaultValue: boolean) {
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
 
 /**
- * Hard ceiling on the configured upload limit, 1 GiB.
+ * Hard ceiling on the configured upload limit, 32 MiB.
  *
  * The limit is what stops a request from filling the disk or the heap, and an
  * operator who mistypes it has removed that protection rather than relaxed it.
  * A bound the configuration cannot exceed keeps the failure a boot error.
+ *
+ * The ceiling is this low because an upload is held in memory in full while it
+ * is dealt with: the multipart parser reads it into a buffer, the type is
+ * identified from those bytes, a checksum is taken over them, and the S3 driver
+ * hashes them again to sign the request. One request therefore costs a small
+ * multiple of the file, and concurrent uploads multiply that again, so the
+ * ceiling is what a self-hosted instance in a modest container can survive
+ * rather than what a file format might justify. Raising it is a decision that
+ * belongs with an upload path that streams end to end.
  */
-const MAX_UPLOAD_CEILING_BYTES = 1024 * 1024 * 1024;
+const MAX_UPLOAD_CEILING_BYTES = 32 * 1024 * 1024;
 
 export const envSchema = z.object({
   NODE_ENV: z

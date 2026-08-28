@@ -117,6 +117,40 @@ function headersFor(file: ServedFile): Record<string, string> {
     "content-security-policy": "default-src 'none'; sandbox",
     // Shown, not downloaded: these are images in a page. The file name is
     // sanitised when it is stored.
-    "content-disposition": `inline; filename="${file.fileName}"`,
+    "content-disposition": contentDisposition(file.fileName),
   };
+}
+
+/**
+ * The Content-Disposition value for a file name.
+ *
+ * Two parameters, not one. A quoted `filename` carries only ASCII, and header
+ * values leave Node encoded as latin1, so "gard.png" survives and "gård.png"
+ * arrives as mojibake. Swedish file names are the ordinary case in a Swedish
+ * housing cooperative, so the name is also sent as the RFC 6266 `filename*`
+ * parameter in the RFC 5987 encoding, which every current browser prefers. The
+ * transliterated `filename` stays behind it for a client that reads only that.
+ */
+export function contentDisposition(fileName: string): string {
+  // Everything outside printable ASCII becomes an underscore rather than being
+  // dropped, so the fallback keeps the shape of the name and its extension.
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_");
+
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeExtendedValue(fileName)}`;
+}
+
+/**
+ * Percent-encoding for an RFC 5987 extended parameter value.
+ *
+ * encodeURIComponent is the right base but not the whole answer: it leaves
+ * ! ' ( ) * - . _ ~ unescaped, and of those the apostrophe, the parentheses
+ * and the asterisk are not attr-char. They are encoded here, because the
+ * apostrophe in particular is the parameter's own delimiter.
+ */
+function encodeExtendedValue(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (character) =>
+      `%${character.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  );
 }

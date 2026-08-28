@@ -1,3 +1,5 @@
+import { createServer, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { S3StorageDriver } from "./s3.driver";
@@ -124,5 +126,140 @@ describe("the S3 driver", () => {
     await expect(
       wrong.put("media/2026/08/five.png", Buffer.from("x"), "image/png"),
     ).rejects.toThrow(StorageError);
+  });
+});
+
+/**
+ * What a bucket that accepts the connection and then says nothing costs.
+ *
+ * A refused connection fails immediately and needs no help. The failure worth
+ * testing is the one that looks like a working endpoint: the socket is
+ * accepted, the request is sent, and no answer ever comes. Without a deadline
+ * the upload stays pending and holds the request that started it.
+ */
+describe("a bucket that does not answer", () => {
+  let held: ServerResponse[] = [];
+  let silent: Server;
+  let driverWithDeadline: S3StorageDriver;
+
+  beforeAll(async () => {
+    silent = createServer((_request, response) => {
+      // Kept rather than answered, and kept referenced so the socket is not
+      // collected and closed underneath the test.
+      held.push(response);
+    });
+    await new Promise<void>((resolve) => {
+      silent.listen(0, "127.0.0.1", resolve);
+    });
+
+    driverWithDeadline = new S3StorageDriver({
+      endpoint: `http://127.0.0.1:${String((silent.address() as AddressInfo).port)}`,
+      region: server.region,
+      bucket: server.bucket,
+      accessKeyId: server.accessKeyId,
+      secretAccessKey: server.secretAccessKey,
+      forcePathStyle: true,
+      // Short so the suite does not wait out the real one.
+      requestTimeoutMs: 150,
+    });
+  });
+
+  afterAll(async () => {
+    for (const response of held) {
+      response.destroy();
+    }
+    held = [];
+    silent.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      silent.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  });
+
+  it("gives up on an upload rather than waiting for the socket", async () => {
+    await expect(
+      driverWithDeadline.put(
+        "media/2026/08/held.png",
+        Buffer.from("x"),
+        "image/png",
+      ),
+    ).rejects.toThrow(StorageError);
+  });
+
+  it("gives up on a deletion too", async () => {
+    await expect(
+      driverWithDeadline.remove("media/2026/08/held.png"),
+    ).rejects.toThrow(StorageError);
+  });
+});
+
+/**
+ * A file that takes longer to send than the deadline allows for an answer.
+ *
+ * The deadline is on the answer, not on the transfer. A signal still armed
+ * once the headers are in would abort the body mid-flight and serve a
+ * truncated image, which is worse than the hang it was meant to prevent - so
+ * this states that a slow body is read to the end.
+ */
+describe("a bucket that answers and then sends slowly", () => {
+  let slow: Server;
+  let driverWithDeadline: S3StorageDriver;
+
+  const BODY = Buffer.from("porttavlan");
+  const CHUNK_DELAY_MS = 120;
+  const TIMEOUT_MS = 80;
+
+  beforeAll(async () => {
+    slow = createServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "image/png",
+        "content-length": String(BODY.length),
+      });
+      response.write(BODY.subarray(0, 4));
+      // After the deadline would have fired, had it not been cleared when the
+      // headers went out.
+      setTimeout(() => {
+        response.end(BODY.subarray(4));
+      }, CHUNK_DELAY_MS);
+    });
+    await new Promise<void>((resolve) => {
+      slow.listen(0, "127.0.0.1", resolve);
+    });
+
+    driverWithDeadline = new S3StorageDriver({
+      endpoint: `http://127.0.0.1:${String((slow.address() as AddressInfo).port)}`,
+      region: server.region,
+      bucket: server.bucket,
+      accessKeyId: server.accessKeyId,
+      secretAccessKey: server.secretAccessKey,
+      forcePathStyle: true,
+      requestTimeoutMs: TIMEOUT_MS,
+    });
+  });
+
+  afterAll(async () => {
+    slow.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      slow.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  });
+
+  it("reads the whole file even when it arrives after the deadline", async () => {
+    const read = await collect(
+      await driverWithDeadline.open("media/2026/08/slow.png"),
+    );
+
+    expect(read).toEqual(BODY);
   });
 });
