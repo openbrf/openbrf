@@ -624,6 +624,7 @@
         "transferredOn": "Datum",
         "from": "Från",
         "to": "Till",
+        "parties": "{{from}} → {{to}}",
         "price": "Pris",
         "agreement": "Avtal",
         "noAgreement": "Ingen avtalshänvisning registrerad",

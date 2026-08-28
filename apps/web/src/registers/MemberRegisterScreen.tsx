@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { NotRecorded } from "../ui/NotRecorded";
 import {
   CELL,
   DATA_CELL,
@@ -50,8 +51,15 @@ const SCOPES: readonly MemberRegisterScope[] = ["current", "all"];
  * but this extract is public on request: if a protected member's row ever
  * arrived carrying a visible address, printing it would be the one mistake on
  * this screen that cannot be taken back once the paper is handed over.
+ *
+ * Null when the register holds no address at all, which the cell renders as an
+ * empty one. That is a different statement from "protected", and the masked
+ * label is what says the difference.
  */
-function postalAddress(row: MemberRegisterRow, maskedLabel: string): string {
+function postalAddress(
+  row: MemberRegisterRow,
+  maskedLabel: string,
+): string | null {
   if (row.protectedPersonalData || row.postalAddress.state === "masked") {
     return row.postalAddress.state === "masked"
       ? (row.postalAddress.alternativePostalAddress ?? maskedLabel)
@@ -64,7 +72,7 @@ function postalAddress(row: MemberRegisterRow, maskedLabel: string): string {
       row.postalAddress.city,
     ]
       .filter((part): part is string => part !== null && part !== "")
-      .join(", ") || "-"
+      .join(", ") || null
   );
 }
 
@@ -227,20 +235,26 @@ export function MemberRegisterScreen(): ReactElement {
                         {postalAddress(
                           row,
                           t("registers.member.maskedAddress"),
+                        ) ?? <NotRecorded />}
+                      </td>
+                      <td className={DATA_CELL}>
+                        {row.apartments.length === 0 ? (
+                          <NotRecorded />
+                        ) : (
+                          row.apartments
+                            .map(
+                              (apartment) =>
+                                `${apartment.addressLabel} ${apartment.number}`,
+                            )
+                            .join(", ")
                         )}
                       </td>
                       <td className={DATA_CELL}>
-                        {row.apartments.length === 0
-                          ? "-"
-                          : row.apartments
-                              .map(
-                                (apartment) =>
-                                  `${apartment.addressLabel} ${apartment.number}`,
-                              )
-                              .join(", ")}
+                        {row.enteredOn ?? <NotRecorded />}
                       </td>
-                      <td className={DATA_CELL}>{row.enteredOn ?? "-"}</td>
-                      <td className={DATA_CELL}>{row.exitedOn ?? "-"}</td>
+                      <td className={DATA_CELL}>
+                        {row.exitedOn ?? <NotRecorded />}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

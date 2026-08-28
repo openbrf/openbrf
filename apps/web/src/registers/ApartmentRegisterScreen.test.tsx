@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import "../i18n";
+import i18n from "../i18n";
 import { ApartmentRegisterScreen } from "./ApartmentRegisterScreen";
 import type { ApartmentRegisterExtract } from "./registers-api";
 
@@ -165,6 +165,56 @@ describe("the board's copy", () => {
     expect(
       await screen.findByText("Ingen avtalshänvisning registrerad"),
     ).toBeTruthy();
+  });
+
+  it("takes the words between two transfer parties from the locale", async () => {
+    /*
+     * The transfer line names who gave up the tenant-ownership and who took it
+     * over. Written as one interpolated key rather than assembled in the
+     * component, so a locale decides the order and what stands between the two
+     * names; a connector written into the component would be the one part of a
+     * statutory document that cannot be translated.
+     *
+     * Proven by changing the key rather than by matching the string it renders
+     * today: an implementation that concatenated the names itself would still
+     * match the current wording, and would not survive this.
+     */
+    const key = "registers.apartment.transfers.parties";
+    const original = i18n.getResource("sv", "translation", key) as string;
+    i18n.addResource(
+      "sv",
+      "translation",
+      key,
+      "{{to}} tog over efter {{from}}",
+    );
+
+    try {
+      render(<ApartmentRegisterScreen />);
+
+      expect(
+        await screen.findByText("Anna Lindqvist tog over efter Karin Ohman"),
+      ).toBeTruthy();
+    } finally {
+      i18n.addResource("sv", "translation", key, original);
+    }
+  });
+
+  it("leaves a tenant-ownership that is still held unannounced", async () => {
+    /*
+     * heldUntil is null while the apartment is still held. The cell renders a
+     * dash hidden from assistive technology rather than a word: an empty cell
+     * already reads as empty, and a register this size would otherwise announce
+     * a placeholder on every current holder.
+     */
+    render(<ApartmentRegisterScreen />);
+
+    const holder = await screen.findByText("Anna Lindqvist");
+    const row = holder.closest("tr");
+    const cells = [...(row?.querySelectorAll("td") ?? [])];
+    const heldUntil = cells.at(-1);
+
+    expect(heldUntil?.textContent).toBe("-");
+    expect(heldUntil?.querySelector('[aria-hidden="true"]')).toBeTruthy();
   });
 
   it("does not offer the masked screen as one that may be shown to others", async () => {

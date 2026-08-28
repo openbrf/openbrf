@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
 import { ColourLegend } from "../theme/ColourLegend";
+import { NotRecorded } from "../ui/NotRecorded";
 import type { TranslationKey } from "../i18n/translation-key";
 import { type FloorGroup, groupByFloor, UNKNOWN_FLOOR } from "./floor-groups";
 import { SignRow } from "./SignChip";
@@ -81,17 +82,6 @@ const DATA_CELL = `${CELL} font-data text-data whitespace-nowrap text-register-i
 const DESKTOP_ONLY = "hidden sm:table-cell";
 const PAGE_BUTTON =
   "min-h-11 rounded-control border border-register-line px-4 text-label uppercase text-register-ink-muted focus-visible:outline-trust-register enabled:hover:text-register-ink disabled:opacity-50";
-
-/**
- * Marks a cell whose value the register does not hold.
- *
- * Hidden from assistive technology on purpose: a table cell that is empty
- * already reads as empty, and announcing "hyphen" in every such cell of a
- * register this size is noise rather than information.
- */
-function NotRecorded(): ReactElement {
-  return <span aria-hidden="true">-</span>;
-}
 
 function Tab({
   active,

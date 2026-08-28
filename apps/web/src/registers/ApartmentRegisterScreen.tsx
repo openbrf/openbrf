@@ -13,6 +13,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { NotRecorded } from "../ui/NotRecorded";
 import {
   CELL,
   DATA_CELL,
@@ -432,7 +433,9 @@ function ApartmentEntry({
                       )}
                     </td>
                     <td className={DATA_CELL}>{holder.heldFrom}</td>
-                    <td className={DATA_CELL}>{holder.heldUntil ?? "-"}</td>
+                    <td className={DATA_CELL}>
+                      {holder.heldUntil ?? <NotRecorded />}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -579,7 +582,12 @@ function ApartmentEntry({
                   {transfer.transferredOn}
                 </span>
                 <span className="text-body text-ink">
-                  {`${transfer.fromName ?? t("registers.apartment.transfers.firstGrant")} → ${transfer.toName}`}
+                  {t("registers.apartment.transfers.parties", {
+                    from:
+                      transfer.fromName ??
+                      t("registers.apartment.transfers.firstGrant"),
+                    to: transfer.toName,
+                  })}
                 </span>
                 {transfer.price === null ? null : (
                   <span className="font-data text-data text-ink-muted">

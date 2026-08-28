@@ -13,6 +13,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { NotRecorded } from "../ui/NotRecorded";
 import {
   applyImport,
   fetchActiveImport,
@@ -694,9 +695,11 @@ function PreviewRow({
         </span>
       </td>
       <td className={DATA_CELL}>
-        {row.apartment === null
-          ? "-"
-          : `${row.apartment.addressLabel} ${row.apartment.number}`}
+        {row.apartment === null ? (
+          <NotRecorded />
+        ) : (
+          `${row.apartment.addressLabel} ${row.apartment.number}`
+        )}
       </td>
       <td className={`${CELL} text-small text-ink-muted`}>
         {row.outcome === "ambiguous" ? (
@@ -732,7 +735,7 @@ function PreviewRow({
             </select>
           </label>
         ) : row.problems.length === 0 ? (
-          "-"
+          <NotRecorded />
         ) : (
           <ul className="flex flex-col gap-1">
             {row.problems.map((problem) => (

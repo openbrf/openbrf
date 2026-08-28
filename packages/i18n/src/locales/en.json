@@ -624,6 +624,7 @@
         "transferredOn": "Date",
         "from": "From",
         "to": "To",
+        "parties": "{{from}} → {{to}}",
         "price": "Price",
         "agreement": "Agreement",
         "noAgreement": "No agreement reference recorded",
