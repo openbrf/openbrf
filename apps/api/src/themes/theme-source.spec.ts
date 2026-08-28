@@ -177,14 +177,15 @@ describe("CatalogThemeSource", () => {
 });
 
 /**
- * A host that does not answer.
+ * A host that goes quiet.
  *
  * The byte caps bound how much a catalog may send, not how long it may take to
  * send it. The install runs inline in the request, so a host that completes the
  * handshake and then goes quiet would hold the request handler and its database
  * connection for as long as it liked. Both halves of the exchange therefore run
  * under one deadline, and reaching it is an unreachable catalog rather than a
- * server fault.
+ * server fault. Each half is tested: a handshake that never completes and a
+ * body that never arrives fail on the same terms.
  */
 describe("a catalog over HTTP", () => {
   afterEach(() => {
@@ -192,14 +193,14 @@ describe("a catalog over HTTP", () => {
     vi.useRealTimers();
   });
 
-  it("abandons a host that answers and then goes quiet", async () => {
+  it("abandons a host that never answers", async () => {
     vi.useFakeTimers();
 
     let signal: AbortSignal | undefined;
     vi.stubGlobal("fetch", (_input: unknown, init: RequestInit) => {
       signal = init.signal ?? undefined;
-      // A host that completes the handshake and then sends nothing: this
-      // request settles only if something abandons it.
+      // A host that accepts the connection and never completes the handshake:
+      // this request settles only if something abandons it.
       return new Promise<Response>((_resolve, reject) => {
         init.signal?.addEventListener("abort", () => {
           reject(init.signal?.reason);
@@ -217,6 +218,57 @@ describe("a catalog over HTTP", () => {
     // A moment short of the deadline the request is still open: the byte caps
     // bound how much a host may send, not how long it may take.
     await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS - 1);
+    expect(signal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await refused;
+  });
+
+  it("abandons a host that answers and then sends nothing", async () => {
+    vi.useFakeTimers();
+
+    let signal: AbortSignal | undefined;
+    let reading = false;
+    vi.stubGlobal("fetch", (_input: unknown, init: RequestInit) => {
+      signal = init.signal ?? undefined;
+      // The other half of the exchange. The headers land, so a deadline that
+      // stopped mattering once the response arrived would leave this body read
+      // pending for as long as the host cared to hold it - and with it the
+      // request handler and its database connection.
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init.signal?.addEventListener(
+                "abort",
+                () => {
+                  controller.error(init.signal?.reason);
+                },
+                { once: true },
+              );
+            },
+            pull() {
+              // Nothing enqueued and nothing closed: the read settles only when
+              // the deadline errors the stream.
+              reading = true;
+            },
+          }),
+        ),
+      );
+    });
+
+    const listing = sourceOver(
+      "https://catalog.example.com/catalog.json",
+    ).listThemes();
+    const refused = expect(listing).rejects.toMatchObject({
+      reason: "catalog-unreachable",
+    });
+
+    // The body is being read, which is the half of the exchange a deadline
+    // cleared at the response would already have stopped covering.
+    await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS - 1);
+    expect(reading).toBe(true);
     expect(signal?.aborted).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
