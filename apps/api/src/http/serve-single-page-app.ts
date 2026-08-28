@@ -20,9 +20,18 @@ import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 
 const logger = new Logger("SinglePageApp");
 
-/** Requests that belong to the API and must never receive index.html. */
-function isApiRequest(url: string): boolean {
-  return url === "/health" || url.startsWith("/api/") || url === "/api";
+/**
+ * Requests that belong to the API and must never receive index.html.
+ *
+ * The request URL carries the query string and this decision is about the path
+ * alone, so anything from the first `?` or `#` is cut off first. Without that,
+ * `/api?x=1` would not be recognised as an API request and would be answered
+ * with the client's index.html rather than with the JSON 404.
+ */
+export function isApiRequest(url: string): boolean {
+  const separator = url.search(/[?#]/);
+  const path = separator === -1 ? url : url.slice(0, separator);
+  return path === "/health" || path === "/api" || path.startsWith("/api/");
 }
 
 export async function serveSinglePageApp(
