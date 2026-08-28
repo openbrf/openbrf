@@ -118,6 +118,30 @@ export const stack = {
   smtpPort: 1025,
 } as const;
 
+/**
+ * Where the single-page application lives, under the origin.
+ *
+ * The API serves the association's own public pages at the root, so everything
+ * the client router owns sits below one prefix. It is written once here rather
+ * than spelled out at every navigation, because a suite that hard-codes the
+ * prefix in fifty places is a suite that cannot be told the prefix moved.
+ */
+export const APP_BASE_PATH = "/app";
+
+/**
+ * A client route as a path to navigate to.
+ *
+ * Leading-slash paths resolve against `use.baseURL`, which stays the origin -
+ * the API helpers address `${stack.baseUrl}/api/...` at the root and must keep
+ * doing so. Only the client's own routes go through here.
+ */
+export function appPath(path = ""): string {
+  if (path === "" || path === "/") {
+    return APP_BASE_PATH;
+  }
+  return `${APP_BASE_PATH}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 function compose(args: readonly string[], timeoutMs: number): void {
   execFileSync("docker", [...COMPOSE_ARGS, ...args], {
     cwd: repositoryRoot,
