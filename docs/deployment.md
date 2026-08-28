@@ -58,7 +58,7 @@ The entrypoint runs, in this order, before the application listens:
 
 1. The data volume's directories are created and checked for writability.
 2. The field encryption key is provisioned if, and only if, this is a genuine
-   first boot. See [ADR 0006](adr/0006-encryption-key-provisioning.md) and
+   first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 3. Database migrations are applied, as the schema owner.
 4. The job queue schema is installed or migrated, as the owner.

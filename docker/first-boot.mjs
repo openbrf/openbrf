@@ -1,7 +1,7 @@
 // Provisions the field encryption key on a genuine first boot, and refuses to
 // provision one on any other boot.
 //
-// The application will not generate a key in production (ADR 0006): a fresh key
+// The application will not generate a key in production (ADR 0004): a fresh key
 // on an instance that already holds ciphertext would make every encrypted field
 // permanently unreadable, and the commonest cause of a missing key file is a
 // data volume that was not mounted. Only the entrypoint can tell those two

@@ -107,7 +107,7 @@ export async function verifySecondFactor(input: {
  * discoverable, so the authenticator itself decides which account is being
  * signed into and proves possession of the private key in one step. A passkey
  * is phishing-resistant, so it is the one method that carries no second factor
- * of its own (see the 2FA policy in ADR 0007).
+ * of its own (see the 2FA policy in ADR 0005).
  *
  * A viewer who dismisses the browser's prompt, or lets it time out, is not
  * reporting a problem with their account, so that case is separated from a

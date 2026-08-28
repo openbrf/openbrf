@@ -1,4 +1,4 @@
-# ADR 0007: Authentication, the account model and the 2FA policy
+# ADR 0005: Authentication, the account model and the 2FA policy
 
 Date: 2026-08-28
 

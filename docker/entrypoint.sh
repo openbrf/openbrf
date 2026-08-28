@@ -3,7 +3,7 @@
 # safe, before the application takes over as pid 1's child.
 #
 #   1. the data volume exists and is writable
-#   2. a field encryption key exists (ADR 0006)
+#   2. a field encryption key exists (ADR 0004)
 #   3. the schema is migrated, as the owner
 #   4. the job queue schema is installed, as the owner
 #   5. the runtime role is created and constrained, as the owner

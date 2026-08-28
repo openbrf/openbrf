@@ -1,4 +1,4 @@
-# ADR 0006: Encryption key provisioning and custody
+# ADR 0004: Encryption key provisioning and custody
 
 Date: 2026-08-28
 

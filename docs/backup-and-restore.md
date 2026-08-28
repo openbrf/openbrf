@@ -122,5 +122,5 @@ housing cooperative is legally obliged to retain and to produce on request.
 
 There is none yet. Rotating the field encryption key means decrypting every
 encrypted column and every blind index and rewriting them under a new key, and
-that tooling is deliberately out of phase 1 (ADR 0002, ADR 0006). Until it
+that tooling is deliberately out of phase 1 (ADR 0002, ADR 0004). Until it
 exists, treat the key as permanent: back it up, and do not change it.
