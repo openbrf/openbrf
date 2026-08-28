@@ -254,8 +254,9 @@ foundation.
       the association's books. Open BRF holds the basis for the charge, not
       the ledger: it never records a payment and never carries an outstanding
       balance, because the accounting system is where a debt is settled and a
-      second answer to "has this been paid" is worse than none. A charge names
-      a person and a sum, so it sits in the service tier under the same access
+      second answer to "has this been paid" is worse than none. A charge ties a
+      sum to a member or to an apartment, and an apartment leads back to the
+      people holding it, so it sits in the service tier under the same access
       control, masking and audit log as the rest, and it is never public
 - [ ] Reporting to Lantmäteriet's cooperative housing register
       (bostadsrättsregister). Not a single export but a standing duty: an
