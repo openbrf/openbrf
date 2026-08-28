@@ -574,7 +574,7 @@
       "title": "The theme installed with remarks:"
     },
     "lint": {
-      "statutory": "This pair is one the statutory register is read on.",
+      "statutory": "This colour pair is used for the statutory register.",
       "unrecognised": "The theme was refused by a rule this version does not recognise: {{rule}}.",
       "reservedId": "{{themeId}} is the default theme's name and is reserved.",
       "selfExtends": "{{themeId}} states that it inherits from itself.",
