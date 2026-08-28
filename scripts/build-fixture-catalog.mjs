@@ -54,12 +54,32 @@ const DESCRIPTION = {
   en: "Shows the number of apartments, residents and members in the cooperative.",
 };
 
+/**
+ * The environment the fixture's own toolchain builds in.
+ *
+ * This script is run both by hand and as a child of the integration suites,
+ * and a test runner announces itself in the environment it hands its children:
+ * `VITEST`, `JEST_WORKER_ID`, `NODE_ENV=test`. Build tools read those markers
+ * and change what they do - the Module Federation plugin disables itself
+ * outright, which leaves the view build with no entry point to emit and no
+ * remote entry in `dist`. What is built here is a package, not a test, so it
+ * is given a build environment rather than the caller's.
+ */
+const buildEnv = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([name]) => !name.startsWith("VITEST") && !name.startsWith("JEST"),
+  ),
+);
+// Left unset rather than forced to `production`, which pnpm reads as `--prod`
+// and would install none of the devDependencies the fixture builds with.
+if (buildEnv.NODE_ENV === "test") delete buildEnv.NODE_ENV;
+
 function run(command, args, cwd) {
-  execFileSync(command, args, { cwd, stdio: "inherit" });
+  execFileSync(command, args, { cwd, env: buildEnv, stdio: "inherit" });
 }
 
 function capture(command, args, cwd) {
-  return execFileSync(command, args, { cwd, encoding: "utf8" });
+  return execFileSync(command, args, { cwd, env: buildEnv, encoding: "utf8" });
 }
 
 // The SDK is a build-time dependency of the fixture's server source, which
@@ -75,12 +95,31 @@ if (!existsSync(sdkTypes)) {
 console.log("Installing the fixture's build dependencies.");
 run("pnpm", ["install", "--ignore-workspace"], pluginDir);
 
+const manifestSource = JSON.parse(
+  readFileSync(join(pluginDir, "package.json"), "utf8"),
+);
+const manifest = manifestSource.openbrf;
+
 rmSync(distDir, { recursive: true, force: true });
 
 // The view first. Vite owns the whole output directory while it runs, so the
 // server bundle is emitted into it afterwards.
 console.log("Building the Module Federation remote entry.");
 run("pnpm", ["exec", "vite", "build"], pluginDir);
+
+// The remote entry is emitted by the federation plugin rather than named as a
+// build input, so a build that ran without that plugin reports success and
+// leaves nothing behind. The host fetches this file by the name the manifest
+// declares, so an absent one is settled here rather than as a suite that fails
+// while setting itself up.
+const clientEntry = join(pluginDir, manifest.entry.client);
+if (!existsSync(clientEntry)) {
+  throw new Error(
+    `The view build emitted no ${clientEntry}. The manifest declares ` +
+      `${manifest.entry.client} as the plugin's client entry, and the host ` +
+      "serves the view from it by that name.",
+  );
+}
 
 // From the fixture's own directory, like every other command here. Run from
 // the repository root it would resolve the workspace's compiler, which is not
@@ -156,11 +195,6 @@ const tarball = join(artifactsDir, packResult.filename);
 
 const bytes = readFileSync(tarball);
 const digest = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
-
-const manifestSource = JSON.parse(
-  readFileSync(join(pluginDir, "package.json"), "utf8"),
-);
-const manifest = manifestSource.openbrf;
 
 const catalog = {
   version: 1,
