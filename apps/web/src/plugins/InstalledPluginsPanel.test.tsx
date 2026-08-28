@@ -50,13 +50,16 @@ function pluginWith(overrides: Partial<PluginSummary> = {}): PluginSummary {
   };
 }
 
+const onChanged = vi.fn();
+const onRestarting = vi.fn();
+
 function renderPanel(plugins: PluginSummary[], editable = true) {
   return render(
     <InstalledPluginsPanel
       plugins={plugins}
       editable={editable}
-      onChanged={vi.fn()}
-      onRestarting={vi.fn()}
+      onChanged={onChanged}
+      onRestarting={onRestarting}
     />,
   );
 }
@@ -64,6 +67,8 @@ function renderPanel(plugins: PluginSummary[], editable = true) {
 const removeButton = () => screen.getByRole("button", { name: "Ta bort" });
 
 beforeEach(() => {
+  onChanged.mockReset();
+  onRestarting.mockReset();
   setPluginEnabled
     .mockReset()
     .mockResolvedValue({ ok: true, value: { restarting: true } });
@@ -90,7 +95,7 @@ describe("a row", () => {
 
     expect(
       screen.getByText(
-        "Läsa namn, lägenheter och roller i boendet; Skicka e-post via föreningens egen server",
+        "Läsa namn, lägenheter och vem som är boende och vem som är medlem; Skicka e-post via föreningens egen server",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Namn; E-postadress")).toBeTruthy();
@@ -251,6 +256,45 @@ describe("switching a plugin", () => {
     await waitFor(() => {
       expect(setPluginEnabled).toHaveBeenCalledWith("grannsamverkan", true);
     });
+  });
+});
+
+/**
+ * What an action that ends in a restart must not do.
+ *
+ * The server answered the request and is now draining the connection it came
+ * in on, so a read at that moment is a read against a process that is going
+ * away. Its failure would put a "could not be read" notice on a row for an
+ * action that worked, which is the screen telling a board the opposite of what
+ * happened. The screen's restart poll does the read once the replacement
+ * answers.
+ */
+describe("an action the server restarts for", () => {
+  it("hands over to the restart poll rather than reading again", async () => {
+    const session = userEvent.setup();
+    renderPanel([pluginWith()]);
+
+    await session.click(screen.getByRole("button", { name: "Stäng av" }));
+
+    await waitFor(() => {
+      expect(onRestarting).toHaveBeenCalledOnce();
+    });
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("reads again when no restart was asked for", async () => {
+    // The other half: an action that changed something without replacing the
+    // process still has to refresh the row it changed.
+    setPluginEnabled.mockResolvedValue({ ok: true, value: {} });
+    const session = userEvent.setup();
+    renderPanel([pluginWith()]);
+
+    await session.click(screen.getByRole("button", { name: "Stäng av" }));
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledOnce();
+    });
+    expect(onRestarting).not.toHaveBeenCalled();
   });
 });
 

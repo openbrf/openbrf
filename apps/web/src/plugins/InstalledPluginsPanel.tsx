@@ -122,7 +122,13 @@ function InstalledPluginRow({
       return;
     }
     if (outcome.restarting === true) {
+      // No read here. The server answered this request and is now draining the
+      // connection it came in on, so a read now is a read against a process
+      // that is going away - and its failure would put a "could not be read"
+      // notice on a row for an action that worked. The screen's restart poll
+      // performs the read once the replacement answers.
       onRestarting();
+      return;
     }
     onChanged();
   };
