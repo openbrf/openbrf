@@ -1,8 +1,10 @@
 import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "@openbrf/tokens";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ApiResult } from "../api/client";
 import type { ThemeRendering } from "../api/themes";
 import {
   ThemeRuntimeProvider,
@@ -11,7 +13,7 @@ import {
 } from "./theme-runtime-context";
 
 /**
- * The view-variant mechanism.
+ * The view-variant mechanism, and which read decides what is rendered.
  *
  * A theme may choose among layouts the core maintains; it may not ship one.
  * What a view asks for is therefore always answered with a layout that exists:
@@ -50,9 +52,51 @@ function Variant(): ReactElement {
   );
 }
 
+function renderingNamed(name: string): ThemeRendering {
+  return {
+    ...renderingWith({ memberRegister: "table" }),
+    id: name.toLowerCase(),
+    name,
+  };
+}
+
 function ActiveName(): ReactElement {
   const { applied } = useThemeRuntime();
   return <span data-testid="applied">{applied?.name ?? "loading"}</span>;
+}
+
+/** A read of the active theme that answers only when the test says so. */
+function pendingRead(): {
+  promise: Promise<ApiResult<ThemeRendering>>;
+  answer: (rendering: ThemeRendering) => void;
+} {
+  let settle: ((result: ApiResult<ThemeRendering>) => void) | undefined;
+  const promise = new Promise<ApiResult<ThemeRendering>>((resolve) => {
+    settle = resolve;
+  });
+  return {
+    promise,
+    answer: (rendering) => {
+      settle?.({ ok: true, value: rendering });
+    },
+  };
+}
+
+/** Stands in for the theme screen: it shows what is applied, and reloads. */
+function Reloader(): ReactElement {
+  const { applied, reload } = useThemeRuntime();
+  return (
+    <>
+      <span data-testid="applied">{applied?.name ?? "loading"}</span>
+      <button
+        type="button"
+        data-testid="reload"
+        onClick={() => {
+          void reload();
+        }}
+      />
+    </>
+  );
 }
 
 beforeEach(() => {
@@ -122,6 +166,94 @@ describe("useViewVariant", () => {
     );
 
     expect(screen.getByTestId("dashboard").textContent).toBe("none");
+  });
+});
+
+/**
+ * Two reads in flight at once.
+ *
+ * The provider reads the active theme on mount, and the theme screen asks for
+ * another read the moment an activation succeeds. Both go to the same endpoint,
+ * and nothing makes the answers arrive in the order they were sent.
+ */
+describe("an older read that answers after a newer one", () => {
+  it("does not put back the theme the newer read replaced", async () => {
+    const onMount = pendingRead();
+    const afterActivation = pendingRead();
+    fetchActiveTheme
+      .mockReturnValueOnce(onMount.promise)
+      .mockReturnValueOnce(afterActivation.promise);
+
+    const session = userEvent.setup();
+    render(
+      <ThemeRuntimeProvider>
+        <Reloader />
+      </ThemeRuntimeProvider>,
+    );
+
+    // The activation's read starts while the mount read is still open.
+    await session.click(screen.getByTestId("reload"));
+
+    await act(async () => {
+      afterActivation.answer(renderingNamed("Activated"));
+      await afterActivation.promise;
+    });
+    expect(screen.getByTestId("applied").textContent).toBe("Activated");
+
+    // The mount read finally answers, carrying the theme that was active
+    // before the activation.
+    await act(async () => {
+      onMount.answer(renderingNamed("Previous"));
+      await onMount.promise;
+    });
+    expect(screen.getByTestId("applied").textContent).toBe("Activated");
+  });
+
+  it("still tells its own caller that it landed", async () => {
+    const onMount = pendingRead();
+    const afterActivation = pendingRead();
+    fetchActiveTheme
+      .mockReturnValueOnce(onMount.promise)
+      .mockReturnValueOnce(afterActivation.promise);
+
+    let landed: boolean | undefined;
+    function Overtaken(): ReactElement {
+      const { reload } = useThemeRuntime();
+      return (
+        <button
+          type="button"
+          data-testid="reload"
+          onClick={() => {
+            void reload().then((result) => {
+              landed = result;
+            });
+          }}
+        />
+      );
+    }
+
+    const session = userEvent.setup();
+    render(
+      <ThemeRuntimeProvider>
+        <Overtaken />
+      </ThemeRuntimeProvider>,
+    );
+
+    // A third read overtakes the one the button started.
+    await session.click(screen.getByTestId("reload"));
+    fetchActiveTheme.mockResolvedValue({
+      ok: true,
+      value: renderingNamed("Newest"),
+    });
+    await session.click(screen.getByTestId("reload"));
+
+    await act(async () => {
+      afterActivation.answer(renderingNamed("Overtaken"));
+      await afterActivation.promise;
+    });
+    expect(landed).toBe(true);
+
+    onMount.answer(renderingNamed("Previous"));
   });
 });
 

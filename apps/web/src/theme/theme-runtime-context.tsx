@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactElement,
   type ReactNode,
@@ -53,48 +54,46 @@ export function ThemeRuntimeProvider({
   const [previewing, setPreviewing] = useState<ThemeRendering | null>(null);
 
   /**
-   * Reads the active theme, or null when the read failed.
+   * The number of the newest read, so an older one cannot commit.
    *
-   * A failure is not reported to the viewer: the generated default stylesheet
-   * is already in the document, so the interface stays styled, and nobody
-   * asked for this read.
+   * The read this provider starts on mount and the read an activation asks for
+   * go to the same endpoint at the same time, and nothing makes the answers
+   * come back in the order they were sent. Without this, a mount read that
+   * captured the theme active before the activation and landed after it would
+   * put that theme back, and a board member would watch the one they just
+   * activated disappear.
    */
-  const read = useCallback(async (): Promise<ThemeRendering | null> => {
-    const result = await fetchActiveTheme();
-    return result.ok ? result.value : null;
-  }, []);
+  const newestRead = useRef(0);
 
   /**
    * Re-reads the active theme, answering whether the read landed.
    *
-   * The rendering already applied is kept rather than cleared, because dropping
-   * it would repaint every open page over a moment of network trouble. What the
+   * A failure is not reported to the viewer here: the generated default
+   * stylesheet is already in the document, so the interface stays styled. The
+   * rendering already applied is kept rather than cleared, because dropping it
+   * would repaint every open page over a moment of network trouble. What the
    * caller gets instead is the failure: after an activation this browser is a
    * version behind what the instance renders, and only the screen that asked
    * for the activation is in a position to say so.
+   *
+   * A read a later one has overtaken still answers its own caller. What it does
+   * not do is decide what is rendered, which belongs to the newest read.
    */
   const reload = useCallback(async (): Promise<boolean> => {
-    const rendering = await read();
-    if (rendering === null) {
+    const read = (newestRead.current += 1);
+    const result = await fetchActiveTheme();
+    if (!result.ok) {
       return false;
     }
-    setActive(rendering);
+    if (read === newestRead.current) {
+      setActive(result.value);
+    }
     return true;
-  }, [read]);
+  }, []);
 
   useEffect(() => {
-    // The effect owns its own call and drops a response that arrives after the
-    // provider is gone.
-    let live = true;
-    void read().then((rendering) => {
-      if (live && rendering !== null) {
-        setActive(rendering);
-      }
-    });
-    return () => {
-      live = false;
-    };
-  }, [read]);
+    void reload();
+  }, [reload]);
 
   // One effect owns what is on the document, so the preview and the active
   // theme cannot both write to it and disagree about which won.
