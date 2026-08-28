@@ -97,9 +97,15 @@ locally the application runs from source beside the PostgreSQL that
       because a first-boot wizard that stayed open would be a way to create an
       account on an instance holding a statutory register
 - [x] Settings: housing cooperative, addresses and apartments, appearance and
-      the accent colour, email, retention, sign-up requests, your own profile,
-      and sign-in security. The board can read the instance settings it answers
-      for; changing them stays with an admin
+      the accent colour, email, retention, sign-up requests with the board's
+      queue for deciding them, your own profile, and sign-in security. The board
+      can read the instance settings it answers for; changing them stays with an
+      admin. A waiting request shows the address and apartment the applicant
+      typed, exactly as they typed it, beside the register's own addresses: the
+      board matches the claim to a real apartment and approves it, or turns it
+      away with a reason. Approving creates the person, the residency and the
+      invitation; the public form that feeds the queue is at /request-account
+      and says plainly that nothing is created until somebody approves it
 - [x] Uploading the housing cooperative's logo, in settings and in the wizard's
       appearance step. Two slots, because the band is dark and a mark drawn in
       dark ink disappears on it: a variant for dark surfaces is optional, and
@@ -156,8 +162,10 @@ locally the application runs from source beside the PostgreSQL that
       phase 1 exit criteria: first boot through the wizard; password sign-in,
       passkey and authenticator app enrolment and signing in with each;
       invitations for a member, a resident and an external board member with no
-      apartment, plus a sign-in link by email; self-signup with the toggle on
-      and the endpoint closed with it off; the address book with its house tabs,
+      apartment, plus a sign-in link by email; self-signup through the public
+      form, approved from the board's queue against a real apartment and
+      turned away with a reason, and closed in both the screen and the
+      endpoint with the toggle off; the address book with its house tabs,
       floor grouping, filter tabs, signs, legend and register stamp in light,
       dark and follow-the-system; and protected personal data staying masked
       with every reveal landing in the audit log. The remaining seven have no

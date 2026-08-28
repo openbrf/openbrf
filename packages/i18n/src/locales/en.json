@@ -248,7 +248,8 @@
       "secondFactorExpired": "That took too long. Start again with your email address and password.",
       "passkeyCancelled": "No passkey was used, so nobody signed in. Try again, or use your password.",
       "unknown": "Signing in did not work just now. Please try again."
-    }
+    },
+    "requestAccount": "Request an account"
   },
   "app": {
     "loading": "Loading",
@@ -535,6 +536,32 @@
       "warn": "Note",
       "danger": "Problem",
       "info": "Information"
+    },
+    "signupQueue": {
+      "title": "Pending requests",
+      "description": "A request stays here until a board member has matched it against the register. Approving creates the person, the residency and an invitation; rejecting creates nothing.",
+      "empty": "No requests are waiting.",
+      "loading": "Loading the requests...",
+      "loadFailed": "The requests could not be read just now. Reload the page.",
+      "requestedOn": "Received",
+      "claimedLabel": "Stated address and apartment",
+      "selectAddress": "Address in the register",
+      "selectApartment": "Apartment in the register",
+      "apartmentRequired": "Choose an apartment",
+      "approve": "Approve",
+      "approving": "Approving...",
+      "approved": "The request is approved. An invitation is on its way to {{email}}.",
+      "reject": "Reject",
+      "rejecting": "Rejecting...",
+      "rejected": "The request is rejected. Nothing was created.",
+      "rejectReason": "Reason (optional)",
+      "errors": {
+        "alreadyDecided": "Somebody has already decided that request. The list has been read again.",
+        "notFound": "That request is gone - a newer one from the same address replaces it. The list has been read again.",
+        "apartmentNotFound": "That apartment is no longer in the register. Reload the page and choose again.",
+        "mailNotConfigured": "The request is approved and the person is in the register, but the invitation could not be sent: this instance has no email server. Set one up under Email and send the invitation from the person's own view.",
+        "unknown": "The request could not be decided just now. Please try again."
+      }
     }
   },
   "plugins": {
@@ -1127,6 +1154,26 @@
         "movedInOn": "Moved in on",
         "movedOutOn": "Moved out on"
       }
+    }
+  },
+  "signup": {
+    "title": "Request an account",
+    "intro": "Fill in your details and the board will consider the request. Nothing is created until a board member has approved it.",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "email": "Email address",
+    "phone": "Phone number (optional)",
+    "address": "Address",
+    "apartmentNumber": "Apartment number",
+    "freeTextHint": "Write the address and the apartment number as they stand in the entrance. The board matches them against the register when it considers the request.",
+    "submit": "Send the request",
+    "working": "Sending...",
+    "receivedTitle": "The request has been received",
+    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. A new request from the same email address replaces this one.",
+    "closed": "This housing cooperative is not accepting account requests at the moment. Ask the board, who can invite you instead.",
+    "errors": {
+      "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",
+      "unknown": "The request could not be sent just now. Please try again."
     }
   }
 }

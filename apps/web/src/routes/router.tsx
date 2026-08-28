@@ -14,6 +14,7 @@ import { ImportRoute } from "./ImportRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
+import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
@@ -68,6 +69,27 @@ const signInRoute = createRoute({
     }
   },
   component: SignInRoute,
+});
+
+/**
+ * The public request-an-account form.
+ *
+ * Signed-in visitors are sent away exactly as they are from the sign-in screen:
+ * they already have the account this form asks for. There is no unclaimed-
+ * instance redirect beside it, because self-signup is off until a board
+ * switches it on - a fresh instance therefore answers "closed" here on its own,
+ * and the wizard has nothing to offer somebody who wants an account on a
+ * cooperative that does not exist yet.
+ */
+const requestAccountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/request-account",
+  beforeLoad: async () => {
+    if (await hasSession()) {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: RequestAccountRoute,
 });
 
 /**
@@ -189,6 +211,7 @@ const importRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
+  requestAccountRoute,
   setupRoute,
   settingsRoute,
   pluginsRoute,
