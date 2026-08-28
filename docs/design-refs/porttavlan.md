@@ -164,6 +164,6 @@ in a register column, where the row below carries more of the same data.
 
 The design's stamp reads "Utdrag ur medlemsförteckningen". The address book
 carries members and non-member residents together, while the member register
-under EFL 5 kap. carries members only and is public on request. The stamp
-therefore names the address book, and `stampKey` is a prop so the member
-register view can pass its own.
+under BRL 9 kap. 9 § carries members only and is held available to anyone who
+asks. The stamp therefore names the address book, and `stampKey` is a prop so
+the member register view can pass its own.
