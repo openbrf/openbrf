@@ -1,11 +1,11 @@
 # Roadmap and status
 
-**Can I run this in my housing cooperative today? No.** There is a sign-in and
-an application frame, but nothing behind them yet: no register, no setup wizard,
-no way to invite anyone. The foundations underneath are built and tested, and
-what a board member or a resident can actually do with the interface today is
-sign in and look at an empty frame. The project is not ready to hold your
-housing cooperative's data.
+**Can I run this in my housing cooperative today? No.** A first boot now walks
+you through creating the housing cooperative, its addresses and its apartments,
+and the settings screens are there - but the register itself is not. There is
+nowhere to enter a person, nothing to look up, and no way to invite anyone until
+the address book lands. The foundations underneath are built and tested. The
+project is not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -48,9 +48,10 @@ reachable without an interface, and the one unchecked row says why.
 - [x] Append-only audit log, written in the same transaction as the access it
       records
 - [x] Sign-in with password, magic link and TOTP
-- [ ] Sign-in with passkeys (WebAuthn): implemented, but not yet covered by
-      tests. Driving a WebAuthn authenticator needs the end-to-end suite,
-      so this stays unticked until that exists
+- [ ] Sign-in with passkeys (WebAuthn): implemented, and a passkey can now be
+      enrolled and removed from the security settings. Signing in with one is
+      still not covered by tests - driving a WebAuthn authenticator needs the
+      end-to-end suite - so this stays unticked until that exists
 - [x] Invitation-based account activation
 - [x] Board-approved self-signup requests
 - [x] Capability-based authorization, protected by default
@@ -68,21 +69,34 @@ reachable without an interface, and the one unchecked row says why.
 ### The interface
 
 Under way. This is the gap between the list above and anything usable.
-There is now a frame and a way in; the screens that do the housing
-cooperative's work are still ahead.
+There is now a frame, a way in, and a way to configure the instance; the
+screens that do the housing cooperative's work are still ahead.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
 - [x] Sign-in with a password or an emailed link, with routes closed to
       anyone without a session
-- [ ] First-boot setup wizard: housing cooperative, addresses, apartments, SMTP,
-      branding
-- [ ] Settings, including per-user light and dark mode
+- [x] First-boot setup wizard: the first administrator, the housing
+      cooperative, any number of street addresses, apartments generated on
+      Lantmäteriet numbering and edited before they are saved, SMTP with a test
+      send, and the accent colour. Every step after the administrator account
+      and the name can be skipped and finished later in settings. The wizard is
+      public only while the instance is unclaimed - no account exists and setup
+      has never been completed - and admin-only from its second screen onwards,
+      because a first-boot wizard that stayed open would be a way to create an
+      account on an instance holding a statutory register
+- [x] Settings: housing cooperative, addresses and apartments, appearance and
+      the accent colour, email, retention, sign-up requests, your own profile,
+      and sign-in security. The board can read the instance settings it answers
+      for; changing them stays with an admin
+- [ ] Uploading the housing cooperative's logo. The accent colour is in place;
+      the logo needs an upload path and file serving that do not exist yet
 - [x] The address book itself: the board per the design system, with house
       tabs, floor-grouped rows, filter tabs, search, the colour-as-law legend
       and a register stamp; a person and an apartment view; the
       resident-facing variant with no contact column at all; and the audited
       reveal for masked fields
+
 - [ ] Member register and apartment register views, with printable extracts
 - [ ] Move-in and move-out flows
 - [ ] Import from CSV and Excel with column mapping

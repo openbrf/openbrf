@@ -11,6 +11,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:int": "turbo run test:int",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "changeset": "changeset",

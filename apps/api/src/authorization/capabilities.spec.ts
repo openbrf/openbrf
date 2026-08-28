@@ -44,6 +44,7 @@ describe("admin", () => {
 
 describe("board member", () => {
   it.each<Capability>([
+    "association:read",
     "addressBook:read",
     "addressBook:write",
     "memberRegister:read",
@@ -55,9 +56,11 @@ describe("board member", () => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
 
-  it("cannot manage the association", () => {
-    // Settings, plugins and themes stay with an admin, so a board seat alone
-    // cannot reconfigure the instance.
+  it("can read the settings without being able to change them", () => {
+    // The board answers for the retention policy and the self-signup toggle,
+    // so it must be able to see them. Settings, plugins and themes stay with
+    // an admin, so a board seat alone cannot reconfigure the instance.
+    expect(can({ isBoardMember: true }, "association:read")).toBe(true);
     expect(can({ isBoardMember: true }, "association:manage")).toBe(false);
   });
 });
@@ -75,6 +78,7 @@ describe("property manager", () => {
     "protectedData:reveal",
     "residentDirectory:read",
     "association:manage",
+    "association:read",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -104,6 +108,7 @@ describe("resident and member", () => {
     "apartmentRegister:read",
     "protectedData:reveal",
     "association:manage",
+    "association:read",
     "invitation:send",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);

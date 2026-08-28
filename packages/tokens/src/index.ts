@@ -39,3 +39,22 @@ export {
   relativeLuminance,
 } from "./contrast.ts";
 export type { ContrastFinding } from "./contrast.ts";
+export {
+  ACCENT_TOKEN_NAMES,
+  buildAccentOverrideStylesheet,
+  deriveAccentFamily,
+  MAX_INK_MIX,
+  mixColors,
+  normalizeColor,
+  primaryColorOverride,
+  pushToContrast,
+} from "./branding.ts";
+export type {
+  AccentDerivation,
+  AccentFamily,
+  AccentOverride,
+  AccentSurface,
+  AccentTokenName,
+  BrandingProblem,
+  BrandingResult,
+} from "./branding.ts";
