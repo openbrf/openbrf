@@ -29,9 +29,12 @@ export interface AuditEntryInput {
 
 /**
  * Writes the audit log required for protected personal data
- * (skyddade personuppgifter) and for the statutory register extracts. It
- * records changes as well as reads, which is why the glossary reserves the
- * narrower term for something else.
+ * (skyddade personuppgifter) and for the statutory register extracts.
+ *
+ * It records changes as well as reads, so it is the audit log and never the
+ * "access log": that name covers only reads, and calling this table by it
+ * would understate what has to be kept and what the retention screen has to
+ * say a retention policy cannot reach.
  *
  * The table is append-only at the database level: a BEFORE UPDATE OR DELETE
  * trigger rejects any attempt to rewrite history, and the runtime role holds
