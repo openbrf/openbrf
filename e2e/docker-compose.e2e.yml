@@ -1,0 +1,44 @@
+# Overlay on docker-compose.prod.yml for the end-to-end suite.
+#
+# The suite runs against the production image, not a dev server: an image that
+# passes here is the image the pilot installs. This file changes only what a
+# test needs and cannot get from outside the stack.
+#
+#   docker compose -p openbrf-e2e \
+#     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
+#     --env-file e2e/stack.env up -d
+#
+# The project name is always openbrf-e2e, so the suite can recreate its own
+# volumes without ever touching a development or production stack.
+
+services:
+  db:
+    ports:
+      # Published so the suite can assert on the audit log directly. Reveals of
+      # protected personal data have to reach that table, the table is
+      # append-only and has no read endpoint, and a legal invariant is worth
+      # checking against the database the deployed image actually wrote to.
+      - "127.0.0.1:${E2E_DB_PORT:-5442}:5432"
+
+  mailpit:
+    image: axllent/mailpit@sha256:c6cf0b06eb516a0b80a8a5251f945c131e6beb8396112964404f62856487f5bd
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      # The HTTP API the suite reads messages from. Its SMTP port stays inside
+      # the compose network, where the application reaches it as mailpit:1025.
+      - "127.0.0.1:${E2E_MAILPIT_PORT:-8125}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy

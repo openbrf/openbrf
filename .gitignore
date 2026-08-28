@@ -16,6 +16,12 @@ apps/api/src/generated/
 .env
 .env.*
 !.env.example
+!.env.production.example
+
+# Playwright output
+playwright-report/
+test-results/
+e2e/.stack-state.json
 
 # Internal planning documents. Kept in the working tree so the implementing
 # agent has them at hand, but never committed: they cite an internal decision

@@ -71,11 +71,26 @@ export class EnvValidationError extends Error {
 }
 
 /**
+ * An empty value means "not set".
+ *
+ * Compose, Kubernetes and every hosting panel pass an unset optional variable
+ * as an empty string rather than omitting it, so `OPENBRF_CATALOG_TOKEN=` has
+ * to reach the schema as absent. Otherwise the deployment fails validation for
+ * a value the operator deliberately left blank, and `.default()` never
+ * applies.
+ */
+function withoutEmptyValues(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== ""),
+  );
+}
+
+/**
  * Parses and validates the environment. Throws EnvValidationError listing
  * every problem at once, so an operator fixes one deploy rather than five.
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const result = envSchema.safeParse(source);
+  const result = envSchema.safeParse(withoutEmptyValues(source));
   if (!result.success) {
     throw new EnvValidationError(
       result.error.issues.map(

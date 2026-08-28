@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   requestMagicLink,
+  signInWithPasskey,
   signInWithPassword,
   verifySecondFactor,
   type SignInFailureCode,
@@ -21,6 +22,7 @@ const FAILURE_KEY: Readonly<Record<SignInFailureCode, TranslationKey>> = {
   "invalid-credentials": "signIn.errors.invalidCredentials",
   "invalid-code": "signIn.errors.invalidCode",
   "second-factor-expired": "signIn.errors.secondFactorExpired",
+  "passkey-cancelled": "signIn.errors.passkeyCancelled",
   unknown: "signIn.errors.unknown",
 };
 
@@ -29,6 +31,8 @@ const FIELD =
 const LABEL = "flex flex-col gap-1.5 text-label uppercase text-ink-muted";
 const PRIMARY_BUTTON =
   "min-h-11 rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out disabled:opacity-60";
+const SECONDARY_BUTTON =
+  "min-h-11 rounded-control border border-line-strong px-4 text-small font-semibold text-ink transition-colors duration-150 ease-out disabled:opacity-60";
 
 /**
  * Sign-in.
@@ -118,6 +122,11 @@ export function SignInScreen({
     apply(await requestMagicLink({ email }));
   };
 
+  const onUsePasskey = async (): Promise<void> => {
+    setStatus({ kind: "working" });
+    apply(await signInWithPasskey());
+  };
+
   const working = status.kind === "working";
 
   return (
@@ -204,13 +213,30 @@ export function SignInScreen({
             </button>
           </form>
 
+          {/*
+            No email address is asked for here. The passkey is discoverable, so
+            the authenticator names the account itself, and asking first would
+            only invite the viewer to type an address a public form then has to
+            answer questions about.
+          */}
+          <button
+            type="button"
+            disabled={working}
+            onClick={() => {
+              void onUsePasskey();
+            }}
+            className={SECONDARY_BUTTON}
+          >
+            {t("signIn.passkey")}
+          </button>
+
           <button
             type="button"
             disabled={working || email === ""}
             onClick={() => {
               void onRequestLink();
             }}
-            className="min-h-11 rounded-control border border-line-strong px-4 text-small font-semibold text-ink transition-colors duration-150 ease-out disabled:opacity-60"
+            className={SECONDARY_BUTTON}
           >
             {t("signIn.magicLink")}
           </button>

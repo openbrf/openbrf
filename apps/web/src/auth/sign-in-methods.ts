@@ -8,7 +8,11 @@ import { authClient } from "./auth-client";
  * than a hunt through translation files.
  */
 export type SignInFailureCode =
-  "invalid-credentials" | "invalid-code" | "second-factor-expired" | "unknown";
+  | "invalid-credentials"
+  | "invalid-code"
+  | "second-factor-expired"
+  | "passkey-cancelled"
+  | "unknown";
 
 /**
  * The result of an attempted sign-in.
@@ -92,6 +96,39 @@ export async function verifySecondFactor(input: {
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
+  }
+  return { status: "signed-in" };
+}
+
+/**
+ * Signs in with a passkey.
+ *
+ * No email address is asked for, and that is the point: the credential is
+ * discoverable, so the authenticator itself decides which account is being
+ * signed into and proves possession of the private key in one step. A passkey
+ * is phishing-resistant, so it is the one method that carries no second factor
+ * of its own (see the 2FA policy in ADR 0007).
+ *
+ * A viewer who dismisses the browser's prompt, or lets it time out, is not
+ * reporting a problem with their account, so that case is separated from a
+ * genuine failure.
+ */
+export async function signInWithPasskey(): Promise<SignInOutcome> {
+  if (!("credentials" in navigator)) {
+    return { status: "failed", code: "passkey-cancelled" };
+  }
+
+  const result = await authClient.signIn.passkey();
+  const error = result?.error;
+  if (error !== null && error !== undefined) {
+    // Better Auth reports a dismissed or timed-out WebAuthn prompt with no
+    // HTTP status, because no request was ever made.
+    if (error.status === 0 || error.status === undefined) {
+      return { status: "failed", code: "passkey-cancelled" };
+    }
+    // The passkey endpoints answer with a bare HTTP status on some paths and
+    // with a named code on others, so the code is read defensively.
+    return toFailure("code" in error ? { code: error.code } : {});
   }
   return { status: "signed-in" };
 }

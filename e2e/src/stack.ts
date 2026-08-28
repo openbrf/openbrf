@@ -1,0 +1,100 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The compose stack the suite runs against.
+ *
+ * Everything here addresses the production image through the production compose
+ * file plus one overlay. There is no dev server anywhere in the suite: a run
+ * that passes has exercised the artefact a housing cooperative installs,
+ * including the entrypoint's migrations, its key provisioning and the
+ * constrained database role the application connects as.
+ */
+
+const here = dirname(fileURLToPath(import.meta.url));
+export const repositoryRoot = resolve(here, "../..");
+export const e2eRoot = resolve(here, "..");
+
+export const PROJECT_NAME = "openbrf-e2e";
+
+const ENV_FILE = resolve(e2eRoot, "stack.env");
+
+const COMPOSE_ARGS = [
+  "compose",
+  "-p",
+  PROJECT_NAME,
+  "-f",
+  resolve(repositoryRoot, "docker-compose.prod.yml"),
+  "-f",
+  resolve(e2eRoot, "docker-compose.e2e.yml"),
+  "--env-file",
+  ENV_FILE,
+];
+
+/** Reads stack.env so the suite and the stack cannot drift apart. */
+function readStackEnv(): Readonly<Record<string, string>> {
+  const entries = readFileSync(ENV_FILE, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"))
+    .map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)] as const;
+    });
+  return Object.fromEntries(entries);
+}
+
+const env = readStackEnv();
+
+function required(name: string): string {
+  const value = env[name];
+  if (value === undefined || value === "") {
+    throw new Error(`${name} is missing from ${ENV_FILE}`);
+  }
+  return value;
+}
+
+export const stack = {
+  baseUrl: required("APP_URL"),
+  mailpitUrl: `http://127.0.0.1:${required("E2E_MAILPIT_PORT")}`,
+  /** The owner connection, used only to read the append-only audit log. */
+  databaseUrl: `postgresql://openbrf:${required("POSTGRES_PASSWORD")}@127.0.0.1:${required("E2E_DB_PORT")}/openbrf`,
+  /** Reachable from the app container, not from the host. */
+  smtpHost: "mailpit",
+  smtpPort: 1025,
+} as const;
+
+function compose(args: readonly string[], timeoutMs: number): void {
+  execFileSync("docker", [...COMPOSE_ARGS, ...args], {
+    cwd: repositoryRoot,
+    stdio: "inherit",
+    timeout: timeoutMs,
+  });
+}
+
+/**
+ * Builds the image and starts the stack from empty volumes.
+ *
+ * The volumes are destroyed first because the first spec asserts on first-boot
+ * behaviour, which an instance only has once. `-p openbrf-e2e` scopes that
+ * removal to this stack's own volumes, never a development or production one.
+ */
+export function startStack(): void {
+  compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+  compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+export function stopStack(): void {
+  compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+}
+
+/** Prints the application's logs. Called when the suite fails, not otherwise. */
+export function printAppLogs(): void {
+  try {
+    compose(["logs", "--no-color", "--tail", "200", "app"], 60_000);
+  } catch {
+    // Best effort: a missing container must not mask the real failure.
+  }
+}

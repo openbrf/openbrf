@@ -39,8 +39,7 @@ rather than a way to run a housing cooperative.
 
 ### Foundations
 
-Every checked item below is implemented and covered by tests. None of it is
-reachable without an interface, and the one unchecked row says why.
+Every checked item below is implemented and covered by tests.
 
 - [x] Core data model: housing cooperative, addresses, apartments, persons,
       residencies, board positions, roles
@@ -53,10 +52,11 @@ reachable without an interface, and the one unchecked row says why.
 - [x] Append-only audit log, written in the same transaction as the access it
       records
 - [x] Sign-in with password, magic link and TOTP
-- [ ] Sign-in with passkeys (WebAuthn): implemented, and a passkey can now be
-      enrolled and removed from the security settings. Signing in with one is
-      still not covered by tests - driving a WebAuthn authenticator needs the
-      end-to-end suite - so this stays unticked until that exists
+- [x] Sign-in with passkeys (WebAuthn): a passkey is enrolled and removed from
+      the security settings, and signing in with one is now covered end to end
+      against a virtual authenticator. No email address is typed and no
+      one-time code is asked for: a passkey is phishing-resistant, so it is not
+      gated behind the authenticator app
 - [x] Invitation-based account activation
 - [x] Board-approved self-signup requests
 - [x] Capability-based authorization, protected by default
@@ -75,8 +75,8 @@ reachable without an interface, and the one unchecked row says why.
 
 Under way. This is the gap between the list above and anything usable.
 There is now a frame, a way in, a way to configure the instance and a working
-register. The statutory register views, the move flows and the import are still
-ahead.
+register, and all of it runs from a single `docker compose up`. The statutory
+register views, the move flows and the import are still ahead.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
@@ -106,8 +106,30 @@ ahead.
 - [ ] Member register and apartment register views, with printable extracts
 - [ ] Move-in and move-out flows
 - [ ] Import from CSV and Excel with column mapping
-- [ ] Deployable production image and Compose file
-- [ ] End-to-end test suite
+- [x] Deployable production image and Compose file: one container serving the
+      API and the built client, one PostgreSQL beside it, named volumes and
+      health checks on both. The entrypoint provisions the field encryption key
+      on a genuine first boot and refuses to invent one on any later boot,
+      applies migrations, installs the job queue schema, and creates the
+      constrained database role the application connects as - so the
+      application never owns the tables whose triggers keep the statutory
+      registers append-only. Backing up is
+      [documented](docs/backup-and-restore.md) as one job covering the database
+      and the encryption key together, because either without the other is not
+      a backup
+- [x] End-to-end test suite, driving a browser against that production image
+      rather than a development server. It covers the first six of the thirteen
+      phase 1 exit criteria: first boot through the wizard; password sign-in,
+      passkey and authenticator app enrolment and signing in with each;
+      invitations for a member, a resident and an external board member with no
+      apartment, plus a sign-in link by email; self-signup with the toggle on
+      and the endpoint closed with it off; the address book with its house tabs,
+      floor grouping, filter tabs, signs, legend and register stamp in light,
+      dark and follow-the-system; and protected personal data staying masked
+      with every reveal landing in the audit log. The remaining seven criteria
+      test features that are not built yet - import, the move flows, the
+      statutory register views, and installing a plugin and a theme - and each
+      gets its spec in the same change that builds the feature
 
 ### The public website
 

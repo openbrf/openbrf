@@ -1,0 +1,21 @@
+{
+  "name": "@openbrf/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "oxlint --config ../.oxlintrc.json --type-aware .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.2",
+    "@types/node": "^26.3.0",
+    "@types/pg": "^8.16.0",
+    "oxlint": "^1.80.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "pg": "^8.19.0",
+    "typescript": "^7.0.2"
+  }
+}

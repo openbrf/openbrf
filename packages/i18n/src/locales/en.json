@@ -229,6 +229,7 @@
     "email": "Email address",
     "password": "Password",
     "submit": "Sign in",
+    "passkey": "Sign in with a passkey",
     "magicLink": "Email me a sign-in link instead",
     "linkSent": "If that address has an account, a sign-in link is on its way. It is valid for 15 minutes.",
     "secondFactorRequired": "Enter the code from your authenticator app to finish signing in.",
@@ -239,6 +240,7 @@
       "invalidCredentials": "Those details did not work. Check the address and password and try again.",
       "invalidCode": "That code did not match. Check your authenticator app and try again.",
       "secondFactorExpired": "That took too long. Start again with your email address and password.",
+      "passkeyCancelled": "No passkey was used, so nothing was signed in. Try again, or use your password.",
       "unknown": "Signing in did not work just now. Please try again."
     }
   },

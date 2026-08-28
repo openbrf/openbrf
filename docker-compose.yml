@@ -1,5 +1,10 @@
-# Local development infrastructure.
-# The app service is added once the API is deployable.
+# Local development infrastructure: the database the API and the integration
+# tests run against. The application itself runs from source beside it.
+#
+# To run the application the way a housing cooperative does, use
+# docker-compose.prod.yml. It carries its own project name and its own volume
+# names, so a production stack and this one never share a container or a data
+# directory even when both are started from this checkout.
 services:
   db:
     # A PostgreSQL data directory is not portable across major versions, so a

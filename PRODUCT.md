@@ -48,7 +48,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 ## Brand Commitments
 
-- Working name "Open BRF"; a real brandable name is chosen before public launch (#2) - avoid deep bake-in of the working name in design assets.
+- "Open BRF" is the name, not a working title: #2 (updated 2026-08-27) settled it as permanent and ruled out a rebrand before launch. It is safe to bake in - design assets, the `--obrf-` token prefix, the package scope, the trademark policy.
 - Voice: trygg, saklig, varm - neighborhood, not playground. No emoji in UI, no bouncy playfulness (established in design language v0.1; visual direction itself is under re-evaluation).
 - Open source credibility is part of the brand: what the community sees must feel like a well-maintained, serious OSS project.
 
