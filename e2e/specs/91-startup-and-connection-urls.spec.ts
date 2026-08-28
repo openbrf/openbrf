@@ -321,6 +321,42 @@ test("an unknown API path answers JSON, and a client route answers the client", 
   expect(await client.text()).toContain("<!doctype html>");
 });
 
+test("no request path can name the file the client route serves", async ({
+  request,
+}) => {
+  // The route that answers everything the client router owns sends one file by
+  // a literal name, resolved against a directory fixed when the static plugin
+  // was registered. Nothing in a request reaches the path that is read, and
+  // these are the shapes that would show it if anything did: a path that names
+  // a real system file, two traversals percent-encoded so they survive a
+  // client's own normalisation, and a null byte, which used to truncate a name
+  // in the layer underneath.
+  const index = await request.get(`${stack.baseUrl}/`, {
+    failOnStatusCode: false,
+  });
+  expect(index.status()).toBe(200);
+  const client = await index.text();
+  expect(client).toContain("<!doctype html>");
+
+  for (const path of [
+    "/etc/passwd",
+    "/%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    "/..%2f..%2f..%2fetc%2fpasswd",
+    "/settings/%2e%2e%2f%2e%2e%2fetc%2fhostname",
+    "/index.html%00.png",
+  ]) {
+    const response = await request.get(`${stack.baseUrl}${path}`, {
+      failOnStatusCode: false,
+    });
+    // The same file, byte for byte, whatever was asked for. Comparing against
+    // the client rather than looking for the absence of a system file is what
+    // makes this fail for any other file too, including one inside the web
+    // root that was never meant to be reachable by name.
+    expect(response.status(), path).toBe(200);
+    expect(await response.text(), path).toBe(client);
+  }
+});
+
 test("a body that is not JSON is reported by its status", () => {
   // The submit endpoint is called with every status kept, so the body can be a
   // proxy's error page or nothing at all. Reading it has to leave the caller's

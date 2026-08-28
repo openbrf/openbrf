@@ -116,8 +116,11 @@ with the client, query string or no query string.
 
 ## Still to be written
 
-Criteria 7 to 11 test features that are not built yet. Each one gets its spec in
-this package in the same pull request that builds the feature, not later.
+Criteria 7 to 11 have no spec in this package yet. All but one are built and
+carry their own tests; what is missing here is a browser driving them against
+the production image, which is the only place the entrypoint, the constrained
+database role and the built client are the ones a housing cooperative installs.
+Installing a plugin, criterion 10, is not built at all.
 
 - **7 - Import with column mapping.** A CSV upload, a mapping step, a preview
   showing creates, updates and ambiguous matches, then apply. The xlsx path is
@@ -153,9 +156,10 @@ than pretending they are not there:
   at one. The invitation specs take the token from the message and post it to
   the activation endpoint; when the screen exists, they should fill in its form
   instead.
-- **A residency is only written by sign-up approval.** No other endpoint creates
-  one, so the register fixture goes through that path to put people on
-  apartments. Move-in owns this once stage S7 builds it.
+- **The register fixture puts people on apartments through sign-up approval.**
+  Move-in creates a residency too, and is the path a board actually uses, but
+  the fixture predates it and needs no screen to run. A spec for criterion 8
+  drives move-in itself rather than reaching for this.
 
 ## Screenshots for a pull request
 

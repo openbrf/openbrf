@@ -79,6 +79,15 @@ export async function serveSinglePageApp(
         return;
       }
       // The client router resolves the path; an unknown one is its 404 to show.
+      //
+      // The name below is a literal, and the directory it is resolved against
+      // was fixed when the static plugin was registered, so no part of the
+      // request reaches the path that is read: request.url is used above to
+      // choose between two responses, never to name a file. The audit rule
+      // suppressed here looks for a handler that builds a path out of a
+      // request parameter and cannot tell that shape from this one;
+      // 91-startup-and-connection-urls.spec.ts holds the difference.
+      // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
       void reply.sendFile("index.html");
     });
 
