@@ -1,4 +1,4 @@
-import { apiRequest, type ApiResult } from "./client";
+import { apiRequest, apiUpload, type ApiResult } from "./client";
 
 /**
  * The instance's own endpoints, one function per route.
@@ -20,9 +20,21 @@ export interface HousingCooperativeSettings {
   setupCompletedAt: string | null;
 }
 
+/** One uploaded logo. The url is a path on this instance's own origin. */
+export interface LogoView {
+  url: string;
+  fileName: string;
+  width: number | null;
+  height: number | null;
+}
+
+/** Which logo a request means: the mark, or its dark-surface variant. */
+export type LogoSlot = "light" | "dark";
+
 export interface BrandingSettings {
   primaryColor: string | null;
-  logoPath: string | null;
+  logo: LogoView | null;
+  logoDark: LogoView | null;
 }
 
 export interface SmtpSettings {
@@ -54,7 +66,10 @@ export interface Viewer {
   housingCooperative: {
     name: string;
     primaryColor: string | null;
-    logoPath: string | null;
+    /** Null until a logo is uploaded. Always a path on this origin. */
+    logoUrl: string | null;
+    /** The dark-band variant, when the board uploaded one. */
+    logoDarkUrl: string | null;
   } | null;
 }
 
@@ -143,6 +158,19 @@ export function saveBranding(input: {
   primaryColor: string | null;
 }): Promise<ApiResult<BrandingSettings>> {
   return apiRequest("PUT", "/api/settings/branding", input);
+}
+
+export function uploadLogo(
+  slot: LogoSlot,
+  file: File,
+): Promise<ApiResult<BrandingSettings>> {
+  return apiUpload("PUT", `/api/settings/branding/logo/${slot}`, file);
+}
+
+export function removeLogo(
+  slot: LogoSlot,
+): Promise<ApiResult<BrandingSettings>> {
+  return apiRequest("DELETE", `/api/settings/branding/logo/${slot}`);
 }
 
 export function saveSmtp(input: SmtpInput): Promise<ApiResult<SmtpSettings>> {

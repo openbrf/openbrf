@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import type { BrandingSettings, ContrastFailure } from "../api/instance";
 import { saveBranding } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
+import { LogoField } from "../media/LogoField";
 import {
   FIELD_DATA,
   HINT,
@@ -35,12 +36,17 @@ const BRANDING_FAILURES: Readonly<Record<string, TranslationKey>> = {
 };
 
 /**
- * The housing cooperative's own accent colour.
+ * The housing cooperative's own mark and accent colour.
  *
  * Light or dark is deliberately NOT here: that is a preference of the person
  * looking at the screen, not a property of the cooperative, so it lives in
  * their own profile. The wizard configures the instance; it does not configure
  * the operator's eyes.
+ *
+ * The logo has two slots because the application's top band is dark and a mark
+ * drawn in dark ink disappears on it. The second slot is optional, and the
+ * preview shows exactly what the band does without one, so a board that has
+ * only one logo can see the fallback rather than discover it.
  *
  * The preview is the honest part. The board picks one value and the platform
  * derives five from it, differently for each mode, so a swatch of what they
@@ -63,6 +69,15 @@ export function BrandingPanel({
   const [primaryColor, setPrimaryColor] = useState(value.primaryColor ?? "");
 
   const save = useSaveAction(saveBranding, onSaved);
+
+  /*
+   * A logo write returns the whole branding block, so the panel is refreshed
+   * from the answer rather than by re-reading. The colour field holds its own
+   * state, so this does not disturb what the board has typed but not saved.
+   */
+  const onLogoChanged = (branding: BrandingSettings): void => {
+    onSaved?.(branding);
+  };
 
   const normalized = normalizeColor(primaryColor.trim());
   const preview =
@@ -139,6 +154,40 @@ export function BrandingPanel({
         ) : null
       }
     >
+      <section className="flex flex-col gap-4 border-b border-line pb-5">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-title">{t("settings.branding.logo.title")}</h3>
+          <p className="text-small text-ink-muted">
+            {t("settings.branding.logo.description")}
+          </p>
+        </div>
+
+        <Notice tone="info">{t("settings.branding.logo.publicNotice")}</Notice>
+
+        <LogoField
+          slot="light"
+          label={t("settings.branding.logo.light")}
+          hint={t("settings.branding.logo.lightHint")}
+          value={value.logo}
+          editable={editable}
+          onChanged={onLogoChanged}
+        />
+
+        <LogoField
+          slot="dark"
+          label={t("settings.branding.logo.dark")}
+          hint={t("settings.branding.logo.darkHint")}
+          value={value.logoDark}
+          fallback={value.logo}
+          editable={editable}
+          onChanged={onLogoChanged}
+        />
+
+        {value.logo !== null && value.logoDark === null ? (
+          <Notice tone="warn">{t("settings.branding.logo.plateNotice")}</Notice>
+        ) : null}
+      </section>
+
       <form className="flex flex-col gap-4" onSubmit={onSubmit}>
         <label className={LABEL}>
           {t("settings.branding.primaryColor")}

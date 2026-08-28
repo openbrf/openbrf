@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.1",
+    "@fastify/multipart": "^10.1.1",
     "@fastify/static": "^10.1.2",
     "@nestjs/common": "^11.2.3",
     "@nestjs/core": "^11.2.3",
@@ -27,6 +28,7 @@
     "@openbrf/tokens": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
+    "aws4fetch": "^1.0.20",
     "better-auth": "^1.7.1",
     "ciphersweet-js": "2.0.6",
     "fastify": "^5.12.1",

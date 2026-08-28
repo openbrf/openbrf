@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import { mediaUrl } from "../media/media.service";
 import type {
   MailBrand,
   MailTemplate,
@@ -197,19 +198,27 @@ export class MailService {
     return {
       associationName: association?.name ?? "Open BRF",
       primaryColor: association?.primaryColor ?? DEFAULT_PRIMARY_COLOR,
-      logoUrl: this.absoluteLogoUrl(association?.logoPath ?? null),
+      logoUrl: this.absoluteLogoUrl(association?.logoFileId ?? null),
     };
   }
 
-  private absoluteLogoUrl(logoPath: string | null): string | undefined {
-    if (logoPath === null) {
+  /**
+   * The logo's address as a mail client will fetch it.
+   *
+   * Absolute, because a mail client cannot resolve a relative path, and always
+   * on this instance's own origin: the file is served by the API whichever
+   * storage driver holds it, so a recipient's mail client contacts the housing
+   * cooperative and nobody else.
+   *
+   * The light variant deliberately, not the dark one. Mail is read on whatever
+   * background the client chooses and the platform cannot know which, so the
+   * template places the mark on its own light plate.
+   */
+  private absoluteLogoUrl(logoFileId: string | null): string | undefined {
+    if (logoFileId === null) {
       return undefined;
     }
-    // A mail client cannot resolve a relative path.
-    if (logoPath.startsWith("http://") || logoPath.startsWith("https://")) {
-      return logoPath;
-    }
-    return new URL(logoPath, this.env.APP_URL).toString();
+    return new URL(mediaUrl(logoFileId), this.env.APP_URL).toString();
   }
 
   private async loadSmtpSettings(): Promise<SmtpSettings | null> {

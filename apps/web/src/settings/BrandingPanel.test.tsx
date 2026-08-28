@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
+import type { BrandingSettings } from "../api/instance";
 import { ThemeModeProvider } from "../theme/theme-mode-context";
 import { BrandingPanel } from "./BrandingPanel";
 
@@ -26,7 +27,7 @@ vi.mock("../api/instance", async (importOriginal) => ({
 function renderPanel(primaryColor: string | null = null) {
   return render(
     <ThemeModeProvider>
-      <BrandingPanel value={{ primaryColor, logoPath: null }} />
+      <BrandingPanel value={{ primaryColor, logo: null, logoDark: null }} />
     </ThemeModeProvider>,
   );
 }
@@ -47,7 +48,7 @@ const UNREADABLE_MENTIONS = 2;
 beforeEach(() => {
   saveBranding.mockReset().mockResolvedValue({
     ok: true,
-    value: { primaryColor: "#7d5f23", logoPath: null },
+    value: { primaryColor: "#7d5f23", logo: null, logoDark: null },
   });
 });
 
@@ -213,7 +214,7 @@ describe("a board member who may only read", () => {
     render(
       <ThemeModeProvider>
         <BrandingPanel
-          value={{ primaryColor: "#7d5f23", logoPath: null }}
+          value={{ primaryColor: "#7d5f23", logo: null, logoDark: null }}
           editable={false}
         />
       </ThemeModeProvider>,
@@ -221,5 +222,59 @@ describe("a board member who may only read", () => {
 
     expect(colourField()).toHaveProperty("disabled", true);
     expect(screen.queryByRole("button", { name: /^spara$/i })).toBeNull();
+  });
+});
+
+/**
+ * The two logo slots.
+ *
+ * The panel has to say what happens when only one is filled in, because the
+ * consequence lands on a screen the board is not looking at: the dark top band
+ * that every other page of the application carries.
+ */
+describe("the logotype", () => {
+  const STORED = {
+    url: "/api/media/file-1",
+    fileName: "logotyp.png",
+    width: 240,
+    height: 80,
+  };
+
+  function renderWith(value: Partial<BrandingSettings>) {
+    return render(
+      <ThemeModeProvider>
+        <BrandingPanel
+          value={{ primaryColor: null, logo: null, logoDark: null, ...value }}
+        />
+      </ThemeModeProvider>,
+    );
+  }
+
+  it("offers a slot for the mark and one for dark backgrounds", () => {
+    renderWith({});
+
+    expect(screen.getAllByLabelText(/välj en fil för/i)).toHaveLength(2);
+  });
+
+  it("warns that the band will use a plate when no dark variant exists", () => {
+    renderWith({ logo: STORED });
+
+    expect(screen.getByText(/lägger märket på en ljus platta/i)).toBeTruthy();
+  });
+
+  it("stops warning once a dark variant is uploaded", () => {
+    renderWith({ logo: STORED, logoDark: STORED });
+
+    expect(screen.queryByText(/lägger märket på en ljus platta/i)).toBeNull();
+  });
+
+  it("says the mark is published to everyone", () => {
+    // The logotype is fetched with no session, by mail clients and by the
+    // public site, so an image of identifiable people cannot be one.
+    renderWith({});
+
+    expect(
+      screen.getByText(/får inte visa identifierbara personer/i),
+    ).toBeTruthy();
   });
 });
