@@ -170,6 +170,12 @@ A neutral limewash room, one dark board surface, one brass accent, four semantic
 ### Named Rules
 **The Mono-Grid Rule.** All register data columns share one monospace grid; a date or lgh-nr set in the UI face is a defect.
 
+## Reference values
+
+Every colour, the type scale, the radii, the spacing and the board's measurements
+are in [docs/design-refs/porttavlan.md](docs/design-refs/porttavlan.md), with the
+deliberate divergences.
+
 ## Layout
 
 The board topology: a fixed dark top band (64px) carries the association identity and navigation as a sign row; content lives in the light room below (20-40px padding); the register itself is a full-width dark board panel with 1px rail dividers between rows (9-12px vertical padding, 24px horizontal). The register is grouped by floor like a physical porttavla: thin group rows on `--tavla-2` ("ENTREPLAN 10XX", "PLAN 1 11XX", ...) following Lantmateriet apartment numbering. Fixed regions swap content, never position. Spacing on a 4-base scale (4/8/12/16/24/32/48). Mobile: dark board header and bottom nav frame a light room; touch targets minimum 44px.
@@ -202,7 +208,7 @@ Rectangular sign language: 4px radius on controls, inputs and skylt-chips; 8px o
 - **Focus:** 2px `--massing` border, no glow. **Error:** 2px `--danger` border + message in `--danger`.
 
 ### Navigation
-- Desktop: sign row in the dark top band - 13px/600 uppercase, `--tavla-ink-2` at rest, active gets `--tavla-ink` + 3px `--massing-tavla` underline; counters as small brass plates. Mobile: 4-item bottom bar on `--tavla`, active item in `--massing-tavla`.
+- Desktop: sign row in the dark top band - 13px/600 uppercase, `--tavla-ink-2` at rest, active gets `--tavla-ink` + 3px `--massing-tavla` underline; counters as small brass plates. Mobile: 4-item bottom bar on `--tavla`, active item in `--massing-tavla` with a 3px `--massing-tavla` edge on the top side, so the active state carries a shape as well as a colour.
 
 ### The Board (signature component)
 The register table as a dark board: `--tavla` panel (8px radius, one shadow), a filter strip ON the board (uppercase tabs, active in `--massing-tavla` with 3px underline), `--tavla-2` header, floor group rows, and legend row, 1px `--tavla-line` rails between rows, names in 15/500 `--tavla-ink`, data columns in mono. The board footer carries the always-visible "Färg som lag" legend (left) and a register stamp in mono (right): "Utdrag ur medlemsförteckningen · YYYY-MM-DD". (v0.2.1 additions - floor grouping, on-board filters, register stamp - donated by the Stitch exploration 2026-08-27.)
@@ -217,6 +223,6 @@ The register table as a dark board: `--tavla` panel (8px radius, one shadow), a 
 
 ### Don't:
 - **Don't** use pills, gradients, glassmorphism, extra shadow levels, or emoji.
-- **Don't** use brass for anything but trust roles, trust actions, and active/selected states.
+- **Don't** use brass for anything but trust roles, trust actions, active/selected states, and the navigation count plate.
 - **Don't** put personal ID numbers, masked or not, outside the register views; Skyddad rows mask contact data everywhere.
 - **Don't** hardcode `#FFFFFF`/hex in components - the one recorded defect class the review caught; use `--on-massing`/`--on-danger`.

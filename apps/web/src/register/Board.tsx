@@ -595,10 +595,15 @@ function ContactValue({
     );
   }
 
-  const values = [contact.email, contact.phone].filter(
-    (value): value is string => value !== null && value !== "",
-  );
+  const email = contact.email === "" ? null : contact.email;
+  const phone = contact.phone === "" ? null : contact.phone;
 
+  /*
+   * The phone number is in the register face and the address is not. The mono
+   * grid aligns a column character for character, which fixed-shape values -
+   * apartment numbers, dates, phone numbers - are set in. An address is
+   * variable-length prose and gains no alignment from it.
+   */
   return (
     <span className="flex flex-col">
       {labelled ? (
@@ -606,20 +611,19 @@ function ContactValue({
           {t("register.column.contact")}
         </span>
       ) : null}
-      {values.length === 0 ? (
+      {email === null ? null : (
+        <span className="text-small text-register-ink-muted">{email}</span>
+      )}
+      {phone === null ? null : (
         <span className="font-data text-data text-register-ink-muted">
+          {phone}
+        </span>
+      )}
+      {email === null && phone === null ? (
+        <span className="text-small text-register-ink-muted">
           {t("register.contact.none")}
         </span>
-      ) : (
-        values.map((value) => (
-          <span
-            key={value}
-            className="font-data text-data text-register-ink-muted"
-          >
-            {value}
-          </span>
-        ))
-      )}
+      ) : null}
     </span>
   );
 }
