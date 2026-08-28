@@ -44,6 +44,15 @@ jobs:
       # unless the code is mounted at /src. The rulesets are fetched from the
       # Semgrep registry at run time, so they are not pinned the way the image
       # is - the registry decides which rules a given run applies.
+      #
+      # A finding that does not apply is suppressed with a `// nosemgrep:` line
+      # immediately above the code, naming the rule and saying why it does not
+      # hold. Name it exactly as the scan reports it, which for a registry rule
+      # repeats the last segment - for instance
+      # javascript.express.security.audit.express-res-sendfile.express-res-sendfile
+      # and not that id with the repeat dropped. A shortened id fails silently:
+      # the rule still matches, the job still fails, and nothing in the output
+      # says the suppression went unrecognised.
       - name: Run Semgrep
         env:
           # renovate: datasource=docker depName=semgrep/semgrep
