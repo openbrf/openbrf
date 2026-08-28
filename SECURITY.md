@@ -6,7 +6,7 @@ Open BRF handles personal data for housing cooperatives, including legally prote
 
 **Never report security issues in public issues, discussions, or PRs.**
 
-Report privately via GitHub: **"Report a vulnerability"** under the repository's Security tab (GitHub's private vulnerability reporting). While the repository is still private, anyone with access reports the same way, as a draft security advisory.
+Report privately via GitHub: **[Report a vulnerability](https://github.com/openbrf/openbrf/security/advisories/new)** under the repository's Security tab (GitHub's private vulnerability reporting). While the repository is still private, anyone with access reports the same way, as a draft security advisory.
 
 This form is deliberately the project's only reporting channel - there are no project email addresses. It is also the private channel for other sensitive reports, such as code of conduct matters (see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)).
 
