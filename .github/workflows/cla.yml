@@ -30,8 +30,13 @@ jobs:
       actions: write
 
     steps:
+      # A fork of the upstream CLA Assistant action, which was archived in March
+      # 2026 still declaring node20 - a runtime GitHub removes from its runners
+      # on 23 September 2026. The fork lives in this organization so the code
+      # that runs here against a write-enabled token is code this project
+      # controls. Its dist/ bundle is reproducible from its own sources.
       - name: CLA Assistant
-        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        uses: openbrf/cla-github-action@0d27e5a16278d4adb6b0c4b92f08ad27b0a21dc8 # v3.2.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
