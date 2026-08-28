@@ -22,10 +22,11 @@ jobs:
     permissions:
       # Commit the signature file to the cla-signatures branch.
       contents: write
-      # Post the signing comment and read the pull request.
+      # Post the signing comment, read the pull request, and lock it after
+      # merge. The action reaches these through the issues API, which for a
+      # pull request is authorised by this permission rather than by
+      # `issues: write` - so it never needs write access to issues proper.
       pull-requests: write
-      # Report the CLA result as a commit status.
-      statuses: write
       # Re-run the pull request's checks once the CLA is signed.
       actions: write
 
