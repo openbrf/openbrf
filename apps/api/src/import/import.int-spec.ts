@@ -247,14 +247,31 @@ async function upload(
  * Uploads a file and previews it, which is what the apply now requires: the
  * import that runs is the one the board looked at.
  */
-/** True while some backend is blocked on an advisory lock in this database. */
-async function waitsForAdvisoryLock(): Promise<boolean> {
+/**
+ * True while a transaction is waiting for this one person's transition lock.
+ *
+ * This person's, not any: the suite shares its database, and a count of every
+ * advisory wait in it would be answered by an unrelated test holding an
+ * unrelated lock - which would release the move-in below early and let the case
+ * pass without the chunk ever having waited for anything.
+ *
+ * Postgres addresses the advisory lock space with a 64-bit key and reports it
+ * split: the high half in classid, the low half in objid, and objsubid 1 for
+ * the one-argument form the lock is taken with. hashtext returns an int4 that
+ * the lock function widens to that key, so a negative hash sign-extends and its
+ * high half comes back as all ones - which is why both halves are masked out of
+ * the key rather than assumed to be zero.
+ */
+async function waitsForTransitionLock(personId: string): Promise<boolean> {
+  const key = `residency:${personId}`;
   const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
     SELECT count(*) AS waiting
-    FROM pg_stat_activity
-    WHERE datname = current_database()
-      AND wait_event_type = 'Lock'
-      AND wait_event = 'advisory'`;
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND NOT granted
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
   return (row?.waiting ?? 0n) > 0n;
 }
 
@@ -1074,10 +1091,13 @@ describe("an apply overlapping a move", () => {
       .finally(() => (chunkSettled = true));
 
     // Released only once the chunk can make no further progress on its own:
-    // either it is waiting for the lock, which is the whole of the fix, or it
-    // has finished without taking one, which is the defect. Waiting on the
-    // state rather than on a duration keeps both outcomes deterministic.
-    await waitFor(async () => chunkSettled || (await waitsForAdvisoryLock()));
+    // either it is waiting for this person's lock, which is the whole of the
+    // fix, or it has finished without taking one, which is the defect. Waiting
+    // on the state rather than on a duration keeps both outcomes deterministic.
+    await waitFor(
+      async () =>
+        chunkSettled || (await waitsForTransitionLock(actors.mover.personId)),
+    );
     release();
     await Promise.all([moveIn, chunk]);
 
