@@ -120,9 +120,13 @@ requests - which also means no cookie banner. Search engine optimisation is a
 non-goal: page titles, and no sitemap or metadata machinery.
 
 - [ ] File uploads and media storage behind one interface, with local-disk
-      and S3-compatible drivers both shipped and tested. An image upload
-      declares whether it shows identifiable persons, which ties it to
-      publication consent. The same work unblocks the logo upload above
+      and S3-compatible drivers both shipped and tested. Files are always
+      served through the association's own origin - never a direct link or a
+      redirect to the storage endpoint, which would hand every visitor's IP
+      to a third party - and the S3 path is tested for exactly that. An
+      image upload declares whether it shows identifiable persons, which
+      ties it to publication consent. The same work unblocks the logo upload
+      above
 - [ ] Server-rendered public pages styled by the theme tokens, with the
       application moving under `/app`
 - [ ] Page editor: rich text with insertable data blocks - news teasers,
