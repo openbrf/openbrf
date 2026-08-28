@@ -5,9 +5,12 @@ import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan.ts";
 import {
   buildThemeStylesheet,
   resolveTokens,
+  TOKEN_VALUE_PROBLEM_CODES,
   tokensToCssDeclarations,
   TokenValueError,
   tokenValueProblem,
+  type TokenValueProblemCode,
+  tokenValueProblemCode,
 } from "./resolve.ts";
 
 describe("resolveTokens", () => {
@@ -190,5 +193,55 @@ describe("token value validation", () => {
         dark: PORTTAVLAN_DARK,
       }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * The same refusal, named rather than described.
+ *
+ * The prose above is English and is thrown at a developer. An install refusal
+ * is read by a board member in their own language, so what leaves this package
+ * for the interface is a code the interface has a sentence for.
+ */
+describe("token value problem codes", () => {
+  const cases: [string, TokenValueProblemCode][] = [
+    ["#fff; } :root { display: none", "semicolon-or-brace"],
+    ["</style><script>alert(1)</script>", "angle-bracket"],
+    ["\\3b color:red", "backslash-escape"],
+    ["@import url(https://evil.example/x.css)", "at-rule"],
+    ["red /* swallow the rest", "comment-marker"],
+    ["url(https://evil.example/x.png)", "url"],
+    // A second spelling of one problem, so it answers with one code.
+    ["image-set('https://evil.example/x.png')", "url"],
+    ["expression(alert(1))", "expression"],
+    ["red\nblue", "control-character"],
+    ["'unclosed", "unbalanced-quote"],
+    ["rgba(0, 0, 0", "unbalanced-parenthesis"],
+  ];
+
+  it.each(cases)("names %s", (value, expected) => {
+    expect(tokenValueProblemCode(value)).toBe(expected);
+  });
+
+  it("declares no code it cannot produce", () => {
+    // A code with no value that reaches it is a sentence somebody wrote for a
+    // refusal that never happens, and one nobody can check reads correctly.
+    const produced = new Set(cases.map(([, code]) => code));
+    expect([...TOKEN_VALUE_PROBLEM_CODES].sort()).toEqual(
+      [...produced].sort() as TokenValueProblemCode[],
+    );
+  });
+
+  it("answers with a code exactly when it answers with prose", () => {
+    // The two forms are one scan. They cannot disagree about whether a value is
+    // safe, and a caller may rely on either.
+    for (const [value] of cases) {
+      expect(tokenValueProblemCode(value)).not.toBeNull();
+      expect(tokenValueProblem(value)).not.toBeNull();
+    }
+    for (const safe of ["#8A6D28", "rgba(28, 29, 31, 0.08)"]) {
+      expect(tokenValueProblemCode(safe)).toBeNull();
+      expect(tokenValueProblem(safe)).toBeNull();
+    }
   });
 });

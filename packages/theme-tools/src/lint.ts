@@ -4,7 +4,7 @@ import {
   type PartialTokenSet,
   TOKEN_CONTRACT_VERSION,
   type TokenSet,
-  tokenValueProblem,
+  tokenValueProblemCode,
 } from "@openbrf/tokens";
 
 import {
@@ -285,7 +285,9 @@ export function lintTheme(input: ThemeLintInput): ThemeLintResult {
   // --- Token values, resolution and contrast -------------------------------
   for (const [mode, values] of Object.entries(manifest.modes)) {
     for (const [token, value] of Object.entries(values)) {
-      const problem = tokenValueProblem(value);
+      // The code, not the prose behind it: this finding becomes a sentence a
+      // board reads, and the prose is English.
+      const problem = tokenValueProblemCode(value);
       if (problem !== null) {
         fail("unsafe-token-value", { mode, token, problem });
       }

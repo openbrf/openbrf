@@ -322,6 +322,12 @@ describe("lintTheme", () => {
       }),
     );
     expect(rules(result)).toContain("unsafe-token-value");
+    // Which problem the value hit travels as a code. The prose behind it is
+    // English, and this finding becomes a sentence a board reads.
+    expect(
+      result.findings.find((finding) => finding.rule === "unsafe-token-value")
+        ?.detail,
+    ).toEqual({ mode: "light", token: "shadow-raised", problem: "url" });
   });
 
   it("refuses a bundled font whose licence is only whitespace", () => {

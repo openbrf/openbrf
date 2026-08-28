@@ -1,3 +1,7 @@
+import {
+  TOKEN_VALUE_PROBLEM_CODES,
+  type TokenValueProblemCode,
+} from "@openbrf/tokens";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -27,7 +31,8 @@ const RULE_KEYS: Readonly<Record<string, TranslationKey>> = {
   "unknown-manifest-field": "themeCatalog.lint.unknownManifestField",
   "unknown-token": "themeCatalog.lint.unknownToken",
   "missing-token": "themeCatalog.lint.missingToken",
-  "unsafe-token-value": "themeCatalog.lint.unsafeTokenValue",
+  // unsafe-token-value is absent on purpose: its sentence is chosen by the
+  // problem the value hit, not by the rule alone. See unsafeValueKey.
   contrast: "themeCatalog.lint.contrast",
   "executable-content": "themeCatalog.lint.executableContent",
   "unexpected-file": "themeCatalog.lint.unexpectedFile",
@@ -45,6 +50,53 @@ const RULE_KEYS: Readonly<Record<string, TranslationKey>> = {
   "theme-has-dependants": "themeCatalog.lint.themeHasDependants",
 };
 
+/**
+ * The sentence each unsafe-value problem is read as.
+ *
+ * Typed against the contract's own union rather than against string, so a
+ * problem added to the token contract fails to compile here until somebody has
+ * written the sentence for it. That is the difference between a board member
+ * always getting a sentence and usually getting one.
+ */
+const UNSAFE_VALUE_KEYS: Readonly<
+  Record<TokenValueProblemCode, TranslationKey>
+> = {
+  "semicolon-or-brace": "themeCatalog.lint.unsafeTokenValue.semicolonOrBrace",
+  "angle-bracket": "themeCatalog.lint.unsafeTokenValue.angleBracket",
+  "backslash-escape": "themeCatalog.lint.unsafeTokenValue.backslashEscape",
+  "at-rule": "themeCatalog.lint.unsafeTokenValue.atRule",
+  "comment-marker": "themeCatalog.lint.unsafeTokenValue.commentMarker",
+  url: "themeCatalog.lint.unsafeTokenValue.url",
+  expression: "themeCatalog.lint.unsafeTokenValue.expression",
+  "control-character": "themeCatalog.lint.unsafeTokenValue.controlCharacter",
+  "unbalanced-quote": "themeCatalog.lint.unsafeTokenValue.unbalancedQuote",
+  "unbalanced-parenthesis":
+    "themeCatalog.lint.unsafeTokenValue.unbalancedParenthesis",
+};
+
+/**
+ * The key an unsafe value is read through.
+ *
+ * A problem code an older interface has never heard of still yields a whole
+ * sentence: one that names the token and the mode and stops short of the
+ * reason. Showing the code itself would be showing a board member a word from
+ * a language nobody wrote for them.
+ */
+function unsafeValueKey(problem: unknown): TranslationKey {
+  for (const code of TOKEN_VALUE_PROBLEM_CODES) {
+    if (problem === code) {
+      return UNSAFE_VALUE_KEYS[code];
+    }
+  }
+  return "themeCatalog.lint.unsafeTokenValue.unknown";
+}
+
+function keyFor(finding: ThemeLintFinding): TranslationKey | undefined {
+  return finding.rule === "unsafe-token-value"
+    ? unsafeValueKey(finding.detail["problem"])
+    : RULE_KEYS[finding.rule];
+}
+
 export function LintFindings({
   findings,
 }: {
@@ -59,7 +111,7 @@ export function LintFindings({
   return (
     <ul className="flex flex-col gap-1">
       {findings.map((finding, index) => {
-        const key = RULE_KEYS[finding.rule];
+        const key = keyFor(finding);
         const ratio = finding.detail["ratio"];
 
         return (
