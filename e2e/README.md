@@ -30,10 +30,24 @@ While writing a spec:
   fail; use it with `--grep` on a later spec. The first test in
   `03-invitations` fails on a reused instance too, and has to: an invitation
   activates an account for a person who has none, and the two it invites got
-  theirs on the run before. Everything else is re-runnable, because a person a
-  spec makes for itself is named for the run that made them (`src/identity.ts`).
+  theirs on the run before. The rest re-runs without colliding, because a person
+  a spec makes for itself is named for the run that made them
+  (`src/identity.ts`).
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
+
+Re-running is not the same as leaving nothing behind. Nothing here deletes a
+person, an account, a member-register entry or an audit entry: the register and
+the log are append-only by design, and no endpoint removes an account. Every
+reused run therefore adds another set of them, personal identity numbers and
+phone numbers included, because `06-protected-personal-data` needs data worth
+masking. Fresh volumes are what clears that, which is why reuse belongs on a
+throwaway development stack and nowhere near an instance holding anything real.
+
+What a spec can take back, it takes back. `02` removes the passkey and the
+authenticator app it enrolled from the shared administrator account in a
+`finally`, so a run that fails part way through does not leave a second factor
+on the account the later specs sign in as.
 
 ## How it is put together
 
@@ -84,6 +98,13 @@ job is sent and a worker receives it) and the statutory archive still refuses an
 grant fails loudly if it is ever dropped rather than only when a background job
 does. It reads the database on the port `docker-compose.e2e.yml` publishes, so
 it needs no browser.
+
+Its last test reads the server process's own environment from inside the
+container, finds the process by its arguments rather than trusting a pid, and
+puts every connection URL it holds against the member register. Two roles are
+only a boundary while the owner's credentials are out of the application's
+reach, so the test fails if `DATABASE_URL` or either password survives into the
+process the entrypoint starts.
 
 `91-startup-and-connection-urls.spec.ts` covers what the image does with the
 database password and with a request that belongs to nobody: the first-boot
