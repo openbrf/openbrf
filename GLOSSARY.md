@@ -35,6 +35,7 @@ Statutes referenced below:
 | personnummer | personal identity number | Swedish national ID. Only where legally justified; never in public views. |
 | publiceringssamtycke | **publication consent** | A person's recorded consent to appear on a page the association publishes. No personal data reaches a public page without one, and protected personal data never reaches one at all. An image upload therefore declares whether it shows identifiable persons: that declaration is what ties a photograph to this consent. |
 | registerutdrag | data subject access report | Per-person GDPR report. |
+| samtycke | **consent** | A recorded agreement that is the legal basis for processing personal data (GDPR art. 6.1 a). The board's samtycke to a plugin's stated permissions and personal-data categories is what lets it run, and a republished version that widens either is refused until the board consents again. The per-person case of appearing on a published page is publiceringssamtycke, below. |
 | skyddade personuppgifter | **protected personal data** | Persons with protected identity: masked in all public views, exports, and lists; access is logged. |
 | stadgar | bylaws | The association's statutes. |
 | styrelse | **board** | The elected board of the association. |
