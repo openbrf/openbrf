@@ -17,7 +17,11 @@
 # builds of one commit the same build. Everything else this repository depends
 # on is pinned the same way - actions by commit, the Postgres image and the
 # Semgrep image by digest.
-ARG NODE_IMAGE=node:26.8.1-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e
+#
+# Written into the FROM line rather than held in an ARG, because Dependabot
+# reads image references off FROM and does not resolve a variable: an ARG here
+# would be a pin with nothing updating it, which is the failure the updater was
+# added to prevent.
 ARG PNPM_VERSION=11.24.0
 
 # --- base -------------------------------------------------------------------
@@ -29,7 +33,7 @@ ARG PNPM_VERSION=11.24.0
 # warning is harmless here - Prisma 7 reaches PostgreSQL through a driver
 # adapter - but neither a build log nor a start-up log should open with a
 # warning that means nothing.
-FROM ${NODE_IMAGE} AS base
+FROM node:26.8.1-bookworm-slim@sha256:367679cf9792759492a486e4aa4b421764d71a9546a6dae8aab81a99eb797b3e AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
