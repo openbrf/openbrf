@@ -345,6 +345,15 @@ export const CONTRAST_PAIRS: readonly ContrastPair[] = [
     background: "surface-register",
     statutory: true,
   },
+  // The raised register ground as well as the flat one: deriveAccentFamily
+  // measures the register accent against both, so a matrix that named only the
+  // flat surface would let a per-association colour through on a pair the
+  // derivation had checked but the published contract had not.
+  {
+    foreground: "accent-trust-register",
+    background: "surface-register-raised",
+    statutory: true,
+  },
   {
     foreground: "status-warn-register",
     background: "surface-register",

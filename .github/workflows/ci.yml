@@ -107,8 +107,14 @@ jobs:
       - name: Install job schema
         run: pnpm --filter @openbrf/api db:jobs
 
+      # Through turbo, not `pnpm --filter`, so the task graph builds the
+      # workspace dependencies first. They resolve to their dist/ output, so an
+      # unbuilt one fails at import with "Failed to resolve entry for package"
+      # rather than at type-check. The unit-test job never hit this because
+      # `pnpm test` is already a turbo task; test:int was the one command that
+      # went straight to the package and skipped the graph.
       - name: Integration tests
-        run: pnpm --filter @openbrf/api test:int
+        run: pnpm test:int
 
   pr-title:
     name: Validate PR title

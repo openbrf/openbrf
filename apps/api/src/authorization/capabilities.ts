@@ -11,6 +11,15 @@
 export const CAPABILITIES = [
   /** Settings, plugins, themes, SMTP, retention policy. */
   "association:manage",
+  /**
+   * Read the instance's settings without being able to change them.
+   *
+   * Separate from association:manage because the board is answerable for how
+   * the instance is configured - the retention policy and the self-signup
+   * toggle are board decisions - while changing it stays with an admin
+   * (plan section 4.3).
+   */
+  "association:read",
   /** Read the address book with contact details, i.e. the board's view. */
   "addressBook:read",
   /** Create and edit persons, apartments, residencies. */
@@ -60,6 +69,7 @@ export interface PrincipalRoles {
 const ADMIN_CAPABILITIES: readonly Capability[] = CAPABILITIES;
 
 const BOARD_CAPABILITIES: readonly Capability[] = [
+  "association:read",
   "addressBook:read",
   "addressBook:write",
   "memberRegister:read",

@@ -23,6 +23,21 @@
       "dependsOn": ["^build", "db:generate"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tsconfig.base.json"],
       "outputs": []
+    },
+    "test:int": {
+      "dependsOn": ["^build", "db:generate"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tsconfig.base.json"],
+      "outputs": [],
+      "cache": false,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "DATABASE_URL_RUNTIME",
+        "BETTER_AUTH_SECRET",
+        "APP_URL",
+        "NODE_ENV",
+        "PORT",
+        "OPENBRF_*"
+      ]
     }
   }
 }

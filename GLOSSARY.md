@@ -20,6 +20,7 @@ Statutes referenced below:
 | föreningsstämma / stämma | **general meeting** | Annual or extraordinary meeting of members. Postal voting is prohibited in a BRF (BRL 9 kap. 14 §) and is never built. |
 | förvaltare / vicevärd | **property manager** | External role with access to issue handling only, never the address book. |
 | gallring | purging | GDPR retention deletion in the service tier; the statutory archive tier is exempt (7-year lock). |
+| granskningslogg | **audit log** | The append-only record of accesses and changes (AuditLogEntry). Never "access log": the record covers changes as well as reads, and the retention screen has to say which record a retention policy cannot reach. |
 | insats | initial share capital | The original capital contribution tied to an apartment. |
 | lägenhetsförteckning | **apartment register** | Statutory register of apartments incl. liens and share capital (BRL 9 kap.). Confidential - only the tenant-owner may see their own entry. Never blended with the member register. |
 | lägenhetsnummer | apartment number | Lantmäteriet numbering (e.g. 1101). Always rendered in the mono grid. |

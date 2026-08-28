@@ -14,7 +14,9 @@
     "theme:check": "node scripts/generate-theme-css.mjs --check"
   },
   "dependencies": {
+    "@better-auth/passkey": "^1.7.1",
     "@openbrf/i18n": "workspace:*",
+    "@openbrf/shared": "workspace:*",
     "@openbrf/tokens": "workspace:*",
     "@tanstack/react-router": "^1.170.32",
     "better-auth": "^1.7.1",

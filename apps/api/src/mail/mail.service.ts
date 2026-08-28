@@ -17,6 +17,23 @@ import type {
 /** Accent used when the association has not chosen a primary colour. */
 const DEFAULT_PRIMARY_COLOR = "#8A6D28";
 
+/**
+ * The port to use when the settings name none.
+ *
+ * Which one depends on the transport, and getting it wrong is a connection
+ * failure rather than a cosmetic default: nodemailer's `secure` flag means
+ * IMPLICIT TLS, which servers offer on 465, while 587 is the submission port
+ * that starts in cleartext and upgrades through STARTTLS. Defaulting a secure
+ * connection to 587 asks for a TLS handshake on a port that answers with a
+ * greeting, and the send times out.
+ */
+const IMPLICIT_TLS_PORT = 465;
+const STARTTLS_SUBMISSION_PORT = 587;
+
+function defaultPortFor(secure: boolean): number {
+  return secure ? IMPLICIT_TLS_PORT : STARTTLS_SUBMISSION_PORT;
+}
+
 export class MailNotConfiguredError extends Error {
   constructor() {
     super(
@@ -88,6 +105,29 @@ export class MailService {
     ]);
 
     return { subject, html, text };
+  }
+
+  /**
+   * Whether this instance can send mail at all.
+   *
+   * Exposed because skipping SMTP in the setup wizard is allowed, and the
+   * screens that depend on delivery - invitations, sign-in links - have to be
+   * able to say so plainly rather than failing when someone presses send.
+   */
+  async isConfigured(): Promise<boolean> {
+    // The two columns rather than loadSmtpSettings: a presence check has no use
+    // for the password, and going through the loader would decrypt the stored
+    // secret every time a screen asks whether mail works at all.
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: { smtpHost: true, smtpFromAddress: true },
+    });
+
+    return (
+      association !== null &&
+      association.smtpHost !== null &&
+      association.smtpFromAddress !== null
+    );
   }
 
   async send<Props>(input: SendMailInput<Props>): Promise<void> {
@@ -195,7 +235,7 @@ export class MailService {
 
     return {
       host: association.smtpHost,
-      port: association.smtpPort ?? 587,
+      port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
       secure: association.smtpSecure,
       user: association.smtpUser ?? undefined,
       password,

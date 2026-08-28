@@ -178,16 +178,24 @@ function countOf(value: string, character: string): number {
  * the declaration and the rule and then write CSS of its own - including rules
  * that fetch over the network. Refusing is the right answer rather than
  * escaping, because no legitimate token value needs any of it.
+ *
+ * Takes a partial set: an override block states only the tokens it changes, and
+ * the body has always emitted exactly the entries it was given. A full TokenSet
+ * still satisfies this, and buildThemeStylesheet below still demands one, so
+ * the generated default stylesheet cannot become incomplete.
  */
-export function tokensToCssDeclarations(tokens: TokenSet): string {
+export function tokensToCssDeclarations(tokens: PartialTokenSet): string {
   const offending: { token: string; reason: string }[] = [];
 
-  const declarations = Object.entries(tokens).map(([name, value]) => {
+  const declarations = Object.entries(tokens).flatMap(([name, value]) => {
+    if (value === undefined) {
+      return [];
+    }
     const problem = tokenValueProblem(value);
     if (problem !== null) {
       offending.push({ token: name, reason: problem });
     }
-    return `  ${cssVariableName(name as TokenName)}: ${value};`;
+    return [`  ${cssVariableName(name as TokenName)}: ${value};`];
   });
 
   if (offending.length > 0) {
