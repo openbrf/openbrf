@@ -93,6 +93,29 @@ function storedPath(): string {
  */
 const HARNESS = { allowUncuratedSources: true } as const;
 
+/**
+ * Resolves to "closed" or to "still open", never by hanging.
+ *
+ * A test that waits on a socket the code under test was supposed to release
+ * would otherwise fail as a timeout, which reads as an unstable suite rather
+ * than as the assertion it is.
+ */
+async function withinTwoSeconds(settled: Promise<void>): Promise<string> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      settled.then(() => "closed"),
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => {
+          resolve("still open");
+        }, 2000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 describe("archiveFileName", () => {
   it("names the file from the id and version", () => {
     expect(archiveFileName(PLUGIN_ID, VERSION)).toBe("occupancy-1.4.0.tgz");
@@ -401,22 +424,46 @@ describe("fetchBytes over HTTP", () => {
     expect(written).toBeLessThan(offered * chunk.byteLength);
   });
 
-  it("refuses a declared content-length over the limit before reading a byte", async () => {
-    let bodyRequested = false;
-
+  it("refuses an oversized declared length even when the body is tiny", async () => {
+    // One byte reaches the wire, so the running total can never cross the
+    // limit: the declared length is the only thing that can produce this
+    // refusal, which is what makes the assertion below discriminating.
     handle = (_request, response) => {
       response.writeHead(200, { "content-length": String(10 * 1024 * 1024) });
-      bodyRequested = true;
       response.end(Buffer.alloc(1));
     };
 
     await expect(
       fetchBytes(`${origin}/declared.tgz`, { ...HARNESS, maxBytes: 1024 }),
     ).rejects.toMatchObject({ reason: "too-large" });
+  });
 
-    // The header alone settles it; whether the peer had started writing is not
-    // what this asserts.
-    expect(bodyRequested).toBe(true);
+  it("releases the connection when it refuses a response", async () => {
+    /*
+     * The peer sends headers and a body it never finishes. Nothing reads that
+     * body, and an unread one holds the socket until the collector reaches it.
+     * The refusal has to cancel it: this process is long-lived and reads the
+     * catalog on every reconcile, so one held connection per refusal
+     * accumulates against a source that has started failing.
+     */
+    let released!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      released = resolve;
+    });
+
+    handle = (_request, response) => {
+      response.on("close", released);
+      response.writeHead(404, { "content-type": "application/octet-stream" });
+      response.write(Buffer.alloc(32));
+    };
+
+    await expect(
+      fetchBytes(`${origin}/refused.tgz`, HARNESS),
+    ).rejects.toMatchObject({ reason: "unreachable" });
+
+    // Waited for here rather than left to the suite's teardown, which closes
+    // every connection itself and would report a leak as a pass.
+    await expect(withinTwoSeconds(closed)).resolves.toBe("closed");
   });
 
   it("does not carry the catalog credential across a redirect to another origin", async () => {

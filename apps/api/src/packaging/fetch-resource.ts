@@ -181,6 +181,7 @@ async function readOverHttp(
 
     if (!REDIRECT_STATUSES.has(response.status)) {
       if (!response.ok) {
+        await discard(response);
         throw new ResourceFetchError(
           `${target.href} answered ${String(response.status)}.`,
           "unreachable",
@@ -188,6 +189,12 @@ async function readOverHttp(
       }
       return await readBody(response, target, maxBytes);
     }
+
+    // Nothing below reads a redirect's body, and an unread body holds the
+    // connection until the collector reaches it. This process is the one
+    // holding the member register and runs this on every reconcile, so a
+    // source that answers slowly must not be able to accumulate sockets in it.
+    await discard(response);
 
     const location = response.headers.get("location");
     if (location === null || location === "") {
@@ -233,6 +240,7 @@ async function readBody(
 ): Promise<Buffer> {
   const declared = Number(response.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > maxBytes) {
+    await discard(response);
     throw new ResourceFetchError(
       `${url.href} declares ${String(declared)} bytes, over the ${String(maxBytes)} byte limit.`,
       "too-large",
@@ -270,6 +278,20 @@ async function readBody(
   }
 
   return Buffer.concat(chunks);
+}
+
+/**
+ * Releases a response nothing is going to read.
+ *
+ * The headers stay readable afterwards, so a redirect's location can still be
+ * taken from a response whose body has been cancelled.
+ */
+async function discard(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The connection is being abandoned either way.
+  }
 }
 
 /** Every header except the credential, for a hop to another origin. */
