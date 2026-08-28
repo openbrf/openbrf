@@ -2,7 +2,7 @@
 
 Open source, self-hostable platform for Swedish housing cooperatives (bostadsrättsföreningar, "BRF").
 
-**Föreningen äger sin data - the association owns its data.** Open BRF gives a BRF board one system for the statutory member and apartment registers, communication, documents, and issue reporting - with no lock-in, no binding period, and Swedish law built in. Self-hosting is free, forever.
+**Föreningen äger sin data - the association owns its data.** Open BRF gives a BRF board one system for the statutory member and apartment registers, communication, documents, issue reporting, and the association's public website - with no lock-in, no binding period, and Swedish law built in. Self-hosting is free, forever.
 
 > **Status: pre-release, not yet usable.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. There is no user interface yet: the foundations are built and covered by tests, with the exceptions the roadmap names, but nothing here can run a housing cooperative today. APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
 
@@ -12,6 +12,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 - The statutory registers under Swedish law: the member register (public on request) and the confidential apartment register, kept strictly separate
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - News and mailings, document archive, issue reporting with photos
+- The association's public website with a page CMS: public and member-only pages in one menu, a broker information page generated from association facts, contact and fault-report forms, and news that can email the members on publish
 - Roles for board members, residents, and external property managers
 - Sign-in with passwords, magic links, passkeys (WebAuthn), and TOTP
 - Swedish + English UI (full i18n), light + dark themes, and a WordPress-like plugin and theme system
@@ -20,7 +21,7 @@ Resource booking follows in v1.1. General meetings (stämma), board email, and s
 
 ## Tech stack
 
-TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router + Query, shadcn/ui, Tailwind CSS), PostgreSQL + Prisma, pg-boss job queue, Better Auth. Monorepo with pnpm workspaces + Turborepo. Deployed with Docker Compose - one instance per association. Node 26; nothing in this repository may require Bun.
+TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router + Query, shadcn/ui, Tailwind CSS), PostgreSQL + Prisma, pg-boss job queue, Better Auth. The public website is served as plain HTML by the API; the SPA is the signed-in application under /app. Monorepo with pnpm workspaces + Turborepo. Deployed with Docker Compose - one instance per association. Node 26; nothing in this repository may require Bun.
 
 ## Project documents
 

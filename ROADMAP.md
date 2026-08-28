@@ -109,6 +109,48 @@ ahead.
 - [ ] Deployable production image and Compose file
 - [ ] End-to-end test suite
 
+### The public website
+
+Decided into v1 on 2026-08-28: the association's own website, replacing the
+separate website vendor many cooperatives pay for today. Nothing of it is
+built. The site takes the domain root and the application moves under `/app`;
+pages are rendered by the API as plain HTML through the theme tokens, and the
+public ones need no JavaScript, set no cookies and make no third-party
+requests - which also means no cookie banner. Search engine optimisation is a
+non-goal: page titles, and no sitemap or metadata machinery.
+
+- [ ] File uploads and media storage behind one interface, with local-disk
+      and S3-compatible drivers both shipped and tested. An image upload
+      declares whether it shows identifiable persons, which ties it to
+      publication consent. The same work unblocks the logo upload above
+- [ ] Server-rendered public pages styled by the theme tokens, with the
+      application moving under `/app`
+- [ ] Page editor: rich text with insertable data blocks - news teasers,
+      document list, board roster, association facts, FAQ, and the contact
+      and fault-report forms. Editing pages, menu and news is a capability
+      granted to the board by default and grantable to others; site-wide
+      settings stay with an admin
+- [ ] Menu editor: top level plus one dropdown level; pages, generated pages
+      and external links
+- [ ] Public and member-only visibility on pages and news in one site menu,
+      gated by sign-in. An anonymous request for a member-only page gets the
+      same 404 as for a page that does not exist
+- [ ] News on the site, member-only by default, with "email this to the
+      members" at publish - a toggle, on by default, sent once through the
+      job queue in each recipient's language, and never re-sent on edit
+- [ ] Publication guardrails: a person appears on a public page only with a
+      recorded publication consent, protected personal data never appears at
+      all, a personal identity number scan blocks publishing, minutes default
+      to member-only, free-text editors warn against special-category data,
+      a fill-in privacy notice page ships footer-linked, and every publish,
+      visibility change and consent change lands in the audit log. The
+      public rendering path has no route to the statutory registers
+- [ ] Broker information page generated from association facts, and the
+      public forms - protected by a honeypot and rate limiting, never a
+      third-party CAPTCHA: contact to the board (emailed, and stored as a
+      submission), fault reports that create real issues, and an
+      apply-for-account page (a setting, on by default)
+
 ### Plugins and themes
 
 The riskiest part of the architecture has been prototyped and its findings
@@ -143,6 +185,15 @@ Free, open source, and never moved behind a paywall.
       of protected personal data, access logging and the data subject access
       report all still cover those records
 - [ ] News and mailings, by email and through an open SMS adapter
+- [ ] Public website with a page CMS, replacing the separate website vendor
+      many cooperatives pay for today: the association's own site at the domain
+      root, public and member-only pages in one editable menu, a broker
+      information page generated from association facts, contact and
+      fault-report forms, and news that can email the members on publish.
+      Server-rendered with no JavaScript required, no cookies and no
+      third-party requests on public pages - so no cookie banner. Personal
+      data reaches a public page only through per-person publication consent,
+      and never from the statutory registers
 - [ ] Document archive with per-role permissions
 - [ ] Issue reporting with photos
 - [ ] Roles for board members, residents and external property managers
@@ -167,7 +218,6 @@ foundation.
       BRL 9 kap. 14 §, and will never be built.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
-- [ ] Public mini-site generated from the housing cooperative's own data
 - [ ] Forms: subletting applications, motions, key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own.

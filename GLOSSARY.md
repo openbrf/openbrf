@@ -25,6 +25,7 @@ Statutes referenced below:
 | lägenhetsförteckning | **apartment register** | Statutory register of apartments incl. liens and share capital (BRL 9 kap.). Confidential - only the tenant-owner may see their own entry. Never blended with the member register. |
 | lägenhetsnummer | apartment number | Lantmäteriet numbering (e.g. 1101). Always rendered in the mono grid. |
 | Lantmäteriet | Lantmäteriet | Swedish mapping/cadastral authority; register export deadline Dec 2027. Keep the name. |
+| mäklarinfo | broker information | The public page brokers and buyers expect: fees, transfer and lien note fees, building facts, links to bylaws and annual reports. Generated from association facts - never from the statutory registers. The transactional broker extract (mäklarbild) is a paid module, not core. |
 | medlem | member | A person who is a member of the association. |
 | medlemsförteckning | **member register** | Statutory register of members (EFL 5 kap.). Public on request; must never be blended with the apartment register in UI or data model. |
 | motion | motion | Member proposal to the general meeting. |

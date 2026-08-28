@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-Derived from the confirmed project plan v1.0 and decision log in Obsidian ("Interna projekt/Open BRF/"), approved by Holger 2026-08-27. Decision numbers (#N) reference the decision log.
+Derived from the confirmed project plan v1.0 and decision log in Obsidian ("Interna projekt/Open BRF/"), approved by Holger 2026-08-27. Decision numbers (#N) reference the decision log. Amended 2026-08-28: the public website moved into core v1 (#59-61).
 
 ## Platform
 
@@ -10,18 +10,19 @@ web
 
 ## Stack
 
-TypeScript 100 % (#22). NestJS with Fastify adapter (#23). React 19 SPA via Vite, no SSR; TanStack Router + Query, shadcn/ui, Tailwind (#24). PostgreSQL + Prisma + pg-boss (#25-26). Better Auth: password, magic link, passkeys/WebAuthn, TOTP, OIDC (#26, #29). Monorepo: pnpm workspaces + Turborepo (apps/api, apps/web, packages/shared, packages/i18n, packages/moduler). Node LTS (24 now, 26 after Oct 2026); nothing may require Bun (#33). Docker Compose deployment (#32). Mobile app later via Capacitor wrapping the same web build (#30).
+TypeScript 100 % (#22). NestJS with Fastify adapter (#23). React 19 SPA via Vite for the application, no SSR; TanStack Router + Query, shadcn/ui, Tailwind (#24). The public website is server-rendered HTML from the API, styled by the theme tokens (#60). PostgreSQL + Prisma + pg-boss (#25-26). Better Auth: password, magic link, passkeys/WebAuthn, TOTP, OIDC (#26, #29). Monorepo: pnpm workspaces + Turborepo (apps/api, apps/web, packages/shared, packages/i18n, packages/moduler). Node LTS (24 now, 26 after Oct 2026); nothing may require Bun (#33). Docker Compose deployment (#32). Mobile app later via Capacitor wrapping the same web build (#30).
 
 ## Users
 
 - **Primary: BRF board members** (styrelse) in Swedish housing cooperatives - volunteers, often non-technical, doing administration in evenings/weekends. Core segment: small associations of 3-30 apartments (~60 % of Sweden's ~30 000 BRFs) that today overpay or juggle 2-4 separate subscriptions.
 - **Residents** (members and non-members: partners, children 13+, tenants) - check news, book resources, report issues; mostly mobile usage.
 - **External property managers** (förvaltare/vicevärd) - limited role: issue handling only, no address book access (#11).
+- **Public-site visitors** - brokers, prospective buyers, and neighbours reading the association's public website (#59); no account, often one-off visits.
 - **Self-hosters** - technically capable individuals (often a board member) running the platform via Docker Compose; credibility channel and funnel.
 
 ## Product Purpose
 
-Open source, self-hostable platform for Swedish housing cooperatives (bostadsrättsföreningar): member/apartment register, communication, documents, issue reporting, and over time booking, general meetings (stämma), and simple finances. Free to self-host; Apteo AB is maintainer and earns revenue on hosting, paid modules, AI services, and the mobile app (FreeScout model, improved). Success: pilot in own BRF Dec 2026, public v1 Q1 2027.
+Open source, self-hostable platform for Swedish housing cooperatives (bostadsrättsföreningar): member/apartment register, communication, documents, issue reporting, the association's public website, and over time booking, general meetings (stämma), and simple finances. Free to self-host; Apteo AB is maintainer and earns revenue on hosting, paid modules, AI services, and the mobile app (FreeScout model, improved). Success: pilot in own BRF Dec 2026, public v1 Q1 2027.
 
 ## Positioning
 
@@ -29,7 +30,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 ## Operating Context
 
-- One instance per association (#28); everything sits behind login. The public mini-site is a later core feature.
+- One instance per association (#28). The public website is the association's front door at the domain root (#59-60): server-rendered pages with public and member-only visibility in one site menu, with no cookies and no third-party requests on public pages. The application itself sits behind login under /app.
 - Legally mandated registers shape the UI: the member register (medlemsförteckning) is public on request; the apartment register (lägenhetsförteckning: liens, share capital, personal ID numbers) is confidential - views must never be blended (#21).
 - Statutory archive tier is append-only with a 7-year retention lock; service tier has configurable purging after move-out.
 - Protected personal data (skyddade personuppgifter) must be masked in all public views, exports, and lists, with access logging.
@@ -39,7 +40,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 ## Capabilities and Constraints
 
-- Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents), news/mailings, document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
+- Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents), news/mailings, public website (page CMS with data blocks, menu editor, public/member visibility, broker page, contact + fault-report forms, publication consent guardrails; file storage on local disk or S3) (#59-61), document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
 - v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances, Lantmäteriet export (legal deadline Dec 2027).
 - Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, premium themes.
 - Theming: theme engine in core, light + dark from the start, fully token-based (CSS custom properties, data-theme attribute, follows prefers-color-scheme with per-user override) (#39-40). Components reference only tokens, never hex.
