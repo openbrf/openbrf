@@ -279,6 +279,14 @@ describe("accepting an invitation", () => {
     });
     expect(response.statusCode).toBe(201);
 
+    // The address comes back so the activation screen can sign the new account
+    // in without asking for it again. Only a caller holding a valid, unused
+    // token that was mailed to that address reaches this response.
+    expect(response.json()).toEqual({
+      personId: invitee.personId,
+      email: invitee.email,
+    });
+
     // The whole point: the person can now sign in.
     const cookie = await signIn(invitee.email);
     expect(cookie).toContain("session_token");

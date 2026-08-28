@@ -8,6 +8,7 @@ import {
 
 import { fetchSetupState } from "../api/instance";
 import { authClient } from "../auth/auth-client";
+import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { ImportRoute } from "./ImportRoute";
@@ -85,6 +86,31 @@ const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
   component: SetupRoute,
+});
+
+/**
+ * Activation, reached from the link in an invitation email.
+ *
+ * Deliberately without a session guard, like the wizard above and for the same
+ * kind of reason: the person has no account yet, which is the entire point of
+ * the screen. The token in the query string is the credential, and the API
+ * checks it, refuses an expired or already-used one, and creates nothing for a
+ * caller who does not hold one - so a guard here would add nothing and would
+ * shut out exactly the people the screen exists for.
+ */
+const activateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/activate",
+  /*
+   * The token is coerced rather than validated. A link mangled on its way
+   * through a mail client should reach the screen and be told that the link
+   * does not work, not throw a router error at somebody who only clicked what
+   * they were sent.
+   */
+  validateSearch: (search: Record<string, unknown>): { token: string } => ({
+    token: typeof search.token === "string" ? search.token : "",
+  }),
+  component: ActivateRoute,
 });
 
 /** Sends anyone without a session to sign in, before the screen renders. */
@@ -190,6 +216,7 @@ const importRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   signInRoute,
   setupRoute,
+  activateRoute,
   settingsRoute,
   pluginsRoute,
   pluginViewRoute,

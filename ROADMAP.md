@@ -9,9 +9,11 @@ moved in and out; and an existing member list imports from CSV or Excel. All of
 it runs from one Compose command against a production image, with an end-to-end
 suite driving a browser against that image.
 
-What is missing is the way in. Nobody can be invited from the interface yet and
-there is no screen to activate an invitation from, so an account is still made
-through the API rather than by a board member at a keyboard. The project is not
+The way in is there now: a board member invites a person from the register, the
+invitation arrives as an email, and the link in it opens a screen where the
+recipient chooses a password and is signed in as soon as it is set. What is
+still missing is everything a housing cooperative shows its members and the
+world outside - its own website, its documents and its news. The project is not
 ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
@@ -110,6 +112,13 @@ locally the application runs from source beside the PostgreSQL that
       and a register stamp; a person and an apartment view; the
       resident-facing variant with no contact column at all; and the audited
       reveal for masked fields
+- [x] Invitations from the interface: the board sends one from the person view
+      and sends it again when an email goes missing, with the date the link
+      stops working shown beside it. The emailed link opens a screen where the
+      recipient chooses a password, and a successful activation leaves them
+      signed in rather than at a sign-in form. A link that was already used, one
+      that has run out and an account that already exists are three different
+      sentences, each in the recipient's own language
 
 - [x] Member register and apartment register views, with printable extracts:
       two separate screens on two separate endpoints, because the member
@@ -155,8 +164,10 @@ locally the application runs from source beside the PostgreSQL that
       rather than a development server. It covers the first six of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
       passkey and authenticator app enrolment and signing in with each;
-      invitations for a member, a resident and an external board member with no
-      apartment, plus a sign-in link by email; self-signup with the toggle on
+      invitations sent from the person view for a member, a resident and an
+      external board member with no apartment, each activating from the link in
+      their email and landing signed in, plus a sign-in link by email;
+      self-signup with the toggle on
       and the endpoint closed with it off; the address book with its house tabs,
       floor grouping, filter tabs, signs, legend and register stamp in light,
       dark and follow-the-system; and protected personal data staying masked
