@@ -3,6 +3,7 @@ import pg from "pg";
 
 import { jsonBodyOrNothing } from "../src/api";
 import {
+  appLogs,
   productionComposeConfig,
   runInAppContainer,
   stack,
@@ -355,6 +356,41 @@ test("no request path can name the file the client route serves", async ({
     expect(response.status(), path).toBe(200);
     expect(await response.text(), path).toBe(client);
   }
+});
+
+test("the boot that just happened logged neither database password", () => {
+  // database-url.mjs writes the owner's password to stdout, because that is
+  // how the entrypoint gets it into PGPASSWORD without it landing in psql's
+  // arguments. Every caller captures that stream in a command substitution, so
+  // it is never printed - and this is what holds that true rather than an
+  // argument that it is true. The container's log is what gets shipped off the
+  // host, read by anyone with Docker access and pasted into a bug report.
+  const logs = appLogs();
+
+  // The boot really is in this log, so the absences below mean something. Both
+  // ends of the entrypoint: the step that reads the password, and the exec.
+  expect(logs).toContain("constraining the application database role");
+  expect(logs).toContain("openbrf: starting");
+
+  for (const [name, secret] of [
+    ["POSTGRES_PASSWORD", stack.ownerPassword],
+    ["RUNTIME_DB_PASSWORD", stack.runtimePassword],
+  ] as const) {
+    expect(logs.includes(secret), `the log holds no ${name}`).toBe(false);
+    // The URLs the entrypoint assembles carry the password encoded, which is
+    // the shape a leaked URL would have rather than a leaked value.
+    expect(
+      logs.includes(encodeURIComponent(secret)),
+      `the log holds no encoded ${name}`,
+    ).toBe(false);
+  }
+
+  // And no connection URL carrying any credentials at all, in case a future
+  // password does not happen to contain the characters the two above do.
+  expect(
+    /postgresql:\/\/[^\s/]*:[^\s/]*@/.test(logs),
+    "the log holds no connection URL with a password in it",
+  ).toBe(false);
 });
 
 test("a body that is not JSON is reported by its status", () => {

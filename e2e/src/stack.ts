@@ -104,6 +104,15 @@ export const stack = {
    * do, which is only meaningful against the role the deployed image made.
    */
   runtimeDatabaseUrl: connectionUrl("openbrf_app", "RUNTIME_DB_PASSWORD"),
+  /**
+   * The two passwords exactly as stack.env spells them, unencoded.
+   *
+   * Here so a spec can search the container's log for them. The URLs above
+   * carry them percent-encoded, which is not the form a leak would take if
+   * something printed the value rather than the URL it sits in.
+   */
+  ownerPassword: required("POSTGRES_PASSWORD"),
+  runtimePassword: required("RUNTIME_DB_PASSWORD"),
   /** Reachable from the app container, not from the host. */
   smtpHost: "mailpit",
   smtpPort: 1025,
@@ -239,6 +248,31 @@ export function productionComposeConfig(
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+/**
+ * The application container's whole log, as it would be shipped off the host.
+ *
+ * Read rather than printed: a spec asserts on what is and is not in it. This is
+ * the boot that actually ran - the entrypoint's key provisioning, its
+ * migrations and the step that reads the owner's password out of DATABASE_URL -
+ * so it is the only place the question "did any of that print a credential" has
+ * a real answer.
+ */
+export function appLogs(): string {
+  return execFileSync(
+    "docker",
+    [...COMPOSE_ARGS, "logs", "--no-color", "app"],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+      // A boot log is small, but the default cap is 1 MiB and a truncated read
+      // would quietly turn this into a weaker check than it looks.
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
 }
 
 /** Prints the application's logs. Called when the suite fails, not otherwise. */
