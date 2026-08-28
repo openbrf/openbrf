@@ -18,8 +18,13 @@ at something else; it provisions the field encryption key on a genuine first
 boot and refuses to invent one on any later boot; it applies migrations,
 installs the job queue schema, and creates the constrained database role the
 application connects as - so the application never owns the tables whose
-triggers keep the member register and the audit log append-only. All of it is
-idempotent, so an upgrade is `docker compose up -d`.
+triggers keep the member register and the audit log append-only. The owner's
+credentials go no further than those steps: neither password is ever a process
+argument, and both are dropped from the environment before the server starts,
+so the process that serves requests holds the constrained connection alone. All
+of it is idempotent, so an upgrade is the same
+`docker compose -f docker-compose.prod.yml --env-file .env.production up -d`
+that started the instance.
 
 That role holds `CREATE` on the job queue's own schema and nowhere else, so a
 feature - or an installed plugin - can declare a background queue while the

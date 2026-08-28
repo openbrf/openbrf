@@ -17,6 +17,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { passwordOf, withoutPassword } from "./database-url.mjs";
+
 const KEY_LENGTH_BYTES = 32;
 /** Must match EncryptionKeyProvider in the API. */
 const KEY_FILE_NAME = "field-encryption.key";
@@ -53,18 +55,28 @@ if (!connectionString) {
   );
 }
 
+// The password does not travel in psql's arguments. An argument is in
+// /proc/<pid>/cmdline, which every process in the container can read; the
+// environment is not, so PGPASSWORD carries it and the argument carries the
+// rest of the URL.
+const connectionArgument = withoutPassword(connectionString);
+const connectionPassword = passwordOf(connectionString);
+const psqlEnvironment =
+  connectionPassword === ""
+    ? process.env
+    : { ...process.env, PGPASSWORD: connectionPassword };
+
 /**
  * Runs one query and returns the single value it selects, trimmed.
  *
- * A failure is replaced rather than passed on. psql takes the connection string
- * as an argument; Node puts the whole command line into the message of the
- * error it throws, and libpq echoes the string it could not parse. Either way
- * the database password would reach whatever reads the error - and this runs
- * during startup, so that is the container's log, which is shipped off the
- * host, readable by anyone with Docker access and the first thing pasted into
- * a bug report. Nothing derived from the connection string is reported here,
- * not even the host, because a password containing a delimiter moves the
- * boundaries of every other component in it.
+ * A failure is replaced rather than passed on. Node puts the whole command line
+ * into the message of the error it throws, and libpq echoes the string it could
+ * not parse, so anything derived from the connection would reach whatever reads
+ * the error - and this runs during startup, so that is the container's log,
+ * which is shipped off the host, readable by anyone with Docker access and the
+ * first thing pasted into a bug report. Not even the host is reported, because
+ * a password containing a delimiter moves the boundaries of every other
+ * component in the URL it sits in.
  */
 function query(sql) {
   try {
@@ -77,11 +89,15 @@ function query(sql) {
         "--no-align",
         "--set",
         "ON_ERROR_STOP=on",
-        connectionString,
+        connectionArgument,
         "--command",
         sql,
       ],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: psqlEnvironment,
+      },
     ).trim();
   } catch {
     throw new Error("psql could not run a statement against DATABASE_URL");

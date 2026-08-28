@@ -67,11 +67,22 @@ The entrypoint runs, in this order, before the application listens:
 5. The job queue schema is installed or migrated, as the owner.
 6. The application's own database role, `openbrf_app`, is created and
    constrained.
-7. The application starts, connecting as `openbrf_app`.
+7. The owner's credentials are dropped from the environment, and the
+   application starts, connecting as `openbrf_app`.
 
-Steps 4 to 6 are idempotent, so upgrading is `docker compose pull` - or
-`docker compose build` while there is no published image - followed by
-`docker compose up -d`, and nothing else.
+Steps 4 to 6 are idempotent, so upgrading is one `pull` - or one `build` while
+there is no published image - and the same `up -d` that started the instance:
+
+```sh
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+Both selectors belong on every one of those commands. Without
+`-f docker-compose.prod.yml`, Compose picks up the `docker-compose.yml` in this
+repository instead, which defines the development database and no application
+at all: the upgrade would touch the wrong volumes and leave the running
+instance on its old image.
 
 ## Two database roles, and why
 
@@ -85,6 +96,15 @@ no `CREATE` privilege, and has `UPDATE` and `DELETE` revoked on the statutory
 tables. The entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on
 every start, so the privileges are reapplied after any migration that added a
 table.
+
+The owner's credentials never reach the server. Neither password is passed as a
+process argument - `/proc/<pid>/cmdline` is readable by every process in the
+container, and the environment is not - and `DATABASE_URL`, `POSTGRES_PASSWORD`
+and `RUNTIME_DB_PASSWORD` are removed from the environment after step 6, so the
+process that answers requests carries `DATABASE_URL_RUNTIME` and no other
+database credential. A compromise of the application therefore has no owner
+connection to reach for, and the append-only guards on the member register and
+the audit log stay beyond it.
 
 An operator who manages that role themselves can leave `RUNTIME_DB_PASSWORD`
 unset and set `DATABASE_URL_RUNTIME` instead; the entrypoint then skips step 6.

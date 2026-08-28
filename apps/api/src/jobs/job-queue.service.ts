@@ -8,7 +8,7 @@ import {
 import { PgBoss } from "pg-boss";
 
 import { ENV } from "../config/config.module";
-import type { Env } from "../config/env";
+import { applicationDatabaseUrl, type Env } from "../config/env";
 
 /**
  * Schema pg-boss keeps its tables in. Separate from the application schema so
@@ -51,7 +51,7 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   constructor(@Inject(ENV) private readonly env: Env) {
     const isProduction = env.NODE_ENV === "production";
     this.boss = new PgBoss({
-      connectionString: env.DATABASE_URL_RUNTIME ?? env.DATABASE_URL,
+      connectionString: applicationDatabaseUrl(env),
       max: JOB_POOL_SIZE,
       application_name: "openbrf-jobs",
       schema: JOB_SCHEMA,

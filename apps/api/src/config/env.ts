@@ -47,8 +47,14 @@ export const envSchema = z.object({
     .default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
 
-  /** Connection used by migrations and, unless overridden, by the app. */
-  DATABASE_URL: z.string().min(1),
+  /**
+   * The schema owner's connection: migrations, the job schema install and the
+   * seed CLI. Optional, and absent from a production server's environment: the
+   * owner can disable the statutory archive triggers, so the container
+   * entrypoint drops it once the deploy steps that need it have run, and the
+   * process that serves requests holds DATABASE_URL_RUNTIME alone.
+   */
+  DATABASE_URL: z.string().min(1).optional(),
   /**
    * Non-owner connection for the application. Production sets this to the
    * openbrf_app role so the statutory archive guards cannot be bypassed
@@ -121,7 +127,23 @@ const S3_REQUIRED = [
   "OPENBRF_S3_SECRET_ACCESS_KEY",
 ] as const;
 
-const envWithStorageChecked = envSchema.superRefine((value, ctx) => {
+const envChecked = envSchema.superRefine((value, ctx) => {
+  // One of the two connections has to be there, because there is no default
+  // that could be right. Which one it is says what the process is for: a deploy
+  // step runs as the owner, a server runs as openbrf_app.
+  if (
+    value.DATABASE_URL === undefined &&
+    value.DATABASE_URL_RUNTIME === undefined
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["DATABASE_URL"],
+      message:
+        "is required unless DATABASE_URL_RUNTIME is set. One of the two names " +
+        "the database this process connects to.",
+    });
+  }
+
   if (value.OPENBRF_STORAGE_DRIVER !== "s3") {
     return;
   }
@@ -137,6 +159,26 @@ const envWithStorageChecked = envSchema.superRefine((value, ctx) => {
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * The connection the application itself opens.
+ *
+ * DATABASE_URL_RUNTIME wherever it is set, which is everywhere the image runs:
+ * that role owns nothing, so the append-only guards on the member register and
+ * the audit log are not its to disable. The owner connection is the fallback
+ * for a development instance configured with one role, and PrismaService
+ * refuses that combination in production.
+ */
+export function applicationDatabaseUrl(env: Env): string {
+  const url = env.DATABASE_URL_RUNTIME ?? env.DATABASE_URL;
+  if (url === undefined) {
+    throw new Error(
+      "Neither DATABASE_URL_RUNTIME nor DATABASE_URL is set, so there is no " +
+        "database for the application to connect to.",
+    );
+  }
+  return url;
+}
 
 export class EnvValidationError extends Error {
   constructor(issues: readonly string[]) {
@@ -165,7 +207,7 @@ function withoutEmptyValues(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * every problem at once, so an operator fixes one deploy rather than five.
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const result = envWithStorageChecked.safeParse(withoutEmptyValues(source));
+  const result = envChecked.safeParse(withoutEmptyValues(source));
   if (!result.success) {
     throw new EnvValidationError(
       result.error.issues.map(

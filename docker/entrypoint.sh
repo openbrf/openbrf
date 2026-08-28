@@ -8,10 +8,12 @@
 #   4. the schema is migrated, as the owner
 #   5. the job queue schema is installed, as the owner
 #   6. the runtime role is created and constrained, as the owner
-#   7. the application starts, connecting as the runtime role
+#   7. the owner's credentials are dropped, and the application starts as the
+#      runtime role
 #
 # Steps 4 to 6 are idempotent and run on every start, so an upgrade is
-# `docker compose pull && docker compose up -d` and nothing else.
+# `docker compose -f docker-compose.prod.yml --env-file .env.production pull`
+# followed by the same `up -d` that started the instance, and nothing else.
 
 set -eu
 
@@ -83,12 +85,42 @@ node scripts/install-job-schema.mjs
 # opts out.
 if [ -n "${RUNTIME_DB_PASSWORD:-}" ]; then
   log "constraining the application database role"
-  psql --quiet --no-psqlrc --set ON_ERROR_STOP=on "${DATABASE_URL}" \
+  # Neither password reaches psql's arguments. An argument is in
+  # /proc/<pid>/cmdline, which every process in the container can read; the
+  # environment is not. The runtime password is read by the script itself with
+  # \getenv, and the owner's travels in PGPASSWORD.
+  owner_url="$(node /app/docker/database-url.mjs without-password DATABASE_URL)"
+  owner_password="$(node /app/docker/database-url.mjs password DATABASE_URL)"
+  if [ -n "${owner_password}" ]; then
+    PGPASSWORD="${owner_password}"
+    export PGPASSWORD
+  fi
+  unset owner_password
+
+  psql --quiet --no-psqlrc --set ON_ERROR_STOP=on "${owner_url}" \
     -f prisma/sql/harden-runtime-role.sql
+
+  unset PGPASSWORD owner_url
 elif [ "${NODE_ENV:-production}" = "production" ] && [ -z "${DATABASE_URL_RUNTIME:-}" ]; then
   fail "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set. In production the application must not connect as the schema owner: the owner can disable the triggers that keep the member register and the audit log append-only. Set RUNTIME_DB_PASSWORD and let this entrypoint create the role, or create the role yourself and set DATABASE_URL_RUNTIME."
 fi
 
 # --- 7. the application -----------------------------------------------------
+# The owner's credentials stop here. Every step above needed them; the process
+# that serves requests does not, and anything that can reach the database as the
+# owner can run ALTER TABLE ... DISABLE TRIGGER and rewrite the member register
+# a housing cooperative is required to be able to produce, or erase the audit
+# log that is the evidence a reveal of protected personal data happened. The
+# server therefore inherits DATABASE_URL_RUNTIME and neither password, so an
+# application-path compromise has no owner connection to reach for.
+#
+# DATABASE_URL is kept only when there is no runtime connection to replace it:
+# that is a development instance running the image against a single role, and
+# PrismaService refuses it in production anyway.
+if [ -n "${DATABASE_URL_RUNTIME:-}" ]; then
+  unset DATABASE_URL
+fi
+unset POSTGRES_PASSWORD RUNTIME_DB_PASSWORD
+
 log "starting"
 exec "$@"
