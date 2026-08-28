@@ -34,26 +34,45 @@ Always dump.
 
 ## Taking a backup
 
-Run this against a running stack. It produces one directory holding a dump and
-the data volume, which is the unit that has to be restored together.
+The script below produces one directory holding a dump and the data volume,
+which is the unit that has to be restored together.
+
+**The application is stopped for the length of it, and that is the point.** The
+database and the data volume hold two halves of the same instance: a row names
+an uploaded file, and the file lives on the volume. Taken while the application
+is writing, the dump and the archive describe two different moments, and a
+restore can produce rows pointing at files that are missing or at an older
+version of them. The database container keeps running, because the dump comes
+out of it.
 
 ```sh
 #!/bin/sh
 set -eu
+
+compose() {
+  docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+}
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="./backups/${STAMP}"
 mkdir -p "${OUT}"
 chmod 700 "${OUT}"
 
+# Nothing writes from here until the trap puts the application back, whether
+# this script finished or failed.
+compose stop app
+trap 'compose start app' EXIT
+
 # The database, as a custom-format dump so pg_restore can be selective.
-docker compose -f docker-compose.prod.yml exec -T db \
+compose exec -T db \
   pg_dump -U openbrf -d openbrf --format=custom \
   > "${OUT}/openbrf.dump"
 
-# The data volume, key included. Same job, same moment, one archive.
-docker compose -f docker-compose.prod.yml exec -T app \
-  tar -cf - -C /data . \
+# The data volume, key included. One archive, from the same still moment. A
+# one-off container, because the application's own is stopped; -T keeps a
+# pseudo-terminal from rewriting the bytes of the archive on their way out.
+compose run --rm --no-deps -T --entrypoint sh app \
+  -c 'tar -cf - -C /data .' \
   > "${OUT}/data.tar"
 
 echo "backup written to ${OUT}"
@@ -62,6 +81,11 @@ echo "backup written to ${OUT}"
 `pg_dump` runs inside the database container, so its version always matches the
 server. Do not run a `pg_dump` from the host or from the application container
 against a newer server; it refuses, and rightly.
+
+An instance that cannot be paused at all needs the two halves snapshotted
+together at the storage layer - one filesystem or volume snapshot covering both
+volumes at one instant - and a dump taken from that snapshot afterwards.
+Anything else is two backups of two different moments.
 
 ## Storing a backup
 
@@ -87,9 +111,10 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d db
 
 # 2. Put the data volume back first. The application refuses to start without
 #    the key, which is the behaviour that keeps a half restore from writing
-#    ciphertext nothing can read.
+#    ciphertext nothing can read. -T for the same reason as in the backup: a
+#    pseudo-terminal would rewrite the bytes of the archive on their way in.
 docker compose -f docker-compose.prod.yml --env-file .env.production run --rm \
-  --no-deps --entrypoint sh app -c 'tar -xf - -C /data' < backups/<stamp>/data.tar
+  --no-deps -T --entrypoint sh app -c 'tar -xf - -C /data' < backups/<stamp>/data.tar
 
 # 3. Restore the database.
 docker compose -f docker-compose.prod.yml exec -T db \
