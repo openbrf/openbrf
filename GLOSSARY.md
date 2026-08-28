@@ -27,7 +27,7 @@ Statutes referenced below:
 | Lantmäteriet | Lantmäteriet | Swedish mapping/cadastral authority; register export deadline Dec 2027. Keep the name. |
 | mäklarinfo | broker information | The public page brokers and buyers expect: fees, transfer and lien note fees, building facts, links to bylaws and annual reports. Generated from association facts - never from the statutory registers. The transactional broker extract (mäklarbild) is a paid module, not core. |
 | medlem | member | A person who is a member of the association. |
-| medlemsförteckning | **member register** | Statutory register of members (EFL 5 kap.). Public on request; must never be blended with the apartment register in UI or data model. |
+| medlemsförteckning | **member register** | Statutory register of members. BRL 9 kap. 8 § requires it and 9 § fixes its contents and its availability to anyone who asks; EFL 5 kap. 6-7 §§ apply through BRL 9 kap. 9 b §. Must never be blended with the apartment register in UI or data model. |
 | motion | motion | Member proposal to the general meeting. |
 | ordförande | chair | Board chair - a position of trust (brass in the design system). |
 | överlåtelse | transfer | Sale/transfer of a bostadsrätt between holders. |
