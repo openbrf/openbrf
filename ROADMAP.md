@@ -163,21 +163,34 @@ metadata machinery.
 
 ### Plugins and themes
 
-The plugin system is built: manifest, loader, permissions-scoped SDK, catalog
-installation with a consent step, and a command-line tool. See the
-architecture decision records in `docs/adr` for the module resolution strategy
-it implements, and `docs/plugin-contract.md` for what a plugin author writes
-against. It is proven against a catalog and a reference plugin built inside
-this repository. What does not exist yet is the ecosystem around it - the
-public catalog, the published `@openbrf/plugin-sdk` package and the reference
-plugin's own repository - so an instance has nothing to install from until
-those are in place. The theme half is not built.
+Both halves are built. The plugin system carries the manifest, the loader, the
+permissions-scoped SDK, catalog installation with a consent step, and a
+command-line tool; see the architecture decision records in `docs/adr` for the
+module resolution strategy it implements, and `docs/plugin-contract.md` for what
+a plugin author writes against. Themes are the easier half by design: a theme
+carries no code at all, so installing one needs no restart and puts nothing into
+the running process.
+
+What neither has yet is the ecosystem around it. The public catalog, the
+published `@openbrf/plugin-sdk` package, the reference plugin and the example
+theme belong in repositories that do not exist, so an instance has nothing to
+install from until they do. Both install paths are so far proven against a
+catalog and packages built inside this repository.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
-- [x] Curated catalog and installation from the admin interface
+- [x] Curated plugin catalog and installation from the admin interface
 - [x] Command-line plugin management
-- [ ] Themes installable as data-only plugins, with inheritance
+- [x] Themes installable as data-only plugins, with inheritance. A theme is a
+      manifest, token values and bundled font files. It installs from a
+      catalog: the package is verified against the checksum the catalog states,
+      then linted, and only then written to disk. The lint is a gate rather
+      than advice - it refuses a theme that renders the statutory register
+      below WCAG AA, one that carries anything executable, and one that fetches
+      a font from a third party. A theme states only what it changes and
+      inherits the rest; the default theme is built in, always inheritable and
+      cannot be removed. A board member previews a theme in their own browser
+      before activating it, and activating one restarts nothing
 - [ ] Theme composer in the admin interface
 
 ## Core v1

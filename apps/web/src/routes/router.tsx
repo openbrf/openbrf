@@ -14,6 +14,7 @@ import { PluginViewRoute } from "./PluginViewRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
+import { ThemesRoute } from "./ThemesRoute";
 
 /**
  * Routes.
@@ -124,6 +125,23 @@ const pluginViewRoute = createRoute({
   component: PluginViewRoute,
 });
 
+/**
+ * Theme management. Signed in here, administrator inside the screen.
+ *
+ * The capability is checked by the screen and enforced by the API; this guard
+ * only keeps the route from rendering for someone with no session at all.
+ */
+const themesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/themes",
+  beforeLoad: async () => {
+    if (!(await hasSession())) {
+      throw redirect({ to: "/sign-in" });
+    }
+  },
+  component: ThemesRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -143,6 +161,7 @@ const routeTree = rootRoute.addChildren([
   settingsRoute,
   pluginsRoute,
   pluginViewRoute,
+  themesRoute,
   addressBookRoute,
 ]);
 

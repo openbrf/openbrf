@@ -26,11 +26,13 @@ export type { ThemeModes } from "./porttavlan.ts";
 export {
   buildThemeStylesheet,
   resolveTokens,
+  TOKEN_VALUE_PROBLEM_CODES,
   tokensToCssDeclarations,
   TokenValueError,
   tokenValueProblem,
+  tokenValueProblemCode,
 } from "./resolve.ts";
-export type { ResolveResult } from "./resolve.ts";
+export type { ResolveResult, TokenValueProblemCode } from "./resolve.ts";
 export {
   AA_CONTRAST_RATIO,
   checkContrast,

@@ -553,21 +553,50 @@ model InstalledPlugin {
 
 /// A theme installed from the curated catalog. Themes are pure data
 /// (decision 43), so installing one needs no restart.
+///
+/// The built-in default theme has no row here. It ships with the core, is
+/// always present, always inheritable and cannot be uninstalled (decision 48),
+/// so a row for it would be a row that must never be deleted. A null
+/// Association.activeThemeId means the built-in theme is the active one.
 model InstalledTheme {
   /// The theme id from its manifest, e.g. "example-theme".
   id      String @id
+  /// The name a board member sees, from the manifest's displayName.
   name    String
   version String
+  /// One sentence from the manifest saying what the theme is.
+  description String?
 
   /// Token contract range the theme declares, e.g. "^1".
   contract String
 
   /// Theme this one inherits from; null inherits the built-in default.
+  ///
+  /// Deliberately not a foreign key: the built-in theme has no row to
+  /// reference, so a constraint could not cover the common case, and half a
+  /// constraint reads as a guarantee that is not there. Uninstall checks for
+  /// dependants itself.
   extendsThemeId String?
 
+  /// sha512 of the package, hex encoded, as the catalog stated it and as the
+  /// download was verified against before anything was written to disk.
   checksum String
+  /// Where the package was fetched from, so the audit entry can say what was
+  /// installed and from where.
+  sourceUrl String
+  /// The catalog entry it came from, when it came from one.
+  catalogId String?
 
-  /// Resolved token sets for both modes, and the declared view variants.
+  /// Token values exactly as the manifest stated them.
+  ///
+  /// Held alongside the resolved sets because inheritance has to be redone
+  /// whenever an ancestor changes, and re-reading the package from the data
+  /// volume to do that would make activation depend on the filesystem.
+  declaredLightTokens Json
+  declaredDarkTokens  Json
+
+  /// The declared values merged down the inheritance chain and completed from
+  /// the token contract's own fallbacks: what the interface actually renders.
   lightTokens  Json
   darkTokens   Json
   viewVariants Json?
@@ -577,6 +606,7 @@ model InstalledTheme {
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([extendsThemeId])
   @@map("installed_theme")
 }
 
