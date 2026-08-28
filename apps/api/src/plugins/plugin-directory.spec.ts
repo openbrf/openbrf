@@ -204,7 +204,12 @@ describe("scanPluginDirectory", () => {
 
     const skipped = scan.skipped.find((entry) => entry.directory === directory);
     expect(skipped?.packageName).toBe("openbrf-plugin-broken");
-    expect(skipped?.detail["issues"]).not.toBe("");
+    // The diagnostic itself rather than merely "not the empty string", which a
+    // missing detail satisfies too. What the screen reads is the field that
+    // failed, so that is what is asserted: this manifest declares no
+    // apiVersion at all.
+    expect(skipped?.detail["issues"]).toEqual(expect.any(String));
+    expect(skipped?.detail["issues"]).toContain("openbrf.apiVersion");
   });
 
   it("skips a plugin declaring an apiVersion this host does not implement", async () => {

@@ -70,7 +70,7 @@ const CATALOG = join(REPO_ROOT, "fixtures", "catalog", "catalog.json");
 const PLUGIN_ID = "occupancy";
 
 let prisma: PrismaClient | undefined;
-let workspace: string;
+let workspace: string | undefined;
 let testEnv: Env;
 let registry: PluginRegistryService;
 let installer: PluginInstallerService;
@@ -109,10 +109,11 @@ beforeAll(async () => {
   });
   prisma = client;
 
-  workspace = await mkdtemp(join(tmpdir(), "openbrf-plugin-fixture-"));
+  const created = await mkdtemp(join(tmpdir(), "openbrf-plugin-fixture-"));
+  workspace = created;
   testEnv = {
     ...env,
-    OPENBRF_DATA_DIR: workspace,
+    OPENBRF_DATA_DIR: created,
     OPENBRF_PLUGINS_ENABLED: true,
     OPENBRF_CATALOG_URL: pathToFileURL(CATALOG).href,
     // The fixture index is not the curated one, which is exactly what this
@@ -173,8 +174,10 @@ afterAll(async () => {
    * the only thing guarded here. A deletion that fails is not: the integration
    * suites share one database, and swallowing the failure would leave an
    * installed-plugin row behind for whatever runs next and still report a
-   * green run. The disconnect and the workspace are in `finally` either way,
-   * so nothing is held open by the failure being allowed through.
+   * green run, and neither is a removal that fails: a temporary directory
+   * left behind is left behind. The disconnect and the removal are in
+   * `finally` either way, so nothing is held open by a failure being allowed
+   * through.
    */
   try {
     if (prisma !== undefined) {
@@ -186,9 +189,9 @@ afterAll(async () => {
       }
     }
   } finally {
-    await rm(workspace, { recursive: true, force: true }).catch(() => {
-      // The workspace was never created.
-    });
+    if (workspace !== undefined) {
+      await rm(workspace, { recursive: true, force: true });
+    }
   }
 });
 
@@ -208,7 +211,9 @@ describe("the reference plugin", () => {
     expect(outcome.failed).toEqual([]);
     expect(outcome.installed).toEqual([PLUGIN_ID]);
 
-    const scan = await scanPluginDirectory(dataPaths(workspace).plugins);
+    const scan = await scanPluginDirectory(
+      dataPaths(testEnv.OPENBRF_DATA_DIR).plugins,
+    );
     const discovered = scan.plugins.find((plugin) => plugin.id === PLUGIN_ID);
 
     expect(discovered).toBeDefined();

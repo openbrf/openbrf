@@ -76,12 +76,27 @@ const outsider = {
   email: `plugin-outsider-${suffix}@exempel.se`,
 };
 
-let app: NestFastifyApplication;
+let app: NestFastifyApplication | undefined;
 let prisma: PrismaService | undefined;
-let workspace: string;
+let workspace: string | undefined;
 let previousDataDir: string | undefined;
 let previousCatalogUrl: string | undefined;
 let previousUncurated: string | undefined;
+
+/**
+ * The running application.
+ *
+ * Held as optional and asked for through here rather than assumed present, so
+ * the teardown can tell "never started" from "would not close" - the one being
+ * a setup failure already in the report, the other a started application that
+ * a passing run would otherwise leave behind.
+ */
+function application(): NestFastifyApplication {
+  if (app === undefined) {
+    throw new Error("The application was not started.");
+  }
+  return app;
+}
 
 let ipCounter = 0;
 function inject(options: {
@@ -91,7 +106,7 @@ function inject(options: {
   headers?: Record<string, string>;
 }) {
   ipCounter += 1;
-  return app
+  return application()
     .getHttpAdapter()
     .getInstance()
     .inject({
@@ -138,20 +153,21 @@ let outsiderCookie: string;
 beforeAll(async () => {
   await ensureFixture();
 
-  workspace = await mkdtemp(join(tmpdir(), "openbrf-plugin-http-"));
+  const created = await mkdtemp(join(tmpdir(), "openbrf-plugin-http-"));
+  workspace = created;
 
   // Set before the application context is built: the configuration module
   // reads the environment once, at start-up.
   previousDataDir = process.env.OPENBRF_DATA_DIR;
   previousCatalogUrl = process.env.OPENBRF_CATALOG_URL;
   previousUncurated = process.env.OPENBRF_UNCURATED_PLUGINS_ENABLED;
-  process.env.OPENBRF_DATA_DIR = workspace;
+  process.env.OPENBRF_DATA_DIR = created;
   process.env.OPENBRF_CATALOG_URL = pathToFileURL(CATALOG).href;
   process.env.OPENBRF_UNCURATED_PLUGINS_ENABLED = "true";
 
   const testEnv = {
     ...env,
-    OPENBRF_DATA_DIR: workspace,
+    OPENBRF_DATA_DIR: created,
     OPENBRF_PLUGINS_ENABLED: true,
     OPENBRF_CATALOG_URL: pathToFileURL(CATALOG).href,
     OPENBRF_UNCURATED_PLUGINS_ENABLED: true,
@@ -187,13 +203,14 @@ beforeAll(async () => {
 
   // The boot the supervisor performs after an install: load what is on the
   // volume, build the application around it, bind the host objects.
-  app = await createApplication(await loadPluginsAtBoot(testEnv));
-  await app.init();
-  await app.getHttpAdapter().getInstance().ready();
+  const started = await createApplication(await loadPluginsAtBoot(testEnv));
+  app = started;
+  await started.init();
+  await started.getHttpAdapter().getInstance().ready();
 
-  const client = app.get(PrismaService);
+  const client = started.get(PrismaService);
   prisma = client;
-  const auth = app.get(AuthService);
+  const auth = started.get(AuthService);
 
   for (const person of [admin, outsider]) {
     await client.person.create({
@@ -222,13 +239,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   /*
-   * beforeAll builds a fixture, a database client, an application and a
-   * workspace in that order and can fail at any of them, so the client may not
-   * exist - which is the only thing guarded here. A deletion that fails is
-   * not: integration files run one at a time against one database, so a person
-   * or an installed-plugin row left behind is there for whatever runs next,
-   * and swallowing the failure would report that as a green run. It would also
-   * skip every deletion after it, which is how one failure becomes six rows.
+   * beforeAll builds a fixture, a workspace, a database client and an
+   * application in that order and can fail at any of them, so each of those
+   * is asked for before it is used. Nothing beyond that is guarded, and
+   * deliberately: a deletion, a close or a removal that fails is a real
+   * failure of this run. Integration files run one at a time against one
+   * database and one temporary directory, so a person, an installed-plugin
+   * row, a listening application or a workspace left behind is there for
+   * whatever runs next - and a catch here would report that as a green run.
    *
    * Everything that has to happen whatever the deletions did is in `finally`:
    * closing the application, restoring the environment the next suite in this
@@ -252,9 +270,9 @@ afterAll(async () => {
     }
   } finally {
     try {
-      await app.close();
-    } catch {
-      // The application never started.
+      if (app !== undefined) {
+        await app.close();
+      }
     } finally {
       restoreEnvironmentVariable("OPENBRF_DATA_DIR", previousDataDir);
       restoreEnvironmentVariable("OPENBRF_CATALOG_URL", previousCatalogUrl);
@@ -262,9 +280,9 @@ afterAll(async () => {
         "OPENBRF_UNCURATED_PLUGINS_ENABLED",
         previousUncurated,
       );
-      await rm(workspace, { recursive: true, force: true }).catch(() => {
-        // The workspace was never created.
-      });
+      if (workspace !== undefined) {
+        await rm(workspace, { recursive: true, force: true });
+      }
     }
   }
 });
@@ -573,7 +591,7 @@ describe("the plugin views endpoint", () => {
  */
 describe("switching a plugin off", () => {
   it("stops its routes, its view and its host access at once", async () => {
-    await app.get(PluginAdminService).setEnabled(PLUGIN_ID, false);
+    await application().get(PluginAdminService).setEnabled(PLUGIN_ID, false);
 
     const route = await inject({
       method: "GET",

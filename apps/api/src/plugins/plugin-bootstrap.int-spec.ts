@@ -93,11 +93,26 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
-let prisma: PrismaClient;
+let prisma: PrismaClient | undefined;
 let registry: PluginRegistryService;
-let app: NestFastifyApplication;
-let workspace: string;
+let app: NestFastifyApplication | undefined;
+let workspace: string | undefined;
 let previousDataDir: string | undefined;
+
+/**
+ * The running application.
+ *
+ * Asked for through here rather than assumed present, so the teardown can tell
+ * "never started" from "would not close" - the one being a setup failure
+ * already in the report, the other an application a passing run would
+ * otherwise leave listening.
+ */
+function application(): NestFastifyApplication {
+  if (app === undefined) {
+    throw new Error("The application was not started.");
+  }
+  return app;
+}
 
 async function writePackage(
   modules: string,
@@ -125,20 +140,22 @@ async function writePackage(
 }
 
 beforeAll(async () => {
-  prisma = new PrismaClient({
+  const client = new PrismaClient({
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });
+  prisma = client;
   registry = new PluginRegistryService(
-    prisma as unknown as ConstructorParameters<typeof PluginRegistryService>[0],
+    client as unknown as ConstructorParameters<typeof PluginRegistryService>[0],
   );
 
-  workspace = await mkdtemp(join(tmpdir(), "openbrf-plugin-bootstrap-"));
-  const modules = join(dataPaths(workspace).plugins, "node_modules");
+  const created = await mkdtemp(join(tmpdir(), "openbrf-plugin-bootstrap-"));
+  workspace = created;
+  const modules = join(dataPaths(created).plugins, "node_modules");
   await mkdir(modules, { recursive: true });
   await writePackage(modules, GOOD, WORKING_BUNDLE);
   await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
 
-  await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
+  await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
     await registry.consent({
       id,
@@ -154,48 +171,56 @@ beforeAll(async () => {
   // Set on the environment as well as passed in: the application's own
   // configuration module reads process.env when the container is built.
   previousDataDir = process.env.OPENBRF_DATA_DIR;
-  process.env.OPENBRF_DATA_DIR = workspace;
+  process.env.OPENBRF_DATA_DIR = created;
   const testEnv: Env = {
     ...env,
-    OPENBRF_DATA_DIR: workspace,
+    OPENBRF_DATA_DIR: created,
     OPENBRF_PLUGINS_ENABLED: true,
   };
 
-  app = await createApplication(await loadPluginsAtBoot(testEnv));
-  await app.init();
-  await app.getHttpAdapter().getInstance().ready();
+  const started = await createApplication(await loadPluginsAtBoot(testEnv));
+  app = started;
+  await started.init();
+  await started.getHttpAdapter().getInstance().ready();
 }, 120_000);
 
 afterAll(async () => {
   /*
-   * Every step is guarded, because beforeAll can fail before any of these
-   * exist. An unconditional dereference here would throw a TypeError that
-   * replaces the setup failure in the report and skips the cleanup that was
-   * still possible - and the environment restore, which the next suite in this
-   * worker depends on, is the part that must happen either way.
+   * beforeAll can fail before any of these exist, so each is asked for before
+   * it is used. Nothing beyond that is guarded: a close, a deletion or a
+   * removal that fails is a real failure of this run, and the integration
+   * files share one database and one temporary directory, so a listening
+   * application, an installed-plugin row or a workspace left behind is there
+   * for whatever runs next. A catch here would report that as a green run.
+   *
+   * The environment restore, which the next suite in this worker depends on,
+   * is in `finally` so it happens whatever the rest did.
    */
   try {
-    await app.close();
-  } catch {
-    // The application never started.
-  }
-
-  try {
-    await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
-    await prisma.$disconnect();
-  } catch {
-    // No client, or the database is already gone.
+    if (app !== undefined) {
+      await app.close();
+    }
+    if (prisma !== undefined) {
+      const client = prisma;
+      try {
+        await client.installedPlugin.deleteMany({
+          where: { id: { in: ALL_IDS } },
+        });
+      } finally {
+        await client.$disconnect();
+      }
+    }
   } finally {
     restoreEnvironmentVariable("OPENBRF_DATA_DIR", previousDataDir);
-    await rm(workspace, { recursive: true, force: true }).catch(() => {
-      // The workspace was never created.
-    });
+    if (workspace !== undefined) {
+      await rm(workspace, { recursive: true, force: true });
+    }
   }
 });
 
 describe("booting with a plugin the application cannot be built around", () => {
   it("starts anyway", async () => {
-    const response = await app
+    const response = await application()
       .getHttpAdapter()
       .getInstance()
       .inject({ method: "GET", url: "/health" });
@@ -204,12 +229,12 @@ describe("booting with a plugin the application cannot be built around", () => {
   });
 
   it("keeps serving the plugin that does build", async () => {
-    expect(app.get(PluginLoaderService).get(GOOD)).not.toBeNull();
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
 
     // 401 rather than 404: the route is in the router and the application's
     // own guard answered it, which is the whole of what registering the
     // plugin's controller was supposed to achieve.
-    const response = await app
+    const response = await application()
       .getHttpAdapter()
       .getInstance()
       .inject({ method: "GET", url: `/api/plugin/${GOOD}/ping` });
@@ -218,7 +243,7 @@ describe("booting with a plugin the application cannot be built around", () => {
   });
 
   it("reports the one it dropped rather than failing", () => {
-    const loader = app.get(PluginLoaderService);
+    const loader = application().get(PluginLoaderService);
 
     expect(loader.get(UNBUILDABLE)).toBeNull();
     const finding = loader.report().find((entry) => entry.id === UNBUILDABLE);
@@ -227,8 +252,22 @@ describe("booting with a plugin the application cannot be built around", () => {
     expect(loader.manifestFor(UNBUILDABLE)).not.toBeNull();
   });
 
+  /**
+   * NestJS composes that failure from the names in the plugin's own bundle,
+   * which the package chose and which can hold anything at all. The code
+   * crosses the wire and the message goes to the server log, the same way
+   * every other refusal on this screen is reported.
+   */
+  it("does not publish what the failure said", () => {
+    const report = application().get(PluginLoaderService).report();
+    const finding = report.find((entry) => entry.id === UNBUILDABLE);
+
+    expect(finding?.detail).toEqual({});
+    expect(JSON.stringify(report)).not.toContain("NeedsAbsent");
+  });
+
   it("does not serve the dropped plugin's routes", async () => {
-    const response = await app
+    const response = await application()
       .getHttpAdapter()
       .getInstance()
       .inject({ method: "GET", url: `/api/plugin/${UNBUILDABLE}/go` });
