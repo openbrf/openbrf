@@ -89,4 +89,14 @@ describe("satisfiesRange", () => {
     expect(satisfiesRange("1.0.0", "latest")).toBe(false);
     expect(satisfiesRange("1.0.0", "")).toBe(false);
   });
+
+  /*
+   * Whitespace separates comparators, so it never sits inside one. ">= 1.0.0"
+   * is two tokens, and a bare operator is not a comparator.
+   */
+  it("refuses an operator separated from its version by a space", () => {
+    expect(satisfiesRange("1.0.0", ">= 1.0.0")).toBe(false);
+    expect(satisfiesRange("1.0.0", "^ 1.0.0")).toBe(false);
+    expect(isRange(">= 1.0.0")).toBe(false);
+  });
 });
