@@ -1,18 +1,27 @@
 import type { ReactElement } from "react";
 
 /**
- * Marks a cell whose value the register does not hold.
+ * Marks a cell the register holds no value for.
  *
- * Hidden from assistive technology on purpose: a table cell that is empty
- * already reads as empty, and announcing "hyphen" in every such cell of a
- * register this size is noise rather than information.
+ * Two renderings of one fact. A sighted reader gets a dash, which is
+ * punctuation and carries no language: a column of dashes reads as a column of
+ * gaps at a glance, where a word repeated down every row would only be read as
+ * text. Assistive technology gets the sentence instead, because an unannounced
+ * cell is indistinguishable from one whose value failed to arrive, and a
+ * statutory register is the wrong document to be silent in. The dash itself
+ * stays hidden so nobody hears "hyphen" once per row.
  *
- * A component rather than a dash written where it is needed, so the reason it
- * is hidden lives in one place and a screen cannot arrive at a different answer
- * for the same cell. The dash carries no language and takes no translation key;
- * what a reader is told is that the cell holds nothing, and an empty cell says
- * that in every locale.
+ * `meaning` is required, and belongs to the column rather than to this
+ * component, because an empty cell does not mean the same thing twice: a
+ * tenant-ownership with no end date is still held, a membership with no exit
+ * date has not ended, and an import row with no problems has none. A single
+ * shared "not recorded" would be false in all three.
  */
-export function NotRecorded(): ReactElement {
-  return <span aria-hidden="true">-</span>;
+export function NotRecorded({ meaning }: { meaning: string }): ReactElement {
+  return (
+    <>
+      <span aria-hidden="true">-</span>
+      <span className="sr-only">{meaning}</span>
+    </>
+  );
 }

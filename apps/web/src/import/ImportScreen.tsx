@@ -696,7 +696,7 @@ function PreviewRow({
       </td>
       <td className={DATA_CELL}>
         {row.apartment === null ? (
-          <NotRecorded />
+          <NotRecorded meaning={t("import.preview.noValue.apartment")} />
         ) : (
           `${row.apartment.addressLabel} ${row.apartment.number}`
         )}
@@ -735,7 +735,7 @@ function PreviewRow({
             </select>
           </label>
         ) : row.problems.length === 0 ? (
-          <NotRecorded />
+          <NotRecorded meaning={t("import.preview.noValue.problems")} />
         ) : (
           <ul className="flex flex-col gap-1">
             {row.problems.map((problem) => (

@@ -211,6 +211,12 @@
       "history": "Tidigare boende",
       "noHistory": "Inga tidigare boende",
       "registerNotice": "Pantnoteringar och insats hör till lägenhetsförteckningen, som är ett separat och konfidentiellt dokument."
+    },
+    "noValue": {
+      "apartment": "Ingen lägenhet",
+      "movedIn": "Inget inflyttningsdatum registrerat",
+      "movedOut": "Har inte flyttat ut",
+      "value": "Inte registrerat"
     }
   },
   "person": {
@@ -573,6 +579,12 @@
       "empty": {
         "title": "Inga medlemskap registrerade",
         "description": "Medlemskap registreras när någon flyttar in som medlem, och vid import. Ännu finns inget registrerat."
+      },
+      "noValue": {
+        "postalAddress": "Ingen postadress registrerad",
+        "apartments": "Ingen lägenhet registrerad",
+        "enteredOn": "Inget inträdesdatum registrerat",
+        "exitedOn": "Medlemskapet har inte upphört"
       }
     },
     "apartment": {
@@ -635,7 +647,10 @@
         "title": "Inga lägenheter",
         "description": "Lägg till adresser och deras lägenheter i inställningarna, så syns de här."
       },
-      "ownEmpty": "Du innehar ingen bostadsrätt, så lägenhetsförteckningen har ingen post för dig. Fråga styrelsen om du tror att det är fel."
+      "ownEmpty": "Du innehar ingen bostadsrätt, så lägenhetsförteckningen har ingen post för dig. Fråga styrelsen om du tror att det är fel.",
+      "noValue": {
+        "heldUntil": "Innehas fortfarande"
+      }
     }
   },
   "moves": {
@@ -772,7 +787,11 @@
       "undecided": "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
       "apply": "Genomför importen",
       "applying": "Importerar",
-      "back": "Ändra kolumnkopplingen"
+      "back": "Ändra kolumnkopplingen",
+      "noValue": {
+        "apartment": "Ingen lägenhet matchad",
+        "problems": "Inga problem"
+      }
     },
     "outcome": {
       "create": "Ny",

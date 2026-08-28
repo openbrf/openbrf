@@ -199,12 +199,16 @@ describe("the board's copy", () => {
     }
   });
 
-  it("leaves a tenant-ownership that is still held unannounced", async () => {
+  it("says a tenant-ownership with no end date is still held", async () => {
     /*
-     * heldUntil is null while the apartment is still held. The cell renders a
-     * dash hidden from assistive technology rather than a word: an empty cell
-     * already reads as empty, and a register this size would otherwise announce
-     * a placeholder on every current holder.
+     * heldUntil is null while the tenant-ownership is still held. Sighted
+     * readers get a dash, so a column of gaps is legible at a glance;
+     * assistive technology gets the sentence, because an unannounced cell
+     * cannot be told apart from one whose value failed to arrive.
+     *
+     * What the sentence says matters as much as that it exists. "Still held" is
+     * the fact; "not recorded" would be false, because the register is not
+     * missing an end date - there is not one yet.
      */
     render(<ApartmentRegisterScreen />);
 
@@ -213,8 +217,10 @@ describe("the board's copy", () => {
     const cells = [...(row?.querySelectorAll("td") ?? [])];
     const heldUntil = cells.at(-1);
 
-    expect(heldUntil?.textContent).toBe("-");
-    expect(heldUntil?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+    expect(heldUntil?.querySelector('[aria-hidden="true"]')?.textContent).toBe(
+      "-",
+    );
+    expect(heldUntil?.textContent).toContain("Innehas fortfarande");
   });
 
   it("does not offer the masked screen as one that may be shown to others", async () => {

@@ -211,6 +211,12 @@
       "history": "Earlier residents",
       "noHistory": "No earlier residents",
       "registerNotice": "Liens and initial share capital are apartment register content, which is a separate confidential document."
+    },
+    "noValue": {
+      "apartment": "No apartment",
+      "movedIn": "No move-in date recorded",
+      "movedOut": "Has not moved out",
+      "value": "Not recorded"
     }
   },
   "person": {
@@ -573,6 +579,12 @@
       "empty": {
         "title": "No memberships recorded",
         "description": "Memberships are recorded when someone moves in as a member, and by the import. Nothing has been recorded yet."
+      },
+      "noValue": {
+        "postalAddress": "No postal address recorded",
+        "apartments": "No apartment recorded",
+        "enteredOn": "No date of entry recorded",
+        "exitedOn": "The membership has not ended"
       }
     },
     "apartment": {
@@ -635,7 +647,10 @@
         "title": "No apartments",
         "description": "Add the addresses and their apartments in settings, and they appear here."
       },
-      "ownEmpty": "You do not hold a tenant-ownership, so the apartment register has no entry for you. Ask the board if you believe that is wrong."
+      "ownEmpty": "You do not hold a tenant-ownership, so the apartment register has no entry for you. Ask the board if you believe that is wrong.",
+      "noValue": {
+        "heldUntil": "Still held"
+      }
     }
   },
   "moves": {
@@ -772,7 +787,11 @@
       "undecided": "Some rows match more than one person. Choose which one each is before applying.",
       "apply": "Apply the import",
       "applying": "Importing",
-      "back": "Change the mapping"
+      "back": "Change the mapping",
+      "noValue": {
+        "apartment": "No apartment matched",
+        "problems": "No problems"
+      }
     },
     "outcome": {
       "create": "New",

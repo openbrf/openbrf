@@ -434,7 +434,11 @@ function ApartmentEntry({
                     </td>
                     <td className={DATA_CELL}>{holder.heldFrom}</td>
                     <td className={DATA_CELL}>
-                      {holder.heldUntil ?? <NotRecorded />}
+                      {holder.heldUntil ?? (
+                        <NotRecorded
+                          meaning={t("registers.apartment.noValue.heldUntil")}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}

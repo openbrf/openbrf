@@ -235,11 +235,19 @@ export function MemberRegisterScreen(): ReactElement {
                         {postalAddress(
                           row,
                           t("registers.member.maskedAddress"),
-                        ) ?? <NotRecorded />}
+                        ) ?? (
+                          <NotRecorded
+                            meaning={t(
+                              "registers.member.noValue.postalAddress",
+                            )}
+                          />
+                        )}
                       </td>
                       <td className={DATA_CELL}>
                         {row.apartments.length === 0 ? (
-                          <NotRecorded />
+                          <NotRecorded
+                            meaning={t("registers.member.noValue.apartments")}
+                          />
                         ) : (
                           row.apartments
                             .map(
@@ -250,10 +258,18 @@ export function MemberRegisterScreen(): ReactElement {
                         )}
                       </td>
                       <td className={DATA_CELL}>
-                        {row.enteredOn ?? <NotRecorded />}
+                        {row.enteredOn ?? (
+                          <NotRecorded
+                            meaning={t("registers.member.noValue.enteredOn")}
+                          />
+                        )}
                       </td>
                       <td className={DATA_CELL}>
-                        {row.exitedOn ?? <NotRecorded />}
+                        {row.exitedOn ?? (
+                          <NotRecorded
+                            meaning={t("registers.member.noValue.exitedOn")}
+                          />
+                        )}
                       </td>
                     </tr>
                   ))}

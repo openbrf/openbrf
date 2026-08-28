@@ -436,7 +436,7 @@ function BoardRowView<TRow extends DirectoryRow>({
     <tr className="border-t border-register-line">
       <td className={DATA_CELL}>
         {apartment === null ? (
-          <NotRecorded />
+          <NotRecorded meaning={t("register.noValue.apartment")} />
         ) : onOpenApartment === undefined ? (
           apartment.number
         ) : (
@@ -519,10 +519,14 @@ function BoardRowView<TRow extends DirectoryRow>({
       ) : null}
 
       <td className={`${DATA_CELL} ${DESKTOP_ONLY}`}>
-        {row.movedInOn ?? <NotRecorded />}
+        {row.movedInOn ?? (
+          <NotRecorded meaning={t("register.noValue.movedIn")} />
+        )}
       </td>
       <td className={`${DATA_CELL} ${DESKTOP_ONLY}`}>
-        {row.movedOutOn ?? <NotRecorded />}
+        {row.movedOutOn ?? (
+          <NotRecorded meaning={t("register.noValue.movedOut")} />
+        )}
       </td>
     </tr>
   );
@@ -543,7 +547,7 @@ function MetaPair({
         {t(labelKey)}
       </span>
       <span className="font-data text-data text-register-ink-muted">
-        {value ?? <NotRecorded />}
+        {value ?? <NotRecorded meaning={t("register.noValue.value")} />}
       </span>
     </span>
   );
