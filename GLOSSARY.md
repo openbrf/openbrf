@@ -16,6 +16,9 @@ Statutes referenced below:
 | bostadsrättsförening (BRF) | housing cooperative; keep **BRF** as abbreviation | The association itself. "BRF" is established and used as-is in names and prose. |
 | bostadsrättsregister | cooperative housing register | The state register of cooperative apartments kept by Lantmäteriet (Lag (2026:484) om bostadsrättsregister, 3 kap.). The cooperative reports grant, transfer and termination, each within two weeks, though the transfer window runs from the membership decision and the statute assigns the report to a juridical person in defined cases; liens are reported by the lienholder, not the cooperative. |
 | dataskyddsförordningen | GDPR | Keep "GDPR". |
+| debitering | **charge** | A one-off cost put on a named member or apartment: a key to the bike room, a replacement tag, a subletting fee, a repair charged on. Open BRF records the basis for the charge - amount, date, reason, VAT treatment - and never the payment; the ledger belongs to the accounting system. |
+| debiteringslängd | **debiting list** | The list of charges per apartment handed to whoever keeps the books. Exported as CSV or PDF; also the statutory list a joint facility association (samfällighet) works from. |
+| ekonomisk förvaltare | **economic manager** | The external bookkeeping and fee-invoicing service many associations buy (SBC, Nabo, Fastum and the like). Distinct from *property manager* (förvaltare/vicevärd), who handles the building and issues; an economic manager receives exports and has no account in Open BRF. |
 | felanmälan | **issue report** | Resident-reported maintenance issue; the module is "issues". |
 | föreningsstämma / stämma | **general meeting** | Annual or extraordinary meeting of members. Postal voting is prohibited in a BRF (BRL 9 kap. 14 §) and is never built. |
 | förvaltare / vicevärd | **property manager** | External role with access to issue handling only, never the address book. |
