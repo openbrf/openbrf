@@ -64,9 +64,14 @@ on the account the later specs sign in as.
   sign-in links exist only as email, so there is no other way to check them.
 - `src/totp.ts` is RFC 6238 in twenty lines, standing in for an authenticator
   app.
-- `src/database.ts` reads the audit log directly. It has no read endpoint by
-  design - it is evidence, not a feature - and a reveal of protected personal
-  data has to reach it.
+- `src/database.ts` reads the audit log and the statutory member register
+  directly. Neither answers the question "what was written" over HTTP - the log
+  is evidence rather than a feature, and the register is only ever served as an
+  extract - so a reveal, a copy of the member list and an entry written by a
+  move-in or an import are checked against the rows themselves.
+- `src/xlsx.ts` builds a real .xlsx workbook in memory, so the import's upload
+  control is exercised with a workbook rather than with a binary fixture nobody
+  can read in a diff.
 - `src/fixtures.ts` gives each test its own client address. Better Auth
   rate-limits to twenty requests a minute per client and identifies the client
   by `X-Forwarded-For`; without this the suite would throttle itself.
@@ -87,6 +92,9 @@ Numbered against the phase 1 exit criteria.
 | 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                | `04-self-signup.spec.ts`                |
 | 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                     | `05-address-book.spec.ts`               |
 | 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                             | `06-protected-personal-data.spec.ts`    |
+| 7   | A member list imported: the columns mapped, every outcome previewed, the register written, and the run found again after a reload                  | `07-import-with-column-mapping.spec.ts` |
+| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry               | `08-move-in-and-move-out.spec.ts`       |
+| 9   | The two statutory registers as separate documents, the printed extract, the audited full copy, and a tenant-owner's own entry                      | `09-statutory-registers.spec.ts`        |
 
 Two specs are not numbered against a criterion.
 
@@ -116,25 +124,12 @@ with the client, query string or no query string.
 
 ## Still to be written
 
-Criteria 7 to 11 have no spec in this package yet. All but one are built and
-carry their own tests; what is missing here is a browser driving them against
-the production image, which is the only place the entrypoint, the constrained
-database role and the built client are the ones a housing cooperative installs.
-Installing a plugin, criterion 10, is not built at all.
+Criteria 10 and 11 have no spec in this package yet. Installing a theme is
+built and carries its own tests; what is missing there is a browser driving it
+against the production image, which is the only place the entrypoint, the
+constrained database role and the built client are the ones a housing
+cooperative installs. Installing a plugin, criterion 10, is not built at all.
 
-- **7 - Import with column mapping.** A CSV upload, a mapping step, a preview
-  showing creates, updates and ambiguous matches, then apply. The xlsx path is
-  verified at the integration level rather than here.
-- **8 - Move-out and move-in.** Setting a move-out date flips the residency to
-  moved out with the dashed sign and the dimmed row, shows the purge date
-  computed from the retention policy, records the transfer, and leaves the
-  member-register entry immutable. Move-in sends the welcome email in the
-  recipient's own language, which this package can already assert through
-  mailpit.
-- **9 - The statutory registers.** The member register and the apartment
-  register as separate views with printable extracts, sharing no screen and no
-  endpoint, and the apartment register reaching no one but the board and each
-  tenant-owner's own entry.
 - **10 - Installing a plugin.** From the admin screen: permissions and the
   personal-data declaration shown and consented to, the sha512 verified, a
   graceful restart, then the plugin's API route, its federated view, its merged
@@ -158,8 +153,10 @@ than pretending they are not there:
   instead.
 - **The register fixture puts people on apartments through sign-up approval.**
   Move-in creates a residency too, and is the path a board actually uses, but
-  the fixture predates it and needs no screen to run. A spec for criterion 8
-  drives move-in itself rather than reaching for this.
+  the fixture predates it and needs no screen to run. `08-move-in-and-move-out`
+  drives move-in through the screen rather than reaching for this. The import
+  and register specs call the move-in endpoint directly, because a residency is
+  what they need in place before they can be about something else.
 
 ## Screenshots for a pull request
 
