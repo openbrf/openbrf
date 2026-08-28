@@ -45,9 +45,11 @@ identity number costs 43.8 ms to index by design, so writing the register is a
 background job that walks the file in chunks rather than work done inside the
 request: the screen shows the rows done against the rows the file holds, the
 page can be closed while it runs, and an import interrupted by a restart carries
-on from the chunk it reached rather than writing anything a second time. The
-import that runs is the one that was previewed. Starting it claims the upload
-with a conditional update so two applies of one upload cannot both queue it, and
-each chunk claims its place in the file the same way, in the transaction that
-writes it. Uploads are deleted once they expire, and a template is downloadable
-in the reader's own language.
+on from the chunk it reached rather than writing anything a second time. An
+import the mapping or a decision refuses stops there and is reported under that
+reason; only a failure another attempt could survive is retried, so an import
+reported as interrupted is one that really was. The import that runs is the one
+that was previewed. Starting it claims the upload with a conditional update so
+two applies of one upload cannot both queue it, and each chunk claims its place
+in the file the same way, in the transaction that writes it. Uploads are deleted
+once they expire, and a template is downloadable in the reader's own language.

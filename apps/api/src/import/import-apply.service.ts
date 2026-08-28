@@ -16,7 +16,7 @@ import {
   IMPORT_FIELDS,
   type ImportMapping,
 } from "./import-columns";
-import type { ImportErrorReason } from "./import-errors";
+import { ImportError, type ImportErrorReason } from "./import-errors";
 import type { ImportPlan, PlannedRow } from "./import-plan";
 import {
   type IdentityIndexCache,
@@ -82,7 +82,10 @@ const APPLY_EXPIRE_SECONDS = 30 * 60;
 
 const APPLY_JOB_OPTIONS = {
   // A failed attempt resumes from the cursor rather than starting again, so
-  // retrying costs only the chunk that was interrupted.
+  // retrying costs only the chunk that was interrupted. These retries are for
+  // the failures a second attempt can change - a database that went away, a
+  // worker that was killed. A refusal never reaches them: `runApply` records it
+  // and finishes the job.
   retryLimit: 5,
   retryDelay: 5,
   retryBackoff: true,
@@ -205,7 +208,23 @@ export class ImportApplyService implements OnModuleInit {
     return unfinished.length;
   }
 
-  /** Walks the session's remaining chunks. Public so a test can drive it. */
+  /**
+   * Walks the session's remaining chunks. Public so a test can drive it.
+   *
+   * Two kinds of failure end an apply, and they are answered differently:
+   *
+   * - **A refusal** carries an `ImportError`, whose vocabulary describes the
+   *   file, the mapping or the board's decisions. None of those changes between
+   *   attempts, so every retry reaches the same answer. It is recorded on the
+   *   session under its own reason and the job is finished.
+   * - **Anything else** is a failure of the machinery rather than of the
+   *   import: a database that went away, a worker that was killed. It is thrown
+   *   on so the queue retries it, and the retry resumes from the last committed
+   *   chunk.
+   *
+   * Only the second kind can reach the dead letter, so the session a board
+   * reads as interrupted is one that really did run out of attempts.
+   */
   async runApply(sessionId: string): Promise<void> {
     try {
       while (await this.applyNextChunk(sessionId)) {
@@ -213,9 +232,16 @@ export class ImportApplyService implements OnModuleInit {
         // cursor the last one left.
       }
     } catch (error) {
-      // Thrown on rather than swallowed: the queue retries the job, and the
-      // retry resumes from the last committed chunk. The session stays in
-      // APPLYING meanwhile, which is what it is.
+      if (error instanceof ImportError) {
+        // Recorded rather than retried, and recorded as what it was: the reason
+        // is the same vocabulary a request answers with, so the screen names
+        // the mapping or the decision that stopped the import instead of
+        // reporting it as an interruption five attempts later.
+        await this.stop(sessionId, error.reason);
+        return;
+      }
+      // Thrown on rather than swallowed. The session stays in APPLYING
+      // meanwhile, which is what it is.
       //
       // Named by its class and the session, and not by what it was carrying: a
       // constraint violation names the value that broke it, and this job's

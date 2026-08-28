@@ -3,7 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -35,7 +35,8 @@ import {
  * decides, that contact data lands encrypted and still searchable, that a member
  * row writes the statutory register entry - and that the apply, which is a
  * chunked background job, gets there through the queue, survives being
- * interrupted between chunks, and writes nothing twice when it resumes.
+ * interrupted between chunks, writes nothing twice when it resumes, and tells a
+ * refusal it can only record apart from a failure a retry could survive.
  */
 
 loadEnvForIntegrationTests();
@@ -1038,6 +1039,101 @@ describe("an apply longer than one chunk", () => {
     expect(first[0]?.residencies).toHaveLength(1);
     expect(first[0]?.memberRegisterEntries).toHaveLength(1);
   }, 120_000);
+});
+
+describe("an apply that fails", () => {
+  it("records a refusal instead of spending its retries on it", async () => {
+    // The mapping is stored with the session and read again by every chunk, so
+    // a mapping that no longer fits the file is refused identically on every
+    // attempt. Retrying it would make a board wait through five of them and
+    // then read that the import was interrupted, which is not what happened:
+    // it never started writing.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "koppling.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2101",
+        "Koppling",
+        surname,
+        "Medlem",
+        "",
+        "",
+        "2022-11-01",
+      ],
+    ]);
+
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        // Claimed the way the endpoint claims it, but carrying a mapping that
+        // has lost its apartment column: nothing in the file says which
+        // apartment a row is about any more.
+        status: "QUEUED",
+        decisions: {},
+        mapping: EXPECTED_MAPPING.map((field) =>
+          field === "apartmentNumber" ? "" : (field ?? ""),
+        ),
+      },
+    });
+
+    // Resolves rather than rejects: a job that throws is a job the queue hands
+    // out again, and this one has nothing left to try.
+    await expect(applies.runApply(session.sessionId)).resolves.toBeUndefined();
+
+    const run = await readRun(cookie, session.sessionId);
+    expect(run.status).toBe("FAILED");
+    // The reason the import actually had, not the one an exhausted job leaves.
+    expect(run.failureReason).toBe("mapping-invalid");
+    expect(run.finishedAt).not.toBeNull();
+    expect(run.rowsDone).toBe(0);
+    // Refused before the first row, so the register has nothing of this file.
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Koppling", lastName: surname },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
+  it("keeps its retries for a failure another attempt could survive", async () => {
+    // The other half of the same rule. A database that went away is what the
+    // retries exist for: the job is thrown out of so the queue takes it again,
+    // and the session is left as the next attempt needs to find it rather than
+    // closed as a failure of the import.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "avbrott.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2101",
+        "Avbrott",
+        surname,
+        "Medlem",
+        "",
+        "",
+        "2022-12-01",
+      ],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    const gone = new Error("Connection terminated unexpectedly");
+    const chunk = vi
+      .spyOn(applies, "applyNextChunk")
+      .mockRejectedValueOnce(gone);
+    try {
+      await expect(applies.runApply(session.sessionId)).rejects.toBe(gone);
+    } finally {
+      chunk.mockRestore();
+    }
+
+    const run = await readRun(cookie, session.sessionId);
+    expect(run.status).toBe("QUEUED");
+    expect(run.failureReason).toBeNull();
+    expect(run.finishedAt).toBeNull();
+  }, 60_000);
 });
 
 /**

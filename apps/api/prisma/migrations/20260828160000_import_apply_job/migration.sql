@@ -11,6 +11,16 @@ ALTER TYPE "ImportSessionStatus" ADD VALUE 'APPLYING';
 ALTER TYPE "ImportSessionStatus" ADD VALUE 'FAILED';
 
 -- AlterTable
+-- "appliedAt" is dropped rather than kept. It held the single moment a
+-- synchronous apply had; the apply is now a chunked job, so a start and an end
+-- are two separate facts and "startedAt"/"finishedAt" below replace it.
+--
+-- The drop needs no backfill, and none is written, because no row can hold a
+-- value: "import_session" and its "appliedAt" column are both created by
+-- 20260828075941_import_sessions, which has never been part of a release, so
+-- every database this migration reaches has the column empty and unread. A
+-- backfill here would be a statement that can never do anything, which is worse
+-- to read than the reason it was not needed.
 ALTER TABLE "import_session" DROP COLUMN "appliedAt",
 ADD COLUMN     "ambiguousRows" JSONB,
 ADD COLUMN     "decisions" JSONB,

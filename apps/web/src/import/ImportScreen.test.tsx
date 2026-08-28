@@ -467,7 +467,7 @@ describe("coming back to the screen", () => {
     });
     render(<ImportScreen />);
 
-    expect(await screen.findByText(/Importen stoppade$/)).toBeTruthy();
+    expect(await screen.findByText(/Importen stoppades$/)).toBeTruthy();
     expect(screen.getByText(/nådde filens slut/)).toBeTruthy();
     expect(screen.getByText(/100 av 120 rader/)).toBeTruthy();
     // What it did write is in the register, so the count is shown rather than
@@ -476,6 +476,28 @@ describe("coming back to the screen", () => {
     expect(
       screen.getByRole("button", { name: /Importera en annan lista/ }),
     ).toBeTruthy();
+  });
+
+  it("says which refusal stopped an import, not that it was interrupted", async () => {
+    // A refusal and an interruption call for two different things from a board
+    // member: one is answered by fixing the mapping, the other by importing
+    // what is left as a new file. The job records the reason it actually had,
+    // and it has to reach the screen as that reason.
+    fetchActiveImport.mockResolvedValue({
+      ok: true,
+      value: runView({
+        status: "FAILED",
+        rowsDone: 0,
+        rowsTotal: 120,
+        failureReason: "mapping-invalid",
+      }),
+    });
+    render(<ImportScreen />);
+
+    expect(
+      await screen.findByText(/Kopplingen går inte att använda ännu/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/nådde filens slut/)).toBeNull();
   });
 
   it("offers the upload again when nothing is running", async () => {

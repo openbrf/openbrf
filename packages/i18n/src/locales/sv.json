@@ -809,7 +809,7 @@
     },
     "run": {
       "title": "Importen pågår",
-      "stopped": "Importen stoppade",
+      "stopped": "Importen stoppades",
       "file": "Från {{fileName}}",
       "progress": "{{done}} av {{total}} rader",
       "progressLabel": "Hur stor del av filen som importerats",
@@ -843,7 +843,7 @@
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
       "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
-      "applyInterrupted": "Importen stoppade innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
+      "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "unknown": "Importen gick inte just nu. Försök igen."
     },
     "template": {
