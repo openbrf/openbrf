@@ -1,5 +1,7 @@
 # Open BRF
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/openbrf/openbrf/badge)](https://scorecard.dev/viewer/?uri=github.com/openbrf/openbrf)
+
 Open source, self-hostable platform for Swedish housing cooperatives (bostadsrättsföreningar, "BRF").
 
 **Föreningen äger sin data - the association owns its data.** Open BRF gives a BRF board one system for the statutory member and apartment registers, communication, documents, issue reporting, and the association's public website - with no lock-in, no binding period, and Swedish law built in. Self-hosting is free, forever.
