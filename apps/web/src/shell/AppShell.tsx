@@ -171,7 +171,12 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen flex-col bg-page">
-      <header className="flex h-16 shrink-0 items-center gap-8 bg-register px-4 text-register-ink sm:px-8">
+      {/*
+       * The frame is screen furniture. A printed register extract carries the
+       * cooperative's own heading and its register stamp, and the navigation
+       * band on top of it would only take a third of the first page.
+       */}
+      <header className="flex h-16 shrink-0 items-center gap-8 bg-register px-4 text-register-ink sm:px-8 print:hidden">
         <div className="flex min-w-0 items-center gap-3">
           {logo === undefined ? null : (
             <BandLogo light={logo.light} dark={logo.dark} />
@@ -220,11 +225,11 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="grow px-4 py-5 sm:px-10">{children}</main>
+      <main className="grow px-4 py-5 sm:px-10 print:p-0">{children}</main>
 
       <nav
         aria-label={t("nav.primary")}
-        className="sticky bottom-0 flex shrink-0 border-t border-register-line bg-register sm:hidden"
+        className="sticky bottom-0 flex shrink-0 border-t border-register-line bg-register sm:hidden print:hidden"
       >
         <NavLinks
           navItems={navItems}

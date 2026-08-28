@@ -170,3 +170,53 @@
     }
   }
 }
+
+/*
+ * Print.
+ *
+ * The statutory register extracts are documents before they are screens: the
+ * member register extract is public on request, the apartment register extract
+ * is handed to a tenant-owner, and both leave the building on paper. There is
+ * no PDF engine behind them - a print stylesheet produces the same document
+ * through the browser's own "save as PDF", and it stays correct when a column
+ * is added, which a second rendering path would not.
+ *
+ * The two literals below are the medium rather than theme values. Paper is
+ * white and toner is black, and a theme able to change either would print a
+ * statutory extract nobody can read; a reader on the dark theme would otherwise
+ * get near-white text on white paper, because browsers drop background colours
+ * when printing but keep foreground ones. Everything else on these screens
+ * stays on tokens.
+ */
+@media print {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  /* Ink on paper: a panel's fill and shadow carry nothing a reader needs. */
+  [data-print="document"],
+  [data-print="document"] * {
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #000 !important;
+  }
+
+  /* A table longer than the page repeats its head instead of orphaning rows. */
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  li {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 16mm;
+  }
+}

@@ -211,6 +211,12 @@
       "history": "Tidigare boende",
       "noHistory": "Inga tidigare boende",
       "registerNotice": "Pantnoteringar och insats hör till lägenhetsförteckningen, som är ett separat och konfidentiellt dokument."
+    },
+    "noValue": {
+      "apartment": "Ingen lägenhet",
+      "movedIn": "Inget inflyttningsdatum registrerat",
+      "movedOut": "Har inte flyttat ut",
+      "value": "Inte registrerat"
     }
   },
   "person": {
@@ -406,7 +412,7 @@
         "light": "Logotyp",
         "lightHint": "Används i rummet, i de e-postmeddelanden föreningen skickar och på dess egen webbplats.",
         "dark": "Logotyp för mörk bakgrund",
-        "darkHint": "Valfri. Toppbandet är mörkt, så ett märke ritat i mörk färg försvinner där. Utan den här varianten lägger bandet i stället märket ovan på en ljus platta.",
+        "darkHint": "Valfri. Toppbandet är mörkt, så ett märke ritat i mörk färg försvinner där. Utan den här varianten lägger bandet i stället märket på en ljus platta.",
         "none": "Ingen logotyp uppladdad än.",
         "onLight": "På ljus yta",
         "onDarkBand": "I det mörka bandet",
@@ -529,6 +535,357 @@
       "warn": "Observera",
       "danger": "Fel",
       "info": "Information"
+    }
+  },
+  "registers": {
+    "nav": {
+      "memberRegister": "Medlemsförteckning",
+      "apartmentRegister": "Lägenhetsförteckning",
+      "ownApartmentRegister": "Min lägenhetsförteckning"
+    },
+    "common": {
+      "print": "Skriv ut",
+      "printHint": "Skrivs ut som ett dokument. Navigering och knappar följer inte med på pappret.",
+      "loading": "Hämtar förteckningen",
+      "error": "Förteckningen kunde inte läsas just nu.",
+      "retry": "Försök igen",
+      "organizationNumber": "Organisationsnummer",
+      "notRecorded": "Ej registrerat",
+      "back": "Tillbaka till adressboken",
+      "separateRegisters": "Medlemsförteckningen och lägenhetsförteckningen är två skilda handlingar under olika regler. De visas aldrig på samma skärm."
+    },
+    "member": {
+      "heading": "Medlemsförteckning",
+      "description": "Den lagstadgade förteckningen över medlemmar, EFL 5 kap. via BRL 9 kap. Den är offentlig på begäran och innehåller aldrig personnummer.",
+      "scope": {
+        "label": "Visa",
+        "current": "Nuvarande medlemmar",
+        "all": "Även tidigare medlemmar"
+      },
+      "scopeName": {
+        "current": "nuvarande medlemmar",
+        "all": "nuvarande och tidigare medlemmar"
+      },
+      "column": {
+        "name": "Namn",
+        "postalAddress": "Postadress",
+        "apartment": "Lägenhet",
+        "enteredOn": "Medlem sedan",
+        "exitedOn": "Medlemskap upphörde"
+      },
+      "stamp": "Utdrag ur medlemsförteckningen - {{scope}} - {{date}}",
+      "count": "Poster",
+      "maskedAddress": "Skyddad, skrivs inte ut",
+      "alternativeAddress": "Alternativ adress",
+      "noIdentityNumbers": "Detta utdrag innehåller inga personnummer. Förteckningen är offentlig på begäran och får därför aldrig innehålla dem.",
+      "empty": {
+        "title": "Inga medlemskap registrerade",
+        "description": "Medlemskap registreras när någon flyttar in som medlem, och vid import. Ännu finns inget registrerat."
+      },
+      "noValue": {
+        "postalAddress": "Ingen postadress registrerad",
+        "apartments": "Ingen lägenhet registrerad",
+        "enteredOn": "Inget inträdesdatum registrerat",
+        "exitedOn": "Medlemskapet har inte upphört"
+      }
+    },
+    "apartment": {
+      "heading": "Lägenhetsförteckning",
+      "description": "Den lagstadgade förteckningen över lägenheter, BRL 9 kap. Den är konfidentiell: styrelsen läser den, och varje bostadsrättshavare läser sin egen post.",
+      "ownHeading": "Din post i lägenhetsförteckningen",
+      "ownDescription": "Det föreningen registrerar om den lägenhet du innehar. Ingen annans post går att nå härifrån.",
+      "column": {
+        "designation": "Lägenhet",
+        "holder": "Innehavare",
+        "heldFrom": "Innehas från",
+        "heldUntil": "Innehades till",
+        "personalIdentityNumber": "Personnummer",
+        "initialShareCapital": "Insats",
+        "participationShare": "Andelstal"
+      },
+      "stamp": "Utdrag ur lägenhetsförteckningen - {{scope}} - {{date}}",
+      "scopeAll": "alla lägenheter",
+      "protectedHolder": "Skyddade personuppgifter",
+      "noHolders": "Ingen innehavare registrerad",
+      "identity": {
+        "masked": "Maskerat",
+        "notOnFile": "Saknas",
+        "notice": "Utdraget tas fram utan personnummer. Det gör det inte offentligt: innehavarna, insatsen, andelstalet, pantnoteringarna och överlåtelserna står kvar på skärmen, och lägenhetsförteckningen är konfidentiell. Det fullständiga lagstadgade utdraget innehåller även personnumren, och varje sådan kopia skrivs till granskningsloggen med ditt namn.",
+        "include": "Ta fram det fullständiga lagstadgade utdraget",
+        "including": "Tar fram",
+        "included": "Den här kopian innehåller personnummer. Att den togs fram skrevs till granskningsloggen.",
+        "hide": "Dölj dem igen",
+        "failed": "Det fullständiga utdraget kunde inte tas fram."
+      },
+      "liens": {
+        "heading": "Pantnoteringar",
+        "creditor": "Panthavare",
+        "notedOn": "Anteckningsdag",
+        "releasedOn": "Avnoterad",
+        "amount": "Belopp",
+        "none": "Inga pantnoteringar",
+        "add": "Notera pant",
+        "adding": "Noterar",
+        "cancel": "Avbryt",
+        "submit": "Notera panten",
+        "release": "Avnotera",
+        "releaseLabel": "Avnotera panten från {{creditor}}",
+        "releasing": "Avnoterar",
+        "failed": "Panten kunde inte registreras. Kontrollera panthavare och datum."
+      },
+      "transfers": {
+        "heading": "Överlåtelser",
+        "transferredOn": "Datum",
+        "from": "Från",
+        "to": "Till",
+        "parties": "{{from}} → {{to}}",
+        "price": "Pris",
+        "agreement": "Avtal",
+        "noAgreement": "Ingen avtalshänvisning registrerad",
+        "firstGrant": "Upplåtelse",
+        "none": "Inga överlåtelser registrerade"
+      },
+      "empty": {
+        "title": "Inga lägenheter",
+        "description": "Lägg till adresser och deras lägenheter i inställningarna, så syns de här."
+      },
+      "ownEmpty": "Du innehar ingen bostadsrätt, så lägenhetsförteckningen har ingen post för dig. Fråga styrelsen om du tror att det är fel.",
+      "noValue": {
+        "heldUntil": "Innehas fortfarande"
+      }
+    }
+  },
+  "moves": {
+    "cancel": "Avbryt",
+    "in": {
+      "heading": "Flytta in",
+      "description": "Placerar en person i en lägenhet. En bostadsrätt skriver också posten i den lagstadgade medlemsförteckningen, som inte går att ändra eller ta bort efteråt.",
+      "person": "Person",
+      "personPlaceholder": "Sök på namn",
+      "personHint": "Bara personer som redan finns i registret kan flyttas in. Lägg till personen först om den saknas i registret.",
+      "noPersonMatch": "Ingen matchar det namnet.",
+      "personSearchFailed": "Registret gick inte att söka i just nu. Försök igen.",
+      "apartment": "Lägenhet",
+      "role": "Roll",
+      "roleMember": "Medlem - innehar bostadsrätten",
+      "roleResident": "Boende - bor här utan att inneha den",
+      "movedInOn": "Inflyttningsdatum",
+      "submit": "Flytta in",
+      "working": "Flyttar in",
+      "done": "{{name}} är registrerad på lägenhet {{apartment}}.",
+      "registerEntry": "En post skrevs i medlemsförteckningen.",
+      "welcomeSent": "Ett välkomstmejl skickades, på mottagarens eget språk.",
+      "welcomeSkipped": "Inget välkomstmejl skickades: personen har ingen e-postadress registrerad."
+    },
+    "out": {
+      "heading": "Flytta ut",
+      "description": "Avslutar ett boende. När det är personens sista bostadsrätt avslutas medlemskapet i den lagstadgade medlemsförteckningen.",
+      "residency": "Boende",
+      "movedOutOn": "Utflyttningsdatum",
+      "submit": "Flytta ut",
+      "working": "Flyttar ut",
+      "action": "Flytta ut",
+      "actionLabel": "Flytta ut från lägenhet {{apartment}}",
+      "done": "Utflyttningen från lägenhet {{apartment}} är registrerad.",
+      "purgeOn": "Servicedata gallras {{date}}.",
+      "registerExit": "Medlemskapet avslutades i medlemsförteckningen.",
+      "registerKept": "Själva posten i medlemsförteckningen bevaras som lagen kräver. Ingen gallringsinställning når den.",
+      "boardReminder": "Styrelsen påminns {{date}} om att slutföra överlämningen."
+    },
+    "transfer": {
+      "record": "Registrera överlåtelse",
+      "hint": "Vid försäljning: avtalets datum, motparten och en hänvisning till var avtalet finns.",
+      "transferredOn": "Avtalsdatum",
+      "fromPerson": "Tidigare innehavare",
+      "fromPersonNone": "Upplåtelse - ingen tidigare innehavare",
+      "toPerson": "Ny innehavare",
+      "price": "Pris",
+      "agreementReference": "Avtalshänvisning",
+      "agreementReferenceHint": "Obligatorisk: ett ärendenummer, eller var pappersexemplaret förvaras. Den skrivs ut i utdraget ur lägenhetsförteckningen, som anger en för varje överlåtelse.",
+      "recorded": "Överlåtelsen registrerades i lägenhetsförteckningen.",
+      "changePerson": "Välj någon annan"
+    },
+    "errors": {
+      "personNotFound": "Personen finns inte längre i registret. Ladda om sidan.",
+      "apartmentNotFound": "Lägenheten finns inte längre. Ladda om sidan.",
+      "residencyNotFound": "Boendet finns inte längre. Ladda om sidan.",
+      "alreadyResident": "Personen har redan ett boende på den lägenheten.",
+      "alreadyMovedOut": "Boendet har redan ett utflyttningsdatum.",
+      "movedOutBeforeMovedIn": "Utflyttningen kan inte ligga före inflyttningen.",
+      "transferPersonNotFound": "Motparten i överlåtelsen finns inte i registret. Lägg till personen först.",
+      "transferPersonRequired": "Välj den nya innehavaren, eller stäng av registrering av överlåtelse.",
+      "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje överlåtelse, och en överlåtelse går inte att ta bort när den väl är registrerad.",
+      "unknown": "Det gick inte att spara just nu. Försök igen."
+    }
+  },
+  "import": {
+    "heading": "Importera medlemslista",
+    "description": "Läser in en befintlig medlemslista en gång: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret.",
+    "open": "Importera lista",
+    "step": {
+      "upload": "Fil",
+      "mapping": "Kolumner",
+      "preview": "Förhandsgranskning",
+      "apply": "Import"
+    },
+    "upload": {
+      "title": "Filen",
+      "description": "En CSV-fil eller en Excel-arbetsbok. Bara arbetsbokens första blad läses.",
+      "file": "Välj en fil",
+      "accept": "CSV eller Excel (.csv, .xlsx), högst 512 kB.",
+      "submit": "Läs filen",
+      "working": "Läser",
+      "template": "Hämta en mall",
+      "templateHint": "En fil med kolumnrubrikerna ifyllda, på ditt eget språk."
+    },
+    "mapping": {
+      "title": "Kolumnerna",
+      "description": "Varje kolumn i din fil går till ett fält i registret, eller till inget. Gissningen nedan kommer från kolumnrubrikerna; kontrollera den innan du går vidare.",
+      "fileSummary": "{{fileName}}: {{rows}} rader, {{columns}} kolumner",
+      "column": "Kolumn i filen",
+      "field": "Fält i registret",
+      "fieldFor": "Fält i registret för {{column}}",
+      "sample": "Första värdena",
+      "ignore": "Importera inte",
+      "defaults": "För varje rad",
+      "defaultRole": "Roll",
+      "defaultRoleHint": "Behövs eftersom filen saknar rollkolumn. Ingenting gissar detta: en medlem får också en post i den lagstadgade förteckningen.",
+      "defaultMovedInOn": "Inflyttningsdatum",
+      "defaultMovedInOnHint": "Behövs eftersom filen saknar inflyttningskolumn. Det är också medlemskapets datum i medlemsförteckningen.",
+      "submit": "Förhandsgranska importen",
+      "working": "Räknar ut vad som skulle hända",
+      "back": "Välj en annan fil"
+    },
+    "field": {
+      "addressLabel": "Adress",
+      "apartmentNumber": "Lägenhetsnummer",
+      "firstName": "Förnamn",
+      "lastName": "Efternamn",
+      "fullName": "Namn, för- och efternamn tillsammans",
+      "role": "Roll",
+      "email": "E-postadress",
+      "phone": "Telefonnummer",
+      "personalIdentityNumber": "Personnummer",
+      "postalStreet": "Postadress",
+      "postalCode": "Postnummer",
+      "postalCity": "Postort",
+      "movedInOn": "Inflyttningsdatum",
+      "movedOutOn": "Utflyttningsdatum"
+    },
+    "preview": {
+      "title": "Vad detta skulle göra",
+      "description": "Ingenting är skrivet ännu. En uppdatering fyller i det registret saknar; den skriver aldrig över ett värde som registret redan har.",
+      "row": "Rad",
+      "outcome": "Utfall",
+      "name": "Namn",
+      "apartment": "Lägenhet",
+      "role": "Roll",
+      "matchedBy": "Matchad på",
+      "problems": "Problem",
+      "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
+      "decision": "Den här raden är",
+      "decisionCreate": "En ny person",
+      "decisionSkip": "Importeras inte",
+      "undecided": "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
+      "apply": "Genomför importen",
+      "applying": "Importerar",
+      "back": "Ändra kolumnkopplingen",
+      "noValue": {
+        "apartment": "Ingen lägenhet matchad",
+        "problems": "Inga problem"
+      }
+    },
+    "outcome": {
+      "create": "Ny",
+      "update": "Uppdatering",
+      "ambiguous": "Kräver ett val",
+      "error": "Importeras inte"
+    },
+    "matchedBy": {
+      "personalIdentityNumber": "Personnummer",
+      "email": "E-postadress",
+      "apartmentAndName": "Lägenhet och namn",
+      "earlierRow": "En tidigare rad i filen"
+    },
+    "problem": {
+      "name-missing": "Raden saknar namn.",
+      "name-not-splittable": "Namnet går inte att läsa som ett för- och ett efternamn.",
+      "apartment-missing": "Raden saknar lägenhetsnummer.",
+      "apartment-not-found": "Ingen lägenhet i registret matchar den adressen och det numret.",
+      "apartment-ambiguous": "Lägenhetsnumret finns på fler än en adress. Koppla en adresskolumn.",
+      "role-missing": "Raden saknar roll och ingen roll valdes för filen.",
+      "role-unrecognised": "Rollen är varken \"medlem\" eller \"boende\".",
+      "moved-in-missing": "Raden saknar inflyttningsdatum och inget valdes för filen.",
+      "date-not-iso": "Datum måste skrivas som ÅÅÅÅ-MM-DD.",
+      "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
+      "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
+      "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
+      "unknown": "Raden kunde inte läsas."
+    },
+    "mappingProblem": {
+      "name-column-missing": "Koppla en namnkolumn: antingen en namnkolumn, eller ett förnamn och ett efternamn.",
+      "apartment-column-missing": "Koppla kolumnen med lägenhetsnummer.",
+      "role-missing": "Koppla en rollkolumn, eller välj rollen för varje rad.",
+      "moved-in-missing": "Koppla en kolumn med inflyttningsdatum, eller välj datumet för varje rad.",
+      "duplicate-field": "Två kolumner är kopplade till samma fält.",
+      "mapping-length-mismatch": "Kopplingen stämmer inte med filen. Ladda upp den igen.",
+      "unknown": "Kopplingen går inte att använda."
+    },
+    "run": {
+      "title": "Importen pågår",
+      "stopped": "Importen stoppades",
+      "file": "Från {{fileName}}",
+      "progress": "{{done}} av {{total}} rader",
+      "progressLabel": "Hur stor del av filen som importerats",
+      "queued": "Väntar på att starta",
+      "applying": "Skriver registret",
+      "applied": "Klar",
+      "failed": "Stoppad",
+      "keepsGoing": "Importen fortsätter även om du stänger sidan. Kom tillbaka hit för att se hur det gick.",
+      "another": "Importera en annan lista"
+    },
+    "result": {
+      "title": "Importen är klar",
+      "personsCreated": "Tillagda personer",
+      "personsUpdated": "Uppdaterade personer",
+      "residenciesCreated": "Skapade boenden",
+      "memberRegisterEntriesCreated": "Skrivna poster i medlemsförteckningen",
+      "skipped": "Överhoppade rader",
+      "errors": "Rader med problem",
+      "registerNotice": "Posterna i medlemsförteckningen hör till det lagstadgade arkivet och går inte att ändra eller ta bort. Ett fel rättas med en ny post.",
+      "toAddressBook": "Öppna adressboken"
+    },
+    "errors": {
+      "fileEmpty": "Filen har inga rader under kolumnrubrikerna.",
+      "fileTooLarge": "Filen är större än 512 kB.",
+      "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
+      "tooManyRows": "Filen har fler rader än en import klarar.",
+      "mappingInvalid": "Kopplingen går inte att använda ännu.",
+      "previewRequired": "Förhandsgranska importen innan du genomför den.",
+      "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
+      "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
+      "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
+      "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
+      "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
+      "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
+      "unknown": "Importen gick inte just nu. Försök igen."
+    },
+    "template": {
+      "column": {
+        "addressLabel": "Adress",
+        "apartmentNumber": "Lägenhetsnummer",
+        "firstName": "Förnamn",
+        "lastName": "Efternamn",
+        "role": "Roll",
+        "email": "E-postadress",
+        "phone": "Telefonnummer",
+        "personalIdentityNumber": "Personnummer",
+        "postalStreet": "Postadress",
+        "postalCode": "Postnummer",
+        "postalCity": "Postort",
+        "movedInOn": "Inflyttningsdatum",
+        "movedOutOn": "Utflyttningsdatum"
+      }
     }
   },
   "themeCatalog": {

@@ -2,15 +2,17 @@
 
 **Can I run this in my housing cooperative today? No.** A first boot now walks
 you through creating the housing cooperative, its addresses and its apartments;
-the settings screens are there; and the address book holds people, with a
-resident who has protected personal data masked everywhere.
+the settings screens are there; the address book holds people, with a resident
+who has protected personal data masked everywhere; the member register and the
+apartment register have their own views and print correctly; someone can be
+moved in and out; and an existing member list imports from CSV or Excel. All of
+it runs from one Compose command against a production image, with an end-to-end
+suite driving a browser against that image.
 
-What is missing is most of what a cooperative is obliged to keep. The member
-register and the apartment register have no views and no printable extracts.
-Moving someone in or out is not built, which is also what writes the statutory
-member-register entry. An existing member list cannot be imported. And nobody
-can be invited from the interface yet. The project is not ready to hold your
-housing cooperative's data.
+What is missing is the way in. Nobody can be invited from the interface yet and
+there is no screen to activate an invitation from, so an account is still made
+through the API rather than by a board member at a keyboard. The project is not
+ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -74,12 +76,12 @@ Every checked item below is implemented and covered by tests.
 ### The interface
 
 Under way. This is the gap between the list above and anything usable.
-There is now a frame, a way in, a way to configure the instance and a working
-register. A housing cooperative runs all of it with
+There is now a frame, a way in, a way to configure the instance, the address
+book, the two statutory registers with their printable extracts, the move flows
+and the import. A housing cooperative runs all of it with
 `docker compose -f docker-compose.prod.yml --env-file .env.production up -d`;
 locally the application runs from source beside the PostgreSQL that
-`docker compose up` starts. The statutory register views, the move flows and the
-import are still ahead.
+`docker compose up` starts.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
@@ -109,9 +111,35 @@ import are still ahead.
       resident-facing variant with no contact column at all; and the audited
       reveal for masked fields
 
-- [ ] Member register and apartment register views, with printable extracts
-- [ ] Move-in and move-out flows
-- [ ] Import from CSV and Excel with column mapping
+- [x] Member register and apartment register views, with printable extracts:
+      two separate screens on two separate endpoints, because the member
+      register is public on request and the apartment register is confidential.
+      The member register extract carries names, postal addresses, apartments
+      and the membership dates and never a personal identity number; the
+      apartment register carries the holders, the initial share capital, the
+      participation share, the lien notes and the transfers, and is open to the
+      board and to each tenant-owner for their own entry. Identity numbers are
+      masked until the full statutory copy is asked for, and the audit log
+      records who took it and whose numbers it held. Both print through a print
+      stylesheet, so a browser's own "save as PDF" produces the document
+- [x] Move-in and move-out flows: moving in creates the residency, writes the
+      statutory member register entry when the person takes over a
+      tenant-ownership, records the transfer, and emails the welcome in the
+      recipient's own language. Moving out sets the date, shows the purge date
+      computed from the retention policy, records the transfer, closes the
+      membership in the register when the person's last tenant-ownership ends,
+      and has the board reminded on the day
+- [x] Import from CSV and Excel with column mapping: the columns are guessed
+      from their titles in either language and confirmed by hand, and a preview
+      shows every row that would be created, every person that would be matched
+      and every row with a problem before anything is written. A row matching
+      more than one person waits for a decision rather than picking one. An
+      update fills in what the register does not have and never overwrites what
+      it does. The register write itself runs in the background, in chunks, with
+      the rows it has done shown as it goes: a whole cooperative's list goes in
+      at once, the page can be closed while it runs, and an import interrupted by
+      a restart carries on from where it stopped rather than writing anything a
+      second time
 - [x] Deployable production image and Compose file: one container serving the
       API and the built client, one PostgreSQL beside it, named volumes and
       health checks on both. The entrypoint provisions the field encryption key
@@ -132,10 +160,10 @@ import are still ahead.
       and the endpoint closed with it off; the address book with its house tabs,
       floor grouping, filter tabs, signs, legend and register stamp in light,
       dark and follow-the-system; and protected personal data staying masked
-      with every reveal landing in the audit log. The remaining seven criteria
-      test features that are not built yet - import, the move flows, the
-      statutory register views, and installing a plugin and a theme - and each
-      gets its spec in the same change that builds the feature
+      with every reveal landing in the audit log. The remaining seven have no
+      spec here yet. The statutory register views, the move flows and the import
+      are built and carry their own tests, but nothing drives them through a
+      browser against the image; the rest wait on features that are not built
 
 ### The public website
 
@@ -270,7 +298,19 @@ foundation.
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
-      bookkeeping engine of our own.
+      bookkeeping engine of our own
+- [ ] Charges to members: a one-off cost put on a named member or apartment -
+      a key to the bike room, a replacement tag, a subletting fee, a repair
+      charged on - with the amount, the date, the reason, the VAT treatment
+      and whether it has already gone to the economic manager. The board
+      records the charge and exports the list as CSV or PDF for whoever keeps
+      the association's books. Open BRF holds the basis for the charge, not
+      the ledger: it never records a payment and never carries an outstanding
+      balance, because the accounting system is where a debt is settled and a
+      second answer to "has this been paid" is worse than none. A charge ties a
+      sum to a member or to an apartment, and an apartment leads back to the
+      people holding it, so it sits in the service tier under the same access
+      control, masking and audit log as the rest, and it is never public
 - [ ] Reporting to Lantmäteriet's cooperative housing register
       (bostadsrättsregister). Not a single export but a standing duty: an
       initial submission of the existing apartments, then a notification of
@@ -308,8 +348,15 @@ the same public plugin API that is available to anyone.
       pairing of a screen to a housing cooperative, remote configuration and
       unattended updates of the player
 - [ ] Premium themes
-- [ ] Advanced booking, advanced finances, maintenance planning, broker and
-      property manager packages
+- [ ] Advanced finances: everything that carries a charge or a fee out of
+      Open BRF and into somewhere else - posting to Fortnox and Visma,
+      autogiro and bankgiro files, payment reminders, a collections
+      integration and an approval step before a charge leaves. Recording a
+      charge and exporting the list is free and in the core, under Charges to
+      members; what is paid is the delivery, which is where Apteo's accounting
+      and payment agreements are
+- [ ] Advanced booking, maintenance planning, broker and property manager
+      packages
 
 ## How to read this page
 

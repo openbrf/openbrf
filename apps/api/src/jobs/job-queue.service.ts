@@ -25,6 +25,54 @@ export type JobHandler<Data extends object> = (
 ) => Promise<void> | void;
 
 /**
+ * How a job behaves when it fails or outlives its worker.
+ *
+ * A narrow subset of what the queue backend accepts, declared here so a feature
+ * module states its retry policy without reaching into pg-boss's own types.
+ */
+export interface JobSendOptions {
+  /** Attempts after the first before the job is given up on. */
+  retryLimit?: number;
+  /** Seconds before the first retry. */
+  retryDelay?: number;
+  /** Whether each retry waits longer than the one before it. */
+  retryBackoff?: boolean;
+  /** Seconds a job may run before the queue decides its worker is gone. */
+  expireInSeconds?: number;
+  /** Queue a job lands on once its retries are spent. */
+  deadLetter?: string;
+}
+
+/**
+ * The part of an open database transaction a job insert needs.
+ *
+ * Structural rather than Prisma's own client type: what the queue asks for is
+ * somewhere to run one statement, and saying so keeps the jobs module from
+ * depending on the shape of the ORM.
+ */
+export interface TransactionalSql {
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
+}
+
+/**
+ * A transaction, in the terms the queue backend takes a connection in.
+ *
+ * pg-boss will insert the job through whatever runs the statement, so handing
+ * it the caller's transaction is what makes the job commit with the rows that
+ * decided to send it.
+ */
+function transactionalDb(tx: TransactionalSql) {
+  return {
+    executeSql: async (
+      text: string,
+      values?: unknown[],
+    ): Promise<{ rows: unknown[] }> => ({
+      rows: await tx.$queryRawUnsafe<unknown[]>(text, ...(values ?? [])),
+    }),
+  };
+}
+
+/**
  * Background job queue, backed by PostgreSQL through pg-boss.
  *
  * The queue keeps a small connection pool of its own rather than sharing
@@ -47,6 +95,8 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly boss: PgBoss;
   private readonly ensuredQueues = new Set<string>();
   private started = false;
+  /** Held while a start is in flight, so parallel callers await the same one. */
+  private starting: Promise<void> | null = null;
 
   constructor(@Inject(ENV) private readonly env: Env) {
     const isProduction = env.NODE_ENV === "production";
@@ -76,16 +126,44 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     await this.start();
   }
 
+  /**
+   * Starts the queue backend, once per process whoever asks first.
+   *
+   * The promise is memoized rather than a boolean checked before an await:
+   * ensureQueue calls start(), several feature modules call ensureQueue, and
+   * two of those overlapping would both see `started === false` and start
+   * pg-boss twice.
+   */
   async start(): Promise<void> {
     if (this.started) {
       return;
     }
-    await this.boss.start();
-    this.started = true;
-    this.logger.log(`Job queue started (schema "${JOB_SCHEMA}")`);
+    this.starting ??= (async () => {
+      await this.boss.start();
+      this.started = true;
+      this.logger.log(`Job queue started (schema "${JOB_SCHEMA}")`);
+    })();
+
+    try {
+      await this.starting;
+    } catch (error) {
+      // A failed start must not leave a rejected promise behind for every
+      // later caller to await: the next one tries again.
+      this.starting = null;
+      throw error;
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
+    // A start still in flight is drained before the flag is read. `started` is
+    // set by start()'s own continuation, so a shutdown arriving while
+    // boss.start() is awaited would see it false, return, and leave a backend
+    // that finishes starting a moment later with nothing to stop it: connections
+    // held and a worker polling for jobs in a process that has closed. A start
+    // that failed is not this method's to report - its caller already has the
+    // rejection - and it leaves nothing running to stop.
+    await this.starting?.catch(() => undefined);
+
     if (!this.started) {
       return;
     }
@@ -94,6 +172,7 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     // staging and commit steps.
     await this.boss.stop({ graceful: true });
     this.started = false;
+    this.starting = null;
   }
 
   /**
@@ -105,14 +184,31 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     if (this.ensuredQueues.has(name)) {
       return;
     }
+    // Starting here rather than only at boot, because onModuleInit does not
+    // start the queue under test: a move-out entered in an integration test
+    // still has to leave its board reminder in the queue, and a job silently
+    // dropped because nothing had started the backend is the kind of gap a
+    // green suite would hide. start() is idempotent for parallel callers as
+    // well as sequential ones, and registering a worker is still an explicit
+    // act, so nothing races a job under test.
+    await this.start();
     await this.boss.createQueue(name);
     this.ensuredQueues.add(name);
   }
 
   /** Enqueues a job for immediate processing. */
-  async send<Data extends object>(name: string, data: Data): Promise<void> {
+  async send<Data extends object>(
+    name: string,
+    data: Data,
+    options?: JobSendOptions,
+  ): Promise<void> {
     await this.ensureQueue(name);
-    await this.boss.send(name, data);
+    if (options?.deadLetter !== undefined) {
+      // pg-boss requires the queue a job is dead-lettered to, exactly as it
+      // requires the queue the job itself goes on.
+      await this.ensureQueue(options.deadLetter);
+    }
+    await this.boss.send(name, data, options ?? {});
   }
 
   /**
@@ -127,6 +223,43 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     await this.ensureQueue(name);
     await this.boss.sendAfter(name, data, null, runAt);
+  }
+
+  /**
+   * Enqueues a job inside a caller's transaction.
+   *
+   * The job row is written by that transaction, so it commits with the rows
+   * that decided to send it or with neither. The alternative - sending after
+   * the commit - has no way back when it fails: the rows are written, some of
+   * them into registers that refuse to be edited or deleted, and the work the
+   * job was going to do is simply lost. That is the difference between "the
+   * move-out is recorded" and "the move-out is recorded and the board will be
+   * reminded of it".
+   *
+   * The queue must already exist: `ensureQueue` talks to the database on its
+   * own connection, and calling it here would put a queue's creation inside
+   * somebody else's transaction. Callers await it before they open one.
+   */
+  async sendInTransaction<Data extends object>(
+    tx: TransactionalSql,
+    name: string,
+    data: Data,
+    options?: JobSendOptions,
+  ): Promise<void> {
+    await this.boss.send(name, data, {
+      ...options,
+      db: transactionalDb(tx),
+    });
+  }
+
+  /** {@link sendInTransaction}, for a job with a time to run at. */
+  async sendAtInTransaction<Data extends object>(
+    tx: TransactionalSql,
+    name: string,
+    data: Data,
+    runAt: Date,
+  ): Promise<void> {
+    await this.boss.sendAfter(name, data, { db: transactionalDb(tx) }, runAt);
   }
 
   /** Registers a worker for a queue. */

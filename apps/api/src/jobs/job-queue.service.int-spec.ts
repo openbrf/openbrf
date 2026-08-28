@@ -20,6 +20,17 @@ let queue: JobQueueService;
 const suffix = process.hrtime.bigint().toString(36);
 const QUEUE_NAME = `test-queue-${suffix}`;
 const SCHEDULED_QUEUE = `test-scheduled-${suffix}`;
+const TRANSACTION_QUEUE = `test-transaction-${suffix}`;
+const RACE_QUEUES = [`test-race-a-${suffix}`, `test-race-b-${suffix}`];
+
+/** Jobs waiting on a queue, counted in the queue's own table. */
+async function queuedJobs(name: string): Promise<number> {
+  const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+    "SELECT count(*)::bigint AS count FROM pgboss.job WHERE name = $1",
+    name,
+  );
+  return Number(rows[0]?.count ?? 0);
+}
 
 /** Resolves when the handler runs, so the test never sleeps blindly. */
 function deferred<T>(): {
@@ -42,6 +53,12 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  // Every queue this file creates is removed again. createQueue writes a row
+  // that outlives the process, and the names carry a per-run suffix, so a suite
+  // that only stopped the service would leave one behind on every run.
+  for (const name of [QUEUE_NAME, SCHEDULED_QUEUE, TRANSACTION_QUEUE]) {
+    await queue.instance.deleteQueue(name);
+  }
   await queue.onModuleDestroy();
   await prisma.$disconnect();
 });
@@ -98,6 +115,100 @@ describe("JobQueueService", () => {
     } finally {
       await second.onModuleDestroy();
     }
+  }, 30_000);
+
+  it("starts the backend once when two callers race to ensure a queue", async () => {
+    // ensureQueue starts the backend, and several feature modules call it. Two
+    // that overlap would both read `started === false` across the await and
+    // start pg-boss twice.
+    const service = new JobQueueService(env);
+    const boss = service.instance;
+    const realStart = boss.start.bind(boss);
+    let starts = 0;
+    boss.start = async () => {
+      starts += 1;
+      return realStart();
+    };
+
+    try {
+      await Promise.all(RACE_QUEUES.map((name) => service.ensureQueue(name)));
+
+      expect(starts).toBe(1);
+    } finally {
+      // In the finally, so a failed assertion still takes the two queues with
+      // it rather than leaving them for the next run.
+      for (const name of RACE_QUEUES) {
+        await service.instance.deleteQueue(name);
+      }
+      await service.onModuleDestroy();
+    }
+  }, 30_000);
+
+  it("stops a backend that was still starting when the process closed", async () => {
+    // Shutdown decides what to do from `started`, and start() sets that only in
+    // the continuation after boss.start() resolves. A destroy arriving inside
+    // that window used to return at once, and the backend finished starting
+    // into a process that had already closed: a pool held open and a worker
+    // still polling, with nothing left that would ever stop it.
+    const service = new JobQueueService(env);
+    const boss = service.instance;
+    const realStart = boss.start.bind(boss);
+    const realStop = boss.stop.bind(boss);
+
+    // Resolves when the start is under way; held until the shutdown has been
+    // asked for, so the two overlap by construction rather than by timing.
+    const underway = deferred<undefined>();
+    const release = deferred<undefined>();
+    let stops = 0;
+
+    boss.start = async () => {
+      underway.resolve(undefined);
+      await release.promise;
+      return realStart();
+    };
+    boss.stop = async (options?: Parameters<typeof realStop>[0]) => {
+      stops += 1;
+      await realStop(options);
+    };
+
+    const starting = service.start();
+    await underway.promise;
+
+    const destroying = service.onModuleDestroy();
+    release.resolve(undefined);
+
+    await starting;
+    await destroying;
+
+    expect(stops).toBe(1);
+  }, 30_000);
+
+  it("writes a job with the transaction that sent it", async () => {
+    // The durability the move-out reminder and the import apply both rest on:
+    // the job row is inserted by the caller's transaction, so it is there if
+    // and only if the rows that decided to send it are.
+    await queue.ensureQueue(TRANSACTION_QUEUE);
+
+    await prisma.$transaction(async (tx) => {
+      await queue.sendInTransaction(tx, TRANSACTION_QUEUE, { attempt: 1 });
+    });
+
+    expect(await queuedJobs(TRANSACTION_QUEUE)).toBe(1);
+  }, 30_000);
+
+  it("takes the job back when the transaction rolls back", async () => {
+    await queue.ensureQueue(TRANSACTION_QUEUE);
+
+    await expect(
+      prisma.$transaction(async (tx) => {
+        await queue.sendInTransaction(tx, TRANSACTION_QUEUE, { attempt: 2 });
+        throw new Error("the write this job belonged to failed");
+      }),
+    ).rejects.toThrow("the write this job belonged to failed");
+
+    // Still only the one from the case above: a job sent by a transaction that
+    // did not commit was never sent.
+    expect(await queuedJobs(TRANSACTION_QUEUE)).toBe(1);
   }, 30_000);
 
   it("keeps its tables out of the application schema", async () => {

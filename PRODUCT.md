@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-Derived from the confirmed project plan v1.0 and decision log in Obsidian ("Interna projekt/Open BRF/"), approved by Holger 2026-08-27. Decision numbers (#N) reference the decision log. Amended 2026-08-28: the public website moved into core v1 (#59-61).
+Derived from the confirmed project plan v1.0 and decision log in Obsidian ("Interna projekt/Open BRF/"), approved by Holger 2026-08-27. Decision numbers (#N) reference the decision log. Amended 2026-08-28: the public website moved into core v1 (#59-61) and charges to members split across the free/paid boundary (#62).
 
 ## Platform
 
@@ -41,8 +41,8 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 ## Capabilities and Constraints
 
 - Core v1: encrypted apartment-based address book with import, members + non-members with own accounts, move-in/out automation, statutory registers per BRL, GDPR engine (purging, data subject access report per person, legal hold, consents), news/mailings, public website (page CMS with data blocks, menu editor, public/member visibility, broker information page, contact + issue report forms, publication consent guardrails; file storage on local disk or S3) (#59-61), document archive, issue reporting with photos, roles incl. property manager, passkey auth, sv/en, plugin system.
-- v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances, Lantmäteriet export (legal deadline Dec 2027).
-- Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, premium themes.
+- v1.1: basic resource booking + event calendar. Later core: general meeting (no postal voting - legally prohibited, BRL 9:14), board email, simple finances incl. charges to members (one-off costs such as a bike-room key recorded per member/apartment and exported as a debiting list for the economic manager - basis only, never payment status, never our own ledger) (#62), Lantmäteriet export (legal deadline Dec 2027).
+- Paid modules (built as ordinary plugins against the public API): mobile app, BankID login (Open BRF ID), AI package, e-signing (Sign), Import Pro, parking share, digital signage, Booking Pro, Ekonomi Pro (accounting-system posting, autogiro/bankgiro files, reminders, collections, approval flow - the delivery half of charges, #62), premium themes.
 - Theming: theme engine in core, light + dark from the start, fully token-based (CSS custom properties, data-theme attribute, follows prefers-color-scheme with per-user override) (#39-40). Components reference only tokens, never hex.
 - Personal ID numbers only where clearly justified, never in public views. Children's accounts: own consent from age 13.
 

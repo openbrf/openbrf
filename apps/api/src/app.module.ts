@@ -12,10 +12,13 @@ import { DatabaseModule } from "./database/database.module";
 import { DomainExceptionFilter } from "./http/domain-exception.filter";
 import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
+import { ImportModule } from "./import/import.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
 import { MediaModule } from "./media/media.module";
+import { MovesModule } from "./moves/moves.module";
+import { RegistersModule } from "./registers/registers.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
@@ -41,6 +44,9 @@ import { ThemesModule } from "./themes/themes.module";
     SettingsModule,
     AddressesModule,
     AddressBookModule,
+    RegistersModule,
+    MovesModule,
+    ImportModule,
     ThemesModule,
   ],
   controllers: [HealthController],
