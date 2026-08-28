@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -141,10 +148,19 @@ describe("scanPluginDirectory", () => {
     expect(plugin?.version).toBe("1.4.0");
     expect(plugin?.directory).toBe(directory);
     expect(plugin?.manifest.permissions).toEqual(["addressBook:read"]);
-    // The loader requires the bundle by path, from a working directory that is
-    // not the plugin's, so a relative entry would resolve somewhere else.
-    expect(plugin?.serverEntry).toBe(join(directory, "dist", "server.cjs"));
-    expect(plugin?.clientEntry).toBe(join(directory, "dist", "remote.js"));
+    /*
+     * The loader requires the bundle by path, from a working directory that is
+     * not the plugin's, so a relative entry would resolve somewhere else.
+     *
+     * Compared against the real path, because that is what the scan returns:
+     * containment is decided after links are resolved, and the value that was
+     * checked has to be the value that gets required. The temporary directory
+     * itself is reached through a link on macOS, which is why the two spellings
+     * differ here at all.
+     */
+    const real = await realpath(directory);
+    expect(plugin?.serverEntry).toBe(join(real, "dist", "server.cjs"));
+    expect(plugin?.clientEntry).toBe(join(real, "dist", "remote.js"));
     expect(isAbsolute(plugin?.serverEntry ?? "")).toBe(true);
     expect(isAbsolute(plugin?.clientEntry ?? "")).toBe(true);
   });
@@ -243,6 +259,61 @@ describe("scanPluginDirectory", () => {
     const scan = await scanPluginDirectory(root);
 
     expect(reasonFor(scan.skipped, directory)).toBe("entry-missing");
+  });
+
+  /**
+   * The containment check is what stops a package pointing the loader at a
+   * file outside itself. A lexical check cannot do it: `resolve` does no
+   * filesystem work, so a link at the declared path yields a candidate that
+   * reads as being inside the package, and `stat` follows the link and reports
+   * a file. What the loader would then require and run at full process
+   * privilege is whatever the link named.
+   */
+  it("skips a plugin whose entry is a symlink out of the package", async () => {
+    const outside = join(root, "outside");
+    await mkdir(outside, { recursive: true });
+    const escape = join(outside, "elsewhere.cjs");
+    await writeFile(escape, "module.exports = {};");
+
+    const directory = await install({
+      packageName: "openbrf-plugin-linked-entry",
+      manifest: validManifest({
+        id: "linked-entry",
+        entry: { server: "dist/server.cjs" },
+      }),
+    });
+    await mkdir(join(directory, "dist"), { recursive: true });
+    await symlink(escape, join(directory, "dist", "server.cjs"));
+
+    const scan = await scanPluginDirectory(root);
+
+    expect(reasonFor(scan.skipped, directory)).toBe("entry-missing");
+    expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(
+      "linked-entry",
+    );
+  });
+
+  it("accepts an entry reached through a symlink that stays inside", async () => {
+    // Containment, not "no links at all": a package is free to lay itself out
+    // with one, and both npm and pnpm produce trees where a path is reached
+    // through one.
+    const directory = await install({
+      packageName: "openbrf-plugin-inner-link",
+      manifest: validManifest({
+        id: "inner-link",
+        entry: { server: "dist/server.cjs" },
+      }),
+      files: ["build/server.cjs"],
+    });
+    await mkdir(join(directory, "dist"), { recursive: true });
+    await symlink(
+      join(directory, "build", "server.cjs"),
+      join(directory, "dist", "server.cjs"),
+    );
+
+    const scan = await scanPluginDirectory(root);
+
+    expect(scan.plugins.map((plugin) => plugin.id)).toContain("inner-link");
   });
 
   it("finds a scoped package", async () => {

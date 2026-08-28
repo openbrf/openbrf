@@ -176,6 +176,7 @@ export class PluginInstallerService
 
     const archives = new Map<string, string>();
     const headers = this.catalog.authorization();
+    const allowUncuratedSources = this.catalog.allowsUncuratedSources();
 
     for (const record of records) {
       try {
@@ -184,7 +185,7 @@ export class PluginInstallerService
           record.id,
           record.version,
           { url: record.tarballUrl, sha512: record.checksum },
-          { headers },
+          { headers, allowUncuratedSources },
         );
         archives.set(record.packageName, archive);
         outcome.installed.push(record.id);
@@ -283,6 +284,12 @@ export class PluginInstallerService
    * the two leaves no node_modules, which the next reconcile rebuilds - the
    * reason the whole operation is defined as "converge on the desired set"
    * rather than "apply this change".
+   *
+   * The staging tree is removed whether the run succeeds or fails, and the
+   * whole staging root is pruned before a run starts. A run that is killed
+   * mid-install leaves a tree nothing else knows is dead, and each one holds a
+   * full copy of every archive: an unreachable registry or a killed npm,
+   * repeated, would otherwise fill the data volume and take the instance down.
    */
   private async rebuild(
     root: string,
@@ -291,9 +298,31 @@ export class PluginInstallerService
     archives: ReadonlyMap<string, string>,
   ): Promise<void> {
     const staging = join(stagingRoot, `run-${String(Date.now())}`);
+
+    // The root, not just this run's path: trees left by an earlier process
+    // are collected here because nothing else is in a position to know they
+    // are no longer in use.
+    await rm(stagingRoot, { recursive: true, force: true });
+
+    try {
+      await this.stageAndSwap(root, staging, desired, archives);
+    } finally {
+      await rm(staging, { recursive: true, force: true }).catch(() => {
+        // A staging tree that cannot be removed is collected by the prune at
+        // the start of the next run; failing here would mask the real error.
+      });
+    }
+  }
+
+  /** Builds the staging tree and swaps it in. Always called from `rebuild`. */
+  private async stageAndSwap(
+    root: string,
+    staging: string,
+    desired: Record<string, string>,
+    archives: ReadonlyMap<string, string>,
+  ): Promise<void> {
     const previous = join(root, "node_modules.previous");
 
-    await rm(staging, { recursive: true, force: true });
     await mkdir(join(staging, "archives"), { recursive: true });
 
     // The archives are copied into the staging directory and referenced from
@@ -381,7 +410,6 @@ export class PluginInstallerService
     });
 
     await rm(previous, { recursive: true, force: true });
-    await rm(staging, { recursive: true, force: true });
   }
 }
 

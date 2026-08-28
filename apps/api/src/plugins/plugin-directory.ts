@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 
 import {
@@ -176,6 +176,12 @@ export async function readPluginDirectory(
  * this checks the resolved result against the package directory as well. The
  * schema guards the shape of the string, this guards the outcome - a symlink
  * inside the tarball could satisfy the first and defeat it.
+ *
+ * The comparison is between real paths, not lexical ones. `resolve` does no
+ * filesystem work, so a link at `dist/server.cjs` pointing anywhere at all
+ * still produces a candidate that reads as being inside the package, and
+ * `stat` follows the link and reports a file. What the loader then requires
+ * and runs at full process privilege is whatever the link named.
  */
 async function resolveEntry(
   directory: string,
@@ -186,14 +192,21 @@ async function resolveEntry(
   }
 
   const candidate = resolve(directory, declared);
-  const inside = relative(resolve(directory), candidate);
-  if (inside.startsWith("..") || inside.startsWith(sep) || inside === "") {
-    return { missing: declared };
-  }
 
   try {
-    const info = await stat(candidate);
-    return info.isFile() ? { path: candidate } : { missing: declared };
+    // The package directory is resolved too: npm and pnpm both lay out trees
+    // where a package directory is itself a link, and comparing a real path
+    // against a lexical base would reject every entry in one.
+    const [base, target] = await Promise.all([
+      realpath(directory),
+      realpath(candidate),
+    ]);
+    const inside = relative(base, target);
+    if (inside.startsWith("..") || inside.startsWith(sep) || inside === "") {
+      return { missing: declared };
+    }
+    const info = await stat(target);
+    return info.isFile() ? { path: target } : { missing: declared };
   } catch {
     return { missing: declared };
   }

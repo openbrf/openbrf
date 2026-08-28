@@ -198,6 +198,38 @@ describe("removing a plugin", () => {
   });
 });
 
+describe("the settings a row opens", () => {
+  it("takes the failure notice down once a retry succeeds", async () => {
+    // Otherwise the row shows the settings form and, directly above it, a
+    // notice saying they could not be read - which leaves a board unable to
+    // tell whether what it is about to edit is the plugin's real state.
+    fetchPluginSettings.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    renderPanel([pluginWith({ hasSettings: true })]);
+    const settingsButton = screen.getByRole("button", {
+      name: "Inställningar",
+    });
+
+    await session.click(settingsButton);
+    await waitFor(() => {
+      expect(
+        screen.getByText("Det gick inte just nu. Försök igen."),
+      ).toBeTruthy();
+    });
+
+    await session.click(settingsButton);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Det gick inte just nu. Försök igen."),
+      ).toBeNull();
+    });
+  });
+});
+
 describe("switching a plugin", () => {
   it("off asks the server to stop running it", async () => {
     const session = userEvent.setup();

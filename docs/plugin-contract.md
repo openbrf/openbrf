@@ -352,8 +352,9 @@ unreliable (ADR 0003).
 ## When a plugin does not load
 
 A malformed or failing plugin is skipped and reported, never fatal. A broken
-plugin must not be able to take an association's register offline. The admin
-screen lists everything on the data volume that is not running and why:
+plugin must not be able to take the housing cooperative's statutory registers -
+the member register and the apartment register - offline. The admin screen
+lists everything on the data volume that is not running and why:
 
 | Reason                    | Meaning                                                            |
 | ------------------------- | ------------------------------------------------------------------ |
@@ -366,6 +367,7 @@ screen lists everything on the data volume that is not running and why:
 | `module-failed`           | Its module could not be built into the application.                |
 | `module-identity`         | The package carries its own copy of a host package it must share.  |
 | `permissions-widened`     | It asks for more than was consented to.                            |
+| `personal-data-widened`   | It handles a personal-data category not consented to.              |
 | `not-consented`           | On the volume with no record of consent.                           |
 | `disabled`                | Switched off in the admin interface.                               |
 | `load-failed`             | It threw while being loaded.                                       |

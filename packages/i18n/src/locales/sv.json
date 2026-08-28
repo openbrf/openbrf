@@ -520,6 +520,7 @@
     "intro": "Tillägg lägger till funktioner i den här instansen. De installeras från den granskade katalogen och körs med samma behörigheter som resten av programmet, därför godkänner styrelsen vad varje tillägg får göra innan det installeras.",
     "loading": "Läser in tillägg",
     "restartNotice": "Programmet startas om för att läsa in ändringen. Ladda om sidan om en liten stund.",
+    "restartTimedOut": "Programmet kom inte tillbaka inom förväntad tid. Ladda om sidan; om tillägget fortfarande inte finns med, titta i serverloggen.",
     "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
     "errors": {
       "loadFailed": "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
@@ -604,6 +605,7 @@
         "disabled": "Avstängt på den här sidan.",
         "notConsented": "Finns på datavolymen, men instansen har ingen notering om att det godkänts.",
         "permissionsWidened": "Den installerade versionen begär mer än det som godkändes. Installera om för att granska den nya deklarationen.",
+        "personalDataWidened": "Den installerade versionen hanterar personuppgifter som inte godkändes. Installera om för att granska den nya deklarationen.",
         "moduleIdentity": "Det har med sig en egen kopia av ett paket som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
         "manifestInvalid": "Dess deklaration kunde inte läsas.",
         "apiVersion": "Det är byggt för en version av tilläggskontraktet som den här Open BRF inte har.",

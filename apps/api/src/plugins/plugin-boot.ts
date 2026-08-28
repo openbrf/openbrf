@@ -310,6 +310,31 @@ async function register(
     return;
   }
 
+  const declared = new Set(record.declaredPersonalData);
+  const added = discovered.manifest.personalData.filter(
+    (category) => !declared.has(category),
+  );
+  if (added.length > 0) {
+    /*
+     * The same gate on the other half of the declaration. A republished
+     * version can keep its permissions unchanged and still start handling
+     * categories the board never saw - email or residency added to a plugin
+     * that declared only a name - and the board's agreement to a stated set of
+     * personal data is the legal basis for that processing. The stored
+     * snapshot is what it agreed to, so anything beyond it needs fresh
+     * consent rather than a boot.
+     */
+    fail(
+      boot,
+      logger,
+      discovered,
+      "personal-data-widened",
+      `The installed package handles ${added.join(", ")}, which was not ` +
+        "consented to. Reinstall it to review the new declaration.",
+    );
+    return;
+  }
+
   const conflicts = findResolutionConflicts(discovered.directory);
   if (conflicts.length > 0) {
     // Identity, not the absence of an error: a duplicate copy of a host

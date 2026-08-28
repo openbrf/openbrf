@@ -127,7 +127,18 @@ describe("bridgeHostResolution", () => {
     // Only a fallback either way - a copy beside the plugin still wins - but
     // ahead of any unrelated entry the operator's environment happened to
     // carry, so a stray directory cannot shadow the host's own packages.
+    //
+    // The stray entry has to be planted first. With an empty NODE_PATH the
+    // variable ends up holding one entry, where "first" and "last" are the
+    // same position and the assertion would go on passing if the bridge
+    // started appending.
+    const stray = join(workspace, "stray_modules");
+    process.env.NODE_PATH = stray;
+
+    bridgeHostResolution();
+
     expect(nodePathEntries()[0]).toBe(hostModulesDirectory());
+    expect(nodePathEntries()).toContain(stray);
   });
 });
 

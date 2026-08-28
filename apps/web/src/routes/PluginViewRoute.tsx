@@ -33,6 +33,14 @@ export function PluginViewRoute(): ReactElement {
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [view, setView] = useState<PluginViewDescriptor | null>(null);
   const [ready, setReady] = useState(false);
+  /**
+   * The view list could not be read at all.
+   *
+   * Distinct from "no such view", because the two say opposite things to the
+   * person reading the screen: one means this plugin is not on the instance or
+   * is not offered to them, which is settled, and the other means try again.
+   */
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -60,6 +68,8 @@ export function PluginViewRoute(): ReactElement {
         if (found !== null) {
           await loadPluginTranslations(found.id);
         }
+      } else {
+        setFailed(true);
       }
       setReady(true);
     };
@@ -95,6 +105,10 @@ export function PluginViewRoute(): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("plugins.view.loading")}
         </p>
+      ) : failed ? (
+        <Notice tone="danger" live>
+          {t("plugins.errors.unknown")}
+        </Notice>
       ) : view === null ? (
         <Notice tone="warn" live>
           {t("plugins.view.notFound", { plugin: pluginId })}

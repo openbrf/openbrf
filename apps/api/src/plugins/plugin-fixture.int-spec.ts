@@ -166,9 +166,20 @@ function loaded(): BootPlugin | undefined {
 }
 
 afterAll(async () => {
-  await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
-  await prisma.$disconnect();
-  await rm(workspace, { recursive: true, force: true });
+  // Guarded: beforeAll builds the fixture, a database client and a workspace
+  // in that order, and an unconditional dereference here would throw a
+  // TypeError that replaces the setup failure in the report and leaves the
+  // temporary workspace behind.
+  try {
+    await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
+    await prisma.$disconnect();
+  } catch {
+    // No client, or the row was never written.
+  } finally {
+    await rm(workspace, { recursive: true, force: true }).catch(() => {
+      // The workspace was never created.
+    });
+  }
 });
 
 describe("the reference plugin", () => {

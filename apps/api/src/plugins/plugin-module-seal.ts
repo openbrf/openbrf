@@ -269,10 +269,7 @@ function sealController(
   // the guard reads the handler first and a method-level opt-out would win.
   const prototype: unknown = controller.prototype;
   if (typeof prototype === "object" && prototype !== null) {
-    for (const name of Object.getOwnPropertyNames(prototype)) {
-      if (name === "constructor") {
-        continue;
-      }
+    for (const name of handlerNames(prototype)) {
       const handler: unknown = (prototype as Record<string, unknown>)[name];
       if (typeof handler !== "function") {
         continue;
@@ -324,6 +321,42 @@ function sealController(
   Reflect.defineMetadata(PLUGIN_ID_METADATA, options.pluginId, controller);
 
   return { ok: true, path: rewritten.join(", ") };
+}
+
+/**
+ * Every method name a controller answers on, inherited ones included.
+ *
+ * NestJS discovers route handlers across the whole prototype chain, so a
+ * controller that inherits a decorated method from a base class serves that
+ * route without declaring anything itself. A scan of own properties alone
+ * would leave such a handler unsealed: its path would go unchecked and, worse,
+ * an inherited `@Public()` would survive - and the authorization guard reads
+ * the handler's metadata before the class's, so the opt-out on the handler
+ * would win over the seal applied to the controller.
+ *
+ * Walked in the same order NestJS walks it, stopping short of Object.prototype
+ * and keeping the first name seen, so a subclass override is the function that
+ * gets sealed rather than the base's.
+ */
+function handlerNames(prototype: object): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>(["constructor"]);
+
+  for (
+    let current: object | null = prototype;
+    current !== null && current !== Object.prototype;
+    current = Reflect.getPrototypeOf(current)
+  ) {
+    for (const name of Object.getOwnPropertyNames(current)) {
+      if (seen.has(name)) {
+        continue;
+      }
+      seen.add(name);
+      names.push(name);
+    }
+  }
+
+  return names;
 }
 
 /**

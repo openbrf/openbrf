@@ -225,23 +225,37 @@ export class PluginAdminService {
     if (!isSupportedApiVersion(entry.apiVersion)) {
       throw new PluginApiVersionError(entry.id, entry.apiVersion);
     }
+    // Either both halves of the declaration are echoed or neither is. A
+    // request carrying one field and omitting the other would otherwise skip
+    // the comparison for the half it left out and install on consent that was
+    // never checked.
+    const echoed =
+      request.permissions !== undefined || request.personalData !== undefined;
     if (
-      request.permissions !== undefined &&
-      request.personalData !== undefined &&
-      (!sameSet(entry.permissions, request.permissions) ||
-        !sameSet(entry.personalData, request.personalData))
+      echoed &&
+      (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
+        !sameDeclaration(entry.personalData, request.personalData ?? []))
     ) {
       throw new PluginConsentMismatchError();
     }
 
+    /*
+     * The confirmed declaration is what is recorded, not the catalog's. The
+     * row is the snapshot the loader enforces against the installed manifest
+     * at every later boot, so it has to assert exactly what the board was
+     * shown and agreed to; recording anything wider would make the row
+     * evidence of a consent nobody gave. With no echo - the command-line tool,
+     * where running the command is the consent and the declaration was printed
+     * first - the catalog entry is what was shown.
+     */
     await this.registry.consent({
       id: entry.id,
       packageName: entry.packageName,
       version: entry.version,
       tarballUrl: entry.artifact.url,
       checksum: entry.artifact.sha512,
-      permissions: entry.permissions,
-      personalData: entry.personalData,
+      permissions: echoed ? (request.permissions ?? []) : entry.permissions,
+      personalData: echoed ? (request.personalData ?? []) : entry.personalData,
     });
 
     await this.audit.record({
@@ -366,11 +380,23 @@ export class PluginAdminService {
   }
 }
 
-/** Set equality, so the order the catalog lists permissions in is not a gate. */
-function sameSet(left: readonly string[], right: readonly string[]): boolean {
+/**
+ * Multiset equality.
+ *
+ * The order the catalog lists a declaration in is not a gate, but a repeated
+ * value must not be able to stand in for a missing one: comparing sets would
+ * accept ["addressBook:read", "addressBook:read"] as an echo of
+ * ["addressBook:read", "mail:send"], which is the confirmation of one
+ * permission passing for the confirmation of two.
+ */
+function sameDeclaration(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
   if (left.length !== right.length) {
     return false;
   }
-  const seen = new Set(left);
-  return right.every((value) => seen.has(value));
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }

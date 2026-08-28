@@ -24,6 +24,7 @@ import {
  */
 
 const BYTES = Buffer.from("the bytes of a plugin tarball", "utf8");
+const OTHER_BYTES = Buffer.from("a substituted tarball", "utf8");
 const DIGEST = sha512(BYTES);
 const SRI_FORM = formatSha512(DIGEST);
 const HEX_FORM = DIGEST.toString("hex");
@@ -91,16 +92,28 @@ describe("parseSha512", () => {
 });
 
 describe("verifySha512", () => {
-  it("passes for bytes that hash to the declared digest", () => {
-    expect(() => {
-      verifySha512(BYTES, SRI_FORM);
-    }).not.toThrow();
-  });
+  /*
+   * Acceptance is asserted together with the refusal of the same declaration
+   * against different bytes. On its own, "did not throw" is satisfied by a
+   * verify that compares nothing at all - which is the one implementation this
+   * function must never be allowed to become, since the digest is the whole
+   * trust model for a tarball arriving from a host the catalog only points at.
+   */
+  it.each([
+    ["the subresource-integrity spelling", SRI_FORM],
+    ["the hex spelling", HEX_FORM],
+  ])("accepts exactly the bytes named in %s", (_label, declared) => {
+    expect(parseSha512(declared).equals(sha512(BYTES))).toBe(true);
 
-  it("passes whichever spelling the catalog used", () => {
     expect(() => {
-      verifySha512(BYTES, HEX_FORM);
+      verifySha512(BYTES, declared);
     }).not.toThrow();
+
+    expect(
+      refusalReason(() => {
+        verifySha512(OTHER_BYTES, declared);
+      }),
+    ).toBe("digest-mismatch");
   });
 
   it("refuses a single flipped byte", () => {

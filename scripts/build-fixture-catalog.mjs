@@ -82,12 +82,12 @@ rmSync(distDir, { recursive: true, force: true });
 console.log("Building the Module Federation remote entry.");
 run("pnpm", ["exec", "vite", "build"], pluginDir);
 
+// From the fixture's own directory, like every other command here. Run from
+// the repository root it would resolve the workspace's compiler, which is not
+// the one a third-party plugin has: the fixture is packaged and installed
+// exactly as an outside package is, so it has to build with what it declares.
 console.log("Compiling the server bundle.");
-run(
-  "pnpm",
-  ["exec", "tsc", "-p", join(pluginDir, "tsconfig.server.json")],
-  repoRoot,
-);
+run("pnpm", ["exec", "tsc", "-p", "tsconfig.server.json"], pluginDir);
 
 // tsc names its output after the source file. The manifest declares
 // `dist/server.cjs`, and the extension is what makes the file CommonJS inside

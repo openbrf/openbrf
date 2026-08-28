@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { PluginManifest, PluginPermission } from "@openbrf/plugin-sdk";
 import {
   PluginHostUnavailableError,
@@ -141,14 +142,51 @@ describe("the late-bound host object", () => {
     );
   });
 
-  it("logs before the application has started", () => {
+  it("logs before the application has started, naming the plugin", () => {
     // The one service that must work at any moment, including from the
-    // constructor that is about to fail.
-    const host = createPluginHost(binding, context);
+    // constructor that is about to fail. Asserted on what reaches the log
+    // rather than on the absence of a throw: a logger that quietly dropped the
+    // line would satisfy "did not throw" while leaving an operator with no way
+    // to tell which plugin produced it, or that it produced anything.
+    const emitted = vi
+      .spyOn(Logger.prototype, "log")
+      .mockImplementation(() => undefined);
+    try {
+      createPluginHost(binding, context).logger.info("starting");
 
-    expect(() => {
-      host.logger.info("starting");
-    }).not.toThrow();
+      expect(emitted).toHaveBeenCalledWith("starting");
+      const [instance] = emitted.mock.contexts as {
+        context?: string;
+      }[];
+      expect(instance?.context).toBe(`plugin:${MANIFEST.id}`);
+    } finally {
+      emitted.mockRestore();
+    }
+  });
+
+  /**
+   * addressBook:readContact is the wider of the two register permissions - it
+   * adds email and phone to the same rows - and the manifest schema accepts it
+   * on its own. A plugin declaring only that must therefore not be refused the
+   * reads addressBook:read would have allowed.
+   */
+  it("accepts addressBook:readContact on its own for every register read", async () => {
+    const { bound, residents } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      manifest: { ...MANIFEST, permissions: ["addressBook:readContact"] },
+      consented: ["addressBook:readContact"],
+    });
+
+    await expect(host.addressBook.summary()).resolves.toEqual({
+      apartments: 1,
+      residents: 2,
+      members: 3,
+    });
+    await expect(host.addressBook.apartments()).resolves.toEqual([]);
+    await expect(host.addressBook.residents()).resolves.toEqual([]);
+    expect(residents).toHaveBeenCalledWith({ contact: true });
   });
 
   it("answers once the application has bound its services", async () => {

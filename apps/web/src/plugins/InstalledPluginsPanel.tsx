@@ -12,7 +12,7 @@ import {
   setPluginEnabled,
   uninstallPlugin,
 } from "./plugin-api";
-import { PERMISSION_LABELS, PERSONAL_DATA_LABELS } from "./plugin-labels";
+import { permissionLabel, personalDataLabel } from "./plugin-labels";
 import { PluginSettingsForm } from "./PluginSettingsForm";
 
 export interface InstalledPluginsPanelProps {
@@ -134,6 +134,10 @@ function InstalledPluginRow({
     }
     const result = await fetchPluginSettings(plugin.id);
     if (result.ok) {
+      // Cleared on the way in: a retry that works has to take the notice from
+      // the attempt that did not with it, or the row shows a form and an
+      // error about that same form at the same time.
+      setFailed(false);
       setSettings(result.value);
       setShowSettings(true);
     } else {
@@ -157,14 +161,14 @@ function InstalledPluginRow({
         <Declaration
           label={t("plugins.installed.permissions")}
           items={plugin.permissions.map((permission) =>
-            t(PERMISSION_LABELS[permission] ?? "plugins.permissions.unknown"),
+            t(permissionLabel(permission)),
           )}
           emptyLabel={t("plugins.consent.noPermissions")}
         />
         <Declaration
           label={t("plugins.installed.personalData")}
           items={plugin.personalData.map((category) =>
-            t(PERSONAL_DATA_LABELS[category] ?? "plugins.personalData.unknown"),
+            t(personalDataLabel(category)),
           )}
           emptyLabel={t("plugins.consent.noPersonalData")}
         />

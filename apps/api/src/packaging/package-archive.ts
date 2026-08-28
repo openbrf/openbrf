@@ -34,6 +34,14 @@ export function archiveFileName(id: string, version: string): string {
 export interface ArchiveStoreOptions {
   /** Applied to the download request; carries the catalog token when set. */
   headers?: Record<string, string>;
+  /**
+   * Permits http: and file: artifact URLs.
+   *
+   * Off by default, so a curated instance downloads over https and nothing
+   * else: the artifact URL comes from the catalog, and an entry naming a
+   * `file:` path would otherwise make the instance read its own disk.
+   */
+  allowUncuratedSources?: boolean;
 }
 
 /**
@@ -64,7 +72,10 @@ export async function ensureArchive(
     return target;
   }
 
-  const bytes = await fetchBytes(artifact.url, { headers: options.headers });
+  const bytes = await fetchBytes(artifact.url, {
+    headers: options.headers,
+    allowUncuratedSources: options.allowUncuratedSources,
+  });
   // Verified before anything is written, so a mismatched archive never exists
   // on disk under a name a later run could mistake for a good one.
   verifySha512(bytes, artifact.sha512);

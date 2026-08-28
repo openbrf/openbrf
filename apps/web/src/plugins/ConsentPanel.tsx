@@ -5,7 +5,7 @@ import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import type { CatalogPlugin } from "./plugin-api";
-import { PERMISSION_LABELS, PERSONAL_DATA_LABELS } from "./plugin-labels";
+import { permissionLabel, personalDataLabel } from "./plugin-labels";
 
 export interface ConsentPanelProps {
   entry: CatalogPlugin;
@@ -80,7 +80,7 @@ export function ConsentPanel({
       <Declaration
         title={t("plugins.consent.permissionsTitle")}
         items={entry.permissions.map((permission) =>
-          t(PERMISSION_LABELS[permission] ?? "plugins.permissions.unknown"),
+          t(permissionLabel(permission)),
         )}
         emptyLabel={t("plugins.consent.noPermissions")}
       />
@@ -88,12 +88,15 @@ export function ConsentPanel({
       <Declaration
         title={t("plugins.consent.personalDataTitle")}
         items={entry.personalData.map((category) =>
-          t(PERSONAL_DATA_LABELS[category] ?? "plugins.personalData.unknown"),
+          t(personalDataLabel(category)),
         )}
         emptyLabel={t("plugins.consent.noPersonalData")}
       />
 
-      <label className="flex items-start gap-3">
+      {/* min-h-11 is the 44px touch target: this checkbox is the control that
+          records the board's consent, so it must not be the one control on the
+          screen that is hard to hit on a phone. */}
+      <label className="flex min-h-11 items-start gap-3">
         <input
           type="checkbox"
           name="understood"

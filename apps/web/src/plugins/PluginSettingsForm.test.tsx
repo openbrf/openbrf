@@ -216,6 +216,30 @@ describe("saving", () => {
     });
   });
 
+  it("sends an emptied optional number as absent rather than as zero", async () => {
+    /*
+     * Number("") is 0, so an emptied box would otherwise be saved as the number
+     * zero - and a reminderDays of 0 is a value the plugin acts on, not a field
+     * left unset, with nothing on screen to say the board had chosen it. The
+     * browser does not catch it either: the input is empty and the field is not
+     * required, so a declared minimum above zero never fires.
+     */
+    const session = userEvent.setup();
+    await renderForm();
+
+    await session.clear(screen.getByLabelText("Antal dagar"));
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(savePluginSettings).toHaveBeenCalled();
+    });
+    const sent = savePluginSettings.mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(sent).not.toHaveProperty("reminderDays");
+  });
+
   it("confirms a save that went through", async () => {
     const session = userEvent.setup();
     await renderForm();

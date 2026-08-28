@@ -17,7 +17,10 @@ import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  loadEnvForIntegrationTests,
+  restoreEnvironmentVariable,
+} from "../testing/integration-env";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
@@ -217,25 +220,47 @@ beforeAll(async () => {
 }, 420_000);
 
 afterAll(async () => {
-  const personIds = [admin.personId, outsider.personId];
-  await prisma.systemRole.deleteMany({
-    where: { personId: { in: personIds } },
-  });
-  await prisma.session.deleteMany({
-    where: { user: { personId: { in: personIds } } },
-  });
-  await prisma.account.deleteMany({
-    where: { user: { personId: { in: personIds } } },
-  });
-  await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
-  await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
-  await app.close();
+  /*
+   * Every step is guarded, because beforeAll builds a fixture, a database
+   * client, an application and a workspace in that order and can fail at any
+   * of them. An unconditional dereference here would throw a TypeError that
+   * replaces the setup failure in the report and skips the cleanup that was
+   * still possible - and the environment restore, which the next suite in this
+   * worker depends on, has to happen either way.
+   */
+  try {
+    const personIds = [admin.personId, outsider.personId];
+    await prisma.systemRole.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.session.deleteMany({
+      where: { user: { personId: { in: personIds } } },
+    });
+    await prisma.account.deleteMany({
+      where: { user: { personId: { in: personIds } } },
+    });
+    await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+    await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
+  } catch {
+    // No client, or the rows were never written.
+  }
 
-  process.env.OPENBRF_DATA_DIR = previousDataDir;
-  process.env.OPENBRF_CATALOG_URL = previousCatalogUrl;
-  process.env.OPENBRF_UNCURATED_PLUGINS_ENABLED = previousUncurated;
-  await rm(workspace, { recursive: true, force: true });
+  try {
+    await app.close();
+  } catch {
+    // The application never started.
+  } finally {
+    restoreEnvironmentVariable("OPENBRF_DATA_DIR", previousDataDir);
+    restoreEnvironmentVariable("OPENBRF_CATALOG_URL", previousCatalogUrl);
+    restoreEnvironmentVariable(
+      "OPENBRF_UNCURATED_PLUGINS_ENABLED",
+      previousUncurated,
+    );
+    await rm(workspace, { recursive: true, force: true }).catch(() => {
+      // The workspace was never created.
+    });
+  }
 });
 
 describe("the plugin administration endpoints", () => {

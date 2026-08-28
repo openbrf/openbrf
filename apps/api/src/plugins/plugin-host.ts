@@ -121,6 +121,8 @@ export function createPluginHost(
    */
   const services = (
     permission: PluginPermission | null,
+    /** A second permission that satisfies the same gate. */
+    alternative?: PluginPermission,
   ): PluginHostServices => {
     const resolved = binding.resolve(pluginId);
     if (!context.serving) {
@@ -130,7 +132,13 @@ export function createPluginHost(
           "access to the register, the mail server or the job queue.",
       );
     }
-    if (permission !== null && !granted.has(permission)) {
+    if (
+      permission !== null &&
+      !granted.has(permission) &&
+      (alternative === undefined || !granted.has(alternative))
+    ) {
+      // Named after the permission a declaration would normally carry, which
+      // is the one a plugin author will recognise from the manifest.
       throw new PluginPermissionError(pluginId, permission);
     }
     return resolved;
@@ -270,24 +278,35 @@ function pluginJobService(
  * returned, and nothing is writable. The contact fields are present only when
  * the plugin declared addressBook:readContact, which is decided here and not
  * by the caller.
+ *
+ * Either address-book permission opens the gate. The manifest schema accepts
+ * addressBook:readContact on its own, and it is strictly the wider of the two
+ * - it adds email and phone to the same rows - so a plugin declaring only that
+ * asks for more than addressBook:read and must not be refused the reads that
+ * one would have allowed.
  */
 function pluginAddressBook(
   granted: ReadonlySet<PluginPermission>,
-  services: (permission: PluginPermission | null) => PluginHostServices,
+  services: (
+    permission: PluginPermission | null,
+    alternative?: PluginPermission,
+  ) => PluginHostServices,
 ): PluginAddressBook {
   const contact = granted.has("addressBook:readContact");
+  const read = (): PluginHostServices =>
+    services("addressBook:read", "addressBook:readContact");
 
   return {
     apartments: async () => {
-      const { addressBook } = services("addressBook:read");
+      const { addressBook } = read();
       return addressBook.apartments();
     },
     residents: async () => {
-      const { addressBook } = services("addressBook:read");
+      const { addressBook } = read();
       return addressBook.residents({ contact });
     },
     summary: async () => {
-      const { addressBook } = services("addressBook:read");
+      const { addressBook } = read();
       return addressBook.summary();
     },
   };

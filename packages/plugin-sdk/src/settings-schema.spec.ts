@@ -136,3 +136,149 @@ describe("defaultSettings", () => {
     expect(values).toEqual({ greeting: "Hej", enabled: false });
   });
 });
+
+/**
+ * A declaration is checked when the manifest is parsed, not when a value is
+ * saved.
+ *
+ * Neither path a default takes goes through the field's own constraints.
+ * `.default(value)` short-circuits an absent value and hands it back without
+ * applying anything downstream, and `defaultSettings` reads the declaration
+ * directly. So a contradictory field is accepted at install time and only
+ * shows up as a plugin acting on a value it said it would never see, or as a
+ * field a board cannot save whatever it types.
+ */
+describe("a contradictory field declaration", () => {
+  function refuses(field: Record<string, unknown>): boolean {
+    return !pluginSettingsSchema.safeParse({ fields: [field] }).success;
+  }
+
+  it("refuses a number default below its own minimum", () => {
+    expect(
+      refuses({
+        key: "reminderDays",
+        labelKey: "settings.reminderDays",
+        type: "number",
+        min: 10,
+        default: 5,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a number default above its own maximum", () => {
+    expect(
+      refuses({
+        key: "rowLimit",
+        labelKey: "settings.rowLimit",
+        type: "number",
+        max: 200,
+        default: 500,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a fractional default on an integer field", () => {
+    expect(
+      refuses({
+        key: "rowLimit",
+        labelKey: "settings.rowLimit",
+        type: "number",
+        integer: true,
+        default: 2.5,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a minimum above its own maximum", () => {
+    expect(
+      refuses({
+        key: "rowLimit",
+        labelKey: "settings.rowLimit",
+        type: "number",
+        min: 10,
+        max: 5,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a text default shorter than minLength", () => {
+    expect(
+      refuses({
+        key: "heading",
+        labelKey: "settings.heading",
+        type: "text",
+        minLength: 5,
+        default: "ab",
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a text default longer than maxLength", () => {
+    expect(
+      refuses({
+        key: "heading",
+        labelKey: "settings.heading",
+        type: "text",
+        maxLength: 2,
+        default: "far too long",
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a minLength above its own maxLength", () => {
+    expect(
+      refuses({
+        key: "heading",
+        labelKey: "settings.heading",
+        type: "text",
+        minLength: 10,
+        maxLength: 2,
+      }),
+    ).toBe(true);
+  });
+
+  it("refuses a select default that is not one of its options", () => {
+    expect(
+      refuses({
+        key: "grouping",
+        labelKey: "settings.grouping",
+        type: "select",
+        default: "building",
+        options: [
+          { value: "address", labelKey: "settings.grouping.address" },
+          { value: "floor", labelKey: "settings.grouping.floor" },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts a declaration whose bounds and default agree", () => {
+    expect(
+      refuses({
+        key: "rowLimit",
+        labelKey: "settings.rowLimit",
+        type: "number",
+        integer: true,
+        min: 1,
+        max: 200,
+        default: 25,
+      }),
+    ).toBe(false);
+  });
+
+  it("names the field the declaration got wrong", () => {
+    // The plugin author reads this at install time, so it has to point at the
+    // field rather than at the manifest.
+    const result = pluginSettingsSchema.safeParse({
+      fields: [
+        { key: "first", labelKey: "a", type: "boolean" },
+        { key: "second", labelKey: "b", type: "number", min: 10, default: 5 },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.path.join("."))).toContain(
+      "fields.1.default",
+    );
+  });
+});

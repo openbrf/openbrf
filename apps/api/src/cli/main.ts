@@ -4,9 +4,14 @@ import { NestFactory } from "@nestjs/core";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
 import { AppModule } from "../app.module";
+import { FALLBACK_LOCALE, I18nService } from "../i18n/i18n.service";
 import { CatalogError } from "../packaging/catalog-entry";
 import { PluginAdminService } from "../plugins/plugin-admin.service";
 import { PluginInstallerService } from "../plugins/plugin-installer.service";
+import {
+  permissionLabelKey,
+  personalDataLabelKey,
+} from "../plugins/plugin-labels";
 import { PluginRegistryService } from "../plugins/plugin-registry.service";
 
 /**
@@ -24,8 +29,12 @@ import { PluginRegistryService } from "../plugins/plugin-registry.service";
  * correct, and restarts to load the new code.
  *
  * Output is plain English on stdout. This is an operator tool, not a screen:
- * it is read in a terminal by whoever is administering the instance, and it
- * does not go through i18next.
+ * it is read in a terminal by whoever is administering the instance, and its
+ * own prose is not translated. The one exception is the declaration printed
+ * before an install, which is read from the application's own translations in
+ * the fallback locale: that text is what is being consented to, and it has to
+ * be the same statement the consent screen makes rather than a second wording
+ * that could drift from it.
  */
 
 const USAGE = `openbrf - Open BRF instance administration
@@ -82,6 +91,7 @@ async function run(
   const admin = application.get(PluginAdminService);
   const registry = application.get(PluginRegistryService);
   const installer = application.get(PluginInstallerService);
+  const i18n = application.get(I18nService);
 
   switch (args[0]) {
     case "list":
@@ -89,7 +99,7 @@ async function run(
     case "catalog":
       return listCatalog(admin);
     case "add":
-      return add(admin, installer, args[1], flags.has("--dry-run"));
+      return add(admin, installer, i18n, args[1], flags.has("--dry-run"));
     case "remove":
       return remove(admin, installer, args[1]);
     default:
@@ -151,6 +161,7 @@ async function listCatalog(admin: PluginAdminService): Promise<number> {
 async function add(
   admin: PluginAdminService,
   installer: PluginInstallerService,
+  i18n: I18nService,
   id: string | undefined,
   dryRun: boolean,
 ): Promise<number> {
@@ -166,12 +177,31 @@ async function add(
     return 1;
   }
 
-  // Printed before anything is written. Running the command is the consent,
-  // and consent given without seeing what is being agreed to is not consent.
+  /*
+   * Printed before anything is written. Running the command is the consent,
+   * and consent given without seeing what is being agreed to is not consent -
+   * which is why the permissions and the personal-data categories are printed
+   * as the sentences the consent screen shows rather than as the identifiers
+   * they are keyed by. "addressBook:readContact" does not tell anyone that
+   * agreeing to it hands over every resident's email address.
+   */
+  const t = i18n.translatorFor(FALLBACK_LOCALE);
+  const declared = (
+    values: readonly string[],
+    key: (value: string) => string,
+  ) =>
+    values.length === 0
+      ? "none"
+      : values.map((value) => t(key(value))).join("; ");
+
   console.log(`${entry.name.en} ${entry.version} (${entry.packageName})`);
   console.log(`  ${entry.description.en}`);
-  console.log(`  permissions   ${entry.permissions.join(", ") || "none"}`);
-  console.log(`  personal data ${entry.personalData.join(", ") || "none"}`);
+  console.log(
+    `  may           ${declared(entry.permissions, permissionLabelKey)}`,
+  );
+  console.log(
+    `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
+  );
 
   if (!entry.supported) {
     console.error(

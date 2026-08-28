@@ -15,7 +15,10 @@ import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decor
 import type { Env } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
 import { dataPaths } from "../packaging/data-paths";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  loadEnvForIntegrationTests,
+  runSuffix,
+} from "../testing/integration-env";
 import {
   type BootPlugin,
   loadPlugins,
@@ -45,13 +48,21 @@ import { PluginRegistryService } from "./plugin-registry.service";
 
 const env = loadEnvForIntegrationTests();
 
-const GOOD = "boot-good";
-const BROKEN = "boot-broken";
-const DISABLED = "boot-disabled";
-const WIDENED = "boot-widened";
-const REFUSED = "boot-refused";
-const FAILING = "boot-failing";
-const ALL_IDS = [GOOD, BROKEN, DISABLED, WIDENED, REFUSED, FAILING];
+/*
+ * Per-run identifiers. The suite writes its own packages, its own consent rows
+ * and its own findings, and cleans them all up by id: a fixed id makes two
+ * overlapping runs against the same database each other's cleanup, and the
+ * failure that produces names a plugin neither run was testing.
+ */
+const SUFFIX = runSuffix();
+const GOOD = `boot-good-${SUFFIX}`;
+const BROKEN = `boot-broken-${SUFFIX}`;
+const DISABLED = `boot-disabled-${SUFFIX}`;
+const WIDENED = `boot-widened-${SUFFIX}`;
+const REFUSED = `boot-refused-${SUFFIX}`;
+const FAILING = `boot-failing-${SUFFIX}`;
+const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
+const ALL_IDS = [GOOD, BROKEN, DISABLED, WIDENED, REFUSED, FAILING, PD_WIDENED];
 
 let prisma: PrismaClient;
 let workspace: string;
@@ -63,6 +74,7 @@ let boot: PluginBoot;
 interface PackageOptions {
   id: string;
   permissions?: string[];
+  personalData?: string[];
   server?: string;
   /** Written verbatim, to build a manifest the schema must refuse. */
   rawManifest?: unknown;
@@ -114,7 +126,7 @@ async function writePackage(
     id: options.id,
     entry: { server: "./dist/server.cjs" },
     permissions: options.permissions ?? [],
-    personalData: ["name"],
+    personalData: options.personalData ?? ["name"],
     settingsSchema: {
       fields: [
         {
@@ -160,7 +172,11 @@ async function writePackage(
   );
 }
 
-async function consent(id: string, permissions: string[]): Promise<void> {
+async function consent(
+  id: string,
+  permissions: string[],
+  personalData: string[] = ["name"],
+): Promise<void> {
   await registry.consent({
     id,
     packageName: `openbrf-plugin-${id}`,
@@ -168,7 +184,7 @@ async function consent(id: string, permissions: string[]): Promise<void> {
     tarballUrl: `file:///dev/null/${id}.tgz`,
     checksum: "sha512-unused-in-this-suite",
     permissions: permissions as never,
-    personalData: ["name"],
+    personalData: personalData as never,
   });
 }
 
@@ -206,6 +222,13 @@ beforeAll(async () => {
   await writePackage(modules, {
     id: WIDENED,
     permissions: ["addressBook:read", "mail:send"],
+  });
+  // Permissions unchanged, personal data added. This is the republished
+  // version that starts handling a category the board never saw.
+  await writePackage(modules, {
+    id: PD_WIDENED,
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
   });
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
@@ -255,6 +278,7 @@ exports.createPlugin = function createPlugin() {
   // Consented to less than the installed package now asks for, which is what a
   // republished version widening its own reach would look like.
   await consent(WIDENED, ["addressBook:read"]);
+  await consent(PD_WIDENED, ["addressBook:read"], ["name"]);
   await consent(BROKEN, []);
   await consent(REFUSED, []);
   await consent(FAILING, []);
@@ -346,6 +370,21 @@ describe("loading plugins at boot", () => {
     expect(loaded(WIDENED)).toBeUndefined();
     expect(finding(WIDENED)?.reason).toBe("permissions-widened");
     expect(finding(WIDENED)?.detail).toContain("mail:send");
+  });
+
+  /**
+   * The other half of the consented declaration.
+   *
+   * A republished version can leave its permissions exactly as they were and
+   * still start handling a personal-data category the board never saw - email
+   * added to a plugin that declared only a name. The board's agreement to a
+   * stated set of personal data is the legal basis for processing it, so the
+   * stored snapshot has to gate this the way it gates the permissions.
+   */
+  it("refuses a plugin that added a personal-data category since consent", () => {
+    expect(loaded(PD_WIDENED)).toBeUndefined();
+    expect(finding(PD_WIDENED)?.reason).toBe("personal-data-widened");
+    expect(finding(PD_WIDENED)?.detail).toContain("email");
   });
 
   it("raises the plugin's controllers to the floor its permissions imply", () => {

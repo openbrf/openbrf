@@ -16,6 +16,9 @@ export interface ClosableApplication {
 const COMMIT_POLL_INTERVAL_MS = 100;
 const COMMIT_POLL_ATTEMPTS = 100;
 
+/** How long in-flight requests are given before the process exits anyway. */
+export const DRAIN_TIMEOUT_MS = 10_000;
+
 /**
  * Restarting the process after an install.
  *
@@ -119,15 +122,70 @@ export class RestartCoordinator {
     }
 
     this.logger.log("Plugin installed. Draining and exiting for a restart.");
-    try {
-      await this.application?.close();
-    } catch (cause) {
-      this.logger.warn(`Shutdown was not clean: ${String(cause)}`);
+    const outcome = await drain(this.application, DRAIN_TIMEOUT_MS);
+    if (outcome.kind === "failed") {
+      this.logger.warn(`Shutdown was not clean: ${outcome.detail}`);
+    } else if (outcome.kind === "timed-out") {
+      this.logger.warn(
+        "In-flight requests did not finish within the drain timeout; " +
+          "exiting anyway so the replacement process starts.",
+      );
     }
     // Zero, not a failure code: the install worked. A supervisor configured
     // with `restart: unless-stopped` starts the replacement either way, and a
     // non-zero code would read as a crash in every log that collects them.
     process.exit(0);
+  }
+}
+
+export type DrainOutcome =
+  | { kind: "closed" }
+  | { kind: "timed-out" }
+  | { kind: "failed"; detail: string };
+
+/**
+ * Closes the application, or gives up on it.
+ *
+ * `close()` waits for in-flight HTTP to finish, and a keep-alive or a slow
+ * connection can hold it open with no bound. A hang is not a rejection, so a
+ * try/catch does not reach it: the exit below would simply never run, the
+ * replacement process would never start, and the installed plugin would never
+ * load - while the board watches a restart notice that has no end state. That
+ * is the exact failure the restart contract exists to avoid, so the deadline
+ * wins and the process exits either way. Exiting on the deadline is the same
+ * outcome a supervisor's own shutdown timeout produces, and the job
+ * completion has already been committed by this point.
+ *
+ * Exported for its test: the caller ends by replacing the process, which a
+ * test runner cannot survive.
+ */
+export async function drain(
+  application: ClosableApplication | null,
+  timeoutMs: number,
+): Promise<DrainOutcome> {
+  if (application === null) {
+    return { kind: "closed" };
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<DrainOutcome>((resolve) => {
+    timer = setTimeout(() => {
+      resolve({ kind: "timed-out" });
+    }, timeoutMs);
+  });
+
+  const closing = application.close().then(
+    (): DrainOutcome => ({ kind: "closed" }),
+    (cause: unknown): DrainOutcome => ({
+      kind: "failed",
+      detail: String(cause),
+    }),
+  );
+
+  try {
+    return await Promise.race([closing, deadline]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

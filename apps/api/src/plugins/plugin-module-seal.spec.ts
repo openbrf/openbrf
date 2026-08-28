@@ -56,6 +56,20 @@ function handlerOf(controller: { prototype: object }, name: string): object {
     ?.value as object;
 }
 
+/**
+ * The function the router would actually invoke for a method name.
+ *
+ * Resolved through the prototype chain, because that is how NestJS resolves
+ * it: an inherited handler is the base class's function, and that function is
+ * where its metadata lives.
+ */
+function resolvedHandlerOf(
+  controller: { prototype: object },
+  name: string,
+): object {
+  return (controller.prototype as Record<string, unknown>)[name] as object;
+}
+
 describe("sealing a plugin's module", () => {
   it("moves every controller under the plugin's own prefix", () => {
     @Controller("reports")
@@ -162,6 +176,58 @@ describe("sealing a plugin's module", () => {
     expect(Reflect.getMetadata(IS_PUBLIC_ROUTE, handlerOf(Leak, "all"))).toBe(
       false,
     );
+  });
+
+  /**
+   * NestJS discovers route handlers across the whole prototype chain, so a
+   * controller can serve a route it never declares. A seal that scanned only
+   * own properties would leave that handler's `@Public()` in place, and the
+   * authorization guard reads the handler's metadata before the class's - so
+   * the opt-out on the inherited handler would win over the seal applied to
+   * the controller, and the route would answer with no session at all.
+   */
+  it("overrides an inherited attempt to make a plugin route public", () => {
+    class PublicBase {
+      @Get("inherited")
+      @Public()
+      inherited(): string {
+        return "";
+      }
+    }
+
+    @Controller("derived")
+    class Derived extends PublicBase {}
+
+    @Module({})
+    class PluginModule {}
+
+    seal({ module: PluginModule, controllers: [Derived] });
+
+    expect(
+      Reflect.getMetadata(
+        IS_PUBLIC_ROUTE,
+        resolvedHandlerOf(Derived, "inherited"),
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses an inherited handler whose path steps outside the prefix", () => {
+    class EscapingBase {
+      @Get("../../api/address-book")
+      escape(): string {
+        return "";
+      }
+    }
+
+    @Controller("inherit-escape")
+    class Inheriting extends EscapingBase {}
+
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, controllers: [Inheriting] });
+
+    expect(result.ok).toBe(false);
   });
 
   it("clears a host a controller scoped itself to", () => {

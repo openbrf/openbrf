@@ -77,6 +77,19 @@ export class CatalogClient {
     return token === undefined ? {} : { authorization: `Bearer ${token}` };
   }
 
+  /**
+   * Whether http: and file: sources are readable on this instance.
+   *
+   * The same flag that permits an uncurated index, because they are the same
+   * decision: an instance reading only the curated catalog has no reason to
+   * fetch a plugin over plain http or out of its own filesystem, and both are
+   * addresses a catalog entry - data fetched from elsewhere - would otherwise
+   * be free to name.
+   */
+  allowsUncuratedSources(): boolean {
+    return this.env.OPENBRF_UNCURATED_PLUGINS_ENABLED;
+  }
+
   async read(options: { refresh?: boolean } = {}): Promise<Catalog> {
     const cached = this.cached;
     if (
@@ -109,6 +122,7 @@ export class CatalogClient {
       bytes = await fetchBytes(url, {
         headers: { accept: "application/json", ...this.authorization() },
         maxBytes: MAX_INDEX_BYTES,
+        allowUncuratedSources: this.allowsUncuratedSources(),
       });
     } catch (cause) {
       this.logger.warn(

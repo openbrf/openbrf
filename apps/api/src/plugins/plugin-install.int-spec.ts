@@ -14,7 +14,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
 import { dataPaths } from "../packaging/data-paths";
 import { formatSha512, sha512 } from "../packaging/integrity";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  loadEnvForIntegrationTests,
+  runSuffix,
+} from "../testing/integration-env";
 import { scanPluginDirectory } from "./plugin-directory";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
@@ -37,8 +40,15 @@ import { RestartCoordinator } from "./restart-coordinator.service";
 const run = promisify(execFile);
 const env = loadEnvForIntegrationTests();
 
-const PLUGIN_ID = "occupancy-int";
-const PACKAGE_NAME = "openbrf-plugin-occupancy-int";
+/*
+ * Per-run identifiers. The suite writes its own package, its own catalog entry
+ * and its own consent row, and cleans them all up by id: a fixed id makes two
+ * overlapping runs against the same database each other's cleanup, and the
+ * failure that produces names a plugin neither run was testing.
+ */
+const SUFFIX = runSuffix();
+const PLUGIN_ID = `occupancy-int-${SUFFIX}`;
+const PACKAGE_NAME = `openbrf-plugin-occupancy-int-${SUFFIX}`;
 const VERSION = "1.0.0";
 
 let prisma: PrismaClient;

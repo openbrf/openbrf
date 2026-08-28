@@ -10,7 +10,10 @@ import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
 import { dataPaths } from "../packaging/data-paths";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  loadEnvForIntegrationTests,
+  restoreEnvironmentVariable,
+} from "../testing/integration-env";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
@@ -164,11 +167,30 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await app.close();
-  await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
-  await prisma.$disconnect();
-  process.env.OPENBRF_DATA_DIR = previousDataDir;
-  await rm(workspace, { recursive: true, force: true });
+  /*
+   * Every step is guarded, because beforeAll can fail before any of these
+   * exist. An unconditional dereference here would throw a TypeError that
+   * replaces the setup failure in the report and skips the cleanup that was
+   * still possible - and the environment restore, which the next suite in this
+   * worker depends on, is the part that must happen either way.
+   */
+  try {
+    await app.close();
+  } catch {
+    // The application never started.
+  }
+
+  try {
+    await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
+    await prisma.$disconnect();
+  } catch {
+    // No client, or the database is already gone.
+  } finally {
+    restoreEnvironmentVariable("OPENBRF_DATA_DIR", previousDataDir);
+    await rm(workspace, { recursive: true, force: true }).catch(() => {
+      // The workspace was never created.
+    });
+  }
 });
 
 describe("booting with a plugin the application cannot be built around", () => {

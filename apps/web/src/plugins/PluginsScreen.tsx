@@ -30,9 +30,16 @@ interface Loaded {
   ready: boolean;
   overview: PluginsOverview | null;
   loadFailed: boolean;
+  /** True when the restart poll gave up before the new process answered. */
+  restartTimedOut: boolean;
 }
 
-const EMPTY: Loaded = { ready: false, overview: null, loadFailed: false };
+const EMPTY: Loaded = {
+  ready: false,
+  overview: null,
+  loadFailed: false,
+  restartTimedOut: false,
+};
 
 /** How often, and for how long, the screen looks for the restarted process. */
 const RESTART_POLL_INTERVAL_MS = 2000;
@@ -76,12 +83,12 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
     if (!canRead) {
       // Nothing to wait for: this viewer never asks for the list, and the
       // panels that need it are not rendered for them either.
-      return { ready: true, overview: null, loadFailed: false };
+      return { ...EMPTY, ready: true };
     }
     const result = await fetchPlugins();
     return result.ok
-      ? { ready: true, overview: result.value, loadFailed: false }
-      : { ready: true, overview: null, loadFailed: true };
+      ? { ...EMPTY, ready: true, overview: result.value }
+      : { ...EMPTY, ready: true, loadFailed: true };
   }, [canRead]);
 
   useEffect(() => {
@@ -117,7 +124,13 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
     const timer = setInterval(() => {
       attempts += 1;
       if (attempts > RESTART_POLL_ATTEMPTS) {
+        // A terminal state, not silence. Leaving `restarting` set would put
+        // the board back where the poll exists to keep it from being: a
+        // notice saying "restarting" with no end to it, no error, and nothing
+        // to do next.
         clearInterval(timer);
+        setRestarting(false);
+        setLoaded((current) => ({ ...current, restartTimedOut: true }));
         return;
       }
       void fetchPlugins().then((result) => {
@@ -125,7 +138,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
           return;
         }
         clearInterval(timer);
-        setLoaded({ ready: true, overview: result.value, loadFailed: false });
+        setLoaded({ ...EMPTY, ready: true, overview: result.value });
         setRestarting(false);
       });
     }, RESTART_POLL_INTERVAL_MS);
@@ -136,7 +149,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
     };
   }, [restarting, canRead]);
 
-  const { ready, overview, loadFailed } = loaded;
+  const { ready, overview, loadFailed, restartTimedOut } = loaded;
 
   const reload = (): void => {
     void read().then(setLoaded);
@@ -164,7 +177,14 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
 
     setPending(null);
     if (result.value.restarting) {
+      // No read here. The server answered this request and is now draining the
+      // connection it came in on, so a read now is a read against a process
+      // that is going away - and its failure would raise the "could not be
+      // read" notice beside the restart notice on an install that worked. The
+      // restart poll performs the read once the replacement answers.
       setRestarting(true);
+      setCatalogToken((token) => token + 1);
+      return;
     }
     reload();
   };
@@ -184,6 +204,12 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
 
       {overview !== null && !overview.pluginsEnabled ? (
         <Notice tone="warn">{t("plugins.disabledNotice")}</Notice>
+      ) : null}
+
+      {restartTimedOut ? (
+        <Notice tone="warn" live>
+          {t("plugins.restartTimedOut")}
+        </Notice>
       ) : null}
 
       {loadFailed ? (
@@ -217,7 +243,13 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
         </>
       )}
 
-      {canManage ? (
+      {/*
+        Installing needs plugins to be switched on as well as the capability to
+        manage them. The API refuses the call either way, but a catalog and a
+        consent screen an administrator can work all the way through only to be
+        refused at the end is a screen that lied about what it was offering.
+      */}
+      {canManage && overview?.pluginsEnabled === true ? (
         pending === null ? (
           <CatalogPanel
             locale={i18n.language}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -209,6 +209,83 @@ describe("confirming the consent", () => {
       ).toBeTruthy();
     });
   });
+
+  it("does not read the overview back through the process being replaced", async () => {
+    /*
+     * The install request was answered and the server is now draining the
+     * connection it arrived on. A read issued here goes to a process that is
+     * going away, and its failure would raise the "could not be read" notice
+     * next to the restart notice on an install that worked. The restart poll
+     * does the read once the replacement answers.
+     */
+    installPlugin.mockResolvedValue({ ok: true, value: { restarting: true } });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    const readsBefore = fetchPlugins.mock.calls.length;
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/startas om/)).toBeTruthy();
+    });
+    expect(fetchPlugins.mock.calls.length).toBe(readsBefore);
+    expect(
+      screen.queryByText(
+        "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("a restart that never completes", () => {
+  it("ends in a state the board can act on rather than a permanent notice", async () => {
+    /*
+     * The poll exists so the screen does not leave a board reading "restarting"
+     * and hoping. Giving up silently after the last attempt puts them back
+     * there: the notice stays, no error appears, and nothing says what to do.
+     */
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      installPlugin.mockResolvedValue({
+        ok: true,
+        value: { restarting: true },
+      });
+      const session = userEvent.setup({
+        advanceTimers: vi.advanceTimersByTime.bind(vi),
+      });
+      renderScreen(["association:read", "association:manage"]);
+
+      await choose(session);
+      await session.click(screen.getByRole("checkbox"));
+      await session.click(
+        screen.getByRole("button", { name: /^installera$/i }),
+      );
+      await waitFor(() => {
+        expect(screen.getByText(/startas om/)).toBeTruthy();
+      });
+
+      // The replacement never answers as ready: every poll finds a process
+      // still waiting to restart.
+      fetchPlugins.mockResolvedValue({
+        ok: true,
+        value: { ...OVERVIEW, restartPending: true },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000 * 32);
+      });
+
+      expect(
+        screen.getByText(
+          "Programmet kom inte tillbaka inom förväntad tid. Ladda om sidan; om tillägget fortfarande inte finns med, titta i serverloggen.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(/startas om för att läsa in/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("an instance with plugins switched off", () => {
@@ -227,6 +304,26 @@ describe("an instance with plugins switched off", () => {
         ),
       ).toBeTruthy();
     });
+  });
+
+  it("offers no way into an installation that would be refused", async () => {
+    // The warning on its own is not the guarantee. An administrator who can
+    // still choose an entry, tick the acknowledgement and press Install works
+    // through the whole consent flow only to be refused by the API at the end,
+    // which teaches a board that a refusal is noise rather than an answer.
+    fetchPlugins.mockResolvedValue({
+      ok: true,
+      value: { ...OVERVIEW, pluginsEnabled: false },
+    });
+
+    renderScreen(["association:read", "association:manage"]);
+
+    await waitFor(() => {
+      expect(installedHeading()).toBeTruthy();
+    });
+    expect(catalogHeading()).toBeNull();
+    expect(consentHeading()).toBeNull();
+    expect(screen.queryByRole("button", { name: /^installera$/i })).toBeNull();
   });
 });
 

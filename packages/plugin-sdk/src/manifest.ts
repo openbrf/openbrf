@@ -21,7 +21,7 @@ import { pluginSettingsSchema } from "./settings-schema.ts";
 /**
  * A plugin id.
  *
- * Used as a URL segment (`/api/plugins/<id>/...`), an i18n namespace
+ * Used as a URL segment (`/api/plugin/<id>/...`), an i18n namespace
  * (`plugin-<id>`), a database key and a directory name, so it is restricted to
  * what is safe in all four. In particular it may not contain a dot or a
  * slash: a plugin id is resolved against paths, and `..` must not be

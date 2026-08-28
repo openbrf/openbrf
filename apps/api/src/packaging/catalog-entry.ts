@@ -23,9 +23,16 @@ import { z } from "zod";
 /** A tarball and the digest its bytes must hash to. */
 export const catalogArtifactSchema = z.object({
   /**
-   * Direct URL. https in production; file: is accepted so the end-to-end
-   * harness can point at tarballs baked into the test image and exercise this
-   * same verification code with no network.
+   * Direct URL.
+   *
+   * https on a curated instance, and nothing else: the shape is checked here
+   * but the destination is decided at fetch time, where http: and file: are
+   * refused unless the instance has opted out of curation. That is what keeps
+   * an entry - which is data fetched from elsewhere - from naming a `file:`
+   * path and having the instance read its own disk, or a plain-http address
+   * inside the network the instance sits in. The end-to-end harness sets the
+   * same flag to point at tarballs baked into the test image and exercise this
+   * verification code with no network.
    */
   url: z.string().min(1).max(2000),
   /** "sha512-<base64>" or 128 hex characters. */

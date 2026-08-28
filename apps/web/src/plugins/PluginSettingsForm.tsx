@@ -71,8 +71,26 @@ export function PluginSettingsForm({
     void save.submit(draft);
   };
 
-  const set = (key: string, value: string | number | boolean): void => {
-    setDraft((current) => ({ ...current, [key]: value }));
+  /**
+   * Applies one field's value to the draft.
+   *
+   * `undefined` drops the key rather than storing it. An emptied optional box
+   * means "unset", and the declaration on the server is what decides whether
+   * that is allowed - sending a value the field never held would answer that
+   * question here, in the browser, and wrongly.
+   */
+  const set = (
+    key: string,
+    value: string | number | boolean | undefined,
+  ): void => {
+    setDraft((current) => {
+      if (value !== undefined) {
+        return { ...current, [key]: value };
+      }
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   };
 
   if (schema.fields.length === 0) {
@@ -146,7 +164,7 @@ interface SettingsFieldProps {
   label: string;
   hint: string | undefined;
   translateOption: (key: string) => string;
-  onChange: (key: string, value: string | number | boolean) => void;
+  onChange: (key: string, value: string | number | boolean | undefined) => void;
 }
 
 /**
@@ -170,7 +188,8 @@ function SettingsField({
 
   if (field.type === "boolean") {
     return (
-      <label className="flex items-start gap-3">
+      // min-h-11 is the 44px touch target, as on every other control here.
+      <label className="flex min-h-11 items-start gap-3">
         <input
           type="checkbox"
           name={field.key}
@@ -226,12 +245,16 @@ function SettingsField({
           step={field.integer ? 1 : "any"}
           value={typeof value === "number" ? String(value) : ""}
           onChange={(event) => {
-            const parsed = Number(event.target.value);
+            const raw = event.target.value;
+            const parsed = Number(raw);
             onChange(
               field.key,
-              // An empty or unparseable box is not a number, and sending NaN
-              // would fail validation with a message about the wrong thing.
-              Number.isNaN(parsed) ? 0 : parsed,
+              // An empty box is not the number zero, and Number("") is: sent
+              // as 0 it would silently become a value the plugin acts on -
+              // a reminderDays of 0 rather than a field left unset. Absence
+              // goes to the server as absence, and the declared schema
+              // decides whether the field may be unset.
+              raw === "" || Number.isNaN(parsed) ? undefined : parsed,
             );
           }}
           className={FIELD_DATA}

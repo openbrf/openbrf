@@ -77,16 +77,110 @@ export const pluginSettingsFieldSchema = z.discriminatedUnion("type", [
 
 export type PluginSettingsField = z.infer<typeof pluginSettingsFieldSchema>;
 
-export const pluginSettingsSchema = z.object({
-  fields: z
-    .array(pluginSettingsFieldSchema)
-    .max(50)
-    .refine(
-      (fields) =>
-        new Set(fields.map((field) => field.key)).size === fields.length,
-      { message: "field keys must be unique" },
-    ),
-});
+/**
+ * Checks a field's bounds against each other and against its default.
+ *
+ * Done while the manifest is parsed rather than left to the validator, because
+ * neither of the two paths a default takes goes through the field's
+ * constraints. `.default(value)` short-circuits an absent value and returns it
+ * without applying anything downstream, and `defaultSettings` reads the
+ * declaration directly. A number field declaring `min: 10, default: 5` would
+ * otherwise hand the plugin a 5 it said it would never see, and
+ * `minLength: 10, maxLength: 2` would declare a field no submitted value can
+ * satisfy - both of which are the plugin's mistake to hear about at install
+ * time rather than the board's to discover at a save.
+ */
+function checkFieldConstraints(
+  field: PluginSettingsField,
+  index: number,
+  ctx: z.RefinementCtx,
+): void {
+  const reject = (message: string, key: string): void => {
+    ctx.addIssue({
+      code: "custom",
+      message,
+      path: ["fields", index, key],
+    });
+  };
+
+  switch (field.type) {
+    case "text": {
+      if (
+        field.minLength !== undefined &&
+        field.maxLength !== undefined &&
+        field.minLength > field.maxLength
+      ) {
+        reject("minLength must not be greater than maxLength", "minLength");
+      }
+      if (field.default === undefined) {
+        return;
+      }
+      if (
+        field.minLength !== undefined &&
+        field.default.length < field.minLength
+      ) {
+        reject("the default is shorter than minLength", "default");
+      }
+      if (
+        field.maxLength !== undefined &&
+        field.default.length > field.maxLength
+      ) {
+        reject("the default is longer than maxLength", "default");
+      }
+      return;
+    }
+    case "number": {
+      if (
+        field.min !== undefined &&
+        field.max !== undefined &&
+        field.min > field.max
+      ) {
+        reject("min must not be greater than max", "min");
+      }
+      if (field.default === undefined) {
+        return;
+      }
+      if (field.integer && !Number.isInteger(field.default)) {
+        reject("the default is not an integer", "default");
+      }
+      if (field.min !== undefined && field.default < field.min) {
+        reject("the default is below min", "default");
+      }
+      if (field.max !== undefined && field.default > field.max) {
+        reject("the default is above max", "default");
+      }
+      return;
+    }
+    case "select": {
+      if (
+        field.default !== undefined &&
+        !field.options.some((option) => option.value === field.default)
+      ) {
+        reject("the default is not one of the declared options", "default");
+      }
+      return;
+    }
+    case "boolean":
+      return;
+  }
+}
+
+export const pluginSettingsSchema = z
+  .object({
+    fields: z
+      .array(pluginSettingsFieldSchema)
+      .max(50)
+      .refine(
+        (fields) =>
+          new Set(fields.map((field) => field.key)).size === fields.length,
+        { message: "field keys must be unique" },
+      ),
+  })
+  .superRefine((declaration, ctx) => {
+    declaration.fields.forEach((field, index) => {
+      checkFieldConstraints(field, index, ctx);
+    });
+  });
 
 export type PluginSettingsSchema = z.infer<typeof pluginSettingsSchema>;
 

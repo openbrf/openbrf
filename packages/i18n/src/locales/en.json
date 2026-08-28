@@ -520,6 +520,7 @@
     "intro": "Plugins add features to this instance. They are installed from the curated catalog and run with the same privileges as the rest of the application, so the board agrees to what each one may do before it is installed.",
     "loading": "Loading plugins",
     "restartNotice": "The application is restarting to load the change. Reload this page in a moment.",
+    "restartTimedOut": "The application did not come back within the expected time. Reload this page; if the plugin is still not listed, check the server log.",
     "disabledNotice": "Plugins are switched off on this instance. Nothing can be installed until they are switched on again.",
     "errors": {
       "loadFailed": "The list of plugins could not be read just now. Reload the page.",
@@ -604,6 +605,7 @@
         "disabled": "Switched off in this screen.",
         "notConsented": "On the data volume, but this instance has no record of agreeing to run it.",
         "permissionsWidened": "The installed version asks for more than was agreed to. Install it again to review the new declaration.",
+        "personalDataWidened": "The installed version handles personal data that was not agreed to. Install it again to review the new declaration.",
         "moduleIdentity": "It carries its own copy of a package it has to share with the application. It was refused rather than run against a second copy.",
         "manifestInvalid": "Its declaration could not be read.",
         "apiVersion": "It is built for a version of the plugin contract this Open BRF does not implement.",

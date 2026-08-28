@@ -26,8 +26,8 @@ export interface PluginSummary {
   lastError: string | null;
   /** Whether the plugin's code is running in the current server process. */
   loaded: boolean;
-  permissions: string[];
-  personalData: string[];
+  permissions: PluginPermission[];
+  personalData: PluginPersonalDataCategory[];
   installedAt: string;
   hasSettings: boolean;
   view: { module: string; titleKey: string } | null;
