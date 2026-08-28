@@ -13,5 +13,16 @@
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "non-major dev dependencies"
     }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Container images pinned inside workflow run steps, which the github-actions manager does not read",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+[A-Z_]+: [^\\s:]+:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "versioning": "docker"
+    }
   ]
 }
