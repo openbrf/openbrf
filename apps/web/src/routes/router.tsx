@@ -108,11 +108,7 @@ const settingsRoute = createRoute({
 const themesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/themes",
-  beforeLoad: async () => {
-    if (!(await hasSession())) {
-      throw redirect({ to: "/sign-in" });
-    }
-  },
+  beforeLoad: requireSession,
   component: ThemesRoute,
 });
 
