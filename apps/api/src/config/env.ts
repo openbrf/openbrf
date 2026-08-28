@@ -59,6 +59,16 @@ export const envSchema = z.object({
   OPENBRF_CATALOG_URL: z.string().min(1).optional(),
   OPENBRF_CATALOG_TOKEN: z.string().min(1).optional(),
   OPENBRF_UNCURATED_PLUGINS_ENABLED: envBoolean(false),
+  /**
+   * Reinstall plugins at boot when the data volume does not carry them.
+   *
+   * Off by default, because on a normal deployment /data/plugins is a volume
+   * and an empty one means something is wrong that a silent reinstall would
+   * hide. It exists for deployments with no persistent volume at all, where an
+   * empty installation directory on every boot is the expected state and the
+   * database is the only record of what should be running.
+   */
+  OPENBRF_PLUGINS_REINSTALL_ON_BOOT: envBoolean(false),
 });
 
 export type Env = z.infer<typeof envSchema>;

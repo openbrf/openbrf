@@ -157,14 +157,20 @@ non-goal: page titles, and no sitemap or metadata machinery.
 
 ### Plugins and themes
 
-The riskiest part of the architecture has been prototyped and its findings
-written down (see the architecture decision records in `docs/adr`), but the
-system itself is not built.
+The plugin system is built: manifest, loader, permissions-scoped SDK, catalog
+installation with a consent step, and a command-line tool. See the
+architecture decision records in `docs/adr` for the module resolution strategy
+it implements, and `docs/plugin-contract.md` for what a plugin author writes
+against. It is proven against a catalog and a reference plugin built inside
+this repository. What does not exist yet is the ecosystem around it - the
+public catalog, the published `@openbrf/plugin-sdk` package and the reference
+plugin's own repository - so an instance has nothing to install from until
+those are in place. The theme half is not built.
 
-- [ ] Plugin manifest, loader and permissions-scoped SDK
-- [ ] Plugin views loaded at runtime without rebuilding the application
-- [ ] Curated catalog and installation from the admin interface
-- [ ] Command-line plugin management
+- [x] Plugin manifest, loader and permissions-scoped SDK
+- [x] Plugin views loaded at runtime without rebuilding the application
+- [x] Curated catalog and installation from the admin interface
+- [x] Command-line plugin management
 - [ ] Themes installable as data-only plugins, with inheritance
 - [ ] Theme composer in the admin interface
 

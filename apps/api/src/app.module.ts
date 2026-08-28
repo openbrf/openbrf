@@ -15,6 +15,8 @@ import { I18nModule } from "./i18n/i18n.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { PackagingModule } from "./packaging/packaging.module";
+import { PluginsModule } from "./plugins/plugins.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
@@ -36,6 +38,10 @@ import { SignupModule } from "./signup/signup.module";
     SettingsModule,
     AddressesModule,
     AddressBookModule,
+    PackagingModule,
+    // Last: the loader runs plugin code at start-up, and everything a plugin
+    // receives through the SDK has to be constructed before it does.
+    PluginsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],

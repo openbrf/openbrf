@@ -9,6 +9,8 @@ import {
 import { fetchSetupState } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AddressBookRoute } from "./AddressBookRoute";
+import { PluginsRoute } from "./PluginsRoute";
+import { PluginViewRoute } from "./PluginViewRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
@@ -92,6 +94,36 @@ const settingsRoute = createRoute({
   component: SettingsRoute,
 });
 
+const pluginsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/plugins",
+  beforeLoad: async () => {
+    if (!(await hasSession())) {
+      throw redirect({ to: "/sign-in" });
+    }
+  },
+  component: PluginsRoute,
+});
+
+/**
+ * A plugin's own screen.
+ *
+ * Only a session is required here. Which plugin views a person may open is the
+ * API's decision, and the screen shows "no such view" for one this account is
+ * not offered - a capability check in this guard would be a second opinion
+ * that could disagree with the server's.
+ */
+const pluginViewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/plugin/$pluginId",
+  beforeLoad: async () => {
+    if (!(await hasSession())) {
+      throw redirect({ to: "/sign-in" });
+    }
+  },
+  component: PluginViewRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -109,6 +141,8 @@ const routeTree = rootRoute.addChildren([
   signInRoute,
   setupRoute,
   settingsRoute,
+  pluginsRoute,
+  pluginViewRoute,
   addressBookRoute,
 ]);
 

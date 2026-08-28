@@ -5,12 +5,29 @@ import {
 } from "@nestjs/platform-fastify";
 
 import { AppModule } from "./app.module";
+import { bridgeHostResolution } from "./plugins/plugin-resolution";
+import { RestartCoordinator } from "./plugins/restart-coordinator.service";
 
 async function bootstrap(): Promise<void> {
+  // Before the application is built, because an installed plugin's CommonJS
+  // bundle can otherwise resolve nothing from the host: CJS resolution walks
+  // up from /data/plugins and never reaches the application's node_modules
+  // (ADR 0003). The loader repeats this when it runs; doing it here as well
+  // means the process is in the documented state from its first line, whatever
+  // the entrypoint or the dev script did or did not set.
+  bridgeHostResolution();
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter(),
   );
+
+  // Installing a plugin ends by replacing this process, which means draining
+  // in-flight requests first. The coordinator needs the application to close;
+  // it cannot construct one.
+  app.enableShutdownHooks();
+  app.get(RestartCoordinator).bind(app);
+
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, "0.0.0.0");
 }

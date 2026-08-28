@@ -7,7 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { SettingsScreen } from "../settings/SettingsScreen";
 import { AppShell } from "../shell/AppShell";
-import { NAV_ITEMS } from "../shell/nav-items";
+import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
 import { Notice } from "../ui/Notice";
 
@@ -51,7 +51,7 @@ export function SettingsRoute(): ReactElement {
           ? undefined
           : `${viewer.firstName} ${viewer.lastName}`.trim()
       }
-      navItems={NAV_ITEMS}
+      navItems={navItemsFor(viewer?.capabilities)}
       onSignOut={() => {
         void authClient.signOut({
           fetchOptions: {

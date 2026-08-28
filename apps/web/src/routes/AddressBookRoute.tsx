@@ -14,7 +14,7 @@ import {
   useDebouncedValue,
 } from "../register/use-address-book";
 import { AppShell } from "../shell/AppShell";
-import { NAV_ITEMS } from "../shell/nav-items";
+import { navItemsFor } from "../shell/nav-items";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 
 /** Which panel, if any, sits beside the board. */
@@ -131,7 +131,14 @@ export function AddressBookRoute(): ReactElement {
     <AppShell
       housingCooperativeName={t("app.housingCooperative")}
       personName={session?.user.name}
-      navItems={NAV_ITEMS}
+      /*
+       * The board view is served only to a principal holding addressBook:read,
+       * which in the capability model is granted together with
+       * association:read - so the answer the server already gave to the
+       * register request settles the navigation too, without a second call to
+       * ask who this is.
+       */
+      navItems={navItemsFor(view.state === "board" ? ["association:read"] : [])}
       onSignOut={() => {
         /*
          * Navigating is part of signing out: the session is only checked in this

@@ -513,5 +513,120 @@
       "danger": "Fel",
       "info": "Information"
     }
+  },
+  "plugins": {
+    "navLabel": "Tillägg",
+    "title": "Tillägg",
+    "intro": "Tillägg lägger till funktioner i den här instansen. De installeras från den granskade katalogen och körs med samma behörigheter som resten av programmet, därför godkänner styrelsen vad varje tillägg får göra innan det installeras.",
+    "loading": "Läser in tillägg",
+    "restartNotice": "Programmet startas om för att läsa in ändringen. Ladda om sidan om en liten stund.",
+    "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
+    "errors": {
+      "loadFailed": "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
+      "unknown": "Det gick inte just nu. Försök igen.",
+      "forbidden": "Ditt konto får inte se den här sidan."
+    },
+    "installed": {
+      "title": "Installerade tillägg",
+      "description": "Vad instansen kör, vad varje tillägg får göra och vilka personuppgifter det hanterar.",
+      "none": "Inga tillägg är installerade.",
+      "permissions": "Får",
+      "personalData": "Personuppgifter",
+      "state": {
+        "running": "Körs",
+        "disabled": "Avstängt",
+        "failed": "Installationen misslyckades",
+        "awaitingRestart": "Installerat, väntar på omstart"
+      },
+      "enable": "Slå på",
+      "disable": "Stäng av",
+      "settings": "Inställningar",
+      "hideSettings": "Dölj inställningar",
+      "remove": "Ta bort",
+      "removeConfirm": "Ja, ta bort",
+      "removeCancel": "Behåll",
+      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod."
+    },
+    "catalog": {
+      "title": "Katalog",
+      "description": "Den granskade katalog som instansen läser. Att installera från någon annan källa är en medveten ändring av instansens konfiguration.",
+      "reload": "Läs katalogen igen",
+      "loading": "Läser katalogen",
+      "none": "Katalogen listar inga tillägg.",
+      "install": "Installera",
+      "reinstall": "Installera igen",
+      "update": "Uppdatera till {{version}}",
+      "installedVersion": "Installerad: {{version}}",
+      "unsupported": "Kräver en nyare version av Open BRF",
+      "deprecated": "Underhålls inte längre",
+      "errors": {
+        "unreachable": "Katalogen kunde inte nås. Kontrollera instansens nätverksåtkomst och katalogens adress.",
+        "malformed": "Katalogen nåddes men kunde inte läsas. Den kan vara skadad eller skriven för en nyare version.",
+        "notPermitted": "Instansen pekar på en katalog utanför den granskade. Att installera därifrån måste tillåtas uttryckligen i instansens konfiguration.",
+        "unknown": "Katalogen kunde inte läsas just nu. Försök igen."
+      }
+    },
+    "consent": {
+      "title": "Granska innan installation",
+      "intro": "{{name}} {{version}} är på väg att installeras. Läs vad tillägget får göra innan du godkänner.",
+      "permissionsTitle": "Det här tillägget får",
+      "personalDataTitle": "Personuppgifter det kommer att hantera",
+      "noPermissions": "Ingenting utöver sina egna inställningar.",
+      "noPersonalData": "Inga.",
+      "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
+      "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",
+      "confirm": "Installera",
+      "installing": "Installerar...",
+      "cancel": "Avbryt",
+      "errors": {
+        "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till."
+      }
+    },
+    "permissions": {
+      "addressBookRead": "Läsa namn, lägenheter och roller i boendet",
+      "addressBookReadContact": "Läsa e-postadresser och telefonnummer",
+      "mailSend": "Skicka e-post via föreningens egen server",
+      "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "unknown": "Något som den här versionen av Open BRF inte känner igen"
+    },
+    "personalData": {
+      "name": "Namn",
+      "apartment": "Lägenhet och adress",
+      "residency": "Inflyttnings- och utflyttningsdatum, och om personen är medlem",
+      "email": "E-postadress",
+      "phone": "Telefonnummer",
+      "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
+    },
+    "findings": {
+      "title": "Körs inte",
+      "description": "Ett tillägg som inte kan köras hoppas över i stället för att få stoppa instansen. Det här är de som hoppades över, och varför.",
+      "reasons": {
+        "disabled": "Avstängt på den här sidan.",
+        "notConsented": "Finns på datavolymen, men instansen har ingen notering om att det godkänts.",
+        "permissionsWidened": "Den installerade versionen begär mer än det som godkändes. Installera om för att granska den nya deklarationen.",
+        "moduleIdentity": "Det har med sig en egen kopia av ett paket som det måste dela med programmet. Det nekades i stället för att köras mot en andra kopia.",
+        "manifestInvalid": "Dess deklaration kunde inte läsas.",
+        "apiVersion": "Det är byggt för en version av tilläggskontraktet som den här Open BRF inte har.",
+        "entryMissing": "En fil som det anger finns inte i paketet.",
+        "loadFailed": "Det misslyckades när det lästes in.",
+        "entryInvalid": "Dess paket exporterar inte det som kontraktet kräver.",
+        "notOnVolume": "Det är noterat som installerat men finns inte på datavolymen.",
+        "unknown": "Det hoppades över av en anledning som den här sidan saknar formulering för. Detaljen nedan är serverns egen."
+      }
+    },
+    "settings": {
+      "save": "Spara",
+      "saving": "Sparar...",
+      "saved": "Sparat",
+      "none": "Det här tillägget har inga inställningar.",
+      "errors": {
+        "invalid": "Något av värdena godtas inte. Kontrollera fälten och försök igen."
+      }
+    },
+    "view": {
+      "loading": "Läser in vyn",
+      "loadFailed": "Vyn från {{plugin}} kunde inte läsas in. Resten av sidan fungerar fortfarande.",
+      "notFound": "Det finns ingen vy som heter {{plugin}} på den här instansen, eller så erbjuds ditt konto den inte."
+    }
   }
 }

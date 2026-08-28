@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "include": ["src"]
+}

@@ -513,5 +513,120 @@
       "danger": "Problem",
       "info": "Information"
     }
+  },
+  "plugins": {
+    "navLabel": "Plugins",
+    "title": "Plugins",
+    "intro": "Plugins add features to this instance. They are installed from the curated catalog and run with the same privileges as the rest of the application, so the board agrees to what each one may do before it is installed.",
+    "loading": "Loading plugins",
+    "restartNotice": "The application is restarting to load the change. Reload this page in a moment.",
+    "disabledNotice": "Plugins are switched off on this instance. Nothing can be installed until they are switched on again.",
+    "errors": {
+      "loadFailed": "The list of plugins could not be read just now. Reload the page.",
+      "unknown": "That could not be done just now. Please try again.",
+      "forbidden": "Your account is not allowed to see this page."
+    },
+    "installed": {
+      "title": "Installed plugins",
+      "description": "What this instance runs, what each plugin may do, and which personal data it handles.",
+      "none": "No plugins are installed.",
+      "permissions": "May",
+      "personalData": "Personal data",
+      "state": {
+        "running": "Running",
+        "disabled": "Switched off",
+        "failed": "Installation failed",
+        "awaitingRestart": "Installed, awaiting restart"
+      },
+      "enable": "Switch on",
+      "disable": "Switch off",
+      "settings": "Settings",
+      "hideSettings": "Hide settings",
+      "remove": "Remove",
+      "removeConfirm": "Yes, remove it",
+      "removeCancel": "Keep it",
+      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code."
+    },
+    "catalog": {
+      "title": "Catalog",
+      "description": "The curated catalog this instance reads. Installing from anywhere else is a deliberate change to the instance's configuration.",
+      "reload": "Read the catalog again",
+      "loading": "Reading the catalog",
+      "none": "The catalog lists no plugins.",
+      "install": "Install",
+      "reinstall": "Install again",
+      "update": "Update to {{version}}",
+      "installedVersion": "Installed: {{version}}",
+      "unsupported": "Needs a newer version of Open BRF",
+      "deprecated": "No longer maintained",
+      "errors": {
+        "unreachable": "The catalog could not be reached. Check the instance's network access and the catalog address.",
+        "malformed": "The catalog was reached but could not be read. It may be damaged or written for a newer version.",
+        "notPermitted": "This instance is pointed at a catalog outside the curated one. Installing from it has to be allowed explicitly in the instance's configuration.",
+        "unknown": "The catalog could not be read just now. Please try again."
+      }
+    },
+    "consent": {
+      "title": "Review before installing",
+      "intro": "{{name}} {{version}} is about to be installed. Read what it may do before you agree.",
+      "permissionsTitle": "This plugin may",
+      "personalDataTitle": "Personal data it will handle",
+      "noPermissions": "Nothing beyond its own settings.",
+      "noPersonalData": "None.",
+      "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
+      "acknowledge": "I have read what this plugin may do and which personal data it will handle.",
+      "confirm": "Install",
+      "installing": "Installing...",
+      "cancel": "Cancel",
+      "errors": {
+        "failed": "The plugin could not be installed. The catalog entry may have changed since this screen was opened; read the catalog again and try once more."
+      }
+    },
+    "permissions": {
+      "addressBookRead": "Read names, apartments and residency roles",
+      "addressBookReadContact": "Read email addresses and telephone numbers",
+      "mailSend": "Send email through the housing cooperative's own server",
+      "jobsSchedule": "Run scheduled work in the background",
+      "unknown": "Something this version of Open BRF does not recognise"
+    },
+    "personalData": {
+      "name": "Name",
+      "apartment": "Apartment and address",
+      "residency": "Move-in and move-out dates, and whether the person is a member",
+      "email": "Email address",
+      "phone": "Telephone number",
+      "unknown": "A category this version of Open BRF does not recognise"
+    },
+    "findings": {
+      "title": "Not running",
+      "description": "A plugin that cannot be run is skipped rather than allowed to stop the instance. These are the ones that were skipped, and why.",
+      "reasons": {
+        "disabled": "Switched off in this screen.",
+        "notConsented": "On the data volume, but this instance has no record of agreeing to run it.",
+        "permissionsWidened": "The installed version asks for more than was agreed to. Install it again to review the new declaration.",
+        "moduleIdentity": "It carries its own copy of a package it has to share with the application. It was refused rather than run against a second copy.",
+        "manifestInvalid": "Its declaration could not be read.",
+        "apiVersion": "It is built for a version of the plugin contract this Open BRF does not implement.",
+        "entryMissing": "A file it declares is not in the package.",
+        "loadFailed": "It failed while being loaded.",
+        "entryInvalid": "Its bundle does not export what the contract requires.",
+        "notOnVolume": "It is recorded as installed but is not on the data volume.",
+        "unknown": "It was skipped for a reason this screen has no wording for. The detail below is the server's own."
+      }
+    },
+    "settings": {
+      "save": "Save",
+      "saving": "Saving...",
+      "saved": "Saved",
+      "none": "This plugin has no settings.",
+      "errors": {
+        "invalid": "One of the values is not accepted. Check the fields and try again."
+      }
+    },
+    "view": {
+      "loading": "Loading the view",
+      "loadFailed": "The view from {{plugin}} could not be loaded. The rest of this page still works.",
+      "notFound": "There is no view called {{plugin}} on this instance, or your account is not offered it."
+    }
   }
 }

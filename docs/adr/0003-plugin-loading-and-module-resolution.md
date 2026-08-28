@@ -103,6 +103,42 @@ CJS plugin bundle from a directory outside the repository:
   server, so plugin frontend development uses `vite build --watch` with
   `vite preview`.
 
+## Implementation note (2026-08-28)
+
+The resolution half of this decision is implemented exactly as recorded: the
+`NODE_PATH` bridge, `npm install --omit=peer`, `/data/plugins/package.json` as
+the source of truth, the module identity assertion, and skip-and-report.
+
+The **shape of what a plugin's factory returns** is narrower than the
+"produces a NestJS `DynamicModule`" above. A plugin declares HTTP routes and
+the host serves them through one dispatcher controller. The reason is a
+property of NestJS rather than a preference: a module loaded after the
+application has bootstrapped can contribute providers through
+`LazyModuleLoader`, but its controllers are never registered, so routes on a
+post-boot dynamic module would not be served at all. Registering plugin
+modules in the graph at `NestFactory.create` time would work, but the host
+object a plugin receives is built from services that do not exist until the
+container does, so the factory would have to be handed a placeholder to fill
+in later.
+
+Serving routes through a dispatcher is also the stronger position: a plugin
+route is reached through the application's own guard, principal and exception
+filter, so it cannot be the one endpoint on an instance that forgot to check a
+session, and a plugin needs nothing from `@nestjs/*` in order to serve HTTP.
+
+The resolution work above is not made redundant by that. A plugin may still
+resolve host packages, the identity assertion runs against every installed
+package, and a duplicate copy is still refused - which is what keeps the door
+open to widening the contract later without discovering at that point that the
+bridge never worked.
+
+One detail is wider than recorded above: the bridge adds one `NODE_PATH` entry
+per directory the shared packages resolve from, not one in total. Under npm's
+flat tree that is a single directory; under pnpm's isolated store each package
+has its own, and bridging only the first would leave a plugin able to resolve
+`@nestjs/common` and not `@nestjs/core` in development while working in the
+image.
+
 ## Revisit triggers
 
 - **A JS sandbox becomes viable** (`isolated-vm` is in maintenance mode today;

@@ -39,6 +39,7 @@ Statutes referenced below:
 | styrelse | **board** | The elected board of the association. |
 | styrelseledamot / ledamot | board member | |
 | suppleant | deputy board member | |
+| tillägg | **plugin** | An installable package that adds behaviour or a view to an instance. Installed from the curated catalog, declares what it may do and which personal data it handles, and is consented to by the board before it runs. A theme is a data-only plugin. |
 | upphörande | termination | A bostadsrätt ceasing to exist. A register event in its own right, distinct from a transfer to a new holder; reported by the cooperative (Lag (2026:484), 3 kap.). |
 | upplåtelse | grant | The act of first granting a bostadsrätt to a holder; reported by the cooperative (Lag (2026:484), 3 kap.). The contract that does so is the upplåtelseavtal (grant agreement). |
 | upplåtelseavtal | grant agreement | The contract first granting a bostadsrätt. |
