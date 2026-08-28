@@ -44,10 +44,10 @@ function bootWith(...plugins: BootPlugin[]): PluginBoot {
 }
 
 /** A failure raised inside a plugin's own bundle. */
-function thrownIn(directory: string): Error {
-  const cause = new Error("boom");
+function thrownIn(directory: string, message = "boom"): Error {
+  const cause = new Error(message);
   cause.stack = [
-    "Error: boom",
+    `Error: ${message}`,
     `    at Object.<anonymous> (${directory}/dist/server.cjs:3:9)`,
     "    at Module._compile (node:internal/modules/cjs/loader:1234:14)",
   ].join("\n");
@@ -131,6 +131,37 @@ describe("blame", () => {
     expect(blame(boot, new Error("available in the t context."))).toBe(
       minified,
     );
+  });
+
+  /**
+   * The two kinds of evidence are not worth the same. A frame inside a bundle
+   * is this process's own record that the package's code ran and threw; the
+   * message is text, composed by whatever threw it. A plugin that throws
+   * `new Error("NoticesModule")` would otherwise have a working package the
+   * board consented to disabled and recorded as broken, and would go on
+   * running to fail the next attempt as well.
+   */
+  it("believes the stack over a message naming a different plugin", () => {
+    const notices = plugin("notices", "NoticesModule");
+    const occupancy = plugin("occupancy", "OccupancyModule");
+    const boot = bootWith(notices, occupancy);
+
+    const cause = thrownIn(occupancy.directory, "NoticesModule");
+
+    expect(blame(boot, cause)).toBe(occupancy);
+  });
+
+  /**
+   * One package's directory can be a prefix of another's, so a bare substring
+   * would place a failure in whichever of the two was installed first - the
+   * same wrong attribution by a different route.
+   */
+  it("does not read one package's directory out of another's", () => {
+    const occupancy = plugin("occupancy", "OccupancyModule");
+    const pro = plugin("occupancy-pro", "OccupancyProModule");
+    const boot = bootWith(occupancy, pro);
+
+    expect(blame(boot, thrownIn(pro.directory))).toBe(pro);
   });
 
   it("names nobody when no plugin contributed a module", () => {

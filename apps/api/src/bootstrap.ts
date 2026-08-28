@@ -1,3 +1,5 @@
+import { sep } from "node:path";
+
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import {
@@ -137,10 +139,23 @@ export async function createApplication(
  * Which plugin to drop, or null when nothing implicates one.
  *
  * Two kinds of evidence, because the two kinds of failure leave different
- * traces. A dependency that cannot be resolved is thrown by NestJS and names
- * the module it was building, which is the first check. A provider whose
- * constructor throws names no module at all but leaves its own file in the
- * stack, which is the second.
+ * traces, and they are not worth the same.
+ *
+ * The stack is asked first. A frame inside a package's directory is this
+ * process's own record that the package's code ran and raised the failure. The
+ * message is not: it is text, and the code that threw composed it. This branch
+ * already treats what a plugin says as untrusted when deciding what may be
+ * logged, and it is no more trustworthy as evidence - a constructor that throws
+ * `new Error("OtherPluginModule")` would otherwise disable a working package
+ * the board consented to, record it as broken, and leave the one that actually
+ * threw running to fail the next attempt too. So text never overrules
+ * structure; it only speaks where structure is silent.
+ *
+ * Structure is silent for the commonest failure of all: a dependency NestJS
+ * cannot resolve is raised from inside its own injector, so no plugin frame
+ * appears and the module named in the message is all there is. That is the
+ * second check, and it is sound there precisely because nothing contradicts
+ * it.
  *
  * Nothing is dropped without evidence. Dropping whichever plugin was added
  * last would disable a package that was working and record it for the board as
@@ -162,6 +177,22 @@ export function blame(boot: PluginBoot, cause: unknown): BootPlugin | null {
     return null;
   }
 
+  // Matched with the separator, so one package's directory is not read out of
+  // another's: `openbrf-plugin-occupancy` is a prefix of
+  // `openbrf-plugin-occupancy-pro`, and a bare substring would place a failure
+  // in whichever of the two was installed first.
+  const frames = failureFrames(cause) ?? "";
+  const traced = candidates.filter((plugin) =>
+    frames.includes(`${plugin.directory}${sep}`),
+  );
+  if (traced.length > 0) {
+    // Several packages on one stack means each of them ran, and this cannot
+    // say which is at fault. In practice there is only ever one: a plugin
+    // cannot resolve another plugin's code, so there is no way for two bundles
+    // to be on the same stack.
+    return traced.length === 1 ? (traced[0] ?? null) : null;
+  }
+
   const message = String(cause);
   const named = candidates.filter((plugin) => {
     // An anonymous module class has no name to look for, and matching on the
@@ -169,15 +200,7 @@ export function blame(boot: PluginBoot, cause: unknown): BootPlugin | null {
     const name = plugin.module?.module.name ?? "";
     return name !== "" && mentions(message, name);
   });
-  if (named.length === 1) {
-    return named[0] ?? null;
-  }
-
-  const frames = failureFrames(cause) ?? "";
-  const traced = candidates.filter((plugin) =>
-    frames.includes(plugin.directory),
-  );
-  return traced.length === 1 ? (traced[0] ?? null) : null;
+  return named.length === 1 ? (named[0] ?? null) : null;
 }
 
 /**
