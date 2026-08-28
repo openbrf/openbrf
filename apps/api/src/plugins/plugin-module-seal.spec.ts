@@ -9,6 +9,7 @@ import {
   Module,
   type NestModule,
   Post,
+  type Type,
 } from "@nestjs/common";
 import { HOST_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
@@ -37,6 +38,9 @@ import { PLUGIN_ID_METADATA, sealPluginModule } from "./plugin-module-seal";
  */
 
 const OPTIONS = { pluginId: "occupancy", floor: "addressBook:read" } as const;
+
+/** What a plugin can be holding when it throws, and what must not be logged. */
+const REVEALING = "no apartment for anna.andersson@exempel.se (19850101-1234)";
 
 function seal(module: DynamicModule) {
   return sealPluginModule(module, OPTIONS);
@@ -450,6 +454,90 @@ describe("sealing a plugin's module", () => {
 
       expect(result.ok).toBe(false);
       expect(result.ok ? "" : result.log).toContain("promise");
+    });
+
+    /**
+     * A forward reference is a thunk the plugin wrote, so resolving it runs
+     * the plugin's code and what it throws is the plugin's own text. The
+     * refusal is written to the log, so it carries the class of the failure
+     * and none of the message.
+     */
+    it("names the class when a forward reference throws, not its message", () => {
+      @Module({})
+      class PluginModule {}
+
+      const result = seal({
+        module: PluginModule,
+        imports: [
+          {
+            forwardRef: () => {
+              throw new TypeError(REVEALING);
+            },
+          },
+        ],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.ok ? "" : result.log).toContain("TypeError");
+      expect(result.ok ? "" : result.log).not.toContain(REVEALING);
+    });
+  });
+
+  /**
+   * Sealing is the gate that decides whether a plugin runs at all, so nothing
+   * in it may execute the plugin's code. An accessor has to be called to find
+   * out what it holds, and NestJS routes to methods, so it is read from its
+   * descriptor and left alone. Reading it would run plugin code inside the
+   * gate and, when it throws, make one package's defect fatal to the boot of
+   * the whole instance - which is the one thing ADR 0003 forbids, and which
+   * this file's other assertions all assume cannot happen.
+   */
+  describe("a controller carrying an accessor", () => {
+    function controllerWithThrowingGetter(): Type<object> {
+      @Controller("reports")
+      class ReportsController {
+        @Get("summary")
+        summary(): object {
+          return {};
+        }
+      }
+      Object.defineProperty(ReportsController.prototype, "trap", {
+        configurable: true,
+        get() {
+          throw new Error(REVEALING);
+        },
+      });
+      return ReportsController;
+    }
+
+    it("is sealed without the accessor being read", () => {
+      @Module({})
+      class PluginModule {}
+
+      const result = seal({
+        module: PluginModule,
+        controllers: [controllerWithThrowingGetter()],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.ok ? result.controllers : []).toEqual([
+        "api/plugin/occupancy/reports",
+      ]);
+    });
+
+    it("has the methods beside it sealed all the same", () => {
+      const controller = controllerWithThrowingGetter();
+      @Module({})
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule, controllers: [controller] }).ok).toBe(
+        true,
+      );
+
+      // The walk reached the handler, so the accessor did not cut it short.
+      expect(
+        Reflect.getMetadata(IS_PUBLIC_ROUTE, handlerOf(controller, "summary")),
+      ).toBe(false);
     });
   });
 });
