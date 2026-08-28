@@ -26,6 +26,22 @@ const DECOY_PASSWORD = "this-must-never-be-logged-4f19";
  */
 const DECOY_SOCKET = "/var/run/openbrf-probe-4f19";
 
+/**
+ * The shape the refusal tells an operator to write, and the one thing no other
+ * failure prints.
+ *
+ * Naming DATABASE_URL is not enough on its own to recognise a refusal by: the
+ * wait loop's own message names the variable too, and so does the check for a
+ * variable that was never set. A run that accepted any of those would stay
+ * green on the regression these tests exist to catch - a URL that cannot be
+ * split handed to psql whole, refused by nothing, failing thirty seconds later
+ * with the password in /proc/<pid>/cmdline for every one of them.
+ */
+const REFUSAL_SHAPE = "postgresql://user:password@localhost/database?host=";
+
+/** What the wait loop reports, thirty seconds in, when psql never connected. */
+const WAITED_FOR_A_DATABASE = "did not accept a connection";
+
 test("the first-boot check reports a failure without the database URL", () => {
   // Thirty attempts, a second apart, before the check gives up.
   test.setTimeout(150_000);
@@ -45,7 +61,7 @@ test("the first-boot check reports a failure without the database URL", () => {
   );
 
   expect(status, "the check refuses to carry on without a database").toBe(1);
-  expect(output).toContain("did not accept a connection");
+  expect(output).toContain(WAITED_FOR_A_DATABASE);
 
   // psql takes the connection string as an argument, and Node puts the whole
   // command line into the error it throws for a command that failed.
@@ -77,9 +93,7 @@ test("a connection URL that cannot be taken apart is refused, not passed on", ()
     expect(status, `${subcommand} refuses`).toBe(1);
     // The refusal names the variable to fix and the shape to write.
     expect(output, subcommand).toContain("DATABASE_URL");
-    expect(output, subcommand).toContain(
-      "postgresql://user:password@localhost/database?host=",
-    );
+    expect(output, subcommand).toContain(REFUSAL_SHAPE);
     expect(
       output.includes(DECOY_PASSWORD),
       `${subcommand} echoes no password`,
@@ -92,7 +106,10 @@ test("a connection URL that cannot be taken apart is refused, not passed on", ()
 
   // And the caller stops with it, before psql is reached at all. Were the URL
   // passed on whole instead, this would spend thirty seconds connecting with
-  // the password in /proc/<pid>/cmdline.
+  // the password in /proc/<pid>/cmdline, and end on the wait loop's own
+  // failure - which is also status 1, and also names DATABASE_URL. So the
+  // refusal is what is asserted, and the wait loop's message is asserted
+  // against: the two together are what distinguish the two endings.
   const firstBoot = runInAppContainer(
     ["node", "/app/docker/first-boot.mjs"],
     {
@@ -105,6 +122,13 @@ test("a connection URL that cannot be taken apart is refused, not passed on", ()
 
   expect(firstBoot.status, "the first-boot check refuses it too").toBe(1);
   expect(firstBoot.output).toContain("DATABASE_URL");
+  expect(firstBoot.output, "it stopped on the refusal").toContain(
+    REFUSAL_SHAPE,
+  );
+  expect(
+    firstBoot.output.includes(WAITED_FOR_A_DATABASE),
+    "psql was never given the URL",
+  ).toBe(false);
   expect(
     firstBoot.output.includes(DECOY_PASSWORD),
     "the startup log holds no database password",
