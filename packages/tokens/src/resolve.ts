@@ -107,6 +107,30 @@ export class TokenValueError extends Error {
 }
 
 /**
+ * Every reason a token value can be refused, named rather than described.
+ *
+ * The prose below is English and stays English: it is thrown at a developer.
+ * An install refusal is read by a board member in their own language, so what
+ * travels out of this package to be shown is the code, and the sentence is a
+ * translation of it. Listed as values rather than as a bare union so a caller
+ * can walk them and prove it has a sentence for each.
+ */
+export const TOKEN_VALUE_PROBLEM_CODES = [
+  "semicolon-or-brace",
+  "angle-bracket",
+  "backslash-escape",
+  "at-rule",
+  "comment-marker",
+  "url",
+  "expression",
+  "control-character",
+  "unbalanced-quote",
+  "unbalanced-parenthesis",
+] as const;
+
+export type TokenValueProblemCode = (typeof TOKEN_VALUE_PROBLEM_CODES)[number];
+
+/**
  * Things a token value may never contain, and why.
  *
  * A token value lands inside a declaration block, so anything that can close
@@ -116,48 +140,102 @@ export class TokenValueError extends Error {
  * `@import` and `url()` fetch over the network, `<` closes an inline `<style>`
  * element, `\` hides any of the above behind a CSS escape, and a comment
  * marker lets a value swallow the declarations after it.
+ *
+ * `url()` and `image-set()` are two spellings of one problem and share a code.
  */
-const FORBIDDEN_IN_VALUE: { pattern: RegExp; reason: string }[] = [
-  { pattern: /[;{}]/, reason: "may not contain ; { or }" },
-  { pattern: /[<>]/, reason: "may not contain < or >" },
-  { pattern: /\\/, reason: "may not contain a backslash escape" },
-  { pattern: /@/, reason: "may not contain an at-rule" },
-  { pattern: /\/\*|\*\//, reason: "may not contain a comment marker" },
-  { pattern: /url\s*\(/i, reason: "may not load a URL" },
-  { pattern: /image-set\s*\(/i, reason: "may not load a URL" },
-  { pattern: /expression\s*\(/i, reason: "may not contain an expression()" },
+const FORBIDDEN_IN_VALUE: {
+  pattern: RegExp;
+  code: TokenValueProblemCode;
+  reason: string;
+}[] = [
+  {
+    pattern: /[;{}]/,
+    code: "semicolon-or-brace",
+    reason: "may not contain ; { or }",
+  },
+  { pattern: /[<>]/, code: "angle-bracket", reason: "may not contain < or >" },
+  {
+    pattern: /\\/,
+    code: "backslash-escape",
+    reason: "may not contain a backslash escape",
+  },
+  { pattern: /@/, code: "at-rule", reason: "may not contain an at-rule" },
+  {
+    pattern: /\/\*|\*\//,
+    code: "comment-marker",
+    reason: "may not contain a comment marker",
+  },
+  { pattern: /url\s*\(/i, code: "url", reason: "may not load a URL" },
+  { pattern: /image-set\s*\(/i, code: "url", reason: "may not load a URL" },
+  {
+    pattern: /expression\s*\(/i,
+    code: "expression",
+    reason: "may not contain an expression()",
+  },
 ];
 
 /**
- * True when a value is safe to emit inside a declaration block.
+ * The single scan behind both exported forms.
  *
- * Exported because a theme installer wants to report every bad value at once
- * rather than discover them one thrown error at a time.
+ * One walk rather than two, so the code an installer reports and the prose an
+ * error carries can never name different problems for the same value - which
+ * they could if two scans checked the same rules in two orders.
  */
-export function tokenValueProblem(value: string): string | null {
-  for (const { pattern, reason } of FORBIDDEN_IN_VALUE) {
+function findTokenValueProblem(
+  value: string,
+): { code: TokenValueProblemCode; reason: string } | null {
+  for (const { pattern, code, reason } of FORBIDDEN_IN_VALUE) {
     if (pattern.test(value)) {
-      return reason;
+      return { code, reason };
     }
   }
   // Checked by code point rather than by a character class, which lints as a
   // control-character regex. A newline or a NUL would let a value continue on
   // a line of its own.
   for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f) {
-      return "may not contain a control character";
+    const point = char.codePointAt(0) ?? 0;
+    if (point < 0x20 || point === 0x7f) {
+      return {
+        code: "control-character",
+        reason: "may not contain a control character",
+      };
     }
   }
   // A lone quote or paren would swallow everything after it, including the
   // closing brace, which has the same effect as writing one.
   if (countOf(value, "'") % 2 !== 0 || countOf(value, '"') % 2 !== 0) {
-    return "has an unbalanced quote";
+    return { code: "unbalanced-quote", reason: "has an unbalanced quote" };
   }
   if (countOf(value, "(") !== countOf(value, ")")) {
-    return "has an unbalanced parenthesis";
+    return {
+      code: "unbalanced-parenthesis",
+      reason: "has an unbalanced parenthesis",
+    };
   }
   return null;
+}
+
+/**
+ * True when a value is safe to emit inside a declaration block.
+ *
+ * Exported because a theme installer wants to report every bad value at once
+ * rather than discover them one thrown error at a time.
+ *
+ * The English prose is for a developer reading a TokenValueError. Anything
+ * that has to reach a board member uses tokenValueProblemCode instead.
+ */
+export function tokenValueProblem(value: string): string | null {
+  return findTokenValueProblem(value)?.reason ?? null;
+}
+
+/**
+ * The same answer as a code, for anything that has to be read in a language
+ * this package does not speak.
+ */
+export function tokenValueProblemCode(
+  value: string,
+): TokenValueProblemCode | null {
+  return findTokenValueProblem(value)?.code ?? null;
 }
 
 function countOf(value: string, character: string): number {

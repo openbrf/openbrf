@@ -164,14 +164,29 @@ metadata machinery.
 ### Plugins and themes
 
 The riskiest part of the architecture has been prototyped and its findings
-written down (see the architecture decision records in `docs/adr`), but the
-system itself is not built.
+written down (see the architecture decision records in `docs/adr`). The plugin
+system itself is not built. Themes are, and they are the easier half by design:
+a theme carries no code at all, so installing one needs no restart and puts
+nothing into the running process.
 
 - [ ] Plugin manifest, loader and permissions-scoped SDK
 - [ ] Plugin views loaded at runtime without rebuilding the application
-- [ ] Curated catalog and installation from the admin interface
+- [ ] Curated plugin catalog and installation from the admin interface
 - [ ] Command-line plugin management
-- [ ] Themes installable as data-only plugins, with inheritance
+- [x] Themes installable as data-only plugins, with inheritance. A theme is a
+      manifest, token values and bundled font files. It installs from a
+      catalog: the package is verified against the checksum the catalog states,
+      then linted, and only then written to disk. The lint is a gate rather
+      than advice - it refuses a theme that renders the statutory register
+      below WCAG AA, one that carries anything executable, and one that fetches
+      a font from a third party. A theme states only what it changes and
+      inherits the rest; the default theme is built in, always inheritable and
+      cannot be removed. A board member previews a theme in their own browser
+      before activating it, and activating one restarts nothing. What is
+      missing is the ecosystem around it: the public catalog and the example
+      theme belong in repositories that do not exist yet, so the install path
+      is so far proven against a catalog and packages built inside this
+      repository
 - [ ] Theme composer in the admin interface
 
 ## Core v1

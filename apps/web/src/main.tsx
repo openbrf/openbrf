@@ -7,6 +7,7 @@ import "./index.css";
 import { router } from "./routes/router";
 import { initializeThemeMode } from "./theme/theme-mode";
 import { ThemeModeProvider } from "./theme/theme-mode-context";
+import { ThemeRuntimeProvider } from "./theme/theme-runtime-context";
 
 const container = document.getElementById("root");
 if (container === null) {
@@ -20,7 +21,11 @@ initializeThemeMode();
 createRoot(container).render(
   <StrictMode>
     <ThemeModeProvider>
-      <RouterProvider router={router} />
+      {/* Inside the mode provider: which theme renders is the instance's
+          choice, while light or dark is the viewer's own. */}
+      <ThemeRuntimeProvider>
+        <RouterProvider router={router} />
+      </ThemeRuntimeProvider>
     </ThemeModeProvider>
   </StrictMode>,
 );

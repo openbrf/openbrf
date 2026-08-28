@@ -93,8 +93,36 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // Machine-readable, so a client can react without matching on prose.
       reason: exception.reason,
       message: exception.message,
+      /*
+       * The particulars, when the refusal declares any.
+       *
+       * A refusal that names none is not actionable: "this theme was refused"
+       * without the contrast pairs that failed, or "that colour cannot be read"
+       * without the measured ratio, leaves the person looking at the screen no
+       * way to fix it. Both travel as codes and numbers, never prose, so the
+       * interface translates them like every other failure.
+       */
+      ...detailOf(exception),
     });
   }
+}
+
+/**
+ * The particulars a domain error declares.
+ *
+ * Read from the error's own `details()` rather than discovered by inspecting
+ * its properties: a field reaches a response body because the rule that
+ * produced the failure declared it safe to send, and for no other reason. The
+ * ZodError branch above strips submitted values on purpose, and an opt-in
+ * contract is what gives every other failure the same guarantee.
+ */
+function detailOf(exception: object): Record<string, readonly unknown[]> {
+  if (!(exception instanceof DomainError) || exception.details === undefined) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(exception.details()).filter(([, value]) => value.length > 0),
+  );
 }
 
 /**
