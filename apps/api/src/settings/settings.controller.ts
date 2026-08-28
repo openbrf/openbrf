@@ -1,13 +1,26 @@
-import { Body, Controller, Get, Post, Put, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+  Req,
+} from "@nestjs/common";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
+import { isTooLarge, readSingleFile } from "../http/multipart";
+import { MediaError } from "../media/media.service";
 import {
   type BrandingSettings,
   type HousingCooperativeSettings,
   type InstanceSettings,
+  type LogoSlot,
   SettingsService,
   type SmtpSettingsView,
 } from "./settings.service";
@@ -85,6 +98,19 @@ const profileSchema = z.object({
 });
 
 /**
+ * The logo slot named in the path, or a 404.
+ *
+ * Two slots exist and neither is a value a caller invents: "light" is the
+ * housing cooperative's mark and "dark" is its variant for the dark band.
+ */
+function logoSlot(value: string): LogoSlot {
+  if (value === "light" || value === "dark") {
+    return value;
+  }
+  throw new NotFoundException("No such logo slot.");
+}
+
+/**
  * Reading the instance's settings.
  *
  * association:read rather than association:manage: the board answers for the
@@ -126,6 +152,45 @@ export class SettingsWriteController {
   @Put("branding")
   async updateBranding(@Body() body: unknown): Promise<BrandingSettings> {
     return this.settings.updateBranding(brandingSchema.parse(body));
+  }
+
+  /**
+   * Uploads the housing cooperative's mark, or its dark-surface variant.
+   *
+   * The slot is a path segment out of a fixed pair rather than a body field, so
+   * an unrecognised value is a 404 from the router instead of a decision this
+   * handler has to make.
+   */
+  @Put("branding/logo/:slot")
+  async uploadLogo(
+    @Param("slot") slot: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<BrandingSettings> {
+    const file = await readSingleFile(request).catch((cause: unknown) => {
+      if (isTooLarge(cause)) {
+        throw new MediaError("The file is larger than allowed.", "too-large");
+      }
+      throw cause;
+    });
+
+    if (file === null) {
+      throw new MediaError("The request carried no file.", "no-file");
+    }
+
+    return this.settings.updateLogo({
+      slot: logoSlot(slot),
+      bytes: file.bytes,
+      fileName: file.fileName,
+      actorPersonId: requirePersonId(request),
+    });
+  }
+
+  @Delete("branding/logo/:slot")
+  async removeLogo(
+    @Param("slot") slot: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<BrandingSettings> {
+    return this.settings.removeLogo(logoSlot(slot), requirePersonId(request));
   }
 
   @Put("smtp")

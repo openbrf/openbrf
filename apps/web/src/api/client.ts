@@ -46,12 +46,11 @@ export async function apiRequest<T>(
   path: string,
   body?: unknown,
 ): Promise<ApiResult<T>> {
-  let response: Response;
-
   // The body and its header are added only when there is one. A GET carrying a
   // body key at all - even an undefined one - is invalid, and passing the
   // content type without content is a lie about the request.
-  const init: RequestInit =
+  return send<T>(
+    path,
     body === undefined
       ? { method, credentials: "same-origin" }
       : {
@@ -61,7 +60,37 @@ export async function apiRequest<T>(
           // Belt and braces: same-origin is already fetch's default, and the
           // session is an http-only cookie that has to travel with every call.
           credentials: "same-origin",
-        };
+        },
+  );
+}
+
+/**
+ * Sends one file.
+ *
+ * A multipart body rather than JSON, so the bytes travel as bytes: encoding a
+ * file into JSON would inflate it by a third and force the server to hold the
+ * whole thing before it could tell how big it was. The content type is left to
+ * the browser, which has to append the multipart boundary it generated.
+ */
+export async function apiUpload<T>(
+  method: "POST" | "PUT",
+  path: string,
+  file: File,
+  fields: Readonly<Record<string, string>> = {},
+): Promise<ApiResult<T>> {
+  const form = new FormData();
+  // The file part goes first: the server reads one file and stops, and a field
+  // after it is still available to the parser.
+  form.append("file", file);
+  for (const [name, value] of Object.entries(fields)) {
+    form.append(name, value);
+  }
+
+  return send<T>(path, { method, body: form, credentials: "same-origin" });
+}
+
+async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
+  let response: Response;
 
   try {
     response = await fetch(path, init);

@@ -95,8 +95,11 @@ flows and the import.
       the accent colour, email, retention, sign-up requests, your own profile,
       and sign-in security. The board can read the instance settings it answers
       for; changing them stays with an admin
-- [ ] Uploading the housing cooperative's logo. The accent colour is in place;
-      the logo needs an upload path and file serving that do not exist yet
+- [x] Uploading the housing cooperative's logo, in settings and in the wizard's
+      appearance step. Two slots, because the band is dark and a mark drawn in
+      dark ink disappears on it: a variant for dark surfaces is optional, and
+      without one the band puts the mark on a light plate - which the settings
+      screen previews rather than leaving a board to discover it
 - [x] The address book itself: the board per the design system, with house
       tabs, floor-grouped rows, filter tabs, search, the colour-as-law legend
       and a register stamp; a person and an apartment view; the
@@ -138,21 +141,24 @@ flows and the import.
 ### The public website
 
 Decided into v1 on 2026-08-28: the association's own website, replacing the
-separate website vendor many cooperatives pay for today. Nothing of it is
-built. The site takes the domain root and the application moves under `/app`;
-pages are rendered by the API as plain HTML through the theme tokens, and the
-public ones need no JavaScript, set no cookies and make no third-party
-requests - which also means no cookie banner. Search engine optimisation is a
-non-goal: page titles, and no sitemap or metadata machinery.
+separate website vendor many cooperatives pay for today. The storage layer
+underneath it is built; the site itself is not. The site takes the domain root
+and the application moves under `/app`; pages are rendered by the API as plain
+HTML through the theme tokens, and the public ones need no JavaScript, set no
+cookies and make no third-party requests - which also means no cookie banner.
+Search engine optimisation is a non-goal: page titles, and no sitemap or
+metadata machinery.
 
-- [ ] File uploads and media storage behind one interface, with local-disk
+- [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
       served through the association's own origin - never a direct link or a
       redirect to the storage endpoint, which would hand every visitor's IP
       to a third party - and the S3 path is tested for exactly that. An
       image upload declares whether it shows identifiable persons, which
-      ties it to publication consent. The same work unblocks the logo upload
-      above
+      ties it to publication consent. A file is identified from its own
+      bytes rather than from the type or the name the request declared, and
+      its storage key is generated rather than taken from either. The same
+      work unblocks the logo upload above
 - [ ] Server-rendered public pages styled by the theme tokens, with the
       application moving under `/app`
 - [ ] Page editor: rich text with insertable data blocks - news teasers,

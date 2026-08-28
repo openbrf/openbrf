@@ -15,6 +15,14 @@ export interface NavItem {
 
 export interface AppShellProps {
   housingCooperativeName: string;
+  /**
+   * The housing cooperative's mark, as two paths on this instance's own origin.
+   *
+   * `dark` is the variant made for the band. When it is absent the mark is
+   * shown on a light plate instead, because a mark drawn in dark ink would
+   * otherwise disappear into a dark band; see BandLogo.
+   */
+  logo?: { light: string | null; dark: string | null };
   /** Signed-in person's display name, or undefined while unknown. */
   personName?: string;
   /** Their most senior role, already translated by the caller. */
@@ -22,6 +30,56 @@ export interface AppShellProps {
   navItems: readonly NavItem[];
   onSignOut?: () => void;
   children: ReactNode;
+}
+
+/**
+ * The housing cooperative's mark in the band.
+ *
+ * The band is dark, and a logo is somebody else's artwork: most are drawn in
+ * dark ink on white and vanish on it. This is handled rather than hoped about.
+ * A variant made for dark surfaces is used as it is; without one, the mark is
+ * placed on a light plate, which is legible whichever way the artwork was
+ * drawn. The settings screen shows the same two cases, so the board sees which
+ * of them applies to them.
+ *
+ * The mark is bounded in both directions, not only in height. Its proportions
+ * are the association's own and can be anything: a mark twenty times as wide as
+ * it is tall is a valid image, and constrained by height alone it would fill the
+ * band, while shrink-0 - which is there so the mark does not collapse - stops it
+ * yielding the room back to the cooperative's name and the navigation. Bounded
+ * both ways it is contained instead, whatever artwork a board uploads.
+ *
+ * The alt text is empty on purpose: the cooperative's name sits beside this in
+ * text, and a screen reader announcing it twice serves nobody.
+ */
+function BandLogo({
+  light,
+  dark,
+}: {
+  light: string | null;
+  dark: string | null;
+}): ReactElement | null {
+  if (dark !== null) {
+    return (
+      <img
+        src={dark}
+        alt=""
+        className="max-h-9 w-auto max-w-36 shrink-0 object-contain"
+      />
+    );
+  }
+  if (light === null) {
+    return null;
+  }
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-control bg-raised px-2 py-1">
+      <img
+        src={light}
+        alt=""
+        className="max-h-7 w-auto max-w-32 object-contain"
+      />
+    </span>
+  );
 }
 
 /** Brass plate carrying a count, e.g. open issues. */
@@ -102,6 +160,7 @@ const BAR_LINK_ACTIVE = "border-trust-register text-trust-register";
  */
 export function AppShell({
   housingCooperativeName,
+  logo,
   personName,
   roleLabel,
   navItems,
@@ -118,13 +177,18 @@ export function AppShell({
        * band on top of it would only take a third of the first page.
        */}
       <header className="flex h-16 shrink-0 items-center gap-8 bg-register px-4 text-register-ink sm:px-8 print:hidden">
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-label uppercase">
-            {housingCooperativeName}
-          </span>
-          <span className="text-chip text-register-ink-muted uppercase">
-            {t("welcome.title")}
-          </span>
+        <div className="flex min-w-0 items-center gap-3">
+          {logo === undefined ? null : (
+            <BandLogo light={logo.light} dark={logo.dark} />
+          )}
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-label uppercase">
+              {housingCooperativeName}
+            </span>
+            <span className="text-chip text-register-ink-muted uppercase">
+              {t("welcome.title")}
+            </span>
+          </div>
         </div>
 
         <nav

@@ -397,6 +397,21 @@
         "failsContrast": "That colour cannot be read on the surfaces it has to appear on, so it was not saved.",
         "pair": "{{foreground}} on {{background}} measures {{ratio}} to 1; at least {{required}} is needed.",
         "statutoryPair": "This pair carries the statutory register, so it cannot be allowed through."
+      },
+      "logo": {
+        "title": "Logo",
+        "description": "Uploaded as a PNG, JPEG, WebP or GIF, and served from this instance rather than linked from anywhere else.",
+        "light": "Logo",
+        "lightHint": "Used in the room, in the emails the association sends, and on its own website.",
+        "dark": "Logo for dark backgrounds",
+        "darkHint": "Optional. The top band is dark, so a mark drawn in dark ink disappears on it. Without this variant the band puts the mark above on a light plate instead.",
+        "none": "No logo uploaded yet.",
+        "onLight": "On a light surface",
+        "onDarkBand": "In the dark band",
+        "plateNotice": "No variant for dark backgrounds, so the band puts the mark on a light plate.",
+        "publicNotice": "The logo is fetched by everyone who receives the association's email or opens its website, so it must not show identifiable persons.",
+        "chooseFor": "Choose a file for: {{slot}}",
+        "removeFor": "Remove the logo: {{slot}}"
       }
     },
     "smtp": {
@@ -846,6 +861,22 @@
         "postalCity": "City",
         "movedInOn": "Moved in on",
         "movedOutOn": "Moved out on"
+      }
+    }
+  },
+  "media": {
+    "upload": {
+      "choose": "Choose a file",
+      "replace": "Choose another file",
+      "remove": "Remove",
+      "uploading": "Uploading...",
+      "dimensions": "{{width}} by {{height}} pixels",
+      "errors": {
+        "unsupportedType": "That file is not a PNG, JPEG, WebP or GIF image, whatever it is named.",
+        "tooLarge": "That file is larger than this instance accepts.",
+        "empty": "That file is empty.",
+        "noFile": "No file was chosen.",
+        "unknown": "The file could not be uploaded just now. Please try again."
       }
     }
   }

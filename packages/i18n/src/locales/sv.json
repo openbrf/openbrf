@@ -397,6 +397,21 @@
         "failsContrast": "Den färgen kan inte läsas på de ytor där den måste synas, så den sparades inte.",
         "pair": "{{foreground}} på {{background}} mäter {{ratio}} mot 1; minst {{required}} krävs.",
         "statutoryPair": "Det här paret bär det lagstadgade registret och kan därför inte släppas igenom."
+      },
+      "logo": {
+        "title": "Logotyp",
+        "description": "Laddas upp som PNG, JPEG, WebP eller GIF och serveras från den här instansen i stället för att länkas någon annanstans ifrån.",
+        "light": "Logotyp",
+        "lightHint": "Används i rummet, i de e-postmeddelanden föreningen skickar och på dess egen webbplats.",
+        "dark": "Logotyp för mörk bakgrund",
+        "darkHint": "Valfri. Toppbandet är mörkt, så ett märke ritat i mörk färg försvinner där. Utan den här varianten lägger bandet i stället märket ovan på en ljus platta.",
+        "none": "Ingen logotyp uppladdad än.",
+        "onLight": "På ljus yta",
+        "onDarkBand": "I det mörka bandet",
+        "plateNotice": "Ingen variant för mörk bakgrund, så bandet lägger märket på en ljus platta.",
+        "publicNotice": "Logotypen hämtas av alla som tar emot föreningens e-post eller öppnar dess webbplats, så den får inte visa identifierbara personer.",
+        "chooseFor": "Välj en fil för: {{slot}}",
+        "removeFor": "Ta bort logotypen: {{slot}}"
       }
     },
     "smtp": {
@@ -846,6 +861,22 @@
         "postalCity": "Postort",
         "movedInOn": "Inflyttningsdatum",
         "movedOutOn": "Utflyttningsdatum"
+      }
+    }
+  },
+  "media": {
+    "upload": {
+      "choose": "Välj en fil",
+      "replace": "Välj en annan fil",
+      "remove": "Ta bort",
+      "uploading": "Laddar upp ...",
+      "dimensions": "{{width}} gånger {{height}} bildpunkter",
+      "errors": {
+        "unsupportedType": "Filen är inte en PNG-, JPEG-, WebP- eller GIF-bild, oavsett vad den heter.",
+        "tooLarge": "Filen är större än vad den här instansen tar emot.",
+        "empty": "Filen är tom.",
+        "noFile": "Ingen fil valdes.",
+        "unknown": "Filen kunde inte laddas upp just nu. Försök igen."
       }
     }
   }
