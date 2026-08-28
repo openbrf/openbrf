@@ -155,18 +155,35 @@ REVOKE CREATE ON SCHEMA public FROM openbrf_app;
 -- create objects in the schema it is meant to be a guest in.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
--- The job queue lives in its own schema. Because the application holds no
--- CREATE privilege, the schema is installed by the owner at deploy time with
--- `pnpm --filter @openbrf/api db:jobs`, which must run BEFORE this script so
--- the grants below have tables to apply to. The application then starts with
--- pg-boss migration disabled.
+-- The job queue lives in its own schema. The schema itself is installed by the
+-- owner at deploy time with `pnpm --filter @openbrf/api db:jobs`, which must
+-- run BEFORE this script so the grants below have tables to apply to. The
+-- application then starts with pg-boss migration disabled.
 GRANT USAGE ON SCHEMA pgboss TO openbrf_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO openbrf_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO openbrf_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO openbrf_app;
 
--- pg-boss creates partitions per queue while running, so future tables in that
--- schema must be reachable too.
+-- Queues are declared at runtime, by the feature module that owns the queue
+-- name, and pg-boss creates a table per queue for some queue shapes. Granting
+-- CREATE here is what lets a queue appear without a deploy step, which is also
+-- what an installed plugin needs: a plugin that enqueues work must not require
+-- the operator to rebuild or re-run a privilege script.
+--
+-- What this permits: creating, and therefore owning, objects inside pgboss.
+--
+-- What it does not permit. It is scoped to this schema, so `public` is
+-- untouched: the REVOKE CREATE above still stands, migrations remain the
+-- owner's job, and the application still cannot reshape or disable the guards
+-- on the statutory tables. And CREATE is not ownership. Attaching a partition
+-- to a table the owner owns requires being that owner, whatever the schema ACL
+-- says, so pg-boss work that partitions `pgboss.job` or `pgboss.queue_stats`
+-- stays with the owner at deploy time and is not reachable from here.
+GRANT CREATE ON SCHEMA pgboss TO openbrf_app;
+
+-- Tables the owner adds to that schema later - a pg-boss upgrade migrating its
+-- own schema - must be reachable too. Objects the application creates itself
+-- need no entry here: it owns those.
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO openbrf_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss

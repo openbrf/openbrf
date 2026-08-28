@@ -47,7 +47,7 @@ Thank you for considering a contribution! This document explains how the project
 - **Node.js is pinned to an exact version in `.nvmrc`** (26.8.1), and the Dev Container and CI both install precisely that: CI through `node-version-file`, the container by running `nvm install` from `.nvmrc` on create. `engines` fences the 26 line (`>=26 <27`) so a stray 25 or 27 is rejected rather than silently tolerated. Bump `.nvmrc` and `engines` together. Note that 26 is still the Current line - it reaches Active LTS on 2026-10-28, and until then it can take breaking changes.
 - **pnpm** is pinned by the `packageManager` field in the root `package.json`, and you do not have to match it by hand: install any recent pnpm and it switches itself to the pinned version inside this repo. The Dev Container image already ships the right one. Outside it, `npm i -g pnpm` is enough - do **not** reach for corepack, which Node 26 no longer bundles, and nothing in the repo or CI may depend on it. Nothing may require Bun either (using it as a personal dev tool is fine).
 - A **Dev Container** definition is provided - the fastest way to a working setup. It is deliberately **standalone**: a contributor touching only core never needs sibling clones of the other Open BRF repositories. On create it installs the pinned Node, runs `pnpm install`, copies `.env.example` to `.env` if you have no `.env` yet, generates the Prisma client, starts the database and applies migrations plus the job schema. If a database step fails it names which one - Docker not ready, migrations, or the job schema - and prints the command that finishes the job, rather than blaming Docker for all three; everything except the database works in the meantime. A later container restart brings the database back up on its own.
-- **Docker Compose** runs PostgreSQL locally (`docker compose up -d --wait db`); the app service is added once the API is deployable.
+- **Docker Compose** runs PostgreSQL locally (`docker compose up -d --wait db`). The production stack - the application container and its database, the file an association actually runs - is `docker-compose.prod.yml`, described in [docs/deployment.md](docs/deployment.md). It carries its own project name and its own volume names, so a production stack and the development database never share a container or a data directory even when both are started from the same checkout.
 - **Setting up without the Dev Container**: install the pinned Node (`nvm install` reads `.nvmrc`) and pnpm (`npm i -g pnpm`), then `pnpm install`, copy `.env.example` to `.env`, `docker compose up -d --wait db`, and
 
   ```sh
@@ -57,7 +57,7 @@ Thank you for considering a contribution! This document explains how the project
   ```
 
   `db:generate` is not optional: the generated client lives in the gitignored `apps/api/src/generated/`, and lint, typecheck and test all import it, so `pnpm verify` fails on a fresh clone until it has run.
-- Monorepo layout: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/*`).
+- Monorepo layout: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/*`, `e2e`).
 
 ## Coding standards
 
@@ -78,14 +78,14 @@ CI is the gate - local hooks are a convenience, never a requirement. Run `pnpm h
 
 UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). In addition to the general rules:
 
-- **Screenshots in both themes are required** in the PR description: light and dark, before/after where relevant.
+- **Screenshots in both themes are required** in the PR description: light and dark, before/after where relevant. `pnpm screenshots` produces them from the production stack and writes them to `screenshots/`; a screen you build is added to the list in `e2e/screenshots/screens.ts` in the same pull request. See [e2e/README.md](e2e/README.md), including the rule that seeded data has to be safe to publish - these images go into a public pull request about a statutory personal-data register.
 - Tokens only - never raw color values (see above).
 - Register data uses the shared monospace grid; states carry a text label plus a pattern (color is never the only signal); WCAG AA (4.5:1) holds even at 13px.
 - Touch targets are at least 44px on mobile.
 
 ## Tests
 
-- **Vitest** across the monorepo (API and web); **Playwright** for end-to-end tests.
+- **Vitest** across the monorepo (API and web); **Playwright** for end-to-end tests, in the `e2e` workspace. `pnpm test:e2e` builds the production image, brings up `docker-compose.prod.yml` from empty volumes and drives a browser against it - never a dev server, because several of the properties under test only exist in the deployed artefact. It needs Docker running and Chromium installed once (`pnpm --filter @openbrf/e2e browsers`); see [e2e/README.md](e2e/README.md).
 - **Bug fixes must include a regression test** that fails without the fix.
 - **Features must include tests for their core logic.** UI polish, docs, and chores are exempt.
 - `pnpm test` must pass locally before you open the PR.

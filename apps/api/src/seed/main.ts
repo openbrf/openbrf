@@ -24,6 +24,15 @@ async function main(): Promise<void> {
     );
   }
 
+  // The owner's connection, not the application's: seeding writes rows the
+  // application role is deliberately unable to write.
+  if (env.DATABASE_URL === undefined) {
+    throw new Error(
+      "DATABASE_URL is not set. Seeding connects as the schema owner, so a " +
+        "runtime connection alone is not enough.",
+    );
+  }
+
   const prisma = new PrismaClient({
     adapter: new PrismaPg({
       connectionString: env.DATABASE_URL,

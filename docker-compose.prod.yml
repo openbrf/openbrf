@@ -1,0 +1,137 @@
+# The production stack: one application container and one database, per
+# decision 32. This is the file a housing cooperative runs.
+#
+#   cp .env.production.example .env.production
+#   # fill in the four secrets it asks for
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# The project name is set here so a production stack can never share containers
+# or volumes with the development database in docker-compose.yml, which lives
+# in the same checkout and uses the service name "db" as well.
+name: openbrf-prod
+
+services:
+  db:
+    # Pinned by digest, like the database in CI: a mutable tag lets the image
+    # change underneath an association's data.
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openbrf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+      POSTGRES_DB: openbrf
+    # No published port. The application reaches the database over the compose
+    # network; nothing outside the host has any business connecting to it.
+    volumes:
+      # PostgreSQL 18 moved PGDATA to a version-scoped path
+      # (/var/lib/postgresql/18/docker) and raised its declared VOLUME to
+      # /var/lib/postgresql. Mounting the pre-18 /var/lib/postgresql/data here
+      # leaves the real data directory outside this named volume, and the
+      # entrypoint then classifies the stale mount as unused legacy data and
+      # exits before initialising.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openbrf -d openbrf"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    # Built locally: there is no published image yet. When one is published this
+    # becomes `image: ghcr.io/openbrf/openbrf:<version>` and the build section
+    # goes away.
+    build:
+      context: .
+    image: openbrf:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+
+      # The address members will type. Invitation and sign-in links are built
+      # from it, and the session cookie is issued for it, so a wrong value here
+      # produces links that go nowhere.
+      APP_URL: ${APP_URL:?set APP_URL to the address this instance is reached at}
+
+      # Two roles, because a table owner can disable the triggers that keep the
+      # member register and the audit log append-only. The owner runs
+      # migrations; the application connects as openbrf_app.
+      #
+      # The parts rather than the two connection URLs: a password is a URL
+      # component, one holding :, /, @, ? or # has to be percent-encoded, and
+      # interpolation here cannot encode anything. The entrypoint assembles
+      # both URLs from these, encoding as it goes.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: openbrf
+      POSTGRES_USER: openbrf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+
+      # Two ways to give the application its own connection, and exactly one of
+      # them has to arrive. Neither is required here, because requiring either
+      # would make the other impossible to use: an operator supplying the URL
+      # would still be made to invent a password that is never used, and one
+      # supplying the password cannot be made to write a URL. The entrypoint is
+      # what refuses a production start that has neither, and its message names
+      # both, so the check stays in the one place that can see which arrived.
+      #
+      # RUNTIME_DB_PASSWORD is the ordinary path: the entrypoint creates
+      # openbrf_app from it and reapplies its constraints on every start.
+      # DATABASE_URL_RUNTIME is for an operator who manages that role
+      # themselves; the entrypoint leaves the role alone and uses the URL as
+      # written, so its password has to be percent-encoded already.
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
+      DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
+
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in the env file}
+
+      # Left unset on purpose: the entrypoint generates a key into
+      # /data/keys on first boot and refuses to invent one afterwards. Set it
+      # only when a hosting platform injects the key instead of mounting a
+      # volume.
+      OPENBRF_ENCRYPTION_KEY: ${OPENBRF_ENCRYPTION_KEY:-}
+
+      OPENBRF_PLUGINS_ENABLED: ${OPENBRF_PLUGINS_ENABLED:-true}
+      OPENBRF_CATALOG_URL: ${OPENBRF_CATALOG_URL:-}
+      # Needed only while the catalog repository is private, before public
+      # launch. Sent as the bearer token for the catalog index and for the
+      # release tarballs it points at.
+      OPENBRF_CATALOG_TOKEN: ${OPENBRF_CATALOG_TOKEN:-}
+      OPENBRF_UNCURATED_PLUGINS_ENABLED: ${OPENBRF_UNCURATED_PLUGINS_ENABLED:-false}
+    ports:
+      # Bound to the loopback interface: put a TLS terminating reverse proxy in
+      # front rather than exposing the application directly. Sessions are
+      # cookies, and passkeys need a secure origin.
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
+    volumes:
+      # Uploads, the field encryption key, installed plugins and installed
+      # themes. Back this up together with the database: without the key the
+      # encrypted fields in a database backup cannot be read
+      # (docs/backup-and-restore.md).
+      - instance-data:/data
+    healthcheck:
+      # No curl in the image, so the check runs in the runtime that is already
+      # there.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # Migrations and the role hardening run before the server listens.
+      start_period: 90s
+    # The job queue drains on SIGTERM rather than losing in-flight work.
+    stop_grace_period: 30s
+
+volumes:
+  # Named distinctly from the development volume in docker-compose.yml so the
+  # two stacks can never share a data directory.
+  postgres-data:
+  instance-data:

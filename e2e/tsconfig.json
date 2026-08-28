@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    // Playwright transforms these files itself, the way a bundler does, so
+    // imports are written without a file extension.
+    "moduleResolution": "bundler",
+    // DOM, because the callbacks handed to page.evaluate run in the browser.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": [
+    "src",
+    "specs",
+    "screenshots",
+    "playwright.config.ts",
+    "playwright.screenshots.config.ts"
+  ]
+}

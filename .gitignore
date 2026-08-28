@@ -23,6 +23,18 @@ fixtures/catalog/catalog.json
 .env
 .env.*
 !.env.example
+!.env.production.example
+
+# Playwright output
+playwright-report/
+test-results/
+e2e/.stack-state.json
+
+# Images written by `pnpm screenshots`. They belong in a pull request
+# description, not in the history: a binary per screen per theme per change
+# would outweigh the source they illustrate within a release. Anchored to the
+# root, because e2e/screenshots/ is the source that produces them.
+/screenshots/
 
 # Internal planning documents. Kept in the working tree so the implementing
 # agent has them at hand, but never committed: they cite an internal decision

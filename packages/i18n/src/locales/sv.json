@@ -235,6 +235,7 @@
     "email": "E-postadress",
     "password": "Lösenord",
     "submit": "Logga in",
+    "passkey": "Logga in med en nyckel",
     "magicLink": "Skicka en inloggningslänk till mig i stället",
     "linkSent": "Om adressen har ett konto är en inloggningslänk på väg. Länken är giltig i 15 minuter.",
     "secondFactorRequired": "Ange koden från din autentiseringsapp för att slutföra inloggningen.",
@@ -245,6 +246,7 @@
       "invalidCredentials": "De uppgifterna fungerade inte. Kontrollera adress och lösenord och försök igen.",
       "invalidCode": "Koden stämmer inte. Kontrollera koden i autentiseringsappen och försök igen.",
       "secondFactorExpired": "Det tog för lång tid. Börja om med e-postadress och lösenord.",
+      "passkeyCancelled": "Ingen nyckel användes, så ingen loggades in. Försök igen eller använd lösenordet.",
       "unknown": "Det gick inte att logga in just nu. Försök igen."
     }
   },

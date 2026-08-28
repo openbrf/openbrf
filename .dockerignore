@@ -1,0 +1,52 @@
+# Everything the image builds from is source; anything generated, local or
+# secret is excluded so the build context stays small and a developer's
+# environment never leaks into an image.
+
+# Local state and build output (regenerated inside the image)
+node_modules
+**/node_modules
+dist
+**/dist
+build
+coverage
+.turbo
+**/.turbo
+*.tsbuildinfo
+apps/api/src/generated
+
+# The data volume: uploads, encryption keys, installed plugins and themes.
+# Copying a developer's key into an image would be a disclosure.
+.data
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.mcp.json
+.impeccable
+.claude
+
+# Version control and CI
+.git
+.github
+.githooks
+.devcontainer
+.changeset
+
+# Documentation and repository furniture, none of which the runtime reads.
+# The licence texts are the exception: shipping an image conveys the software,
+# and AGPL-3.0 requires the licence to travel with it.
+docs
+*.md
+!README.md
+!LICENSE-EXCEPTION.md
+
+# Playwright: the suite drives the image from outside it
+e2e
+playwright-report
+test-results
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.log

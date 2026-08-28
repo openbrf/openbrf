@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - e2e
 
 # Dependency build scripts must be approved explicitly (pnpm >= 10).
 allowBuilds:
@@ -31,3 +32,9 @@ overrides:
   # practical exposure here is nil, but the fix is free if Prisma's config
   # loader works with v8.
   deepmerge-ts: ">=8.0.0"
+  # @nestjs/platform-fastify pins fastify to an exact patch, which is one
+  # behind the version apps/api declares. Two copies then land in the tree, and
+  # a plugin registered against one of them does not type-check against the
+  # server built from the other: @fastify/static's `reply.sendFile` augments a
+  # FastifyReply the application never sees. One copy, the declared one.
+  fastify: "5.12.1"

@@ -5,12 +5,14 @@ you through creating the housing cooperative, its addresses and its apartments;
 the settings screens are there; the address book holds people, with a resident
 who has protected personal data masked everywhere; the member register and the
 apartment register have their own views and print correctly; someone can be
-moved in and out; and an existing member list imports from CSV or Excel.
+moved in and out; and an existing member list imports from CSV or Excel. All of
+it runs from one Compose command against a production image, with an end-to-end
+suite driving a browser against that image.
 
-What is missing is the way in and the way out. Nobody can be invited from the
-interface yet, and there is no deployable image or Compose file to run any of it
-from, nor an end-to-end test suite that says the whole path works. The project
-is not ready to hold your housing cooperative's data.
+What is missing is the way in. Nobody can be invited from the interface yet and
+there is no screen to activate an invitation from, so an account is still made
+through the API rather than by a board member at a keyboard. The project is not
+ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -24,7 +26,7 @@ Target dates: pilot in a real housing cooperative **December 2026**, public v1
 The first milestone worth anyone's attention is a working, deployable address
 book. Concretely, all of this has to be true at once:
 
-- `docker compose up` gives a working instance
+- one `docker compose` command gives a working instance
 - a first-boot wizard creates the housing cooperative, its addresses and its
   apartments
 - the board can sign in, invite people, and see the register
@@ -39,8 +41,7 @@ rather than a way to run a housing cooperative.
 
 ### Foundations
 
-Every checked item below is implemented and covered by tests. None of it is
-reachable without an interface, and the one unchecked row says why.
+Every checked item below is implemented and covered by tests.
 
 - [x] Core data model: housing cooperative, addresses, apartments, persons,
       residencies, board positions, roles
@@ -53,10 +54,11 @@ reachable without an interface, and the one unchecked row says why.
 - [x] Append-only audit log, written in the same transaction as the access it
       records
 - [x] Sign-in with password, magic link and TOTP
-- [ ] Sign-in with passkeys (WebAuthn): implemented, and a passkey can now be
-      enrolled and removed from the security settings. Signing in with one is
-      still not covered by tests - driving a WebAuthn authenticator needs the
-      end-to-end suite - so this stays unticked until that exists
+- [x] Sign-in with passkeys (WebAuthn): a passkey is enrolled and removed from
+      the security settings, and signing in with one is now covered end to end
+      against a virtual authenticator. No email address is typed and no
+      one-time code is asked for: a passkey is phishing-resistant, so it is not
+      gated behind the authenticator app
 - [x] Invitation-based account activation
 - [x] Board-approved self-signup requests
 - [x] Capability-based authorization, protected by default
@@ -76,7 +78,10 @@ reachable without an interface, and the one unchecked row says why.
 Under way. This is the gap between the list above and anything usable.
 There is now a frame, a way in, a way to configure the instance, the address
 book, the two statutory registers with their printable extracts, the move flows
-and the import.
+and the import. A housing cooperative runs all of it with
+`docker compose -f docker-compose.prod.yml --env-file .env.production up -d`;
+locally the application runs from source beside the PostgreSQL that
+`docker compose up` starts.
 
 - [x] Application shell and navigation: the dark band, and a bottom bar on
       narrow screens where a thumb reaches
@@ -135,8 +140,30 @@ and the import.
       at once, the page can be closed while it runs, and an import interrupted by
       a restart carries on from where it stopped rather than writing anything a
       second time
-- [ ] Deployable production image and Compose file
-- [ ] End-to-end test suite
+- [x] Deployable production image and Compose file: one container serving the
+      API and the built client, one PostgreSQL beside it, named volumes and
+      health checks on both. The entrypoint provisions the field encryption key
+      on a genuine first boot and refuses to invent one on any later boot,
+      applies migrations, installs the job queue schema, and creates the
+      constrained database role the application connects as - so the
+      application never owns the tables whose triggers keep the statutory
+      registers append-only. Backing up is
+      [documented](docs/backup-and-restore.md) as one job covering the database
+      and the encryption key together, because either without the other is not
+      a backup
+- [x] End-to-end test suite, driving a browser against that production image
+      rather than a development server. It covers the first six of the thirteen
+      phase 1 exit criteria: first boot through the wizard; password sign-in,
+      passkey and authenticator app enrolment and signing in with each;
+      invitations for a member, a resident and an external board member with no
+      apartment, plus a sign-in link by email; self-signup with the toggle on
+      and the endpoint closed with it off; the address book with its house tabs,
+      floor grouping, filter tabs, signs, legend and register stamp in light,
+      dark and follow-the-system; and protected personal data staying masked
+      with every reveal landing in the audit log. The remaining seven have no
+      spec here yet. The statutory register views, the move flows and the import
+      are built and carry their own tests, but nothing drives them through a
+      browser against the image; the rest wait on features that are not built
 
 ### The public website
 

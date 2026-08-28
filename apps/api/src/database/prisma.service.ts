@@ -7,7 +7,7 @@ import {
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { ENV } from "../config/config.module";
-import type { Env } from "../config/env";
+import { applicationDatabaseUrl, type Env } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
 
 /**
@@ -28,7 +28,7 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor(@Inject(ENV) env: Env) {
-    const connectionString = env.DATABASE_URL_RUNTIME ?? env.DATABASE_URL;
+    const connectionString = applicationDatabaseUrl(env);
     super({ adapter: new PrismaPg({ connectionString }) });
 
     if (
