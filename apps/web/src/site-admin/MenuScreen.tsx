@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
@@ -49,6 +55,24 @@ export function MenuScreen(): ReactElement {
   const [outcome, setOutcome] = useState<TranslationKey | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
+  /*
+   * The arrangement the next move is calculated from.
+   *
+   * A move sends a whole level's order and is answered with the whole menu, so
+   * two moves have to happen one after the other: a second click calculating
+   * from the arrangement the first one replaced would send that same order
+   * again, and the entry would travel one place instead of two. The list is
+   * kept beside the state because the queued move reads it when its turn
+   * comes rather than when the button was pressed.
+   */
+  const arranged = useRef<MenuItem[]>([]);
+  const moves = useRef<Promise<void>>(Promise.resolve());
+
+  const publish = useCallback((next: MenuItem[]): void => {
+    arranged.current = next;
+    setItems(next);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -62,7 +86,7 @@ export function MenuScreen(): ReactElement {
       }
       setFailed(!menu.ok || !available.ok);
       if (menu.ok) {
-        setItems(menu.value);
+        publish(menu.value);
       }
       if (available.ok) {
         setPages(available.value);
@@ -72,7 +96,7 @@ export function MenuScreen(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [publish, reloadToken]);
 
   /*
    * A change reloads rather than patching the list in place. Adding an entry
@@ -84,28 +108,45 @@ export function MenuScreen(): ReactElement {
     setReloadToken((token) => token + 1);
   }, []);
 
+  /*
+   * Queued rather than sent at once, and nothing is disabled while one is in
+   * flight: the buttons are here so the menu can be arranged from a keyboard,
+   * and a button that goes disabled under the finger that pressed it takes the
+   * focus with it.
+   */
   const move = useCallback(
-    async (entry: MenuItem, by: -1 | 1): Promise<void> => {
-      const siblings = (items ?? []).filter(
-        (candidate) => candidate.parentId === entry.parentId,
-      );
-      const from = siblings.findIndex((candidate) => candidate.id === entry.id);
-      const to = from + by;
-      if (from < 0 || to < 0 || to >= siblings.length) {
-        return;
-      }
-      const ordered = siblings.map((candidate) => candidate.id);
-      const [moved] = ordered.splice(from, 1);
-      ordered.splice(to, 0, moved ?? entry.id);
+    (entry: MenuItem, by: -1 | 1): Promise<void> => {
+      const next = moves.current.then(async () => {
+        const siblings = arranged.current.filter(
+          (candidate) => candidate.parentId === entry.parentId,
+        );
+        const from = siblings.findIndex(
+          (candidate) => candidate.id === entry.id,
+        );
+        const to = from + by;
+        if (from < 0 || to < 0 || to >= siblings.length) {
+          return;
+        }
+        const ordered = siblings.map((candidate) => candidate.id);
+        const [moved] = ordered.splice(from, 1);
+        ordered.splice(to, 0, moved ?? entry.id);
 
-      const result = await orderMenu(entry.parentId, ordered);
-      if (result.ok) {
-        setItems(result.value);
-      } else {
+        const result = await orderMenu(entry.parentId, ordered);
+        if (result.ok) {
+          publish(result.value);
+        } else {
+          setFailed(true);
+        }
+      });
+
+      // The queue has to survive a refusal, or one failed move would carry its
+      // rejection into every move made after it.
+      moves.current = next.catch(() => {
         setFailed(true);
-      }
+      });
+      return moves.current;
     },
-    [items],
+    [publish],
   );
 
   const remove = useCallback(

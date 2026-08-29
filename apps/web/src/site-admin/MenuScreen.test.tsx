@@ -165,6 +165,31 @@ describe("the menu the board is shown", () => {
 });
 
 describe("adding an entry", () => {
+  it("does not offer to save a page entry before there is a page", async () => {
+    // The form says the instance has no pages yet. Offering to save one anyway
+    // would answer the board with a refusal they had no way to avoid.
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [] });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    expect(
+      screen
+        .getByRole("button", { name: "Lägg till posten" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    // And the way out is the one the form already shows: the other two kinds
+    // need no page of the association's own.
+    await userEvent.click(
+      screen.getByRole("radio", { name: "En adress någon annanstans" }),
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Lägg till posten" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
   it("sends the page and lets the label default to its title", async () => {
     addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
     render(<MenuScreen />);
@@ -287,6 +312,58 @@ describe("rearranging the menu", () => {
         .getByRole("button", { name: "Flytta Styrelsen nedåt" })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("waits for one move to be answered before calculating the next", async () => {
+    /*
+     * Two clicks on the same button are two moves. The server answers a move
+     * with the whole menu, so the second one has to be calculated from that
+     * answer - calculated from the arrangement it replaced, it would send the
+     * same order again and the entry would travel one place instead of two.
+     */
+    const THIRD: MenuItem = {
+      ...HOME_ENTRY,
+      id: "item-4",
+      label: "Kontakt",
+      sortOrder: 2,
+    };
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [HOME_ENTRY, BOARD_ENTRY, THIRD],
+    });
+
+    const answers: ((result: unknown) => void)[] = [];
+    orderMenu
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answers.push(resolve);
+          }),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({ ok: true, value: [BOARD_ENTRY, THIRD, HOME_ENTRY] }),
+      );
+
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    const down = screen.getByRole("button", { name: "Flytta Hem nedåt" });
+    await userEvent.click(down);
+    await userEvent.click(down);
+
+    // Still one request: the second move has nothing to calculate from until
+    // the first is answered.
+    expect(orderMenu).toHaveBeenCalledTimes(1);
+
+    answers[0]?.({ ok: true, value: [BOARD_ENTRY, HOME_ENTRY, THIRD] });
+
+    await waitFor(() => {
+      expect(orderMenu).toHaveBeenNthCalledWith(2, null, [
+        BOARD_ENTRY.id,
+        THIRD.id,
+        HOME_ENTRY.id,
+      ]);
+    });
   });
 
   it("removes the entry it was asked about", async () => {
