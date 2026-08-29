@@ -1,9 +1,12 @@
+import type { Locator, Page } from "@playwright/test";
+
 import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
-import { clearMailbox, waitForMessage } from "../src/mailpit";
+import { clearMailbox, expectNoMessage, waitForMessage } from "../src/mailpit";
 import {
   activationTokenFrom,
+  ADMINISTRATOR,
   ensureInstance,
   signInAsAdministrator,
 } from "../src/provision";
@@ -13,14 +16,17 @@ import { appPath } from "../src/stack";
  * Exit criterion 4.
  *
  * With the toggle on, a visitor asks for an account by typing an address and an
- * apartment number as free text, the board approves it, and the account
- * activates. With the toggle off the endpoint is closed.
+ * apartment number as free text, the board approves it against a real apartment,
+ * and the account activates. A second applicant is turned away with a reason,
+ * and nothing at all is created for them. With the toggle off the form is closed
+ * and the endpoint refuses.
  *
  * The free text matters and is not laziness in the form: the request is made
  * before anyone has signed in, so it must not let a stranger discover which
  * addresses and apartments the cooperative has. The board matches the claim
- * against the register when it approves, which is the point at which someone
- * who knows the building is looking.
+ * against the register when it approves, which is the point at which someone who
+ * knows the building is looking - and that pairing is what these tests drive
+ * through the screen rather than over HTTP.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -41,6 +47,85 @@ const TURNED_AWAY = {
   email: uniqueEmail("gustav"),
 } as const;
 
+/** The apartment this spec claims; the other specs claim their own. */
+const CLAIMED_APARTMENT = "1203";
+
+/**
+ * Signs in through the screen, and returns once the sign-in has landed.
+ *
+ * The wait belongs to the helper rather than to its callers. Clicking only
+ * starts the sign-in, so a caller that navigates on the next line cancels the
+ * request in flight: no session is ever established, the route guard sends the
+ * browser back to /sign-in, and the failure surfaces several assertions later
+ * as a screen that appears to have lost its contents. Callers that happen to
+ * assert something afterwards are safe by accident, which is not a property to
+ * leave a helper with.
+ *
+ * It waits for two things and names neither screen: that the server accepted
+ * the sign-in, and that the browser has left the sign-in form afterwards. Where
+ * a particular account then lands is the caller's own claim to make, and each
+ * test here still makes it. The answer is asserted rather than merely awaited,
+ * because a helper whose name says "signs in" must not return quietly when the
+ * answer was a refusal.
+ */
+async function signInThroughTheScreen(
+  page: Page,
+  email: string,
+  password: string,
+): Promise<void> {
+  await page.goto(appPath("/sign-in"));
+  await page.getByLabel("E-postadress").fill(email);
+  await page.getByLabel("Lösenord", { exact: true }).fill(password);
+
+  // Armed before the click: a wait registered afterwards can miss a response
+  // that has already arrived.
+  const answered = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/auth/sign-in/email") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
+
+  const response = await answered;
+  expect(
+    response.ok(),
+    `signing in as ${email} answered ${String(response.status())}`,
+  ).toBe(true);
+
+  // The session exists; this is the screen having acted on it. Without it a
+  // caller navigating inside the application would still be racing the
+  // sign-in it has just performed.
+  await expect(page).not.toHaveURL(/\/sign-in$/);
+}
+
+async function signOut(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Logga ut" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+}
+
+/** Fills the public form the way somebody who lives there would. */
+async function requestAnAccount(
+  page: Page,
+  person: { firstName: string; lastName: string; email: string },
+  claim: { address: string; apartmentNumber: string },
+): Promise<void> {
+  await page.getByLabel("Förnamn").fill(person.firstName);
+  await page.getByLabel("Efternamn").fill(person.lastName);
+  await page.getByLabel("E-postadress").fill(person.email);
+  // Exact, because "E-postadress" ends in the same word.
+  await page.getByLabel("Adress", { exact: true }).fill(claim.address);
+  await page.getByLabel("Lägenhetsnummer").fill(claim.apartmentNumber);
+  await page.getByRole("button", { name: "Skicka ansökan" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ansökan är mottagen" }),
+  ).toBeVisible();
+}
+
+/** One waiting request in the board's queue, found by the applicant's address. */
+function queueRow(page: Page, email: string): Locator {
+  return page.getByRole("listitem").filter({ hasText: email });
+}
+
 test("a visitor asks for an account, the board approves, the account activates", async ({
   page,
   api: request,
@@ -60,52 +145,125 @@ test("a visitor asks for an account, the board approves, the account activates",
       stack.baseUrl,
       storgatan12!.id,
     );
-    const chosen = apartments.find((candidate) => candidate.number === "1203");
+    const chosen = apartments.find(
+      (candidate) => candidate.number === CLAIMED_APARTMENT,
+    );
     expect(chosen).toBeDefined();
     return { address: storgatan12!, apartment: chosen! };
   });
 
-  // The page's own request context has no session: this is a stranger at the
-  // front door, not the board.
-  const submitted = await api.submitSignupRequest(page.request, stack.baseUrl, {
-    firstName: APPLICANT.firstName,
-    lastName: APPLICANT.lastName,
-    email: APPLICANT.email,
-    claimedAddress: `${apartment.address.street} ${apartment.address.number}`,
-    claimedApartmentNumber: apartment.apartment.number,
-  });
-  expect(submitted.status).toBe(202);
-  expect(submitted.id).toBeDefined();
+  const claimedAddress = `${apartment.address.street} ${apartment.address.number}`;
 
-  const pending = await api.listSignupRequests(request, stack.baseUrl);
-  const waiting = pending.find((entry) => entry.email === APPLICANT.email);
-  expect(waiting, "the request is in the board's queue").toBeDefined();
-  expect(waiting!.claimedAddress).toBe(
-    `${apartment.address.street} ${apartment.address.number}`,
-  );
-  expect(waiting!.claimedApartmentNumber).toBe(apartment.apartment.number);
-
-  await api.approveSignupRequest(request, stack.baseUrl, waiting!.id, {
-    apartmentId: apartment.apartment.id,
-    role: "RESIDENT",
+  await test.step("the way in is offered from the sign-in screen", async () => {
+    await page.goto(appPath("/sign-in"));
+    await page.getByRole("link", { name: "Ansök om konto" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Ansök om konto" }),
+    ).toBeVisible();
   });
 
-  // Approval sends the ordinary invitation, so activation is the same path an
-  // invited person walks.
-  const { text } = await waitForMessage(APPLICANT.email);
-  await api.acceptInvitation(request, stack.baseUrl, {
-    token: activationTokenFrom(text),
-    password: APPLICANT.password,
+  await test.step("the visitor asks, and is told nothing exists yet", async () => {
+    // Typed by hand, because that is all the form offers: no picker, and so
+    // nothing on this screen tells a stranger which addresses exist.
+    await requestAnAccount(page, APPLICANT, {
+      address: claimedAddress,
+      apartmentNumber: CLAIMED_APARTMENT,
+    });
+    await expect(
+      page.getByText(/varken konto eller post i registret/i),
+    ).toBeVisible();
   });
 
-  await page.goto(appPath("/sign-in"));
-  await page.getByLabel("E-postadress").fill(APPLICANT.email);
-  await page.getByLabel("Lösenord", { exact: true }).fill(APPLICANT.password);
-  await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await test.step("the board matches the claim and approves it", async () => {
+    await signInThroughTheScreen(
+      page,
+      ADMINISTRATOR.email,
+      ADMINISTRATOR.password,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Adressbok" }),
+    ).toBeVisible();
+
+    await page.goto(appPath("/settings"));
+    const row = queueRow(page, APPLICANT.email);
+    await expect(row).toHaveCount(1);
+    // What the applicant wrote, verbatim, beside the register's own entries.
+    await expect(row).toContainText(claimedAddress);
+
+    await row
+      .getByLabel("Adress i registret")
+      .selectOption({ label: claimedAddress });
+    await row
+      .getByLabel("Lägenhet i registret")
+      .selectOption({ label: CLAIMED_APARTMENT });
+    await row.getByRole("button", { name: "Godkänn" }).click();
+
+    await expect(
+      page.getByText(`En inbjudan är på väg till ${APPLICANT.email}`),
+    ).toBeVisible();
+    // Decided, so it leaves the queue rather than waiting to be decided twice.
+    await expect(queueRow(page, APPLICANT.email)).toHaveCount(0);
+  });
+
+  await test.step("the invitation activates the account", async () => {
+    const { text } = await waitForMessage(APPLICANT.email);
+    // SEAM - swap this API step for the /activate browser screen once that PR
+    // lands (invitation.service.ts:218-222).
+    await api.acceptInvitation(request, stack.baseUrl, {
+      token: activationTokenFrom(text),
+      password: APPLICANT.password,
+    });
+
+    await signOut(page);
+    await signInThroughTheScreen(page, APPLICANT.email, APPLICANT.password);
+    await expect(
+      page.getByRole("heading", { name: "Adressbok" }),
+    ).toBeVisible();
+  });
 });
 
-test("with the toggle off the endpoint is closed", async ({
+test("a request the board turns away creates nothing", async ({
+  page,
+  api: request,
+}) => {
+  await signInAsAdministrator(request);
+  await api.setSelfSignup(request, stack.baseUrl, true);
+  await clearMailbox();
+
+  await page.goto(appPath("/request-account"));
+  await requestAnAccount(page, TURNED_AWAY, {
+    address: "Storgatan 12",
+    // Nobody's apartment, which is the whole reason a human decides these
+    // rather than a rule.
+    apartmentNumber: "1804",
+  });
+
+  await signInThroughTheScreen(
+    page,
+    ADMINISTRATOR.email,
+    ADMINISTRATOR.password,
+  );
+  await page.goto(appPath("/settings"));
+
+  const row = queueRow(page, TURNED_AWAY.email);
+  await expect(row).toHaveCount(1);
+  await row
+    .getByLabel("Skäl (frivilligt)")
+    .fill("Ingen boende med det namnet på adressen");
+  await row.getByRole("button", { name: "Avslå" }).click();
+
+  await expect(page.getByText("Ingenting skapades.")).toBeVisible();
+  await expect(queueRow(page, TURNED_AWAY.email)).toHaveCount(0);
+
+  const pending = await api.listSignupRequests(request, stack.baseUrl);
+  expect(pending.some((entry) => entry.email === TURNED_AWAY.email)).toBe(
+    false,
+  );
+  // A rejection is not an invitation: nothing was created, so nothing is sent.
+  await expectNoMessage(TURNED_AWAY.email);
+});
+
+test("with the toggle off the form is closed and the endpoint refuses", async ({
   page,
   api: request,
 }) => {
@@ -113,6 +271,16 @@ test("with the toggle off the endpoint is closed", async ({
   await api.setSelfSignup(request, stack.baseUrl, false);
 
   try {
+    await page.goto(appPath("/request-account"));
+    await expect(
+      page.getByText(/tar inte emot ansökningar om konto just nu/i),
+    ).toBeVisible();
+    // Closed means closed: the notice replaces the form rather than standing
+    // above one whose every submission would be refused.
+    await expect(page.getByLabel("Förnamn")).toHaveCount(0);
+
+    // The screen is a courtesy; this is the rule. A caller who skips it is
+    // refused before anything in the request is read.
     const refused = await api.submitSignupRequest(page.request, stack.baseUrl, {
       firstName: TURNED_AWAY.firstName,
       lastName: TURNED_AWAY.lastName,

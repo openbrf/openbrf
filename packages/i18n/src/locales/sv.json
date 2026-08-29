@@ -175,7 +175,16 @@
       "ended": "Avslutat",
       "electedOn": "Vald",
       "endedOn": "Avslutades",
-      "protectionFailed": "Maskeringen kunde inte ändras. Försök igen."
+      "protectionFailed": "Maskeringen kunde inte ändras. Försök igen.",
+      "invite": "Skicka inbjudan",
+      "inviteAgain": "Skicka inbjudan igen",
+      "inviteWorking": "Skickar",
+      "inviteSent": "Inbjudan är skickad till personens e-postadress.",
+      "inviteFailed": "Inbjudan kunde inte skickas. Försök igen.",
+      "inviteNoEmail": "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
+      "inviteMailNotConfigured": "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
+      "invitationExpiresAt": "Inbjudan giltig till",
+      "invitationExpired": "Inbjudan har gått ut. Skicka en ny."
     },
     "reveal": {
       "action": "Visa",
@@ -248,7 +257,8 @@
       "secondFactorExpired": "Det tog för lång tid. Börja om med e-postadress och lösenord.",
       "passkeyCancelled": "Ingen nyckel användes, så ingen loggades in. Försök igen eller använd lösenordet.",
       "unknown": "Det gick inte att logga in just nu. Försök igen."
-    }
+    },
+    "requestAccount": "Ansök om konto"
   },
   "app": {
     "loading": "Laddar",
@@ -535,6 +545,32 @@
       "warn": "Observera",
       "danger": "Fel",
       "info": "Information"
+    },
+    "signupQueue": {
+      "title": "Väntande ansökningar",
+      "description": "En ansökan ligger kvar här tills någon i styrelsen har stämt av den mot registret. Ett godkännande skapar personen, boendet och en inbjudan; ett avslag skapar ingenting.",
+      "empty": "Inga ansökningar väntar.",
+      "loading": "Hämtar ansökningarna...",
+      "loadFailed": "Ansökningarna kunde inte hämtas just nu. Ladda om sidan.",
+      "requestedOn": "Inkom",
+      "claimedLabel": "Uppgiven adress och lägenhet",
+      "selectAddress": "Adress i registret",
+      "selectApartment": "Lägenhet i registret",
+      "apartmentRequired": "Välj lägenhet",
+      "approve": "Godkänn",
+      "approving": "Godkänner...",
+      "approved": "Ansökan är godkänd. En inbjudan är på väg till {{email}}.",
+      "reject": "Avslå",
+      "rejecting": "Avslår...",
+      "rejected": "Ansökan är avslagen. Ingenting skapades.",
+      "rejectReason": "Skäl (frivilligt)",
+      "errors": {
+        "alreadyDecided": "Någon har redan avgjort den ansökan. Listan är hämtad på nytt.",
+        "notFound": "Ansökan finns inte kvar - en nyare från samma e-postadress har ersatt den. Listan är hämtad på nytt.",
+        "apartmentNotFound": "Lägenheten finns inte kvar i registret. Ladda om sidan och välj på nytt.",
+        "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
+        "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
+      }
     }
   },
   "plugins": {
@@ -719,6 +755,7 @@
     },
     "lint": {
       "statutory": "Det här färgparet bär det lagstadgade registret, så ett tema som hamnar under kontrastkravet här avvisas i stället för att bara varnas för.",
+      "inDescendant": "Det gäller {{theme}}, som ärver från temat du försöker spara.",
       "unrecognised": "Temat avvisades av en regel den här versionen inte känner till: {{rule}}.",
       "reservedId": "{{themeId}} är standardtemats namn och är reserverat.",
       "selfExtends": "{{themeId}} anger att det ärver från sig självt.",
@@ -775,7 +812,82 @@
       "themeHasDependants": "Ett annat installerat tema ärver från det.",
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
-      "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan."
+      "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
+      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället."
+    },
+    "composer": {
+      "title": "Sätt ihop ett tema",
+      "editTitle": "Ändra {{theme}}",
+      "intro": "Ett eget tema ärver allt från ett annat tema och anger bara de färger du ändrar. Det sparas som ett vanligt installerat tema och prövas mot samma kontrastkrav som ett tema från en katalog.",
+      "composeLink": "Sätt ihop ett tema",
+      "editLink": "Ändra",
+      "composedChip": "Eget tema",
+      "identityTitle": "Identitet",
+      "idLabel": "Identifierare",
+      "idHint": "Små bokstäver sammanbundna med bindestreck, till exempel husets-farger. Går inte att ändra i efterhand.",
+      "nameLabel": "Namn",
+      "nameHint": "Namnet styrelsen ser i temalistan.",
+      "descriptionLabel": "Beskrivning",
+      "descriptionHint": "En mening om vad temat är. Frivillig.",
+      "baseLabel": "Ärver från",
+      "baseHint": "Temat som ger alla värden du inte ändrar. Typsnitt och layoutval ärvs inte.",
+      "colours": "Färger",
+      "inheritNotice": "En färg du lämnar tom ärvs från temat ovan.",
+      "modeLabel": "Läge",
+      "modeLight": "Ljust",
+      "modeDark": "Mörkt",
+      "groups": {
+        "register": "Det lagstadgade registret",
+        "surfaces": "Ytor",
+        "text": "Text",
+        "borders": "Linjer",
+        "accent": "Förtroendefärgen",
+        "status": "Tillstånd",
+        "other": "Övriga färger"
+      },
+      "inherited": "Ärver {{value}}",
+      "override": "Eget värde för {{token}}",
+      "overrideColour": "Välj färg för {{token}}",
+      "clearOverride": "Återgå till ärvt värde",
+      "livePreviewNotice": "Förhandsgranskningen gäller bara din egen webbläsare och ingen annans. Ingenting sparas förrän du sparar temat.",
+      "contrastTitle": "Kontrast",
+      "contrastAdvice": "Kontrasten mäts här som vägledning medan du väljer. Det är servern som avgör: samma kontroll som ett tema från en katalog går igenom körs om varje gång du sparar.",
+      "contrastOk": "Alla färgpar når kontrastkravet.",
+      "contrastFailures": "Färgpar som inte når kravet:",
+      "save": "Spara temat",
+      "saving": "Sparar ...",
+      "saved": "{{theme}} sparades.",
+      "cancel": "Tillbaka till temana",
+      "roles": {
+        "surface-page": "Sidans bakgrund.",
+        "surface-raised": "Kort och paneler som ligger på sidan.",
+        "surface-sunken": "Tabellhuvuden och infällda ytor.",
+        "text-primary": "Brödtext och rubriker.",
+        "text-secondary": "Metadata och nedtonad text. Måste ändå klara AA.",
+        "border-subtle": "Avdelare och hårfina linjer.",
+        "border-strong": "Kanter på kontroller och fält.",
+        "surface-register": "Ytan som bär det lagstadgade registret.",
+        "surface-register-raised": "Rubrikrader och grupprader i registret.",
+        "text-register": "Primär text på registerytan.",
+        "text-register-secondary": "Sekundär text på registerytan. Måste ändå klara AA.",
+        "border-register": "Radavdelare i registret.",
+        "accent-trust": "Förtroendeposter, länkar, markering och fokusram.",
+        "accent-trust-hover": "Förtroendefärgen när pekaren vilar på den.",
+        "accent-trust-soft": "Tonad bakgrund i förtroendefärgen.",
+        "accent-trust-register": "Förtroendefärgen så som den används på registerytan.",
+        "on-accent-trust": "Text och ikoner på förtroendefärgad botten.",
+        "status-ok": "Bekräftat. Betydelsen är låst av plattformen.",
+        "status-ok-soft": "Tonad bakgrund för bekräftat.",
+        "status-warn": "Skyddade personuppgifter och varsamhet. Betydelsen är låst.",
+        "status-warn-soft": "Tonad bakgrund för varsamhet.",
+        "status-warn-register": "Varsamhet så som den används på registerytan.",
+        "status-danger": "Åtgärder som inte går att ångra, och fel. Betydelsen är låst.",
+        "status-danger-soft": "Tonad bakgrund för fara.",
+        "on-status-danger": "Text och ikoner på farofärgad botten.",
+        "status-info": "Neutral upplysning. Betydelsen är låst.",
+        "status-info-soft": "Tonad bakgrund för upplysning.",
+        "unknown": "En färg den här versionen inte beskriver."
+      }
     }
   },
   "registers": {
@@ -1140,6 +1252,44 @@
       "slug": "hem",
       "title": "Välkommen",
       "body": "{{association}} är en bostadsrättsförening. Den här sidan är föreningens egen, och styrelsen skriver vad som står här."
+    }
+  },
+  "signup": {
+    "title": "Ansök om konto",
+    "intro": "Fyll i dina uppgifter så tar styrelsen ställning till ansökan. Ingenting skapas förrän någon i styrelsen har godkänt den.",
+    "firstName": "Förnamn",
+    "lastName": "Efternamn",
+    "email": "E-postadress",
+    "phone": "Telefonnummer (frivilligt)",
+    "address": "Adress",
+    "apartmentNumber": "Lägenhetsnummer",
+    "freeTextHint": "Skriv adressen och lägenhetsnumret som de står i trapphuset. Styrelsen stämmer av dem mot registret när ansökan behandlas.",
+    "submit": "Skicka ansökan",
+    "working": "Skickar...",
+    "receivedTitle": "Ansökan är mottagen",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. En ny ansökan från samma e-postadress ersätter den här.",
+    "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
+    "errors": {
+      "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",
+      "unknown": "Ansökan kunde inte skickas just nu. Försök igen."
+    }
+  },
+  "activate": {
+    "heading": "Aktivera ditt konto",
+    "intro": "Välj ett lösenord, så är kontot ditt. Dina uppgifter finns redan i föreningens adressbok.",
+    "password": "Lösenord",
+    "passwordHint": "Minst 12 tecken. En fras med några ord är både lättare att minnas och svårare att gissa.",
+    "submit": "Aktivera kontot",
+    "working": "Aktiverar...",
+    "signInInstead": "Till inloggningen",
+    "autoSignInFailed": "Kontot är aktiverat. Inloggningen gick inte automatiskt, så logga in med din e-postadress och ditt nya lösenord.",
+    "errors": {
+      "invalidToken": "Länken fungerar inte. Kontrollera att hela adressen från e-postmeddelandet kom med, eller be styrelsen om en ny inbjudan.",
+      "alreadyAccepted": "Länken är redan använd. Kontot finns, så logga in med din e-postadress och lösenordet du valde.",
+      "alreadyHasAccount": "Du har redan ett konto i föreningen. Logga in i stället.",
+      "expired": "Inbjudan har gått ut. Be styrelsen skicka en ny inbjudan.",
+      "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
+      "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
     }
   }
 }

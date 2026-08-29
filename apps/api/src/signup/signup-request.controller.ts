@@ -53,6 +53,25 @@ export class SignupRequestSubmitController {
   }
 }
 
+/**
+ * Whether the form above is open.
+ *
+ * Its own class rather than a second route on the queue below, because the
+ * capability there applies to the whole class: one @Public() and one
+ * @RequireCapability() on the same controller is the mistake that silently
+ * opens a route rather than closing it.
+ */
+@Public()
+@Controller("api/signup-requests/state")
+export class SignupRequestStateController {
+  constructor(private readonly requests: SignupRequestService) {}
+
+  @Get()
+  async state(): Promise<{ enabled: boolean }> {
+    return this.requests.state();
+  }
+}
+
 /** The board's approval queue. */
 @Controller("api/signup-requests")
 @RequireCapability("signupRequest:decide")

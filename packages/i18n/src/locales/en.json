@@ -175,7 +175,16 @@
       "ended": "Ended",
       "electedOn": "Elected",
       "endedOn": "Ended",
-      "protectionFailed": "The masking could not be changed. Try again."
+      "protectionFailed": "The masking could not be changed. Try again.",
+      "invite": "Send invitation",
+      "inviteAgain": "Send the invitation again",
+      "inviteWorking": "Sending",
+      "inviteSent": "The invitation has been sent to the person's email address.",
+      "inviteFailed": "The invitation could not be sent. Try again.",
+      "inviteNoEmail": "The register holds no email address for this person, so no invitation can be sent.",
+      "inviteMailNotConfigured": "The email settings are missing, so the invitation could not be sent. Fill them in under Settings.",
+      "invitationExpiresAt": "Invitation valid until",
+      "invitationExpired": "The invitation has expired. Send a new one."
     },
     "reveal": {
       "action": "Reveal",
@@ -248,7 +257,8 @@
       "secondFactorExpired": "That took too long. Start again with your email address and password.",
       "passkeyCancelled": "No passkey was used, so nobody signed in. Try again, or use your password.",
       "unknown": "Signing in did not work just now. Please try again."
-    }
+    },
+    "requestAccount": "Request an account"
   },
   "app": {
     "loading": "Loading",
@@ -535,6 +545,32 @@
       "warn": "Note",
       "danger": "Problem",
       "info": "Information"
+    },
+    "signupQueue": {
+      "title": "Pending requests",
+      "description": "A request stays here until a board member has matched it against the register. Approving creates the person, the residency and an invitation; rejecting creates nothing.",
+      "empty": "No requests are waiting.",
+      "loading": "Loading the requests...",
+      "loadFailed": "The requests could not be read just now. Reload the page.",
+      "requestedOn": "Received",
+      "claimedLabel": "Stated address and apartment",
+      "selectAddress": "Address in the register",
+      "selectApartment": "Apartment in the register",
+      "apartmentRequired": "Choose an apartment",
+      "approve": "Approve",
+      "approving": "Approving...",
+      "approved": "The request is approved. An invitation is on its way to {{email}}.",
+      "reject": "Reject",
+      "rejecting": "Rejecting...",
+      "rejected": "The request is rejected. Nothing was created.",
+      "rejectReason": "Reason (optional)",
+      "errors": {
+        "alreadyDecided": "Somebody has already decided that request. The list has been read again.",
+        "notFound": "That request is gone - a newer one from the same email address replaces it. The list has been read again.",
+        "apartmentNotFound": "That apartment is no longer in the register. Reload the page and choose again.",
+        "mailNotConfigured": "The request is approved and the person is in the register, but the invitation could not be sent: this instance has no email server. Set one up under Email and send the invitation from the person's own view.",
+        "unknown": "The request could not be decided just now. Please try again."
+      }
     }
   },
   "plugins": {
@@ -719,6 +755,7 @@
     },
     "lint": {
       "statutory": "This colour pair carries the statutory register, so a theme that falls below the contrast bar here is refused rather than warned about.",
+      "inDescendant": "This is in {{theme}}, which inherits from the theme you are saving.",
       "unrecognised": "The theme was refused by a rule this version does not recognise: {{rule}}.",
       "reservedId": "{{themeId}} is the default theme's name and is reserved.",
       "selfExtends": "{{themeId}} states that it inherits from itself.",
@@ -775,7 +812,82 @@
       "themeHasDependants": "Another installed theme inherits from that one.",
       "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
-      "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page."
+      "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
+      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead."
+    },
+    "composer": {
+      "title": "Compose a theme",
+      "editTitle": "Edit {{theme}}",
+      "intro": "A composed theme inherits everything from another theme and states only the colours you change. It is saved as an ordinary installed theme, and it is held to the same contrast bar as one installed from a catalog.",
+      "composeLink": "Compose a theme",
+      "editLink": "Edit",
+      "composedChip": "Composed here",
+      "identityTitle": "Identity",
+      "idLabel": "Identifier",
+      "idHint": "Lowercase words joined by hyphens, for example husets-farger. It cannot be changed afterwards.",
+      "nameLabel": "Name",
+      "nameHint": "The name the board sees in the theme list.",
+      "descriptionLabel": "Description",
+      "descriptionHint": "One sentence saying what the theme is. Optional.",
+      "baseLabel": "Inherits from",
+      "baseHint": "The theme that supplies every value you do not change. Typefaces and layout choices are not inherited.",
+      "colours": "Colours",
+      "inheritNotice": "A colour you leave empty is inherited from the theme above.",
+      "modeLabel": "Mode",
+      "modeLight": "Light",
+      "modeDark": "Dark",
+      "groups": {
+        "register": "The statutory register",
+        "surfaces": "Surfaces",
+        "text": "Text",
+        "borders": "Lines",
+        "accent": "The trust accent",
+        "status": "States",
+        "other": "Other colours"
+      },
+      "inherited": "Inherits {{value}}",
+      "override": "Own value for {{token}}",
+      "overrideColour": "Pick a colour for {{token}}",
+      "clearOverride": "Use the inherited value",
+      "livePreviewNotice": "The preview applies to your own browser and to nothing else. Nothing is saved until you save the theme.",
+      "contrastTitle": "Contrast",
+      "contrastAdvice": "The contrast is measured here as advice while you choose. The server decides: the same check a theme from a catalog goes through runs again every time you save.",
+      "contrastOk": "Every colour pair meets the contrast bar.",
+      "contrastFailures": "Colour pairs that fall below the bar:",
+      "save": "Save the theme",
+      "saving": "Saving...",
+      "saved": "{{theme}} was saved.",
+      "cancel": "Back to the themes",
+      "roles": {
+        "surface-page": "Page background.",
+        "surface-raised": "Cards and panels sitting on the page.",
+        "surface-sunken": "Table heads and inset areas.",
+        "text-primary": "Body text and headings.",
+        "text-secondary": "Metadata and de-emphasised text. Must still pass AA.",
+        "border-subtle": "Dividers and hairlines.",
+        "border-strong": "Borders on controls and fields.",
+        "surface-register": "The surface carrying the statutory register.",
+        "surface-register-raised": "Header and group rows within the register.",
+        "text-register": "Primary text on the register surface.",
+        "text-register-secondary": "Secondary text on the register surface. Must still pass AA.",
+        "border-register": "Row dividers in the register.",
+        "accent-trust": "Positions of trust, links, selection and focus rings.",
+        "accent-trust-hover": "The trust accent under the pointer.",
+        "accent-trust-soft": "Tinted background carrying the trust accent.",
+        "accent-trust-register": "The trust accent as used on the register surface.",
+        "on-accent-trust": "Text and icons on a trust-accent ground.",
+        "status-ok": "Confirmed. The meaning is fixed by the platform.",
+        "status-ok-soft": "Tinted background for the confirmed state.",
+        "status-warn": "Protected personal data and caution. The meaning is fixed.",
+        "status-warn-soft": "Tinted background for the caution state.",
+        "status-warn-register": "Caution as used on the register surface.",
+        "status-danger": "Actions that cannot be undone, and failures. The meaning is fixed.",
+        "status-danger-soft": "Tinted background for the danger state.",
+        "on-status-danger": "Text and icons on a danger ground.",
+        "status-info": "Neutral information. The meaning is fixed.",
+        "status-info-soft": "Tinted background for the information state.",
+        "unknown": "A colour this version does not describe."
+      }
     }
   },
   "registers": {
@@ -1140,6 +1252,44 @@
       "slug": "home",
       "title": "Welcome",
       "body": "{{association}} is a housing cooperative. This page is the association's own, and the board writes what stands here."
+    }
+  },
+  "signup": {
+    "title": "Request an account",
+    "intro": "Fill in your details and the board will consider the request. Nothing is created until a board member has approved it.",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "email": "Email address",
+    "phone": "Phone number (optional)",
+    "address": "Address",
+    "apartmentNumber": "Apartment number",
+    "freeTextHint": "Write the address and the apartment number as they stand in the entrance. The board matches them against the register when it considers the request.",
+    "submit": "Send the request",
+    "working": "Sending...",
+    "receivedTitle": "The request has been received",
+    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. A new request from the same email address replaces this one.",
+    "closed": "This housing cooperative is not accepting account requests at the moment. Ask the board, who can invite you instead.",
+    "errors": {
+      "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",
+      "unknown": "The request could not be sent just now. Please try again."
+    }
+  },
+  "activate": {
+    "heading": "Activate your account",
+    "intro": "Choose a password and the account is yours. Your details are already in the housing cooperative's address book.",
+    "password": "Password",
+    "passwordHint": "At least 12 characters. A passphrase of a few words is both easier to remember and harder to guess.",
+    "submit": "Activate the account",
+    "working": "Activating...",
+    "signInInstead": "Go to sign-in",
+    "autoSignInFailed": "The account is activated. Signing in automatically did not work, so sign in with your email address and your new password.",
+    "errors": {
+      "invalidToken": "This link does not work. Check that the whole address from the email came along, or ask the board for a new invitation.",
+      "alreadyAccepted": "This link has already been used. The account exists, so sign in with your email address and the password you chose.",
+      "alreadyHasAccount": "You already have an account in the housing cooperative. Sign in instead.",
+      "expired": "The invitation has expired. Ask the board to send a new invitation.",
+      "noEmail": "The register holds no email address for you, so the account cannot be activated. Contact the board.",
+      "unknown": "The account could not be activated just now. Please try again."
     }
   }
 }

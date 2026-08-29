@@ -139,8 +139,8 @@ export async function serveSinglePageApp(
   // wildcard alone does not match a prefix with nothing after it.
   //
   // See the note below on why the file is named literally.
-  // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
   instance.get(APP_BASE_PATH, (_request, reply) => {
+    // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
     void reply.sendFile("index.html");
   });
 
@@ -148,8 +148,8 @@ export async function serveSinglePageApp(
   // routes, on a reload as much as on a first visit.
   //
   // See the note below on why the file is named literally.
-  // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
   instance.get(`${APP_BASE_PATH}/*`, (_request, reply) => {
+    // nosemgrep: javascript.express.security.audit.express-res-sendfile.express-res-sendfile
     void reply.sendFile("index.html");
   });
 

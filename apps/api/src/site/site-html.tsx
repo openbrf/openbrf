@@ -114,6 +114,7 @@ function document(
          * stylesheet has had every "<" removed before it reaches here, so it
          * cannot close this element or open another.
          */}
+        {/* nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml */}
         <style dangerouslySetInnerHTML={{ __html: css }} />
       </head>
       <body>

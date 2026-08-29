@@ -132,6 +132,20 @@ describe("what an anonymous request may not do", () => {
         method: "DELETE" as const,
         url: "/api/themes/installed/example-theme",
       },
+      {
+        method: "GET" as const,
+        url: "/api/themes/installed/example-theme/source",
+      },
+      {
+        method: "POST" as const,
+        url: "/api/themes/compose",
+        payload: {
+          id: "example-theme",
+          displayName: "Example",
+          extends: "porttavlan",
+          modes: { light: {}, dark: {} },
+        },
+      },
     ];
 
     for (const route of routes) {

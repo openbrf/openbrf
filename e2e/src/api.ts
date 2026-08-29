@@ -243,6 +243,7 @@ export async function createPerson(
     postalCode?: string;
     postalCity?: string;
     protectedPersonalData?: boolean;
+    preferredLocale?: "sv" | "en";
   },
 ): Promise<string> {
   const response = await request.post(`${baseUrl}/api/address-book/persons`, {
@@ -357,4 +358,79 @@ export async function viewer(
   const response = await request.get(`${baseUrl}/api/me`);
   await expectOk(response, "GET /api/me");
   return (await response.json()) as Viewer;
+}
+
+/**
+ * A transfer of a tenant-ownership, as both move endpoints take it.
+ *
+ * The agreement reference is required rather than optional: the apartment
+ * register extract states one for every transfer, and a transfer row cannot be
+ * deleted once it is written.
+ */
+export type TransferInput = {
+  /** ISO calendar date. */
+  readonly transferredOn: string;
+  readonly price?: string | null;
+  readonly agreementReference: string;
+};
+
+export type MoveInResult = {
+  readonly residencyId: string;
+  readonly memberRegisterEntryRecorded: boolean;
+  readonly transferId: string | null;
+  readonly welcomeEmailSent: boolean;
+};
+
+/**
+ * Moves a person into an apartment.
+ *
+ * Here for the specs that need somebody living somewhere before they can be
+ * about something else - a register extract has to have an entry to show, and
+ * an import row is only ambiguous when two people of that name already share
+ * the apartment. The criterion about the move flow itself drives the screen.
+ */
+export async function moveIn(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    personId: string;
+    apartmentId: string;
+    role: "MEMBER" | "RESIDENT";
+    /** ISO calendar date. */
+    movedInOn: string;
+    transfer?: TransferInput & { fromPersonId?: string | null };
+  },
+): Promise<MoveInResult> {
+  const response = await request.post(`${baseUrl}/api/moves/move-in`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/moves/move-in");
+  return (await response.json()) as MoveInResult;
+}
+
+export type MoveOutResult = {
+  readonly residencyId: string;
+  readonly movedOutOn: string;
+  /** Derived from the retention policy, never stored. */
+  readonly purgeOn: string;
+  readonly memberRegisterExitRecorded: boolean;
+  readonly transferId: string | null;
+  readonly boardReminderOn: string;
+};
+
+export async function moveOut(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    residencyId: string;
+    /** ISO calendar date. */
+    movedOutOn: string;
+    transfer?: TransferInput & { toPersonId: string };
+  },
+): Promise<MoveOutResult> {
+  const response = await request.post(`${baseUrl}/api/moves/move-out`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/moves/move-out");
+  return (await response.json()) as MoveOutResult;
 }

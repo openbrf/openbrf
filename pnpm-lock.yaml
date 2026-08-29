@@ -272,6 +272,9 @@ importers:
       '@types/pg':
         specifier: ^8.16.0
         version: 8.23.1
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       oxlint:
         specifier: ^1.80.0
         version: 1.80.0(oxlint-tsgolint@7.0.2001)

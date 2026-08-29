@@ -5,7 +5,7 @@ import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, linkFrom, waitForMessage } from "../src/mailpit";
 import {
-  activationTokenFrom,
+  ADMINISTRATOR,
   ensureRegisterFixture,
   signInAsAdministrator,
 } from "../src/provision";
@@ -16,24 +16,53 @@ import { appPath } from "../src/stack";
  *
  * The board invites a member on an apartment, a resident on the same apartment
  * and an external board member with no apartment at all. Each activates from
- * the link in their email and can then sign in. A sign-in link by email works
- * as well.
+ * the link in their email, and activating leaves them signed in - so the whole
+ * way in is driven through the browser here, from the button a board member
+ * presses to the register the new account lands on.
  *
- * One gap is deliberate and not papered over: the invitation email points at
- * /activate, and the client has no /activate route yet, so the token is taken
- * from the message and posted to the activation endpoint. Everything either
- * side of that - the invitation, the email, the account, the sign-in - is
- * exercised as a member of the cooperative would meet it. When the activation
- * screen exists, this spec is where it gets driven.
+ * One property is worth naming before reading the file: after the password is
+ * set on /activate, nobody visits /sign-in. Somebody who has just proved
+ * possession of the mailbox and chosen a password should not be asked to prove
+ * it again, and an activation that ended on a sign-in form would be a way in
+ * that needs explaining to everyone who receives it.
+ *
+ * The spec assumes a fresh database, like the rest of the suite: it invites
+ * unconditionally, and a second run against the same volumes would meet the
+ * accounts the first run created.
+ *
+ * One constraint decides how the file is split. Better Auth rate-limits its own
+ * endpoints to twenty requests a minute per client address (auth-options.ts),
+ * and src/fixtures.ts derives that address from the test's title - so the
+ * browser context and the api context of one test spend from a single bucket,
+ * and signing in, signing out and every route guard's session check all spend
+ * from it. Each invitee therefore gets a test of their own. Two of them in one
+ * test crosses twenty, and the request that crosses it is a 429 on the
+ * activation sign-in, which surfaces as the "account is ready, sign in
+ * yourself" fallback and reads like a broken activation rather than a
+ * throttled test.
  */
 
 test.describe.configure({ mode: "serial" });
 
 const PASSWORD = "granngarden-kastanj-2026";
 
+/**
+ * Two people on apartment 1001 of Storgatan 12, out of the shared register
+ * fixture: the member who holds the tenant-ownership, and a resident who holds
+ * none. `standing` is what makes the two test titles differ, which is what
+ * gives each of them its own rate-limit bucket.
+ */
 const INVITED = [
-  { name: "Astrid Lindqvist", email: "astrid@eksemplet.test" },
-  { name: "Nils Lindqvist", email: "nils@eksemplet.test" },
+  {
+    standing: "the member holding the tenant-ownership",
+    name: "Astrid Lindqvist",
+    email: "astrid@eksemplet.test",
+  },
+  {
+    standing: "a resident holding no tenant-ownership",
+    name: "Nils Lindqvist",
+    email: "nils@eksemplet.test",
+  },
 ] as const;
 
 // Written by this spec rather than looked up in the shared register fixture, so
@@ -53,41 +82,119 @@ async function signInThroughTheScreen(
   await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(email);
   await page.getByLabel("Lösenord", { exact: true }).fill(password);
+
+  // Armed before the click: a wait registered afterwards can miss a response
+  // that has already arrived.
+  const answered = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/auth/sign-in/email") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
+
+  // A refusal is named here, with its status, rather than surfacing as a
+  // missing heading several assertions later: the rate limit this spec is
+  // written around answers 429, and that must read as a throttled sign-in.
+  const response = await answered;
+  expect(
+    response.ok(),
+    `signing in as ${email} answered ${String(response.status())}`,
+  ).toBe(true);
+
+  // The session exists; this is the screen having acted on it. Without it a
+  // caller navigating inside the application would still be racing the
+  // sign-in it has just performed.
+  await expect(page).not.toHaveURL(/\/sign-in$/);
 }
 
-test("a member and a resident on one apartment each activate and sign in", async ({
-  page,
-  api: request,
-}) => {
-  const people = await ensureRegisterFixture(request);
-  await clearMailbox();
+async function signOut(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Logga ut" }).click();
+  await expect(page).toHaveURL(/\/sign-in$/);
+}
 
-  for (const invitee of INVITED) {
-    const personId = people.get(invitee.name);
-    expect(personId, `${invitee.name} is in the register`).toBeDefined();
+/**
+ * Sets the password on the activation screen the emailed link points at.
+ *
+ * The link is pulled out of the message by substring rather than by an exact
+ * path, so it keeps working wherever the application is mounted.
+ */
+async function activateFromTheEmail(
+  page: Page,
+  messageText: string,
+): Promise<void> {
+  await page.goto(linkFrom(messageText, "/activate"));
+  await expect(
+    page.getByRole("heading", { name: "Aktivera ditt konto" }),
+  ).toBeVisible();
+  // The field's label carries the length requirement with it, so it is matched
+  // from the start rather than in full.
+  await page.getByLabel(/^Lösenord/).fill(PASSWORD);
+  await page.getByRole("button", { name: "Aktivera kontot" }).click();
+}
 
-    await api.sendInvitation(request, stack.baseUrl, personId!);
-    const { message, text } = await waitForMessage(invitee.email);
-    expect(message.Subject).toContain("Ett konto väntar på dig hos");
+for (const invitee of INVITED) {
+  test(`${invitee.standing} on apartment 1001 is invited, activates and signs in`, async ({
+    page,
+    api: request,
+  }) => {
+    const people = await ensureRegisterFixture(request);
+    expect(
+      people.get(invitee.name),
+      `${invitee.name} is in the register`,
+    ).toBeDefined();
+    await clearMailbox();
 
-    await api.acceptInvitation(request, stack.baseUrl, {
-      token: activationTokenFrom(text),
-      password: PASSWORD,
-    });
-  }
-
-  // Both hold a residency on apartment 1001 of Storgatan 12, one as the member
-  // who holds the tenant-ownership and one as a resident who does not.
-  for (const invitee of INVITED) {
-    await signInThroughTheScreen(page, invitee.email, PASSWORD);
+    await signInThroughTheScreen(
+      page,
+      ADMINISTRATOR.email,
+      ADMINISTRATOR.password,
+    );
     await expect(
       page.getByRole("heading", { name: "Adressbok" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Logga ut" }).click();
-    await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
-  }
-});
+
+    await page.getByLabel("Sök i registret").fill(invitee.name);
+    await page.getByRole("button", { name: `Öppna ${invitee.name}` }).click();
+    await expect(
+      page.getByRole("heading", { name: invitee.name }),
+    ).toBeVisible();
+
+    /*
+     * Matched from the start of the label rather than in full: the shared
+     * register people reached the register through sign-up approval, which
+     * already emailed them an invitation, so the panel offers to send it
+     * again - and the button says so. Both wordings are correct states of this
+     * screen, and both send the same email.
+     */
+    await page.getByRole("button", { name: /^Skicka inbjudan/ }).click();
+    await expect(
+      page.getByText("Inbjudan är skickad till personens e-postadress."),
+    ).toBeVisible();
+
+    /*
+     * The board leaves before the invitation is opened, and that is what gives
+     * the assertions at the end their meaning: with the administrator's session
+     * still in this browser, the address book would be on screen whether the
+     * activation had signed anybody in or not.
+     */
+    await signOut(page);
+
+    const { message, text } = await waitForMessage(invitee.email);
+    expect(message.Subject).toContain("Ett konto väntar på dig hos");
+
+    await activateFromTheEmail(page, text);
+
+    // The criterion: the register, under their own name, with no trip through
+    // the sign-in form. The name is read off the band rather than off the
+    // rows, where this person also appears.
+    await expect(
+      page.getByRole("heading", { name: "Adressbok" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("banner").getByText(invitee.name),
+    ).toBeVisible();
+  });
+}
 
 test("an external board member with no apartment activates and signs in", async ({
   page,
@@ -106,11 +213,13 @@ test("an external board member with no apartment activates and signs in", async 
 
   await api.sendInvitation(request, stack.baseUrl, personId);
   const { text } = await waitForMessage(EXTERNAL_BOARD_MEMBER.email);
-  await api.acceptInvitation(request, stack.baseUrl, {
-    token: activationTokenFrom(text),
-    password: PASSWORD,
-  });
 
+  await activateFromTheEmail(page, text);
+  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+
+  // Signing out and back in proves the password belongs to the account, not
+  // only to the session the activation left behind.
+  await signOut(page);
   await signInThroughTheScreen(page, EXTERNAL_BOARD_MEMBER.email, PASSWORD);
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 });

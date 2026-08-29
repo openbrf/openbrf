@@ -131,6 +131,11 @@ export function LintFindings({
                       ? ratio.toFixed(2)
                       : "?",
                 })}
+            {typeof finding.detail["theme"] === "string"
+              ? ` ${t("themeCatalog.lint.inDescendant", {
+                  theme: finding.detail["theme"],
+                })}`
+              : ""}
             {finding.detail["statutory"] === true
               ? ` ${t("themeCatalog.lint.statutory")}`
               : ""}
