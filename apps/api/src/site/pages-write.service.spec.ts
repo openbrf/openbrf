@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { paragraphsContent, type PageContent } from "./page-content";
-import { PagesWriteService, PageWriteError } from "./pages-write.service";
+import {
+  PagesWriteService,
+  PageWriteError,
+  type PageWriteReason,
+} from "./pages-write.service";
 
 /**
  * The publication guardrails, as rules rather than as endpoints.
@@ -100,6 +104,36 @@ const WITH_PERSONNUMMER: PageContent = paragraphsContent([
   "Kontakta Anna.",
   "Hennes personnummer är 19811218-9876 om du behöver det.",
 ]);
+
+describe("what a refusal answers with", () => {
+  it("gives every reason the status its contract promises", () => {
+    /*
+     * Exhaustive by construction: a reason added to the union without a status
+     * here is a compile error rather than a route that quietly answers the
+     * wrong thing. The distinction that matters is between the three that are
+     * about the request - the address is unusable, the address is taken, the
+     * page is not there - and the four that are about the content: the page
+     * exists and cannot be published as it stands, which is unprocessable and
+     * not missing. A 404 on one of those reads as "no such page".
+     */
+    const expected: Record<PageWriteReason, number> = {
+      "not-found": 404,
+      "invalid-slug": 400,
+      "slug-taken": 409,
+      "personal-identity-number": 422,
+      "photo-consent-required": 422,
+      "image-not-found": 422,
+      "image-not-public": 422,
+    };
+
+    for (const [reason, status] of Object.entries(expected)) {
+      expect(
+        new PageWriteError("refused", reason as PageWriteReason).status,
+        reason,
+      ).toBe(status);
+    }
+  });
+});
 
 describe("writing a page", () => {
   it("refuses an address a page may not have", async () => {

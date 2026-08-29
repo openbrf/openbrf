@@ -49,11 +49,23 @@ const personIds = actors.map((actor) => actor.personId);
 const addressId = `site-admin-address-${suffix}`;
 const apartmentId = `site-admin-apartment-${suffix}`;
 
-/** Every slug this suite claims, so the cleanup can find them again. */
+/**
+ * Every slug this suite claims, so the cleanup can find them again.
+ *
+ * One per test that actually writes a page, and never one shared between two.
+ * A slug is unique in the database, so two tests sharing one are coupled
+ * through it: the first to leave its page behind makes the second's create
+ * answer 409, and the second then fails somewhere else entirely with a refusal
+ * about a page id it never had. `spare` is only ever used by the tests whose
+ * whole point is that the create is refused, so nothing is written under it.
+ */
 const slugs = {
   public: `site-admin-public-${suffix}`,
   member: `site-admin-member-${suffix}`,
   picture: `site-admin-picture-${suffix}`,
+  scan: `site-admin-scan-${suffix}`,
+  missingImage: `site-admin-missing-image-${suffix}`,
+  internalImage: `site-admin-internal-image-${suffix}`,
   spare: `site-admin-spare-${suffix}`,
 };
 
@@ -113,6 +125,16 @@ function paragraph(text: string) {
   return { type: "paragraph", runs: [{ text }] };
 }
 
+/**
+ * Shaped like a personal identity number, valid by its checksum, and belonging
+ * to nobody. It has to pass the checksum or the guardrail would have nothing to
+ * refuse.
+ */
+const LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER = "19811218-9876";
+
+/** A sentence a board member might paste, with the number inside it. */
+const SENTENCE_WITH_A_NUMBER = `Kontakta Anna, ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}.`;
+
 async function createPage(
   cookie: string,
   slug: string,
@@ -124,6 +146,33 @@ async function createPage(
     url: "/api/site/pages",
     payload: { slug, title: "Om foreningen", content: { blocks }, visibility },
     headers: { cookie },
+  });
+}
+
+/**
+ * The same, for a test that needs the page rather than the answer.
+ *
+ * It insists on the 201. Reading an id out of a refusal gives `undefined`, and
+ * a request to /api/site/pages/undefined/publish is answered - correctly - with
+ * "there is no such page", which then reads as a broken publish route rather
+ * than as a create that never happened.
+ */
+async function newPage(
+  cookie: string,
+  slug: string,
+  blocks: unknown[] = [paragraph("Hej.")],
+  visibility: "PUBLIC" | "MEMBER" = "PUBLIC",
+): Promise<PageBody> {
+  const response = await createPage(cookie, slug, blocks, visibility);
+  expect(response.statusCode, `POST /api/site/pages ${slug}`).toBe(201);
+  return response.json() as PageBody;
+}
+
+async function removePage(id: string): Promise<void> {
+  await inject({
+    method: "DELETE",
+    url: `/api/site/pages/${id}`,
+    headers: { cookie: boardCookie },
   });
 }
 
@@ -357,35 +406,46 @@ describe("writing a page", () => {
 
 describe("publishing a page", () => {
   it("refuses a personal identity number and says where it is", async () => {
-    const page = (
-      await createPage(boardCookie, slugs.spare, [
-        paragraph("Kontakta Anna, 19811218-9876."),
-      ])
-    ).json() as PageBody;
+    const page = await newPage(boardCookie, slugs.scan, [
+      paragraph(SENTENCE_WITH_A_NUMBER),
+    ]);
 
-    const refused = await inject({
-      method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
-      headers: { cookie: boardCookie },
-    });
+    try {
+      const refused = await inject({
+        method: "POST",
+        url: `/api/site/pages/${page.id}/publish`,
+        payload: { published: true },
+        headers: { cookie: boardCookie },
+      });
 
-    expect(refused.statusCode).toBe(422);
-    const body = refused.json() as {
-      reason: string;
-      locations: { part: string; index: number; offset?: number }[];
-    };
-    expect(body.reason).toBe("personal-identity-number");
-    expect(body.locations).toEqual([{ part: "block", index: 0, offset: 14 }]);
-    // The position, never the value: the number found is exactly the thing
-    // that must not be repeated in a response body or a log.
-    expect(refused.body).not.toContain("19811218");
-
-    await inject({
-      method: "DELETE",
-      url: `/api/site/pages/${page.id}`,
-      headers: { cookie: boardCookie },
-    });
+      expect(refused.statusCode).toBe(422);
+      const body = refused.json() as {
+        reason: string;
+        locations: { part: string; index: number; offset?: number }[];
+      };
+      expect(body.reason).toBe("personal-identity-number");
+      /*
+       * The offset is where the number starts in that block's text, which is
+       * exactly what the board needs in order to find it - so the expectation
+       * says that rather than restating a counted position. A hand-counted
+       * literal is right until the sentence above is edited, and then it is
+       * wrong about the thing this assertion exists to prove.
+       */
+      expect(body.locations).toEqual([
+        {
+          part: "block",
+          index: 0,
+          offset: SENTENCE_WITH_A_NUMBER.indexOf(
+            LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER,
+          ),
+        },
+      ]);
+      // The position, never the value: the number found is exactly the thing
+      // that must not be repeated in a response body or a log.
+      expect(refused.body).not.toContain("19811218");
+    } finally {
+      await removePage(page.id);
+    }
   });
 
   it("serves the page and records the publication in the audit log", async () => {
@@ -423,14 +483,12 @@ describe("publishing a page", () => {
   });
 
   it("answers a member-only page exactly as one that does not exist", async () => {
-    const page = (
-      await createPage(
-        boardCookie,
-        slugs.member,
-        [paragraph("Endast for medlemmar.")],
-        "MEMBER",
-      )
-    ).json() as PageBody;
+    const page = await newPage(
+      boardCookie,
+      slugs.member,
+      [paragraph("Endast for medlemmar.")],
+      "MEMBER",
+    );
 
     await inject({
       method: "POST",
@@ -511,12 +569,10 @@ describe("a picture on a page", () => {
     const file = stored.json() as { id: string; url: string };
     expect(file.url).toBe(`/api/media/${file.id}`);
 
-    const page = (
-      await createPage(boardCookie, slugs.picture, [
-        paragraph("Sommarfesten."),
-        { type: "image", mediaFileId: file.id, alt: "Garden" },
-      ])
-    ).json() as PageBody;
+    const page = await newPage(boardCookie, slugs.picture, [
+      paragraph("Sommarfesten."),
+      { type: "image", mediaFileId: file.id, alt: "Garden" },
+    ]);
 
     const refused = await inject({
       method: "POST",
@@ -545,28 +601,71 @@ describe("a picture on a page", () => {
   });
 
   it("is refused when the instance does not hold the file", async () => {
-    const page = (
-      await createPage(boardCookie, slugs.spare, [
-        { type: "image", mediaFileId: "no-such-file", alt: "" },
-      ])
-    ).json() as PageBody;
+    const page = await newPage(boardCookie, slugs.missingImage, [
+      { type: "image", mediaFileId: "no-such-file", alt: "" },
+    ]);
 
-    const refused = await inject({
-      method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
-      headers: { cookie: boardCookie },
-    });
-    expect(refused.statusCode).toBe(422);
-    expect((refused.json() as { reason: string }).reason).toBe(
-      "image-not-found",
-    );
+    try {
+      const refused = await inject({
+        method: "POST",
+        url: `/api/site/pages/${page.id}/publish`,
+        payload: { published: true },
+        headers: { cookie: boardCookie },
+      });
 
-    await inject({
-      method: "DELETE",
-      url: `/api/site/pages/${page.id}`,
-      headers: { cookie: boardCookie },
+      // Unprocessable and not "not found": the endpoint and the page both
+      // exist, and what cannot be processed is a body naming a file this
+      // instance does not have. A 404 here would read as "no such page".
+      expect(refused.statusCode).toBe(422);
+      expect((refused.json() as { reason: string }).reason).toBe(
+        "image-not-found",
+      );
+    } finally {
+      await removePage(page.id);
+    }
+  });
+
+  it("is refused when the file is not served publicly", async () => {
+    /*
+     * Written straight into the media table, because the website's own upload
+     * route stores public files and nothing else - which is the point of it.
+     * A page can still name a file uploaded elsewhere, and a published page
+     * with a picture no visitor can fetch is a broken page, so the refusal is
+     * asserted over HTTP rather than only against the rule.
+     */
+    const file = await prisma.mediaFile.create({
+      data: {
+        storageKey: `site-admin-internal-${suffix}`,
+        contentType: "image/png",
+        byteSize: 128,
+        checksum: "0".repeat(64),
+        fileName: "internt.png",
+        visibility: "INTERNAL",
+        showsIdentifiablePersons: false,
+        uploadedByPersonId: boardMember.personId,
+      },
+      select: { id: true },
     });
+
+    const page = await newPage(boardCookie, slugs.internalImage, [
+      { type: "image", mediaFileId: file.id, alt: "" },
+    ]);
+
+    try {
+      const refused = await inject({
+        method: "POST",
+        url: `/api/site/pages/${page.id}/publish`,
+        payload: { published: true },
+        headers: { cookie: boardCookie },
+      });
+
+      expect(refused.statusCode).toBe(422);
+      expect((refused.json() as { reason: string }).reason).toBe(
+        "image-not-public",
+      );
+    } finally {
+      await removePage(page.id);
+    }
   });
 });
 
