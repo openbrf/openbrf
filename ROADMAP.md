@@ -187,10 +187,12 @@ locally the application runs from source beside the PostgreSQL that
       derives while the register entry stands; and the member register and the
       apartment register as two documents on two screens, printed as documents,
       with the full apartment register extract recorded in the audit log. The four
-      that remain are not driven from here: installing a plugin is not built,
-      installing a theme is built but has no browser spec, and the last two are
-      about continuous integration and the ecosystem repositories rather than
-      about a screen
+      that remain are not driven from here: installing a plugin and installing
+      a theme are both built and tested against fixtures built in this
+      repository, but the reference plugin and the example theme a browser
+      would install belong to repositories that do not exist yet, and the last
+      two are about continuous integration and those same repositories rather
+      than about a screen
 
 ### The public website
 

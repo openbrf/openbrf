@@ -96,7 +96,7 @@ Numbered against the phase 1 exit criteria.
 | 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                 | `04-self-signup.spec.ts`                |
 | 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                      | `05-address-book.spec.ts`               |
 | 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                              | `06-protected-personal-data.spec.ts`    |
-| 7   | A member list imported: the columns mapped, every outcome previewed, the register written, and the run found again after a reload                   | `07-import-with-column-mapping.spec.ts` |
+| 7   | A member list imported: the columns mapped, every outcome previewed, the member register written, and the run found again after a reload            | `07-import-with-column-mapping.spec.ts` |
 | 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`       |
 | 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`        |
 
@@ -128,11 +128,14 @@ with the client, query string or no query string.
 
 ## Still to be written
 
-Criteria 10 and 11 have no spec in this package yet. Installing a theme is
-built and carries its own tests; what is missing there is a browser driving it
-against the production image, which is the only place the entrypoint, the
-constrained database role and the built client are the ones a housing
-cooperative installs. Installing a plugin, criterion 10, is not built at all.
+Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
+the feature. Installing a plugin and installing a theme are both built and both
+carry their own tests against fixtures built in this repository. What is missing
+is on two sides: a browser driving either against the production image, which is
+the only place the entrypoint, the constrained database role and the built
+client are the ones a housing cooperative installs; and something real to
+install, since the reference plugin and the example theme belong to repositories
+that do not exist yet.
 
 - **10 - Installing a plugin.** From the admin screen: permissions and the
   personal-data declaration shown and consented to, the sha512 verified, a
