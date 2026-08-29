@@ -337,7 +337,7 @@ Free, open source, and never moved behind a paywall.
       masking and the audit log instead
 - [ ] The statutory registers under Swedish law: the member register (public on
       request) and the confidential apartment register, kept strictly separate
-- [ ] GDPR engine: data subject access reports, legal hold, consents, masking
+- [x] GDPR engine: data subject access reports, legal hold, consents, masking
       of protected personal data, and configurable retention and purging of
       **service data only**. The statutory registers and the audit log are
       append-only: the law requires the member register to be retained, so no
@@ -347,7 +347,12 @@ Free, open source, and never moved behind a paywall.
       report all still cover those records. Publication consent is recorded
       already: the board notes, per person and per scope, what the person
       agreed may appear on a published page, and a withdrawal keeps the dates
-      the consent applied between rather than erasing them
+      the consent applied between rather than erasing them. The purge runs
+      nightly and erases contact details, the account and unaccepted
+      invitations once the retention window on somebody's last residency has
+      run out; a legal hold, entered against one person with a reason,
+      suspends it until the board releases it. Issues and archived documents
+      are listed in the data subject access report but not yet purged
 - [ ] News and mailings, by email and through an open SMS adapter
 - [ ] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain

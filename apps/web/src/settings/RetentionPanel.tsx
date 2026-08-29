@@ -20,12 +20,17 @@ const MAX_DAYS = 3650;
 /**
  * How long service data is kept after a move-out.
  *
- * The statutory notice is not a disclaimer. The member register and the access
+ * The statutory notice is not a disclaimer. The member register and the audit
  * log are append-only in the database and exempt from purging, because the law
  * requires the member register to be retained (EFL 5 kap. via BRL 9 kap.). A
  * board reading this screen has to understand that this setting reaches service
  * data only, or they will assume they have a delete button they do not have -
  * and answer a resident's erasure request wrongly.
+ *
+ * The second notice says what the number now does. This setting used to
+ * compute a date and display it; a nightly job acts on it, so the screen has
+ * to say that the erasure happens by itself and name the one thing that
+ * suspends it - a legal hold, which is placed per person on the person view.
  */
 export function RetentionPanel({
   daysAfterMoveOut,
@@ -64,6 +69,13 @@ export function RetentionPanel({
          */
         <>
           <Notice tone="info">{t("settings.retention.statutoryNotice")}</Notice>
+          {/*
+           * What the setting actually does, now that something acts on it. A
+           * board that read only the number would take this screen for a
+           * statement of intent; the sentence says the erasure happens by
+           * itself, and names the one thing that stops it.
+           */}
+          <Notice tone="info">{t("settings.retention.purgeJob")}</Notice>
           {save.state.kind === "failed" ? (
             <Notice tone="danger" live>
               {t(

@@ -510,7 +510,28 @@ export async function listIssueQueue(
 }
 
 /**
- * The id of the person the address book lists under exactly this name.
+ * One row of the board's address book.
+ *
+ * Narrowed to what a fixture reads back: who the person is, and enough of what
+ * was written about them to tell a finished record from a half-finished one.
+ * The endpoint sends more - signs, contact state, the purge date - and a
+ * fixture has no business asserting on any of it.
+ */
+export type AddressBookRow = {
+  readonly personId: string;
+  readonly name: string;
+  /** Null for a person with no residency: an external board member or admin. */
+  readonly apartment: {
+    readonly id: string;
+    readonly addressId: string;
+    readonly number: string;
+  } | null;
+  readonly movedInOn: string | null;
+  readonly movedOutOn: string | null;
+};
+
+/**
+ * The person the address book lists under exactly this name, as a whole row.
  *
  * The only way the suite has of finding somebody it did not just create: a
  * person id appears in no email and on no screen, and the address book is the
@@ -522,21 +543,47 @@ export async function listIssueQueue(
  * The search narrows and the name decides: the endpoint matches names
  * incrementally, so it answers "Bo Ek" with everyone whose name begins that
  * way, and only an exact match is the person that was asked for.
+ *
+ * ## Why the row and not only the id
+ *
+ * An `ensure*` helper does several writes, and only the first of them creates
+ * the person: the sign-up approval that follows records the residency, the
+ * move-in that follows records the tenant-ownership. A run that failed between
+ * them leaves the person behind without any of it, and a helper that asked only
+ * "does this person exist" would return early on that wreckage every time
+ * afterwards. What fails is then an assertion several tests later, timing out
+ * on a screen that is empty for a reason nothing reports.
+ *
+ * So the rule for every `ensure*` helper in this directory is: return early
+ * only on evidence that the whole thing it ensures is there, not on evidence
+ * that its first step once ran. This row is that evidence, and it costs no
+ * second request - the search already fetched it and threw it away.
+ */
+export async function findPersonByName(
+  request: APIRequestContext,
+  baseUrl: string,
+  name: string,
+): Promise<AddressBookRow | undefined> {
+  const response = await request.get(
+    `${baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
+  );
+  await expectOk(response, "GET /api/address-book");
+  const page = (await response.json()) as {
+    readonly rows: readonly AddressBookRow[];
+  };
+  return page.rows.find((row) => row.name === name);
+}
+
+/**
+ * {@link findPersonByName}, for a caller that needs the id and nothing else.
+ *
+ * Expressed in terms of the row rather than duplicating the request, so the two
+ * cannot answer differently about the same name.
  */
 export async function findPersonIdByName(
   request: APIRequestContext,
   baseUrl: string,
   name: string,
 ): Promise<string | undefined> {
-  const response = await request.get(
-    `${baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
-  );
-  await expectOk(response, "GET /api/address-book");
-  const page = (await response.json()) as {
-    readonly rows: readonly {
-      readonly personId: string;
-      readonly name: string;
-    }[];
-  };
-  return page.rows.find((row) => row.name === name)?.personId;
+  return (await findPersonByName(request, baseUrl, name))?.personId;
 }

@@ -61,6 +61,17 @@ on the account the later specs sign in as.
 - `src/provision.ts` builds the instance every spec after the first one expects,
   idempotently and over HTTP. The first-boot spec builds the same instance
   through the wizard, screen by screen, because that is what it is testing.
+- **An `ensure*` helper returns early only on evidence of the finished state.**
+  Every one of them does several writes, and only the first creates the person:
+  the sign-up approval that follows records the residency, the move-in that
+  follows records the tenant-ownership. A run that failed between them leaves a
+  person behind with none of it, and a helper that asked only "does this name
+  exist" would return early on that wreckage from then on - what fails is an
+  assertion several tests later, timing out on a screen that is empty for a
+  reason nothing reports. `api.findPersonByName` answers with the whole address
+  book row, which carries the apartment and the move-in date, so the check
+  costs no second request; `api.findPersonIdByName` is that function with the
+  row thrown away, for callers who need the id alone.
 - `src/apartments.ts` adds an apartment to the register and hands it to the
   spec that asked for one. A residency, a transfer and a member register entry
   are all kept for good, so a spec naming a fixed apartment describes an
