@@ -175,7 +175,16 @@
       "ended": "Ended",
       "electedOn": "Elected",
       "endedOn": "Ended",
-      "protectionFailed": "The masking could not be changed. Try again."
+      "protectionFailed": "The masking could not be changed. Try again.",
+      "invite": "Send invitation",
+      "inviteAgain": "Send the invitation again",
+      "inviteWorking": "Sending",
+      "inviteSent": "The invitation has been sent to the person's email address.",
+      "inviteFailed": "The invitation could not be sent. Try again.",
+      "inviteNoEmail": "The register holds no email address for this person, so no invitation can be sent.",
+      "inviteMailNotConfigured": "The email settings are missing, so the invitation could not be sent. Fill them in under Settings.",
+      "invitationExpiresAt": "Invitation valid until",
+      "invitationExpired": "The invitation has expired. Send a new one."
     },
     "reveal": {
       "action": "Reveal",
@@ -1174,6 +1183,24 @@
     "errors": {
       "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",
       "unknown": "The request could not be sent just now. Please try again."
+    }
+  },
+  "activate": {
+    "heading": "Activate your account",
+    "intro": "Choose a password and the account is yours. Your details are already in the housing cooperative's register.",
+    "password": "Password",
+    "passwordHint": "At least 12 characters. A passphrase of a few words is both easier to remember and harder to guess.",
+    "submit": "Activate the account",
+    "working": "Activating...",
+    "signInInstead": "Go to sign-in",
+    "autoSignInFailed": "The account is activated. Signing in automatically did not work, so sign in with your email address and your new password.",
+    "errors": {
+      "invalidToken": "This link does not work. Check that the whole address from the email came along, or ask the board for a new invitation.",
+      "alreadyAccepted": "This link has already been used. The account exists, so sign in with your email address and the password you chose.",
+      "alreadyHasAccount": "You already have an account in the housing cooperative. Sign in instead.",
+      "expired": "The invitation has expired. Ask the board to send a new invitation.",
+      "noEmail": "The register holds no email address for you, so the account cannot be activated. Contact the board.",
+      "unknown": "The account could not be activated just now. Please try again."
     }
   }
 }

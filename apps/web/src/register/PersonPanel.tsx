@@ -9,8 +9,10 @@ import {
   fetchPerson,
   type MaskableField,
   type PersonDetail,
+  RegisterRequestError,
   revealFields,
   type RevealedFields,
+  sendInvitation,
   setProtectedPersonalData,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
@@ -49,6 +51,13 @@ const ACCOUNT_LABEL = {
   invited: "register.person.accountInvited",
   none: "register.person.accountNone",
 } as const satisfies Record<string, TranslationKey>;
+
+/** Where one invitation send has got to. */
+type InviteStatus =
+  | { kind: "idle" }
+  | { kind: "working" }
+  | { kind: "sent" }
+  | { kind: "failed"; messageKey: TranslationKey };
 
 const SECONDARY_BUTTON =
   "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-ink";
@@ -108,6 +117,10 @@ export function PersonPanel({
   const [revealing, setRevealing] = useState<MaskableField | null>(null);
   const [revealFailed, setRevealFailed] = useState(false);
   const [protectionFailed, setProtectionFailed] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState<InviteStatus>({
+    kind: "idle",
+  });
+  const [invitationExpired, setInvitationExpired] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   /*
@@ -121,7 +134,21 @@ export function PersonPanel({
 
     void (async () => {
       try {
-        setPerson(await fetchPerson(personId, controller.signal));
+        const detail = await fetchPerson(personId, controller.signal);
+        setPerson(detail);
+        /*
+         * Whether an outstanding invitation has expired is decided here, at the
+         * moment the register was read, rather than during a render: a render
+         * may not depend on the time it happens to run at, and the API reports
+         * an outstanding invitation without filtering on its date. Reading the
+         * browser's clock is safe for this one - both states offer the same
+         * action, send a new link, so skew changes the wording and never what
+         * the board can do.
+         */
+        setInvitationExpired(
+          detail.account.invitationExpiresAt !== null &&
+            new Date(detail.account.invitationExpiresAt).getTime() < Date.now(),
+        );
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
@@ -184,6 +211,38 @@ export function PersonPanel({
   );
 
   /*
+   * Sending an invitation, and sending one again.
+   *
+   * `onChanged` is deliberately not called: the board's rows carry no account
+   * state, so reloading them would shift the list under whoever is reading it
+   * and change nothing they can see. The panel refetches itself instead, which
+   * is what turns "send an invitation" into "send it again" and puts the new
+   * expiry date on screen.
+   *
+   * An instance whose setup skipped the email settings answers this with
+   * mail-not-configured, and that failure gets its own sentence: nothing is
+   * wrong with the person or the invitation, and the fix is in settings.
+   */
+  const invite = useCallback(async (): Promise<void> => {
+    setInviteStatus({ kind: "working" });
+    try {
+      await sendInvitation(personId);
+    } catch (error) {
+      setInviteStatus({
+        kind: "failed",
+        messageKey:
+          error instanceof RegisterRequestError &&
+          error.reason === "mail-not-configured"
+            ? "register.person.inviteMailNotConfigured"
+            : "register.person.inviteFailed",
+      });
+      return;
+    }
+    setInviteStatus({ kind: "sent" });
+    setReloadToken((token) => token + 1);
+  }, [personId]);
+
+  /*
    * Three states, not two: not revealed yet, revealed with the register holding
    * nothing, and revealed with a value. Without the middle one an empty reveal
    * renders as a blank mono value - a placeholder shaped like a value, which is
@@ -202,6 +261,39 @@ export function PersonPanel({
         ]
           .filter((part): part is string => part !== null)
           .join(", ");
+
+  /*
+   * Whether the register holds an address to send an invitation to. The masked
+   * payload carries the presence flag rather than the value, which is exactly
+   * the question here and all of it.
+   */
+  const hasEmailOnFile =
+    person !== null &&
+    (person.contact.state === "visible"
+      ? person.contact.email !== null
+      : person.contact.hasEmail);
+
+  /*
+   * Read off the invited state rather than off the date alone, so the account
+   * field describes one state at a time: an expiry under an active account
+   * would be a line about an invitation nobody is waiting for.
+   */
+  const invitationExpiresAt =
+    person !== null && person.account.state === "invited"
+      ? person.account.invitationExpiresAt
+      : null;
+
+  /*
+   * An active account needs nothing. A person the register holds no address
+   * for has nowhere to receive an invitation, so they get the reason rather
+   * than a button that could only fail. An outstanding invitation is always
+   * re-sendable, expired or not: a lost email is the ordinary case, and the API
+   * supersedes the previous link rather than leaving two of them alive.
+   */
+  const inviteOffered =
+    person !== null &&
+    (person.account.state === "invited" ||
+      (person.account.state === "none" && hasEmailOnFile));
 
   return (
     <aside
@@ -469,13 +561,63 @@ export function PersonPanel({
           )}
 
           <Field labelKey="register.person.account">
-            <span className="flex flex-col gap-1">
+            <span className="flex flex-col items-start gap-2">
               <span className="text-body text-ink">
                 {t(ACCOUNT_LABEL[person.account.state])}
               </span>
               {person.account.twoFactorEnabled ? (
                 <span className="text-small text-ink-muted">
                   {t("register.person.twoFactor")}
+                </span>
+              ) : null}
+
+              {/*
+               * The date the link stops working, on the mono grid like every
+               * other register date. The API sends a timestamp; the day is what
+               * the board acts on.
+               */}
+              {invitationExpiresAt === null ? null : (
+                <span className="font-data text-data text-ink">
+                  {`${t("register.person.invitationExpiresAt")} ${invitationExpiresAt.slice(0, 10)}`}
+                </span>
+              )}
+              {invitationExpiresAt !== null && invitationExpired ? (
+                <span className="text-small text-warn">
+                  {t("register.person.invitationExpired")}
+                </span>
+              ) : null}
+
+              {person.account.state === "none" && !hasEmailOnFile ? (
+                <span className="text-small text-ink-muted">
+                  {t("register.person.inviteNoEmail")}
+                </span>
+              ) : null}
+
+              {inviteOffered ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void invite();
+                  }}
+                  disabled={inviteStatus.kind === "working"}
+                  className={`${SECONDARY_BUTTON} disabled:opacity-60`}
+                >
+                  {inviteStatus.kind === "working"
+                    ? t("register.person.inviteWorking")
+                    : person.account.state === "invited"
+                      ? t("register.person.inviteAgain")
+                      : t("register.person.invite")}
+                </button>
+              ) : null}
+
+              {inviteStatus.kind === "sent" ? (
+                <span role="status" className="text-small text-ok">
+                  {t("register.person.inviteSent")}
+                </span>
+              ) : null}
+              {inviteStatus.kind === "failed" ? (
+                <span role="alert" className="text-small text-danger">
+                  {t(inviteStatus.messageKey)}
                 </span>
               ) : null}
             </span>

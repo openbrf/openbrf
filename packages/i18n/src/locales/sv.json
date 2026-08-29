@@ -175,7 +175,16 @@
       "ended": "Avslutat",
       "electedOn": "Vald",
       "endedOn": "Avslutades",
-      "protectionFailed": "Maskeringen kunde inte ändras. Försök igen."
+      "protectionFailed": "Maskeringen kunde inte ändras. Försök igen.",
+      "invite": "Skicka inbjudan",
+      "inviteAgain": "Skicka inbjudan igen",
+      "inviteWorking": "Skickar",
+      "inviteSent": "Inbjudan är skickad till personens e-postadress.",
+      "inviteFailed": "Inbjudan kunde inte skickas. Försök igen.",
+      "inviteNoEmail": "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
+      "inviteMailNotConfigured": "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
+      "invitationExpiresAt": "Inbjudan giltig till",
+      "invitationExpired": "Inbjudan har gått ut. Skicka en ny."
     },
     "reveal": {
       "action": "Visa",
@@ -1174,6 +1183,24 @@
     "errors": {
       "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",
       "unknown": "Ansökan kunde inte skickas just nu. Försök igen."
+    }
+  },
+  "activate": {
+    "heading": "Aktivera ditt konto",
+    "intro": "Välj ett lösenord, så är kontot ditt. Dina uppgifter finns redan i föreningens register.",
+    "password": "Lösenord",
+    "passwordHint": "Minst 12 tecken. En fras med några ord är både lättare att minnas och svårare att gissa.",
+    "submit": "Aktivera kontot",
+    "working": "Aktiverar...",
+    "signInInstead": "Till inloggningen",
+    "autoSignInFailed": "Kontot är aktiverat. Inloggningen gick inte automatiskt, så logga in med din e-postadress och ditt nya lösenord.",
+    "errors": {
+      "invalidToken": "Länken fungerar inte. Kontrollera att hela adressen från e-postmeddelandet kom med, eller be styrelsen om en ny inbjudan.",
+      "alreadyAccepted": "Länken är redan använd. Kontot finns, så logga in med din e-postadress och lösenordet du valde.",
+      "alreadyHasAccount": "Du har redan ett konto i föreningen. Logga in i stället.",
+      "expired": "Inbjudan har gått ut. Be styrelsen skicka en ny inbjudan.",
+      "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
+      "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
     }
   }
 }

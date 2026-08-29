@@ -35,10 +35,12 @@ that is recorded is a move-out the board will be reminded of. A message that
 cannot be delivered is reported by residency and by the class of the failure,
 never by address and never by what the failure was carrying.
 
-Both flows read the person's other residencies to decide what to write into the
-member register, so each takes that person's transition lock before it reads:
-two move-ins arriving together record one membership rather than two entries in
-a register that refuses to have rows removed. A move-out closes the residency
+Every path that writes the member register reads the person's other residencies
+to decide what to write, so each takes that person's transition lock before it
+reads: two move-ins arriving together record one membership rather than two
+entries in a register that refuses to have rows removed, and an import chunk
+overlapping a move-in records that same one. A chunk writes for many people at
+once and takes their locks in a fixed order, so two of them cannot deadlock. A move-out closes the residency
 with a conditional update, so the second of two requests on the same residency
 is refused rather than closing the membership a second time. A transfer is
 recorded only with a reference to its agreement - a case number, or where the

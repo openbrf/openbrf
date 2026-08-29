@@ -11,6 +11,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { lockResidencyTransitionsInOrder } from "../registers/residency-lock";
 import {
   type ImportField,
   IMPORT_FIELDS,
@@ -352,6 +353,17 @@ export class ImportApplyService implements OnModuleInit {
         if (claimed.count === 0) {
           return null;
         }
+
+        // Taken before the chunk reads anything about these persons. Whether a
+        // member row begins a membership is decided by counting the person's
+        // other residencies, and a move-in or move-out for the same person can
+        // commit between that count and the register write - which would append
+        // a second ENTRY to a register that refuses to have rows removed. In a
+        // fixed order, because a chunk holds many of these locks at once.
+        await lockResidencyTransitionsInOrder(
+          tx,
+          existingTargets(plan, decisions),
+        );
 
         const written = await this.write(tx, plan, decisions, encrypted);
         await tx.importSession.update({
@@ -840,6 +852,40 @@ type RowTarget =
  * refuses to run at all while one is unanswered. A row that shares a new person
  * with an earlier row follows that row, and is skipped when the earlier one was.
  */
+/**
+ * The persons a chunk will write to that the register already holds.
+ *
+ * A person the chunk creates is deliberately not in this set. Their id does not
+ * exist outside the transaction until it commits, so no other writer can be
+ * holding the register open for them, and there is nothing to serialize
+ * against. That is also why an empty map of rows-to-created-persons is the
+ * right one to resolve against here: a row that points at a person an earlier
+ * row creates resolves to no target, which is exactly the case with no lock to
+ * take.
+ *
+ * Resolved through resolveTarget rather than read off the rows directly, so the
+ * set cannot drift from the persons the write loop actually reaches.
+ */
+function existingTargets(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): string[] {
+  const created = new Map<number, string>();
+  const ids: string[] = [];
+
+  for (const row of plan.rows) {
+    if (row.outcome === "error") {
+      continue;
+    }
+    const target = resolveTarget(row, decisions, created);
+    if (target.action === "update") {
+      ids.push(target.personId);
+    }
+  }
+
+  return ids;
+}
+
 function resolveTarget(
   row: PlannedRow,
   decisions: ImportDecisions,
