@@ -172,6 +172,13 @@ export class MenuWriteService {
    * that was a page and becomes a link must not keep the page it used to name,
    * because the reader decides what to follow from the kind and would then be
    * one bug away from following the wrong one.
+   *
+   * Where it hangs is written from the same reading: the body is the whole
+   * entry rather than the part of it that changed, so an entry sent without a
+   * parent is an entry at the top level. That is the difference between this
+   * call and the reorder below - a reorder is scoped to one level so that
+   * arranging a dropdown can never take an entry out of it, while saying where
+   * an entry hangs is exactly what this call is for.
    */
   async update(id: string, input: MenuItemInput): Promise<MenuItemView> {
     const existing = await this.require(id);
