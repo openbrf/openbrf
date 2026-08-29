@@ -504,7 +504,6 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Förhandsgranska" },
     capture: "page",
   },
-  {
   // --- the menu on the association's own website -----------------------------
   // Last, because arranging the menu changes what the website's front page is
   // and every screen above has already been photographed against the one the
