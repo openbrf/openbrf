@@ -315,3 +315,74 @@ describe("accepting an invitation", () => {
     ).rejects.toMatchObject({ reason: "already-has-account" });
   });
 });
+
+/**
+ * The way in, in the audit log.
+ *
+ * An invitation is what turns a person in the register into someone who can
+ * read it, so both halves are recorded: the board issuing the link, and the
+ * recipient using it. Each entry commits with the row it describes, so the log
+ * never claims an invitation that was not created or an activation that did
+ * not happen.
+ */
+describe("the audit trail of an invitation", () => {
+  it("records the send, naming the board member who issued it", async () => {
+    const person = {
+      personId: `inv-audit-${suffix}`,
+      email: `inv-audit-${suffix}@exempel.se`,
+    };
+    await createPerson(person);
+
+    const { expiresAt } = await invitations.invite({
+      personId: person.personId,
+      invitedByPersonId: board.personId,
+    });
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "INVITATION_SENT", targetPersonId: person.personId },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.context).toMatchObject({
+      expiresAt: expiresAt.toISOString(),
+    });
+
+    await prisma.invitation.deleteMany({
+      where: { personId: person.personId },
+    });
+    await prisma.person.deleteMany({ where: { id: person.personId } });
+  }, 60_000);
+
+  it("records the activation against the person who used the link", async () => {
+    // The invitee activated their account earlier in this file, which is the
+    // act this asserts: no session existed, so the person is both the actor
+    // and the subject.
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "INVITATION_ACCEPTED",
+        targetPersonId: invitee.personId,
+      },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(invitee.personId);
+  });
+
+  it("writes no second entry when a used link is presented again", async () => {
+    await expect(
+      invitations.accept({
+        token: "valid-token-fixture",
+        password: PASSWORD,
+      }),
+    ).rejects.toMatchObject({ reason: "already-accepted" });
+
+    const entries = await prisma.auditLogEntry.count({
+      where: {
+        action: "INVITATION_ACCEPTED",
+        targetPersonId: invitee.personId,
+      },
+    });
+    expect(entries).toBe(1);
+  });
+});

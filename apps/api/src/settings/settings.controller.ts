@@ -76,6 +76,8 @@ const retentionSchema = z.object({
 
 const selfSignupSchema = z.object({ enabled: z.boolean() });
 
+const issueReportingSchema = z.object({ publicFormEnabled: z.boolean() });
+
 /**
  * The acting person, or a fault.
  *
@@ -215,6 +217,13 @@ export class SettingsWriteController {
   @Put("self-signup")
   async updateSelfSignup(@Body() body: unknown): Promise<{ enabled: boolean }> {
     return this.settings.updateSelfSignup(selfSignupSchema.parse(body));
+  }
+
+  @Put("issue-reporting")
+  async updateIssueReporting(
+    @Body() body: unknown,
+  ): Promise<{ publicFormEnabled: boolean }> {
+    return this.settings.updateIssueReporting(issueReportingSchema.parse(body));
   }
 }
 

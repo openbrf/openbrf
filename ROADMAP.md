@@ -11,9 +11,13 @@ suite driving a browser against that image.
 
 The way in is there now: a board member invites a person from the register, the
 invitation arrives as an email, and the link in it opens a screen where the
-recipient chooses a password and is signed in as soon as it is set. What is
-still missing is everything a housing cooperative shows its members and the
-world outside - its own website, its documents and its news. The project is not
+recipient chooses a password and is signed in as soon as it is set. The
+association's own website has its foundation as well - the site answers at the
+domain root, the application is served under `/app`, and a page is rendered as
+plain HTML with no JavaScript, no cookies and no third-party requests. What is
+still missing is everything a housing cooperative writes on it: the page
+editor, the menu, its documents and its news. Until the editor lands, an
+instance shows the single page the setup wizard writes. The project is not
 ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
@@ -207,6 +211,21 @@ locally the application runs from source beside the PostgreSQL that
       is set, every request the page makes goes to the housing cooperative's
       own instance, and a member-only page is indistinguishable from one that
       does not exist
+- [x] Issue reporting: a resident reports a problem with the building from the
+      application, with photographs, and follows what happens to it. The
+      issue types are the board's own - each one set to non-member, member or
+      board - and which of them a person is offered is decided on the server:
+      a resident picks from the member types, a visitor with no account from the
+      non-member ones, and the board's internal categories are shown to nobody
+      who does not handle issues. Whoever does works one queue, and moves a
+      report between new, in progress and done. The form warns that health
+      details and anything about a neighbour are read by everyone who handles
+      issues, and refuses nothing: an issue report is where such detail
+      legitimately arrives. A reporter with protected personal data is named to
+      nobody in the queue. Whether the association's website takes reports from
+      anyone is a setting, on by default, and the server already answers a
+      caller with no session with the non-member types alone; the form itself
+      is part of the public forms below
 
 ### The public website
 
@@ -325,7 +344,10 @@ Free, open source, and never moved behind a paywall.
       retention setting, and no admin, can delete it. That is an exemption
       from purging alone, not from data protection - access control, masking
       of protected personal data, access logging and the data subject access
-      report all still cover those records
+      report all still cover those records. Publication consent is recorded
+      already: the board notes, per person and per scope, what the person
+      agreed may appear on a published page, and a withdrawal keeps the dates
+      the consent applied between rather than erasing them
 - [ ] News and mailings, by email and through an open SMS adapter
 - [ ] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain
@@ -339,7 +361,7 @@ Free, open source, and never moved behind a paywall.
 - [x] Document archive with per-audience access: every document is for the
       board, for the members or for anyone, and the file behind it is served
       under the same decision
-- [ ] Issue reporting with photos
+- [x] Issue reporting with photos
 - [ ] Roles for board members, residents and external property managers
 - [ ] Swedish and English interface
 - [ ] Plugin and theme system

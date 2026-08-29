@@ -1,5 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
-import { APP_FILTER } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 
 import { AddressBookModule } from "./address-book/address-book.module";
 import { AddressesModule } from "./addresses/addresses.module";
@@ -15,12 +15,14 @@ import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
 import { ImportModule } from "./import/import.module";
 import { InvitationsModule } from "./invitations/invitations.module";
+import { IssuesModule } from "./issues/issues.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
 import { MediaModule } from "./media/media.module";
 import { MovesModule } from "./moves/moves.module";
 import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
+import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
 import { RegistersModule } from "./registers/registers.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
@@ -54,6 +56,7 @@ import { ThemesModule } from "./themes/themes.module";
     ThemesModule,
     PackagingModule,
     PluginsModule,
+    IssuesModule,
     DocumentsModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
@@ -61,7 +64,19 @@ import { ThemesModule } from "./themes/themes.module";
     SiteModule,
   ],
   controllers: [HealthController],
-  providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
+  providers: [
+    { provide: APP_FILTER, useClass: DomainExceptionFilter },
+    /*
+     * Global, and inert on every route that declares no budget.
+     *
+     * The alternative - naming the guard on each controller that wants it -
+     * would give each module its own instance and its own buckets, so the same
+     * caller would hold a separate budget per module. Registered once here,
+     * @PublicRateLimit is the whole of what a public endpoint has to say, and a
+     * form added later cannot be limited in one place and not another.
+     */
+    { provide: APP_GUARD, useClass: PublicRateLimitGuard },
+  ],
 })
 export class AppModule {
   /**

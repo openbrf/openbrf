@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Public } from "../authorization/public.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { PublicRateLimit } from "../http/public-rate-limit.decorator";
 import { InvitationService } from "./invitation.service";
 
 const sendInvitationSchema = z.object({
@@ -38,6 +39,17 @@ export class InvitationController {
 }
 
 /**
+ * Ten activations a minute from one client address.
+ *
+ * A person activates once, from a link mailed to them, so the honest ceiling is
+ * a household getting their accounts going in one sitting plus room for a
+ * mistyped password. The token is a hashed random secret and guessing it is
+ * hopeless with or without a budget; what this bounds is the cost of an
+ * automated attempt to find that out.
+ */
+const ACTIVATIONS_PER_MINUTE = 10;
+
+/**
  * Activation, reached from the emailed link.
  *
  * Public by necessity: the person has no account yet, so there is no session to
@@ -60,6 +72,7 @@ export class InvitationAcceptController {
    * failed attempt learns anything.
    */
   @Post()
+  @PublicRateLimit({ perMinute: ACTIVATIONS_PER_MINUTE })
   async accept(
     @Body() body: unknown,
   ): Promise<{ personId: string; email: string }> {

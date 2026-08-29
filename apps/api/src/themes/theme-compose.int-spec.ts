@@ -286,6 +286,30 @@ describe("composing a theme with no catalog configured", () => {
     expect(context?.version).toBe("1.0.0");
     expect(context?.source).toBe("composer");
   });
+
+  it("also records that the theme was written here rather than downloaded", async () => {
+    /*
+     * Both entries, deliberately. The install entry says a theme passed the
+     * admission gate, which is the same gate however the theme was authored;
+     * this one says the tokens were authored on this instance, which is what
+     * decides whether the board may still edit them.
+     */
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "THEME_COMPOSED",
+        targetId: COMPOSED,
+        createdAt: { gt: auditBoundary },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.targetKind).toBe("theme");
+    expect(entry?.context).toMatchObject({
+      version: "1.0.0",
+      extends: "porttavlan",
+    });
+  });
 });
 
 describe("what the composer refuses", () => {

@@ -43,6 +43,7 @@ const STORED = {
   primaryColor: null as string | null,
   retentionDaysAfterMoveOut: 365,
   selfSignupEnabled: false,
+  issueReportingPublic: true,
   smtpHost: null as string | null,
   smtpPort: null as number | null,
   smtpUser: null as string | null,
@@ -417,7 +418,26 @@ describe("retention and self-signup", () => {
     expect(current()?.selfSignupEnabled).toBe(true);
   });
 
-  it("refuses both before the housing cooperative exists", async () => {
+  /*
+   * The opposite default to self-signup, deliberately. A sign-up request asks
+   * for an account on an instance holding a statutory register; an issue report
+   * produces a maintenance ticket. A board that would rather take issues only
+   * from its own residents switches this off, and the form then stops existing.
+   */
+  it("takes issue reports from the public until a board says otherwise", async () => {
+    const { service, current } = build();
+
+    await expect(service.read()).resolves.toMatchObject({
+      issueReporting: { publicFormEnabled: true },
+    });
+
+    await expect(
+      service.updateIssueReporting({ publicFormEnabled: false }),
+    ).resolves.toEqual({ publicFormEnabled: false });
+    expect(current()?.issueReportingPublic).toBe(false);
+  });
+
+  it("refuses all three before the housing cooperative exists", async () => {
     const { service } = build({}, false);
 
     await expect(
@@ -425,6 +445,9 @@ describe("retention and self-signup", () => {
     ).rejects.toMatchObject({ reason: "housing-cooperative-missing" });
     await expect(
       service.updateSelfSignup({ enabled: true }),
+    ).rejects.toMatchObject({ reason: "housing-cooperative-missing" });
+    await expect(
+      service.updateIssueReporting({ publicFormEnabled: true }),
     ).rejects.toMatchObject({ reason: "housing-cooperative-missing" });
   });
 });
