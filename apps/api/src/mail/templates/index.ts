@@ -12,5 +12,7 @@ export { moveInMail } from "./move-in.template";
 export type { MoveInMailProps } from "./move-in.template";
 export { moveOutMail } from "./move-out.template";
 export type { MoveOutMailProps } from "./move-out.template";
+export { newsMail } from "./news.template";
+export type { NewsMailProps } from "./news.template";
 export { smtpTestMail } from "./smtp-test.template";
 export type { SmtpTestMailProps } from "./smtp-test.template";

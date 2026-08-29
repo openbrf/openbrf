@@ -21,6 +21,7 @@ import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
 import { MediaModule } from "./media/media.module";
 import { MovesModule } from "./moves/moves.module";
+import { NewsModule } from "./news/news.module";
 import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
@@ -62,6 +63,7 @@ import { ThemesModule } from "./themes/themes.module";
     DocumentsModule,
     RetentionModule,
     ContactModule,
+    NewsModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.
