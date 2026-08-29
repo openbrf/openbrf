@@ -173,6 +173,17 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  /*
+   * The audit entries the decisions wrote are append-only and stay.
+   *
+   * Removing them would mean disabling audit_log_entry_append_only, and that
+   * ALTER is table-wide rather than session-scoped: it turns the statutory
+   * guard off for every connection, including an overlapping run of these
+   * suites, which runSuffix exists to make safe. Only the audit log's own
+   * suites take that risk, because there the guard is the thing under test.
+   * Nothing here depends on the rows being gone either - every assertion below
+   * selects on a per-request id.
+   */
   const applicantIndex = await encryption.computeIndex(
     "person.email",
     applicantEmail,
