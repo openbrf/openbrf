@@ -133,11 +133,19 @@ export class PagesAdminController {
     @Req() request: FastifyRequest,
   ): Promise<{ html: string }> {
     const input = previewSchema.parse(body);
-    const html = await this.renderer.page(acceptLanguage(request), {
-      slug: input.slug ?? "",
-      title: input.title,
-      content: submittedContent(input.content),
-    });
+    const html = await this.renderer.page(
+      acceptLanguage(request),
+      {
+        slug: input.slug ?? "",
+        title: input.title,
+        content: submittedContent(input.content),
+      },
+      // Shown as the widest audience would see it, though the board member
+      // looking at it is signed in. A preview exists to answer "what am I
+      // publishing", and the menu entries a session adds are not part of that
+      // answer.
+      { hasSession: false },
+    );
     return { html };
   }
 

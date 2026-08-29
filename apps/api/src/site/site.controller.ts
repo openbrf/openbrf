@@ -66,7 +66,11 @@ export class SiteController {
     this.send(
       reply,
       200,
-      await this.renderer.page(acceptLanguage(request), page),
+      await this.renderer.page(acceptLanguage(request), page, {
+        // The front page is public whoever asks, but the menu around it is
+        // not: a member is shown the entries a member may open.
+        hasSession: await this.hasSession(request),
+      }),
     );
   }
 
@@ -95,7 +99,8 @@ export class SiteController {
       return;
     }
 
-    const page = await this.pages.bySlug(slug, await this.hasSession(request));
+    const hasSession = await this.hasSession(request);
+    const page = await this.pages.bySlug(slug, hasSession);
     if (page === null) {
       await this.sendNotFound(request, reply);
       return;
@@ -104,7 +109,7 @@ export class SiteController {
     this.send(
       reply,
       200,
-      await this.renderer.page(acceptLanguage(request), page),
+      await this.renderer.page(acceptLanguage(request), page, { hasSession }),
     );
   }
 

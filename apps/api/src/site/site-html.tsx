@@ -3,6 +3,7 @@ import { Fragment, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { APP_BASE_PATH } from "../http/app-base-path";
+import type { SiteMenu, SiteMenuLink } from "./menu.service";
 import type { PageBlock, TextRun } from "./page-content";
 import type { SitePage } from "./pages.service";
 
@@ -54,6 +55,17 @@ export interface SiteChrome {
    * answer with the not-found page.
    */
   privacyNoticePath: string | null;
+  /**
+   * The menu, already narrowed to what this visitor may open.
+   *
+   * Narrowed by the caller rather than filtered here, and that is the whole
+   * of the guarantee: this module is handed a list of links and prints it, so
+   * there is no branch in the rendering that could show an entry to the wrong
+   * reader. An anonymous visitor's menu simply does not contain the
+   * member-only page, which is what stops the navigation telling them it
+   * exists.
+   */
+  menu: SiteMenu;
 }
 
 const DOCTYPE = "<!doctype html>";
@@ -182,6 +194,76 @@ function isExternal(url: string): boolean {
   return url.startsWith("http:") || url.startsWith("https:");
 }
 
+/**
+ * The menu the board arranged, as markup.
+ *
+ * A list of links inside a nav, and that is deliberately all it is. There is
+ * no script on the website, so the dropdown is done in the stylesheet: on a
+ * narrow screen the second level simply sits under its parent, indented, and
+ * on a wide one it is hidden and revealed by hover and by keyboard focus
+ * moving into the group. Both shapes leave the parent an ordinary link, which
+ * a control that is both a link and a disclosure cannot be - and a keyboard
+ * reaches every item in either, because the reveal happens as focus lands on
+ * the parent, before the next tab.
+ *
+ * Nothing is filtered here. The list arrives already narrowed to what this
+ * visitor may open, so a member-only page is absent rather than hidden, and
+ * the markup carries no trace of it.
+ *
+ * The nav has no name of its own because there is one on the page: an
+ * accessible name exists to tell several navigations apart, and inventing a
+ * word here would put chrome text on a page whose menu is the board's own.
+ */
+function renderMenu(menu: SiteMenu): ReactElement | null {
+  if (menu.length === 0) {
+    return null;
+  }
+
+  return (
+    <nav className="site-nav">
+      <ul>
+        {menu.map((entry, index) => (
+          <li
+            className={
+              entry.children.length === 0 ? undefined : "site-nav-group"
+            }
+            key={index}
+          >
+            {renderMenuLink(entry)}
+            {entry.children.length === 0 ? null : (
+              <ul className="site-nav-children">
+                {entry.children.map((child, childIndex) => (
+                  <li key={childIndex}>{renderMenuLink(child)}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * One entry, as an anchor and nothing else.
+ *
+ * An external entry is a text anchor and never a picture or a stylesheet
+ * reference: the promise that reading a page discloses a visitor's address to
+ * nobody is about what the browser fetches, and a navigation the visitor
+ * chooses to follow is the one external reference the website allows. It
+ * carries noreferrer beside noopener for the same reason a link in a
+ * paragraph does - the other host is not told where the reader came from.
+ */
+function renderMenuLink(link: SiteMenuLink): ReactElement {
+  return link.external ? (
+    <a href={link.href} rel="noopener noreferrer">
+      {link.label}
+    </a>
+  ) : (
+    <a href={link.href}>{link.label}</a>
+  );
+}
+
 function document(
   chrome: SiteChrome,
   title: string,
@@ -211,6 +293,7 @@ function document(
               <img className="site-logo" src={logoUrl} alt="" />
             )}
             <p className="site-name">{associationName}</p>
+            {renderMenu(chrome.menu)}
           </header>
           <main className="site-main">{main}</main>
           <footer className="site-footer">

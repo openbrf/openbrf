@@ -3,6 +3,8 @@ import { Module } from "@nestjs/common";
 import { MediaModule } from "../media/media.module";
 import { SetupModule } from "../setup/setup.module";
 import { ThemesModule } from "../themes/themes.module";
+import { MenuAdminController } from "./menu-admin.controller";
+import { MenuWriteService } from "./menu-write.service";
 import {
   PagesAdminController,
   SiteImagesController,
@@ -29,8 +31,13 @@ import { SiteRenderer } from "./site-renderer.service";
  */
 @Module({
   imports: [PagesModule, SetupModule, ThemesModule, MediaModule],
-  controllers: [SiteController, PagesAdminController, SiteImagesController],
-  providers: [SiteRenderer, PagesWriteService],
+  controllers: [
+    SiteController,
+    PagesAdminController,
+    SiteImagesController,
+    MenuAdminController,
+  ],
+  providers: [SiteRenderer, PagesWriteService, MenuWriteService],
   exports: [SiteRenderer],
 })
 export class SiteModule {}

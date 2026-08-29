@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { I18nService } from "../i18n/i18n.service";
+import type { SiteMenu } from "./menu.service";
 import type { PageBlock } from "./page-content";
 import type { SitePage } from "./pages.service";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
@@ -28,8 +29,14 @@ beforeAll(async () => {
     css: ":root { --obrf-surface-page: #EFEDE7; }",
     mediaUrl: (mediaFileId) => `/api/media/${mediaFileId}`,
     privacyNoticePath: null,
+    menu: [],
   };
 });
+
+/** Chrome carrying a menu, which the renderer is handed already narrowed. */
+function withMenu(menu: SiteMenu): SiteChrome {
+  return { ...chrome, menu };
+}
 
 function page(blocks: PageBlock[]): SitePage {
   return {
@@ -217,6 +224,98 @@ describe("a rendered page", () => {
     );
 
     expect(html).toContain(':root[data-theme="dark"] { color: red; }');
+  });
+});
+
+describe("the menu", () => {
+  it("is absent entirely when the board has arranged none", () => {
+    expect(renderPage(chrome, PAGE)).not.toContain("<nav");
+  });
+
+  it("prints the entries it was handed, in order", () => {
+    const html = renderPage(
+      withMenu([
+        { label: "Hem", href: "/hem", external: false, children: [] },
+        {
+          label: "Om föreningen",
+          href: "/om-foreningen",
+          external: false,
+          children: [{ label: "Stadgar", href: "/stadgar", external: false }],
+        },
+      ]),
+      PAGE,
+    );
+
+    expect(html).toContain('<a href="/hem">Hem</a>');
+    expect(html).toContain('<a href="/om-foreningen">Om föreningen</a>');
+    expect(html).toContain('<a href="/stadgar">Stadgar</a>');
+    expect(html.indexOf("Hem")).toBeLessThan(html.indexOf("Om föreningen"));
+  });
+
+  it("renders a dropdown as a nested list and nothing else", () => {
+    const html = renderPage(
+      withMenu([
+        {
+          label: "Om föreningen",
+          href: "/om-foreningen",
+          external: false,
+          children: [{ label: "Stadgar", href: "/stadgar", external: false }],
+        },
+      ]),
+      PAGE,
+    );
+
+    // The disclosure is the stylesheet's work. There is nothing here to click
+    // but links, so the menu cannot stop working when a script does not run.
+    expect(html).toContain('class="site-nav-group"');
+    expect(html).toContain('<ul class="site-nav-children">');
+    expect(html).not.toContain("<script");
+    expect(/\son[a-z]+=/i.test(html)).toBe(false);
+    expect(html).not.toContain("<details");
+    expect(html).not.toContain("<button");
+  });
+
+  it("cannot be told to fetch anything from another host", () => {
+    const html = renderPage(
+      withMenu([
+        {
+          label: "Boverket",
+          href: "https://boverket.invalid/bostadsratt",
+          external: true,
+          children: [],
+        },
+      ]),
+      PAGE,
+    );
+
+    /*
+     * An external entry is a text anchor and never a subresource. The promise
+     * that reading a page discloses a visitor's address to nobody is about
+     * what the browser fetches, and a navigation the reader chooses to follow
+     * is the one external reference the website allows.
+     */
+    expect(html).toContain(
+      '<a href="https://boverket.invalid/bostadsratt" rel="noopener noreferrer">Boverket</a>',
+    );
+    expect(/src="https?:/i.test(html)).toBe(false);
+    expect(/<link[^>]+https?:/i.test(html)).toBe(false);
+  });
+
+  it("shows markup a label contains rather than acting on it", () => {
+    const html = renderPage(
+      withMenu([
+        {
+          label: '<img src=x onerror="steal()">',
+          href: "/hem",
+          external: false,
+          children: [],
+        },
+      ]),
+      PAGE,
+    );
+
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img");
   });
 });
 
