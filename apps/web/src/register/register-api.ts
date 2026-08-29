@@ -160,6 +160,47 @@ export interface ReportPostalAddress {
 }
 
 /**
+ * Every audit action an entry on the report can carry.
+ *
+ * Mirrors the AuditAction enum in `apps/api/prisma/schema.prisma`. Spelled out
+ * rather than left as `string` because the report prints this column to the
+ * person it is about: a total map from action to label is what makes an action
+ * added on the API side a build failure here, instead of a system enum printed
+ * onto a document in a language nobody asked for.
+ */
+export type ReportAuditAction =
+  | "PROTECTED_DATA_REVEALED"
+  | "PROTECTED_FLAG_CHANGED"
+  | "MEMBER_REGISTER_EXTRACT_GENERATED"
+  | "APARTMENT_REGISTER_EXTRACT_GENERATED"
+  | "APARTMENT_REGISTER_LIEN_NOTED"
+  | "APARTMENT_REGISTER_LIEN_RELEASED"
+  | "DATA_EXPORTED"
+  | "SYSTEM_ROLE_GRANTED"
+  | "SYSTEM_ROLE_REVOKED"
+  | "PLUGIN_INSTALLED"
+  | "PLUGIN_REMOVED"
+  | "THEME_INSTALLED"
+  | "THEME_ACTIVATED"
+  | "THEME_COMPOSED"
+  | "MEDIA_UPLOADED"
+  | "MEDIA_DELETED"
+  | "MEDIA_ACCESSED"
+  | "INVITATION_SENT"
+  | "INVITATION_ACCEPTED"
+  | "SIGNUP_REQUEST_APPROVED"
+  | "SIGNUP_REQUEST_REJECTED"
+  | "CONSENT_RECORDED"
+  | "CONSENT_WITHDRAWN"
+  | "PAGE_PUBLISHED"
+  | "PAGE_VISIBILITY_CHANGED"
+  | "NEWS_PUBLISHED"
+  | "NEWS_EMAILED"
+  | "LEGAL_HOLD_PLACED"
+  | "LEGAL_HOLD_RELEASED"
+  | "SERVICE_DATA_PURGED";
+
+/**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
  * browser sees it.
  *
@@ -255,7 +296,7 @@ export interface DataSubjectReport {
   auditEntries: {
     entryId: string;
     role: "subject" | "actor";
-    action: string;
+    action: ReportAuditAction;
     at: string;
     targetKind: string | null;
     targetId: string | null;

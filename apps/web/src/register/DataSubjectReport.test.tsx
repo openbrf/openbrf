@@ -217,6 +217,16 @@ describe("what the document prints", () => {
     expect(screen.getByText("Tvist om andrahandsuthyrning")).not.toBeNull();
   });
 
+  it("names the audit action in the reader's own language", async () => {
+    // The document is handed to the person it is about, so the action column
+    // cannot print PROTECTED_DATA_REVEALED at them.
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Skyddade uppgifter visades")).not.toBeNull();
+    expect(screen.queryByText("PROTECTED_DATA_REVEALED")).toBeNull();
+  });
+
   it("says an empty section is empty rather than leaving a gap", async () => {
     // A printed document with a blank under a heading reads as one that lost
     // something. The report's whole job is to be a complete statement of what

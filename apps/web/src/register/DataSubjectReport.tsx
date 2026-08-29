@@ -25,8 +25,10 @@ import {
 import {
   type ConsentScope,
   type DataSubjectReport as Report,
+  type ReportAuditAction,
   fetchDataSubjectReport,
 } from "./register-api";
+import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15).
@@ -81,6 +83,59 @@ const DOCUMENT_AUDIENCE_LABEL = {
   PUBLIC: "documents.audience.public",
 } as const satisfies Record<string, TranslationKey>;
 
+/*
+ * Every audit action, not the ones a resident is likely to have. The report
+ * lists entries both about the person and of what they did, so a board
+ * member's reaches the plugin and theme actions as readily as a resident's
+ * reaches the register ones.
+ *
+ * A total map rather than a lookup with the code as its fallback: this column
+ * is printed and handed to the person the report is about, and a fallback
+ * would put PROTECTED_DATA_REVEALED on that page in English the day somebody
+ * adds an action to the enum. Total, it is a build failure instead.
+ */
+const AUDIT_ACTION_LABEL = {
+  PROTECTED_DATA_REVEALED:
+    "register.person.report.action.PROTECTED_DATA_REVEALED",
+  PROTECTED_FLAG_CHANGED:
+    "register.person.report.action.PROTECTED_FLAG_CHANGED",
+  MEMBER_REGISTER_EXTRACT_GENERATED:
+    "register.person.report.action.MEMBER_REGISTER_EXTRACT_GENERATED",
+  APARTMENT_REGISTER_EXTRACT_GENERATED:
+    "register.person.report.action.APARTMENT_REGISTER_EXTRACT_GENERATED",
+  APARTMENT_REGISTER_LIEN_NOTED:
+    "register.person.report.action.APARTMENT_REGISTER_LIEN_NOTED",
+  APARTMENT_REGISTER_LIEN_RELEASED:
+    "register.person.report.action.APARTMENT_REGISTER_LIEN_RELEASED",
+  DATA_EXPORTED: "register.person.report.action.DATA_EXPORTED",
+  SYSTEM_ROLE_GRANTED: "register.person.report.action.SYSTEM_ROLE_GRANTED",
+  SYSTEM_ROLE_REVOKED: "register.person.report.action.SYSTEM_ROLE_REVOKED",
+  PLUGIN_INSTALLED: "register.person.report.action.PLUGIN_INSTALLED",
+  PLUGIN_REMOVED: "register.person.report.action.PLUGIN_REMOVED",
+  THEME_INSTALLED: "register.person.report.action.THEME_INSTALLED",
+  THEME_ACTIVATED: "register.person.report.action.THEME_ACTIVATED",
+  THEME_COMPOSED: "register.person.report.action.THEME_COMPOSED",
+  MEDIA_UPLOADED: "register.person.report.action.MEDIA_UPLOADED",
+  MEDIA_DELETED: "register.person.report.action.MEDIA_DELETED",
+  MEDIA_ACCESSED: "register.person.report.action.MEDIA_ACCESSED",
+  INVITATION_SENT: "register.person.report.action.INVITATION_SENT",
+  INVITATION_ACCEPTED: "register.person.report.action.INVITATION_ACCEPTED",
+  SIGNUP_REQUEST_APPROVED:
+    "register.person.report.action.SIGNUP_REQUEST_APPROVED",
+  SIGNUP_REQUEST_REJECTED:
+    "register.person.report.action.SIGNUP_REQUEST_REJECTED",
+  CONSENT_RECORDED: "register.person.report.action.CONSENT_RECORDED",
+  CONSENT_WITHDRAWN: "register.person.report.action.CONSENT_WITHDRAWN",
+  PAGE_PUBLISHED: "register.person.report.action.PAGE_PUBLISHED",
+  PAGE_VISIBILITY_CHANGED:
+    "register.person.report.action.PAGE_VISIBILITY_CHANGED",
+  NEWS_PUBLISHED: "register.person.report.action.NEWS_PUBLISHED",
+  NEWS_EMAILED: "register.person.report.action.NEWS_EMAILED",
+  LEGAL_HOLD_PLACED: "register.person.report.action.LEGAL_HOLD_PLACED",
+  LEGAL_HOLD_RELEASED: "register.person.report.action.LEGAL_HOLD_RELEASED",
+  SERVICE_DATA_PURGED: "register.person.report.action.SERVICE_DATA_PURGED",
+} as const satisfies Record<ReportAuditAction, TranslationKey>;
+
 /** The day out of an instant. A document states days, not milliseconds. */
 function day(instant: string | null): string | null {
   return instant === null ? null : instant.slice(0, 10);
@@ -97,6 +152,13 @@ export function DataSubjectReport({
   onClose,
 }: DataSubjectReportProps): ReactElement {
   const { t } = useTranslation();
+  /*
+   * The report replaces the whole view, so the button that opened it unmounts
+   * in the same commit and the browser drops focus to the document body - the
+   * case the hook was written for, and worse here than for a panel, because
+   * there is no register left beside it to fall back to.
+   */
+  const heading = usePanelHeadingFocus();
   const [report, setReport] = useState<Report | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -130,7 +192,7 @@ export function DataSubjectReport({
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">
+          <h1 ref={heading} tabIndex={-1} className="text-display">
             {t("register.person.report.heading")}
           </h1>
           <p className="max-w-2xl text-body text-ink-muted">
@@ -506,7 +568,9 @@ export function DataSubjectReport({
             >
               {report.auditEntries.map((entry) => (
                 <tr key={entry.entryId} className={ROW}>
-                  <td className={DATA_CELL}>{entry.action}</td>
+                  <td className={TEXT_CELL}>
+                    {t(AUDIT_ACTION_LABEL[entry.action])}
+                  </td>
                   <td className={DATA_CELL}>{day(entry.at)}</td>
                   <td className={TEXT_CELL}>
                     {t(`register.person.report.auditRole.${entry.role}`)}
