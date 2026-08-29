@@ -415,13 +415,10 @@ test("a workbook is read to the mapping step", async ({
 }) => {
   await ensureInstance(request);
   await signInAsAdmin(page);
-  await openImport(page);
-
-  // The screen opens on the import that ran last, which is the one above.
-  await expect(
-    page.getByRole("heading", { name: "Importen är klar" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Importera en annan lista" }).click();
+  // Not openImport: the screen jumps to the last run, and whether one exists
+  // depends on whether the test above ran. openUploadStep answers either way,
+  // so this test stands on its own under --grep.
+  await openUploadStep(page);
 
   const workbook = buildWorkbook([
     [...HEADERS],

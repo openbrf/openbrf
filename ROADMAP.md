@@ -162,12 +162,12 @@ locally the application runs from source beside the PostgreSQL that
       dark and follow-the-system; protected personal data staying masked with
       every reveal landing in the audit log; an import mapped column by column,
       previewed row by row - creates, updates, a row matching two people and a
-      row that cannot be read - and then applied to the register; a move-in
+      row that cannot be read - and then written to the member register; a move-in
       that writes the member register and welcomes the person in their own
       language, and a move-out that states the purge date the retention policy
       derives while the register entry stands; and the member register and the
       apartment register as two documents on two screens, printed as documents,
-      with the full apartment register copy recorded in the audit log. The four
+      with the full apartment register extract recorded in the audit log. The four
       that remain are not driven from here: installing a plugin is not built,
       installing a theme is built but has no browser spec, and the last two are
       about continuous integration and the ecosystem repositories rather than

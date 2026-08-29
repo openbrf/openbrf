@@ -30,8 +30,12 @@ While writing a spec:
   fail; use it with `--grep` on a later spec. The first test in
   `03-invitations` fails on a reused instance too, and has to: an invitation
   activates an account for a person who has none, and the two it invites got
-  theirs on the run before. The rest re-runs without colliding, because a person
-  a spec makes for itself is named for the run that made them
+  theirs on the run before. `08-move-in` and `09-statutory-registers` are the
+  same case: the people are named for the run, but the apartments they are
+  moved into are not, and a residency and a transfer cannot be taken back, so
+  on a second run 1401 and 1301 are already held and the grant those specs
+  assert is no longer the first. The rest re-runs without colliding, because a
+  person a spec makes for itself is named for the run that made them
   (`src/identity.ts`).
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
@@ -67,7 +71,7 @@ on the account the later specs sign in as.
 - `src/database.ts` reads the audit log and the statutory member register
   directly. Neither answers the question "what was written" over HTTP - the log
   is evidence rather than a feature, and the register is only ever served as an
-  extract - so a reveal, a copy of the member list and an entry written by a
+  extract - so a reveal, a member register extract and an entry written by a
   move-in or an import are checked against the rows themselves.
 - `src/xlsx.ts` builds a real .xlsx workbook in memory, so the import's upload
   control is exercised with a workbook rather than with a binary fixture nobody
@@ -84,17 +88,17 @@ leaves behind rather than each paying for a stack of their own.
 
 Numbered against the phase 1 exit criteria.
 
-| #   | Criterion                                                                                                                                          | Spec                                    |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| 1   | First boot serves the wizard; completing it creates the housing cooperative, its addresses, its apartments, the email settings and the first admin | `01-first-boot.spec.ts`                 |
-| 2   | Password sign-in, passkey and authenticator app enrolled, sign out, sign in with each                                                              | `02-sign-in-and-second-factors.spec.ts` |
-| 3   | A member, a resident on the same apartment and an external board member with no apartment are invited, activate and sign in; sign-in link by email | `03-invitations-and-magic-link.spec.ts` |
-| 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                | `04-self-signup.spec.ts`                |
-| 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                     | `05-address-book.spec.ts`               |
-| 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                             | `06-protected-personal-data.spec.ts`    |
-| 7   | A member list imported: the columns mapped, every outcome previewed, the register written, and the run found again after a reload                  | `07-import-with-column-mapping.spec.ts` |
-| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry               | `08-move-in-and-move-out.spec.ts`       |
-| 9   | The two statutory registers as separate documents, the printed extract, the audited full copy, and a tenant-owner's own entry                      | `09-statutory-registers.spec.ts`        |
+| #   | Criterion                                                                                                                                           | Spec                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| 1   | First boot serves the wizard; completing it creates the housing cooperative, its addresses, its apartments, the email settings and the first admin  | `01-first-boot.spec.ts`                 |
+| 2   | Password sign-in, passkey and authenticator app enrolled, sign out, sign in with each                                                               | `02-sign-in-and-second-factors.spec.ts` |
+| 3   | A member, a resident on the same apartment and an external board member with no apartment are invited, activate and sign in; sign-in link by email  | `03-invitations-and-magic-link.spec.ts` |
+| 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                 | `04-self-signup.spec.ts`                |
+| 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                      | `05-address-book.spec.ts`               |
+| 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                              | `06-protected-personal-data.spec.ts`    |
+| 7   | A member list imported: the columns mapped, every outcome previewed, the register written, and the run found again after a reload                   | `07-import-with-column-mapping.spec.ts` |
+| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`       |
+| 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`        |
 
 Two specs are not numbered against a criterion.
 
