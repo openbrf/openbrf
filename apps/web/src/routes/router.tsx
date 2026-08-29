@@ -15,6 +15,7 @@ import { DocumentsRoute } from "./DocumentsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
+import { NewsRoute } from "./NewsRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
 import { RequestAccountRoute } from "./RequestAccountRoute";
@@ -275,6 +276,21 @@ const documentsRoute = createRoute({
   component: DocumentsRoute,
 });
 
+/**
+ * The association's news, under the website's own part of the administration.
+ *
+ * Signed in here, site:manage inside the screen and on every route the screen
+ * calls. The path sits under /admin/site because writing news is writing the
+ * association's website, which is the same seat and the same capability as
+ * writing its pages.
+ */
+const newsAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site/news",
+  beforeLoad: requireSession,
+  component: NewsRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -332,6 +348,7 @@ const routeTree = rootRoute.addChildren([
   siteMenuRoute,
   issuesRoute,
   documentsRoute,
+  newsAdminRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,
   importRoute,
