@@ -74,6 +74,19 @@ export function newEditorBlock(kind: InsertableBlock): EditorBlock {
   return { id: nextId(), block: emptyBlock(kind) };
 }
 
+/**
+ * A block that already has content but no identity yet.
+ *
+ * What splitting a paragraph needs. The identity has to come from here rather
+ * than be derived from the block that was split: an identity built by appending
+ * to another one repeats itself as soon as the same paragraph is split twice,
+ * and two blocks sharing one identity is the case this module exists to
+ * prevent.
+ */
+export function newBlockWith(block: PageBlock): EditorBlock {
+  return { id: nextId(), block };
+}
+
 export function emptyBlock(kind: InsertableBlock): PageBlock {
   switch (kind) {
     case "paragraph":

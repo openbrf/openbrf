@@ -33,6 +33,7 @@ import {
   INSERTABLE,
   moveBlock,
   needsPhotoConsent,
+  newBlockWith,
   removeBlock,
   replaceBlock,
   replaceBlockWith,
@@ -429,20 +430,32 @@ export function PageEditor({
                             entries,
                             index,
                             /*
-                             * The first paragraph is the block that was already
-                             * here and keeps its identity: this runs on every
-                             * keystroke, and a new one would remount the editor
-                             * being typed into. Only a paragraph the board made
-                             * by pressing return is a new block.
+                             * Ordinary typing keeps the identity, because this
+                             * runs on every keystroke and a new one would
+                             * remount the editor being typed into.
+                             *
+                             * A return is the other case, and there the block
+                             * keeping its identity is what goes wrong. An
+                             * editor reads its runs once, when it is created,
+                             * so a first block that keeps its identity is not
+                             * remounted and its document still holds every
+                             * paragraph of the split - the text now shows twice
+                             * on the screen, once in the editor that was not
+                             * rebuilt and once in the block split out of it,
+                             * and the next keystroke splits it again. So a
+                             * return rebuilds all of them: each editor is then
+                             * created from the one paragraph it is showing.
                              */
-                            paragraphs.map((runs, at) =>
-                              at === 0
-                                ? withBlock(entry, { type: "paragraph", runs })
-                                : {
-                                    id: `${entry.id}-${String(at)}`,
-                                    block: { type: "paragraph", runs },
-                                  },
-                            ),
+                            paragraphs.length === 1
+                              ? [
+                                  withBlock(entry, {
+                                    type: "paragraph",
+                                    runs: paragraphs[0] ?? [],
+                                  }),
+                                ]
+                              : paragraphs.map((runs) =>
+                                  newBlockWith({ type: "paragraph", runs }),
+                                ),
                           ),
                         );
                       }}

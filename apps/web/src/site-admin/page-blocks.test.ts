@@ -9,6 +9,7 @@ import {
   insertBlock,
   moveBlock,
   needsPhotoConsent,
+  newBlockWith,
   removeBlock,
   replaceBlock,
   replaceBlockWith,
@@ -112,6 +113,32 @@ describe("arranging blocks", () => {
     // The heading below the split keeps its own identity rather than taking on
     // whatever now sits at its old position.
     expect(idsOf(split)[2]).toBe(idsOf(entries)[1]);
+  });
+
+  it("gives a block split out of another an identity of its own", () => {
+    // Splitting the same paragraph twice is the case that matters. An identity
+    // derived from the block being split - its own id with the position
+    // appended - comes out the same both times, and the two blocks then share
+    // a React key: one of the editors is not rebuilt, so it goes on showing
+    // the whole document it was split out of while the block beside it shows
+    // part of the same text again.
+    const paragraph = (text: string): PageBlock => ({
+      type: "paragraph",
+      runs: [{ text }],
+    });
+
+    const entries = editorBlocks([TEXT]);
+    const once = replaceBlockWith(entries, 0, [
+      newBlockWith(paragraph("Ett.")),
+      newBlockWith(paragraph("Tva.")),
+    ]);
+    const twice = replaceBlockWith(once, 0, [
+      newBlockWith(paragraph("Ett.")),
+      newBlockWith(paragraph("Ett och ett halvt.")),
+    ]);
+
+    expect(twice).toHaveLength(3);
+    expect(new Set(idsOf(twice)).size).toBe(twice.length);
   });
 
   it("records an uploaded file on the picture that asked for it", () => {
