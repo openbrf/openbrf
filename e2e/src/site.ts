@@ -1,90 +1,102 @@
 import { randomUUID } from "node:crypto";
 
-import pg from "pg";
+import type { APIRequestContext } from "@playwright/test";
 
 import { stack } from "./stack";
 
 /**
- * Pages on the association's own website, written straight into the database.
+ * Pages on the association's own website, through the endpoints the board uses.
  *
- * The one place in the suite that writes rather than reads, and it needs saying
- * why. There is no endpoint that creates a page: the storage and the public
- * renderer land first, and the board's page editor is a later change. The
- * property under test - that a member-only page is byte-identical to a missing
- * one for anyone not signed in - cannot wait for the editor, because it is the
- * property the editor will be built on top of.
+ * This was SQL until the page editor existed, because there was no endpoint
+ * that created a page and the property under test - that a member-only page is
+ * byte-identical to a missing one for anyone not signed in - could not wait for
+ * one. It writes through the API now, which is the better fixture for the
+ * ordinary reason: a page created the way the board creates one is a page the
+ * publication guardrails have already seen, so a spec cannot arrange a state
+ * the product itself would refuse.
  *
- * The connection is the owner's, like the audit-log reads, and the table is
- * service tier: no append-only trigger, nothing statutory, nothing personal.
- * Deleting these rows again is therefore allowed, unlike everything the suite
- * creates in a register.
+ * Pages are service tier - no append-only trigger, nothing statutory, nothing
+ * personal - so removing them again afterwards is allowed, unlike everything
+ * the suite creates in a register.
  */
 
-async function withClient<T>(
-  use: (client: pg.Client) => Promise<T>,
-): Promise<T> {
-  const client = new pg.Client({ connectionString: stack.databaseUrl });
-  await client.connect();
-  try {
-    return await use(client);
-  } finally {
-    await client.end();
-  }
-}
-
 export interface SitePageFixture {
+  id: string;
   slug: string;
   title: string;
   paragraph: string;
 }
 
+async function expectOk(
+  response: {
+    ok: () => boolean;
+    status: () => number;
+    text: () => Promise<string>;
+  },
+  what: string,
+): Promise<void> {
+  if (!response.ok()) {
+    throw new Error(
+      `${what} answered ${String(response.status())}: ${await response.text()}`,
+    );
+  }
+}
+
 /**
- * Writes one published page and returns what it says.
+ * Writes one page and publishes it, returning what it says.
  *
  * The slug and the text are unique per call so a rerun against a kept stack
- * cannot collide with the row a previous run left, and so an assertion that
+ * cannot collide with the page a previous run left, and so an assertion that
  * finds the text on a page found the page this call wrote.
+ *
+ * The caller's context has to be signed in as somebody holding site:manage.
  */
-export async function insertPage(input: {
-  visibility: "PUBLIC" | "MEMBER";
-  sortOrder?: number;
-}): Promise<SitePageFixture> {
+export async function createSitePage(
+  request: APIRequestContext,
+  input: { visibility: "PUBLIC" | "MEMBER"; publish?: boolean },
+): Promise<SitePageFixture> {
   const suffix = randomUUID().slice(0, 8);
-  const page: SitePageFixture = {
+  const page = {
     slug: `${input.visibility === "MEMBER" ? "medlemssidan" : "sidan"}-${suffix}`,
     title: `Sida ${suffix}`,
     paragraph: `Endast för denna körning, ${suffix}.`,
   };
 
-  await withClient(async (client) => {
-    // Prisma maps the model to "page" but leaves the column names in camel
-    // case, so every one of them has to be quoted.
-    await client.query(
-      `INSERT INTO public.page
-         (id, slug, title, content, visibility, published, "publishedAt",
-          "sortOrder", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4::jsonb, $5::"PageVisibility", true, now(),
-               $6, now(), now())`,
-      [
-        `e2e-${randomUUID()}`,
-        page.slug,
-        page.title,
-        JSON.stringify({
-          version: 1,
-          blocks: [{ type: "paragraph", text: page.paragraph }],
-        }),
-        input.visibility,
-        input.sortOrder ?? 100,
-      ],
-    );
+  const created = await request.post(`${stack.baseUrl}/api/site/pages`, {
+    data: {
+      slug: page.slug,
+      title: page.title,
+      visibility: input.visibility,
+      content: {
+        blocks: [{ type: "paragraph", runs: [{ text: page.paragraph }] }],
+      },
+    },
   });
+  await expectOk(created, "POST /api/site/pages");
+  const { id } = (await created.json()) as { id: string };
 
-  return page;
+  if (input.publish !== false) {
+    const published = await request.post(
+      `${stack.baseUrl}/api/site/pages/${id}/publish`,
+      { data: { published: true } },
+    );
+    await expectOk(published, "POST /api/site/pages/:id/publish");
+  }
+
+  return { id, ...page };
 }
 
 /** Removes a page this suite wrote. Service tier, so this is allowed. */
-export async function deletePage(slug: string): Promise<void> {
-  await withClient(async (client) => {
-    await client.query("DELETE FROM public.page WHERE slug = $1", [slug]);
-  });
+export async function deleteSitePage(
+  request: APIRequestContext,
+  id: string,
+): Promise<void> {
+  const response = await request.delete(
+    `${stack.baseUrl}/api/site/pages/${id}`,
+  );
+  // A page a spec already removed is not a failure of the cleanup after it, so
+  // only a refusal that is not "there is no such page" is reported.
+  if (!response.ok() && response.status() !== 404) {
+    await expectOk(response, "DELETE /api/site/pages/:id");
+  }
 }
