@@ -295,7 +295,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
       account is served rather than shown and refused. The navigation therefore
       cannot become the thing that tells them the page is there. News carries a
       visibility of its own and arrives with the news module below
-- [ ] News on the site, member-only by default, with "email this to the
+- [x] News on the site, member-only by default, with "email this to the
       members" at publish - a toggle, on by default, sent once through the
       job queue in each recipient's language, and never re-sent on edit
 - [x] Publication guardrails, inside the write path rather than beside it: a
