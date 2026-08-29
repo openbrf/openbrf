@@ -1517,6 +1517,38 @@
       "submit": "Send the report",
       "sent": "Thank you. The report has reached the association.",
       "refused": "The report could not be read. Check that you have chosen what it concerns and described the fault, then send it again."
+    },
+    "broker": {
+      "title": "Broker information",
+      "groups": {
+        "property": "The property",
+        "fees": "Fees",
+        "membership": "Membership"
+      },
+      "labels": {
+        "association": "Association",
+        "organizationNumber": "Organisation number",
+        "apartmentCount": "Apartments",
+        "propertyDesignation": "Property designation",
+        "buildYear": "Year built",
+        "land": "The land",
+        "landLeaseholdNote": "Site leasehold terms",
+        "parking": "Parking",
+        "storage": "Storage",
+        "renovations": "Renovations",
+        "feePolicy": "The fee",
+        "feeIncludes": "What the fee covers",
+        "transferFeePolicy": "Transfer fee",
+        "pledgeFeePolicy": "Pledge fee",
+        "legalPersonOwners": "Legal person as a member",
+        "legalPersonOwnersNote": "Conditions"
+      },
+      "values": {
+        "leasehold": "The association holds the land on a site leasehold",
+        "ownedLand": "The association owns the land",
+        "legalPersonsAccepted": "Accepted",
+        "legalPersonsRefused": "Not accepted"
+      }
     }
   },
   "signup": {
@@ -1872,6 +1904,45 @@
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again."
+      }
+    },
+    "facts": {
+      "title": "Association facts",
+      "description": "What a broker and a buyer ask the board about the association. Everything recorded here is published on the broker information page.",
+      "publicNotice": "This page is public. Write nothing here about a named person, and no personal identity number: the page is read by anyone with its address.",
+      "notRecorded": "Not recorded",
+      "unrecordedHint": "A question left unanswered is left off the public page altogether.",
+      "fields": {
+        "propertyDesignation": "Property designation",
+        "buildYear": "Year built",
+        "land": "The land",
+        "landLeaseholdNote": "Site leasehold terms",
+        "landLeaseholdNoteHint": "The ground rent, and when it is next renegotiated.",
+        "parking": "Parking",
+        "storage": "Storage",
+        "renovations": "Renovations",
+        "renovationsHint": "What has been done and what is planned. One per line.",
+        "feePolicy": "The fee",
+        "feePolicyHint": "How the fee is set, and when it was last changed.",
+        "feeIncludes": "What the fee covers",
+        "transferFeePolicy": "Transfer fee",
+        "transferFeePolicyHint": "The amount, and who pays it.",
+        "pledgeFeePolicy": "Pledge fee",
+        "legalPersonOwners": "Legal person as a member",
+        "legalPersonOwnersNote": "Conditions for a legal person"
+      },
+      "land": {
+        "leasehold": "Site leasehold",
+        "owned": "The association owns it"
+      },
+      "legalPersons": {
+        "accepted": "Accepted",
+        "refused": "Not accepted"
+      },
+      "errors": {
+        "buildYear": "A year written as four digits, for example 1948.",
+        "personalIdentityNumber": "One of the answers carries a personal identity number. Take it out: this page is published to anyone who has its address.",
+        "loadFailed": "The facts could not be read just now. Reload the page."
       }
     }
   },

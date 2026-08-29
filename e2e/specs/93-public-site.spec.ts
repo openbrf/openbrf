@@ -239,6 +239,10 @@ test("no spec addresses the client at the instance root", async () => {
     // is the website's own address.
     "26-site-menu.spec.ts",
     "93-public-site.spec.ts",
+    "93-public-site.spec.ts",
+    // The broker information page is at the instance root, like the front
+    // page: it is the association's own website and not the application.
+    "25-broker-page.spec.ts",
   ]);
 
   const offenders: string[] = [];

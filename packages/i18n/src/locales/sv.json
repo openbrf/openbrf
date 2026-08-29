@@ -1517,6 +1517,38 @@
       "submit": "Skicka anmälan",
       "sent": "Tack. Anmälan har nått föreningen.",
       "refused": "Anmälan kunde inte läsas. Kontrollera att du har valt vad det gäller och beskrivit felet, och skicka sedan igen."
+    },
+    "broker": {
+      "title": "Mäklarinformation",
+      "groups": {
+        "property": "Fastigheten",
+        "fees": "Avgifter",
+        "membership": "Medlemskap"
+      },
+      "labels": {
+        "association": "Förening",
+        "organizationNumber": "Organisationsnummer",
+        "apartmentCount": "Antal lägenheter",
+        "propertyDesignation": "Fastighetsbeteckning",
+        "buildYear": "Byggår",
+        "land": "Marken",
+        "landLeaseholdNote": "Villkor för tomträtten",
+        "parking": "Parkering",
+        "storage": "Förråd",
+        "renovations": "Renoveringar",
+        "feePolicy": "Avgiften",
+        "feeIncludes": "Vad avgiften omfattar",
+        "transferFeePolicy": "Överlåtelseavgift",
+        "pledgeFeePolicy": "Pantsättningsavgift",
+        "legalPersonOwners": "Juridisk person som medlem",
+        "legalPersonOwnersNote": "Villkor"
+      },
+      "values": {
+        "leasehold": "Föreningen innehar marken med tomträtt",
+        "ownedLand": "Föreningen äger marken",
+        "legalPersonsAccepted": "Godkänns",
+        "legalPersonsRefused": "Godkänns inte"
+      }
     }
   },
   "signup": {
@@ -1872,6 +1904,45 @@
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen."
+      }
+    },
+    "facts": {
+      "title": "Föreningens uppgifter",
+      "description": "Det en mäklare och en köpare frågar styrelsen om föreningen. Allt som anges här publiceras på sidan med mäklarinformation.",
+      "publicNotice": "Sidan är offentlig. Skriv ingenting här om en namngiven person, och inget personnummer: sidan läses av var och en som har adressen.",
+      "notRecorded": "Inte angivet",
+      "unrecordedHint": "En fråga som lämnas obesvarad utelämnas helt från den offentliga sidan.",
+      "fields": {
+        "propertyDesignation": "Fastighetsbeteckning",
+        "buildYear": "Byggår",
+        "land": "Marken",
+        "landLeaseholdNote": "Villkor för tomträtten",
+        "landLeaseholdNoteHint": "Tomträttsavgälden och när den omförhandlas nästa gång.",
+        "parking": "Parkering",
+        "storage": "Förråd",
+        "renovations": "Renoveringar",
+        "renovationsHint": "Vad som är gjort och vad som är planerat. En per rad.",
+        "feePolicy": "Avgiften",
+        "feePolicyHint": "Hur avgiften bestäms och när den senast ändrades.",
+        "feeIncludes": "Vad avgiften omfattar",
+        "transferFeePolicy": "Överlåtelseavgift",
+        "transferFeePolicyHint": "Beloppet och vem som betalar den.",
+        "pledgeFeePolicy": "Pantsättningsavgift",
+        "legalPersonOwners": "Juridisk person som medlem",
+        "legalPersonOwnersNote": "Villkor för juridisk person"
+      },
+      "land": {
+        "leasehold": "Tomträtt",
+        "owned": "Föreningen äger den"
+      },
+      "legalPersons": {
+        "accepted": "Godkänns",
+        "refused": "Godkänns inte"
+      },
+      "errors": {
+        "buildYear": "Ett årtal med fyra siffror, till exempel 1948.",
+        "personalIdentityNumber": "Något av svaren innehåller ett personnummer. Ta bort det: sidan publiceras för var och en som har adressen.",
+        "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan."
       }
     }
   },

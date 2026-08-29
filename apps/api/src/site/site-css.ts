@@ -251,6 +251,45 @@ body {
   margin: 1.5rem 0 0.5rem;
 }
 
+/*
+ * A generated page states facts as pairs of a name and a value, which is what a
+ * description list is for: a screen reader announces the pair, and a label is
+ * not made a heading for a section that does not exist. Each pair is wrapped in
+ * its own element so the two halves can sit side by side on a wide screen and
+ * stack on a telephone.
+ */
+.site-facts {
+  margin: 0 0 2rem;
+}
+
+.site-facts > div {
+  border-bottom: 1px solid var(--obrf-border-subtle);
+  display: grid;
+  gap: 0.25rem 1.5rem;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+  padding: 0.875rem 0;
+}
+
+@media (max-width: 34rem) {
+  .site-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.site-facts dt {
+  color: var(--obrf-text-secondary);
+  font-weight: 500;
+}
+
+.site-facts dd {
+  margin: 0;
+}
+
+/* The row's own padding closes it; the last line needs no margin of its own. */
+.site-facts dd p:last-child {
+  margin-bottom: 0;
+}
+
 .site-figure {
   margin: 1.5rem 0;
 }

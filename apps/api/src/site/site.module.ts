@@ -5,6 +5,8 @@ import { IssuesModule } from "../issues/issues.module";
 import { MediaModule } from "../media/media.module";
 import { SetupModule } from "../setup/setup.module";
 import { ThemesModule } from "../themes/themes.module";
+import { AssociationFactsController } from "./association-facts.controller";
+import { AssociationFactsService } from "./association-facts.service";
 import { MenuAdminController } from "./menu-admin.controller";
 import { MenuWriteService } from "./menu-write.service";
 import {
@@ -59,12 +61,14 @@ import { SiteRenderer } from "./site-renderer.service";
     PagesAdminController,
     SiteImagesController,
     MenuAdminController,
+    AssociationFactsController,
   ],
   providers: [
     SiteRenderer,
     SiteNewsService,
     PagesWriteService,
     MenuWriteService,
+    AssociationFactsService,
   ],
   exports: [SiteRenderer],
 })

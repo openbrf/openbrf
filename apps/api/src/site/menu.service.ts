@@ -99,8 +99,15 @@ const GENERATED_DESTINATIONS: Readonly<
    * much the members are being told.
    */
   news: { path: "/nyheter", available: () => true },
-  // The generated broker information page, which does not exist yet.
-  broker: { path: "/maklarinfo", available: () => false },
+  /*
+   * The generated broker information page. Available on any claimed instance:
+   * it is public, no setting turns it on, and it stands before the board has
+   * recorded a single fact - it then carries the association's name and its
+   * organisation number, which is what a broker gets from it on day one. There
+   * is nothing here for the menu to wait for, so the entry a board adds is the
+   * entry a visitor is shown.
+   */
+  broker: { path: "/maklarinfo", available: () => true },
   /*
    * The account request form, which is part of the application rather than the
    * website. Offered only while the board takes requests at all, and only to a

@@ -569,6 +569,22 @@ export const SCREENS: readonly Screen[] = [
       text: "Vi städar trapphuset lördagen den 12 oktober klockan tio.",
     },
   },
+  // --- the association's website again ---------------------------------------
+  {
+    /*
+     * The broker information page, generated from the facts the board records.
+     * The walk records none, so this is the page as an association has it the
+     * day the feature ships: its name and its organisation number, and not one
+     * question it has not answered. That state is a decision rather than an
+     * omission, and an image of it is the clearest place to see it.
+     */
+    name: "site-broker",
+    as: "nobody",
+    goto: "/maklarinfo",
+    // The organisation number arrives with the association's own row rather
+    // than with the document, so it is data and not a static heading.
+    waitFor: { text: HOUSING_COOPERATIVE.organizationNumber },
+  },
 
   // --- the menu on the association's own website -----------------------------
   // Last, because arranging the menu changes what the website's front page is
