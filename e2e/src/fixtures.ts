@@ -68,6 +68,22 @@ export const test = base.extend<{
   context: async ({ browser, clientAddress }, use) => {
     const context = await browser.newContext({
       baseURL: stack.baseUrl,
+      /*
+       * The visitor is Swedish, because half the instance answers in the
+       * visitor's own language and the other half does not.
+       *
+       * The application is Swedish whatever this says - the client initialises
+       * i18next with a fixed language and reads no header - but the
+       * association's public website chooses from Accept-Language, and
+       * Playwright's default would make its chrome English while the page's own
+       * text stayed Swedish, because site content is monolingual and stored as
+       * written. A spec reading the website through this context would then be
+       * asserting against a browser that is lying about who is visiting.
+       *
+       * The screenshot capture already sets this, for exactly this reason. This
+       * is the same instrument, on the suite that drives the same site.
+       */
+      locale: "sv-SE",
       extraHTTPHeaders: { "x-forwarded-for": clientAddress },
     });
     await use(context);
