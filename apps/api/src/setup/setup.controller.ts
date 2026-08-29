@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { Public } from "../authorization/public.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { PublicRateLimit } from "../http/public-rate-limit.decorator";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { SetupService, type SetupState } from "./setup.service";
 
@@ -17,6 +18,17 @@ const administratorSchema = z.object({
   password: z.string().min(12).max(200),
   preferredLocale: z.enum(SUPPORTED_LOCALES).optional(),
 });
+
+/**
+ * Ten attempts a minute from one client address.
+ *
+ * The wizard is filled in once, by one person, on an instance nobody has
+ * claimed yet - but a rejected password or address is an attempt too, so the
+ * budget leaves room for the retries that come with typing into a form. The
+ * window this endpoint is open at all is the reason it is limited: whoever
+ * reaches it first becomes the administrator of the instance.
+ */
+const ADMINISTRATOR_ATTEMPTS_PER_MINUTE = 10;
 
 /**
  * The unauthenticated half of first boot.
@@ -47,6 +59,7 @@ export class SetupController {
   }
 
   @Post("administrator")
+  @PublicRateLimit({ perMinute: ADMINISTRATOR_ATTEMPTS_PER_MINUTE })
   async createAdministrator(
     @Body() body: unknown,
   ): Promise<{ personId: string }> {

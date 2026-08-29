@@ -158,8 +158,8 @@ reading before the first member is added rather than after.
 Bind the application to loopback - the default - and terminate TLS in front of
 it. The proxy must set `X-Forwarded-For` itself rather than passing through
 whatever a client sends: the header identifies the client for rate limiting on
-the authentication endpoints, and a client that can set it can spoof its way
-around them.
+the authentication endpoints and on the forms an anonymous visitor can submit,
+and a client that can set it can spoof its way around both.
 
 ## The data volume
 

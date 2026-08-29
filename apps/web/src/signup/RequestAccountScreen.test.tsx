@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
+import { HONEYPOT_FIELD } from "../ui/HoneypotField";
 import { RequestAccountScreen } from "./RequestAccountScreen";
 
 /**
@@ -145,6 +146,51 @@ describe("an open instance", () => {
     expect(screen.getByText(/ersätter den här/i)).toBeTruthy();
     // The form is gone, so nobody sends the same request twice.
     expect(screen.queryByLabelText("Förnamn")).toBeNull();
+  });
+});
+
+describe("the decoy field", () => {
+  it("is not one of the fields a person is asked to fill in", async () => {
+    const { container } = render(<RequestAccountScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Förnamn")).toBeTruthy();
+    });
+
+    // In the page for a script to find, and reachable by nothing that has an
+    // accessible name: every field a person meets on this form has one.
+    expect(
+      container.querySelector(`input[name="${HONEYPOT_FIELD}"]`),
+    ).not.toBeNull();
+    expect(screen.queryByRole("textbox", { name: "" })).toBeNull();
+  });
+
+  it("travels with the submission when something filled it in", async () => {
+    const session = userEvent.setup();
+    const { container } = render(<RequestAccountScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Förnamn")).toBeTruthy();
+    });
+    await fillTheForm(session);
+
+    const decoy = container.querySelector(`input[name="${HONEYPOT_FIELD}"]`);
+    if (decoy === null) {
+      throw new Error("The decoy field was expected to be rendered.");
+    }
+    fireEvent.change(decoy, { target: { value: "https://example.invalid" } });
+    await session.click(screen.getByRole("button", { name: "Skicka ansökan" }));
+
+    // The endpoint decides what to do about it. This screen only has to send
+    // what it was given, which is what lets the server drop the submission
+    // while answering as though it had kept it.
+    await waitFor(() => {
+      expect(submitSignupRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          [HONEYPOT_FIELD]: "https://example.invalid",
+        }),
+      );
+    });
   });
 });
 
