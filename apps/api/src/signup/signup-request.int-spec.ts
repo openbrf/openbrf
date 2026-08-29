@@ -371,3 +371,69 @@ describe("approval", () => {
     });
   });
 });
+
+/**
+ * The decoy field on the public form.
+ *
+ * A script that fills in every input it finds fills that one too. What matters
+ * is the pair: nothing reaches the board's queue, and the answer is the answer a
+ * stored request gets - so nothing in it tells the script which field gave it
+ * away, or that the form has a decoy in it at all.
+ */
+describe("a submission that filled the honeypot", () => {
+  /** Nobody else's number, so an empty count means nothing was written. */
+  const BOT_APARTMENT = "1106";
+
+  it("is answered exactly as a stored one is, and stored nowhere", async () => {
+    await setSelfSignup(true);
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/signup-requests/submit",
+      payload: {
+        ...submission(),
+        email: `bot-${suffix}@exempel.se`,
+        claimedApartmentNumber: BOT_APARTMENT,
+        website: "https://example.invalid",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json() as { id: string };
+    // The same shape, down to the one key: a body missing a field, or carrying
+    // an extra one, is the tell this exists to avoid.
+    expect(Object.keys(body)).toEqual(["id"]);
+    expect(body.id).not.toBe("");
+
+    expect(
+      await prisma.signupRequest.count({
+        where: { claimedApartmentNumber: BOT_APARTMENT },
+      }),
+    ).toBe(0);
+  });
+
+  it("is answered the same way on an instance that is not accepting requests", async () => {
+    // Deliberate: the drop is decided before the toggle is read, so a script
+    // cannot learn from a honeypot submission whether this association's form
+    // is open. A person is still told, on the screen and by the endpoint.
+    await setSelfSignup(false);
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/signup-requests/submit",
+      payload: {
+        ...submission(),
+        email: `bot-closed-${suffix}@exempel.se`,
+        claimedApartmentNumber: BOT_APARTMENT,
+        website: "https://example.invalid",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(
+      await prisma.signupRequest.count({
+        where: { claimedApartmentNumber: BOT_APARTMENT },
+      }),
+    ).toBe(0);
+  });
+});
