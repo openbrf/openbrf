@@ -4,8 +4,8 @@
 "@openbrf/i18n": minor
 ---
 
-Add news: what the board writes to the house, and the mailing that goes out
-once.
+Add news: what the board writes to the house, and the news mailing that goes
+out at most once.
 
 A news item is the association's own writing - a headline, an address under
 `/nyheter`, and text in paragraphs with subheadings. It is written as a draft
@@ -18,17 +18,20 @@ document, byte for byte, that an address with nothing behind it gets - so a
 visitor with no account cannot learn that the association has written anything
 there at all.
 
-Publishing offers to email the members, on by default, and that mail goes out
-exactly once. The offer is made once and then it is gone: publishing claims the
-mailing in the same transaction that writes down who it is for, one row per
-member with the pair held unique, and the worker claims each of those rows
-again before it hands a message to a mail server. Editing a published item does
-not touch any of it, so correcting a spelling mistake in a notice cannot put
-that notice in anybody's mailbox a second time - not because anyone remembered
-to check, but because the ordinary save writes three columns and none of them
-is the one that decides. Two board members publishing at the same moment
-produce one mailing between them, and a job that is retried after a restart
-carries on with the recipients it never reached.
+Publishing offers to email the members, on by default, and no member is ever
+written to twice. The offer is made once and then it is gone: publishing claims
+the news mailing in the same transaction that writes down who it is for, one
+row per member with the pair held unique, and the worker claims each of those
+rows again before it hands a message to a mail server. Editing a published item
+does not touch any of it, so correcting a spelling mistake in a notice cannot
+put that notice in anybody's mailbox a second time - not because anyone
+remembered to check, but because the ordinary save writes three columns and
+none of them is the one that decides. Two board members publishing at the same
+moment produce one mailing between them, and a job retried after a restart
+carries on with the rows it had not yet claimed. Claiming before the send is
+what makes a second copy impossible, and the cost is the other way round: a
+worker lost between the claim and the mail server takes that one recipient's
+copy with it.
 
 The recipients are the members, with an address to write to. Not every resident
 is a member, and the mailing follows the tenant-ownership rather than the front
@@ -62,8 +65,12 @@ items they may not.
 The publication guardrails apply here as they do to a page. A personal identity
 number refuses the publication and says which block and which position it is
 in, never the number itself, and a body may hold text and nothing else: a news
-item is an announcement, not a page layout. Every publication and every mailing
-is written to the audit log in the same transaction as the change it records.
-Where an instance has no mail server, the item is published all the same and
-the board's screen says exactly that - what failed was the post, not the
-notice.
+item is an announcement, not a page layout. Publishing one in a public notice
+would put a personnummer in front of anybody who found the address - a
+personuppgiftsincident the association would have to assess and, in the
+ordinary case, report to Integritetsskyddsmyndigheten within 72 hours. That is
+why the guard sits in the write path rather than in whoever is proof-reading.
+Every publication and every news mailing is written to the audit log in the
+same transaction as the change it records. Where an instance has no mail
+server, the item is published all the same and the board's screen says exactly
+that - what failed was the post, not the notice.

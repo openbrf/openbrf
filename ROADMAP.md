@@ -296,8 +296,9 @@ optimisation is a non-goal: page titles, and no sitemap or metadata machinery.
       cannot become the thing that tells them the page is there. News carries a
       visibility of its own and arrives with the news module below
 - [x] News on the site, member-only by default, with "email this to the
-      members" at publish - a toggle, on by default, sent once through the
-      job queue in each recipient's language, and never re-sent on edit
+      members" at publish - a toggle, on by default, sent at most once
+      through the job queue in each recipient's language, and never re-sent
+      on edit
 - [x] Publication guardrails, inside the write path rather than beside it: a
       picture reaches a published page only once the board has confirmed the
       recorded publication consents of everyone who can be recognised in it, a
