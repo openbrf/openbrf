@@ -435,6 +435,80 @@ export async function moveOut(
   return (await response.json()) as MoveOutResult;
 }
 
+export type IssueTypeRow = {
+  readonly id: string;
+  readonly name: string;
+  readonly audience: "NON_MEMBER" | "MEMBER" | "BOARD";
+  readonly active: boolean;
+  readonly reportCount: number;
+};
+
+export async function listIssueTypes(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly IssueTypeRow[]> {
+  const response = await request.get(`${baseUrl}/api/issue-types`);
+  await expectOk(response, "GET /api/issue-types");
+  return (await response.json()) as readonly IssueTypeRow[];
+}
+
+/**
+ * Adds an issue type.
+ *
+ * Here rather than driven through the settings screen because the specs that
+ * need one are about reporting and triage: a type has to exist before a
+ * resident has anything to report under, and the screen that creates it has its
+ * own coverage.
+ */
+export async function createIssueType(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    name: string;
+    audience: "NON_MEMBER" | "MEMBER" | "BOARD";
+    sortOrder?: number;
+  },
+): Promise<IssueTypeRow> {
+  const response = await request.post(`${baseUrl}/api/issue-types`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/issue-types");
+  return (await response.json()) as IssueTypeRow;
+}
+
+/** Whether the association's website carries an issue report form. */
+export async function setPublicIssueReporting(
+  request: APIRequestContext,
+  baseUrl: string,
+  publicFormEnabled: boolean,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/settings/issue-reporting`,
+    {
+      data: { publicFormEnabled },
+    },
+  );
+  await expectOk(response, "PUT /api/settings/issue-reporting");
+}
+
+export type QueuedIssueRow = {
+  readonly id: string;
+  readonly status: "NEW" | "IN_PROGRESS" | "DONE";
+  readonly typeName: string;
+  readonly description: string;
+  readonly photos: readonly { readonly url: string }[];
+  readonly reporter: { readonly kind: string; readonly name?: string };
+};
+
+export async function listIssueQueue(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly QueuedIssueRow[]> {
+  const response = await request.get(`${baseUrl}/api/issue-queue`);
+  await expectOk(response, "GET /api/issue-queue");
+  return (await response.json()) as readonly QueuedIssueRow[];
+}
+
 /**
  * The id of the person the address book lists under exactly this name.
  *

@@ -6,7 +6,7 @@ import type { Viewer } from "../api/instance";
 import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
-import { NAV_ITEMS } from "../shell/nav-items";
+import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
 import { ThemesScreen } from "../themes/ThemesScreen";
 import { Notice } from "../ui/Notice";
@@ -52,7 +52,7 @@ export function ThemesRoute(): ReactElement {
           ? undefined
           : `${viewer.firstName} ${viewer.lastName}`.trim()
       }
-      navItems={NAV_ITEMS}
+      navItems={navItemsFor(viewer?.capabilities)}
       onSignOut={() => {
         void authClient.signOut({
           fetchOptions: {

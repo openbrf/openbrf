@@ -4,6 +4,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -55,6 +56,7 @@ export class InvitationService {
     private readonly auth: AuthService,
     private readonly mail: MailService,
     private readonly encryption: FieldEncryptionService,
+    private readonly audit: AuditLogService,
   ) {}
 
   /**
@@ -122,6 +124,24 @@ export class InvitationService {
           invitedById: input.invitedByPersonId,
         },
       });
+
+      /*
+       * In the transaction that issues the link, not after the mail is
+       * accepted. What is recorded is that an invitation now exists for this
+       * person - which is exactly what the row says - so the two commit
+       * together. A mail server that refuses the message afterwards leaves an
+       * outstanding invitation and an entry that says so, and the board's
+       * answer to that is to send it again.
+       */
+      await this.audit.record(
+        {
+          action: "INVITATION_SENT",
+          actorPersonId: input.invitedByPersonId,
+          targetPersonId: person.id,
+          context: { expiresAt: expiresAt.toISOString() },
+        },
+        tx,
+      );
     });
 
     await this.mail.send({
@@ -142,11 +162,12 @@ export class InvitationService {
   /**
    * Activates the account for a valid invitation token.
    *
-   * The invitation is consumed in the same transaction as nothing else: account
-   * creation goes through Better Auth, which owns its own tables, so the two
-   * steps are ordered rather than atomic. The order matters - create the
-   * account first, mark the invitation accepted second - because a failure
-   * between them leaves a usable invitation rather than an unreachable account.
+   * The invitation is consumed in the same transaction as its audit entry and
+   * nothing else: account creation goes through Better Auth, which owns its own
+   * tables, so those two steps are ordered rather than atomic. The order
+   * matters - create the account first, mark the invitation accepted second -
+   * because a failure between them leaves a usable invitation rather than an
+   * unreachable account.
    *
    * The email address the account was created for is returned so the caller can
    * sign in with it straight away. See the note on the controller for why
@@ -211,9 +232,22 @@ export class InvitationService {
       password: input.password,
     });
 
-    await this.prisma.invitation.update({
-      where: { id: invitation.id },
-      data: { acceptedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: { acceptedAt: new Date() },
+      });
+
+      // The person acts on themselves here: the token is what identifies them,
+      // and there is no session yet for the guard to have resolved.
+      await this.audit.record(
+        {
+          action: "INVITATION_ACCEPTED",
+          actorPersonId: invitation.personId,
+          targetPersonId: invitation.personId,
+        },
+        tx,
+      );
     });
 
     this.logger.log(`Person ${invitation.personId} activated their account`);

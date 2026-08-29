@@ -65,12 +65,16 @@ export async function apiRequest<T>(
 }
 
 /**
- * Sends one file.
+ * Sends one file, with the fields that describe it.
  *
  * A multipart body rather than JSON, so the bytes travel as bytes: encoding a
  * file into JSON would inflate it by a third and force the server to hold the
  * whole thing before it could tell how big it was. The content type is left to
  * the browser, which has to append the multipart boundary it generated.
+ *
+ * The fields go first and the file last. A multipart body is parsed in order
+ * and the server stops at the file, so a field written after it is one the
+ * handler is not guaranteed to have seen by the time it reads them.
  */
 export async function apiUpload<T>(
   method: "POST" | "PUT",
@@ -79,12 +83,10 @@ export async function apiUpload<T>(
   fields: Readonly<Record<string, string>> = {},
 ): Promise<ApiResult<T>> {
   const form = new FormData();
-  // The file part goes first: the server reads one file and stops, and a field
-  // after it is still available to the parser.
-  form.append("file", file);
   for (const [name, value] of Object.entries(fields)) {
     form.append(name, value);
   }
+  form.append("file", file);
 
   return send<T>(path, { method, body: form, credentials: "same-origin" });
 }

@@ -124,6 +124,8 @@ export interface InstanceSettings {
   smtp: SmtpSettingsView;
   retention: { daysAfterMoveOut: number };
   selfSignup: { enabled: boolean };
+  /** Whether the association's website carries an issue report form. */
+  issueReporting: { publicFormEnabled: boolean };
 }
 
 export interface HousingCooperativeInput {
@@ -204,6 +206,9 @@ export class SettingsService {
       },
       retention: { daysAfterMoveOut: association.retentionDaysAfterMoveOut },
       selfSignup: { enabled: association.selfSignupEnabled },
+      issueReporting: {
+        publicFormEnabled: association.issueReportingPublic,
+      },
     };
   }
 
@@ -539,6 +544,31 @@ export class SettingsService {
       `Self-signup ${association.selfSignupEnabled ? "enabled" : "disabled"}`,
     );
     return { enabled: association.selfSignupEnabled };
+  }
+
+  /**
+   * Whether the association's website carries an issue report form.
+   *
+   * On by default, unlike self-signup, because the two forms produce different
+   * things: a sign-up request asks for an account on an instance holding a
+   * statutory register, while an issue report produces a maintenance ticket and
+   * nothing else. Switching this off does not hide the form - the issues module
+   * refuses the anonymous audience outright, so the form stops existing.
+   */
+  async updateIssueReporting(input: {
+    publicFormEnabled: boolean;
+  }): Promise<{ publicFormEnabled: boolean }> {
+    await this.requireAssociation();
+
+    const association = await this.prisma.association.update({
+      where: { id: 1 },
+      data: { issueReportingPublic: input.publicFormEnabled },
+    });
+
+    this.logger.log(
+      `Public issue reporting ${association.issueReportingPublic ? "enabled" : "disabled"}`,
+    );
+    return { publicFormEnabled: association.issueReportingPublic };
   }
 
   /** The signed-in person's own preferences. Reached with self:manage. */

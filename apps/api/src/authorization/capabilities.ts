@@ -48,8 +48,36 @@ export const CAPABILITIES = [
    * excluded from this view entirely.
    */
   "residentDirectory:read",
-  /** Handle issue reports. Granted to the property manager; unused in phase 1. */
+  /** Handle issue reports. Granted to the property manager and to the board. */
   "issues:handle",
+  /**
+   * Report an issue from inside the application, and read one's own reports.
+   *
+   * Deliberately not granted to the property manager: they handle the
+   * association's issues, they do not live in the building.
+   */
+  "issues:report",
+  /**
+   * Configure the issue types and the audience each one is offered to.
+   *
+   * A board decision rather than an administrator's, like the retention policy
+   * and the self-signup toggle: which problems residents are asked to sort
+   * their reports into is the board's own vocabulary for its building.
+   */
+  "issues:configure",
+  /**
+   * Put documents into the association's archive, and decide who each one is
+   * for.
+   *
+   * A board activity no existing capability describes: association:manage is
+   * the admin's, and addressBook:write is the register's. There is no
+   * separate capability for reading - a document's audience is its whole
+   * access rule - but this name is what identifies the board within that
+   * rule, so it decides the board's shelf as well as the writing, and it is
+   * what opens a file kept to the members for whoever manages the archive
+   * without holding a residency of their own.
+   */
+  "documents:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -79,6 +107,10 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "signupRequest:decide",
   "self:manage",
   "residentDirectory:read",
+  "issues:handle",
+  "issues:report",
+  "issues:configure",
+  "documents:manage",
 ];
 
 /**
@@ -94,6 +126,7 @@ const PROPERTY_MANAGER_CAPABILITIES: readonly Capability[] = [
 const RESIDENT_CAPABILITIES: readonly Capability[] = [
   "self:manage",
   "residentDirectory:read",
+  "issues:report",
 ];
 
 /**

@@ -12,6 +12,16 @@ export type {
   ApartmentNumberRow,
   GenerateApartmentNumbersInput,
 } from "./apartment-numbering.ts";
+export {
+  isValidPersonalIdentityNumber,
+  normalizePersonalIdentityNumber,
+  parsePersonalIdentityNumber,
+  scanForPersonalIdentityNumbers,
+} from "./personal-identity-number.ts";
+export type {
+  PersonalIdentityNumberMatch,
+  PersonalIdentityNumberParts,
+} from "./personal-identity-number.ts";
 
 /** Placeholder version constant until the first release is cut via changesets. */
 export const VERSION = "0.0.0";

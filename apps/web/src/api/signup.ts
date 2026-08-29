@@ -34,6 +34,16 @@ export interface SignupSubmission {
    */
   claimedAddress: string;
   claimedApartmentNumber: string;
+  /**
+   * The decoy field, sent only when something filled it in.
+   *
+   * No person can reach it - it is hidden from the screen, from the
+   * accessibility tree and from the tab order - so a submission carrying it was
+   * made by a script, and the endpoint drops it while answering exactly as it
+   * answers a real one. Omitted when blank, like the phone number above, so an
+   * ordinary submission carries nothing it does not mean.
+   */
+  website?: string;
 }
 
 export interface PendingSignupRequest {

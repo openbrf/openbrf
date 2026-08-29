@@ -32,6 +32,21 @@ const board = {
   email: `su-board-${suffix}@exempel.se`,
 };
 const applicantEmail = `applicant-${suffix}@exempel.se`;
+/*
+ * The claim the queries below select on, made run-scoped like every other
+ * fixture value here. Integration tests share one database, so a fixed number
+ * would let a concurrent run's pending request answer findFirstOrThrow, and
+ * would let this suite's cleanup delete that run's rows on the way out.
+ */
+const claimedApartmentNumber = `1105-${suffix}`;
+/*
+ * The honeypot block's claim, run-scoped for the same reason and one more: its
+ * assertion is that NO request carries this number, so a fixed value would be
+ * answered by any row another run left behind - including one this suite itself
+ * left behind on the day the honeypot was broken, which would then fail the
+ * test that proves it fixed.
+ */
+const botApartmentNumber = `1106-${suffix}`;
 let apartmentId: string;
 
 let ipCounter = 0;
@@ -82,7 +97,7 @@ const submission = () => ({
   lastName: "Ny",
   email: applicantEmail,
   claimedAddress: "Storgatan 12",
-  claimedApartmentNumber: "1105",
+  claimedApartmentNumber,
 });
 
 /**
@@ -166,6 +181,17 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  /*
+   * The audit entries the decisions wrote are append-only and stay.
+   *
+   * Removing them would mean disabling audit_log_entry_append_only, and that
+   * ALTER is table-wide rather than session-scoped: it turns the statutory
+   * guard off for every connection, including an overlapping run of these
+   * suites, which runSuffix exists to make safe. Only the audit log's own
+   * suites take that risk, because there the guard is the thing under test.
+   * Nothing here depends on the rows being gone either - every assertion below
+   * selects on a per-request id.
+   */
   const applicantIndex = await encryption.computeIndex(
     "person.email",
     applicantEmail,
@@ -177,7 +203,11 @@ afterAll(async () => {
   const personIds = [board.personId, ...applicants.map((p) => p.id)];
 
   await prisma.signupRequest.deleteMany({
-    where: { claimedApartmentNumber: "1105" },
+    where: {
+      claimedApartmentNumber: {
+        in: [claimedApartmentNumber, botApartmentNumber],
+      },
+    },
   });
   await prisma.invitation.deleteMany({
     where: { personId: { in: personIds } },
@@ -280,7 +310,7 @@ describe("a pending request", () => {
     });
 
     const pending = await prisma.signupRequest.count({
-      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+      where: { claimedApartmentNumber, status: "PENDING" },
     });
     expect(pending).toBe(1);
   });
@@ -313,7 +343,7 @@ describe("approval", () => {
 
   it("creates the person and residency, and invites them", async () => {
     const pending = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+      where: { claimedApartmentNumber, status: "PENDING" },
     });
 
     const result = await requests.approve({
@@ -337,7 +367,7 @@ describe("approval", () => {
 
   it("refuses to decide the same request twice", async () => {
     const decided = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "APPROVED" },
+      where: { claimedApartmentNumber, status: "APPROVED" },
     });
 
     await expect(
@@ -369,5 +399,157 @@ describe("approval", () => {
       decidedByPersonId: board.personId,
       reason: "cleanup",
     });
+  });
+});
+
+/**
+ * What a decision leaves behind.
+ *
+ * A self-signup decision is a board act on a person's access to the
+ * association's data, so it is recorded like every other one. The entry has to
+ * commit with the decision it records: a board member who loses the race for a
+ * request finds it already decided and writes nothing, and the log must not
+ * end up claiming two people decided one request.
+ */
+describe("the audit trail of a decision", () => {
+  beforeAll(ensurePendingRequest);
+
+  it("records an approval, naming the request and the person it produced", async () => {
+    const pending = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber, status: "PENDING" },
+    });
+
+    const result = await requests.approve({
+      requestId: pending.id,
+      apartmentId,
+      decidedByPersonId: board.personId,
+    });
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "SIGNUP_REQUEST_APPROVED",
+        targetKind: "signupRequest",
+        targetId: pending.id,
+      },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.targetPersonId).toBe(result.personId);
+    expect(entry?.context).toMatchObject({ apartmentId, role: "RESIDENT" });
+  }, 60_000);
+
+  it("records a rejection, and names no person because none was created", async () => {
+    await ensurePendingRequest();
+    const pending = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber, status: "PENDING" },
+    });
+
+    await requests.reject({
+      requestId: pending.id,
+      decidedByPersonId: board.personId,
+      reason: "Bor inte i föreningen",
+    });
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "SIGNUP_REQUEST_REJECTED",
+        targetKind: "signupRequest",
+        targetId: pending.id,
+      },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(board.personId);
+    // The applicant is not in the register, so there is no person to name.
+    expect(entry?.targetPersonId).toBeNull();
+    expect(entry?.context).toMatchObject({ reason: "Bor inte i föreningen" });
+  });
+
+  it("writes nothing for a decision that was refused", async () => {
+    const decided = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber, status: "REJECTED" },
+      orderBy: [{ decidedAt: "desc" }],
+    });
+
+    await expect(
+      requests.reject({
+        requestId: decided.id,
+        decidedByPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "already-decided" });
+
+    // One entry, not two: the refusal rolled its transaction back.
+    const entries = await prisma.auditLogEntry.count({
+      where: {
+        action: "SIGNUP_REQUEST_REJECTED",
+        targetKind: "signupRequest",
+        targetId: decided.id,
+      },
+    });
+    expect(entries).toBe(1);
+  });
+});
+
+/**
+ * The decoy field on the public form.
+ *
+ * A script that fills in every input it finds fills that one too. What matters
+ * is the pair: nothing reaches the board's queue, and the answer is the answer a
+ * stored request gets - so nothing in it tells the script which field gave it
+ * away, or that the form has a decoy in it at all.
+ */
+describe("a submission that filled the honeypot", () => {
+  it("is answered exactly as a stored one is, and stored nowhere", async () => {
+    await setSelfSignup(true);
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/signup-requests/submit",
+      payload: {
+        ...submission(),
+        email: `bot-${suffix}@exempel.se`,
+        claimedApartmentNumber: botApartmentNumber,
+        website: "https://example.invalid",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json() as { id: string };
+    // The same shape, down to the one key: a body missing a field, or carrying
+    // an extra one, is the tell this exists to avoid.
+    expect(Object.keys(body)).toEqual(["id"]);
+    expect(body.id).not.toBe("");
+
+    expect(
+      await prisma.signupRequest.count({
+        where: { claimedApartmentNumber: botApartmentNumber },
+      }),
+    ).toBe(0);
+  });
+
+  it("is answered the same way on an instance that is not accepting requests", async () => {
+    // Deliberate: the drop is decided before the toggle is read, so a script
+    // cannot learn from a honeypot submission whether this association's form
+    // is open. A person is still told, on the screen and by the endpoint.
+    await setSelfSignup(false);
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/signup-requests/submit",
+      payload: {
+        ...submission(),
+        email: `bot-closed-${suffix}@exempel.se`,
+        claimedApartmentNumber: botApartmentNumber,
+        website: "https://example.invalid",
+      },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(
+      await prisma.signupRequest.count({
+        where: { claimedApartmentNumber: botApartmentNumber },
+      }),
+    ).toBe(0);
   });
 });

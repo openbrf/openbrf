@@ -184,7 +184,25 @@
       "inviteNoEmail": "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
       "inviteMailNotConfigured": "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
       "invitationExpiresAt": "Inbjudan giltig till",
-      "invitationExpired": "Inbjudan har gått ut. Skicka en ny."
+      "invitationExpired": "Inbjudan har gått ut. Skicka en ny.",
+      "publicationConsent": "Publiceringssamtycke",
+      "publicationConsentExplained": "Vad personen har sagt till styrelsen får visas om hen på föreningens webbplats. Antecknas här; ett återkallande behåller datumen samtycket gällde mellan.",
+      "consentScope": {
+        "photo": "Fotografier",
+        "nameOnSite": "Namn på webbplatsen",
+        "boardRoster": "Den publicerade styrelselistan"
+      },
+      "consentGranted": "Samtycke lämnat",
+      "consentWithdrawn": "Samtycke återkallat",
+      "consentNever": "Inte tillfrågad",
+      "consentGrantedOn": "Lämnat",
+      "consentWithdrawnOn": "Återkallat",
+      "consentRecord": "Anteckna samtycke",
+      "consentWithdraw": "Återkalla samtycke",
+      "consentRecordLabel": "Anteckna samtycke för {{scope}}",
+      "consentWithdrawLabel": "Återkalla samtycke för {{scope}}",
+      "consentWorking": "Sparar",
+      "consentFailed": "Samtycket kunde inte ändras. Försök igen."
     },
     "reveal": {
       "action": "Visa",
@@ -571,6 +589,37 @@
         "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
         "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
       }
+    },
+    "issueTypes": {
+      "title": "Ärendetyper",
+      "description": "De kategorier som de boende sorterar sina anmälningar i, och vem varje typ erbjuds. En typ för icke-medlem visas i formuläret på webbplatsen, en medlemstyp inne i programmet och en styrelsetyp bara för den som hanterar ärenden.",
+      "loading": "Hämtar typerna...",
+      "loadFailed": "Ärendetyperna kunde inte läsas just nu. Ladda om sidan.",
+      "empty": "Inga ärendetyper är inlagda. Innan det finns en typ har en boende inget att anmäla.",
+      "name": "Namn",
+      "namePlaceholder": "Vatten, värme, tvättstuga...",
+      "audience": "Erbjuds",
+      "active": "Erbjuds för nya anmälningar",
+      "sortOrder": "Ordning",
+      "add": "Lägg till typ",
+      "adding": "Lägger till...",
+      "save": "Spara",
+      "saving": "Sparar...",
+      "remove": "Ta bort",
+      "removing": "Tar bort...",
+      "reportCount": "Anmälningar: {{count}}",
+      "errors": {
+        "typeInUse": "Det finns anmälningar på den här typen, så den kan inte tas bort. Stäng av den i stället, så fortsätter anmälningarna berätta vad de gällde.",
+        "typeNotFound": "Den typen finns inte längre. Listan har lästs om.",
+        "unknown": "Typen kunde inte sparas just nu. Försök igen."
+      }
+    },
+    "issueReporting": {
+      "title": "Felanmälan från webbplatsen",
+      "description": "När det här är på har föreningens webbplats ett formulär där vem som helst kan anmäla ett fel i huset. Där erbjuds bara typerna för icke-medlem, och anmälningar därifrån tar inga foton och skapar inget konto.",
+      "enabled": "Ta emot felanmälan från webbplatsen",
+      "stateOn": "På: formuläret finns på webbplatsen och erbjuder typerna för icke-medlem.",
+      "stateOff": "Av: det finns inget formulär på webbplatsen, och anmälningar kommer bara från inloggade boende."
     }
   },
   "plugins": {
@@ -1290,6 +1339,160 @@
       "expired": "Inbjudan har gått ut. Be styrelsen skicka en ny inbjudan.",
       "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
       "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
+    }
+  },
+  "issues": {
+    "navLabel": "Ärenden",
+    "title": "Ärenden",
+    "intro": "Anmäl ett fel i huset och följ vad som händer med det.",
+    "loading": "Hämtar ärendena...",
+    "loadFailed": "Ärendena kunde inte läsas just nu. Ladda om sidan.",
+    "status": {
+      "NEW": "Ny",
+      "IN_PROGRESS": "Pågår",
+      "DONE": "Klar"
+    },
+    "audience": {
+      "NON_MEMBER": "Icke-medlem",
+      "MEMBER": "Medlem",
+      "BOARD": "Styrelsen, internt"
+    },
+    "report": {
+      "title": "Gör en felanmälan",
+      "description": "Styrelsen och förvaltaren läser det här. Ingenting av det publiceras.",
+      "type": "Vad gäller det",
+      "typePlaceholder": "Välj en typ",
+      "noTypes": "Styrelsen har inte lagt in några ärendetyper än, så det finns inget att anmäla under. Be dem lägga till en under Inställningar.",
+      "apartment": "Lägenhet",
+      "apartmentNone": "Inte i en lägenhet",
+      "location": "Var i huset",
+      "locationHint": "Cykelrummet, hissen i port 14, gården.",
+      "descriptionLabel": "Vad har hänt",
+      "sensitiveWarning": "Skriv bara det som behövs för att felet ska kunna åtgärdas. Uppgifter om hälsa, och sådant som rör en granne, läses av alla som hanterar ärenden här - också av en extern förvaltare.",
+      "submit": "Skicka anmälan",
+      "submitting": "Skickar...",
+      "submitted": "Anmälan är skickad och ligger nu i kön.",
+      "errors": {
+        "typeNotFound": "Den typen kan du inte anmäla under. Listan har lästs om.",
+        "apartmentNotFound": "Den lägenheten är inte din. Välj igen.",
+        "unknown": "Anmälan kunde inte skickas just nu. Försök igen."
+      }
+    },
+    "photos": {
+      "title": "Foton",
+      "hint": "Ett foto säger mer än ett stycke text. Det lagras på den här instansen och publiceras aldrig.",
+      "add": "Lägg till foto",
+      "adding": "Laddar upp...",
+      "none": "Inga foton.",
+      "limit": "Anmälan har redan så många foton som den får ha.",
+      "openFailed": "De här fotona kunde inte läggas till: {{names}}. Allt annat i anmälan skickades.",
+      "alt": "Foto på den här anmälan: {{name}}",
+      "remove": "Ta bort"
+    },
+    "mine": {
+      "title": "Dina anmälningar",
+      "description": "Det du har anmält, senaste först. Bara du och den som hanterar ärenden kan läsa dem.",
+      "empty": "Du har inte anmält något.",
+      "reportedOn": "Anmäld",
+      "apartment": "Lägenhet",
+      "place": "Var",
+      "noApartment": "Anmälan gäller ingen lägenhet.",
+      "noPlace": "Ingen plats i huset angavs."
+    },
+    "queue": {
+      "title": "Ärendekön",
+      "description": "Allt som anmälts, öppna ärenden först och äldst överst.",
+      "empty": "Ingenting har anmälts.",
+      "reporter": "Anmäld av",
+      "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
+      "reporterUnknown": "Finns inte längre i registret.",
+      "reporterExternal": "Från webbplatsen",
+      "setInProgress": "Ta hand om det",
+      "setDone": "Markera som klar",
+      "reopen": "Öppna igen",
+      "saving": "Sparar...",
+      "errors": {
+        "issueNotFound": "Det ärendet finns inte längre. Kön har lästs om.",
+        "unknown": "Ärendet kunde inte ändras just nu. Försök igen."
+      }
+    },
+    "errors": {
+      "forbidden": "Ditt konto får inte göra det.",
+      "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
+  "documents": {
+    "navLabel": "Dokument",
+    "heading": "Dokumentarkiv",
+    "description": "Föreningens egna dokument. På varje dokument står vem det är till för, och det är hela regeln: arkivet visar det din målgrupp tillåter, och filen bakom lämnas ut på samma beslut.",
+    "loading": "Läser in arkivet",
+    "empty": "Arkivet är ännu tomt.",
+    "emptyForYou": "Här finns ännu inget för dig. Styrelsen avgör vilka dokument som är medlemmarnas och vilka som publiceras.",
+    "openFile": "Öppna {{title}}",
+    "fileSummary": "{{fileName}}, {{size}}",
+    "uploadedOn": "Inlagt {{date}}",
+    "size": {
+      "bytes": "{{size}} byte",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "audience": {
+      "board": "Styrelsen",
+      "member": "Medlemmar",
+      "public": "Publicerat"
+    },
+    "audienceHint": {
+      "board": "Styrelsen och en administratör. Varje gång ett sådant dokument öppnas skrivs det i granskningsloggen.",
+      "member": "Föreningens medlemmar. En boende som inte är medlem ser det inte.",
+      "public": "Vem som helst, utan konto. Det här är vad föreningen publicerar utåt."
+    },
+    "filter": {
+      "legend": "Visa",
+      "all": "Alla",
+      "none": "Inga dokument har den målgruppen."
+    },
+    "categories": {
+      "bylaws": "Stadgar",
+      "minutes": "Protokoll",
+      "houseRules": "Trivselregler",
+      "annualReport": "Årsredovisning"
+    },
+    "upload": {
+      "heading": "Lägg in ett dokument",
+      "description": "Dokument som PDF. Filen identifieras utifrån sitt eget innehåll, så vad den heter avgör ingenting.",
+      "title": "Titel",
+      "titleHint": "Vad dokumentet heter. Skrivs som styrelsen skriver det och översätts aldrig.",
+      "category": "Pärm",
+      "categoryHint": "Pärmen det hör hemma i. Ta ett av förslagen eller skriv ett eget.",
+      "audience": "Vem det är till för",
+      "file": "Fil",
+      "choose": "Välj en fil",
+      "chosen": "Vald: {{fileName}}",
+      "submit": "Lägg in dokumentet",
+      "working": "Lägger in...",
+      "saved": "Dokumentet ligger i arkivet.",
+      "minutesGuard": "Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet. Välj målgruppen Publicerat igen om det är vad det här dokumentet är."
+    },
+    "edit": {
+      "heading": "Ändra {{title}}",
+      "open": "Ändra",
+      "cancel": "Avbryt",
+      "submit": "Spara ändringarna",
+      "working": "Sparar...",
+      "saved": "Ändringarna är sparade.",
+      "remove": "Ta bort",
+      "removeConfirm": "Ta bort {{title}} ur arkivet? Filen följer med.",
+      "removing": "Tar bort...",
+      "removed": "Dokumentet är borttaget."
+    },
+    "errors": {
+      "loadFailed": "Arkivet kunde inte läsas just nu. Ladda om sidan.",
+      "notFound": "Dokumentet finns inte längre i arkivet.",
+      "unsupportedType": "Filen är ingen PDF, vad den än heter.",
+      "tooLarge": "Filen är större än vad den här instansen tar emot.",
+      "empty": "Filen är tom.",
+      "noFile": "Ingen fil är vald.",
+      "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   }
 }

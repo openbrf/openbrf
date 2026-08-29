@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,
   Param,
   Post,
   Req,
@@ -12,6 +13,8 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { Public } from "../authorization/public.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { droppedSubmissionId, isHoneypotFilled } from "../http/honeypot";
+import { PublicRateLimit } from "../http/public-rate-limit.decorator";
 import { SignupRequestService } from "./signup-request.service";
 
 const submitSchema = z.object({
@@ -38,17 +41,48 @@ const rejectSchema = z.object({
 });
 
 /**
+ * Twenty requests a minute from one client address.
+ *
+ * Generous on purpose. One address is a household, a shared connection or a
+ * whole building behind one line, and several residents asking for accounts in
+ * one sitting is the ordinary case this form exists for - being turned away
+ * then is a worse failure than a script taking a minute longer. It still bounds
+ * what a script can put in the board's queue, which is the point: every entry
+ * there is read by a person.
+ */
+const SUBMISSIONS_PER_MINUTE = 20;
+
+/**
  * The visitor-facing form. Public because the person has no account yet, and
  * gated by the association's self-signup toggle inside the service.
  */
 @Public()
 @Controller("api/signup-requests/submit")
 export class SignupRequestSubmitController {
+  private readonly logger = new Logger(SignupRequestSubmitController.name);
+
   constructor(private readonly requests: SignupRequestService) {}
 
   @Post()
   @HttpCode(202)
+  @PublicRateLimit({ perMinute: SUBMISSIONS_PER_MINUTE })
   async submit(@Body() body: unknown): Promise<{ id: string }> {
+    if (isHoneypotFilled(body)) {
+      /*
+       * Dropped, and answered exactly as a stored request would be - same
+       * status, same body, an identifier of the same shape. A script learns
+       * nothing about which field gave it away, and nothing reaches the board's
+       * queue.
+       *
+       * Logged without a word of what was submitted, because this is the only
+       * trace a dropped submission leaves: if the decoy ever catches a real
+       * person, this line is how that gets noticed.
+       */
+      this.logger.log("Dropped a signup request that filled the honeypot.");
+      return { id: droppedSubmissionId() };
+    }
+    // The schema does not name the honeypot field, so it is stripped here along
+    // with anything else that was sent and not asked for.
     return this.requests.submit(submitSchema.parse(body));
   }
 }
