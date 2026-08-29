@@ -38,6 +38,15 @@ describe("identifying a document", () => {
     expect(readDocumentHeader(bytes)).toBeNull();
   });
 
+  it("refuses a version the format never published", () => {
+    // The near misses of the near misses: the major digit is one the format
+    // uses, so only the pair decides. 1.7 is the last of the first series and
+    // 2.0 the whole of the second.
+    for (const version of ["1.8", "2.1"]) {
+      expect(readDocumentHeader(pdfBytes(version)), version).toBeNull();
+    }
+  });
+
   it("refuses a header without the version separator", () => {
     const bytes = Buffer.from("%PDF-17x\ntrailer\n%%EOF\n", "latin1");
     expect(readDocumentHeader(bytes)).toBeNull();

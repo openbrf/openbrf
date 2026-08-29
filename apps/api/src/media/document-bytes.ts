@@ -53,8 +53,9 @@ function readPdf(bytes: Buffer): boolean {
     return false;
   }
 
-  // "1.0" through "2.0" is every version ISO 32000 has defined; anything else
-  // is a file whose header was not written by a PDF producer.
+  // 1.0 through 1.7 and 2.0, which is every version the format has been
+  // published at. A minor digit alone is not the test: 1.8 and 2.1 were never
+  // written, so a header naming one did not come from a PDF producer either.
   const major = bytes[5];
   const separator = bytes[6];
   const minor = bytes[7];
@@ -62,9 +63,10 @@ function readPdf(bytes: Buffer): boolean {
     major === undefined ||
     separator !== 0x2e ||
     minor === undefined ||
-    (major !== 0x31 && major !== 0x32) ||
-    minor < 0x30 ||
-    minor > 0x39
+    !(
+      (major === 0x31 && minor >= 0x30 && minor <= 0x37) ||
+      (major === 0x32 && minor === 0x30)
+    )
   ) {
     return false;
   }
