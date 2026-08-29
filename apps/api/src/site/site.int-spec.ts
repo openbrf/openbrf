@@ -44,6 +44,8 @@ const member = {
 };
 const publicSlug = `site-public-${suffix}`;
 const memberSlug = `site-member-page-${suffix}`;
+const publicPageId = `site-public-page-${suffix}`;
+const menuItemId = `site-public-menu-${suffix}`;
 
 /**
  * A distinct forwarded address per request, inside this suite's own block.
@@ -151,6 +153,7 @@ beforeAll(async () => {
   await prisma.page.createMany({
     data: [
       {
+        id: publicPageId,
         slug: publicSlug,
         title: "Om föreningen",
         content: {
@@ -176,9 +179,36 @@ beforeAll(async () => {
       },
     ],
   });
+
+  /*
+   * And the menu entry that makes the public page the front page.
+   *
+   * The root serves the menu's first page entry, so a suite asserting what the
+   * root answers with has to arrange the menu it is asserting about. The
+   * position is below whatever the top level holds now rather than a fixed one
+   * below zero: the database this runs against may already hold the menu the
+   * migration backfilled, and it may hold another suite's own front-page entry
+   * from a run that did not finish - a fixed position is only free until
+   * somebody else wants the same one, and a tie is settled by which was
+   * written first.
+   */
+  const lowest = await prisma.menuItem.aggregate({
+    where: { parentId: null },
+    _min: { sortOrder: true },
+  });
+  await prisma.menuItem.create({
+    data: {
+      id: menuItemId,
+      label: "Om föreningen",
+      kind: "PAGE",
+      pageId: publicPageId,
+      sortOrder: (lowest._min.sortOrder ?? 0) - 1,
+    },
+  });
 }, 180_000);
 
 afterAll(async () => {
+  await prisma?.menuItem.deleteMany({ where: { id: menuItemId } });
   await prisma?.page.deleteMany({
     where: { slug: { in: [publicSlug, memberSlug] } },
   });

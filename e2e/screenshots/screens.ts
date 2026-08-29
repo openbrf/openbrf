@@ -504,4 +504,32 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Förhandsgranska" },
     capture: "page",
   },
+  // --- the menu on the association's own website -----------------------------
+  // Last, because arranging the menu changes what the website's front page is
+  // and every screen above has already been photographed against the one the
+  // wizard wrote.
+  {
+    // The instance already has the entry the wizard wrote for its first page.
+    // A second one is added beside it so the picture shows a menu being
+    // arranged rather than an empty list.
+    name: "site-menu",
+    as: "administrator",
+    goto: appPath("/admin/site/menu"),
+    prepare: [
+      { select: { combobox: "Sida" }, option: "Integritetspolicy" },
+      { fill: { label: "Vad menyn säger" }, value: "Integritet" },
+      { click: { button: "Lägg till posten" } },
+      { see: { text: "Posten ligger i menyn." } },
+    ],
+    waitFor: { button: "Ändra Integritet" },
+    capture: "page",
+  },
+  {
+    // And the same menu as a visitor with no account reads it, on the website
+    // itself rather than in the application.
+    name: "site-menu-public",
+    as: "nobody",
+    goto: "/",
+    waitFor: { text: "Integritet" },
+  },
 ];

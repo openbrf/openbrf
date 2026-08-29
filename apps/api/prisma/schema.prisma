@@ -1078,6 +1078,14 @@ model Page {
   /// second way to say which page is first would be a second way to disagree.
   sortOrder Int @default(0)
 
+  /// The menu entries pointing at this page.
+  ///
+  /// Declared because a relation needs both of its sides, and it earns its
+  /// place: the entries cascade with the page, so a page the board removes
+  /// cannot leave the menu naming an address that answers with the not-found
+  /// document.
+  menuItems MenuItem[] @relation("PageMenuItems")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1444,4 +1452,97 @@ model LegalHold {
 
   @@index([personId, releasedAt])
   @@map("legal_hold")
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// The site menu.
+// ---------------------------------------------------------------------------
+
+/// What a menu item points at.
+///
+/// Three kinds and no more, because each one is a different question about
+/// whether the item may be shown at all: a page has a visibility, a generated
+/// page exists only while its feature does, and an address somewhere else is
+/// always reachable and is the one thing on the website that leaves it.
+enum MenuItemKind {
+  /// One of the association's own pages. The page decides who sees the item.
+  PAGE
+
+  /// A page the product generates rather than the board writes - the news
+  /// index, the broker information page, the account request form. Named by
+  /// generatedKey, and silently left out while that feature is off or absent,
+  /// so a menu survives a feature being switched off.
+  GENERATED
+
+  /// An address off this instance. The one external reference the website
+  /// carries, and a navigation rather than a subresource: nothing is fetched
+  /// from the other host while a page is being read.
+  EXTERNAL
+}
+
+/// One entry in the menu the board arranges (meny).
+///
+/// The menu is also the ordering of the site: the first page entry in it is
+/// the front page, which is why Page has no isHome flag. Two levels at most -
+/// a top-level entry and the items hanging under it - because a third would be
+/// a menu that needs a script to open and the website has none.
+///
+/// Which entries a visitor is shown follows from what each one points at
+/// rather than from anything stored here. A member-only page's entry is not
+/// rendered for a visitor with no session, so the menu cannot become the thing
+/// that tells an anonymous reader the page exists - the same argument the
+/// byte-identical not-found page rests on.
+///
+/// Service tier: the menu is the board's arrangement of its own website. It
+/// carries no personal data, no append-only trigger and no retention floor.
+model MenuItem {
+  id String @id @default(cuid())
+
+  /// What the menu says. Site content, so monolingual (decision 59): stored as
+  /// the board wrote it and never translated. It defaults from the target's
+  /// title when the item is created and is the board's to change after that,
+  /// because a menu is written to fit the width of a menu.
+  label String
+
+  kind MenuItemKind
+
+  /// The page this points at. Set for PAGE and for nothing else.
+  ///
+  /// Cascading, so removing a page removes its menu entries with it: an entry
+  /// pointing at a page that no longer exists would be an item the renderer
+  /// has to silently drop on every request forever.
+  pageId String?
+  page   Page?   @relation("PageMenuItems", fields: [pageId], references: [id], onDelete: Cascade)
+
+  /// Which generated page. Set for GENERATED and for nothing else.
+  ///
+  /// A string rather than an enum: the set grows as the features that generate
+  /// pages land, and a key the instance does not recognise is left out of the
+  /// menu exactly like one whose feature is switched off. That is the same
+  /// totality the page parser has, and it is what lets a menu row written by a
+  /// newer version render less rather than wrong on an older one.
+  generatedKey String?
+
+  /// The address. Set for EXTERNAL and for nothing else, and https only.
+  url String?
+
+  /// The entry this one hangs under, or nothing for a top-level entry.
+  ///
+  /// One level of nesting is the whole rule, and it is enforced by the service
+  /// rather than by the column: a check constraint cannot express "the parent
+  /// has no parent of its own", and a trigger for a service-tier arrangement
+  /// the board can fix in the interface would cost more than it protects.
+  parentId String?
+  parent   MenuItem?  @relation("MenuItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children MenuItem[] @relation("MenuItemChildren")
+
+  /// Where the entry sits among its siblings, top level and dropdown alike.
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId, sortOrder])
+  @@map("menu_item")
 }

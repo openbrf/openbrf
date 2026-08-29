@@ -1750,6 +1750,77 @@
       "imageNotPublic": "En bild på sidan serveras inte öppet, så sidan skulle visa en trasig bild.",
       "pageGone": "Sidan finns inte längre.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
+    },
+    "menu": {
+      "heading": "Meny",
+      "listHeading": "Menyns poster",
+      "description": "Menyn på föreningens webbplats: en toppnivå och en nivå som fälls ut under den. Besökare ser bara de poster de kan öppna, så en sida för medlemmar namnges aldrig för någon som inte är inloggad. Den första sidan i menyn är webbplatsens startsida.",
+      "open": "Ordna menyn",
+      "loading": "Läser in menyn",
+      "empty": "Menyn är ännu tom. Webbplatsen visar ingen meny förrän den har en post.",
+      "noPages": "Föreningen har ännu ingen sida att lägga i menyn.",
+      "topLevel": "Toppnivå",
+      "kind": {
+        "legend": "Pekar på",
+        "page": "En sida",
+        "generated": "En genererad sida",
+        "external": "En adress någon annanstans"
+      },
+      "generated": {
+        "field": "Genererad sida",
+        "news": "Nyheter",
+        "broker": "Mäklarinfo",
+        "requestAccount": "Ansök om konto",
+        "unavailable": "Utelämnas ur menyn tills den här instansen har den sidan."
+      },
+      "fields": {
+        "label": "Vad menyn säger",
+        "labelHint": "Lämnas det tomt tar posten sidans egen titel. Skrivs som styrelsen skriver det och översätts aldrig.",
+        "page": "Sida",
+        "url": "Adress",
+        "urlHint": "En https-adress. En menypost står på varje sida på webbplatsen, så den är ingen plats för en vanlig http-länk.",
+        "parent": "Ligger under"
+      },
+      "pageState": {
+        "draft": "Utkast, så posten syns ännu inte i någons meny",
+        "member": "Endast medlemmar, så posten döljs för besökare utan konto"
+      },
+      "entry": {
+        "external": "Leder till {{url}}",
+        "generated": "{{name}}, genererad av plattformen"
+      },
+      "add": {
+        "heading": "Lägg till en post",
+        "submit": "Lägg till posten",
+        "working": "Lägger till...",
+        "saved": "Posten ligger i menyn."
+      },
+      "edit": {
+        "heading": "Ändra {{label}}",
+        "open": "Ändra",
+        "cancel": "Avbryt",
+        "submit": "Spara ändringarna",
+        "working": "Sparar...",
+        "saved": "Ändringarna är sparade.",
+        "remove": "Ta bort",
+        "removeEntry": "Ta bort {{label}} ur menyn",
+        "removed": "Posten är borta ur menyn.",
+        "moveUp": "Flytta {{label}} uppåt",
+        "moveDown": "Flytta {{label}} nedåt"
+      },
+      "errors": {
+        "loadFailed": "Menyn kunde inte läsas just nu. Ladda om sidan.",
+        "notFound": "Posten finns inte längre i menyn.",
+        "pageNotFound": "Sidan finns inte längre.",
+        "parentNotFound": "Posten den skulle ligga under finns inte längre i menyn.",
+        "unknownGeneratedKey": "Den här instansen har ingen sådan genererad sida.",
+        "invalidUrl": "En menypost får bara leda till en https-adress.",
+        "labelRequired": "Posten har ingen titel att låna, så den behöver en egen.",
+        "labelTooLong": "En menytitel ska rymmas i en meny på en telefon. Högst sextio tecken.",
+        "targetRequired": "Välj vad posten ska peka på.",
+        "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
+        "unknown": "Det gick inte att spara just nu. Försök igen."
+      }
     }
   }
 }

@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { MenuService } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
   type PageBlock,
@@ -107,20 +108,55 @@ export const PRIVACY_NOTICE_SLUG = "integritetspolicy";
 export class PagesService {
   private readonly logger = new Logger(PagesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly menu: MenuService,
+  ) {}
 
   /**
    * The page the root serves.
    *
-   * The lowest sort order among published public pages, oldest first on a tie.
-   * There is no "is the home page" flag: the board arranges a menu, and the
-   * first thing in it is the front page. A second way to say which page is
-   * first would only be a second way for the two to disagree.
+   * The menu's first page entry. There is no "is the home page" flag: the
+   * board arranges one menu, and the first of the association's own pages in
+   * it is the front page - a second way to say which page is first would only
+   * be a second way for the two to disagree.
    *
-   * Public only. The front door of a housing cooperative's website is not a
-   * page that half its visitors are answered with a 404 for.
+   * An instance whose menu names no page it could serve falls back to the
+   * lowest sort order among published public pages, oldest first on a tie.
+   * That is not a second answer to the same question but the answer to a
+   * different one: it is what the root serves for a cooperative that has
+   * emptied its menu, and without it the front door would close the moment the
+   * board removed the last entry.
+   *
+   * Public only, both ways round. The front door of a housing cooperative's
+   * website is not a page that half its visitors are answered with a 404 for.
    */
   async homePage(): Promise<SitePage | null> {
+    const chosen = await this.menu.homePageSlug();
+    if (chosen !== null) {
+      const named = await this.prisma.page.findUnique({
+        where: { slug: chosen },
+        select: {
+          slug: true,
+          title: true,
+          content: true,
+          published: true,
+          visibility: true,
+        },
+      });
+      /*
+       * Asked again here, though the menu only ever names a page anybody may
+       * read. The menu answered from its own query, and what the root serves
+       * is decided by this one: a page closed between the two would otherwise
+       * be served to a visitor with no session by the one address on the site
+       * that never checks. The fallback below then answers instead, which is
+       * the same thing that happens for a page the board has removed.
+       */
+      if (named !== null && named.published && named.visibility === "PUBLIC") {
+        return PagesService.toSitePage(named);
+      }
+    }
+
     const row = await this.prisma.page.findFirst({
       where: { published: true, visibility: "PUBLIC" },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -177,6 +213,9 @@ export class PagesService {
    * language. Nothing here reaches a register: this file imports no register,
    * no address book and no decryption, which is what makes "the public website
    * cannot publish personal data" a property of the code rather than a promise.
+   *
+   * The page arrives with its menu entry, because the menu is what decides
+   * which page the root serves.
    */
   async seedDefaultPage(
     t: TFunction,
@@ -210,13 +249,15 @@ export class PagesService {
         : t("site.orgNumberLabel", { number: organizationNumber }),
     ];
 
+    const title = t("site.seed.title");
+
     await this.prisma.page.create({
       data: {
         slug,
         // A greeting, not the cooperative's name: the name is already the
         // header of every page and the second half of every document title,
         // and a front page that says it three times reads like a placeholder.
-        title: t("site.seed.title"),
+        title,
         // Cast because Prisma types a JSON column with its own recursive
         // InputJsonValue, which a declared object type does not satisfy.
         content: paragraphsContent(
@@ -226,6 +267,17 @@ export class PagesService {
         published: true,
         publishedAt: new Date(),
         sortOrder: 0,
+        /*
+         * And the menu entry that makes it the front page.
+         *
+         * Written with the page rather than after it, so a claimed instance
+         * cannot end up with a page and no menu. The menu IS the ordering of
+         * the site - the first page entry in it is what the root serves - and
+         * an instance that came with pages from before there was a menu got
+         * the same arrangement from the menu migration's backfill. A fresh
+         * cooperative and an old one therefore start from the same place.
+         */
+        menuItems: { create: { label: title, kind: "PAGE", sortOrder: 0 } },
       },
     });
 

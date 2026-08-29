@@ -113,6 +113,7 @@ body {
   align-items: center;
   border-bottom: 1px solid var(--obrf-border-subtle);
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 1.5rem 0;
 }
@@ -127,6 +128,94 @@ body {
   font-size: 1.125rem;
   font-weight: 600;
   margin: 0;
+}
+
+/*
+ * The menu, in two shapes and no script.
+ *
+ * Narrow first: the whole menu is one list, and a dropdown's items sit under
+ * their parent, indented. There is nothing to open, so there is nothing that
+ * needs a tap which is not a navigation - which is what a hover-revealed
+ * dropdown gets wrong on a telephone, where the tap that would reveal it is
+ * the tap that follows the link.
+ *
+ * From the width where a row of entries fits, the second level is hidden and
+ * revealed by hover or by focus reaching inside the group. Keyboard focus
+ * counts, which is what makes it usable without a pointer: tabbing onto the
+ * parent link opens the group, and the next tab lands on the first item in
+ * it. The parent stays a link in both shapes; it is never a control that is
+ * also a link, because that is the ambiguity a keyboard cannot resolve.
+ */
+.site-nav {
+  /* Its own row under the association's name until there is room beside it. */
+  flex-basis: 100%;
+}
+
+.site-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-nav > ul {
+  display: flex;
+  flex-direction: column;
+}
+
+.site-nav a {
+  align-items: center;
+  color: var(--obrf-text-primary);
+  display: flex;
+  /* A thumb needs 44px; a line of text gives about 26. */
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  color: var(--obrf-accent-trust);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-nav-children {
+  /* The indent is what says these belong to the entry above them. */
+  padding-left: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .site-nav {
+    flex-basis: auto;
+    margin-left: auto;
+  }
+
+  .site-nav > ul {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0 1.5rem;
+  }
+
+  .site-nav-group {
+    position: relative;
+  }
+
+  .site-nav-group .site-nav-children {
+    background: var(--obrf-surface-raised);
+    border: 1px solid var(--obrf-border-subtle);
+    border-radius: 4px;
+    box-shadow: var(--obrf-shadow-raised);
+    display: none;
+    left: 0;
+    min-width: 12rem;
+    padding: 0.25rem 0.75rem;
+    position: absolute;
+    top: 100%;
+    z-index: 1;
+  }
+
+  .site-nav-group:hover > .site-nav-children,
+  .site-nav-group:focus-within > .site-nav-children {
+    display: block;
+  }
 }
 
 .site-main {

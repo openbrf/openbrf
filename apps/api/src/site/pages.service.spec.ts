@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import type { MenuService } from "./menu.service";
 import { isUsableSlug, PagesService } from "./pages.service";
 
 /**
@@ -28,6 +29,8 @@ interface Fakes {
     count: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
   };
+  /** The menu decides the front page, so it is the other half of this fake. */
+  menu: { homePageSlug: ReturnType<typeof vi.fn> };
 }
 
 function build(): Fakes {
@@ -37,9 +40,14 @@ function build(): Fakes {
     count: vi.fn().mockResolvedValue(0),
     create: vi.fn().mockResolvedValue({ id: "page-1" }),
   };
+  const menu = { homePageSlug: vi.fn().mockResolvedValue(null) };
   return {
-    service: new PagesService({ page } as unknown as PrismaService),
+    service: new PagesService(
+      { page } as unknown as PrismaService,
+      menu as unknown as MenuService,
+    ),
     page,
+    menu,
   };
 }
 
@@ -85,27 +93,82 @@ describe("isUsableSlug", () => {
 });
 
 describe("the front page", () => {
-  it("is the first published public page", async () => {
-    const { service, page } = build();
-    page.findFirst.mockResolvedValue(PUBLISHED);
+  const EXPECTED = {
+    slug: "hem",
+    title: "Välkommen",
+    content: {
+      version: 1,
+      blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
+    },
+  };
 
-    await expect(service.homePage()).resolves.toEqual({
-      slug: "hem",
-      title: "Välkommen",
-      content: {
-        version: 1,
-        blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
+  it("is the menu's first page entry", async () => {
+    const { service, page, menu } = build();
+    menu.homePageSlug.mockResolvedValue("hem");
+    page.findUnique.mockResolvedValue(PUBLISHED);
+
+    await expect(service.homePage()).resolves.toEqual(EXPECTED);
+
+    // The menu is the ordering of the site, so the root asks the menu rather
+    // than sorting the pages a second time.
+    expect(page.findUnique).toHaveBeenCalledWith({
+      where: { slug: "hem" },
+      select: {
+        slug: true,
+        title: true,
+        content: true,
+        published: true,
+        visibility: true,
       },
     });
+    expect(page.findFirst).not.toHaveBeenCalled();
+  });
 
-    // Lowest order first, oldest first on a tie, and never a member-only page:
-    // the front door of an association's website is not a page half its
-    // visitors are answered with a not-found for.
+  it("passes over the page it names once that page is closed", async () => {
+    // The menu names only pages anybody may read, and it answered from an
+    // earlier query. A page unpublished or kept for the members between the
+    // two must not be served at the one address that would otherwise take the
+    // menu's word for it.
+    for (const closed of [
+      { ...PUBLISHED, published: false },
+      { ...PUBLISHED, visibility: "MEMBER" as const },
+    ]) {
+      const { service, page, menu } = build();
+      menu.homePageSlug.mockResolvedValue("hem");
+      page.findUnique.mockResolvedValue(closed);
+      page.findFirst.mockResolvedValue({ ...PUBLISHED, slug: "annat" });
+
+      await expect(service.homePage()).resolves.toMatchObject({
+        slug: "annat",
+      });
+    }
+  });
+
+  it("falls back to the lowest sort order when the menu names no page", async () => {
+    const { service, page, menu } = build();
+    menu.homePageSlug.mockResolvedValue(null);
+    page.findFirst.mockResolvedValue(PUBLISHED);
+
+    await expect(service.homePage()).resolves.toEqual(EXPECTED);
+
+    // A board that empties its menu still has a website. Lowest order first,
+    // oldest first on a tie, and never a member-only page: the front door of
+    // an association's website is not a page half its visitors are answered
+    // with a not-found for.
     expect(page.findFirst).toHaveBeenCalledWith({
       where: { published: true, visibility: "PUBLIC" },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { slug: true, title: true, content: true },
     });
+  });
+
+  it("falls back when the menu names a page that has since gone", async () => {
+    const { service, page, menu } = build();
+    menu.homePageSlug.mockResolvedValue("hem");
+    page.findUnique.mockResolvedValue(null);
+    page.findFirst.mockResolvedValue(PUBLISHED);
+
+    await expect(service.homePage()).resolves.toEqual(EXPECTED);
   });
 
   it("is nothing at all on an instance with no published page", async () => {
@@ -240,6 +303,27 @@ describe("seeding the association its first page", () => {
     expect(written.data.content.blocks[1]?.runs[0]?.text).toContain(
       "769600-1234",
     );
+  });
+
+  it("gives it the menu entry that makes it the front page", async () => {
+    // Written with the page, so a claimed instance cannot end up with a page
+    // and no menu - the menu is what the root reads to decide what to serve.
+    const { service, page } = build();
+
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+
+    const written = page.create.mock.calls[0]?.[0] as {
+      data: {
+        menuItems: {
+          create: { label: string; kind: string; sortOrder: number };
+        };
+      };
+    };
+    expect(written.data.menuItems.create).toEqual({
+      label: "Välkommen",
+      kind: "PAGE",
+      sortOrder: 0,
+    });
   });
 
   it("writes nothing when the instance already has a page", async () => {

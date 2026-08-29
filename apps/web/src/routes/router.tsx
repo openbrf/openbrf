@@ -22,6 +22,7 @@ import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute } from "./SiteAdminRoute";
+import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
 
@@ -231,6 +232,21 @@ const siteAdminRoute = createRoute({
 });
 
 /**
+ * The menu on the association's own website. Signed in here, site:manage
+ * inside the screen.
+ *
+ * A route of its own rather than a panel on the pages screen, because it is a
+ * different question: the pages screen is about what the association writes,
+ * and this is about how a visitor finds it.
+ */
+const siteMenuRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site/menu",
+  beforeLoad: requireSession,
+  component: SiteMenuRoute,
+});
+
+/**
  * Issues. Signed in here, capabilities inside the screen.
  *
  * One route for both halves of the module: a resident reports and follows their
@@ -313,6 +329,7 @@ const routeTree = rootRoute.addChildren([
   themesRoute,
   themeComposerRoute,
   siteAdminRoute,
+  siteMenuRoute,
   issuesRoute,
   documentsRoute,
   memberRegisterRoute,

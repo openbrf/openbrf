@@ -4,6 +4,7 @@ import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { mediaUrl } from "../media/media.service";
 import { ThemeService } from "../themes/theme.service";
+import { MenuService } from "./menu.service";
 import { buildSiteStylesheet } from "./site-css";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
 import { PagesService, type SitePage } from "./pages.service";
@@ -51,32 +52,61 @@ export class SiteRenderer {
     private readonly themes: ThemeService,
     private readonly i18n: I18nService,
     private readonly pages: PagesService,
+    private readonly menu: MenuService,
   ) {}
 
-  /** One page as a whole document. */
+  /**
+   * One page as a whole document.
+   *
+   * The session is an argument because the menu depends on it: a member sees
+   * the entries for the pages a member may open. It changes nothing else -
+   * the page itself was already decided by the caller, which is the one place
+   * that may decide it.
+   */
   async page(
     acceptLanguage: string | undefined,
     page: SitePage,
+    audience: { hasSession: boolean },
   ): Promise<string> {
-    return renderPage(await this.chrome(acceptLanguage), page);
-  }
-
-  /** The website's own not-found document, in the visitor's language. */
-  async notFound(acceptLanguage: string | undefined): Promise<string> {
-    return renderNotFound(await this.chrome(acceptLanguage));
+    return renderPage(
+      await this.chrome(acceptLanguage, audience.hasSession),
+      page,
+    );
   }
 
   /**
-   * Reads exactly the four things the website is allowed to know about the
-   * association - what it is called, its mark, its accent and its language -
-   * and whether it has a privacy notice to link in the footer.
+   * The website's own not-found document, in the visitor's language.
+   *
+   * Rendered with the menu an anonymous visitor gets, whoever asked. The
+   * refusal is one document for everybody by construction: a member-only page
+   * and an address that names nothing have to answer identically, and the menu
+   * is the only part of the chrome that could have differed between them. It
+   * is also the one place where showing less costs nothing - somebody who
+   * mistyped an address gets the public menu and can find their way from it.
+   */
+  async notFound(acceptLanguage: string | undefined): Promise<string> {
+    return renderNotFound(await this.chrome(acceptLanguage, false));
+  }
+
+  /**
+   * Reads exactly what the website is allowed to know about the association -
+   * what it is called, its mark, its accent, its language and whether it takes
+   * account requests - plus its privacy notice and the menu the board
+   * arranged.
    *
    * The select list is the boundary. Nothing in this module reaches a register,
    * the address book or the encryption layer, and the shape of this query is
    * where that stops being a claim about intent and becomes a claim about code.
+   *
+   * The menu is read after the rest rather than beside it, because which
+   * entries it may contain depends on an answer from the first query. One
+   * extra round trip on a page that is already reading four things is the
+   * cheaper half of the trade against asking the association the same question
+   * twice.
    */
   private async chrome(
     acceptLanguage: string | undefined,
+    hasSession: boolean,
   ): Promise<SiteChrome> {
     const [association, rendering, privacyNoticePath] = await Promise.all([
       this.prisma.association.findUnique({
@@ -86,11 +116,20 @@ export class SiteRenderer {
           defaultLocale: true,
           logoFileId: true,
           primaryColor: true,
+          // Whether the account request form exists at all, which is the one
+          // thing that decides if its menu entry is offered. Read here rather
+          // than by the menu so one request asks the association one question.
+          selfSignupEnabled: true,
         },
       }),
       this.themes.activeRendering(),
       this.pages.privacyNoticePath(),
     ]);
+
+    const menu = await this.menu.siteMenu({
+      hasSession,
+      selfSignupEnabled: association?.selfSignupEnabled ?? false,
+    });
 
     const locale = visitorLocale(acceptLanguage, association?.defaultLocale);
 
@@ -107,6 +146,7 @@ export class SiteRenderer {
           : mediaUrl(association.logoFileId),
       mediaUrl,
       privacyNoticePath,
+      menu,
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,
