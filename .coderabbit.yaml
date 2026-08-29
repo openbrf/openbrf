@@ -211,6 +211,20 @@ reviews:
         Integration tests share a database, so flag fixtures with fixed ids that
         would collide across runs, and flag a test that leaves rows behind.
 
+    - path: "packages/**/*.spec.ts"
+      instructions: >-
+        These are pure-function library tests - the token contract, the shared
+        domain helpers, the plugin SDK's schemas, the theme tools. They run in
+        process against no database, no fixtures and no stack, so nothing here
+        shares state between tests or between runs, and none of the other
+        suites' guidance about colliding identifiers, run-unique identities or
+        rows left behind applies.
+
+        What does apply: prefer tests that would fail if the behaviour
+        regressed, and flag a test that asserts only that a call did not throw.
+        These functions have no infrastructure to stand in for, so a mock here
+        is a sign the test is asserting its own setup rather than the behaviour.
+
     - path: "e2e/**/*.spec.ts"
       instructions: >-
         These specs drive the production Docker image through a browser, and
