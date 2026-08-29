@@ -254,8 +254,11 @@ machinery.
 - [x] Server-rendered public pages styled by the theme tokens, with the
       application moved under `/app`. A page is stored as a versioned block
       list rather than as markup, so the renderer decides what a block becomes
-      and no stored page can carry a script or a third-party address into a
-      later renderer. The stylesheet is assembled from the active theme on the
+      and no stored page can carry a script, or make the reader's browser fetch
+      anything from a third party, into a later renderer - a picture names a
+      stored file by its id and never a URL, and a link the board writes is a
+      navigation the visitor chooses rather than something fetched while the
+      page is read. The stylesheet is assembled from the active theme on the
       server and inlined, the typefaces are served from the association's own
       origin, and the content security policy names no script source at all.
       Member-only pages are readable by anyone signed in and answered to
@@ -267,9 +270,10 @@ machinery.
       is published. What is stored is a block list rather than markup, so the
       editor is a mapping onto the website's own format and never a second
       format of its own; a preview is rendered by the website itself, so what
-      the board approves is what a visitor is served. Editing pages, the menu
-      and news is a capability granted to the board by default and grantable to
-      others; site-wide settings stay with an admin
+      the board approves is what a visitor is served. Writing the website is a
+      capability granted to the board by default and grantable to others, and
+      it opens page editing today; the menu and news editors below are the
+      later work it will also cover. Site-wide settings stay with an admin
 - [ ] The remaining insertable data blocks: document list, board roster,
       association facts and FAQ. The news teaser and the two form blocks arrive
       with the features below; these four are the ones that need no feature of
