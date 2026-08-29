@@ -245,12 +245,35 @@ export function PageEditor({
               className={SECONDARY_BUTTON}
               disabled={busy}
               onClick={() => {
-                void run(async () =>
-                  publishPage(page.id, {
-                    published: !page.published,
+                const publishing = !page.published;
+                void run(async () => {
+                  /*
+                   * Publishing means publishing the page on the screen, so the
+                   * draft is saved first. The body lives in this component
+                   * until it is saved, and publishing without saving would put
+                   * the previously stored version on the website - for a page
+                   * written and not yet saved, a blank one.
+                   *
+                   * Taking a page down deliberately does not save: removing it
+                   * from the website is not the moment to commit whatever edits
+                   * happened to be half-finished beside it.
+                   */
+                  if (publishing) {
+                    const stored = await savePage(page.id, {
+                      slug,
+                      title,
+                      content: body,
+                      ...consent,
+                    });
+                    if (!stored.ok) {
+                      return stored;
+                    }
+                  }
+                  return publishPage(page.id, {
+                    published: publishing,
                     ...consent,
-                  }),
-                );
+                  });
+                });
               }}
             >
               {page.published

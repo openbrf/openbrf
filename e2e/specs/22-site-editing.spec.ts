@@ -73,6 +73,30 @@ async function anonymousRequest(
   });
 }
 
+/**
+ * Writes into a paragraph the way a person does.
+ *
+ * A paragraph is a rich-text surface, not a field. `fill()` writes into a
+ * contenteditable element directly, which dispatches nothing: the editor's own
+ * document never changes, so the page serialises to no blocks and publishes
+ * blank. The text has to arrive through the input pipeline, which means
+ * clicking into the surface and pressing keys.
+ *
+ * The check at the end belongs here rather than at whatever the test does
+ * next. If the text never reached the editor, this is where it went wrong, and
+ * a failure three assertions later reads as a broken renderer instead.
+ */
+async function writeParagraph(
+  page: Page,
+  label: string,
+  text: string,
+): Promise<void> {
+  const surface = page.getByLabel(label);
+  await surface.click();
+  await surface.pressSequentially(text);
+  await expect(surface).toHaveText(text);
+}
+
 /** Creates a page from the new-page panel and leaves its editor open. */
 async function createPage(
   page: Page,
@@ -110,7 +134,7 @@ test("the board writes a page, previews it, and publishes it to the website", as
   await expect(page.getByText(/namngiven persons hälsa/i)).toBeVisible();
 
   await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
-  await page.getByLabel("Stycke 1").fill(sentence);
+  await writeParagraph(page, "Stycke 1", sentence);
 
   await page.getByRole("button", { name: "Förhandsgranska" }).click();
 
@@ -126,6 +150,20 @@ test("the board writes a page, previews it, and publishes it to the website", as
 
   await page.getByRole("button", { name: "Publicera" }).click();
   await expect(page.getByText("Sparad.")).toBeVisible();
+
+  /*
+   * Reopened from the list, so the paragraph is read back out of the database
+   * rather than out of the state the browser still holds. This is the assertion
+   * that fails if a page ever serialises to no blocks on the way in: the
+   * preview would still look right, because it renders the draft.
+   */
+  await page.goto(appPath("/admin/site"));
+  await page
+    .locator("li")
+    .filter({ hasText: slug })
+    .getByRole("button", { name: "Redigera" })
+    .click();
+  await expect(page.getByLabel("Stycke 1")).toHaveText(sentence);
 
   // And now the website itself, asked by somebody with no account at all.
   const anonymous = await anonymousRequest(clientAddress);
@@ -158,9 +196,11 @@ test("publishing is refused while the page carries a personal identity number", 
   await createPage(page, { title: "Styrelsen", slug });
 
   await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
-  await page
-    .getByLabel("Stycke 1")
-    .fill(`Ordförande är Anna, ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}.`);
+  await writeParagraph(
+    page,
+    "Stycke 1",
+    `Ordförande är Anna, ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}.`,
+  );
 
   // The browser says so before the server has to. That is a courtesy; the
   // refusal below is the control.

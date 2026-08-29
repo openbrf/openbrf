@@ -21,12 +21,14 @@ import { SiteAdminScreen } from "./SiteAdminScreen";
 const fetchPages = vi.fn();
 const createPage = vi.fn();
 const publishPage = vi.fn();
+const savePage = vi.fn();
 
 vi.mock("../api/site", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/site")>()),
   fetchPages: () => fetchPages(),
   createPage: (page: unknown) => createPage(page),
   publishPage: (id: string, input: unknown) => publishPage(id, input),
+  savePage: (id: string, edit: unknown) => savePage(id, edit),
 }));
 
 /**
@@ -110,6 +112,7 @@ beforeEach(() => {
     ok: true,
     value: { ...DRAFT, published: true },
   });
+  savePage.mockResolvedValue({ ok: true, value: DRAFT });
 });
 
 describe("who the screen is for", () => {
@@ -199,5 +202,43 @@ describe("the editor", () => {
     await waitFor(() => {
       expect(publishPage).toHaveBeenCalledWith("page-1", { published: false });
     });
+    // Taking a page down does not commit whatever edits were half-finished
+    // beside it.
+    expect(savePage).not.toHaveBeenCalled();
+  });
+
+  it("saves what is on the screen before publishing it", async () => {
+    /*
+     * The body lives in this screen until it is saved. Publishing without
+     * saving first would put the previously stored version on the website -
+     * for a page written and not yet saved, a blank one.
+     */
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+
+    const paragraph = await screen.findByLabelText("Stycke 1");
+    await user.clear(paragraph);
+    await user.type(paragraph, "Trapphuset stadas varje tisdag.");
+
+    await user.click(screen.getByRole("button", { name: "Publicera" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith("page-2", {
+        slug: "styrelsen",
+        title: "Styrelsen",
+        content: {
+          blocks: [
+            {
+              type: "paragraph",
+              runs: [{ text: "Trapphuset stadas varje tisdag." }],
+            },
+          ],
+        },
+      });
+    });
+    expect(publishPage).toHaveBeenCalledWith("page-2", { published: true });
   });
 });
