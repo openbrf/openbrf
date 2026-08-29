@@ -1,5 +1,6 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
+import { claimApartment, type ClaimedApartment } from "../src/apartments";
 import { auditEntriesByAction } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
@@ -33,9 +34,9 @@ import { appPath } from "../src/stack";
 test.describe.configure({ mode: "serial" });
 
 /*
- * This run's own member, on this spec's own apartment. She is written into both
+ * This run's own member, on this run's own apartment. She is written into both
  * registers and neither entry can be removed, so the identity is unique to the
- * run and 1301 on Storgatan 14 belongs to no other spec.
+ * run and so is the apartment she holds.
  */
 const SIGRID = {
   firstName: "Sigrid",
@@ -54,11 +55,30 @@ const SIGRID = {
 
 const FULL_NAME = `${SIGRID.firstName} ${SIGRID.lastName}`;
 
+/** Storgatan 14, the address Sigrid's postal address above also names. */
 const ADDRESS_NUMBER = "14";
-const ADDRESS = `Storgatan ${ADDRESS_NUMBER}`;
-const APARTMENT = "1301";
-const DESIGNATION = `${ADDRESS} ${APARTMENT}`;
 const HELD_FROM = "2026-05-01";
+
+/**
+ * The apartment Sigrid holds, claimed once for the whole file.
+ *
+ * Every test here reads a document about the same tenant-ownership, and a
+ * transfer and a member register entry cannot be taken back, so the apartment
+ * belongs to the run the way her name does (src/apartments.ts).
+ */
+let claimed: Promise<ClaimedApartment> | undefined;
+
+function apartmentForSigrid(
+  request: APIRequestContext,
+): Promise<ClaimedApartment> {
+  claimed ??= claimApartment(request, ADDRESS_NUMBER);
+  return claimed;
+}
+
+/** The designation both registers print for the apartment she holds. */
+function designationOf(apartment: ClaimedApartment): string {
+  return `${apartment.addressLabel} ${apartment.number}`;
+}
 
 /** People from the shared register fixture, who must not reach her extract. */
 const OTHER_MEMBERS = ["Astrid Lindqvist", "Karl Berg"] as const;
@@ -102,29 +122,6 @@ function identityNumbersIn(text: string): string[] {
 
 // --- fixtures ----------------------------------------------------------------
 
-type BoardPage = {
-  readonly rows: readonly {
-    readonly personId: string;
-    readonly name: string;
-  }[];
-};
-
-async function findPerson(
-  request: APIRequestContext,
-  name: string,
-): Promise<string | undefined> {
-  const response = await request.get(
-    `${stack.baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `GET /api/address-book answered ${String(response.status())}`,
-    );
-  }
-  const page = (await response.json()) as BoardPage;
-  return page.rows.find((row) => row.name === name)?.personId;
-}
-
 /**
  * Puts Sigrid in both registers, once however often this is asked for.
  *
@@ -133,12 +130,19 @@ async function findPerson(
  * look-up first is what lets any one test in this file be run on its own
  * against a stack that is already up.
  */
-async function ensureSigrid(request: APIRequestContext): Promise<string> {
+async function ensureSigrid(
+  request: APIRequestContext,
+): Promise<{ personId: string; apartment: ClaimedApartment }> {
   await ensureInstance(request);
+  const apartment = await apartmentForSigrid(request);
 
-  const existing = await findPerson(request, FULL_NAME);
+  const existing = await api.findPersonIdByName(
+    request,
+    stack.baseUrl,
+    FULL_NAME,
+  );
   if (existing !== undefined) {
-    return existing;
+    return { personId: existing, apartment };
   }
 
   const personId = await api.createPerson(request, stack.baseUrl, {
@@ -151,25 +155,6 @@ async function ensureSigrid(request: APIRequestContext): Promise<string> {
     postalCity: SIGRID.postalCity,
   });
 
-  const addresses = await api.listAddresses(request, stack.baseUrl);
-  const address = addresses.find(
-    (candidate) => candidate.number === ADDRESS_NUMBER,
-  );
-  if (address === undefined) {
-    throw new Error(`no address ${ADDRESS} in the register`);
-  }
-  const apartments = await api.listApartments(
-    request,
-    stack.baseUrl,
-    address.id,
-  );
-  const apartment = apartments.find(
-    (candidate) => candidate.number === APARTMENT,
-  );
-  if (apartment === undefined) {
-    throw new Error(`no apartment ${APARTMENT} on ${ADDRESS}`);
-  }
-
   // A tenant-ownership with its transfer: that writes her into the member
   // register and into the apartment register in one act, which is the state
   // both documents are read in below.
@@ -181,11 +166,11 @@ async function ensureSigrid(request: APIRequestContext): Promise<string> {
     transfer: {
       transferredOn: HELD_FROM,
       price: "1875000",
-      agreementReference: "OVL-2026-1301",
+      agreementReference: `OVL-2026-${apartment.number}`,
     },
   });
 
-  return personId;
+  return { personId, apartment };
 }
 
 async function signInAsAdmin(page: Page): Promise<void> {
@@ -220,7 +205,7 @@ test("the member register is its own document and taking a copy is recorded", as
   page,
   api: request,
 }) => {
-  await ensureSigrid(request);
+  const { apartment } = await ensureSigrid(request);
   const admin = await api.viewer(request, stack.baseUrl);
   const before = await auditEntriesByAction(
     "MEMBER_REGISTER_EXTRACT_GENERATED",
@@ -247,7 +232,7 @@ test("the member register is its own document and taking a copy is recorded", as
   await expect(row).toContainText(
     `${SIGRID.postalStreet}, ${SIGRID.postalCode}, ${SIGRID.postalCity}`,
   );
-  await expect(row).toContainText(DESIGNATION);
+  await expect(row).toContainText(designationOf(apartment));
   await expect(row).toContainText(HELD_FROM);
 
   await expect(
@@ -306,7 +291,7 @@ test("the printed member register is the document and nothing else", async ({
   page,
   api: request,
 }) => {
-  await ensureSigrid(request);
+  const { apartment } = await ensureSigrid(request);
   await signInAsAdmin(page);
   await openMemberRegister(page);
   await expect(printableDocument(page)).toBeVisible();
@@ -330,7 +315,7 @@ test("the printed member register is the document and nothing else", async ({
   const printed = await printableDocument(page).innerText();
   expect(printed).toContain(FULL_NAME);
   expect(printed).toContain(SIGRID.postalStreet);
-  expect(printed).toContain(DESIGNATION);
+  expect(printed).toContain(designationOf(apartment));
   expect(printed).toContain(HELD_FROM);
 
   // The one thing this document may never carry, checked as a shape rather
@@ -346,7 +331,7 @@ test("the full apartment register extract is a deliberate, recorded act", async 
   page,
   api: request,
 }) => {
-  const sigridId = await ensureSigrid(request);
+  const { personId: sigridId } = await ensureSigrid(request);
   const admin = await api.viewer(request, stack.baseUrl);
 
   await signInAsAdmin(page);
@@ -413,7 +398,7 @@ test("a tenant-owner reads their own entry and not the member register", async (
   api: request,
   clientAddress,
 }) => {
-  const sigridId = await ensureSigrid(request);
+  const { personId: sigridId, apartment } = await ensureSigrid(request);
   await ensureAccountFor(request, {
     personId: sigridId,
     email: SIGRID.email,
@@ -433,7 +418,7 @@ test("a tenant-owner reads their own entry and not the member register", async (
     page.getByRole("heading", { name: "Din post i lägenhetsförteckningen" }),
   ).toBeVisible();
 
-  await expect(page.getByText(DESIGNATION)).toBeVisible();
+  await expect(page.getByText(designationOf(apartment))).toBeVisible();
   await expect(rowFor(page, SIGRID.lastName)).toContainText(FULL_NAME);
 
   // Nobody else's entry is reachable from here. Not masked in it - absent from

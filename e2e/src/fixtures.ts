@@ -25,12 +25,30 @@ import { stack } from "./stack";
  * only and has nothing in front of it, so nothing else is affected.
  */
 
-/** A stable address per test, so a retry lands in the same bucket. */
-function addressFor(testId: string): string {
-  const digest = createHash("sha256").update(testId).digest();
+/** A stable address per seed, so a retry lands in the same bucket. */
+function addressFor(seed: string): string {
+  const digest = createHash("sha256").update(seed).digest();
   // 10.0.0.0/8 is private, and the first octet is fixed so the addresses are
   // recognisable in a log.
   return `10.${String(digest[0]!)}.${String(digest[1]!)}.${String((digest[2]! % 254) + 1)}`;
+}
+
+/**
+ * A second address, for somebody else acting in the same test.
+ *
+ * One test is usually one person, and the address above is theirs. A test about
+ * two people - somebody who has no account yet and the board member deciding
+ * their request - is two clients, and giving them one address between them
+ * spends one person's twenty requests on the other's sign-ins until the
+ * instance refuses one the test is asserting on.
+ *
+ * The same argument as the address above, not a way around it: the limit is per
+ * client, and an applicant activating their account really is somewhere else
+ * from the board member who approved it. Derived from the test's own address so
+ * two tests never share a persona's bucket either.
+ */
+export function clientAddressFor(testAddress: string, persona: string): string {
+  return addressFor(`${testAddress}::${persona}`);
 }
 
 export const test = base.extend<{

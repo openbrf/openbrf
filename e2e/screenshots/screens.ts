@@ -4,6 +4,7 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
+import { APPLICANT, MEMBER, MEMBER_LIST } from "./people";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -19,8 +20,14 @@ import { appPath } from "../src/stack";
  * state, which a reload would throw away.
  */
 
-/** Who is signed in. Omitted means "carry on as whoever the last screen left". */
-export type Actor = "nobody" | "administrator" | "resident";
+/**
+ * Who is signed in. Omitted means "carry on as whoever the last screen left".
+ *
+ * The two residents are separate because the product tells them apart: a
+ * tenant-owner reads their own entry in the apartment register, and somebody
+ * who lives in an apartment without holding it has no entry to read.
+ */
+export type Actor = "nobody" | "administrator" | "resident" | "member";
 
 /**
  * How to find something on the screen.
@@ -54,11 +61,27 @@ export type Target = Where & {
   readonly first?: true;
 };
 
+/**
+ * A file handed to an upload control.
+ *
+ * Written out here rather than read from disk: the manifest is data, and a
+ * fixture nobody can read in a diff is a fixture nobody checks against the
+ * publishing rules.
+ */
+export interface UploadedFile {
+  /** The name the screen shows and the parser reports back. */
+  readonly name: string;
+  readonly mimeType: string;
+  /** The whole file, as text. */
+  readonly text: string;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
   | { readonly fill: Target; readonly value: string }
   | { readonly select: Target; readonly option: string }
+  | { readonly upload: Target; readonly file: UploadedFile }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -101,8 +124,18 @@ const SETTINGS_PANELS = [
   ["settings-appearance", "Utseende"],
   ["settings-retention", "Gallring"],
   ["settings-self-signup", "Ansökningar om konto"],
+  ["settings-signup-queue", "Väntande ansökningar"],
   ["settings-profile", "Din profil"],
 ] as const;
+
+/**
+ * A token in the shape an invitation link carries.
+ *
+ * The activation screen renders its form from the link alone and sends the
+ * token only when the form is submitted, so a made-up one photographs the
+ * screen without consuming somebody's invitation. The walk never submits it.
+ */
+const ACTIVATION_LINK_TOKEN = "aktiveringslank-utan-inbjudan";
 
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
@@ -257,14 +290,134 @@ export const SCREENS: readonly Screen[] = [
     // matched rather than compared.
     waitFor: { heading: /^Lägenhet\s+1001$/ },
   },
+  {
+    // Everybody the register fixture seeds is invited when the board approves
+    // their request, so the account field on a person view is in this state
+    // until somebody chooses a password.
+    name: "person-invitation",
+    prepare: [
+      { click: { button: "Stäng" } },
+      { click: { button: "Öppna Nils Lindqvist" } },
+    ],
+    waitFor: { text: "Inbjuden, inte aktiverat" },
+  },
+
+  // --- the statutory registers -----------------------------------------------
+  // Two documents on two routes, because the law separates them: the member
+  // register is public on request and carries no personal identity number, the
+  // apartment register is confidential and masks the ones it holds.
+  {
+    name: "member-register",
+    goto: appPath("/registers/members"),
+    waitFor: { text: MEMBER.name },
+    capture: "page",
+  },
+  {
+    name: "apartment-register",
+    goto: appPath("/registers/apartments"),
+    // The designation of the one apartment somebody holds. Every other
+    // apartment in the register renders its own heading, so this names the
+    // entry the picture is about.
+    waitFor: { heading: MEMBER.designation },
+  },
+
+  // --- importing a member list -----------------------------------------------
+  // Four steps, of which three are photographed: the file, the columns and the
+  // preview. The walk stops before "Genomför importen", so the register the
+  // screens above photograph is the register these screens describe changing.
+  {
+    name: "import-upload",
+    goto: appPath("/import"),
+    waitFor: { label: "Välj en fil" },
+  },
+  {
+    name: "import-mapping",
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: MEMBER_LIST.fileName,
+          mimeType: MEMBER_LIST.mimeType,
+          text: MEMBER_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+    ],
+    // One select per column in the file, named after the column it maps: it
+    // exists only once the file has been read.
+    waitFor: { combobox: "Fält i registret för Förnamn" },
+  },
+  {
+    name: "import-preview",
+    prepare: [{ click: { button: "Förhandsgranska importen" } }],
+    waitFor: { button: "Genomför importen" },
+  },
+
+  // --- composing a theme -----------------------------------------------------
+  {
+    name: "theme-composer",
+    goto: appPath("/admin/themes/compose"),
+    // The themes this one may inherit from, which arrive with the installed
+    // list rather than with the screen.
+    waitFor: { combobox: "Ärver från" },
+  },
+
+  // --- signed out again ------------------------------------------------------
+  // The screens somebody meets before they have an account, and the
+  // association's own website. Signed out on purpose: the request form and the
+  // sign-in screen both turn away a visitor who already has a session.
+  {
+    name: "request-account",
+    as: "nobody",
+    goto: appPath("/request-account"),
+    prepare: [
+      { fill: { label: "Förnamn" }, value: APPLICANT.firstName },
+      { fill: { label: "Efternamn" }, value: APPLICANT.lastName },
+      { fill: { label: "E-postadress" }, value: APPLICANT.email },
+      { fill: { label: "Adress" }, value: APPLICANT.claimedAddress },
+      {
+        fill: { label: "Lägenhetsnummer" },
+        value: APPLICANT.claimedApartmentNumber,
+      },
+    ],
+    // The form itself is what the screen shows once it knows the association is
+    // accepting requests; a closed instance renders a notice instead.
+    waitFor: { button: "Skicka ansökan" },
+  },
+  {
+    // Sent, and left waiting: the board's queue is photographed further down
+    // with this request in it.
+    name: "request-account-received",
+    prepare: [{ click: { button: "Skicka ansökan" } }],
+    waitFor: { heading: "Ansökan är mottagen" },
+  },
+  {
+    name: "activate",
+    goto: appPath(`/activate?token=${ACTIVATION_LINK_TOKEN}`),
+    waitFor: { button: "Aktivera kontot" },
+  },
+  {
+    // The root, which is the association's own website rather than the
+    // application: the page the wizard wrote when the instance was claimed.
+    name: "site-home",
+    goto: "/",
+    waitFor: { heading: "Välkommen" },
+  },
+  {
+    name: "site-not-found",
+    goto: "/en-sida-som-aldrig-skrivits",
+    waitFor: { heading: "Sidan finns inte" },
+  },
 
   // --- settings --------------------------------------------------------------
   // One route, one card per setting. The whole page first, then each card on
   // its own, so a pull request that changes one of them can show that one.
+  // After the request above, so the queue card has a request waiting in it.
   {
     name: "settings",
+    as: "administrator",
     goto: appPath("/settings"),
-    waitFor: { heading: "Inställningar" },
+    waitFor: { text: APPLICANT.email },
     capture: "page",
   },
   ...SETTINGS_PANELS.map(([name, title]): Screen => ({
@@ -274,13 +427,20 @@ export const SCREENS: readonly Screen[] = [
   })),
 
   // --- the resident-facing board ---------------------------------------------
-  // Last, because it is the one screen that needs a second session: the server
-  // refuses the board view to anyone without the capability, so this is a
-  // resident signing in rather than a flag being turned over.
+  // Last, with the tenant-owner below, because these two are the screens that
+  // need a session of their own: the server refuses the board view to anyone
+  // without the capability and the apartment register to anyone but a holder,
+  // so these are residents signing in rather than a flag being turned over.
   {
     name: "address-book-resident",
     as: "resident",
     goto: appPath(),
     waitFor: { heading: "Adressbok" },
+  },
+  {
+    name: "own-apartment-register",
+    as: "member",
+    goto: appPath("/registers/apartments"),
+    waitFor: { heading: MEMBER.designation },
   },
 ];

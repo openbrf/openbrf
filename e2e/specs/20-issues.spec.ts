@@ -1,9 +1,7 @@
-import { createHash } from "node:crypto";
-
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
-import { expect, stack, test } from "../src/fixtures";
+import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
 import {
@@ -94,22 +92,17 @@ function pngBytes(width: number, height: number): Buffer {
 }
 
 /**
- * The three people this spec acts as.
+ * The three people this spec acts as, each on a client address of their own.
  *
  * Named rather than spelled inline because each one is a rate-limit bucket, and
  * a typo would silently put two of them in the same one.
- */
-type Persona = "administrator" | "reporter" | "manager";
-
-/**
- * A client address of this test's own, one per person.
  *
- * The same derivation the shared fixtures use for their per-test address, with
- * the person mixed in. The reason is the fixtures' own: the sign-in endpoints
- * are rate-limited per client address, and this spec signs three different
- * people in - the board, an external property manager and a resident - who in
- * life sign in from three different homes. Sharing one address makes the suite
- * throttle itself and read as flaky.
+ * The addresses come from the shared fixtures' `clientAddressFor`, which mixes
+ * the person into the test's own address. The reason is the fixtures' own: the
+ * sign-in endpoints are rate-limited per client address, and this spec signs
+ * three different people in - the board, an external property manager and a
+ * resident - who in life sign in from three different homes. Sharing one
+ * address makes the suite throttle itself and read as flaky.
  *
  * Not a way around the limit. Each person still gets one budget, and what this
  * stops is one person's traffic spending another's.
@@ -132,14 +125,7 @@ type Persona = "administrator" | "reporter" | "manager";
  * /api/invitations/accept, which carries a separate budget of ten a minute -
  * one per address per run, so clear of both.
  */
-function addressFor(clientAddress: string, persona: Persona): string {
-  const digest = createHash("sha256")
-    .update(`${clientAddress}::${persona}`)
-    .digest();
-  // 10.0.0.0/8 is private, and the first octet is fixed so the addresses are
-  // recognisable in a log.
-  return `10.${String(digest[0]!)}.${String(digest[1]!)}.${String((digest[2]! % 254) + 1)}`;
-}
+type Persona = "administrator" | "reporter" | "manager";
 
 /**
  * Puts this browser on one person's own client address.
@@ -157,7 +143,7 @@ async function browseAs(
   persona: Persona,
 ): Promise<void> {
   await page.setExtraHTTPHeaders({
-    "x-forwarded-for": addressFor(clientAddress, persona),
+    "x-forwarded-for": clientAddressFor(clientAddress, persona),
   });
 }
 
@@ -202,35 +188,6 @@ async function signInThroughTheScreen(
   await expect(page).not.toHaveURL(/\/sign-in$/);
 }
 
-type BoardPage = {
-  readonly rows: readonly {
-    readonly personId: string;
-    readonly name: string;
-  }[];
-};
-
-/**
- * A person in the register, by name, or nothing.
- *
- * The `all` filter lists a person with no residency as well as one with, which
- * is what makes it usable here: the property manager holds no apartment.
- */
-async function findPerson(
-  request: APIRequestContext,
-  name: string,
-): Promise<string | undefined> {
-  const response = await request.get(
-    `${stack.baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `GET /api/address-book answered ${String(response.status())}`,
-    );
-  }
-  const page = (await response.json()) as BoardPage;
-  return page.rows.find((row) => row.name === name)?.personId;
-}
-
 /**
  * The instance every test here expects: the register fixture, two issue types,
  * an account for the reporter and one for the property manager.
@@ -273,17 +230,21 @@ async function ensureIssueFixture(
     password: REPORTER.password,
     // The probe, and on a fresh stack the activation, belong to the reporter's
     // budget rather than to whatever else this test is about to do.
-    clientAddress: addressFor(clientAddress, "reporter"),
+    clientAddress: clientAddressFor(clientAddress, "reporter"),
   });
 
   /*
    * Looked up before being created. Nothing in the suite can delete a person,
    * and this helper runs once per test in the file, so creating unconditionally
    * would leave four identical property managers in the register per run.
+   *
+   * The shared lookup asks the address book under the `all` filter, which
+   * lists a person with no residency as well as one with - which is what makes
+   * it usable here: the property manager holds no apartment.
    */
   const managerFullName = `${MANAGER.firstName} ${MANAGER.lastName}`;
   const managerPersonId =
-    (await findPerson(request, managerFullName)) ??
+    (await api.findPersonIdByName(request, stack.baseUrl, managerFullName)) ??
     (await api.createPerson(request, stack.baseUrl, {
       firstName: MANAGER.firstName,
       lastName: MANAGER.lastName,
@@ -294,7 +255,7 @@ async function ensureIssueFixture(
     personId: managerPersonId,
     email: MANAGER.email,
     password: MANAGER.password,
-    clientAddress: addressFor(clientAddress, "manager"),
+    clientAddress: clientAddressFor(clientAddress, "manager"),
   });
 
   return { reporterPersonId, managerPersonId };

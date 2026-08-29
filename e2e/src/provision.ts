@@ -198,29 +198,6 @@ export const REGISTER_PEOPLE: readonly RegisterPerson[] = [
   },
 ];
 
-type BoardPage = {
-  readonly rows: readonly {
-    readonly personId: string;
-    readonly name: string;
-  }[];
-};
-
-async function findPerson(
-  request: APIRequestContext,
-  name: string,
-): Promise<string | undefined> {
-  const response = await request.get(
-    `${stack.baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `GET /api/address-book answered ${String(response.status())}`,
-    );
-  }
-  const page = (await response.json()) as BoardPage;
-  return page.rows.find((row) => row.name === name)?.personId;
-}
-
 /**
  * Puts the four people above into the register, on their apartments.
  *
@@ -247,7 +224,11 @@ export async function ensureRegisterFixture(
   const ids = new Map<string, string>();
   for (const person of REGISTER_PEOPLE) {
     const fullName = `${person.firstName} ${person.lastName}`;
-    const existing = await findPerson(request, fullName);
+    const existing = await api.findPersonIdByName(
+      request,
+      stack.baseUrl,
+      fullName,
+    );
     if (existing !== undefined) {
       ids.set(fullName, existing);
       continue;

@@ -1,8 +1,14 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
-import type { BrowserContext, Locator, Page } from "@playwright/test";
+import type {
+  APIRequestContext,
+  BrowserContext,
+  Locator,
+  Page,
+} from "@playwright/test";
 
+import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
 import {
   ADMINISTRATOR,
@@ -10,6 +16,7 @@ import {
   ensureRegisterFixture,
 } from "../src/provision";
 import { appPath, repositoryRoot, stack } from "../src/stack";
+import { MEMBER, RESIDENT } from "./people";
 import { assertSafeToPublish, freezeScripts } from "./safety";
 import {
   SCREENS,
@@ -43,11 +50,18 @@ const OUTPUT_DIR = resolve(repositoryRoot, "screenshots");
  * a reviewer opens the picture at full size. `reducedMotion` is a real viewer
  * setting and it stops transitions before they start, which is half of why a
  * rerun differs only where the interface differs.
+ *
+ * The locale is set because one part of the instance answers in the visitor's
+ * language rather than in its own: the association's public website reads
+ * Accept-Language, having nobody signed in whose preference it could use. The
+ * client is Swedish whatever the browser asks for, so without this the website
+ * would be the one set of images in a different language from the rest.
  */
 const BROWSER = {
   viewport: { width: 1440, height: 900 },
   deviceScaleFactor: 2,
   reducedMotion: "reduce",
+  locale: "sv-SE",
 } as const;
 
 /**
@@ -63,16 +77,20 @@ const BROWSER = {
 const THEMES = ["light", "dark"] as const;
 
 /**
- * The resident whose session the resident-facing board is captured from.
+ * The two residents the walk signs in as, beside the administrator.
  *
- * Made through the invitation flow, like any other account. The password is a
- * fixture value on a throwaway instance that is destroyed when the run ends.
+ * Each gets an account through the invitation flow, like anybody else on the
+ * instance. Who they are, and why there are two of them, is in people.ts.
  */
-const RESIDENT = {
-  name: "Nils Lindqvist",
-  email: "nils@eksemplet.test",
-  password: "granngarden-kastanj-2026",
-} as const;
+const PERSONAS: Readonly<
+  Record<
+    "resident" | "member",
+    { readonly name: string; readonly email: string; readonly password: string }
+  >
+> = {
+  resident: RESIDENT,
+  member: MEMBER,
+};
 
 /**
  * A client address per person the walk signs in as.
@@ -89,9 +107,80 @@ const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
   nobody: "10.40.0.1",
   administrator: "10.40.0.2",
   resident: "10.40.0.3",
+  member: "10.40.0.4",
 };
 
-// --- what may appear in a published image ------------------------------------
+// --- the register the walk photographs ---------------------------------------
+
+/**
+ * The tenant-owner the statutory registers are photographed with.
+ *
+ * The shared register fixture puts its four people on apartments through
+ * sign-up approval, which records a residency and nothing statutory. A member
+ * register entry is written by a move-in, and the apartment register states who
+ * holds an apartment, so without one move-in both documents would be
+ * photographed empty. Looked up before she is created, like every other fixture
+ * here, so a capture against a stack that is already up finds her rather than
+ * seeding a second one.
+ */
+async function ensureTenantOwner(request: APIRequestContext): Promise<string> {
+  const existing = await api.findPersonIdByName(
+    request,
+    stack.baseUrl,
+    MEMBER.name,
+  );
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const personId = await api.createPerson(request, stack.baseUrl, {
+    firstName: MEMBER.firstName,
+    lastName: MEMBER.lastName,
+    email: MEMBER.email,
+    postalStreet: MEMBER.postalStreet,
+    postalCode: MEMBER.postalCode,
+    postalCity: MEMBER.postalCity,
+  });
+
+  const addresses = await api.listAddresses(request, stack.baseUrl);
+  const address = addresses.find(
+    (candidate) => candidate.number === MEMBER.addressNumber,
+  );
+  if (address === undefined) {
+    throw new Error(
+      `no address numbered ${MEMBER.addressNumber} in the register`,
+    );
+  }
+  const apartments = await api.listApartments(
+    request,
+    stack.baseUrl,
+    address.id,
+  );
+  const apartment = apartments.find(
+    (candidate) => candidate.number === MEMBER.apartmentNumber,
+  );
+  if (apartment === undefined) {
+    throw new Error(
+      `no apartment ${MEMBER.apartmentNumber} on ${address.street} ${address.number}`,
+    );
+  }
+
+  // A tenant-ownership with its transfer: one act writes the entry in the
+  // member register and the first grant in the apartment register.
+  await api.moveIn(request, stack.baseUrl, {
+    personId,
+    apartmentId: apartment.id,
+    role: "MEMBER",
+    movedInOn: MEMBER.heldFrom,
+    transfer: {
+      transferredOn: MEMBER.heldFrom,
+      price: MEMBER.price,
+      agreementReference: MEMBER.agreementReference,
+    },
+  });
+
+  return personId;
+}
 
 // --- resolving a declared target ---------------------------------------------
 
@@ -166,6 +255,16 @@ async function perform(page: Page, action: Action): Promise<void> {
     await locate(page, action.select).selectOption({ label: action.option });
     return;
   }
+  if ("upload" in action) {
+    // Handed to the control as bytes rather than as a path: the file is
+    // declared in the manifest, so there is nothing on disk to point at.
+    await locate(page, action.upload).setInputFiles({
+      name: action.file.name,
+      mimeType: action.file.mimeType,
+      buffer: Buffer.from(action.file.text, "utf8"),
+    });
+    return;
+  }
   await expect(locate(page, action.see)).toBeVisible();
 }
 
@@ -236,8 +335,9 @@ test("captures every declared screen in light and dark", async ({
   api: request,
 }) => {
   // One test walks every screen, because the walk is the point: an instance is
-  // unclaimed once, and each entry starts where the one before it stopped.
-  test.setTimeout(20 * 60_000);
+  // unclaimed once, and each entry starts where the one before it stopped. The
+  // budget is for the whole walk in both themes, not for one screen.
+  test.setTimeout(40 * 60_000);
 
   await rm(OUTPUT_DIR, { recursive: true, force: true });
   await mkdir(OUTPUT_DIR, { recursive: true });
@@ -262,14 +362,18 @@ test("captures every declared screen in light and dark", async ({
 
   let people: ReadonlyMap<string, string> | undefined;
   /**
-   * The demo cooperative and the four people in its register, made once.
+   * The demo cooperative and the people in its register, made once.
    *
    * Deferred until a screen needs a session, because the wizard entries above
    * it run against an instance nobody has claimed, and claiming it is what they
    * photograph. It also completes setup, which the wizard walk stops short of.
    */
   const registerFixture = async (): Promise<ReadonlyMap<string, string>> => {
-    people ??= await ensureRegisterFixture(request);
+    if (people === undefined) {
+      const seeded = new Map(await ensureRegisterFixture(request));
+      seeded.set(MEMBER.name, await ensureTenantOwner(request));
+      people = seeded;
+    }
     return people;
   };
 
@@ -294,16 +398,17 @@ test("captures every declared screen in light and dark", async ({
 
     if (wanted === "administrator") {
       await signIn(page, ADMINISTRATOR);
-    } else if (wanted === "resident") {
-      const personId = ids?.get(RESIDENT.name);
-      expect(personId, `${RESIDENT.name} is in the register`).toBeDefined();
+    } else if (wanted !== "nobody") {
+      const persona = PERSONAS[wanted];
+      const personId = ids?.get(persona.name);
+      expect(personId, `${persona.name} is in the register`).toBeDefined();
       await ensureAccountFor(request, {
         personId: personId!,
-        email: RESIDENT.email,
-        password: RESIDENT.password,
-        clientAddress: CLIENT_ADDRESS.resident,
+        email: persona.email,
+        password: persona.password,
+        clientAddress: CLIENT_ADDRESS[wanted],
       });
-      await signIn(page, RESIDENT);
+      await signIn(page, persona);
     }
     signedInAs = wanted;
   };

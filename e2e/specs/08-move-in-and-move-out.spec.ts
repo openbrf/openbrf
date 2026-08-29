@@ -1,5 +1,6 @@
-import type { Locator, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
+import { claimApartment, type ClaimedApartment } from "../src/apartments";
 import { memberRegisterEntriesByRecordedName } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
@@ -28,10 +29,10 @@ import { appPath } from "../src/stack";
 test.describe.configure({ mode: "serial" });
 
 /*
- * This run's own person, on this spec's own apartment. Nothing here can be
+ * This run's own person, on this run's own apartment. Nothing here can be
  * removed again - the residency, the transfer and the register entry are all
- * kept - so a fixed identity would collide with itself on a second run against
- * one database, and 1401 on Storgatan 12 belongs to no other spec.
+ * kept - so both a fixed identity and a fixed apartment would collide with
+ * themselves on a second run against one database.
  */
 const VILGOT = {
   firstName: "Vilgot",
@@ -41,8 +42,25 @@ const VILGOT = {
 
 const FULL_NAME = `${VILGOT.firstName} ${VILGOT.lastName}`;
 
-const APARTMENT = "1401";
-const ADDRESS = "Storgatan 12";
+const ADDRESS_NUMBER = "12";
+
+/**
+ * The apartment Vilgot moves into, claimed once for the whole file.
+ *
+ * The two tests are one residency: the move-out ends the residency the move-in
+ * created, so they have to mean the same apartment. Held in the module rather
+ * than claimed per test for exactly that, and the file runs serially in one
+ * worker, so the second test finds what the first claimed rather than asking
+ * for a second apartment.
+ */
+let claimed: Promise<ClaimedApartment> | undefined;
+
+function apartmentForVilgot(
+  request: APIRequestContext,
+): Promise<ClaimedApartment> {
+  claimed ??= claimApartment(request, ADDRESS_NUMBER);
+  return claimed;
+}
 
 const MOVED_IN_ON = "2026-06-01";
 const MOVED_OUT_ON = "2026-08-01";
@@ -98,6 +116,7 @@ test("moving someone in writes the register and welcomes them in their own langu
   api: request,
 }) => {
   await ensureInstance(request);
+  const apartment = await apartmentForVilgot(request);
 
   /*
    * English, on a Swedish instance. The criterion is that the welcome mail is
@@ -123,10 +142,10 @@ test("moving someone in writes the register and welcomes them in their own langu
 
   await panel
     .getByRole("combobox", { name: "Adresser" })
-    .selectOption({ label: ADDRESS });
+    .selectOption({ label: apartment.addressLabel });
   await panel
     .getByRole("combobox", { name: "Lägenhet" })
-    .selectOption({ label: APARTMENT });
+    .selectOption({ label: apartment.number });
 
   // A tenant-ownership rather than a tenancy: this is the choice that decides
   // whether a statutory member register entry is written at all.
@@ -137,20 +156,25 @@ test("moving someone in writes the register and welcomes them in their own langu
 
   await panel.getByRole("checkbox", { name: "Registrera överlåtelse" }).check();
   await panel.getByLabel("Avtalsdatum").fill(MOVED_IN_ON);
-  // Nobody held 1401 before, so the transfer is the first grant. That is the
-  // default the select offers, and leaving it is the whole assertion.
+  // Nobody has ever held this apartment - it was claimed for this run - so the
+  // transfer is the first grant. That is the default the select offers, and
+  // leaving it is the whole assertion.
   await expect(
     panel.getByRole("combobox", { name: "Tidigare innehavare" }),
   ).toHaveValue("");
   await panel.getByLabel("Pris").fill("2450000");
-  await panel.getByLabel("Avtalshänvisning").fill("OVL-2026-1401");
+  await panel
+    .getByLabel("Avtalshänvisning")
+    .fill(`OVL-2026-${apartment.number}`);
 
   await panel.getByRole("button", { name: "Flytta in", exact: true }).click();
 
   // What the move did, said in four sentences, because only the first of them
   // can be undone.
   await expect(
-    panel.getByText(`${FULL_NAME} är registrerad på lägenhet ${APARTMENT}.`),
+    panel.getByText(
+      `${FULL_NAME} är registrerad på lägenhet ${apartment.number}.`,
+    ),
   ).toBeVisible();
   await expect(
     panel.getByText("En post skrevs i medlemsförteckningen."),
@@ -169,7 +193,7 @@ test("moving someone in writes the register and welcomes them in their own langu
   // The plain-text part is word-wrapped when it is rendered, so the sentence is
   // read with its line breaks collapsed rather than as it happens to be laid
   // out: a wrap falling between the word and the number is not a defect.
-  expect(text.replace(/\s+/g, " ")).toContain(`apartment ${APARTMENT}`);
+  expect(text.replace(/\s+/g, " ")).toContain(`apartment ${apartment.number}`);
 
   await expect
     .poll(
@@ -190,6 +214,7 @@ test("moving someone out states the purge date and keeps the register entry", as
   api: request,
 }) => {
   await ensureInstance(request);
+  const apartment = await apartmentForVilgot(request);
   await signInAsAdmin(page);
 
   await page.getByLabel("Sök i registret").fill(VILGOT.lastName);
@@ -198,7 +223,9 @@ test("moving someone out states the purge date and keeps the register entry", as
 
   // Named after the apartment it ends, because a person can hold more than one.
   await page
-    .getByRole("button", { name: `Flytta ut från lägenhet ${APARTMENT}` })
+    .getByRole("button", {
+      name: `Flytta ut från lägenhet ${apartment.number}`,
+    })
     .click();
 
   const panel = movePanel(page, "Flytta ut");
@@ -208,7 +235,7 @@ test("moving someone out states the purge date and keeps the register entry", as
 
   await expect(
     panel.getByText(
-      `Utflyttningen från lägenhet ${ADDRESS} ${APARTMENT} är registrerad.`,
+      `Utflyttningen från lägenhet ${apartment.addressLabel} ${apartment.number} är registrerad.`,
     ),
   ).toBeVisible();
 
