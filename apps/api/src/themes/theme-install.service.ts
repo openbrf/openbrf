@@ -373,6 +373,31 @@ export class ThemeInstallService {
           tx,
         );
 
+        /*
+         * A composed theme is admitted as an install and is also an act of
+         * authorship, so it gets both entries. THEME_INSTALLED stays because
+         * the gate a theme passed is the same one however it was authored, and
+         * a reader asking what is installed should not have to know two action
+         * names to find out; THEME_COMPOSED is what says the tokens were
+         * written here rather than downloaded, which is the question a board
+         * asks about a theme it can still edit.
+         */
+        if (provenance.auditSource === COMPOSED_AUDIT_SOURCE) {
+          await this.audit.record(
+            {
+              action: "THEME_COMPOSED",
+              actorPersonId,
+              targetKind: "theme",
+              targetId: manifest.name,
+              context: {
+                version: manifest.version,
+                extends: manifest.extends ?? null,
+              },
+            },
+            tx,
+          );
+        }
+
         // Last, so that a swap this cannot complete rolls the row back with it
         // and the previous version keeps rendering.
         await staged.commit();

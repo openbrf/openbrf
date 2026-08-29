@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { InvitationService } from "../invitations/invitation.service";
@@ -53,6 +54,7 @@ export class SignupRequestService {
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly invitations: InvitationService,
+    private readonly audit: AuditLogService,
   ) {}
 
   /**
@@ -281,6 +283,30 @@ export class SignupRequestService {
         },
       });
 
+      /*
+       * In the transaction that claims the request, so the decision and the
+       * record of it commit together: a second board member losing the race
+       * above rolls back without leaving an entry for a decision they did not
+       * make. Both the request and the person are named - the request because
+       * it is what was decided, the person because a later data subject access
+       * report is asked by person.
+       */
+      await this.audit.record(
+        {
+          action: "SIGNUP_REQUEST_APPROVED",
+          actorPersonId: input.decidedByPersonId,
+          targetPersonId: id,
+          targetKind: "signupRequest",
+          targetId: request.id,
+          context: {
+            apartmentId: apartment.id,
+            role: input.role ?? "RESIDENT",
+            personExisted: existing?.id !== undefined,
+          },
+        },
+        tx,
+      );
+
       return id;
     });
 
@@ -312,22 +338,38 @@ export class SignupRequestService {
       );
     }
 
-    // Conditional for the same reason as in approve: the check above does not
-    // survive two concurrent rejections, this does.
-    const decided = await this.prisma.signupRequest.updateMany({
-      where: { id: input.requestId, status: "PENDING" },
-      data: {
-        status: "REJECTED",
-        decidedAt: new Date(),
-        decidedById: input.decidedByPersonId,
-        rejectReason: input.reason ?? null,
-      },
-    });
-    if (decided.count === 0) {
-      throw new SignupRequestError(
-        "This request has already been decided.",
-        "already-decided",
+    await this.prisma.$transaction(async (tx) => {
+      // Conditional for the same reason as in approve: the check above does not
+      // survive two concurrent rejections, this does.
+      const decided = await tx.signupRequest.updateMany({
+        where: { id: input.requestId, status: "PENDING" },
+        data: {
+          status: "REJECTED",
+          decidedAt: new Date(),
+          decidedById: input.decidedByPersonId,
+          rejectReason: input.reason ?? null,
+        },
+      });
+      if (decided.count === 0) {
+        throw new SignupRequestError(
+          "This request has already been decided.",
+          "already-decided",
+        );
+      }
+
+      // No person is named: a rejected request produced none, and the applicant
+      // is not in the register.
+      await this.audit.record(
+        {
+          action: "SIGNUP_REQUEST_REJECTED",
+          actorPersonId: input.decidedByPersonId,
+          targetKind: "signupRequest",
+          targetId: input.requestId,
+          context:
+            input.reason === undefined ? undefined : { reason: input.reason },
+        },
+        tx,
       );
-    }
+    });
   }
 }

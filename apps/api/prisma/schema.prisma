@@ -180,6 +180,7 @@ model Person {
   memberRegisterEntries MemberRegisterEntry[]
   transfersFrom         Transfer[]            @relation("TransferFromPerson")
   transfersTo           Transfer[]            @relation("TransferToPerson")
+  publicationConsents   PublicationConsent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -475,6 +476,39 @@ enum AuditAction {
   /// are public, or readable by anyone signed in, are not logged: one entry per
   /// image request would bury the accesses the law requires to be recorded.
   MEDIA_ACCESSED
+  /// An invitation to activate an account was created and mailed.
+  INVITATION_SENT
+  /// An invitation was used and the account it activates was created.
+  INVITATION_ACCEPTED
+  /// A self-signup request was approved, producing a person and a residency.
+  SIGNUP_REQUEST_APPROVED
+  /// A self-signup request was rejected.
+  SIGNUP_REQUEST_REJECTED
+  /// A theme was authored on this instance rather than installed from a
+  /// catalog. Written beside THEME_INSTALLED, which records the admission
+  /// every theme goes through however it was authored.
+  THEME_COMPOSED
+  /// A person's publication consent (publiceringssamtycke) was recorded for
+  /// one scope.
+  CONSENT_RECORDED
+  /// A publication consent was withdrawn. The consent row stays: the record
+  /// that it existed for a period is the evidence, and this entry is the act.
+  CONSENT_WITHDRAWN
+  /// A page on the association's website was published.
+  PAGE_PUBLISHED
+  /// A page's visibility changed between public and members only.
+  PAGE_VISIBILITY_CHANGED
+  /// A news item was published.
+  NEWS_PUBLISHED
+  /// A published news item was mailed to its recipients.
+  NEWS_EMAILED
+  /// A legal hold was placed on a person's data, suspending the purge.
+  LEGAL_HOLD_PLACED
+  /// A legal hold was released, so the purge reaches that data again.
+  LEGAL_HOLD_RELEASED
+  /// Service-tier data past its retention date was purged. The statutory tier
+  /// is exempt and is never reached by a purge.
+  SERVICE_DATA_PURGED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -1015,4 +1049,70 @@ model Page {
 
   @@index([visibility, published, sortOrder])
   @@map("page")
+}
+
+// ---------------------------------------------------------------------------
+// Publication consent.
+// ---------------------------------------------------------------------------
+
+/// What a person has agreed to appear as on something the association
+/// publishes. One consent covers one of these and no more: agreeing to be
+/// named in the board roster is not agreeing to be photographed.
+enum ConsentScope {
+  /// A photograph the person is identifiable in.
+  PHOTO
+  /// The person's name, on a page the association publishes.
+  NAME_ON_SITE
+  /// Name and position in the published board roster.
+  BOARD_ROSTER
+}
+
+/// A person's publication consent (publiceringssamtycke).
+///
+/// The legal basis for putting personal data on a page the association
+/// publishes (GDPR art. 6.1 a). The board records what the person told them,
+/// the same way it records protected personal data, because the board is who
+/// the person tells.
+///
+/// Granting and withdrawing are dated facts on one row rather than a boolean:
+/// withdrawal sets withdrawnAt and never deletes the row, because the record
+/// that consent existed between two dates is itself the evidence that what was
+/// published while it stood was published lawfully. A person who grants,
+/// withdraws and grants again therefore has several rows for one scope, and
+/// the most recent one is the state that holds.
+///
+/// Service tier: this is not statutory register content, so there is no
+/// append-only trigger and no retention floor. It is nonetheless never
+/// rewritten in place except to set the withdrawal date.
+model PublicationConsent {
+  id String @id @default(cuid())
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  scope ConsentScope
+
+  /// When the person gave the consent, as the board recorded it.
+  grantedAt DateTime
+
+  /// Null while the consent stands.
+  withdrawnAt DateTime?
+
+  /// The board member who recorded the grant.
+  ///
+  /// Deliberately a plain column and not a relation, for the reason the audit
+  /// log gives: a referential action would either rewrite this row or veto
+  /// erasure of the person it names. Who withdrew a consent is in the audit
+  /// log - this row is the fact, the log is the act.
+  recordedByPersonId String?
+
+  /// What the person said, in the board's own words. Describes the grant; a
+  /// withdrawal's particulars belong in the audit entry that records it.
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([personId, scope, grantedAt])
+  @@map("publication_consent")
 }
