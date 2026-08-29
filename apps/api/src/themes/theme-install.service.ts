@@ -1,9 +1,11 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { checkContrast } from "@openbrf/tokens";
 import {
   BUILT_IN_THEME,
   chainEntryFor,
   lintTheme,
   readThemePackage,
+  resolveChainTokens,
   resolveThemeChain,
   type ThemeArchiveFiles,
   type ThemeChainEntry,
@@ -309,6 +311,15 @@ export class ThemeInstallService {
       );
     }
 
+    const regressions = await this.descendantRegressions(manifest);
+    if (regressions.length > 0) {
+      throw new ThemeInstallError(
+        `The theme ${manifest.name} would leave a theme that inherits from it below the contrast bar.`,
+        "lint-failed",
+        regressions,
+      );
+    }
+
     /*
      * Staged beside the installed version, not over it. Storage and the
      * database cannot share a transaction, so the transaction below is made the
@@ -439,6 +450,108 @@ export class ThemeInstallService {
    * measured with its parent's values in place, or a child that only changes
    * the accent would look like a theme with no colours at all.
    */
+  /**
+   * Contrast a save would break in the themes that inherit from it.
+   *
+   * The lint above reads the theme being saved and nothing else, but a theme
+   * states only what it changes: a child can override one register colour and
+   * inherit the other, so editing the parent can put a pair below the bar in a
+   * theme nobody touched. Recomputing the inherited values afterwards writes
+   * that state in without ever measuring it, and activation is the only other
+   * place contrast is checked - which never runs for a theme that is already
+   * active. The statutory register would go unreadable while every screen
+   * still reported the theme as installed and valid.
+   *
+   * Only what the save would *introduce* is refused. A descendant already
+   * failing before the edit stays the descendant's problem: blocking an
+   * unrelated parent edit on it would leave the parent uneditable with no
+   * action its author could take.
+   */
+  private async descendantRegressions(
+    manifest: ThemeManifest,
+  ): Promise<ThemeLintFinding[]> {
+    const rows = await this.themes.installedRows();
+    const others = rows.filter((row) => row.id !== manifest.name);
+
+    const entryOf = (row: (typeof rows)[number]): ThemeChainEntry =>
+      ThemeService.chainEntryOf(row);
+    const base = new Map<string, ThemeChainEntry>([
+      [BUILT_IN_THEME.id, BUILT_IN_THEME],
+      ...others.map((row) => [row.id, entryOf(row)] as const),
+    ]);
+
+    const installed = rows.find((row) => row.id === manifest.name);
+    const before = new Map(base);
+    if (installed !== undefined) {
+      before.set(installed.id, entryOf(installed));
+    }
+    const after = new Map(base);
+    const candidate = chainEntryFor(manifest);
+    after.set(candidate.id, candidate);
+
+    /** The pairs below the bar for one theme under one set of ancestors. */
+    const failuresFor = (
+      themeId: string,
+      lookup: ReadonlyMap<string, ThemeChainEntry>,
+    ): Map<
+      string,
+      { mode: string; finding: ReturnType<typeof checkContrast>[number] }
+    > => {
+      const out = new Map<
+        string,
+        { mode: string; finding: ReturnType<typeof checkContrast>[number] }
+      >();
+      const chain = resolveThemeChain(themeId, (id) => lookup.get(id));
+      if (!chain.ok) {
+        return out;
+      }
+      const resolved = resolveChainTokens(chain.chain);
+      for (const mode of ["light", "dark"] as const) {
+        for (const finding of checkContrast(resolved[mode].tokens)) {
+          out.set(`${mode}:${finding.foreground}:${finding.background}`, {
+            mode,
+            finding,
+          });
+        }
+      }
+      return out;
+    };
+
+    const findings: ThemeLintFinding[] = [];
+    for (const row of others) {
+      const chain = resolveThemeChain(row.id, (id) => after.get(id));
+      if (!chain.ok) {
+        continue;
+      }
+      // Only themes that actually inherit from the one being saved.
+      if (!chain.chain.some((entry) => entry.id === manifest.name)) {
+        continue;
+      }
+
+      const was = failuresFor(row.id, before);
+      for (const [key, { mode, finding }] of failuresFor(row.id, after)) {
+        if (was.has(key)) {
+          continue;
+        }
+        findings.push({
+          rule: "contrast",
+          severity: "error",
+          detail: {
+            theme: row.id,
+            mode,
+            foreground: finding.foreground,
+            background: finding.background,
+            ratio: finding.ratio ?? -1,
+            required: finding.required,
+            statutory: finding.statutory,
+          },
+        });
+      }
+    }
+
+    return findings;
+  }
+
   private async lintAgainstInstalled(
     manifest: ThemeManifest,
     files: readonly string[],

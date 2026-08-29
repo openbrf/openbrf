@@ -755,6 +755,7 @@
     },
     "lint": {
       "statutory": "This colour pair carries the statutory register, so a theme that falls below the contrast bar here is refused rather than warned about.",
+      "inDescendant": "This is in {{theme}}, which inherits from the theme you saved.",
       "unrecognised": "The theme was refused by a rule this version does not recognise: {{rule}}.",
       "reservedId": "{{themeId}} is the default theme's name and is reserved.",
       "selfExtends": "{{themeId}} states that it inherits from itself.",

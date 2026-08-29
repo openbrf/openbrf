@@ -444,6 +444,79 @@ describe("a composed theme is an ordinary installed theme", () => {
     await expect(themes.uninstall(COMPOSED)).rejects.toThrow(/is inherited by/);
   });
 
+  it("refuses an edit that would darken the register in a theme inheriting from it", async () => {
+    // Colours chosen by measurement, not by eye. Against the default board the
+    // child's ink reads at 5.63:1 and 4.98:1 on the raised surface, so it
+    // composes cleanly; the parent's own inherited inks stay at 4.97:1 or
+    // better on the new board, so the parent alone would pass. Only the pair
+    // the two themes make together falls, to 4.03:1.
+    // The child states the register ink and inherits the board it sits on, so
+    // only the two together decide whether the register can be read - and the
+    // parent is where the board comes from.
+    await installer.compose(
+      {
+        id: CHILD,
+        displayName: "Husets farger, ljusare",
+        extends: COMPOSED,
+        modes: {
+          light: { "surface-page": "#F5F3EE", "text-register": "#959595" },
+          dark: {},
+        },
+      },
+      null,
+    );
+    await themes.activate(CHILD, null);
+
+    const before = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: COMPOSED },
+    });
+
+    // Legible in the parent itself, illegible under the child's own ink.
+    await expect(
+      installer.compose(
+        {
+          id: COMPOSED,
+          displayName: "Husets farger",
+          extends: "porttavlan",
+          modes: { light: { "surface-register": "#363636" }, dark: {} },
+          description: undefined,
+        },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "lint-failed" });
+
+    // The refusal names the theme the board would have to go and look at.
+    await expect(
+      installer.compose(
+        {
+          id: COMPOSED,
+          displayName: "Husets farger",
+          extends: "porttavlan",
+          modes: { light: { "surface-register": "#363636" }, dark: {} },
+          description: undefined,
+        },
+        null,
+      ),
+    ).rejects.toMatchObject({
+      findings: expect.arrayContaining([
+        expect.objectContaining({
+          rule: "contrast",
+          detail: expect.objectContaining({ theme: CHILD, statutory: true }),
+        }),
+      ]),
+    });
+
+    // Nothing was written: the parent stands at the version it had, and the
+    // child still renders what it rendered.
+    const after = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: COMPOSED },
+    });
+    expect(after.version).toBe(before.version);
+    expect(after.declaredLightTokens).toEqual(before.declaredLightTokens);
+
+    await themes.activate(null, null);
+  });
+
   it("uninstalls, taking its files with it", async () => {
     await themes.uninstall(CHILD);
     await themes.uninstall(COMPOSED);

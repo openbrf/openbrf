@@ -755,6 +755,7 @@
     },
     "lint": {
       "statutory": "Det här färgparet bär det lagstadgade registret, så ett tema som hamnar under kontrastkravet här avvisas i stället för att bara varnas för.",
+      "inDescendant": "Det gäller {{theme}}, som ärver från temat du sparade.",
       "unrecognised": "Temat avvisades av en regel den här versionen inte känner till: {{rule}}.",
       "reservedId": "{{themeId}} är standardtemats namn och är reserverat.",
       "selfExtends": "{{themeId}} anger att det ärver från sig självt.",
