@@ -104,6 +104,13 @@ test("the board arranges the menu and the website answers each visitor with thei
    * costs about four of the twenty requests a minute an address is allowed,
    * and the API context above has already spent one of the test's own on
    * establishing the instance.
+   *
+   * Both contexts below are opened by hand rather than taken from the suite's
+   * fixtures, so each names its own language - the same reason
+   * 93-public-site.spec.ts names it on every context it opens. The website
+   * answers in the language the browser asks for, having nobody signed in
+   * whose preference it could read, and a context that asked for nothing in
+   * particular would be served in whatever Playwright's default happens to be.
    */
   const board = await browser.newContext({
     baseURL: stack.baseUrl,

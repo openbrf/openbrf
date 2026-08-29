@@ -34,6 +34,7 @@ Statutes referenced below:
 | mäklarinfo | broker information | The public page brokers and buyers expect: fees, transfer and lien note fees, building facts, links to bylaws and annual reports. Generated from association facts - never from the statutory registers. The transactional broker extract (mäklarbild) is a paid module, not core. |
 | medlem | member | A person who is a member of the association. |
 | medlemsförteckning | **member register** | Statutory register of members. BRL 9 kap. 8 § requires it and 9 § fixes its contents and its availability to anyone who asks; EFL 5 kap. 6-7 §§ apply through BRL 9 kap. 9 b §. Must never be blended with the apartment register in UI or data model. |
+| meny | **menu** | The navigation on the association's website: a top level and one level under it, built from the association's own pages, the pages the platform generates and addresses elsewhere. The menu is also the ordering of the site - its first page entry is the front page, so there is no separate home-page setting. A visitor is offered only the entries they could open, so a page kept for the members is not named to anyone without a session. |
 | motion | motion | Member proposal to the general meeting. |
 | ordförande | chair | Board chair - a position of trust (brass in the design system). |
 | pantsättning / pantnotering | **lien** / lien note | Recorded in the apartment register; confidential. |

@@ -278,11 +278,23 @@ machinery.
       association facts and FAQ. The news teaser and the two form blocks arrive
       with the features below; these four are the ones that need no feature of
       their own, only the block and its rendering
-- [ ] Menu editor: top level plus one dropdown level; pages, generated pages
-      and external links
-- [ ] Public and member-only visibility in one site menu, gated by sign-in.
-      Visibility on a page is built and the two answers are already identical
-      byte for byte; news and the menu itself are not
+- [x] Menu editor: top level plus one dropdown level; pages, generated pages
+      and external links. The menu is also the ordering of the site - its
+      first page entry is the front page, so there is no separate home-page
+      setting to disagree with it - and the dropdown is opened by the
+      stylesheet rather than by a script, so it answers a keyboard on a page
+      that runs none. An entry for a generated page is left out of the menu
+      while that page does not exist, and one for an address elsewhere is a
+      link and never a request: a menu survives a feature being switched off,
+      and reading a page still tells no other host that anybody was here
+- [x] Public and member-only visibility in one site menu, gated by sign-in.
+      A page kept for the members is readable by anyone signed in and answered
+      to everyone else with the same not-found document, byte for byte, that an
+      address with no page behind it gets - and the menu follows the same rule,
+      so the entry for such a page is absent from the menu a visitor with no
+      account is served rather than shown and refused. The navigation therefore
+      cannot become the thing that tells them the page is there. News carries a
+      visibility of its own and arrives with the news module below
 - [ ] News on the site, member-only by default, with "email this to the
       members" at publish - a toggle, on by default, sent once through the
       job queue in each recipient's language, and never re-sent on edit
