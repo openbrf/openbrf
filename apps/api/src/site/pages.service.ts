@@ -4,10 +4,31 @@ import type { TFunction } from "i18next";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import {
+  PAGE_CONTENT_VERSION,
+  type PageBlock,
   type PageContent,
   paragraphsContent,
   readPageContent,
 } from "./page-content";
+
+/**
+ * What the seeded privacy notice asks the board to answer.
+ *
+ * The headings a data protection notice needs under GDPR art. 13-14: who the
+ * controller is, what is processed, why, for how long, what rights the person
+ * has, and where to ask. The order is the order those articles put them in.
+ */
+const PRIVACY_NOTICE_SECTIONS = [
+  "controller",
+  "data",
+  "purpose",
+  "retention",
+  "rights",
+  "contact",
+] as const;
+
+/** Far enough down that the notice is never the lowest, i.e. never the home page. */
+const PRIVACY_NOTICE_SORT_ORDER = 1000;
 
 /**
  * A page as the renderer needs it. Deliberately not the database row: nothing
@@ -52,6 +73,22 @@ const SLUG_SHAPE = /^[a-z0-9][a-z0-9-]{0,79}$/;
 export function isUsableSlug(slug: string): boolean {
   return SLUG_SHAPE.test(slug) && !RESERVED_SLUGS.has(slug);
 }
+
+/**
+ * Where the association's privacy notice lives.
+ *
+ * A constant and not a translated slug, unlike the first page the wizard
+ * writes. The notice is linked from the footer of every page and is the address
+ * a person is told to go to when they ask what the association does with their
+ * data, so it has to be the same address on every instance whatever language
+ * the cooperative was set up in.
+ *
+ * Deliberately not in RESERVED_SLUGS: those are the paths the router claims and
+ * a page at one of them could never be opened. This is the opposite - a real
+ * page is served here, and the only thing that stops a second page claiming the
+ * address is that a slug is unique.
+ */
+export const PRIVACY_NOTICE_SLUG = "integritetspolicy";
 
 /**
  * The association's own pages, as the public website reads them.
@@ -145,7 +182,12 @@ export class PagesService {
     t: TFunction,
     association: { name: string; organizationNumber: string | null },
   ): Promise<{ created: boolean }> {
-    const existing = await this.prisma.page.count();
+    // The privacy notice does not count. It is seeded by the same act of
+    // claiming an instance, so counting it would make whether this writes a
+    // front page depend on which of the two ran first.
+    const existing = await this.prisma.page.count({
+      where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+    });
     if (existing > 0) {
       return { created: false };
     }
@@ -189,6 +231,85 @@ export class PagesService {
 
     this.logger.log(`Wrote the association's first page at /${slug}`);
     return { created: true };
+  }
+
+  /**
+   * Writes the association its privacy notice, once.
+   *
+   * A fill-in page: headings for what a privacy notice has to answer, and a
+   * paragraph saying the board writes the rest. There is deliberately no ready
+   * text under the headings. What an association actually does with personal
+   * data differs between cooperatives, and a canned policy that is wrong about
+   * a particular one is worse than an obviously unfinished page - it reads as a
+   * statement the board never made.
+   *
+   * Published and public from the start, because the footer links it from every
+   * page: an unpublished notice would mean an instance ships with a link to its
+   * own not-found document. It is written with a high sort order so it never
+   * becomes the front page, which is the lowest one.
+   *
+   * Idempotent on the slug rather than on a count, so it can be run at setup and
+   * again on boot for an instance claimed before this existed.
+   */
+  async seedPrivacyNotice(t: TFunction): Promise<{ created: boolean }> {
+    const existing = await this.prisma.page.count({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+    });
+    if (existing > 0) {
+      return { created: false };
+    }
+
+    const content: PageContent = {
+      version: PAGE_CONTENT_VERSION,
+      blocks: [
+        {
+          type: "paragraph",
+          runs: [{ text: t("site.privacyNotice.intro") }],
+        },
+        ...PRIVACY_NOTICE_SECTIONS.map((section): PageBlock => ({
+          type: "heading",
+          level: 2,
+          runs: [{ text: t(`site.privacyNotice.sections.${section}`) }],
+        })),
+      ],
+    };
+
+    await this.prisma.page.create({
+      data: {
+        slug: PRIVACY_NOTICE_SLUG,
+        title: t("site.privacyNotice.title"),
+        content: content as unknown as Prisma.InputJsonObject,
+        visibility: "PUBLIC",
+        published: true,
+        publishedAt: new Date(),
+        // Last among the association's own pages. The front page is the lowest
+        // sort order, and a privacy notice is never that.
+        sortOrder: PRIVACY_NOTICE_SORT_ORDER,
+      },
+    });
+
+    this.logger.log(
+      `Wrote the association's privacy notice at /${PRIVACY_NOTICE_SLUG}`,
+    );
+    return { created: true };
+  }
+
+  /**
+   * The path the footer links the privacy notice at, or nothing.
+   *
+   * Nothing when the page is missing, unpublished or member-only, because the
+   * footer is on every page including the ones an anonymous visitor reads: a
+   * link printed there for a page they would be answered 404 for is both a
+   * broken link and a hint that the page exists.
+   */
+  async privacyNoticePath(): Promise<string | null> {
+    const row = await this.prisma.page.findUnique({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { published: true, visibility: true },
+    });
+    return row !== null && row.published && row.visibility === "PUBLIC"
+      ? `/${PRIVACY_NOTICE_SLUG}`
+      : null;
   }
 
   private static toSitePage(row: {

@@ -1301,6 +1301,19 @@
       "slug": "home",
       "title": "Welcome",
       "body": "{{association}} is a housing cooperative. This page is the association's own, and the board writes what stands here."
+    },
+    "privacyNotice": {
+      "link": "Privacy notice",
+      "title": "Privacy notice",
+      "intro": "The board writes this page. The headings below are what a privacy notice has to answer, and the text under each of them is the association's own.",
+      "sections": {
+        "controller": "Who is responsible for the personal data",
+        "data": "What personal data the association processes",
+        "purpose": "Why the association processes it",
+        "retention": "How long it is kept",
+        "rights": "Your rights",
+        "contact": "How to reach the board"
+      }
     }
   },
   "signup": {

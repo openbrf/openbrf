@@ -1301,6 +1301,19 @@
       "slug": "hem",
       "title": "Välkommen",
       "body": "{{association}} är en bostadsrättsförening. Den här sidan är föreningens egen, och styrelsen skriver vad som står här."
+    },
+    "privacyNotice": {
+      "link": "Integritetspolicy",
+      "title": "Integritetspolicy",
+      "intro": "Styrelsen skriver den här sidan. Rubrikerna nedan är det en integritetspolicy ska svara på, och texten under var och en av dem är föreningens egen.",
+      "sections": {
+        "controller": "Vem som är personuppgiftsansvarig",
+        "data": "Vilka personuppgifter föreningen behandlar",
+        "purpose": "Varför föreningen behandlar dem",
+        "retention": "Hur länge de sparas",
+        "rights": "Dina rättigheter",
+        "contact": "Så når du styrelsen"
+      }
     }
   },
   "signup": {

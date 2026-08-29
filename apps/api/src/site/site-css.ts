@@ -144,9 +144,52 @@ body {
   margin: 0 0 1rem;
 }
 
+/*
+ * The page's own title is the single h1, so a heading the board writes starts
+ * at the second level and the document keeps one outline whatever is on it.
+ */
+.site-main h2 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 2rem 0 0.75rem;
+}
+
+.site-main h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.site-figure {
+  margin: 1.5rem 0;
+}
+
+/*
+ * The picture is bounded by the column rather than by its own dimensions, so a
+ * photograph uploaded at whatever size the board's camera produced does not
+ * decide the width of the page on a telephone.
+ */
+.site-figure img {
+  border-radius: 4px;
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.site-figure figcaption {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
 .site-footer {
   border-top: 1px solid var(--obrf-border-subtle);
   color: var(--obrf-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
   padding: 1.5rem 0;
 }
 
