@@ -39,6 +39,14 @@ const applicantEmail = `applicant-${suffix}@exempel.se`;
  * would let this suite's cleanup delete that run's rows on the way out.
  */
 const claimedApartmentNumber = `1105-${suffix}`;
+/*
+ * The honeypot block's claim, run-scoped for the same reason and one more: its
+ * assertion is that NO request carries this number, so a fixed value would be
+ * answered by any row another run left behind - including one this suite itself
+ * left behind on the day the honeypot was broken, which would then fail the
+ * test that proves it fixed.
+ */
+const botApartmentNumber = `1106-${suffix}`;
 let apartmentId: string;
 
 let ipCounter = 0;
@@ -195,7 +203,11 @@ afterAll(async () => {
   const personIds = [board.personId, ...applicants.map((p) => p.id)];
 
   await prisma.signupRequest.deleteMany({
-    where: { claimedApartmentNumber },
+    where: {
+      claimedApartmentNumber: {
+        in: [claimedApartmentNumber, botApartmentNumber],
+      },
+    },
   });
   await prisma.invitation.deleteMany({
     where: { personId: { in: personIds } },
@@ -488,9 +500,6 @@ describe("the audit trail of a decision", () => {
  * away, or that the form has a decoy in it at all.
  */
 describe("a submission that filled the honeypot", () => {
-  /** Nobody else's number, so an empty count means nothing was written. */
-  const BOT_APARTMENT = "1106";
-
   it("is answered exactly as a stored one is, and stored nowhere", async () => {
     await setSelfSignup(true);
 
@@ -500,7 +509,7 @@ describe("a submission that filled the honeypot", () => {
       payload: {
         ...submission(),
         email: `bot-${suffix}@exempel.se`,
-        claimedApartmentNumber: BOT_APARTMENT,
+        claimedApartmentNumber: botApartmentNumber,
         website: "https://example.invalid",
       },
     });
@@ -514,7 +523,7 @@ describe("a submission that filled the honeypot", () => {
 
     expect(
       await prisma.signupRequest.count({
-        where: { claimedApartmentNumber: BOT_APARTMENT },
+        where: { claimedApartmentNumber: botApartmentNumber },
       }),
     ).toBe(0);
   });
@@ -531,7 +540,7 @@ describe("a submission that filled the honeypot", () => {
       payload: {
         ...submission(),
         email: `bot-closed-${suffix}@exempel.se`,
-        claimedApartmentNumber: BOT_APARTMENT,
+        claimedApartmentNumber: botApartmentNumber,
         website: "https://example.invalid",
       },
     });
@@ -539,7 +548,7 @@ describe("a submission that filled the honeypot", () => {
     expect(response.statusCode).toBe(202);
     expect(
       await prisma.signupRequest.count({
-        where: { claimedApartmentNumber: BOT_APARTMENT },
+        where: { claimedApartmentNumber: botApartmentNumber },
       }),
     ).toBe(0);
   });
