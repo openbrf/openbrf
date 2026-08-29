@@ -38,6 +38,23 @@ export function fetchContactSubmissions(): Promise<
  * able to untick it: the flag is the board's note to itself about its own
  * inbox, not a record of anything that happened.
  */
+/**
+ * Removes a message for good.
+ *
+ * The one way these rows leave the instance, and the only bounded retention
+ * they have: a message is a stranger's name, address and free text, and the
+ * purge that erases a former resident's service data is keyed on a person the
+ * association holds a record of - which most senders are not.
+ */
+export function deleteContactSubmission(
+  id: string,
+): Promise<ApiResult<undefined>> {
+  return apiRequest(
+    "DELETE",
+    `/api/contact-submissions/${encodeURIComponent(id)}`,
+  );
+}
+
 export function setContactSubmissionHandled(
   id: string,
   handled: boolean,

@@ -17,12 +17,14 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 
 const fetchContactSubmissions = vi.fn();
 const setContactSubmissionHandled = vi.fn();
+const deleteContactSubmission = vi.fn();
 
 vi.mock("../api/contact", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/contact")>()),
   fetchContactSubmissions: () => fetchContactSubmissions(),
   setContactSubmissionHandled: (id: string, handled: boolean) =>
     setContactSubmissionHandled(id, handled),
+  deleteContactSubmission: (id: string) => deleteContactSubmission(id),
 }));
 
 const MESSAGE = {
@@ -44,6 +46,7 @@ beforeEach(() => {
     ok: true,
     value: { ...MESSAGE, handled: true, handledAt: "2026-08-28T08:00:00.000Z" },
   });
+  deleteContactSubmission.mockResolvedValue({ ok: true, value: undefined });
 });
 
 describe("the contact inbox", () => {
@@ -104,6 +107,52 @@ describe("the contact inbox", () => {
       expect(
         screen.getByRole("button", { name: "Markera som ohanterat" }),
       ).toBeTruthy();
+    });
+  });
+
+  it("asks before it removes a message, and there is no undoing it", async () => {
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(row()).toBeTruthy();
+    });
+
+    // The first press only arms it. Nothing behind this recovers a message, and
+    // the board is deleting somebody else's words about their own situation.
+    await userEvent.click(screen.getByRole("button", { name: "Radera" }));
+    expect(deleteContactSubmission).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "Tar bort meddelandet från instansen. Det går inte att ångra.",
+      ),
+    ).toBeTruthy();
+
+    fetchContactSubmissions.mockResolvedValue({ ok: true, value: [] });
+    await userEvent.click(screen.getByRole("button", { name: "Radera" }));
+
+    expect(deleteContactSubmission).toHaveBeenCalledWith("message-1");
+    await waitFor(() => {
+      expect(screen.getByText("Inga meddelanden har kommit in.")).toBeTruthy();
+    });
+  });
+
+  it("takes reaching for the other action as a change of mind", async () => {
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(row()).toBeTruthy();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Radera" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Markera som hanterat" }),
+    );
+
+    expect(deleteContactSubmission).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Tar bort meddelandet från instansen. Det går inte att ångra.",
+        ),
+      ).toBeNull();
     });
   });
 

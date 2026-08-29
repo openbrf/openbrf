@@ -188,7 +188,7 @@ describe("the issue report form", () => {
     );
 
     expect(html.includes("<form")).toBe(false);
-    expect(html.includes("Anmäl ett fel")).toBe(false);
+    expect(html.includes("Felanmälan")).toBe(false);
   });
 
   it("is absent when reporting is open and no type is offered", () => {

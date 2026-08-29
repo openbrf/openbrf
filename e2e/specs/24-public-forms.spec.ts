@@ -206,7 +206,12 @@ test("a passer-by reports a fault and it reaches the triage queue", async ({
   await ensureFormPages(request);
 
   await page.goto(`/${REPORT_SLUG}`);
-  await expect(page.getByRole("heading", { name: "Felanmälan" })).toBeVisible();
+  // Level 1 is the page's own title. The form below it carries an h2 reading
+  // the same word, which is the glossary's term for what the form is, so the
+  // level is what tells the two apart.
+  await expect(
+    page.getByRole("heading", { name: "Felanmälan", level: 1 }),
+  ).toBeVisible();
 
   // The types the association put in front of the public, and no others. The
   // filter is the server's: this select is rendered from it.
@@ -252,11 +257,14 @@ test("the board closes the report form without taking the page down", async ({
     // The page survives the switch. Everything the board wrote is still on it;
     // only the form is gone, so closing the form is not an edit to the page.
     await expect(
-      page.getByRole("heading", { name: "Felanmälan" }),
+      page.getByRole("heading", { name: "Felanmälan", level: 1 }),
     ).toBeVisible();
     await expect(page.getByText(REPORT_INTRO)).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Skicka anmälan" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Felanmälan", level: 2 }),
     ).toHaveCount(0);
     await expect(page.getByText(REPORT_TYPE)).toHaveCount(0);
 

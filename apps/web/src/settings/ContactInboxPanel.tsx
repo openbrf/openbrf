@@ -3,11 +3,12 @@ import { useTranslation } from "react-i18next";
 
 import type { ContactSubmission } from "../api/contact";
 import {
+  deleteContactSubmission,
   fetchContactSubmissions,
   setContactSubmissionHandled,
 } from "../api/contact";
 import type { TranslationKey } from "../i18n/translation-key";
-import { QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import { HINT, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -62,6 +63,7 @@ export function ContactInboxPanel(): ReactElement {
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const update = useSaveAction(setContactSubmissionHandled);
+  const remove = useSaveAction(deleteContactSubmission);
 
   useEffect(() => {
     // The effect owns its own call and drops an answer that arrives after the
@@ -77,18 +79,35 @@ export function ContactInboxPanel(): ReactElement {
     };
   }, []);
 
-  const onToggle = (submission: ContactSubmission): void => {
-    setPendingId(submission.id);
-    void update.submit(submission.id, !submission.handled).then(() => {
-      setPendingId(null);
-      // Read again whichever way it went. A refusal here usually means the list
-      // in front of the board is out of date, and leaving the old row on screen
-      // would invite them to press the same button again.
-      void read().then(setLoaded);
-    });
+  /*
+   * Read again whichever way either of these went. A refusal usually means the
+   * list in front of the board is out of date - somebody else has already dealt
+   * with the message, or removed it - and leaving the old row on screen would
+   * invite them to press the same button again.
+   */
+  const settle = (): void => {
+    setPendingId(null);
+    void read().then(setLoaded);
   };
 
-  const failure = update.state.kind === "failed" ? update.state.failure : null;
+  const onToggle = (submission: ContactSubmission): void => {
+    remove.reset();
+    setPendingId(submission.id);
+    void update.submit(submission.id, !submission.handled).then(settle);
+  };
+
+  const onRemove = (submission: ContactSubmission): void => {
+    update.reset();
+    setPendingId(submission.id);
+    void remove.submit(submission.id).then(settle);
+  };
+
+  const failure =
+    update.state.kind === "failed"
+      ? update.state.failure
+      : remove.state.kind === "failed"
+        ? remove.state.failure
+        : null;
   const { ready, submissions, loadFailed } = loaded;
 
   /*
@@ -114,6 +133,9 @@ export function ContactInboxPanel(): ReactElement {
           saving={pendingId === submission.id}
           onToggle={() => {
             onToggle(submission);
+          }}
+          onRemove={() => {
+            onRemove(submission);
           }}
         />
       ))}
@@ -157,6 +179,7 @@ function MessageRow({
   busy,
   saving,
   onToggle,
+  onRemove,
 }: {
   submission: ContactSubmission;
   /** Any row is being updated. */
@@ -164,8 +187,17 @@ function MessageRow({
   /** This row is the one being updated. */
   saving: boolean;
   onToggle: () => void;
+  onRemove: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  /*
+   * Removing asks first, in the row rather than in a dialog.
+   *
+   * There is nothing behind this to recover a message from, and the board is
+   * deleting somebody else's words about their own situation. A second press
+   * is the smallest thing that stops a mis-aimed one.
+   */
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <li className="flex flex-col gap-3 border-t border-line pt-5 first:border-t-0 first:pt-0">
@@ -204,11 +236,15 @@ function MessageRow({
         {submission.message}
       </p>
 
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={busy}
-          onClick={onToggle}
+          onClick={() => {
+            // Reaching for the other action is a change of mind about deleting.
+            setConfirming(false);
+            onToggle();
+          }}
           className={submission.handled ? QUIET_BUTTON : SECONDARY_BUTTON}
         >
           {saving
@@ -217,6 +253,32 @@ function MessageRow({
               ? t("settings.contactInbox.markUnhandled")
               : t("settings.contactInbox.markHandled")}
         </button>
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (confirming) {
+              onRemove();
+              return;
+            }
+            setConfirming(true);
+          }}
+          className={QUIET_BUTTON}
+        >
+          {saving && confirming
+            ? t("settings.contactInbox.deleting")
+            : t("settings.contactInbox.delete")}
+        </button>
+
+        {/* Only once the board has reached for it, so a row is not a wall of
+            caution before anybody asked to delete anything. Words rather than
+            colour: this sentence is the whole signal. */}
+        {confirming ? (
+          <span className={HINT} role="status">
+            {t("settings.contactInbox.deleteHint")}
+          </span>
+        ) : null}
       </div>
     </li>
   );

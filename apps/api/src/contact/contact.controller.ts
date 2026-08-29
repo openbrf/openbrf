@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Put, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Put,
+  Req,
+} from "@nestjs/common";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -45,5 +54,20 @@ export class ContactSubmissionController {
       handled: input.handled,
       byPersonId: request.principal?.personId ?? "",
     });
+  }
+
+  /**
+   * Removes a message the board is finished with.
+   *
+   * The one way these rows leave the instance. They are a stranger's name,
+   * address and free text, and most senders are nobody the association holds a
+   * record of - so the person-keyed purge cannot reach them and there is no
+   * move-out date to count a retention period from. The board deleting what it
+   * has answered is what bounds how long the association keeps them.
+   */
+  @Delete(":id")
+  @HttpCode(204)
+  async remove(@Param("id") id: string): Promise<void> {
+    await this.contact.remove(id);
   }
 }

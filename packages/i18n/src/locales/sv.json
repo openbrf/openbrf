@@ -790,6 +790,9 @@
       "markHandled": "Markera som hanterat",
       "markUnhandled": "Markera som ohanterat",
       "saving": "Sparar...",
+      "delete": "Radera",
+      "deleting": "Raderar...",
+      "deleteHint": "Tar bort meddelandet från instansen. Det går inte att ångra.",
       "errors": {
         "notFound": "Meddelandet finns inte kvar. Listan är hämtad på nytt.",
         "unknown": "Meddelandet kunde inte uppdateras just nu. Försök igen."
@@ -1499,7 +1502,7 @@
       "refused": "Meddelandet kunde inte läsas. Kontrollera att e-postadressen är fullständig och att du har skrivit något, och skicka sedan igen."
     },
     "issueForm": {
-      "title": "Anmäl ett fel",
+      "title": "Felanmälan",
       "type": "Vad det gäller",
       "location": "Var i fastigheten (frivilligt)",
       "description": "Beskriv felet",

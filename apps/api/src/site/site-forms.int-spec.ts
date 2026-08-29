@@ -67,15 +67,17 @@ let memberTypeId = "";
  * A distinct forwarded address per request, inside this suite's own block.
  *
  * The limiter buckets by forwarded address, so a repeat would make one suite's
- * requests count against another's budget. 10.15.0.0/16 is this suite's; the
- * other integration suites each hold their own second octet.
+ * requests count against another's budget - and this suite spends a 20-a-minute
+ * budget deliberately, in the test that proves the limiter refuses. 10.16.0.0/16
+ * is this suite's; the other integration suites each hold their own second
+ * octet, and menu.int-spec.ts holds 10.15.
  */
 let ipCounter = 0;
 function nextForwardedFor(): string {
   ipCounter += 1;
   const host = ipCounter % 254;
   const subnet = Math.floor(ipCounter / 254) % 254;
-  return `10.15.${String(subnet)}.${String(host + 1)}`;
+  return `10.16.${String(subnet)}.${String(host + 1)}`;
 }
 
 function inject(options: {
@@ -373,7 +375,7 @@ describe("sending the contact form", () => {
   });
 
   it("is refused past the budget for one client address", async () => {
-    const address = "10.15.200.7";
+    const address = "10.16.200.7";
     const fields = {
       email: "bo@exempel.se",
       message: `Upprepat ${suffix}.`,
@@ -395,7 +397,7 @@ describe("sending the contact form", () => {
 
     // The budget is per address: another visitor is not turned away by it.
     const neighbour = await submit(`/${publicSlug}/kontakt`, fields, {
-      "x-forwarded-for": "10.15.201.7",
+      "x-forwarded-for": "10.16.201.7",
     });
     expect(neighbour.statusCode).toBe(303);
   });
@@ -713,5 +715,42 @@ describe("the board's inbox", () => {
     });
     expect(handled.handled).toBe(true);
     expect(handled.handledAt).not.toBeNull();
+  });
+
+  it("refuses a message that is gone rather than failing on the database", async () => {
+    // Reachable without anybody doing anything wrong: the list in front of the
+    // board was read a moment ago, and these rows are removable. The board is
+    // told, rather than shown the database's own failure as a server error.
+    await expect(
+      contact.setHandled({
+        id: "contact-submission-that-is-not-there",
+        handled: true,
+        byPersonId: boardMember.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "not-found", status: 404 });
+  });
+
+  it("lets the board remove a message for good", async () => {
+    const message = `Att radera ${suffix}.`;
+    await submit(`/${publicSlug}/kontakt`, {
+      email: "bo@exempel.se",
+      message,
+    });
+    const stored = await prisma.contactSubmission.findFirst({
+      where: { message },
+      select: { id: true },
+    });
+
+    await contact.remove(stored?.id ?? "");
+
+    // The only bounded retention these rows have: most senders are nobody the
+    // association holds a record of, so the person-keyed purge cannot reach
+    // them and there is no move-out date to count a period from.
+    expect(await prisma.contactSubmission.count({ where: { message } })).toBe(
+      0,
+    );
+    await expect(contact.remove(stored?.id ?? "")).rejects.toMatchObject({
+      reason: "not-found",
+    });
   });
 });

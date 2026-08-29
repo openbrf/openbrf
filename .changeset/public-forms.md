@@ -17,12 +17,14 @@ website can only ever send what somebody typed back to the instance they are
 reading it on.
 
 A message to the board is stored before anything is sent. The board is notified
-by email afterwards, through the job queue and one message per recipient, so a
-retry can never send anybody a second copy - and an instance whose email
-settings are wrong keeps the message rather than losing it. The inbox in
-settings is therefore the record and the email is a notification about it. It is
-read by whoever decides sign-up requests, because that is the same board work:
-the two queues an anonymous visitor can put something into.
+by email afterwards, through the job queue and one job per recipient, so a
+delivery that fails is retried for that recipient and touches nobody else's -
+and an instance whose email settings are wrong keeps the message rather than
+losing it. The inbox in settings is therefore the record and the email is a
+notification about it. It is read by whoever decides sign-up requests, because
+that is the same board work: the two queues an anonymous visitor can put
+something into, and the board removes a message from it once the message has
+been answered.
 
 A report from the public creates an issue under a type the association offers
 non-members, and under no other: the identifier a submission names is checked

@@ -213,7 +213,14 @@ export class IssueService {
         reporterNameCipher: name?.cipher ?? null,
         reporterEmailCipher: email?.cipher ?? null,
         reporterEmailIndex: email?.index ?? null,
-        location: input.location ?? null,
+        // Empty is nothing, exactly as it is for the name and the address
+        // above: the form's location field is optional, so a visitor who
+        // touched it and thought better of it must not leave the board an
+        // issue whose location is present and blank.
+        location:
+          input.location == null || input.location === ""
+            ? null
+            : input.location,
         description: input.description,
       },
       select: { id: true },

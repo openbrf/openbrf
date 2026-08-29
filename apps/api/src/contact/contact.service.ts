@@ -8,6 +8,7 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { contactSubmissionMail } from "../mail/templates";
+import { ContactError } from "./contact.error";
 
 /**
  * Messages the public writes to the board through the website's contact form.
@@ -200,6 +201,23 @@ export class ContactService implements OnModuleInit {
     handled: boolean;
     byPersonId: string;
   }): Promise<ContactSubmissionView> {
+    /*
+     * Read before the write, so a message that is gone is a refusal this board
+     * can be told about rather than the database's own failure.
+     *
+     * Reachable without anybody doing anything wrong: the inbox in front of the
+     * board was read a moment ago, and these rows are service tier - removable
+     * by another board member in the meantime. IssueService.setStatus answers
+     * the same situation the same way.
+     */
+    const existing = await this.prisma.contactSubmission.findUnique({
+      where: { id: input.id },
+      select: { id: true },
+    });
+    if (existing === null) {
+      throw new ContactError("No such message.", "not-found");
+    }
+
     const updated = await this.prisma.contactSubmission.update({
       where: { id: input.id },
       data: {
@@ -221,6 +239,36 @@ export class ContactService implements OnModuleInit {
       handledAt: updated.handledAt?.toISOString() ?? null,
       createdAt: updated.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * Removes a message from the inbox, for good.
+   *
+   * The board's own act, and the only bounded retention these rows have today.
+   * A message is somebody's name, address and free text about their own
+   * situation, and most of them come from people the association holds no
+   * record of at all - so the person-keyed purge that erases a former
+   * resident's service data cannot reach them, and there is no move-out date to
+   * count a retention period from. Until the retention policy grows a period
+   * for correspondence, the board deleting what it has answered is what keeps
+   * this table from being an unbounded store of strangers' personal data.
+   *
+   * Service tier, so deleting is allowed: no append-only trigger, nothing
+   * statutory, and nothing downstream refers to these rows.
+   */
+  async remove(id: string): Promise<void> {
+    const existing = await this.prisma.contactSubmission.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (existing === null) {
+      throw new ContactError("No such message.", "not-found");
+    }
+
+    await this.prisma.contactSubmission.delete({ where: { id } });
+    // The identifier only. What was written to the board has no business in a
+    // log line, on the way in or on the way out.
+    this.logger.log(`Removed contact submission ${id}`);
   }
 
   /**
@@ -255,13 +303,31 @@ export class ContactService implements OnModuleInit {
       return 0;
     }
 
+    /*
+     * One transaction for the whole fan-out, so it cannot half-happen.
+     *
+     * Enqueuing one job at a time left a window: a failure partway through the
+     * loop is retried from the top, and every board member already enqueued
+     * would be told twice. Writing all of them with one commit removes that
+     * window - either the board is queued or none of it is.
+     *
+     * What remains is the queue's own at-least-once delivery, which every
+     * worker in this codebase lives under: a job whose completion is not
+     * recorded runs again. That is bounded here to a duplicate notification
+     * about a message the board can already read in the inbox, and closing it
+     * would need a delivery record per recipient, which is a heavier thing
+     * than the failure it would prevent.
+     */
     await this.jobs.ensureQueue(CONTACT_NOTICE_QUEUE);
-    for (const personId of board) {
-      await this.jobs.send<ContactNoticeJob>(CONTACT_NOTICE_QUEUE, {
-        submissionId,
-        personId,
-      });
-    }
+    await this.prisma.$transaction(async (tx) => {
+      for (const personId of board) {
+        await this.jobs.sendInTransaction<ContactNoticeJob>(
+          tx,
+          CONTACT_NOTICE_QUEUE,
+          { submissionId, personId },
+        );
+      }
+    });
 
     this.logger.log(
       `Contact submission ${submissionId} queued for ${String(board.length)} board members`,
@@ -273,8 +339,10 @@ export class ContactService implements OnModuleInit {
    * Sends one board member one message.
    *
    * A failure is rethrown so the queue retries this delivery and no other. That
-   * is the difference from the reminder loop in the moves module: one recipient
-   * per job means a retry cannot send anybody a second copy.
+   * is the difference from the reminder loop in the moves module, where a
+   * rejection fails the whole job and the retry starts at the first board
+   * member again: one recipient per job keeps a retry to the recipient it
+   * failed for, rather than replaying it over everybody before them.
    *
    * An instance with no SMTP settings is the exception, and it is not a
    * failure to retry: the message is stored, the inbox shows it, and there is
