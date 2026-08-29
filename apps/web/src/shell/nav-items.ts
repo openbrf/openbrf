@@ -79,6 +79,16 @@ const ENTRIES: readonly NavEntry[] = [
     // the server, and the public documents remain public on the website.
     capability: ["residentDirectory:read", "documents:manage"],
   },
+  {
+    to: "/admin/site",
+    // The website's own word for itself, under its own namespace, so the label
+    // moves with the feature.
+    labelKey: "siteAdmin.navLabel",
+    // Only whoever writes the association's website. Nothing on that screen
+    // belongs to a resident: reading the site needs no account at all, which is
+    // what a public website is.
+    capability: "site:manage",
+  },
 ];
 
 /**

@@ -373,7 +373,7 @@ describe("publishing a page", () => {
     expect(refused.statusCode).toBe(422);
     const body = refused.json() as {
       reason: string;
-      locations: { part: string; index: number; offset: number }[];
+      locations: { part: string; index: number; offset?: number }[];
     };
     expect(body.reason).toBe("personal-identity-number");
     expect(body.locations).toEqual([{ part: "block", index: 0, offset: 14 }]);

@@ -1507,5 +1507,96 @@
       "noFile": "No file was chosen.",
       "unknown": "That could not be saved just now. Please try again."
     }
+  },
+  "siteAdmin": {
+    "navLabel": "The website",
+    "heading": "The association's website",
+    "description": "The pages the association publishes. A page is written first and published when it is ready, and each one is either public or for the members.",
+    "loading": "Reading the website...",
+    "notAllowed": "Writing the association's website is the board's. Your account does not have it.",
+    "pages": {
+      "heading": "Pages",
+      "description": "Everything the association has written, drafts included.",
+      "none": "No pages yet. Write the first one below.",
+      "edit": "Edit"
+    },
+    "newPage": {
+      "heading": "New page",
+      "description": "A new page is written unpublished. Nobody can read it until you publish it.",
+      "create": "Create the page",
+      "visibility": "Who may read it"
+    },
+    "state": {
+      "published": "Published",
+      "draft": "Draft",
+      "public": "Public",
+      "memberOnly": "Members only"
+    },
+    "editor": {
+      "heading": "The page",
+      "description": "The page is a list of blocks. The website decides what each one becomes, which is why no markup is stored.",
+      "freeTextWarning": "Write nothing about a named person's health, finances, religion, politics or family situation. This is a page the association publishes, and it is read by people the association has no relationship with.",
+      "scanWarning": "This looks like a personal identity number: {{places}}. Publishing is refused until it is gone.",
+      "placeTitle": "the title",
+      "placeBlock": "block {{number}}",
+      "refusedAt": "It is at: {{places}}.",
+      "saved": "Saved.",
+      "save": "Save",
+      "preview": "Preview",
+      "publish": "Publish",
+      "unpublish": "Take down",
+      "makeMemberOnly": "Make it members only",
+      "makePublic": "Make it public",
+      "remove": "Delete the page",
+      "title": "Title",
+      "slug": "Address",
+      "slugHint": "Lowercase letters, digits and hyphens. The page is served at the association's own domain, directly under the root.",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "removeBlock": "Remove",
+      "loadingEditor": "Opening the text editor...",
+      "paragraphLabel": "Paragraph {{number}}",
+      "headingLevel": "Level",
+      "headingLevelTwo": "Heading",
+      "headingLevelThree": "Sub-heading",
+      "headingText": "Heading text",
+      "picture": "Picture",
+      "identifiablePrompt": "Can anyone be recognised in this picture? A person appears on a published page only with a recorded publication consent.",
+      "alt": "Description of the picture",
+      "altHint": "What the picture shows, for somebody who cannot see it. Leave it empty only when the picture carries nothing the text does not already say.",
+      "caption": "Caption",
+      "photoConsent": "I confirm that everyone who can be recognised in the pictures on this page has given publication consent, and that it has been recorded.",
+      "bold": "Bold",
+      "italic": "Italic",
+      "link": "Link",
+      "linkPrompt": "Address to link to. Leave it empty to remove the link.",
+      "blocks": {
+        "paragraph": "Paragraph",
+        "heading": "Heading",
+        "image": "Picture"
+      },
+      "add": {
+        "paragraph": "Add a paragraph",
+        "heading": "Add a heading",
+        "image": "Add a picture"
+      }
+    },
+    "preview": {
+      "heading": "Preview",
+      "description": "The page as the website would serve it, rendered by the website itself.",
+      "frameTitle": "The page as the website would serve it"
+    },
+    "errors": {
+      "loadFailed": "The website could not be read just now. Reload the page.",
+      "invalidSlug": "That address cannot be used for a page.",
+      "slugTaken": "Another page already has that address.",
+      "invalidBody": "The page holds something the website will not publish. A link has to be an ordinary web address, an email address, or a page on this site.",
+      "personalIdentityNumber": "The page carries a personal identity number, so it cannot be published.",
+      "photoConsentRequired": "A picture on this page shows identifiable persons. Confirm the publication consents first.",
+      "imageNotFound": "A picture on this page is no longer stored on this instance.",
+      "imageNotPublic": "A picture on this page is not served publicly, so the page would show a broken picture.",
+      "pageGone": "That page no longer exists.",
+      "unknown": "That could not be saved just now. Please try again."
+    }
   }
 }

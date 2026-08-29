@@ -28,8 +28,11 @@ export interface PageTextLocation {
   part: "title" | "block";
   /** The block's position in the body. Zero for the title. */
   index: number;
-  /** Where in that text the value starts. */
-  offset: number;
+  /**
+   * Where in that text the refused value starts. Absent when the whole block is
+   * what was refused rather than something inside it, as for a picture.
+   */
+  offset?: number;
 }
 
 export type PageWriteReason =
@@ -47,10 +50,7 @@ export class PageWriteError extends DomainError {
   constructor(
     message: string,
     readonly reason: PageWriteReason,
-    private readonly found: {
-      locations?: readonly PageTextLocation[];
-      blocks?: readonly number[];
-    } = {},
+    private readonly found: readonly PageTextLocation[] = [],
   ) {
     super(message);
     this.status =
@@ -66,11 +66,15 @@ export class PageWriteError extends DomainError {
               HttpStatus.UNPROCESSABLE_ENTITY;
   }
 
+  /**
+   * Where the refusal is, in one shape for every reason.
+   *
+   * One key rather than one per rule, so the screen has one thing to render and
+   * the client has one field to read. Positions and a field name only: what was
+   * found is exactly what must not travel back.
+   */
   override details(): Record<string, readonly unknown[]> {
-    return {
-      locations: this.found.locations ?? [],
-      blocks: this.found.blocks ?? [],
-    };
+    return { locations: this.found };
   }
 }
 
@@ -460,7 +464,7 @@ export class PagesWriteService {
       throw new PageWriteError(
         "The page carries a personal identity number and cannot be published.",
         "personal-identity-number",
-        { locations },
+        locations,
       );
     }
   }
@@ -518,21 +522,21 @@ export class PagesWriteService {
       throw new PageWriteError(
         "The page refers to a picture this instance does not hold.",
         "image-not-found",
-        { blocks: missing },
+        blocksAt(missing),
       );
     }
     if (notPublic.length > 0) {
       throw new PageWriteError(
         "The page refers to a picture that is not served publicly.",
         "image-not-public",
-        { blocks: notPublic },
+        blocksAt(notPublic),
       );
     }
     if (identifiable.length > 0 && !photoConsentConfirmed) {
       throw new PageWriteError(
         "A picture on the page shows identifiable persons, and the publication consents have not been confirmed.",
         "photo-consent-required",
-        { blocks: identifiable },
+        blocksAt(identifiable),
       );
     }
   }
@@ -577,6 +581,11 @@ export class PagesWriteService {
       );
     }
   }
+}
+
+/** The blocks at these positions, as the one location shape. */
+function blocksAt(indexes: readonly number[]): PageTextLocation[] {
+  return indexes.map((index) => ({ part: "block", index }));
 }
 
 function toAdminView(row: {

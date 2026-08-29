@@ -379,7 +379,9 @@ describe("a picture on a published page", () => {
     );
 
     expect(refusal.reason).toBe("photo-consent-required");
-    expect(refusal.details()["blocks"]).toEqual([1]);
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 1 },
+    ]);
   });
 
   it("is published once the board confirms them", async () => {

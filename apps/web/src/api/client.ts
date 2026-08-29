@@ -31,6 +31,7 @@ interface ErrorBody {
   reason?: unknown;
   findings?: unknown;
   issues?: unknown;
+  locations?: unknown;
 }
 
 /**
@@ -115,7 +116,7 @@ async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
       failure: {
         status: response.status,
         reason: typeof error.reason === "string" ? error.reason : "unexpected",
-        detail: error.findings ?? error.issues,
+        detail: error.findings ?? error.issues ?? error.locations,
       },
     };
   }
