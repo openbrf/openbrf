@@ -146,11 +146,15 @@ export class InvitationService {
    * steps are ordered rather than atomic. The order matters - create the
    * account first, mark the invitation accepted second - because a failure
    * between them leaves a usable invitation rather than an unreachable account.
+   *
+   * The email address the account was created for is returned so the caller can
+   * sign in with it straight away. See the note on the controller for why
+   * handing it back is safe.
    */
   async accept(input: {
     token: string;
     password: string;
-  }): Promise<{ personId: string }> {
+  }): Promise<{ personId: string; email: string }> {
     const invitation = await this.prisma.invitation.findUnique({
       where: { tokenHash: hashToken(input.token) },
       select: {
@@ -212,7 +216,7 @@ export class InvitationService {
     });
 
     this.logger.log(`Person ${invitation.personId} activated their account`);
-    return { personId: invitation.personId };
+    return { personId: invitation.personId, email };
   }
 
   private activationUrl(token: string): string {

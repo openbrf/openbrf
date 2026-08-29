@@ -15,6 +15,7 @@ import { ProfilePanel } from "./ProfilePanel";
 import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { SelfSignupPanel } from "./SelfSignupPanel";
+import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmtpPanel } from "./SmtpPanel";
 import { ThemesPanel } from "../themes/ThemesPanel";
 
@@ -74,6 +75,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
   const canRead = viewer.capabilities.includes("association:read");
   const canManage = viewer.capabilities.includes("association:manage");
   const canEditAddresses = viewer.capabilities.includes("addressBook:write");
+  const canDecideSignup = viewer.capabilities.includes("signupRequest:decide");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
 
@@ -213,6 +215,12 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
                 enabled={settings.selfSignup.enabled}
                 editable={canManage}
               />
+
+              {/* Beside the switch that produced them, and shown to whoever
+                  may actually decide a request: the board, and an admin. */}
+              {canDecideSignup ? (
+                <SignupRequestQueuePanel addresses={addresses} />
+              ) : null}
 
               {/* Installing and switching themes is an administrator's job,
                   and the API refuses the calls for anyone else. */}

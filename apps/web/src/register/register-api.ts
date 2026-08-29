@@ -320,6 +320,24 @@ export function createPerson(
   });
 }
 
+/**
+ * Invites a person to activate an account, and re-invites one already invited.
+ *
+ * The same endpoint does both: the API deletes any outstanding invitation for
+ * the person and mails a fresh link, so the previous one stops working. That is
+ * what makes "send again" safe to offer for an invitation that has not expired
+ * yet - a lost email is the ordinary case, and the board has nothing else to
+ * offer the person waiting for it.
+ */
+export function sendInvitation(
+  personId: string,
+): Promise<{ expiresAt: string }> {
+  return request("/api/invitations", {
+    method: "POST",
+    body: JSON.stringify({ personId }),
+  });
+}
+
 export function setProtectedPersonalData(
   personId: string,
   protectedPersonalData: boolean,

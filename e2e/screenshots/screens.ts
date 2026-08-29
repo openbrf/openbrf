@@ -70,7 +70,17 @@ export type Screen = {
   readonly goto?: string;
   /** Clicks and fills that reach the state this screen is about. */
   readonly prepare?: readonly Action[];
-  /** Proves the right screen rendered. The capture waits for it. */
+  /**
+   * Proves the right screen rendered. The capture waits for it.
+   *
+   * Something that exists only once the screen's data does - a row, a name, a
+   * value - rather than a static heading. A heading is rendered before the
+   * request that fills the page comes back, so waiting for one photographs a
+   * screen mid-load, and the rows arriving next land in the picture. The check
+   * that runs after the picture is taken is what stops those rows reaching a
+   * published image; a marker that waits for the data is what stops the image
+   * being of a page that had not finished.
+   */
   readonly waitFor: Target;
   /**
    * What to photograph. "viewport" is the default, "page" scrolls the whole
