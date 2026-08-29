@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -38,22 +38,51 @@ function isBoundedSource(name: string): boolean {
   return /\.tsx?$/.test(name) && !/\.(spec|int-spec)\.tsx?$/.test(name);
 }
 
+/**
+ * Every production file under the directory, however deep it sits.
+ *
+ * A walk rather than one listing, because the boundary is about the module
+ * graph and not about a directory: the day somebody groups the block types into
+ * src/site/blocks, a check that read only the top level would keep passing
+ * while covering none of them.
+ */
+function boundedSources(directory: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...boundedSources(path));
+    } else if (entry.isFile() && isBoundedSource(entry.name)) {
+      found.push(path);
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether a source reaches one of the forbidden directories.
+ *
+ * Matched against the specifier rather than against one spelling of it. A file
+ * a directory down writes "../../crypto/field-encryption.service", and an
+ * import of the directory itself - which a barrel file would make resolvable -
+ * ends at the name with no trailing slash. Both are the import this refuses,
+ * and a name that merely starts with a forbidden one is not.
+ */
+function reaches(source: string, forbidden: string): boolean {
+  return new RegExp(
+    String.raw`["'](?:\.\./)+${forbidden}(?:/[^"']*)?["']`,
+  ).test(source);
+}
+
 describe("the site module's imports", () => {
   it("reach neither the registers, the address book nor the encryption layer", () => {
     const offenders: string[] = [];
 
-    for (const entry of readdirSync(SITE_DIRECTORY, { withFileTypes: true })) {
-      if (!entry.isFile() || !isBoundedSource(entry.name)) {
-        continue;
-      }
-      const source = readFileSync(join(SITE_DIRECTORY, entry.name), "utf8");
+    for (const path of boundedSources(SITE_DIRECTORY)) {
+      const source = readFileSync(path, "utf8");
       for (const forbidden of FORBIDDEN) {
-        // Both spellings a relative import can take from this directory.
-        if (
-          source.includes(`"../${forbidden}/`) ||
-          source.includes(`'../${forbidden}/`)
-        ) {
-          offenders.push(`${entry.name} -> ${forbidden}`);
+        if (reaches(source, forbidden)) {
+          offenders.push(`${relative(SITE_DIRECTORY, path)} -> ${forbidden}`);
         }
       }
     }
@@ -64,8 +93,6 @@ describe("the site module's imports", () => {
   it("is asserted over a directory that actually has files in it", () => {
     // Without this, a rename of the directory would turn the check above into a
     // test that passes because it looked at nothing.
-    expect(
-      readdirSync(SITE_DIRECTORY).filter(isBoundedSource).length,
-    ).toBeGreaterThan(5);
+    expect(boundedSources(SITE_DIRECTORY).length).toBeGreaterThan(5);
   });
 });

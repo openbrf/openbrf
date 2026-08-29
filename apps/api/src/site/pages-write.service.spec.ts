@@ -499,10 +499,25 @@ describe("the order the pages sit in", () => {
 
   it("ignores an id the instance does not have", async () => {
     // This is a drag on a list, and a stale row in the browser must not lose
-    // the whole arrangement.
-    const { service } = build();
+    // the whole arrangement. Ignored means the write is attempted and matches
+    // no row, rather than the arrangement being refused: the ids beside the
+    // stale one are still written the positions they arrived at.
+    const { service, page } = build();
+    // The stale id matches no row; the one beside it matches its own.
+    page.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
 
-    await expect(service.reorder(["page-9"])).resolves.toEqual([]);
+    await service.reorder(["page-9", "page-1"]);
+
+    expect(page.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: "page-9" },
+      data: { sortOrder: 0 },
+    });
+    expect(page.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: "page-1" },
+      data: { sortOrder: 1 },
+    });
   });
 });
 
