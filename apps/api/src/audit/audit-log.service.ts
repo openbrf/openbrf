@@ -23,7 +23,12 @@ export interface AuditEntryInput {
   /** Entity kind for non-person targets, e.g. "plugin" or "theme". */
   targetKind?: string | null;
   targetId?: string | null;
-  /** Which fields were revealed, request context, and similar detail. */
+  /**
+   * Facts about the act: field names, identifiers, enum values, counts,
+   * booleans and dates. Never a value that was read or written, and never
+   * free text copied from a record of its own - see the retention rule on
+   * {@link AuditLogService}.
+   */
   context?: Record<string, unknown>;
 }
 
@@ -40,6 +45,44 @@ export interface AuditEntryInput {
  * trigger rejects any attempt to rewrite history, and the runtime role holds
  * no UPDATE, DELETE or TRUNCATE on it. There is deliberately no method here to
  * amend or remove an entry.
+ *
+ * ## What `context` may carry
+ *
+ * An entry is append-only and outside every purge scope, so whatever goes into
+ * `context` is kept for as long as the instance exists. The service tier around
+ * it is not: a rejected sign-up request carries a purge date, a moved-out
+ * person's contact details are erased on theirs, and neither takes the audit
+ * entry that mentions them along. Three rules follow, and they are the rules
+ * because a writer thinking about the act is not thinking about retention.
+ *
+ *  1. **Facts, not prose.** Identifiers, enum values, field names, counts,
+ *     booleans and dates. That is what makes an entry answerable later: which
+ *     fields were seen, how many rows an act touched, which apartment it was
+ *     about.
+ *
+ *  2. **Never the value.** The field name says what was read or written; the
+ *     value stays where it lives. An audit log that carried the phone numbers
+ *     it recorded the reading of would be a second, permanent copy of the
+ *     register - readable by everyone who may read the log, and beyond the
+ *     reach of the erasure the first copy is promised.
+ *
+ *  3. **Never free text copied from a record of its own.** A sign-up
+ *     request's rejection reason, a document's title, an issue's description:
+ *     these belong to rows with a lifecycle, and a copy here would outlive the
+ *     original by design rather than by accident - kept after the retention
+ *     policy erased it, and stale after the record was corrected, because this
+ *     table cannot be corrected. Name the record instead: `targetKind` and
+ *     `targetId` are what the entry is for, and the text is read from the
+ *     record while the record exists. Once it does not, the text is gone -
+ *     which is the retention policy working, not a gap in the log.
+ *
+ * The one free text an entry may carry is text with no other home: an actor's
+ * stated reason for an act, typed into a field whose only destination is this
+ * table, as {@link recordProtectedDataReveal} takes one. It is the entry's own
+ * content rather than a copy of anything, and it is what lets a supervisory
+ * authority ask not only who saw a protected person's address but why. The
+ * interface that collects such a reason has to say that it is kept for good,
+ * and the endpoint that accepts one has to bound its length.
  */
 @Injectable()
 export class AuditLogService {
@@ -75,6 +118,14 @@ export class AuditLogService {
    * Records that masked fields on a person with protected personal data were
    * revealed, naming the fields so a later data subject access report can say
    * exactly what was seen.
+   *
+   * The fields, never their values: rule 2 above, and the reason this helper
+   * takes a list of names rather than the object that was read.
+   *
+   * `reason` is the permitted free text - what the person who revealed the
+   * data says they revealed it for. It has no record of its own to be read
+   * back from, which is what distinguishes it from the text rule 3 forbids,
+   * and it is kept for as long as the entry is.
    */
   async recordProtectedDataReveal(
     input: {

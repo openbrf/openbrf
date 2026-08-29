@@ -357,16 +357,25 @@ export class SignupRequestService {
         );
       }
 
-      // No person is named: a rejected request produced none, and the applicant
-      // is not in the register.
+      /*
+       * No person is named: a rejected request produced none, and the
+       * applicant is not in the register.
+       *
+       * The reason the board typed is on the request row and is named here
+       * rather than copied. The audit log is append-only and outside every
+       * purge scope, so a copy would keep the board's words about an applicant
+       * after the request itself was erased, and would keep the first version
+       * of them if the row were ever corrected - see the retention rule on
+       * AuditLogService. Whether a reason was given is a fact about the
+       * decision and stays; the text is read from the request.
+       */
       await this.audit.record(
         {
           action: "SIGNUP_REQUEST_REJECTED",
           actorPersonId: input.decidedByPersonId,
           targetKind: "signupRequest",
           targetId: input.requestId,
-          context:
-            input.reason === undefined ? undefined : { reason: input.reason },
+          context: { reasonGiven: input.reason !== undefined },
         },
         tx,
       );

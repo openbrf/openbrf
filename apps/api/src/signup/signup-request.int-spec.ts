@@ -463,7 +463,19 @@ describe("the audit trail of a decision", () => {
     expect(entry?.actorPersonId).toBe(board.personId);
     // The applicant is not in the register, so there is no person to name.
     expect(entry?.targetPersonId).toBeNull();
-    expect(entry?.context).toMatchObject({ reason: "Bor inte i föreningen" });
+    // The fact that a reason was given, never the board's words about the
+    // applicant: those are on the request row, which the entry names, and the
+    // log is append-only and outside every purge scope.
+    expect(entry?.context).toMatchObject({ reasonGiven: true });
+    expect(JSON.stringify(entry?.context)).not.toContain(
+      "Bor inte i föreningen",
+    );
+
+    const request = await prisma.signupRequest.findUniqueOrThrow({
+      where: { id: pending.id },
+      select: { rejectReason: true },
+    });
+    expect(request.rejectReason).toBe("Bor inte i föreningen");
   });
 
   it("writes nothing for a decision that was refused", async () => {
