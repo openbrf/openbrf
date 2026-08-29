@@ -296,6 +296,23 @@ export class NewsWriteService {
       input.sendEmail === true &&
       news.emailQueuedAt === null;
 
+    /*
+     * A write that changes nothing writes nothing.
+     *
+     * Pressing publish on an item that is already published to the same people,
+     * with no mailing left to claim, is not an event and does not belong in the
+     * audit log. The mailing is part of the test rather than an afterthought:
+     * a board that published without mailing and comes back to press it again
+     * is asking for the one thing this call could still do.
+     */
+    if (
+      news.published === input.published &&
+      news.visibility === visibility &&
+      !mailing
+    ) {
+      return { ...toAdminView(news), mailedTo: null };
+    }
+
     if (mailing) {
       // Before the transaction opens: creating a queue is the queue backend's
       // own work on its own connection, and it has no business inside somebody

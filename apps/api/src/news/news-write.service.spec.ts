@@ -21,7 +21,7 @@ const ITEM = {
   slug: "tvattstugan",
   title: "Tvättstugan",
   content: paragraphsContent(["Nya tider gäller från måndag."]) as unknown,
-  visibility: "MEMBER" as const,
+  visibility: "MEMBER" as "MEMBER" | "PUBLIC",
   published: false,
   publishedAt: null,
   emailQueuedAt: null as Date | null,
@@ -345,6 +345,24 @@ describe("the mailing, which happens once", () => {
 
     expect(news.updateMany).not.toHaveBeenCalled();
     expect(mailer.ensureQueues).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing at all for a publish that changes nothing", async () => {
+    const { service, news, audit } = build({
+      published: true,
+      visibility: "PUBLIC",
+      emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    await service.publish("news-1", {
+      published: true,
+      visibility: "PUBLIC",
+      sendEmail: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(news.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 
   it("is not claimed by taking the item down", async () => {
