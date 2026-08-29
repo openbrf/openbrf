@@ -147,17 +147,22 @@ export function AddressBookRoute(): ReactElement {
        * register request settles the navigation too, without a second call to
        * ask who this is.
        *
+       * Both audiences also hold issues:report: the board through its own
+       * grant, a resident through living here. Neither list is invented - each
+       * one is what the answer already proves about this account - and the
+       * navigation asks for nothing the register request did not settle.
+       *
        * Undefined until that answer arrives, which navItemsFor reads as "the
-       * viewer is not known yet" and answers with the full band. A defined
-       * empty list means "a resident", so passing it while the request is
-       * still out would drop the Plugins link and then put it back, which is
-       * the band shuffling that navItemsFor exists to prevent.
+       * viewer is not known yet" and answers with the destinations every
+       * account is offered. A defined list means the audience is known, so
+       * passing one while the request is still out would move links about,
+       * which is the band shuffling that navItemsFor exists to prevent.
        */
       navItems={navItemsFor(
         view.state === "board"
-          ? ["association:read"]
+          ? ["association:read", "addressBook:read", "issues:report"]
           : view.state === "resident"
-            ? []
+            ? ["residentDirectory:read", "issues:report"]
             : undefined,
       )}
       onSignOut={() => {

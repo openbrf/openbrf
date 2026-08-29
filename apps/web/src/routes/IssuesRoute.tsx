@@ -1,26 +1,27 @@
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
+import { IssuesScreen } from "../issues/IssuesScreen";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
-import { ThemeComposerScreen } from "../themes/ThemeComposerScreen";
 import { Notice } from "../ui/Notice";
 
 /**
- * The theme composer inside the application frame.
+ * The issues screen inside the application frame.
  *
- * Admin only, and the screen says so rather than rendering a form the API will
- * refuse. Hiding it is courtesy; the API enforces the same rule on every save.
+ * The viewer is loaded here rather than in the screen so the band can carry the
+ * housing cooperative's real name and its accent colour, and so the navigation
+ * is the one this account is actually offered - which for an external property
+ * manager is this screen and their own settings, and nothing else.
  */
-export function ThemeComposerRoute(): ReactElement {
+export function IssuesRoute(): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const search = useSearch({ from: "/admin/themes/compose" });
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -40,14 +41,15 @@ export function ThemeComposerRoute(): ReactElement {
     void load();
   }, []);
 
-  const canManage =
-    viewer?.capabilities.includes("association:manage") ?? false;
-
   return (
     <AppShell
       housingCooperativeName={
         viewer?.housingCooperative?.name ?? t("app.housingCooperative")
       }
+      logo={{
+        light: viewer?.housingCooperative?.logoUrl ?? null,
+        dark: viewer?.housingCooperative?.logoDarkUrl ?? null,
+      }}
       personName={
         viewer === null
           ? undefined
@@ -66,16 +68,14 @@ export function ThemeComposerRoute(): ReactElement {
     >
       {failed ? (
         <Notice tone="danger" live>
-          {t("themeCatalog.errors.unknown")}
+          {t("issues.loadFailed")}
         </Notice>
       ) : viewer === null ? (
         <p role="status" className="text-body text-ink-muted">
-          {t("themeCatalog.loading")}
+          {t("issues.loading")}
         </p>
-      ) : canManage ? (
-        <ThemeComposerScreen themeId={search.theme} />
       ) : (
-        <Notice tone="info">{t("themeCatalog.errors.forbidden")}</Notice>
+        <IssuesScreen viewer={viewer} />
       )}
     </AppShell>
   );

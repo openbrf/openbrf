@@ -55,6 +55,8 @@ export interface InstanceSettings {
   smtp: SmtpSettings;
   retention: { daysAfterMoveOut: number };
   selfSignup: { enabled: boolean };
+  /** Whether the association's website carries an issue report form. */
+  issueReporting: { publicFormEnabled: boolean };
 }
 
 export interface Viewer {

@@ -12,6 +12,7 @@ import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { ImportRoute } from "./ImportRoute";
+import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
@@ -214,6 +215,21 @@ const themeComposerRoute = createRoute({
   component: ThemeComposerRoute,
 });
 
+/**
+ * Issues. Signed in here, capabilities inside the screen.
+ *
+ * One route for both halves of the module: a resident reports and follows their
+ * own reports, and whoever handles issues additionally gets the queue. Splitting
+ * them would put a second destination in the navigation for the same subject,
+ * and the screen already renders what this account is entitled to.
+ */
+const issuesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/issues",
+  beforeLoad: requireSession,
+  component: IssuesRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -267,6 +283,7 @@ const routeTree = rootRoute.addChildren([
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,
+  issuesRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,
   importRoute,

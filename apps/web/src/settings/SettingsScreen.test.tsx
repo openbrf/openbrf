@@ -33,6 +33,13 @@ vi.mock("../api/signup", async (importOriginal) => ({
   fetchSignupRequests: () => Promise.resolve({ ok: true, value: [] }),
 }));
 
+// The issue types panel self-loads too. Same reason as the queue above: this
+// file is about which panels a viewer is offered.
+vi.mock("../api/issues", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/issues")>()),
+  fetchIssueTypes: () => Promise.resolve({ ok: true, value: [] }),
+}));
+
 vi.mock("../auth/auth-client", () => ({
   useSession: () => ({ data: { user: { twoFactorEnabled: false } } }),
   authClient: {
@@ -80,6 +87,7 @@ const SETTINGS: InstanceSettings = {
   },
   retention: { daysAfterMoveOut: 365 },
   selfSignup: { enabled: false },
+  issueReporting: { publicFormEnabled: true },
 };
 
 function viewerWith(capabilities: string[]): Viewer {
@@ -111,6 +119,8 @@ const signupQueueHeading = () =>
   screen.queryByRole("heading", { name: /väntande ansökningar/i });
 const profileHeading = () =>
   screen.queryByRole("heading", { name: /din profil/i });
+const issueTypesHeading = () =>
+  screen.queryByRole("heading", { name: /^ärendetyper$/i });
 
 beforeEach(() => {
   fetchSettings.mockReset().mockResolvedValue({ ok: true, value: SETTINGS });
@@ -152,6 +162,19 @@ describe("a board member", () => {
     );
   });
 
+  it("configures the issue types, which are the board's own vocabulary", async () => {
+    renderScreen([
+      "association:read",
+      "addressBook:read",
+      "issues:configure",
+      "self:manage",
+    ]);
+
+    await waitFor(() => {
+      expect(issueTypesHeading()).toBeTruthy();
+    });
+  });
+
   it("gets the sign-up queue it is the one allowed to decide", async () => {
     renderScreen([
       "association:read",
@@ -184,6 +207,17 @@ describe("an admin", () => {
       "disabled",
       false,
     );
+  });
+
+  it("is offered no type catalogue without the capability to configure it", async () => {
+    // An administrator may switch the public form on and off; which categories
+    // the cooperative sorts its problems into is the board's decision.
+    renderScreen(["association:read", "association:manage", "self:manage"]);
+
+    await waitFor(() => {
+      expect(smtpHeading()).toBeTruthy();
+    });
+    expect(issueTypesHeading()).toBeNull();
   });
 
   it("is offered no queue without the capability to decide a request", async () => {

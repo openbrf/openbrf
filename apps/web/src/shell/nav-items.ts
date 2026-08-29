@@ -9,8 +9,16 @@ import type { NavItem } from "./AppShell";
  * broken for them rather than not theirs.
  */
 interface NavEntry extends NavItem {
-  /** Offered to everyone when absent. */
-  capability?: string;
+  /**
+   * Offered to everyone when absent; to holders of any one of these when a list.
+   *
+   * Any rather than all, because a destination can belong to two seats for two
+   * different reasons. Issues is the case: a resident reaches it holding
+   * issues:report and an external property manager holding issues:handle, and
+   * neither holds the other's - requiring both would hide the queue from the
+   * one person whose whole account exists to work it.
+   */
+  capability?: string | readonly string[];
 }
 
 /**
@@ -29,7 +37,16 @@ interface NavEntry extends NavItem {
  * offered only to whoever may read how the instance is configured.
  */
 const ENTRIES: readonly NavEntry[] = [
-  { to: "/", labelKey: "nav.addressBook" },
+  {
+    to: "/",
+    labelKey: "nav.addressBook",
+    // Either audience of the register, and neither is everybody: an external
+    // property manager holds neither, and decision 11 says they never reach the
+    // address book at all. The API refuses them both views regardless, but a
+    // link straight to a screen that can only refuse them is the platform
+    // showing an outside party a door it promised was not there.
+    capability: ["addressBook:read", "residentDirectory:read"],
+  },
   {
     to: "/plugins",
     // Under the plugins namespace rather than nav, because the label is that
@@ -38,13 +55,25 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "association:read",
   },
   { to: "/settings", labelKey: "nav.settings" },
+  {
+    to: "/issues",
+    // Under the issues namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "issues.navLabel",
+    capability: ["issues:report", "issues:handle"],
+  },
 ];
 
 /**
  * The destinations offered to every account.
  *
- * Used while the viewer is still unknown, so the band does not shuffle its
- * links once the viewer's capabilities arrive.
+ * Used while the viewer is still unknown. Only the settings screen qualifies -
+ * the profile and the security panels inside it belong to whoever is signed in,
+ * and every other destination answers to somebody's capability - so a band
+ * built from this list only ever gains links once the capabilities arrive, and
+ * never shows one it has to take away again. Offering and then withdrawing is
+ * the direction that matters: it tells somebody a part of the product is theirs
+ * and then contradicts itself.
  */
 export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
   (entry) => entry.capability === undefined,
@@ -57,8 +86,19 @@ export function navItemsFor(
   if (capabilities === undefined) {
     return NAV_ITEMS;
   }
-  return ENTRIES.filter(
-    (entry) =>
-      entry.capability === undefined || capabilities.includes(entry.capability),
-  );
+  return ENTRIES.filter((entry) => holds(capabilities, entry.capability));
+}
+
+/** Whether these capabilities satisfy an entry's requirement. */
+function holds(
+  capabilities: readonly string[],
+  required: string | readonly string[] | undefined,
+): boolean {
+  if (required === undefined) {
+    return true;
+  }
+  if (typeof required === "string") {
+    return capabilities.includes(required);
+  }
+  return required.some((capability) => capabilities.includes(capability));
 }
