@@ -44,9 +44,11 @@ export interface LegalHoldView {
  *
  * The retention policy is what the association decided in general. A hold is
  * why one person is an exception to it - a dispute, an insurance claim, an
- * authority's request - and GDPR art. 17.3 e is what makes the exception
- * lawful: data needed to establish or defend a legal claim outranks the right
- * to erasure while the claim lives.
+ * authority's request - and GDPR art. 17.3 is what makes the exception lawful.
+ * Two of its grounds reach these: e, where data is needed to establish or
+ * defend a legal claim, and b, where a legal obligation requires the data to be
+ * kept, which is what a binding request from an authority creates. Either way
+ * the ground outranks the right to erasure for as long as it lasts.
  *
  * So a hold suspends the purge rather than extending the policy. Extending the
  * policy would move every pending purge date in the association, for everybody,

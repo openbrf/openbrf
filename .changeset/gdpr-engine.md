@@ -32,8 +32,9 @@ apartment is left alone, because none of those relationships has ended.
 
 A legal hold is the one thing that suspends the purge, and the board places one
 against a named person with a reason it has to write down. It is for data the
-association still needs in order to establish or defend a legal claim: a
-dispute, an insurance matter, a request from an authority. Releasing it erases
+association still needs in order to establish or defend a legal claim, or that
+the law obliges it to keep: a dispute, an insurance matter, a request from an
+authority. Releasing it erases
 nothing by itself - it makes the person erasable again and the job runs in its
 own time - and the released hold keeps the dates it stood between, because that
 record is the explanation for why nothing was purged in that period. The person
