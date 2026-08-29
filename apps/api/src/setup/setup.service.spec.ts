@@ -70,7 +70,10 @@ interface Fakes {
   };
   auth: { createAccountForPerson: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
-  pages: { seedDefaultPage: ReturnType<typeof vi.fn> };
+  pages: {
+    seedDefaultPage: ReturnType<typeof vi.fn>;
+    seedPrivacyNotice: ReturnType<typeof vi.fn>;
+  };
 }
 
 /**
@@ -124,6 +127,7 @@ function build(
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const pages = {
     seedDefaultPage: vi.fn().mockResolvedValue({ created: true }),
+    seedPrivacyNotice: vi.fn().mockResolvedValue({ created: true }),
   };
 
   const service = new SetupService(
@@ -133,6 +137,7 @@ function build(
     audit as unknown as AuditLogService,
     pages as unknown as PagesService,
     i18n,
+    TEST_ENV,
   );
 
   return { service, prisma, auth, audit, pages };
