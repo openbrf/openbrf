@@ -79,7 +79,7 @@ export function SiteMenuRoute(): ReactElement {
       ) : viewer.capabilities.includes("site:manage") ? (
         <MenuScreen />
       ) : (
-        <Notice tone="info">{t("settings.errors.forbidden")}</Notice>
+        <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>
       )}
     </AppShell>
   );

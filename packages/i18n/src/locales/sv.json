@@ -1755,6 +1755,7 @@
       "heading": "Meny",
       "listHeading": "Menyns poster",
       "description": "Menyn på föreningens webbplats: en toppnivå och en nivå som fälls ut under den. Besökare ser bara de poster de kan öppna, så en sida för medlemmar namnges aldrig för någon som inte är inloggad. Den första sidan i menyn är webbplatsens startsida.",
+      "open": "Ordna menyn",
       "loading": "Läser in menyn",
       "empty": "Menyn är ännu tom. Webbplatsen visar ingen meny förrän den har en post.",
       "noPages": "Föreningen har ännu ingen sida att lägga i menyn.",

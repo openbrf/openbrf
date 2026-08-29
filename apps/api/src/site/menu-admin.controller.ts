@@ -22,7 +22,13 @@ import { type MenuItemView, MenuWriteService } from "./menu-write.service";
  * class carrying both would make that a per-route detail.
  */
 
-const itemSchema = z.object({
+/*
+ * Strict, like the block schema next door and for the same reason: a field the
+ * server does not know is a client saying something this version cannot honour,
+ * and answering "saved" to it would be answering for a menu entry nobody
+ * arranged. A typo is a refusal rather than a silent no-op.
+ */
+const itemSchema = z.strictObject({
   kind: z.enum(["PAGE", "GENERATED", "EXTERNAL"]),
   /** Empty is allowed: a page entry then takes the page's own title. */
   label: z.string().trim().max(120).default(""),
@@ -32,7 +38,7 @@ const itemSchema = z.object({
   parentId: z.string().min(1).max(64).nullable().optional(),
 });
 
-const orderSchema = z.object({
+const orderSchema = z.strictObject({
   /** Null orders the top level; an id orders what hangs under that entry. */
   parentId: z.string().min(1).max(64).nullable().default(null),
   ids: z.array(z.string().min(1).max(64)).max(200),

@@ -1755,6 +1755,7 @@
       "heading": "Menu",
       "listHeading": "The entries",
       "description": "The menu on the association's website: a top level and one level that folds out under it. A visitor is shown only the entries they could open, so a members' page is never named to somebody who is not signed in. The first page in the menu is the front page of the site.",
+      "open": "Arrange the menu",
       "loading": "Loading the menu",
       "empty": "The menu has no entries yet. The website shows no navigation until it has one.",
       "noPages": "The association has no page to put in the menu yet.",

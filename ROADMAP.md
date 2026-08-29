@@ -16,9 +16,9 @@ association's own website is there as well - the site answers at the domain
 root, the application is served under `/app`, and a page is rendered as plain
 HTML with no JavaScript, no cookies and no third-party requests. The board
 writes those pages from the application now, with the publication guardrails
-inside the write path. What is still missing on the website is the menu, its
-documents and its news. The project is not ready to hold your housing
-cooperative's data.
+inside the write path, and arranges the menu a visitor finds them through. What
+is still missing on the website is its documents and its news. The project is
+not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -237,9 +237,9 @@ JavaScript, sets no cookies and makes no third-party requests - which also means
 no cookie banner. The board writes those pages now: text with emphasis and
 links, headings and pictures, each page published or not and public or for the
 members, with the publication guardrails inside the write path rather than
-beside it. What is still missing is the menu, news and the public forms. Search
-engine optimisation is a non-goal: page titles, and no sitemap or metadata
-machinery.
+beside it, and arranges the menu a visitor finds those pages through. What is
+still missing is news and the public forms. Search engine optimisation is a
+non-goal: page titles, and no sitemap or metadata machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always

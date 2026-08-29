@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
-import { deletePage, insertPage } from "../src/site";
+import { createSitePage, deleteSitePage } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
@@ -95,9 +95,19 @@ test("the board arranges the menu and the website answers each visitor with thei
 }) => {
   await ensureInstance(request);
 
-  const about = await insertPage({ visibility: "PUBLIC", sortOrder: 210 });
-  const bylaws = await insertPage({ visibility: "PUBLIC", sortOrder: 211 });
-  const minutes = await insertPage({ visibility: "MEMBER", sortOrder: 212 });
+  /*
+   * Three pages, written the way the board writes them and therefore at the
+   * end of the site's own order: a page created through the API is given the
+   * position after every page the instance already has. That is what makes the
+   * front-page assertion below say something. The root serves the menu's first
+   * page entry and falls back to the lowest sort order only when the menu names
+   * no page at all, so a page this spec created can never win that fallback -
+   * and the association's front page moving to `about` is therefore the menu's
+   * doing rather than an accident of where these three landed.
+   */
+  const about = await createSitePage(request, { visibility: "PUBLIC" });
+  const bylaws = await createSitePage(request, { visibility: "PUBLIC" });
+  const minutes = await createSitePage(request, { visibility: "MEMBER" });
 
   /*
    * The board acts from an address of its own. Signing in through the browser
@@ -124,8 +134,10 @@ test("the board arranges the menu and the website answers each visitor with thei
   try {
     await signInAsBoard(boardPage);
     await boardPage.goto(appPath("/admin/site/menu"));
+    // Exact: the panel below it is headed "Menyns poster", and a substring
+    // match would find both and refuse to choose.
     await expect(
-      boardPage.getByRole("heading", { name: "Meny" }),
+      boardPage.getByRole("heading", { name: "Meny", exact: true }),
     ).toBeVisible();
 
     await addEntry(boardPage, {
@@ -265,7 +277,7 @@ test("the board arranges the menu and the website answers each visitor with thei
 
     await board.close();
     for (const written of [about, bylaws, minutes]) {
-      await deletePage(written.slug);
+      await deleteSitePage(request, written.id);
     }
   }
 });

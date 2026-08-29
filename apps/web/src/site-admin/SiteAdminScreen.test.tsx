@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
@@ -17,6 +18,27 @@ import { SiteAdminScreen } from "./SiteAdminScreen";
  * anything is wrong, and that the browser warns about a personal identity
  * number before the server has to refuse one.
  */
+
+/**
+ * The router's Link needs a router context these tests have no use for, so it
+ * is replaced with an anchor. What is under test here is the screen, not
+ * routing.
+ */
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    children,
+    className,
+  }: {
+    to: string;
+    children: ReactNode;
+    className?: string;
+  }): ReactElement => (
+    <a className={className} href={to}>
+      {children}
+    </a>
+  ),
+}));
 
 const fetchPages = vi.fn();
 const createPage = vi.fn();
@@ -121,6 +143,19 @@ describe("who the screen is for", () => {
 
     expect(await screen.findByText(/styrelsens/i)).toBeDefined();
     expect(fetchPages).not.toHaveBeenCalled();
+  });
+
+  it("offers the way to the menu, and only to whoever may arrange it", async () => {
+    // The menu is a screen of its own, so this link is the way to it from the
+    // pages: without it, a board would have to know the address.
+    const offered = renderScreen();
+    expect(
+      await screen.findByRole("link", { name: "Ordna menyn" }),
+    ).toHaveProperty("href", expect.stringContaining("/admin/site/menu"));
+
+    offered.unmount();
+    renderScreen([]);
+    expect(screen.queryByRole("link", { name: "Ordna menyn" })).toBeNull();
   });
 });
 

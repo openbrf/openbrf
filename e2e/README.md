@@ -164,6 +164,15 @@ number; and a claimed instance links its privacy notice from the footer of
 every page. It is the third spec allowed to navigate the instance root, because
 reading the published page on the website is the assertion.
 
+`26-site-menu.spec.ts` drives the menu. The board builds a top level and one
+level under it, moves an entry to the front and watches the website's front page
+follow it, and the same website is then read twice: by a visitor with no
+account, who is not told the members-only page exists, and by the board member's
+own session, who is. The dropdown is opened with the keyboard rather than with a
+pointer, because the site runs no script and focus is the only thing that opens
+it. It is the fourth spec allowed to navigate the instance root, for the same
+reason as the one above: the menu is chrome on the website itself.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on

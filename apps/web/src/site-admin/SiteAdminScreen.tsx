@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
@@ -18,6 +19,7 @@ import {
   LABEL,
   PRIMARY_BUTTON,
   QUIET_BUTTON,
+  SECONDARY_BUTTON,
 } from "../ui/controls";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { PageEditor } from "./PageEditor";
@@ -123,11 +125,26 @@ export function SiteAdminScreen({
 
   return (
     <div className="flex flex-col gap-5">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-display">{t("siteAdmin.heading")}</h1>
-        <p className="max-w-2xl text-body text-ink-muted">
-          {t("siteAdmin.description")}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-display">{t("siteAdmin.heading")}</h1>
+          <p className="max-w-2xl text-body text-ink-muted">
+            {t("siteAdmin.description")}
+          </p>
+        </div>
+
+        {/*
+         * The way to the menu. The pages are what the association writes and
+         * the menu is how a visitor finds them, so they are two screens - but
+         * a board that has just written a page is exactly who needs to put it
+         * in the menu, and a destination reachable only from the navigation
+         * band would leave that a thing you have to know about.
+         */}
+        {canManage ? (
+          <Link className={SECONDARY_BUTTON} to="/admin/site/menu">
+            {t("siteAdmin.menu.open")}
+          </Link>
+        ) : null}
       </header>
 
       {failed ? (
