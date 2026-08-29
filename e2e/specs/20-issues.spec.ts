@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
@@ -89,6 +91,74 @@ function pngBytes(width: number, height: number): Buffer {
   bytes[24] = 8;
   bytes[25] = 6;
   return bytes;
+}
+
+/**
+ * The three people this spec acts as.
+ *
+ * Named rather than spelled inline because each one is a rate-limit bucket, and
+ * a typo would silently put two of them in the same one.
+ */
+type Persona = "administrator" | "reporter" | "manager";
+
+/**
+ * A client address of this test's own, one per person.
+ *
+ * The same derivation the shared fixtures use for their per-test address, with
+ * the person mixed in. The reason is the fixtures' own: the sign-in endpoints
+ * are rate-limited per client address, and this spec signs three different
+ * people in - the board, an external property manager and a resident - who in
+ * life sign in from three different homes. Sharing one address makes the suite
+ * throttle itself and read as flaky.
+ *
+ * Not a way around the limit. Each person still gets one budget, and what this
+ * stops is one person's traffic spending another's.
+ *
+ * The budget, in requests to /api/auth per address per test, against a limit of
+ * twenty a minute. A browser sign-in is about five: the sign-in screen's guard,
+ * the sign-in itself, the guard and session read on the screen it lands on, and
+ * the guard on the screen it is sent to next. The settings screen costs two
+ * more, for its own session read and the list of keys the security panel shows.
+ *
+ *   test                         harness  reporter  manager  administrator
+ *   reports with a photograph          1         6        1              -
+ *   board triages to done              1         1        1              5
+ *   property manager works the queue   1         1        6              -
+ *   board decides on the public form   1         1        1              7
+ *
+ * The harness column is the administrator sign-in inside the register fixture,
+ * on the address the shared fixtures gave this test. Activation adds one to a
+ * person's column on a fresh stack, and it lands on POST
+ * /api/invitations/accept, which carries a separate budget of ten a minute -
+ * one per address per run, so clear of both.
+ */
+function addressFor(clientAddress: string, persona: Persona): string {
+  const digest = createHash("sha256")
+    .update(`${clientAddress}::${persona}`)
+    .digest();
+  // 10.0.0.0/8 is private, and the first octet is fixed so the addresses are
+  // recognisable in a log.
+  return `10.${String(digest[0]!)}.${String(digest[1]!)}.${String((digest[2]! % 254) + 1)}`;
+}
+
+/**
+ * Puts this browser on one person's own client address.
+ *
+ * A page-level header takes precedence over the browser context's, so this
+ * moves every request the page goes on to make into that person's bucket
+ * without a second context to create and close.
+ *
+ * Call it before the first navigation: the sign-in screen's own route guard
+ * asks the server for a session, and that request counts too.
+ */
+async function browseAs(
+  page: Page,
+  clientAddress: string,
+  persona: Persona,
+): Promise<void> {
+  await page.setExtraHTTPHeaders({
+    "x-forwarded-for": addressFor(clientAddress, persona),
+  });
 }
 
 /**
@@ -201,7 +271,9 @@ async function ensureIssueFixture(
     personId: reporterPersonId,
     email: REPORTER.email,
     password: REPORTER.password,
-    clientAddress,
+    // The probe, and on a fresh stack the activation, belong to the reporter's
+    // budget rather than to whatever else this test is about to do.
+    clientAddress: addressFor(clientAddress, "reporter"),
   });
 
   /*
@@ -222,7 +294,7 @@ async function ensureIssueFixture(
     personId: managerPersonId,
     email: MANAGER.email,
     password: MANAGER.password,
-    clientAddress,
+    clientAddress: addressFor(clientAddress, "manager"),
   });
 
   return { reporterPersonId, managerPersonId };
@@ -234,6 +306,7 @@ test("a resident reports an issue with a photograph", async ({
   clientAddress,
 }) => {
   await ensureIssueFixture(request, clientAddress);
+  await browseAs(page, clientAddress, "reporter");
 
   await signInThroughTheScreen(page, REPORTER.email, REPORTER.password);
   await page.goto(appPath("/issues"));
@@ -287,6 +360,7 @@ test("the board takes the report on and marks it done", async ({
   clientAddress,
 }) => {
   await ensureIssueFixture(request, clientAddress);
+  await browseAs(page, clientAddress, "administrator");
 
   await signInThroughTheScreen(
     page,
@@ -334,6 +408,7 @@ test("the property manager works the queue and is never shown the address book",
   clientAddress,
 }) => {
   await ensureIssueFixture(request, clientAddress);
+  await browseAs(page, clientAddress, "manager");
 
   await signInThroughTheScreen(page, MANAGER.email, MANAGER.password);
   await page.goto(appPath("/issues"));
@@ -371,6 +446,7 @@ test("the board decides whether the website carries a report form", async ({
   clientAddress,
 }) => {
   await ensureIssueFixture(request, clientAddress);
+  await browseAs(page, clientAddress, "administrator");
 
   await signInThroughTheScreen(
     page,
