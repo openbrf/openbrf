@@ -6,6 +6,7 @@ import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, waitForMessage } from "../src/mailpit";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
 import * as api from "../src/api";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 8.
@@ -72,7 +73,7 @@ function purgeDateFor(movedOutOn: string, retentionDays: number): string {
 const PURGE_ON = purgeDateFor(MOVED_OUT_ON, RETENTION_DAYS);
 
 async function signInAsAdmin(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })

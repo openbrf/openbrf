@@ -41,7 +41,8 @@ describe("isApiRequest", () => {
  * The other half of the same decision, and the one that decides between the
  * client and the association's own website.
  *
- * The prefix has to match a whole path segment. A cooperative may well publish
+ * The prefix has to match a whole path segment. A housing cooperative may well
+ * publish
  * a page at /apple or /application-form, and answering either with the client's
  * index.html would take a published page off its website with no error
  * anywhere.

@@ -9,6 +9,7 @@ import {
   ensureInstance,
 } from "../src/provision";
 import * as api from "../src/api";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 9.
@@ -188,7 +189,7 @@ async function ensureSigrid(request: APIRequestContext): Promise<string> {
 }
 
 async function signInAsAdmin(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })
@@ -198,11 +199,11 @@ async function signInAsAdmin(page: Page): Promise<void> {
 }
 
 async function openMemberRegister(page: Page): Promise<void> {
-  await page.goto("/registers/members");
+  await page.goto(appPath("/registers/members"));
 }
 
 async function openApartmentRegister(page: Page): Promise<void> {
-  await page.goto("/registers/apartments");
+  await page.goto(appPath("/registers/apartments"));
 }
 
 /** The printable region. The print stylesheet targets this attribute. */
@@ -408,7 +409,7 @@ test("a tenant-owner reads their own entry and not the member register", async (
     clientAddress,
   });
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(SIGRID.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(SIGRID.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();

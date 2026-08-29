@@ -1,3 +1,6 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { expect, stack, test } from "../src/fixtures";
 import {
   ADMINISTRATOR,
@@ -5,7 +8,7 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { deletePage, insertPage } from "../src/site";
-import { appPath } from "../src/stack";
+import { appPath, repositoryRoot } from "../src/stack";
 
 /**
  * The association's own public website, and the application beside it.
@@ -65,10 +68,23 @@ test("a visitor's browser reaches nothing but this instance", async ({
   await page.goto("/");
   await expect(page.getByText(HOUSING_COOPERATIVE.name).first()).toBeVisible();
 
-  // Every subresource the page pulled - the typefaces above all, which is the
-  // one that would silently become a third-party request if the stylesheet
-  // named a font host.
-  expect(requested.length).toBeGreaterThan(0);
+  /*
+   * Every subresource the page pulled - the typefaces above all, which is the
+   * one that would silently become a third-party request if the stylesheet
+   * named a font host.
+   *
+   * The navigation itself is in this list, so counting the list proves
+   * nothing: a page that fetched no font at all would still satisfy it, and
+   * the claim above would be held by an assertion that cannot fail. The
+   * subresources are counted apart from the document, and a font has to be
+   * among them before "from this instance" means anything.
+   */
+  const subresources = requested.filter((url) => url !== `${stack.baseUrl}/`);
+  expect(subresources.length).toBeGreaterThan(0);
+  expect(
+    subresources.some((url) => /\.(?:woff2?|ttf|otf)(?:\?|$)/i.test(url)),
+    subresources.join(", "),
+  ).toBe(true);
   for (const url of requested) {
     expect(url.startsWith(stack.baseUrl), url).toBe(true);
   }
@@ -169,4 +185,43 @@ test("the application answers under its own prefix", async ({
   expect(lookalike.status()).toBe(404);
   expect(lookalike.headers()["content-type"]).toContain("text/html");
   expect((await lookalike.text()).includes("<script")).toBe(false);
+});
+
+/**
+ * The client is not at the root any more, so no spec may navigate as if it is.
+ *
+ * This is a source check rather than a browser one because the failure it
+ * catches is silent in the worst way: a spec that goes to "/settings" now
+ * lands on the website's not-found page and times out waiting for a control,
+ * so the report says the application is broken when the spec is simply
+ * addressing the wrong half of the instance. It has already happened twice,
+ * both times because a spec written against the old root was merged after the
+ * sweep that moved the others - which is exactly the case no amount of care
+ * during one rebase can catch.
+ *
+ * The two exceptions are deliberate and named: the first-boot spec asserts the
+ * unclaimed root redirects to the wizard, and this spec reads the public front
+ * page, which really is at the root.
+ */
+test("no spec addresses the client at the instance root", async () => {
+  const specs = join(repositoryRoot, "e2e", "specs");
+  const rootNavigation = /page\.goto\("\//g;
+  const allowed = new Set(["01-first-boot.spec.ts", "93-public-site.spec.ts"]);
+
+  const offenders: string[] = [];
+  for (const entry of await readdir(specs)) {
+    if (!entry.endsWith(".spec.ts") || allowed.has(entry)) {
+      continue;
+    }
+    const source = await readFile(join(specs, entry), "utf8");
+    const hits = source.match(rootNavigation);
+    if (hits !== null) {
+      offenders.push(`${entry} (${String(hits.length)})`);
+    }
+  }
+
+  expect(
+    offenders,
+    `these navigate to the instance root instead of appPath(): ${offenders.join(", ")}`,
+  ).toEqual([]);
 });

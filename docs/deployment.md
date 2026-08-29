@@ -56,8 +56,9 @@ onwards.
 
 Once the instance is claimed, `APP_URL` serves the association's own public
 website and the application moves to `/app` under it. Finishing the wizard
-writes one page so the address answers with something; the board edits it from
-there. The public pages are plain HTML rendered by the API through the active
+writes one page so the address answers with something. Editing it needs the
+page editor, which is not built yet: until it is, the page stands as the wizard
+wrote it. The public pages are plain HTML rendered by the API through the active
 theme: they run no JavaScript, set no cookie and fetch nothing from any other
 host, which is also why the site needs no cookie banner.
 

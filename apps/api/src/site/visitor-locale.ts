@@ -45,7 +45,23 @@ function preferredLocale(header: string | undefined | null): Locale | null {
 
   for (const entry of header.split(",")) {
     // "sv-SE;q=0.9" - the tag is everything before the first parameter.
-    const tag = entry.split(";")[0] ?? "";
+    const [tag = "", ...parameters] = entry.split(";");
+
+    /*
+     * q=0 is a refusal, not a weak preference: "sv;q=0,en" asks for anything
+     * but Swedish. Header order decides the rest, so the quality values are
+     * otherwise ignored - a visitor who ranks two languages this instance has
+     * gets the one they wrote first, which is the same answer ordering alone
+     * would give.
+     */
+    if (
+      parameters.some((parameter) =>
+        /^\s*q\s*=\s*0(?:\.0*)?\s*$/i.test(parameter),
+      )
+    ) {
+      continue;
+    }
+
     const locale = supportedPrimarySubtag(tag);
     if (locale !== null) {
       return locale;

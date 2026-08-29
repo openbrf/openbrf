@@ -11,3 +11,16 @@
  * held together by the end-to-end suite rather than by the type system.
  */
 export const APP_BASE_PATH = "/app";
+
+/**
+ * The application's own address under an instance origin.
+ *
+ * APP_URL is operator-supplied and may or may not carry a trailing slash, and
+ * the application owns the exact path rather than a prefix: joining the two by
+ * concatenation gives "//app" for half the instances out there, which no route
+ * answers. The trailing slash is trimmed once, here, rather than at each of
+ * the places that build a link into the application.
+ */
+export function applicationUrl(origin: string): string {
+  return `${origin.replace(/\/+$/, "")}${APP_BASE_PATH}`;
+}

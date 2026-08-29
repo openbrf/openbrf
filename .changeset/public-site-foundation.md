@@ -7,7 +7,7 @@
 Serve the association's own public pages at the root, and move the application
 under `/app`.
 
-The address a housing cooperative gives out now belongs to the cooperative's
+The address a housing cooperative gives out now belongs to that cooperative's
 own website. A page is stored as a title and a versioned list of blocks rather
 than as markup, so the renderer decides what a block becomes: a block type it
 does not know is skipped, and there is no block that can carry a script or an

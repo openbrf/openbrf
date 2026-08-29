@@ -158,7 +158,7 @@ export async function serveSinglePageApp(
   // one. Route matching ranks static paths above a parameter and a parameter
   // above a wildcard, so every API route, the health check, every real file and
   // the website's own page route still win over this.
-  instance.get("/*", (request, reply) => {
+  instance.get("/*", async (request, reply) => {
     if (isApiRequest(request.url)) {
       void reply.code(404).send({ reason: "not-found" });
       return;
@@ -185,7 +185,27 @@ export async function serveSinglePageApp(
       void reply.code(404).send({ reason: "not-found" });
       return;
     }
-    void renderNotFound(request, reply);
+
+    /*
+     * Awaited, and its failure answered. The renderer reads the active theme
+     * and the association's own name to draw the page, so it can fail the way
+     * a database read fails. Left unawaited, a rejection would be an unhandled
+     * promise and the visitor would get no response at all - a hang rather
+     * than a page - on the one route a stranger is most likely to reach.
+     */
+    try {
+      await renderNotFound(request, reply);
+    } catch (cause) {
+      logger.error(
+        `The website's not-found page could not be rendered: ${String(cause)}`,
+      );
+      if (!reply.sent) {
+        await reply
+          .code(404)
+          .type("text/plain; charset=utf-8")
+          .send("The page does not exist.");
+      }
+    }
   });
 
   logger.log(`Serving the built client from ${webRoot} under ${APP_BASE_PATH}`);

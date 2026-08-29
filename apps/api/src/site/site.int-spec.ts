@@ -33,6 +33,9 @@ loadEnvForIntegrationTests();
 let app: NestFastifyApplication;
 let prisma: PrismaService;
 
+/** The association's own, public, and shaped like a personal identity number. */
+const ORGANIZATION_NUMBER = "769600-0000";
+
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
 const member = {
@@ -112,7 +115,7 @@ beforeAll(async () => {
     create: {
       id: 1,
       name: "Brf Eksemplet",
-      organizationNumber: "769600-0000",
+      organizationNumber: ORGANIZATION_NUMBER,
       setupCompletedAt: new Date(),
     },
     update: { setupCompletedAt: new Date() },
@@ -312,7 +315,15 @@ describe("what the website may never publish", () => {
       ["/ingenting", {}],
     ] as const) {
       const response = await inject({ method: "GET", url, headers });
-      expect(personalIdentityNumber.test(response.body), url).toBe(false);
+      /*
+       * The organisation number is public, is legitimately printed in a
+       * housing cooperative's footer, and has the same shape as a personal
+       * identity number. Removing it first keeps this assertion about the
+       * thing it is for: the day the chrome prints the organisation number,
+       * this test must not fail on a lawful value and be weakened to pass.
+       */
+      const body = response.body.replaceAll(ORGANIZATION_NUMBER, "");
+      expect(personalIdentityNumber.test(body), url).toBe(false);
     }
   });
 });

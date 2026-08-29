@@ -153,6 +153,10 @@ body {
 .site-footer a,
 .site-main a {
   color: var(--obrf-accent-trust);
+  /* A thumb needs 44px; a line of text gives about 26. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   text-underline-offset: 2px;
 }
 
