@@ -12,7 +12,9 @@ own pages, at a page the platform generates - the news index, the broker
 information, the form for asking the board for an account - or at an address
 somewhere else, and it hangs either at the top level or under one entry that
 does. An entry taking a page takes the page's own title unless the board writes
-something shorter, because a menu is written to fit the width of a menu.
+something of its own, because a menu is written to fit the width of a menu: a
+borrowed title is cut to that width, and one the board typed is refused past it
+rather than saved as words nobody wrote.
 
 Which entries a visitor is served follows from what each one points at, and
 never from anything stored on the entry. A page kept for the members is not

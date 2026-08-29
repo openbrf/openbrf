@@ -1816,6 +1816,7 @@
         "unknownGeneratedKey": "This instance has no such generated page.",
         "invalidUrl": "A menu entry may only lead to an https address.",
         "labelRequired": "This entry has no title to borrow, so it needs one of its own.",
+        "labelTooLong": "A menu label has to fit a menu on a telephone. Sixty characters at most.",
         "targetRequired": "Choose what the entry points at.",
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again."

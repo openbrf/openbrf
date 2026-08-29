@@ -1816,6 +1816,7 @@
         "unknownGeneratedKey": "Den här instansen har ingen sådan genererad sida.",
         "invalidUrl": "En menypost får bara leda till en https-adress.",
         "labelRequired": "Posten har ingen titel att låna, så den behöver en egen.",
+        "labelTooLong": "En menytitel ska rymmas i en meny på en telefon. Högst sextio tecken.",
         "targetRequired": "Välj vad posten ska peka på.",
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen."

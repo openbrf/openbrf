@@ -137,6 +137,41 @@ describe("adding an entry", () => {
     ).rejects.toMatchObject({ reason: "label-required" });
   });
 
+  it("refuses a label too long for a menu rather than cutting it", async () => {
+    const { service, menuItem } = build();
+
+    // Cut, the entry would be saved under words the board never wrote and
+    // answered with as though they had.
+    await expect(
+      service.create({
+        kind: "GENERATED",
+        label: "a".repeat(61),
+        generatedKey: "news",
+      }),
+    ).rejects.toMatchObject({ reason: "label-too-long" });
+    expect(menuItem.create).not.toHaveBeenCalled();
+
+    await expect(
+      service.create({
+        kind: "GENERATED",
+        label: "a".repeat(60),
+        generatedKey: "news",
+      }),
+    ).resolves.toMatchObject({ label: "a".repeat(60) });
+  });
+
+  it("cuts a title it borrows from a page, which the board did not type", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({
+      id: "page-1",
+      title: "Ö".repeat(80),
+    });
+
+    await expect(
+      service.create({ kind: "PAGE", label: "", pageId: "page-1" }),
+    ).resolves.toMatchObject({ label: "Ö".repeat(60) });
+  });
+
   it("refuses an address that is not https", async () => {
     const { service } = build();
 

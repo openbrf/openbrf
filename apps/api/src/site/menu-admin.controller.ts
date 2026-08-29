@@ -30,7 +30,15 @@ import { type MenuItemView, MenuWriteService } from "./menu-write.service";
  */
 const itemSchema = z.strictObject({
   kind: z.enum(["PAGE", "GENERATED", "EXTERNAL"]),
-  /** Empty is allowed: a page entry then takes the page's own title. */
+  /**
+   * Empty is allowed: a page entry then takes the page's own title.
+   *
+   * The bound here is the transport's, not the menu's - the length a label may
+   * actually be is a rule about menus and lives with the other three in the
+   * write service, the way an address's bound here is a size and the rule that
+   * it must be https is over there. A label between the two is refused with a
+   * sentence the board can act on rather than as a malformed request.
+   */
   label: z.string().trim().max(120).default(""),
   pageId: z.string().min(1).max(64).optional(),
   generatedKey: z.string().min(1).max(64).optional(),

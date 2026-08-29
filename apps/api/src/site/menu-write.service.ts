@@ -38,6 +38,7 @@ export type MenuWriteReason =
   | "unknown-generated-key"
   | "invalid-url"
   | "label-required"
+  | "label-too-long"
   | "target-required"
   | "nesting-too-deep";
 
@@ -114,7 +115,14 @@ const ITEM_COLUMNS = {
   },
 } as const;
 
-/** As long a label as fits a menu on a telephone, and no longer. */
+/**
+ * As long a label as fits a menu on a telephone, and no longer.
+ *
+ * A label the board typed is refused past it rather than cut, because a cut
+ * one is the server answering "saved" with words nobody wrote. A title
+ * borrowed from a page is cut, because the board did not type it here and a
+ * page may perfectly well be titled in a sentence.
+ */
 const LABEL_LIMIT = 60;
 
 @Injectable()
@@ -327,7 +335,7 @@ export class MenuWriteService {
     generatedKey: string | null;
     url: string | null;
   }> {
-    const label = input.label.trim().slice(0, LABEL_LIMIT);
+    const label = requireFittingLabel(input.label.trim());
 
     switch (input.kind) {
       case "PAGE": {
@@ -346,6 +354,9 @@ export class MenuWriteService {
           throw new MenuWriteError("There is no such page.", "page-not-found");
         }
         return {
+          // Cut, unlike a typed one: the page's title is borrowed rather
+          // than written here, and the migration that backfilled this menu
+          // cut it at the same length.
           label: label === "" ? page.title.slice(0, LABEL_LIMIT) : label,
           pageId: page.id,
           generatedKey: null,
@@ -400,6 +411,16 @@ export class MenuWriteService {
     }
     return row;
   }
+}
+
+function requireFittingLabel(label: string): string {
+  if (label.length > LABEL_LIMIT) {
+    throw new MenuWriteError(
+      "A menu label has to fit a menu on a telephone.",
+      "label-too-long",
+    );
+  }
+  return label;
 }
 
 function requireLabel(label: string): string {
