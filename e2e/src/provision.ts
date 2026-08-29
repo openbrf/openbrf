@@ -202,6 +202,17 @@ export const REGISTER_PEOPLE: readonly RegisterPerson[] = [
  * Puts the four people above into the register, on their apartments.
  *
  * Returns their person ids, keyed by full name.
+ *
+ * Idempotent against a finished record rather than against a person's mere
+ * existence. Putting somebody in the register takes two writes - the sign-up
+ * request creates the person, the approval records the residency - and a run
+ * that failed between them leaves a person with no apartment. Asking only
+ * "does this name exist" would return early on that from then on, and what
+ * fails is an assertion several tests later, timing out on a board the person
+ * is missing from with nothing saying why. So the residency is what settles
+ * it: a person the register holds without one is put through the creation path
+ * again, where approval matches them by email and records the residency they
+ * were left without.
  */
 export async function ensureRegisterFixture(
   request: APIRequestContext,
@@ -224,13 +235,13 @@ export async function ensureRegisterFixture(
   const ids = new Map<string, string>();
   for (const person of REGISTER_PEOPLE) {
     const fullName = `${person.firstName} ${person.lastName}`;
-    const existing = await api.findPersonIdByName(
+    const existing = await api.findPersonByName(
       request,
       stack.baseUrl,
       fullName,
     );
-    if (existing !== undefined) {
-      ids.set(fullName, existing);
+    if (existing?.apartment != null) {
+      ids.set(fullName, existing.personId);
       continue;
     }
 
