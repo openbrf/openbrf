@@ -46,11 +46,13 @@ ALTER TABLE "menu_item" ADD CONSTRAINT "menu_item_parentId_fkey" FOREIGN KEY ("p
 -- and a migration is a record of what the database did on the day it ran.
 --
 -- The id is derived from the page's, so running this twice inserts nothing the
--- second time rather than doubling the menu.
+-- second time rather than doubling the menu. The label is cut at the same
+-- length the editor cuts a borrowed title at: a page may be titled in a
+-- sentence, and a menu is not that wide.
 INSERT INTO "menu_item" ("id", "label", "kind", "pageId", "sortOrder", "createdAt", "updatedAt")
 SELECT
     'menu-' || "page"."id",
-    "page"."title",
+    left("page"."title", 60),
     'PAGE'::"MenuItemKind",
     "page"."id",
     "page"."sortOrder",
