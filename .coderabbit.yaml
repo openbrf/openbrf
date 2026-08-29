@@ -211,6 +211,22 @@ reviews:
         Integration tests share a database, so flag fixtures with fixed ids that
         would collide across runs, and flag a test that leaves rows behind.
 
+        The append-only statutory tier is the exception, and rows left there
+        must NOT be flagged. audit_log_entry, member_register_entry, transfer
+        and lien_note are protected by table-wide BEFORE UPDATE OR DELETE
+        triggers, so a suite cannot delete its own rows without an ALTER that
+        turns the guard off for every connection, including a concurrent run of
+        another suite. Leaving those rows is therefore the required behaviour
+        and the law's, not an oversight: the Swedish Economic Associations Act
+        (EFL 5 kap., via BRL 9 kap.) requires the register to be retained. Any
+        suite that writes an audit entry leaves one behind on purpose. What such
+        a suite owes instead is assertions that select on a per-run or
+        per-record identifier rather than on a count of the whole table, so flag
+        that if it is missing. Do not propose deleting the entries, disabling
+        the guard, or moving the suite to a disposable database or schema - the
+        last is a change to the test harness rather than to a test, and is out
+        of scope for a review of one.
+
     - path: "packages/**/*.spec.ts"
       instructions: >-
         These are pure-function library tests - the token contract, the shared
