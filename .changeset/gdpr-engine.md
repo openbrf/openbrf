@@ -20,7 +20,7 @@ apartment register content rather than service data, which is why it is masked
 from every screen and reachable only through the audited reveal.
 
 The member register, the transfers, the lien notes and the audit log are not
-merely excluded from the erasure - they are never written to. The database
+merely excluded from the erasure - nothing can erase them. The database
 refuses to update or delete a row in any of them, and the job is built on that
 rather than on remembering to leave them alone. Each person is erased in a
 transaction of their own, so a run interrupted half way through leaves what it
@@ -46,7 +46,7 @@ person on one printable document: the register entry with the contact details
 and the personal identity number decrypted, the residencies with the date each
 one is erased on, positions of trust, system roles, the account, the statutory
 member register entries and transfers, publication consents, legal holds,
-issues reported, documents filed, and the audit trail both about them and of
+issues reported, documents filed, and the audit log both about them and of
 what they did. It is produced by the board from the person's own view, gated on
 the capability that governs every other deliberate disclosure of masked data,
 and written to the audit log as an export in the same transaction that reads

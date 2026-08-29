@@ -352,7 +352,7 @@ Free, open source, and never moved behind a paywall.
       invitations once the retention window on somebody's last residency has
       run out; a legal hold, entered against one person with a reason,
       suspends it until the board releases it. Issues and archived documents
-      are listed in the access report but not yet purged
+      are listed in the data subject access report but not yet purged
 - [ ] News and mailings, by email and through an open SMS adapter
 - [ ] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain
