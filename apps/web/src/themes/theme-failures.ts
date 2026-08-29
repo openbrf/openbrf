@@ -45,7 +45,12 @@ export function findingsOf(failure: ApiFailure): ThemeLintFinding[] {
         (entry): entry is ThemeLintFinding =>
           typeof entry === "object" &&
           entry !== null &&
-          typeof (entry as ThemeLintFinding).rule === "string",
+          typeof (entry as ThemeLintFinding).rule === "string" &&
+          // The renderer reads detail's fields directly - a finding without
+          // one would throw while drawing the refusal, turning a message the
+          // board can act on into a blank screen.
+          typeof (entry as ThemeLintFinding).detail === "object" &&
+          (entry as ThemeLintFinding).detail !== null,
       )
     : [];
 }
