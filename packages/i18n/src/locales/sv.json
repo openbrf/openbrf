@@ -1187,7 +1187,7 @@
   },
   "activate": {
     "heading": "Aktivera ditt konto",
-    "intro": "Välj ett lösenord, så är kontot ditt. Dina uppgifter finns redan i föreningens register.",
+    "intro": "Välj ett lösenord, så är kontot ditt. Dina uppgifter finns redan i föreningens adressbok.",
     "password": "Lösenord",
     "passwordHint": "Minst 12 tecken. En fras med några ord är både lättare att minnas och svårare att gissa.",
     "submit": "Aktivera kontot",

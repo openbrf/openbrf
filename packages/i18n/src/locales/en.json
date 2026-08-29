@@ -1187,7 +1187,7 @@
   },
   "activate": {
     "heading": "Activate your account",
-    "intro": "Choose a password and the account is yours. Your details are already in the housing cooperative's register.",
+    "intro": "Choose a password and the account is yours. Your details are already in the housing cooperative's address book.",
     "password": "Password",
     "passwordHint": "At least 12 characters. A passphrase of a few words is both easier to remember and harder to guess.",
     "submit": "Activate the account",
