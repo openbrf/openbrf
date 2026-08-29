@@ -113,9 +113,35 @@ describe("the front page", () => {
     // than sorting the pages a second time.
     expect(page.findUnique).toHaveBeenCalledWith({
       where: { slug: "hem" },
-      select: { slug: true, title: true, content: true },
+      select: {
+        slug: true,
+        title: true,
+        content: true,
+        published: true,
+        visibility: true,
+      },
     });
     expect(page.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("passes over the page it names once that page is closed", async () => {
+    // The menu names only pages anybody may read, and it answered from an
+    // earlier query. A page unpublished or kept for the members between the
+    // two must not be served at the one address that would otherwise take the
+    // menu's word for it.
+    for (const closed of [
+      { ...PUBLISHED, published: false },
+      { ...PUBLISHED, visibility: "MEMBER" as const },
+    ]) {
+      const { service, page, menu } = build();
+      menu.homePageSlug.mockResolvedValue("hem");
+      page.findUnique.mockResolvedValue(closed);
+      page.findFirst.mockResolvedValue({ ...PUBLISHED, slug: "annat" });
+
+      await expect(service.homePage()).resolves.toMatchObject({
+        slug: "annat",
+      });
+    }
   });
 
   it("falls back to the lowest sort order when the menu names no page", async () => {

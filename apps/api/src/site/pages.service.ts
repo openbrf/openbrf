@@ -136,9 +136,23 @@ export class PagesService {
     if (chosen !== null) {
       const named = await this.prisma.page.findUnique({
         where: { slug: chosen },
-        select: { slug: true, title: true, content: true },
+        select: {
+          slug: true,
+          title: true,
+          content: true,
+          published: true,
+          visibility: true,
+        },
       });
-      if (named !== null) {
+      /*
+       * Asked again here, though the menu only ever names a page anybody may
+       * read. The menu answered from its own query, and what the root serves
+       * is decided by this one: a page closed between the two would otherwise
+       * be served to a visitor with no session by the one address on the site
+       * that never checks. The fallback below then answers instead, which is
+       * the same thing that happens for a page the board has removed.
+       */
+      if (named !== null && named.published && named.visibility === "PUBLIC") {
         return PagesService.toSitePage(named);
       }
     }
