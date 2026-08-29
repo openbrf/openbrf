@@ -14,7 +14,7 @@ invitation arrives as an email, and the link in it opens a screen where the
 recipient chooses a password and is signed in as soon as it is set. The
 association's own website is there as well - the site answers at the domain
 root, the application is served under `/app`, and a page is rendered as plain
-HTML with no JavaScript, no cookies and no third-party requests. The board
+HTML with no JavaScript, no third-party requests and no cookie of its own. The board
 writes those pages from the application now, with the publication guardrails
 inside the write path, and arranges the menu a visitor finds them through. What
 is still missing on the website is its documents. The project is not ready to
