@@ -10,8 +10,10 @@ import {
   fetchPerson,
   type MaskableField,
   type PersonDetail,
+  placeLegalHold,
   type PublicationConsent,
   RegisterRequestError,
+  releaseLegalHold,
   revealFields,
   type RevealedFields,
   sendInvitation,
@@ -108,6 +110,12 @@ export interface PersonPanelProps {
   /** Called after a change that the board's rows would show differently. */
   onChanged: () => void;
   /**
+   * Opens the data subject access report for this person. Omitted where there
+   * is no document view to open, which is what keeps this panel usable on its
+   * own.
+   */
+  onOpenReport?: (personId: string) => void;
+  /**
    * Opens the move-out flow for one residency. Omitted where there is no such
    * flow to open, which is what keeps this panel usable on its own.
    */
@@ -123,6 +131,7 @@ export function PersonPanel({
   onClose,
   onChanged,
   onMoveOut,
+  onOpenReport,
 }: PersonPanelProps): ReactElement {
   const { t } = useTranslation();
   const heading = usePanelHeadingFocus();
@@ -138,6 +147,10 @@ export function PersonPanel({
     kind: "idle",
   });
   const [invitationExpired, setInvitationExpired] = useState(false);
+  const [holdReason, setHoldReason] = useState("");
+  const [holdSaving, setHoldSaving] = useState(false);
+  const [holdFailed, setHoldFailed] = useState(false);
+  const [holdReasonMissing, setHoldReasonMissing] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   /*
@@ -289,6 +302,55 @@ export function PersonPanel({
     setInviteStatus({ kind: "sent" });
     setReloadToken((token) => token + 1);
   }, [personId]);
+
+  /*
+   * Placing and releasing the legal hold.
+   *
+   * The reason is required by the form as well as by the API. An exception to
+   * the association's own retention promise that nobody wrote a reason for
+   * cannot be reviewed by the board that inherits it, and a refusal arriving
+   * from the server after the button was clicked would read as a fault rather
+   * than as the missing sentence it is.
+   *
+   * `onChanged` is deliberately not called, for the reason the consent above
+   * gives: the board's rows carry no hold state, so reloading them would shift
+   * the list under whoever is reading it and change nothing they can see.
+   *
+   * A failure must not look like success. A board member who read a failed
+   * hold as a successful one would leave a person's data to be erased in the
+   * middle of a dispute, which is the loss the hold exists to prevent.
+   */
+  const changeHold = useCallback(
+    async (place: boolean): Promise<void> => {
+      const written = holdReason.trim();
+      if (place && written === "") {
+        setHoldReasonMissing(true);
+        return;
+      }
+
+      setHoldFailed(false);
+      setHoldReasonMissing(false);
+      setHoldSaving(true);
+      try {
+        if (place) {
+          await placeLegalHold(personId, written);
+        } else {
+          await releaseLegalHold(
+            personId,
+            written === "" ? undefined : written,
+          );
+        }
+      } catch {
+        setHoldFailed(true);
+        return;
+      } finally {
+        setHoldSaving(false);
+      }
+      setHoldReason("");
+      setReloadToken((token) => token + 1);
+    },
+    [personId, holdReason],
+  );
 
   /*
    * Three states, not two: not revealed yet, revealed with the register holding
@@ -743,6 +805,125 @@ export function PersonPanel({
               </p>
             ) : null}
           </section>
+
+          {/*
+           * The legal hold, directly after the consents and before the masking
+           * flag: it belongs with the other things the board records ABOUT a
+           * person rather than with the register data itself, and it is the
+           * one of them that decides whether any of the rest is erased.
+           */}
+          <section className="flex flex-col gap-3 border-t border-line pt-4">
+            <h3 className="text-title">
+              {t("register.person.legalHold.title")}
+            </h3>
+            <p className="text-small text-ink-muted">
+              {t("register.person.legalHold.explained")}
+            </p>
+
+            {person.legalHold === null ? (
+              <p className="text-body text-ink-muted">
+                {t("register.person.legalHold.none")}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {/*
+                 * Said in words and not only by the presence of a reason: the
+                 * purge date sits a few lines above on every ended residency,
+                 * and a board member who read that date without this sentence
+                 * would expect an erasure that is not going to happen.
+                 */}
+                <p className="text-body text-warn">
+                  {t("register.person.legalHold.standing")}
+                </p>
+                <span className="text-label text-ink-muted uppercase">
+                  {t("register.person.legalHold.reason")}
+                </span>
+                <span className="text-body text-ink">
+                  {person.legalHold.reason}
+                </span>
+                <span className="font-data text-data text-ink">
+                  {`${t("register.person.legalHold.placedOn")} ${person.legalHold.placedAt.slice(0, 10)}`}
+                </span>
+              </div>
+            )}
+
+            <label className="flex flex-col gap-1.5 text-label text-ink-muted uppercase">
+              {person.legalHold === null
+                ? t("register.person.legalHold.reasonLabel")
+                : t("register.person.legalHold.releaseReasonLabel")}
+              <textarea
+                name="legalHoldReason"
+                rows={2}
+                maxLength={500}
+                value={holdReason}
+                onChange={(event) => {
+                  setHoldReason(event.target.value);
+                  setHoldReasonMissing(false);
+                }}
+                className="min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink"
+              />
+              <span className="text-small text-ink-muted normal-case">
+                {person.legalHold === null
+                  ? t("register.person.legalHold.reasonHint")
+                  : t("register.person.legalHold.releaseNote")}
+              </span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => {
+                void changeHold(person.legalHold === null);
+              }}
+              disabled={holdSaving}
+              className={`${
+                person.legalHold === null ? CAUTION_BUTTON : SECONDARY_BUTTON
+              } self-start disabled:opacity-60`}
+            >
+              {holdSaving
+                ? t("register.person.legalHold.working")
+                : person.legalHold === null
+                  ? t("register.person.legalHold.place")
+                  : t("register.person.legalHold.release")}
+            </button>
+
+            {holdReasonMissing ? (
+              <p role="alert" className="text-small text-warn">
+                {t("register.person.legalHold.reasonRequired")}
+              </p>
+            ) : null}
+            {holdFailed ? (
+              <p role="alert" className="text-small text-danger">
+                {t("register.person.legalHold.failed")}
+              </p>
+            ) : null}
+          </section>
+
+          {/*
+           * The data subject access report. Offered only where there is a
+           * document view to open it in - the report replaces the board rather
+           * than sitting in this panel, because it decrypts everything about
+           * one person and a register behind it would be somebody else's data
+           * on the same page.
+           */}
+          {onOpenReport === undefined ? null : (
+            <section className="flex flex-col gap-2 border-t border-line pt-4">
+              <h3 className="text-title">
+                {t("register.person.report.title")}
+              </h3>
+              <p className="text-small text-ink-muted">
+                {t("register.person.report.explained")}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenReport(personId);
+                }}
+                className={`${CAUTION_BUTTON} self-start`}
+              >
+                {t("register.person.report.open")}
+              </button>
+            </section>
+          )}
 
           <section className="flex flex-col gap-2 border-t border-line pt-4">
             <h3 className="text-title">{t("register.person.protectedFlag")}</h3>

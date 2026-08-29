@@ -202,6 +202,18 @@ export const REGISTER_PEOPLE: readonly RegisterPerson[] = [
  * Puts the four people above into the register, on their apartments.
  *
  * Returns their person ids, keyed by full name.
+ *
+ * Idempotent against a finished record rather than against a person's mere
+ * existence. Putting somebody in the register takes two writes - the sign-up
+ * request creates the person, the approval records the residency - and a run
+ * that failed between them leaves a person with no apartment. Asking only
+ * "does this name exist" would return early on that from then on, and what
+ * fails is an assertion several tests later, timing out on a board the person
+ * is missing from with nothing saying why. So the residency the fixture
+ * promises is what settles it - this apartment, with a move-in date, rather
+ * than any apartment at all - and anything short of that is put through the
+ * creation path again, where approval matches them by email and records the
+ * residency they were left without.
  */
 export async function ensureRegisterFixture(
   request: APIRequestContext,
@@ -224,16 +236,11 @@ export async function ensureRegisterFixture(
   const ids = new Map<string, string>();
   for (const person of REGISTER_PEOPLE) {
     const fullName = `${person.firstName} ${person.lastName}`;
-    const existing = await api.findPersonIdByName(
+    const existing = await api.findPersonByName(
       request,
       stack.baseUrl,
       fullName,
     );
-    if (existing !== undefined) {
-      ids.set(fullName, existing);
-      continue;
-    }
-
     const address = addresses.find(
       (candidate) => candidate.number === person.addressNumber,
     );
@@ -247,6 +254,23 @@ export async function ensureRegisterFixture(
       throw new Error(
         `no apartment ${person.apartmentNumber} on ${address.street} ${address.number}`,
       );
+    }
+
+    /*
+     * The residency this fixture promises, not merely some residency. A stack
+     * that has been reused can hold the person at another apartment, because a
+     * move spec put them there, or with no move-in date; either state satisfies
+     * "has an apartment" and would be accepted as finished, and what fails is
+     * an assertion several tests later about a board the person is missing
+     * from. Anything else goes through the creation path again, where approval
+     * matches by email and records the residency they were left without.
+     */
+    if (
+      existing?.apartment?.id === apartment.id &&
+      existing.movedInOn !== null
+    ) {
+      ids.set(fullName, existing.personId);
+      continue;
     }
 
     const submitted = await api.submitSignupRequest(request, stack.baseUrl, {

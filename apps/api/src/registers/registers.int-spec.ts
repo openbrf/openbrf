@@ -9,7 +9,11 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  loadEnvForIntegrationTests,
+  runIdentityNumber,
+  runSuffix,
+} from "../testing/integration-env";
 import type { ApartmentRegisterExtract } from "./apartment-register.service";
 import type { MemberRegisterExtract } from "./member-register.service";
 
@@ -35,7 +39,7 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let encryption: FieldEncryptionService;
 
-const suffix = process.hrtime.bigint().toString(36);
+const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
 const surname = `Regman${suffix}`;
 
@@ -53,13 +57,18 @@ const actors = {
   member: {
     personId: `reg-member-${suffix}`,
     email: `reg-member-${suffix}@exempel.se`,
-    /** Synthetic and checksum-valid, as the demo fixtures are. */
-    personalIdentityNumber: "121212-1212",
+    /*
+     * Per run, and checksum-valid. These were literals, and two of the three
+     * were numbers the demo data also holds - a blind index makes that the
+     * answer to a lookup about somebody else's person, and this suite leaves
+     * rows behind that the register keeps.
+     */
+    personalIdentityNumber: runIdentityNumber(`${suffix}-member`),
   },
   protectedMember: {
     personId: `reg-protected-${suffix}`,
     email: `reg-protected-${suffix}@exempel.se`,
-    personalIdentityNumber: "811228-9874",
+    personalIdentityNumber: runIdentityNumber(`${suffix}-protected`),
   },
   /**
    * Held the same apartment before the current member. Carries a number of
@@ -68,7 +77,7 @@ const actors = {
   formerMember: {
     personId: `reg-former-${suffix}`,
     email: `reg-former-${suffix}@exempel.se`,
-    personalIdentityNumber: "010101-1005",
+    personalIdentityNumber: runIdentityNumber(`${suffix}-former`),
   },
   resident: {
     personId: `reg-resident-${suffix}`,
@@ -79,6 +88,32 @@ const actors = {
 const personIds = Object.values(actors).map((actor) => actor.personId);
 
 let ipCounter = 0;
+/**
+ * Every shape the stored twelve digits can reach a page as.
+ *
+ * A masking assertion that names only the stored form goes green while a view
+ * prints the conventional YYMMDD-NNNC one - which is the shape a person reads,
+ * and therefore the shape a leak most likely takes. The fixture used to be
+ * written with the hyphen, so naming the stored form alone happened to cover it;
+ * with a generated twelve-digit number it no longer does.
+ */
+function writtenForms(identityNumber: string): string[] {
+  const short = identityNumber.slice(2);
+  return [
+    identityNumber,
+    `${identityNumber.slice(0, 8)}-${identityNumber.slice(8)}`,
+    short,
+    `${short.slice(0, 6)}-${short.slice(6)}`,
+  ];
+}
+
+/** Fails if a personal identity number reaches the body in any written form. */
+function expectNoIdentityNumber(body: string, identityNumber: string): void {
+  for (const form of writtenForms(identityNumber)) {
+    expect(body).not.toContain(form);
+  }
+}
+
 function inject(options: {
   method: "GET" | "POST" | "PATCH";
   url: string;
@@ -415,8 +450,7 @@ describe("the member register extract", () => {
     const { body } = await extract("all");
 
     expect(body).not.toContain("personalIdentityNumber");
-    expect(body).not.toContain("121212-1212");
-    expect(body).not.toContain("1212121212");
+    expectNoIdentityNumber(body, actors.member.personalIdentityNumber);
   });
 
   it("carries no apartment register content either", async () => {
@@ -589,7 +623,7 @@ describe("the apartment register extract", () => {
       state: "masked",
       hasValue: true,
     });
-    expect(response.body).not.toContain("121212-1212");
+    expectNoIdentityNumber(response.body, actors.member.personalIdentityNumber);
   });
 
   it("returns the numbers on the full statutory extract and logs who took it", async () => {

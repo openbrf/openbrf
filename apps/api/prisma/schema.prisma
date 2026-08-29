@@ -195,6 +195,7 @@ model Person {
   transfersFrom         Transfer[]            @relation("TransferFromPerson")
   transfersTo           Transfer[]            @relation("TransferToPerson")
   publicationConsents   PublicationConsent[]
+  legalHolds            LegalHold[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1380,4 +1381,67 @@ model Document {
 
   @@index([audience, category])
   @@map("document")
+}
+
+// ---------------------------------------------------------------------------
+// Retention: legal hold and the service-tier purge.
+// ---------------------------------------------------------------------------
+
+/// A legal hold (rattsligt bevarandekrav) on one person's service-tier data.
+///
+/// The purge is a promise the association makes to a person who has moved out,
+/// and a legal hold is the one lawful reason to break it: a dispute, an
+/// insurance claim or an authority's request means the association still needs
+/// the data it would otherwise erase, and GDPR art. 17.3 recognises both
+/// grounds: e where a legal claim is to be established or defended, b where a
+/// legal obligation requires the data to be kept, which is what a binding
+/// request from an authority creates. So the hold suspends the purge
+/// rather than extending the retention policy - the policy is what the
+/// association decided in general, the hold is why this one person is an
+/// exception, and both have to be readable side by side.
+///
+/// The reason is required. A hold with no reason is indistinguishable from
+/// data nobody got round to erasing, which is the state the purge exists to
+/// end; requiring it is what makes the exception reviewable.
+///
+/// Released rather than deleted, and never rewritten except to set the release
+/// date: the record that a hold stood between two dates is what explains why
+/// the purge did not run for that person in that period. A person can be held
+/// again afterwards, which is a new row.
+///
+/// Service tier: no append-only trigger and no retention floor. The audit log
+/// carries the acts (LEGAL_HOLD_PLACED, LEGAL_HOLD_RELEASED) and is where the
+/// history stands if this row is ever gone.
+model LegalHold {
+  id String @id @default(cuid())
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  /// Why the data is being kept. Free text, and deliberately not an enum: the
+  /// grounds are the board's own, and a fixed list would make the product
+  /// argue with a lawyer about them.
+  reason String
+
+  placedAt DateTime @default(now())
+
+  /// Null while the hold stands.
+  releasedAt DateTime?
+
+  /// Why the hold was lifted, recorded on the same row as the placing.
+  releaseReason String?
+
+  /// The board member who placed the hold, and the one who released it.
+  ///
+  /// Plain columns rather than relations, for the reason the publication
+  /// consent and the audit log both give: a referential action would either
+  /// rewrite this row or veto erasure of the person it names.
+  placedByPersonId   String?
+  releasedByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([personId, releasedAt])
+  @@map("legal_hold")
 }

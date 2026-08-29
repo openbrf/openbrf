@@ -444,6 +444,44 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { heading: MEMBER.designation },
   },
 
+  // --- retention -------------------------------------------------------------
+  // Last, because both of them write: the hold stays on the person for the rest
+  // of the walk, and the report is the only screen that decrypts everything
+  // about somebody. Neither is reached from the navigation - a legal hold and an
+  // access report are things the board does to one named person, so they live on
+  // that person's view.
+  {
+    // The purge suspended for one person, with the reason on screen. The
+    // sentence above the button is what a board reads instead of inferring the
+    // state from a date that has stopped applying.
+    name: "person-legal-hold",
+    as: "administrator",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Öppna Astrid Lindqvist" } },
+      { see: { heading: "Astrid Lindqvist" } },
+      {
+        fill: { label: "Varför uppgifterna bevaras" },
+        value: "Tvist om andrahandsuthyrning, Hyresnämnden 2026-0421",
+      },
+      { click: { button: "Inför ett rättsligt bevarandekrav" } },
+    ],
+    // The release button exists only once the panel has read the standing hold
+    // back, so waiting for it waits for the write rather than for the click.
+    waitFor: { button: "Häv det rättsliga bevarandekravet" },
+  },
+  {
+    // The whole document, scrolled: it is printed and handed over, so the
+    // picture has to show what comes out of the printer rather than the top of
+    // it. Astrid holds no personal identity number, which the safety check
+    // would refuse an image of in any case.
+    name: "data-subject-report",
+    prepare: [{ click: { button: "Ta fram registerutdraget" } }],
+    // A section heading the document renders only once the report has arrived.
+    waitFor: { heading: "Medlemsförteckningen" },
+    capture: "page",
+  },
+
   // --- the association's own website, from the board's side ------------------
   // The administrator again, because writing the website needs site:manage and
   // the two entries above are residents.
