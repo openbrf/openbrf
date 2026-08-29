@@ -11,9 +11,15 @@ import { IssueError } from "./issue.error";
 /**
  * How many photographs one report may carry.
  *
- * A bound rather than a preference: every file is held in memory while it is
- * identified and checksummed, and an unbounded gallery on a maintenance ticket
- * is a way to fill the data volume from a resident's account.
+ * A bound on one report, and only on one report: every file is held in memory
+ * while it is identified and checksummed, and a hundred images on a single
+ * maintenance ticket are neither readable by whoever has to work it nor free to
+ * serve.
+ *
+ * It is deliberately not a defence against filling the data volume, and reading
+ * it as one would be a mistake: nothing caps how many reports an account may
+ * file, so a resident who wanted the space could take it six photographs at a
+ * time without ever meeting this number.
  */
 export const MAX_PHOTOS_PER_ISSUE = 6;
 

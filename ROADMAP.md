@@ -203,7 +203,7 @@ locally the application runs from source beside the PostgreSQL that
       does not exist
 - [x] Issue reporting: a resident reports a problem with the building from the
       application, with photographs, and follows what happens to it. The
-      categories are the board's own - each one set to non-member, member or
+      issue types are the board's own - each one set to non-member, member or
       board - and which of them a person is offered is decided on the server:
       a resident picks from the member types, a visitor with no account from the
       non-member ones, and the board's internal categories are shown to nobody
@@ -212,8 +212,10 @@ locally the application runs from source beside the PostgreSQL that
       details and anything about a neighbour are read by everyone who handles
       issues, and refuses nothing: an issue report is where such detail
       legitimately arrives. A reporter with protected personal data is named to
-      nobody in the queue. Whether the association's website carries a form
-      anyone can use is a setting, on by default
+      nobody in the queue. Whether the association's website takes reports from
+      anyone is a setting, on by default, and the server already answers a
+      caller with no session with the non-member types alone; the form itself
+      is part of the public forms below
 
 ### The public website
 
