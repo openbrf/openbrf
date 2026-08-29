@@ -13,7 +13,7 @@ import { IssueError } from "./issue.error";
  *
  * A bound on one report, and only on one report: every file is held in memory
  * while it is identified and checksummed, and a hundred images on a single
- * maintenance ticket are neither readable by whoever has to work it nor free to
+ * issue report are neither readable by whoever has to work it nor free to
  * serve.
  *
  * It is deliberately not a defence against filling the data volume, and reading
