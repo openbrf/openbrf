@@ -107,14 +107,29 @@ async function signInThroughTheScreen(
   await page.getByLabel("E-postadress").fill(email);
   await page.getByLabel("Lösenord", { exact: true }).fill(password);
 
+  // Armed before the click: a wait registered afterwards can miss a response
+  // that has already arrived.
   const answered = page.waitForResponse(
     (response) =>
       response.url().includes("/api/auth/sign-in/email") &&
       response.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Logga in" }).click();
-  expect((await answered).ok()).toBe(true);
-  await expect(page).not.toHaveURL(/sign-in/);
+  // exact, because "Logga in" is a prefix of the passkey button's
+  // "Logga in med en nyckel" and the accessible-name match is a substring one.
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
+
+  // A refusal is named here, with its status, rather than surfacing as a
+  // missing control several assertions later.
+  const response = await answered;
+  expect(
+    response.ok(),
+    `signing in as ${email} answered ${String(response.status())}`,
+  ).toBe(true);
+
+  // The session exists; this is the screen having acted on it. Without it a
+  // caller navigating inside the application would still be racing the
+  // sign-in it has just performed.
+  await expect(page).not.toHaveURL(/\/sign-in$/);
 }
 
 type BoardPage = {
@@ -260,7 +275,7 @@ test("a resident reports an issue with a photograph", async ({
   // It comes back in the reporter's own list, in the state it is actually in.
   const own = page.getByRole("listitem").filter({ hasText: DESCRIPTION });
   await expect(own.first()).toBeVisible();
-  await expect(own.first().getByText("Ny")).toBeVisible();
+  await expect(own.first().getByText("Ny", { exact: true })).toBeVisible();
   // The photograph is served from this instance's own origin, never from a
   // storage endpoint, so its address is what proves it was attached.
   await expect(own.first().locator('img[src^="/api/media/"]')).toHaveCount(1);
@@ -294,7 +309,7 @@ test("the board takes the report on and marks it done", async ({
       .getByRole("listitem")
       .filter({ hasText: DESCRIPTION })
       .first()
-      .getByText("Pågår"),
+      .getByText("Pågår", { exact: true }),
   ).toBeVisible();
 
   await page
@@ -309,7 +324,7 @@ test("the board takes the report on and marks it done", async ({
       .getByRole("listitem")
       .filter({ hasText: DESCRIPTION })
       .first()
-      .getByText("Klar"),
+      .getByText("Klar", { exact: true }),
   ).toBeVisible();
 });
 
@@ -333,10 +348,14 @@ test("the property manager works the queue and is never shown the address book",
    * refuses them the register either way; a link straight to it would be the
    * platform showing an outside party something it promised was not there.
    */
-  await expect(page.getByRole("link", { name: "Adressbok" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Ärenden" })).not.toHaveCount(0);
   await expect(
-    page.getByRole("link", { name: "Inställningar" }),
+    page.getByRole("link", { name: "Adressbok", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Ärenden", exact: true }),
+  ).not.toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "Inställningar", exact: true }),
   ).not.toHaveCount(0);
 
   // They handle the association's issues; they do not live in the building, so
