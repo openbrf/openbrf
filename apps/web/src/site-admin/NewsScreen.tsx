@@ -20,7 +20,7 @@ import {
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
-import { contentFromText, textFromContent } from "./news-body";
+import { contentFromText, isPlainText, textFromContent } from "./news-body";
 import {
   createNews,
   editNews,
@@ -50,6 +50,7 @@ const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "slug-taken": "news.errors.slugTaken",
   "personal-identity-number": "news.errors.personalIdentityNumber",
   "unsupported-block": "news.errors.unsupportedBlock",
+  "address-mailed": "news.errors.addressMailed",
   "not-found": "news.errors.notFound",
 };
 
@@ -75,6 +76,8 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const [items, setItems] = useState<NewsItem[] | null>(null);
   const [recipients, setRecipients] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
+  /* An item holding marks this editor cannot spell. See isPlainText. */
+  const [notEditable, setNotEditable] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY);
 
@@ -92,7 +95,10 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
       if (cancelled) {
         return;
       }
-      setFailed(!list.ok);
+      // Either half failing is worth saying so. The count is what the mailing
+      // toggle is read against, and a board that is not told it is missing
+      // would read its absence as nobody to mail.
+      setFailed(!list.ok || !count.ok);
       if (list.ok) {
         setItems(list.value);
       }
@@ -148,6 +154,12 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
       {failed ? (
         <Notice tone="danger" live>
           {t("news.errors.loadFailed")}
+        </Notice>
+      ) : null}
+
+      {notEditable ? (
+        <Notice tone="danger" live>
+          {t("news.errors.notPlainText")}
         </Notice>
       ) : null}
 
@@ -284,6 +296,11 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           recipientCount={recipients}
           onEdit={(chosen) => {
             save.reset();
+            if (!isPlainText(chosen.content)) {
+              setNotEditable(true);
+              return;
+            }
+            setNotEditable(false);
             setDraft({
               id: chosen.id,
               slug: chosen.slug,

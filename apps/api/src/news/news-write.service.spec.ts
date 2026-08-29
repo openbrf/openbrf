@@ -144,11 +144,19 @@ async function refusalOf(run: Promise<unknown>): Promise<NewsWriteError> {
 
 const PLAIN: PageContent = paragraphsContent(["Hej på er."]);
 
+/** Whoever is signed in when an item is written. */
+const AUTHOR = "person-board";
+
 describe("writing a news item", () => {
   it("stores it unpublished, so nothing is readable before it is meant to be", async () => {
     const { service, news } = build();
 
-    await service.create({ slug: "hej", title: "Hej", content: PLAIN });
+    await service.create({
+      slug: "hej",
+      title: "Hej",
+      content: PLAIN,
+      authorPersonId: AUTHOR,
+    });
 
     expect(news.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -157,11 +165,33 @@ describe("writing a news item", () => {
     );
   });
 
+  it("writes down who wrote it, which no later save could tell us", async () => {
+    const { service, news } = build();
+
+    await service.create({
+      slug: "hej",
+      title: "Hej",
+      content: PLAIN,
+      authorPersonId: AUTHOR,
+    });
+
+    expect(news.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ authorPersonId: AUTHOR }),
+      }),
+    );
+  });
+
   it("refuses an address that is not shaped like one", async () => {
     const { service } = build();
 
     const refusal = await refusalOf(
-      service.create({ slug: "Inte En Adress", title: "Hej", content: PLAIN }),
+      service.create({
+        slug: "Inte En Adress",
+        title: "Hej",
+        content: PLAIN,
+        authorPersonId: AUTHOR,
+      }),
     );
 
     expect(refusal.reason).toBe("invalid-slug");
@@ -173,7 +203,12 @@ describe("writing a news item", () => {
     news.findUnique.mockResolvedValue({ id: "news-other" });
 
     const refusal = await refusalOf(
-      service.create({ slug: "hej", title: "Hej", content: PLAIN }),
+      service.create({
+        slug: "hej",
+        title: "Hej",
+        content: PLAIN,
+        authorPersonId: AUTHOR,
+      }),
     );
 
     expect(refusal.reason).toBe("slug-taken");
@@ -186,6 +221,7 @@ describe("writing a news item", () => {
       service.create({
         slug: "hej",
         title: "Hej",
+        authorPersonId: AUTHOR,
         content: {
           version: 1,
           blocks: [
@@ -226,6 +262,37 @@ describe("the personal identity number guardrail", () => {
       slug: "tvattstugan",
       title: "Tvättstugan",
       content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
+    });
+
+    expect(news.update).toHaveBeenCalled();
+  });
+
+  it("refuses to move an item the members have already been mailed", async () => {
+    const { service, news } = build({
+      emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    const refusal = await refusalOf(
+      service.update("news-1", {
+        slug: "tvattstugan-nya-tider",
+        title: "Tvättstugan",
+        content: paragraphsContent(["Nya tider gäller från måndag."]),
+      }),
+    );
+
+    expect(refusal.reason).toBe("address-mailed");
+    expect(news.update).not.toHaveBeenCalled();
+  });
+
+  it("still corrects a mailed item at the address it was mailed at", async () => {
+    const { service, news } = build({
+      emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    await service.update("news-1", {
+      slug: "tvattstugan",
+      title: "Tvättstugan, rättad",
+      content: paragraphsContent(["Nya tider gäller från måndag."]),
     });
 
     expect(news.update).toHaveBeenCalled();

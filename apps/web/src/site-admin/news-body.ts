@@ -57,13 +57,33 @@ export function contentFromText(text: string): NewsContent {
 }
 
 /**
+ * Whether this editor can write a stored body back out unchanged.
+ *
+ * The format has no syntax for a mark and one heading level, so a body holding
+ * either is one it cannot spell. Asking first is the difference between
+ * telling the board an item is not editable here and quietly returning it
+ * without its links: the API's type permits both, and the day a richer editor
+ * arrives it is this answer that changes rather than the stored content.
+ */
+export function isPlainText(content: NewsContent): boolean {
+  return content.blocks.every(
+    (block) =>
+      (block.type !== "heading" || block.level === HEADING_LEVEL) &&
+      block.runs.every(
+        (run) =>
+          run.bold !== true && run.italic !== true && run.link === undefined,
+      ),
+  );
+}
+
+/**
  * Writes stored blocks back out as the text that produced them.
  *
- * Round-trips: reading an item into the editor and saving it again without
- * touching anything stores what was already there. A block this editor has no
- * spelling for - one written by a later editor - contributes nothing rather
- * than a placeholder, which is the same total disposition the parser on the
- * server has.
+ * Round-trips whatever `isPlainText` accepts: reading such an item into the
+ * editor and saving it again without touching anything stores what was already
+ * there. It is not total, which is why the screen asks before it loads - a
+ * marked run or a deeper heading would come back out flattened, and losing a
+ * link to a save nobody meant as an edit is not a thing to do quietly.
  */
 export function textFromContent(content: NewsContent): string {
   return content.blocks

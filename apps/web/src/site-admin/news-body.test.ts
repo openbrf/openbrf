@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { contentFromText, textFromContent } from "./news-body";
+import { contentFromText, isPlainText, textFromContent } from "./news-body";
 
 /**
  * The mapping between the box the board types in and the blocks the platform
@@ -69,5 +69,34 @@ describe("writing stored blocks back out", () => {
         ],
       }),
     ).toBe("Hej.");
+  });
+});
+
+describe("deciding whether this editor can hold a stored body", () => {
+  it("accepts what it can write back out unchanged", () => {
+    expect(isPlainText(contentFromText("Först.\n\n## Rubrik\n\nSedan."))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a run carrying a mark it has no spelling for", () => {
+    expect(
+      isPlainText({
+        blocks: [
+          {
+            type: "paragraph",
+            runs: [{ text: "Tvättstugan", link: "https://example.org/" }],
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses a heading deeper than the one level it writes", () => {
+    expect(
+      isPlainText({
+        blocks: [{ type: "heading", level: 3, runs: [{ text: "Rubrik" }] }],
+      }),
+    ).toBe(false);
   });
 });

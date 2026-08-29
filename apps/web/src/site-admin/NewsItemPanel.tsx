@@ -109,7 +109,7 @@ export function NewsItemPanel({
           {t("news.item.address", { slug: item.slug })}
         </p>
         {item.publishedAt === null ? null : (
-          <p className="text-small text-ink-muted">
+          <p className="font-data text-small text-ink-muted">
             {t("news.item.publishedOn", {
               date: formatDate(item.publishedAt, i18n.language),
             })}
@@ -158,14 +158,16 @@ export function NewsItemPanel({
               }}
               className="size-4 accent-trust"
             />
-            {t("news.item.sendEmail", { count: recipientCount ?? 0 })}
+            {recipientCount === null
+              ? t("news.item.sendEmailUnknown")
+              : t("news.item.sendEmail", { count: recipientCount })}
           </label>
           <p className="text-small text-ink-muted">
             {t("news.item.sendEmailHint")}
           </p>
         </div>
       ) : (
-        <p className="text-small text-ink-muted">
+        <p className="font-data text-small text-ink-muted">
           {t("news.item.alreadyMailed", {
             date: formatDate(item.emailQueuedAt ?? "", i18n.language),
           })}

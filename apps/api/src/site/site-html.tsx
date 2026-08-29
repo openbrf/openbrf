@@ -100,6 +100,16 @@ export function newsPath(slug: string): string {
 }
 
 /**
+ * The calendar a published date is read against.
+ *
+ * The association is in Sweden and its notices are dated the way the people
+ * reading them date things. Both halves of a published date derive from this
+ * one zone, because a notice put up late on the last of the month must not be
+ * shown as one day and marked up as another.
+ */
+const ASSOCIATION_TIME_ZONE = "Europe/Stockholm";
+
+/**
  * A published date, as a calendar date in the reader's own language.
  *
  * The date and not the time. When a notice about the stairwell went up is
@@ -111,7 +121,7 @@ export function formatNewsDate(date: Date, locale: string): string {
     year: "numeric",
     month: "long",
     day: "numeric",
-    timeZone: "Europe/Stockholm",
+    timeZone: ASSOCIATION_TIME_ZONE,
   }).format(date);
 }
 
@@ -272,9 +282,22 @@ function renderNewsTeaser(
   );
 }
 
-/** The machine-readable half of a published date, for the time element. */
+/**
+ * The machine-readable half of a published date, for the time element.
+ *
+ * The same calendar day the reader is shown, and not the UTC one: an item
+ * published at half past midnight is dated by the day it went up here.
+ */
 export function isoDate(date: Date): string {
-  return date.toISOString().slice(0, "0000-00-00".length);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: ASSOCIATION_TIME_ZONE,
+  }).formatToParts(date);
+  const part = (type: string): string =>
+    parts.find((one) => one.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 /**

@@ -85,12 +85,16 @@ export class NewsAdminController {
   }
 
   @Post()
-  async create(@Body() body: unknown): Promise<NewsAdminView> {
+  async create(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<NewsAdminView> {
     const input = bodySchema.parse(body);
     return this.news.create({
       slug: input.slug,
       title: input.title,
       content: submittedContent(input.content),
+      authorPersonId: requirePrincipal(request).personId,
     });
   }
 

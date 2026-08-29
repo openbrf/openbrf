@@ -39,13 +39,16 @@ it, because that list is the record of who the board was addressing. Each
 person is written to in their own language, and the address is decrypted where
 the message is composed - never carried in a job.
 
-Reading the news needs no account and no capability, because it is a public
-website. The index and each article are the same plain server-rendered
-documents every other page is: one inline stylesheet, no script, no cookie, and
-nothing fetched from anybody else. A page can carry the latest items as a
-teaser block, and what that shows follows its reader - the public items for a
-visitor, the members' as well for anyone signed in - so the same page reads
-correctly for both without the stored page knowing who either of them is.
+Reading public news needs no account and no capability. A member-only item is
+readable by anyone signed in, and answered to everyone else with the same
+not-found document an address with nothing behind it gets - so the news follows
+the rule the pages already do. The index and each article are the same plain
+server-rendered documents every other page is: one inline stylesheet, no
+script, no cookie, and nothing fetched from anybody else. A page can carry the
+latest items as a teaser block, and what that shows follows its reader - the
+public items for a visitor, the members' as well for anyone signed in - so the
+same page reads correctly for both without the stored page knowing who either
+of them is.
 
 The menu can now point at it. The news index was already one of the generated
 destinations the menu editor offers, held back from the rendered menu while

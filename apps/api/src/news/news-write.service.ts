@@ -15,7 +15,7 @@ import {
 } from "../site/page-content";
 import { isSlugShaped } from "../site/pages.service";
 import type { PageTextLocation } from "../site/pages-write.service";
-import { NewsMailerService } from "./news-mailer.service";
+import { DELIVERY_FAILURES, NewsMailerService } from "./news-mailer.service";
 
 /**
  * Where in a news item a refused value sits.
@@ -31,6 +31,7 @@ export type NewsWriteReason =
   | "not-found"
   | "invalid-slug"
   | "slug-taken"
+  | "address-mailed"
   | "personal-identity-number"
   | "unsupported-block";
 
@@ -105,6 +106,18 @@ export interface NewsInput {
   slug: string;
   title: string;
   content: PageContent;
+}
+
+/** What writing a new item needs beyond an ordinary save. */
+export interface CreateNewsInput extends NewsInput {
+  /**
+   * Who wrote it.
+   *
+   * Captured here because it is only knowable while it is being written: an
+   * item somebody else corrects afterwards is still the work of the person who
+   * wrote it, and no later save could tell us which of them that was.
+   */
+  authorPersonId: string;
 }
 
 export interface PublishNewsInput {
@@ -211,7 +224,7 @@ export class NewsWriteService {
    * is also why creating one runs no guardrail: nothing it holds is readable by
    * anyone yet.
    */
-  async create(input: NewsInput): Promise<NewsAdminView> {
+  async create(input: CreateNewsInput): Promise<NewsAdminView> {
     await this.requireFreeSlug(input.slug, null);
 
     const row = await this.prisma.news.create({
@@ -220,6 +233,7 @@ export class NewsWriteService {
         title: input.title,
         content: asJson(onlyProse(input.content)),
         published: false,
+        authorPersonId: input.authorPersonId,
       },
       select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
     });
@@ -235,9 +249,20 @@ export class NewsWriteService {
    * an ordinary save, and it must not be able to put the notice in anybody's
    * mailbox a second time - which here is not a rule to remember but a column
    * this method does not write.
+   *
+   * The address is the one thing a mailing settles. Once the members have been
+   * written to, the link in that mail is the only copy of the address they
+   * have, and nothing on this instance would answer the old one afterwards: a
+   * rename is refused rather than allowed to break it.
    */
   async update(id: string, input: NewsInput): Promise<NewsAdminView> {
     const news = await this.require(id);
+    if (news.emailQueuedAt !== null && input.slug !== news.slug) {
+      throw new NewsWriteError(
+        "The address was mailed to the members and cannot be changed.",
+        "address-mailed",
+      );
+    }
     await this.requireFreeSlug(input.slug, id);
 
     const content = onlyProse(input.content);
@@ -626,20 +651,12 @@ function toAdminView(row: {
       sent: row.deliveries.filter((one) => one.status === "SENT").length,
       failed: row.deliveries.filter((one) => one.status === "FAILED").length,
       mailNotConfigured: row.deliveries.some(
-        (one) => one.failureReason === MAIL_NOT_CONFIGURED,
+        (one) => one.failureReason === DELIVERY_FAILURES.mailNotConfigured,
       ),
     },
     updatedAt: row.updatedAt.toISOString(),
   };
 }
-
-/**
- * The code a delivery carries when this instance has no mail server at all.
- *
- * Shared with the worker that writes it, so the screen's one sentence about it
- * and the failure it describes cannot drift apart.
- */
-export const MAIL_NOT_CONFIGURED = "mail-not-configured";
 
 /**
  * Cast at the persistence boundary: Prisma types a JSON column with its own
