@@ -26,6 +26,7 @@ const EMAIL = "sara.berg@exempel.se";
 const IDENTITY_NUMBER = "19811228-9874";
 
 const {
+  fetchDataSubjectReport,
   fetchPerson,
   placeLegalHold,
   releaseLegalHold,
@@ -34,6 +35,7 @@ const {
   setProtectedPersonalData,
   setPublicationConsent,
 } = vi.hoisted(() => ({
+  fetchDataSubjectReport: vi.fn(),
   fetchPerson: vi.fn(),
   placeLegalHold: vi.fn(),
   releaseLegalHold: vi.fn(),
@@ -51,6 +53,7 @@ const {
  */
 vi.mock("./register-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./register-api")>()),
+  fetchDataSubjectReport,
   fetchPerson,
   placeLegalHold,
   releaseLegalHold,
@@ -822,5 +825,6 @@ describe("the data subject access report", () => {
     );
 
     expect(opened).toEqual(["person-johan"]);
+    expect(fetchDataSubjectReport).not.toHaveBeenCalled();
   });
 });
