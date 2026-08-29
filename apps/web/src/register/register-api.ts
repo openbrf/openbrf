@@ -153,6 +153,12 @@ export interface LegalHold {
   releasedByPersonId: string | null;
 }
 
+export interface ReportPostalAddress {
+  street: string | null;
+  postalCode: string | null;
+  city: string | null;
+}
+
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
  * browser sees it.
@@ -162,12 +168,6 @@ export interface LegalHold {
  * association's answer to "what do you hold about me", and a section missing
  * from this type is a section the document silently does not print.
  */
-export interface ReportPostalAddress {
-  street: string | null;
-  postalCode: string | null;
-  city: string | null;
-}
-
 export interface DataSubjectReport {
   /** ISO date the report was produced, for the document stamp. */
   generatedOn: string;
