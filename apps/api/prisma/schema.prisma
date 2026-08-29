@@ -71,12 +71,12 @@ model Association {
   /// On by default, unlike self-signup, and the difference is what the two
   /// forms produce. A sign-up request asks for an account on an instance
   /// holding a statutory register, so it stays shut until a board opens it. An
-  /// issue report produces a maintenance ticket and nothing else, and a
-  /// cooperative's website is expected to let a neighbour report a broken door
-  /// without an account. A board that would rather take issues only from its
-  /// own residents turns this off, and the public form then does not exist -
-  /// the anonymous audience is refused at the service, never merely hidden in
-  /// the page.
+  /// issue report produces an issue and nothing else, and a cooperative's
+  /// website is expected to let a neighbour report a broken door without an
+  /// account. A board that would rather take issues only from its own
+  /// residents turns this off, and the public form then does not exist - the
+  /// anonymous audience is refused at the service, never merely hidden in the
+  /// page.
   issueReportingPublic Boolean @default(true)
 
   smtpHost           String?
