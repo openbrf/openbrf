@@ -317,7 +317,12 @@ describe("placing and releasing", () => {
     // Beside the purge date, which is what makes the panel honest: the date is
     // what the policy promises and the hold is why it is not going to happen.
     expect(person.legalHold?.reason).toBe("Tvist om andrahandsuthyrning");
-    expect(person.residencies[0]?.purgeOn).not.toBeNull();
+    // An ISO date on the one residency, not merely something that is not null:
+    // `?.` answers undefined for an empty list or a dropped field, and
+    // not.toBeNull() accepts undefined, so the assertion could not fail for the
+    // regression it is here to catch.
+    expect(person.residencies).toHaveLength(1);
+    expect(person.residencies[0]?.purgeOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("refuses a second hold while the first stands", async () => {

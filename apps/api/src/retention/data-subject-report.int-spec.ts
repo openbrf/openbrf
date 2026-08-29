@@ -592,13 +592,18 @@ describe("what producing the report records", () => {
   });
 
   it("writes no entry when the report cannot be produced", async () => {
+    // Counted on the person this request names rather than on the whole table:
+    // audit_log_entry is append-only and this database is shared, so a report
+    // produced by another suite between the two counts would fail this test for
+    // a reason that has nothing to do with the 404 path.
+    const missingPersonId = `nobody-else-${suffix}`;
     const before = await prisma.auditLogEntry.count({
-      where: { action: "DATA_EXPORTED" },
+      where: { action: "DATA_EXPORTED", targetPersonId: missingPersonId },
     });
 
     const response = await inject({
       method: "POST",
-      url: `/api/data-subject-reports/persons/nobody-else-${suffix}`,
+      url: `/api/data-subject-reports/persons/${missingPersonId}`,
       payload: {},
       headers: { cookie: boardCookie },
     });
@@ -607,7 +612,9 @@ describe("what producing the report records", () => {
     // An entry claiming an export that never happened would be worse than no
     // entry: the read and the record share one transaction.
     await expect(
-      prisma.auditLogEntry.count({ where: { action: "DATA_EXPORTED" } }),
+      prisma.auditLogEntry.count({
+        where: { action: "DATA_EXPORTED", targetPersonId: missingPersonId },
+      }),
     ).resolves.toBe(before);
   });
 });

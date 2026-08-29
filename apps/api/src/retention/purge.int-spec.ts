@@ -397,6 +397,23 @@ afterAll(async () => {
               id: { in: personIds.filter((id) => id !== people.archived) },
             },
           }),
+        /*
+         * The apartments too, once no residency points at them. Only the
+         * archived person's is held by anything - their member register
+         * entries and their transfer - so the rest would otherwise be left as
+         * strangers in the shared apartment table, one set per run. The
+         * address stays with the apartment that stays, which is what its
+         * foreign key requires.
+         */
+        () =>
+          prisma.apartment.deleteMany({
+            where: {
+              addressId,
+              NOT: {
+                id: apartmentId(String(personIds.indexOf(people.archived))),
+              },
+            },
+          }),
       ]);
     }
   } finally {
