@@ -11,9 +11,13 @@ suite driving a browser against that image.
 
 The way in is there now: a board member invites a person from the register, the
 invitation arrives as an email, and the link in it opens a screen where the
-recipient chooses a password and is signed in as soon as it is set. What is
-still missing is everything a housing cooperative shows its members and the
-world outside - its own website, its documents and its news. The project is not
+recipient chooses a password and is signed in as soon as it is set. The
+association's own website has its foundation as well - the site answers at the
+domain root, the application is served under `/app`, and a page is rendered as
+plain HTML with no JavaScript, no cookies and no third-party requests. What is
+still missing is everything a housing cooperative writes on it: the page
+editor, the menu, its documents and its news. Until the editor lands, an
+instance shows the single page the setup wizard writes. The project is not
 ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
@@ -328,7 +332,10 @@ Free, open source, and never moved behind a paywall.
       retention setting, and no admin, can delete it. That is an exemption
       from purging alone, not from data protection - access control, masking
       of protected personal data, access logging and the data subject access
-      report all still cover those records
+      report all still cover those records. Publication consent is recorded
+      already: the board notes, per person and per scope, what the person
+      agreed may appear on a published page, and a withdrawal keeps the dates
+      the consent applied between rather than erasing them
 - [ ] News and mailings, by email and through an open SMS adapter
 - [ ] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain

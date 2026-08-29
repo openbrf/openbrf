@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { fetchSignupState, submitSignupRequest } from "../api/signup";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import { HONEYPOT_FIELD, HoneypotField } from "../ui/HoneypotField";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 
@@ -124,6 +125,7 @@ export function RequestAccountScreen(): ReactElement {
   const { t } = useTranslation();
   const [access, setAccess] = useState<Access>({ kind: "loading" });
   const [values, setValues] = useState(EMPTY);
+  const [honeypot, setHoneypot] = useState("");
   const [sent, setSent] = useState(false);
 
   const save = useSaveAction(submitSignupRequest, () => {
@@ -199,6 +201,7 @@ export function RequestAccountScreen(): ReactElement {
           onSubmit={(event) => {
             event.preventDefault();
             const phone = values.phone.trim();
+            const decoy = honeypot.trim();
             void save.submit({
               firstName: values.firstName.trim(),
               lastName: values.lastName.trim(),
@@ -209,6 +212,10 @@ export function RequestAccountScreen(): ReactElement {
               ...(phone === "" ? {} : { phone }),
               claimedAddress: values.claimedAddress.trim(),
               claimedApartmentNumber: values.claimedApartmentNumber.trim(),
+              // Sent only when something filled the decoy in, which no person
+              // can: the endpoint drops such a submission and answers as though
+              // it had kept it.
+              ...(decoy === "" ? {} : { [HONEYPOT_FIELD]: decoy }),
             });
           }}
         >
@@ -230,6 +237,8 @@ export function RequestAccountScreen(): ReactElement {
               />
             </label>
           ))}
+
+          <HoneypotField value={honeypot} onChange={setHoneypot} />
 
           <p className={HINT}>{t("signup.freeTextHint")}</p>
 

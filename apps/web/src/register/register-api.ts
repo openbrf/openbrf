@@ -1,12 +1,12 @@
 /**
  * The address book's HTTP contract, as the browser sees it.
  *
- * These types mirror `apps/api/src/address-book/address-book-view.ts` and
- * `address-book.service.ts`. They are declared here rather than imported from a
- * shared package because neither app depends on `@openbrf/shared` yet, and
- * adding that dependency touches the lockfile while three branches are open. The
- * duplication is deliberate and temporary; moving both sides onto one declaration
- * is the follow-up.
+ * These types mirror `apps/api/src/address-book/address-book-view.ts`,
+ * `address-book.service.ts` and `publication-consent.ts`. They are declared
+ * here rather than imported, because a server type reaching the browser would
+ * carry the shape of a query along with the shape of the answer: the wire
+ * contract is what the two sides agree on, and it is written out on each side
+ * so a change to either is visible as a change.
  *
  * One property of the contract is load-bearing and worth stating here, because
  * it is invisible in the types on their own: the resident-facing row has no
@@ -109,6 +109,32 @@ export interface PersonResidency {
   purgeOn: string | null;
 }
 
+/**
+ * What a person may appear as on something the association publishes
+ * (publiceringssamtycke). One consent covers one of these and no more.
+ */
+export type ConsentScope = "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
+
+export const CONSENT_SCOPES: readonly ConsentScope[] = [
+  "PHOTO",
+  "NAME_ON_SITE",
+  "BOARD_ROSTER",
+];
+
+/**
+ * Where one scope stands, with the dates that say when.
+ *
+ * Three states, not two: "never" says the board has a conversation to have,
+ * "withdrawn" says it has had one and got an answer it has to honour.
+ */
+export interface PublicationConsent {
+  scope: ConsentScope;
+  state: "granted" | "withdrawn" | "never";
+  grantedOn: string | null;
+  withdrawnOn: string | null;
+  note: string | null;
+}
+
 export interface PersonDetail {
   personId: string;
   firstName: string;
@@ -131,6 +157,12 @@ export interface PersonDetail {
     twoFactorEnabled: boolean;
     invitationExpiresAt: string | null;
   };
+  /**
+   * One entry per scope, always. The board's payload carries this and the
+   * resident-facing one has no person view at all, which is what keeps a
+   * consent a board instrument.
+   */
+  publicationConsents: PublicationConsent[];
 }
 
 export interface RevealedFields {
@@ -336,6 +368,26 @@ export function sendInvitation(
     method: "POST",
     body: JSON.stringify({ personId }),
   });
+}
+
+/**
+ * Records or withdraws one publication consent.
+ *
+ * The board writes down what the person told them, so this is not the person
+ * consenting: it is the record of a conversation that happened elsewhere. A
+ * withdrawal closes the standing consent with a date and leaves it on file.
+ */
+export function setPublicationConsent(
+  personId: string,
+  scope: ConsentScope,
+  granted: boolean,
+): Promise<PublicationConsent> {
+  return request(
+    `/api/address-book/persons/${encodeURIComponent(
+      personId,
+    )}/publication-consent`,
+    { method: "PATCH", body: JSON.stringify({ scope, granted }) },
+  );
 }
 
 export function setProtectedPersonalData(

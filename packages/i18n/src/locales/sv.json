@@ -184,7 +184,25 @@
       "inviteNoEmail": "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
       "inviteMailNotConfigured": "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
       "invitationExpiresAt": "Inbjudan giltig till",
-      "invitationExpired": "Inbjudan har gått ut. Skicka en ny."
+      "invitationExpired": "Inbjudan har gått ut. Skicka en ny.",
+      "publicationConsent": "Publiceringssamtycke",
+      "publicationConsentExplained": "Vad personen har sagt till styrelsen får visas om hen på föreningens webbplats. Antecknas här; ett återkallande behåller datumen samtycket gällde mellan.",
+      "consentScope": {
+        "photo": "Fotografier",
+        "nameOnSite": "Namn på webbplatsen",
+        "boardRoster": "Den publicerade styrelselistan"
+      },
+      "consentGranted": "Samtycke lämnat",
+      "consentWithdrawn": "Samtycke återkallat",
+      "consentNever": "Inte tillfrågad",
+      "consentGrantedOn": "Lämnat",
+      "consentWithdrawnOn": "Återkallat",
+      "consentRecord": "Anteckna samtycke",
+      "consentWithdraw": "Återkalla samtycke",
+      "consentRecordLabel": "Anteckna samtycke för {{scope}}",
+      "consentWithdrawLabel": "Återkalla samtycke för {{scope}}",
+      "consentWorking": "Sparar",
+      "consentFailed": "Samtycket kunde inte ändras. Försök igen."
     },
     "reveal": {
       "action": "Visa",

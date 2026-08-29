@@ -201,7 +201,7 @@ reviews:
         Flag any new colour pair involving the register surface that is not
         added to the contrast matrix.
 
-    - path: "**/*.{spec,int-spec}.ts"
+    - path: "apps/**/*.{spec,int-spec}.ts"
       instructions: >-
         Prefer tests that would fail if the behaviour regressed. Flag a test
         that asserts only that a call did not throw, and flag a mock that stands
@@ -210,6 +210,50 @@ reviews:
 
         Integration tests share a database, so flag fixtures with fixed ids that
         would collide across runs, and flag a test that leaves rows behind.
+
+    - path: "packages/**/*.spec.ts"
+      instructions: >-
+        These are pure-function library tests - the token contract, the shared
+        domain helpers, the plugin SDK's schemas, the theme tools. They run in
+        process against no database, no fixtures and no stack, so nothing here
+        shares state between tests or between runs, and none of the other
+        suites' guidance about colliding identifiers, run-unique identities or
+        rows left behind applies.
+
+        What does apply: prefer tests that would fail if the behaviour
+        regressed, and flag a test that asserts only that a call did not throw.
+        These functions have no infrastructure to stand in for, so a mock here
+        is a sign the test is asserting its own setup rather than the behaviour.
+
+    - path: "e2e/**/*.spec.ts"
+      instructions: >-
+        These specs drive the production Docker image through a browser, and
+        their lifecycle is not the integration suite's. Do not review them
+        against a shared-database premise.
+
+        A run starts the stack from empty volumes - startStack in
+        e2e/src/stack.ts destroys them first - so a fixed identifier is not a
+        collision risk by itself and rows left behind are the next run's problem
+        and nobody else's. What matters instead is that nothing a spec writes
+        can ever be deleted: the member register and the audit log are
+        append-only by law and by trigger, and no endpoint removes a person or
+        an account. So flag a spec that writes a person without uniqueEmail or
+        uniqueSurname from e2e/src/identity.ts. The shared people in
+        e2e/src/provision.ts are the deliberate exception - they are looked up
+        by name before they are created, and several specs address them by name.
+        OPENBRF_E2E_REUSE_STACK=true is the one documented mode that runs
+        against a database an earlier run left behind, and keeping it working is
+        what those run-unique names are for.
+
+        The suite runs serially in a single worker, in file-name order: the
+        first spec claims an instance that is only unclaimed once, and every
+        spec after it shares what that one made. Flag a spec that assumes it
+        runs in parallel or in isolation.
+
+        Selection is by role, label and visible Swedish text. The client carries
+        no data-testids as a matter of policy, so flag a selector that reaches
+        for one, and flag an assertion written against English text where the
+        interface renders Swedish.
 
     - path: ".github/workflows/**"
       instructions: >-

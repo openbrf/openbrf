@@ -196,6 +196,20 @@ describe("installing a theme from the catalog", () => {
     );
   });
 
+  it("does not claim a downloaded theme was written here", async () => {
+    // THEME_COMPOSED answers "were these tokens authored on this instance",
+    // and a catalog package is the case where the answer is no.
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "THEME_COMPOSED",
+        targetId: "example-theme",
+        createdAt: { gt: auditBoundary },
+      },
+    });
+
+    expect(entry).toBeNull();
+  });
+
   /*
    * Served from the theme's own declarations rather than from whatever the
    * directory holds. Asserted against an installed theme on purpose: one that
