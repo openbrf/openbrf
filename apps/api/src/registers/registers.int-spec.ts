@@ -88,6 +88,32 @@ const actors = {
 const personIds = Object.values(actors).map((actor) => actor.personId);
 
 let ipCounter = 0;
+/**
+ * Every shape the stored twelve digits can reach a page as.
+ *
+ * A masking assertion that names only the stored form goes green while a view
+ * prints the conventional YYMMDD-NNNC one - which is the shape a person reads,
+ * and therefore the shape a leak most likely takes. The fixture used to be
+ * written with the hyphen, so naming the stored form alone happened to cover it;
+ * with a generated twelve-digit number it no longer does.
+ */
+function writtenForms(identityNumber: string): string[] {
+  const short = identityNumber.slice(2);
+  return [
+    identityNumber,
+    `${identityNumber.slice(0, 8)}-${identityNumber.slice(8)}`,
+    short,
+    `${short.slice(0, 6)}-${short.slice(6)}`,
+  ];
+}
+
+/** Fails if a personal identity number reaches the body in any written form. */
+function expectNoIdentityNumber(body: string, identityNumber: string): void {
+  for (const form of writtenForms(identityNumber)) {
+    expect(body).not.toContain(form);
+  }
+}
+
 function inject(options: {
   method: "GET" | "POST" | "PATCH";
   url: string;
@@ -424,9 +450,7 @@ describe("the member register extract", () => {
     const { body } = await extract("all");
 
     expect(body).not.toContain("personalIdentityNumber");
-    expect(body).not.toContain(actors.member.personalIdentityNumber);
-    // The ten-digit form too, in case something prints it without the century.
-    expect(body).not.toContain(actors.member.personalIdentityNumber.slice(2));
+    expectNoIdentityNumber(body, actors.member.personalIdentityNumber);
   });
 
   it("carries no apartment register content either", async () => {
@@ -599,7 +623,7 @@ describe("the apartment register extract", () => {
       state: "masked",
       hasValue: true,
     });
-    expect(response.body).not.toContain(actors.member.personalIdentityNumber);
+    expectNoIdentityNumber(response.body, actors.member.personalIdentityNumber);
   });
 
   it("returns the numbers on the full statutory extract and logs who took it", async () => {
