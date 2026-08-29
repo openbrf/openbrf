@@ -571,6 +571,37 @@
         "mailNotConfigured": "The request is approved and the person is in the register, but the invitation could not be sent: this instance has no email server. Set one up under Email and send the invitation from the person's own view.",
         "unknown": "The request could not be decided just now. Please try again."
       }
+    },
+    "issueTypes": {
+      "title": "Issue types",
+      "description": "The categories residents sort their reports into, and who each one is offered to. A type set to non-member appears on the website's form, a member type inside the application, and a board type only to whoever handles issues.",
+      "loading": "Loading the types...",
+      "loadFailed": "The issue types could not be read just now. Reload the page.",
+      "empty": "No issue types are configured. Until one exists there is nothing for a resident to report.",
+      "name": "Name",
+      "namePlaceholder": "Water, heating, laundry room...",
+      "audience": "Offered to",
+      "active": "Offered for new reports",
+      "sortOrder": "Order",
+      "add": "Add type",
+      "adding": "Adding...",
+      "save": "Save",
+      "saving": "Saving...",
+      "remove": "Remove",
+      "removing": "Removing...",
+      "reportCount": "Reports filed: {{count}}",
+      "errors": {
+        "typeInUse": "Reports have been filed under this type, so it cannot be removed. Switch it off instead and the reports keep saying what they were about.",
+        "typeNotFound": "That type is gone. The list has been read again.",
+        "unknown": "The type could not be saved just now. Please try again."
+      }
+    },
+    "issueReporting": {
+      "title": "Issue reports from the website",
+      "description": "With this on, the association's website carries a form anyone can use to report a problem with the building. Reports made there offer the non-member types only, take no photographs and create no account.",
+      "enabled": "Take issue reports from the website",
+      "stateOn": "On: the form is on the website and offers the non-member types.",
+      "stateOff": "Off: there is no form on the website, and reports come from signed-in residents only."
     }
   },
   "plugins": {
@@ -1290,6 +1321,84 @@
       "expired": "The invitation has expired. Ask the board to send a new invitation.",
       "noEmail": "The register holds no email address for you, so the account cannot be activated. Contact the board.",
       "unknown": "The account could not be activated just now. Please try again."
+    }
+  },
+  "issues": {
+    "navLabel": "Issues",
+    "title": "Issues",
+    "intro": "Report a problem with the building, and follow what happens to it.",
+    "loading": "Loading the issues...",
+    "loadFailed": "The issues could not be read just now. Reload the page.",
+    "status": {
+      "NEW": "New",
+      "IN_PROGRESS": "In progress",
+      "DONE": "Done"
+    },
+    "audience": {
+      "NON_MEMBER": "Non-member",
+      "MEMBER": "Member",
+      "BOARD": "Board, internal"
+    },
+    "report": {
+      "title": "Report an issue",
+      "description": "The board and the property manager read this. Nothing here is published.",
+      "type": "What is it about",
+      "typePlaceholder": "Choose a type",
+      "noTypes": "The board has not set up any issue types yet, so there is nothing to report under. Ask them to add one under Settings.",
+      "apartment": "Apartment",
+      "apartmentNone": "Not in an apartment",
+      "location": "Where in the building",
+      "locationHint": "The bicycle room, the lift in entrance 14, the courtyard.",
+      "descriptionLabel": "What has happened",
+      "sensitiveWarning": "Write only what is needed to put the problem right. Details about health, and anything concerning a neighbour, are read by everyone who handles issues here - an external property manager included.",
+      "submit": "Send the report",
+      "submitting": "Sending...",
+      "submitted": "The report has been sent. It is now in the queue.",
+      "errors": {
+        "typeNotFound": "That type is not one you can report under. The list has been read again.",
+        "apartmentNotFound": "That apartment is not one of yours. Choose again.",
+        "unknown": "The report could not be sent just now. Please try again."
+      }
+    },
+    "photos": {
+      "title": "Photographs",
+      "hint": "A photograph says more than a paragraph. It is stored on this instance and is never published.",
+      "add": "Add a photograph",
+      "adding": "Uploading...",
+      "none": "No photographs.",
+      "limit": "This report already carries as many photographs as it may.",
+      "openFailed": "The photograph could not be attached just now. Please try again."
+    },
+    "mine": {
+      "title": "Your reports",
+      "description": "What you have reported, newest first. Only you and whoever handles issues can read them.",
+      "empty": "You have not reported anything.",
+      "reportedOn": "Reported",
+      "apartment": "Apartment",
+      "place": "Where",
+      "noApartment": "This report is not about an apartment.",
+      "noPlace": "No place in the building was given."
+    },
+    "queue": {
+      "title": "The issue queue",
+      "description": "Everything reported, open ones first and the oldest at the top.",
+      "empty": "Nothing has been reported.",
+      "reporter": "Reported by",
+      "reporterProtected": "Protected personal data: ask the board.",
+      "reporterUnknown": "No longer in the register.",
+      "reporterExternal": "From the website",
+      "setInProgress": "Take it on",
+      "setDone": "Mark as done",
+      "reopen": "Reopen",
+      "saving": "Saving...",
+      "errors": {
+        "issueNotFound": "That issue is gone. The queue has been read again.",
+        "unknown": "The issue could not be changed just now. Please try again."
+      }
+    },
+    "errors": {
+      "forbidden": "Your account is not allowed to do that.",
+      "unknown": "That could not be done just now. Please try again."
     }
   }
 }

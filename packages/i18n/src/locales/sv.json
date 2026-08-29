@@ -571,6 +571,37 @@
         "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
         "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
       }
+    },
+    "issueTypes": {
+      "title": "Ärendetyper",
+      "description": "De kategorier som de boende sorterar sina anmälningar i, och vem varje typ erbjuds. En typ för icke-medlem visas i formuläret på webbplatsen, en medlemstyp inne i programmet och en styrelsetyp bara för den som hanterar ärenden.",
+      "loading": "Hämtar typerna...",
+      "loadFailed": "Ärendetyperna kunde inte läsas just nu. Ladda om sidan.",
+      "empty": "Inga ärendetyper är inlagda. Innan det finns en typ har en boende inget att anmäla.",
+      "name": "Namn",
+      "namePlaceholder": "Vatten, värme, tvättstuga...",
+      "audience": "Erbjuds",
+      "active": "Erbjuds för nya anmälningar",
+      "sortOrder": "Ordning",
+      "add": "Lägg till typ",
+      "adding": "Lägger till...",
+      "save": "Spara",
+      "saving": "Sparar...",
+      "remove": "Ta bort",
+      "removing": "Tar bort...",
+      "reportCount": "Anmälningar: {{count}}",
+      "errors": {
+        "typeInUse": "Det finns anmälningar på den här typen, så den kan inte tas bort. Stäng av den i stället, så fortsätter anmälningarna berätta vad de gällde.",
+        "typeNotFound": "Den typen finns inte längre. Listan har lästs om.",
+        "unknown": "Typen kunde inte sparas just nu. Försök igen."
+      }
+    },
+    "issueReporting": {
+      "title": "Felanmälan från webbplatsen",
+      "description": "När det här är på har föreningens webbplats ett formulär där vem som helst kan anmäla ett fel i huset. Anmälningar därifrån erbjuds bara typerna för icke-medlem, tar inga foton och skapar inget konto.",
+      "enabled": "Ta emot felanmälan från webbplatsen",
+      "stateOn": "På: formuläret finns på webbplatsen och erbjuder typerna för icke-medlem.",
+      "stateOff": "Av: det finns inget formulär på webbplatsen, och anmälningar kommer bara från inloggade boende."
     }
   },
   "plugins": {
@@ -1290,6 +1321,84 @@
       "expired": "Inbjudan har gått ut. Be styrelsen skicka en ny inbjudan.",
       "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
       "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
+    }
+  },
+  "issues": {
+    "navLabel": "Ärenden",
+    "title": "Ärenden",
+    "intro": "Anmäl ett fel i huset och följ vad som händer med det.",
+    "loading": "Hämtar ärendena...",
+    "loadFailed": "Ärendena kunde inte läsas just nu. Ladda om sidan.",
+    "status": {
+      "NEW": "Ny",
+      "IN_PROGRESS": "Pågår",
+      "DONE": "Klar"
+    },
+    "audience": {
+      "NON_MEMBER": "Icke-medlem",
+      "MEMBER": "Medlem",
+      "BOARD": "Styrelsen, internt"
+    },
+    "report": {
+      "title": "Gör en felanmälan",
+      "description": "Styrelsen och förvaltaren läser det här. Ingenting av det publiceras.",
+      "type": "Vad gäller det",
+      "typePlaceholder": "Välj en typ",
+      "noTypes": "Styrelsen har inte lagt in några ärendetyper än, så det finns inget att anmäla under. Be dem lägga till en under Inställningar.",
+      "apartment": "Lägenhet",
+      "apartmentNone": "Inte i en lägenhet",
+      "location": "Var i huset",
+      "locationHint": "Cykelrummet, hissen i port 14, gården.",
+      "descriptionLabel": "Vad har hänt",
+      "sensitiveWarning": "Skriv bara det som behövs för att felet ska kunna åtgärdas. Uppgifter om hälsa, och sådant som rör en granne, läses av alla som hanterar ärenden här - också av en extern förvaltare.",
+      "submit": "Skicka anmälan",
+      "submitting": "Skickar...",
+      "submitted": "Anmälan är skickad och ligger nu i kön.",
+      "errors": {
+        "typeNotFound": "Den typen kan du inte anmäla under. Listan har lästs om.",
+        "apartmentNotFound": "Den lägenheten är inte din. Välj igen.",
+        "unknown": "Anmälan kunde inte skickas just nu. Försök igen."
+      }
+    },
+    "photos": {
+      "title": "Foton",
+      "hint": "Ett foto säger mer än ett stycke text. Det lagras på den här instansen och publiceras aldrig.",
+      "add": "Lägg till foto",
+      "adding": "Laddar upp...",
+      "none": "Inga foton.",
+      "limit": "Anmälan har redan så många foton som den får ha.",
+      "openFailed": "Fotot kunde inte läggas till just nu. Försök igen."
+    },
+    "mine": {
+      "title": "Dina anmälningar",
+      "description": "Det du har anmält, senaste först. Bara du och den som hanterar ärenden kan läsa dem.",
+      "empty": "Du har inte anmält något.",
+      "reportedOn": "Anmäld",
+      "apartment": "Lägenhet",
+      "place": "Var",
+      "noApartment": "Anmälan gäller ingen lägenhet.",
+      "noPlace": "Ingen plats i huset angavs."
+    },
+    "queue": {
+      "title": "Ärendekön",
+      "description": "Allt som anmälts, öppna ärenden först och äldst överst.",
+      "empty": "Ingenting har anmälts.",
+      "reporter": "Anmäld av",
+      "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
+      "reporterUnknown": "Finns inte längre i registret.",
+      "reporterExternal": "Från webbplatsen",
+      "setInProgress": "Ta hand om det",
+      "setDone": "Markera som klar",
+      "reopen": "Öppna igen",
+      "saving": "Sparar...",
+      "errors": {
+        "issueNotFound": "Det ärendet finns inte längre. Kön har lästs om.",
+        "unknown": "Ärendet kunde inte ändras just nu. Försök igen."
+      }
+    },
+    "errors": {
+      "forbidden": "Ditt konto får inte göra det.",
+      "unknown": "Det gick inte just nu. Försök igen."
     }
   }
 }

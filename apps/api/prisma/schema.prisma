@@ -66,6 +66,19 @@ model Association {
   /// statutory register does not accept open registration.
   selfSignupEnabled Boolean @default(false)
 
+  /// Whether the issue report form on the public website exists at all.
+  ///
+  /// On by default, unlike self-signup, and the difference is what the two
+  /// forms produce. A sign-up request asks for an account on an instance
+  /// holding a statutory register, so it stays shut until a board opens it. An
+  /// issue report produces a maintenance ticket and nothing else, and a
+  /// cooperative's website is expected to let a neighbour report a broken door
+  /// without an account. A board that would rather take issues only from its
+  /// own residents turns this off, and the public form then does not exist -
+  /// the anonymous audience is refused at the service, never merely hidden in
+  /// the page.
+  issueReportingPublic Boolean @default(true)
+
   smtpHost           String?
   smtpPort           Int?
   smtpUser           String?
@@ -130,6 +143,7 @@ model Apartment {
   transfers             Transfer[]
   memberRegisterEntries MemberRegisterEntry[]
   signupRequests        SignupRequest[]
+  issues                Issue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -949,6 +963,7 @@ model MediaFile {
 
   associationLogo     Association[] @relation("AssociationLogo")
   associationLogoDark Association[] @relation("AssociationLogoDark")
+  issuePhotos         IssuePhoto[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1015,4 +1030,163 @@ model Page {
 
   @@index([visibility, published, sortOrder])
   @@map("page")
+}
+
+// ---------------------------------------------------------------------------
+// Issue reports (felanmalan).
+// ---------------------------------------------------------------------------
+
+/// Who an issue type is offered to.
+///
+/// The audience is a property of the TYPE rather than of a report, because it
+/// decides what a person is even shown: a visitor with no account picks from
+/// the non-member types, a resident from the member types, and the board
+/// additionally from its own internal ones. The filter is applied on the server
+/// for every principal - a client that asked for the whole catalogue would
+/// otherwise learn the board's internal categories, which are the association's
+/// own business.
+enum IssueAudience {
+  /// Offered on the public form: a passer-by, a neighbour, a contractor.
+  NON_MEMBER
+  /// Offered to a signed-in resident of the house.
+  MEMBER
+  /// Internal to whoever handles issues. Never offered to a reporter who does
+  /// not already handle them.
+  BOARD
+}
+
+/// Where an issue stands. Deliberately three states.
+///
+/// Comments, assignment and forwarding to a contractor are a later module: a
+/// status a board cannot act on is a status that goes stale, and three is what
+/// the triage queue can actually keep true.
+enum IssueStatus {
+  NEW
+  IN_PROGRESS
+  DONE
+}
+
+/// A category of issue, configured by the board.
+///
+/// Monolingual by decision 59: the name is the association's own writing about
+/// its own building, stored as written and never translated. Only the interface
+/// chrome around it is.
+model IssueType {
+  id String @id @default(cuid())
+
+  name     String
+  audience IssueAudience @default(MEMBER)
+
+  /// Whether the type is offered for new reports. Deactivated rather than
+  /// deleted once it has been used, so the issues already filed under it keep
+  /// saying what they were about.
+  active Boolean @default(true)
+
+  /// Presentation order in the picker.
+  sortOrder Int @default(0)
+
+  issues Issue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([audience, active, sortOrder])
+  @@map("issue_type")
+}
+
+/// One reported issue.
+///
+/// Service tier, and among the most sensitive free text this platform holds:
+/// the description is written by whoever reports the problem, and a report
+/// about a leak in a bathroom or a neighbour's behaviour carries health data
+/// and third-party personal data without anybody intending it to. That is why
+/// the reporting form warns rather than refuses - refusing a description
+/// because it looks like it holds personal data would refuse the reports the
+/// module exists for - and why nothing here is published: an issue is readable
+/// by its reporter and by whoever handles issues, and by nobody else.
+///
+/// Every reference out of this row is nullable and deletion-tolerant. Issue
+/// data joins the service-tier retention story, so a purge has to be able to
+/// remove a person, or an apartment to be corrected out of the register,
+/// without either being vetoed by this table or rewriting what was reported.
+model Issue {
+  id String @id @default(cuid())
+
+  typeId String
+  type   IssueType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  status IssueStatus @default(NEW)
+
+  /// The signed-in reporter, when there was one.
+  ///
+  /// Deliberately a plain column and not a relation, for the reason the audit
+  /// log and the media file give: every referential action a foreign key can
+  /// carry either rewrites this row or vetoes erasure of the person it names,
+  /// and service-tier data has to be purgeable without the purge having to
+  /// negotiate with the issue queue. Null for a report made through the public
+  /// form, which has no account behind it.
+  reporterPersonId String?
+
+  /// Contact details for a report that came in without an account.
+  ///
+  /// Encrypted at rest exactly as a sign-up request's address is: a person who
+  /// reports a broken door has told the association who they are, and that is
+  /// personal data held for a service purpose rather than register content that
+  /// has to stay searchable. The index exists so a second report from the same
+  /// address can be recognised. Written by the public form; a signed-in report
+  /// leaves all three null and is attributed by reporterPersonId instead.
+  reporterNameCipher  String?
+  reporterEmailCipher String?
+  reporterEmailIndex  String?
+
+  /// The apartment the issue concerns, when it concerns one.
+  ///
+  /// SetNull rather than Restrict: an apartment removed from the register must
+  /// not be held hostage by a closed issue, and the free-text location below
+  /// still says where the problem was.
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
+
+  /// Free text: "the bicycle room", "the lift in entrance 14". Not every issue
+  /// is in an apartment, and a picker over the register would enumerate the
+  /// building to whoever loaded the form.
+  location String?
+
+  description String
+
+  photos IssuePhoto[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([reporterPersonId])
+  @@index([reporterEmailIndex])
+  @@map("issue")
+}
+
+/// A photograph attached to an issue.
+///
+/// A join rather than a column on the file, so an issue can carry several and
+/// the media layer keeps knowing nothing about issues. Photos are attached by
+/// signed-in reporters only: the public form takes text and never files, so the
+/// platform exposes no unauthenticated upload surface at all.
+model IssuePhoto {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// Cascade: the row is an index of the file, and an index of bytes that are
+  /// gone is worse than no index at all.
+  fileId String
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([issueId, fileId])
+  @@index([issueId, sortOrder])
+  @@map("issue_photo")
 }

@@ -11,6 +11,8 @@ import { AddressesPanel } from "./AddressesPanel";
 import { ApartmentsPanel } from "./ApartmentsPanel";
 import { BrandingPanel } from "./BrandingPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
+import { IssueReportingPanel } from "./IssueReportingPanel";
+import { IssueTypesPanel } from "./IssueTypesPanel";
 import { ProfilePanel } from "./ProfilePanel";
 import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
@@ -76,6 +78,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
   const canManage = viewer.capabilities.includes("association:manage");
   const canEditAddresses = viewer.capabilities.includes("addressBook:write");
   const canDecideSignup = viewer.capabilities.includes("signupRequest:decide");
+  const canConfigureIssues = viewer.capabilities.includes("issues:configure");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
 
@@ -221,6 +224,17 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               {canDecideSignup ? (
                 <SignupRequestQueuePanel addresses={addresses} />
               ) : null}
+
+              <IssueReportingPanel
+                publicFormEnabled={settings.issueReporting.publicFormEnabled}
+                editable={canManage}
+              />
+
+              {/* Beside the switch that decides whether the website carries a
+                  form, because the audience on a type is what that form then
+                  offers. The board configures the catalogue; an administrator
+                  decides whether the public one exists. */}
+              {canConfigureIssues ? <IssueTypesPanel /> : null}
 
               {/* Installing and switching themes is an administrator's job,
                   and the API refuses the calls for anyone else. */}

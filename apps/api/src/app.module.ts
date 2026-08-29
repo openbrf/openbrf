@@ -14,6 +14,7 @@ import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
 import { ImportModule } from "./import/import.module";
 import { InvitationsModule } from "./invitations/invitations.module";
+import { IssuesModule } from "./issues/issues.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
 import { MediaModule } from "./media/media.module";
@@ -53,6 +54,7 @@ import { ThemesModule } from "./themes/themes.module";
     ThemesModule,
     PackagingModule,
     PluginsModule,
+    IssuesModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

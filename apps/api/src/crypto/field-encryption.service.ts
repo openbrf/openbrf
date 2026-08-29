@@ -30,6 +30,8 @@ export type EncryptedFieldId =
   | "person.phone"
   | "person.personalIdentityNumber"
   | "signupRequest.email"
+  | "issue.reporterName"
+  | "issue.reporterEmail"
   | "association.smtpPassword"
   | "importSession.rows";
 
@@ -88,6 +90,29 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   "signupRequest.email": {
     table: "signup_request",
     field: "email",
+    indexed: true,
+    fastHash: true,
+    normalize: (value) => emptyToNull(normalizeEmail(value)),
+  },
+  /*
+   * The contact details on an issue reported without an account.
+   *
+   * Not register content: a passer-by who reports a broken door has told the
+   * association who they are for one service purpose, so the value is held
+   * encrypted and read back only by whoever handles issues. The name carries no
+   * index because nothing searches by it; the address carries one so a second
+   * report from the same person can be recognised as theirs.
+   */
+  "issue.reporterName": {
+    table: "issue",
+    field: "reporterName",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  "issue.reporterEmail": {
+    table: "issue",
+    field: "reporterEmail",
     indexed: true,
     fastHash: true,
     normalize: (value) => emptyToNull(normalizeEmail(value)),

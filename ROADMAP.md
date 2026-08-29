@@ -197,6 +197,19 @@ locally the application runs from source beside the PostgreSQL that
       is set, every request the page makes goes to the housing cooperative's
       own instance, and a member-only page is indistinguishable from one that
       does not exist
+- [x] Issue reporting: a resident reports a problem with the building from the
+      application, with photographs, and follows what happens to it. The
+      categories are the board's own - each one set to non-member, member or
+      board - and which of them a person is offered is decided on the server:
+      a resident picks from the member types, a visitor with no account from the
+      non-member ones, and the board's internal categories are shown to nobody
+      who does not handle issues. Whoever does works one queue, and moves a
+      report between new, in progress and done. The form warns that health
+      details and anything about a neighbour are read by everyone who handles
+      issues, and refuses nothing: an issue report is where such detail
+      legitimately arrives. A reporter with protected personal data is named to
+      nobody in the queue. Whether the association's website carries a form
+      anyone can use is a setting, on by default
 
 ### The public website
 
@@ -327,7 +340,7 @@ Free, open source, and never moved behind a paywall.
       data reaches a public page only through per-person publication consent,
       and never from the statutory registers
 - [ ] Document archive with per-role permissions
-- [ ] Issue reporting with photos
+- [x] Issue reporting with photos
 - [ ] Roles for board members, residents and external property managers
 - [ ] Swedish and English interface
 - [ ] Plugin and theme system
