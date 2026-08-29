@@ -6,6 +6,7 @@ import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
 import { buildWorkbook } from "../src/xlsx";
 import * as api from "../src/api";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 7.
@@ -141,7 +142,7 @@ const ROWS: readonly (readonly string[])[] = [
 const csv = [HEADERS, ...ROWS].map((row) => row.join(";")).join("\n");
 
 async function signInAsAdmin(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })
@@ -151,7 +152,7 @@ async function signInAsAdmin(page: Page): Promise<void> {
 }
 
 async function openImport(page: Page): Promise<void> {
-  await page.goto("/import");
+  await page.goto(appPath("/import"));
 }
 
 /**

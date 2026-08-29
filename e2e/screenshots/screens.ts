@@ -3,6 +3,7 @@ import {
   ADMINISTRATOR,
   HOUSING_COOPERATIVE,
 } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -110,7 +111,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "setup-administrator",
     as: "nobody",
-    goto: "/setup",
+    goto: appPath("/setup"),
     prepare: [
       { fill: { label: "Förnamn" }, value: ADMINISTRATOR.firstName },
       { fill: { label: "Efternamn" }, value: ADMINISTRATOR.lastName },
@@ -227,7 +228,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "sign-in",
     as: "nobody",
-    goto: "/sign-in",
+    goto: appPath("/sign-in"),
     waitFor: { button: "Logga in med en nyckel" },
   },
 
@@ -235,7 +236,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "address-book-board",
     as: "administrator",
-    goto: "/",
+    goto: appPath(),
     waitFor: { heading: "Adressbok" },
   },
   {
@@ -262,7 +263,7 @@ export const SCREENS: readonly Screen[] = [
   // its own, so a pull request that changes one of them can show that one.
   {
     name: "settings",
-    goto: "/settings",
+    goto: appPath("/settings"),
     waitFor: { heading: "Inställningar" },
     capture: "page",
   },
@@ -279,7 +280,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "address-book-resident",
     as: "resident",
-    goto: "/",
+    goto: appPath(),
     waitFor: { heading: "Adressbok" },
   },
 ];

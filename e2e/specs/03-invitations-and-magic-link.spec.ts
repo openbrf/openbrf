@@ -9,6 +9,7 @@ import {
   ensureRegisterFixture,
   signInAsAdministrator,
 } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 3.
@@ -78,7 +79,7 @@ async function signInThroughTheScreen(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(email);
   await page.getByLabel("Lösenord", { exact: true }).fill(password);
 
@@ -228,7 +229,7 @@ test("a sign-in link arrives by email and signs its recipient in", async ({
 }) => {
   await clearMailbox();
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(EXTERNAL_BOARD_MEMBER.email);
   await page
     .getByRole("button", {

@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { APP_BASE_PATH } from "../http/app-base-path";
 import { MailService } from "../mail/mail.service";
 import { invitationMail } from "../mail/templates";
 
@@ -220,7 +221,10 @@ export class InvitationService {
   }
 
   private activationUrl(token: string): string {
-    const url = new URL("/activate", this.env.APP_URL);
+    // Under the application's prefix: the root is the association's own public
+    // website, and a link mailed to a recipient's inbox outlives any redirect
+    // we might put there.
+    const url = new URL(`${APP_BASE_PATH}/activate`, this.env.APP_URL);
     url.searchParams.set("token", token);
     return url.toString();
   }

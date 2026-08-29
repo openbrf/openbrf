@@ -100,7 +100,7 @@ Numbered against the phase 1 exit criteria.
 | 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`       |
 | 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`        |
 
-Two specs are not numbered against a criterion.
+Some specs are not numbered against a criterion.
 
 `90-runtime-role-privileges.spec.ts` connects as `openbrf_app` - the role the
 entrypoint created and constrained with `prisma/sql/harden-runtime-role.sql` -
@@ -124,7 +124,19 @@ check reports an unreachable database without writing the connection URL into
 the startup log, a password carrying `:`, `/` and `@` survives the URLs the
 entrypoint builds from it - which is why `stack.env` gives both roles one - and
 an unknown `/api` path answers the API's JSON 404 while a client route answers
-with the client, query string or no query string.
+with the client, query string or no query string. Since the client moved under
+`/app`, it also holds the other half of that split: a traversal shape aimed at
+the root meets the association's website and gets its not-found page rather than
+the client's index.
+
+`93-public-site.spec.ts` holds the public website to what it promises the people
+who read it. No script runs on a page, no cookie is set on any response, every
+request the browser makes goes to this instance - the typefaces above all, which
+is the one that would silently become a third-party request - and a member-only
+page is byte-identically the same not-found as an address with no page behind
+it, while the same address opens for someone signed in. It writes its member
+page straight into the database through `src/site.ts`, because no endpoint
+creates a page until the editor lands.
 
 ## Still to be written
 

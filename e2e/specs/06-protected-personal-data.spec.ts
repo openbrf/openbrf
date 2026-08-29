@@ -11,6 +11,7 @@ import {
   signInAsAdministrator,
 } from "../src/provision";
 import * as api from "../src/api";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 6.
@@ -54,7 +55,7 @@ const FLAGGED = {
 } as const;
 
 async function signInAsAdmin(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })
@@ -181,7 +182,7 @@ test("a neighbour does not see the protected person at all", async ({
     clientAddress,
   });
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(NEIGHBOUR.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(NEIGHBOUR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();

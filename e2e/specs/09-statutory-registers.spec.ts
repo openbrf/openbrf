@@ -9,6 +9,7 @@ import {
   ensureInstance,
 } from "../src/provision";
 import * as api from "../src/api";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 9.
@@ -188,7 +189,7 @@ async function ensureSigrid(request: APIRequestContext): Promise<string> {
 }
 
 async function signInAsAdmin(page: Page): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
   await page
     .getByLabel("Lösenord", { exact: true })
@@ -198,11 +199,11 @@ async function signInAsAdmin(page: Page): Promise<void> {
 }
 
 async function openMemberRegister(page: Page): Promise<void> {
-  await page.goto("/registers/members");
+  await page.goto(appPath("/registers/members"));
 }
 
 async function openApartmentRegister(page: Page): Promise<void> {
-  await page.goto("/registers/apartments");
+  await page.goto(appPath("/registers/apartments"));
 }
 
 /** The printable region. The print stylesheet targets this attribute. */
@@ -263,6 +264,18 @@ test("the member register is its own document and taking a copy is recorded", as
       /^Utdrag ur medlemsförteckningen - nuvarande och tidigare medlemmar - \d{4}-\d{2}-\d{2}$/,
     ),
   ).toBeVisible();
+
+  /*
+   * And the wider scope carries no personal identity number either. The print
+   * assertion below reads the default view, so without this a renderer that
+   * leaked a number only into the all-members scope would pass every check
+   * this spec makes - and that scope is the one holding people who have left,
+   * whose numbers the member register may never carry at all.
+   */
+  expect(
+    identityNumbersIn(await printableDocument(page).innerText()),
+    "the all-members extract carries no personal identity number",
+  ).toEqual([]);
 
   /*
    * Who took a copy of the member list, and when, is a question a supervisory
@@ -408,7 +421,7 @@ test("a tenant-owner reads their own entry and not the member register", async (
     clientAddress,
   });
 
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(SIGRID.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(SIGRID.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
@@ -434,6 +447,9 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     rowFor(page, SIGRID.lastName).getByText("Maskerat"),
   ).toBeVisible();
+
+  const revealsBefore = await auditEntriesByAction("PROTECTED_DATA_REVEALED");
+
   await page
     .getByRole("button", {
       name: "Ta fram det fullständiga lagstadgade utdraget",
@@ -442,6 +458,42 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     rowFor(page, SIGRID.lastName).getByText(SIGRID.personalIdentityNumber),
   ).toBeVisible();
+
+  /*
+   * And her own reveal is recorded like anyone else's. This is the path where
+   * that is easiest to get wrong: she is reading her own entry, which feels
+   * like it needs no record, but the log answers "who saw this number" rather
+   * than "who was not entitled to" - and a disclosure nobody wrote down is the
+   * one a board cannot account for afterwards.
+   */
+  await expect
+    .poll(
+      async () =>
+        (await auditEntriesByAction("PROTECTED_DATA_REVEALED")).length,
+      {
+        message: "the tenant-owner's own extract is recorded",
+        timeout: 10_000,
+      },
+    )
+    .toBe(revealsBefore.length + 1);
+
+  const ownReveal = (await auditEntriesByAction("PROTECTED_DATA_REVEALED")).at(
+    -1,
+  )!;
+  expect(ownReveal.targetKind).toBe("apartmentRegister");
+  expect(ownReveal.actorPersonId).toBe(sigridId);
+  const ownContext = ownReveal.context as {
+    via?: string;
+    personIds?: string[];
+  } | null;
+  expect(ownContext?.via).toBe("apartment-register-extract");
+  /*
+   * Exactly her, and nobody else. `toContain` would have passed on an extract
+   * that disclosed her neighbours' numbers alongside her own, which is the
+   * failure this whole screen exists to prevent: a tenant-owner may read their
+   * own entry, and the log has to say that is all that was read.
+   */
+  expect(ownContext?.personIds).toEqual([sigridId]);
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.

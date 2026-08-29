@@ -27,6 +27,18 @@ const SHARED_WITH_PLUGINS = {
 
 export default defineConfig({
   /*
+   * The client is served under /app, not at the root.
+   *
+   * The root belongs to the association's own public website, which the API
+   * renders. This is what puts the prefix on every built asset URL in
+   * index.html, so a reload of a deep link resolves its scripts and styles;
+   * the router is told the same prefix as its `basepath`, and the API serves
+   * the built files from it. All three have to agree, and the end-to-end suite
+   * is where they are held to it.
+   */
+  base: "/app/",
+
+  /*
    * Module Federation 2.0, host side.
    *
    * No remotes are listed: which plugins an instance runs is not known at

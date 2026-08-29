@@ -4,6 +4,7 @@ import pg from "pg";
 import { jsonBodyOrNothing } from "../src/api";
 import {
   appLogs,
+  appPath,
   productionComposeConfig,
   runInAppContainer,
   stack,
@@ -311,15 +312,16 @@ test("an unknown API path answers JSON, and a client route answers the client", 
   }
 
   // And a route the client router owns is the client's, on a reload as much as
-  // on a first visit.
-  const client = await request.get(`${stack.baseUrl}/settings`, {
+  // on a first visit. Under /app now: the root is the association's own public
+  // website, and the two are told apart by a whole path segment.
+  const client = await request.get(`${stack.baseUrl}${appPath("/settings")}`, {
     failOnStatusCode: false,
   });
   expect(client.status()).toBe(200);
   expect(await client.text()).toContain("<!doctype html>");
 });
 
-test("no request path can name the file the client route serves", async ({
+test("no request path under the client's prefix can name the file it serves", async ({
   request,
 }) => {
   // The route that answers everything the client router owns sends one file by
@@ -329,7 +331,7 @@ test("no request path can name the file the client route serves", async ({
   // a real system file, two traversals percent-encoded so they survive a
   // client's own normalisation, and a null byte, which used to truncate a name
   // in the layer underneath.
-  const index = await request.get(`${stack.baseUrl}/`, {
+  const index = await request.get(`${stack.baseUrl}${appPath()}`, {
     failOnStatusCode: false,
   });
   expect(index.status()).toBe(200);
@@ -337,11 +339,11 @@ test("no request path can name the file the client route serves", async ({
   expect(client).toContain("<!doctype html>");
 
   for (const path of [
-    "/etc/passwd",
-    "/%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
-    "/..%2f..%2f..%2fetc%2fpasswd",
-    "/settings/%2e%2e%2f%2e%2e%2fetc%2fhostname",
-    "/index.html%00.png",
+    appPath("/etc/passwd"),
+    appPath("/%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd"),
+    appPath("/..%2f..%2f..%2fetc%2fpasswd"),
+    appPath("/settings/%2e%2e%2f%2e%2e%2fetc%2fhostname"),
+    appPath("/index.html%00.png"),
   ]) {
     const response = await request.get(`${stack.baseUrl}${path}`, {
       failOnStatusCode: false,
@@ -352,6 +354,35 @@ test("no request path can name the file the client route serves", async ({
     // root that was never meant to be reachable by name.
     expect(response.status(), path).toBe(200);
     expect(await response.text(), path).toBe(client);
+  }
+});
+
+test("the same paths at the root are the website's not-found, and set no cookie", async ({
+  request,
+}) => {
+  // The root belongs to the association's public website now, so a traversal
+  // shape aimed at it meets the page lookup rather than the client's file
+  // route. What it must get is the website's own not-found page: a 404, HTML,
+  // and - the part that is easy to lose - no session cookie, because nothing on
+  // the public site may start a session for a visitor who has not asked for
+  // one.
+  for (const path of [
+    "/etc/passwd",
+    "/%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    "/..%2f..%2f..%2fetc%2fpasswd",
+    "/index.html%00.png",
+    "/en-sida-som-inte-finns",
+  ]) {
+    const response = await request.get(`${stack.baseUrl}${path}`, {
+      failOnStatusCode: false,
+    });
+    expect(response.status(), path).toBe(404);
+    const headers = response.headers();
+    expect(headers["content-type"], path).toContain("text/html");
+    expect(headers["set-cookie"], path).toBeUndefined();
+    const body = await response.text();
+    expect(body, path).toContain("<!doctype html>");
+    expect(body.includes("<script"), path).toBe(false);
   }
 });
 

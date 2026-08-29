@@ -1241,6 +1241,19 @@
       }
     }
   },
+  "site": {
+    "signIn": "Logga in",
+    "orgNumberLabel": "Organisationsnummer {{number}}",
+    "notFound": {
+      "title": "Sidan finns inte",
+      "body": "Adressen kan vara stavad på ett annat sätt, eller så har sidan tagits bort."
+    },
+    "seed": {
+      "slug": "hem",
+      "title": "Välkommen",
+      "body": "{{association}} är en bostadsrättsförening. Den här sidan är föreningens egen, och styrelsen skriver vad som står här."
+    }
+  },
   "signup": {
     "title": "Ansök om konto",
     "intro": "Fyll i dina uppgifter så tar styrelsen ställning till ansökan. Ingenting skapas förrän någon i styrelsen har godkänt den.",

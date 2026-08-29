@@ -10,6 +10,7 @@ import {
   ensureInstance,
   signInAsAdministrator,
 } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 4.
@@ -72,7 +73,7 @@ async function signInThroughTheScreen(
   email: string,
   password: string,
 ): Promise<void> {
-  await page.goto("/sign-in");
+  await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(email);
   await page.getByLabel("Lösenord", { exact: true }).fill(password);
 
@@ -154,7 +155,7 @@ test("a visitor asks for an account, the board approves, the account activates",
   const claimedAddress = `${apartment.address.street} ${apartment.address.number}`;
 
   await test.step("the way in is offered from the sign-in screen", async () => {
-    await page.goto("/sign-in");
+    await page.goto(appPath("/sign-in"));
     await page.getByRole("link", { name: "Ansök om konto" }).click();
     await expect(
       page.getByRole("heading", { name: "Ansök om konto" }),
@@ -183,7 +184,7 @@ test("a visitor asks for an account, the board approves, the account activates",
       page.getByRole("heading", { name: "Adressbok" }),
     ).toBeVisible();
 
-    await page.goto("/settings");
+    await page.goto(appPath("/settings"));
     const row = queueRow(page, APPLICANT.email);
     await expect(row).toHaveCount(1);
     // What the applicant wrote, verbatim, beside the register's own entries.
@@ -229,7 +230,7 @@ test("a request the board turns away creates nothing", async ({
   await api.setSelfSignup(request, stack.baseUrl, true);
   await clearMailbox();
 
-  await page.goto("/request-account");
+  await page.goto(appPath("/request-account"));
   await requestAnAccount(page, TURNED_AWAY, {
     address: "Storgatan 12",
     // Nobody's apartment, which is the whole reason a human decides these
@@ -242,7 +243,7 @@ test("a request the board turns away creates nothing", async ({
     ADMINISTRATOR.email,
     ADMINISTRATOR.password,
   );
-  await page.goto("/settings");
+  await page.goto(appPath("/settings"));
 
   const row = queueRow(page, TURNED_AWAY.email);
   await expect(row).toHaveCount(1);
@@ -270,7 +271,7 @@ test("with the toggle off the form is closed and the endpoint refuses", async ({
   await api.setSelfSignup(request, stack.baseUrl, false);
 
   try {
-    await page.goto("/request-account");
+    await page.goto(appPath("/request-account"));
     await expect(
       page.getByText(/tar inte emot ansökningar om konto just nu/i),
     ).toBeVisible();

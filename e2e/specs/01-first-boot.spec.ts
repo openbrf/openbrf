@@ -6,6 +6,7 @@ import {
   ADMINISTRATOR,
   HOUSING_COOPERATIVE,
 } from "../src/provision";
+import { appPath } from "../src/stack";
 
 /**
  * Exit criterion 1.
@@ -38,9 +39,10 @@ test("first boot walks the wizard and claims the instance", async ({
   ).toBe(true);
 
   // An unclaimed instance sends every visitor to the wizard, whatever they
-  // asked for.
+  // asked for - including a visitor who asked for the association's own public
+  // address, which is what the root serves once the instance is claimed.
   await page.goto("/");
-  await expect(page).toHaveURL(/\/setup$/);
+  await expect(page).toHaveURL(new RegExp(`${appPath("/setup")}$`));
   await expect(
     page.getByRole("heading", { name: "Kom i gång med Open BRF" }),
   ).toBeVisible();
@@ -142,7 +144,7 @@ test("first boot walks the wizard and claims the instance", async ({
 
   // The wizard hands over to the application, signed in as the administrator
   // it just created.
-  await expect(page).toHaveURL(new RegExp(`^${stack.baseUrl}/$`));
+  await expect(page).toHaveURL(new RegExp(`^${stack.baseUrl}${appPath()}/?$`));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
   // Signed in as the administrator the wizard just created. The top band shows
@@ -170,7 +172,7 @@ test("the wizard closes once the instance is claimed", async ({
 
   // A first-boot wizard that stayed open would be a way to create an account on
   // an instance holding a statutory register.
-  await page.goto("/setup");
+  await page.goto(appPath("/setup"));
   await expect(
     page.getByRole("heading", { name: "Konfigurationen är redan klar" }),
   ).toBeVisible();
