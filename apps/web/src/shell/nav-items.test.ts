@@ -24,8 +24,16 @@ describe("the external property manager", () => {
    */
   const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
-  it("is offered the issue queue and their own settings, and nothing else", () => {
-    expect(destinations(PROPERTY_MANAGER)).toEqual(["/settings", "/issues"]);
+  it("is offered the issue queue, the archive and their own settings", () => {
+    // The archive joins every seat because a document's audience is its whole
+    // access rule, decided on the server. This seat holds no membership, so it
+    // is shown only the documents that are public anyway - the same ones the
+    // association's own website serves to a visitor with no account.
+    expect(destinations(PROPERTY_MANAGER)).toEqual([
+      "/settings",
+      "/issues",
+      "/documents",
+    ]);
   });
 
   it("is not offered the address book", () => {
@@ -45,7 +53,7 @@ describe("the other seats", () => {
   it("offers a resident the address book, settings and issues", () => {
     expect(
       destinations(["self:manage", "residentDirectory:read", "issues:report"]),
-    ).toEqual(["/", "/settings", "/issues"]);
+    ).toEqual(["/", "/settings", "/issues", "/documents"]);
   });
 
   it("offers the board everything its capabilities reach", () => {
@@ -57,17 +65,20 @@ describe("the other seats", () => {
         "issues:report",
         "issues:handle",
       ]),
-    ).toEqual(["/", "/plugins", "/settings", "/issues"]);
+    ).toEqual(["/", "/plugins", "/settings", "/issues", "/documents"]);
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {
-    expect(destinations([])).toEqual(["/settings"]);
+    expect(destinations([])).toEqual(["/settings", "/documents"]);
   });
 
   it("holds the band still while the viewer is unknown", () => {
     // The entries with no capability requirement, so the band does not shuffle
     // its links once the viewer's capabilities arrive.
     expect(navItemsFor(undefined)).toEqual(NAV_ITEMS);
-    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/settings"]);
+    expect(NAV_ITEMS.map((item) => item.to)).toEqual([
+      "/settings",
+      "/documents",
+    ]);
   });
 });
