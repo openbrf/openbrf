@@ -62,14 +62,26 @@ const personIds = [
 const addressId = `news-address-${suffix}`;
 const apartmentIds = [1, 2, 3, 4].map((n) => `news-apartment-${suffix}-${n}`);
 
-/** Every slug this suite claims, so the cleanup can find them again. */
+/**
+ * Every slug this suite claims, so the cleanup can find them again.
+ *
+ * One per test that writes an item, and never a shared spare. A slug is unique
+ * in the database, so two tests sharing one are coupled through it: the first
+ * to fail leaves its item behind, and the second is answered 409 for a reason
+ * that has nothing to do with what it was asserting. That has happened once
+ * already on this train.
+ */
 const slugs = {
   public: `news-public-${suffix}`,
   member: `news-member-only-${suffix}`,
   mailed: `news-mailed-${suffix}`,
   raced: `news-raced-${suffix}`,
   abandoned: `news-abandoned-${suffix}`,
-  spare: `news-spare-${suffix}`,
+  /** Named in a create that is refused before it writes anything. */
+  refused: `news-refused-${suffix}`,
+  scanned: `news-scanned-${suffix}`,
+  notProse: `news-not-prose-${suffix}`,
+  draft: `news-draft-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -129,6 +141,14 @@ function paragraph(text: string) {
   return { type: "paragraph", runs: [{ text }] };
 }
 
+/**
+ * Writes one news item, and insists that it was written.
+ *
+ * The slug is in the failure message because the one way this call fails on a
+ * working instance is a slug another test left behind: a bare "expected 409 to
+ * be 201" says nothing about which address was taken, and the test that reports
+ * it is not the test that took it.
+ */
 async function createNews(
   cookie: string,
   slug: string,
@@ -140,9 +160,56 @@ async function createNews(
     payload: { slug, title: `Nyhet ${slug}`, content: { blocks } },
     headers: { cookie },
   });
-  expect(response.statusCode).toBe(201);
+  expect(
+    response.statusCode,
+    `POST /api/news for /nyheter/${slug} answered ${String(
+      response.statusCode,
+    )}: ${response.body}`,
+  ).toBe(201);
   return response.json() as NewsBody;
 }
+
+/**
+ * Removes an item this suite wrote. Service tier, so this is allowed.
+ *
+ * The status is deliberately not asserted: this runs in a finally, and an
+ * expectation here would replace the assertion that actually failed with one
+ * about the cleanup after it.
+ */
+async function removeNews(cookie: string, id: string): Promise<void> {
+  await inject({
+    method: "DELETE",
+    url: `/api/news/${id}`,
+    headers: { cookie },
+  });
+}
+
+/**
+ * The item at a slug, as the board's own list reports it.
+ *
+ * Fails naming the slug rather than answering undefined. Several tests below
+ * work on the item an earlier one published, and a chain that has broken must
+ * say so here instead of a request going out to /api/news//publish and coming
+ * back as a 404 about something else.
+ */
+async function newsAt(cookie: string, slug: string): Promise<NewsBody> {
+  const listed = (
+    await inject({ method: "GET", url: "/api/news", headers: { cookie } })
+  ).json<NewsBody[]>();
+  const found = listed.find((one) => one.slug === slug);
+  expect(found, `no news item at /nyheter/${slug}`).toBeDefined();
+  return found as NewsBody;
+}
+
+/**
+ * Shaped like a personal identity number, valid by its checksum, and belonging
+ * to nobody. It has to pass the checksum or the guardrail would have nothing to
+ * refuse.
+ */
+const LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER = "19811218-9876";
+
+/** A sentence a board member might paste, with the number inside it. */
+const SENTENCE_WITH_A_NUMBER = `Kontakta Anna, ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}.`;
 
 let boardCookie: string;
 let memberCookie: string;
@@ -343,7 +410,7 @@ describe("who may write the association's news", () => {
     const refused = await inject({
       method: "POST",
       url: "/api/news",
-      payload: { slug: slugs.spare, title: "Nej", content: { blocks: [] } },
+      payload: { slug: slugs.refused, title: "Nej", content: { blocks: [] } },
       headers: { cookie: memberCookie },
     });
     expect(refused.statusCode).toBe(403);
@@ -435,30 +502,21 @@ describe("publishing with the mailing asked for", () => {
   });
 
   it("is not claimed a second time by a republish", async () => {
-    const item = (
-      await inject({
-        method: "GET",
-        url: "/api/news",
-        headers: { cookie: boardCookie },
-      })
-    )
-      .json<NewsBody[]>()
-      .find((one) => one.slug === slugs.mailed);
-    expect(item).toBeDefined();
+    const item = await newsAt(boardCookie, slugs.mailed);
 
     const before = await prisma.newsDelivery.count({
-      where: { newsId: item?.id },
+      where: { newsId: item.id },
     });
 
     await inject({
       method: "POST",
-      url: `/api/news/${item?.id ?? ""}/publish`,
+      url: `/api/news/${item.id}/publish`,
       payload: { published: false },
       headers: { cookie: boardCookie },
     });
     const again = await inject({
       method: "POST",
-      url: `/api/news/${item?.id ?? ""}/publish`,
+      url: `/api/news/${item.id}/publish`,
       payload: { published: true, sendEmail: true },
       headers: { cookie: boardCookie },
     });
@@ -466,13 +524,13 @@ describe("publishing with the mailing asked for", () => {
     expect(again.statusCode).toBe(201);
     expect((again.json() as { mailedTo: number | null }).mailedTo).toBeNull();
     expect(
-      await prisma.newsDelivery.count({ where: { newsId: item?.id } }),
+      await prisma.newsDelivery.count({ where: { newsId: item.id } }),
     ).toBe(before);
     expect(
       await prisma.auditLogEntry.count({
         where: {
           targetKind: "news",
-          targetId: item?.id,
+          targetId: item.id,
           action: "NEWS_EMAILED",
         },
       }),
@@ -480,24 +538,16 @@ describe("publishing with the mailing asked for", () => {
   });
 
   it("is not claimed by an edit, however many times the item is saved", async () => {
-    const item = (
-      await inject({
-        method: "GET",
-        url: "/api/news",
-        headers: { cookie: boardCookie },
-      })
-    )
-      .json<NewsBody[]>()
-      .find((one) => one.slug === slugs.mailed);
+    const item = await newsAt(boardCookie, slugs.mailed);
 
     const before = await prisma.newsDelivery.count({
-      where: { newsId: item?.id },
+      where: { newsId: item.id },
     });
 
     for (const correction of ["En rättelse.", "Och en till."]) {
       const saved = await inject({
         method: "PUT",
-        url: `/api/news/${item?.id ?? ""}`,
+        url: `/api/news/${item.id}`,
         payload: {
           slug: slugs.mailed,
           title: "Rättad rubrik",
@@ -509,7 +559,7 @@ describe("publishing with the mailing asked for", () => {
     }
 
     expect(
-      await prisma.newsDelivery.count({ where: { newsId: item?.id } }),
+      await prisma.newsDelivery.count({ where: { newsId: item.id } }),
     ).toBe(before);
   });
 
@@ -548,26 +598,18 @@ describe("publishing with the mailing asked for", () => {
 
 describe("the worker that mails it", () => {
   it("claims each ledger row before it sends, and a second run sends nothing", async () => {
-    const item = (
-      await inject({
-        method: "GET",
-        url: "/api/news",
-        headers: { cookie: boardCookie },
-      })
-    )
-      .json<NewsBody[]>()
-      .find((one) => one.slug === slugs.mailed);
+    const item = await newsAt(boardCookie, slugs.mailed);
 
-    const first = await mailer.runMailing(item?.id ?? "");
+    const first = await mailer.runMailing(item.id);
     expect(first.sent).toBeGreaterThanOrEqual(1);
 
     // The retry that a killed process would produce. Every row is claimed, so
     // there is nothing left to send to anybody.
-    const second = await mailer.runMailing(item?.id ?? "");
+    const second = await mailer.runMailing(item.id);
     expect(second).toEqual({ sent: 0, failed: 0 });
 
     const ledger = await prisma.newsDelivery.findMany({
-      where: { newsId: item?.id },
+      where: { newsId: item.id },
       select: { status: true, sentAt: true },
     });
     expect(ledger.every((one) => one.status === "SENT")).toBe(true);
@@ -602,31 +644,53 @@ describe("the worker that mails it", () => {
 
 describe("the publication guardrails", () => {
   it("refuse a personal identity number and say where it is, never what", async () => {
-    const item = await createNews(boardCookie, slugs.spare, [
-      paragraph("Kontakta Anna, 19811218-9876."),
+    const item = await createNews(boardCookie, slugs.scanned, [
+      paragraph(SENTENCE_WITH_A_NUMBER),
     ]);
 
-    const refused = await inject({
-      method: "POST",
-      url: `/api/news/${item.id}/publish`,
-      payload: { published: true },
-      headers: { cookie: boardCookie },
-    });
+    try {
+      const refused = await inject({
+        method: "POST",
+        url: `/api/news/${item.id}/publish`,
+        payload: { published: true },
+        headers: { cookie: boardCookie },
+      });
 
-    expect(refused.statusCode).toBe(422);
-    const body = refused.json() as {
-      reason: string;
-      locations: { part: string; index: number; offset: number }[];
-    };
-    expect(body.reason).toBe("personal-identity-number");
-    expect(body.locations).toEqual([{ part: "block", index: 0, offset: 14 }]);
-    expect(refused.body).not.toContain("19811218");
-
-    await inject({
-      method: "DELETE",
-      url: `/api/news/${item.id}`,
-      headers: { cookie: boardCookie },
-    });
+      expect(refused.statusCode).toBe(422);
+      const body = refused.json() as {
+        reason: string;
+        locations: { part: string; index: number; offset: number }[];
+      };
+      expect(body.reason).toBe("personal-identity-number");
+      /*
+       * The offset is where the number starts in that block's text, which is
+       * exactly what the board needs in order to find it - so the expectation
+       * says that rather than restating a counted position. A hand-counted
+       * literal is right until the sentence above is edited, and then it is
+       * wrong about the thing this assertion exists to prove.
+       */
+      expect(body.locations).toEqual([
+        {
+          part: "block",
+          index: 0,
+          offset: SENTENCE_WITH_A_NUMBER.indexOf(
+            LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER,
+          ),
+        },
+      ]);
+      // The position, never the value: the number found is exactly the thing
+      // that must not be repeated in a response body or a log. Derived from the
+      // constant rather than copied, and in both spellings - a normalised form
+      // without the hyphen would be the same disclosure.
+      expect(refused.body).not.toContain(LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER);
+      expect(refused.body).not.toContain(
+        LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER.replaceAll("-", ""),
+      );
+    } finally {
+      // In a finally, so an assertion that fails above cannot leave the address
+      // taken and turn the next test's create into a 409 about nothing.
+      await removeNews(boardCookie, item.id);
+    }
   });
 
   it("refuse a body that is not prose", async () => {
@@ -634,7 +698,7 @@ describe("the publication guardrails", () => {
       method: "POST",
       url: "/api/news",
       payload: {
-        slug: slugs.spare,
+        slug: slugs.notProse,
         title: "Bild",
         content: {
           blocks: [{ type: "image", mediaFileId: "file-1", alt: "" }],
@@ -728,28 +792,26 @@ describe("the website's answer", () => {
   });
 
   it("does not serve a draft to anybody", async () => {
-    const item = await createNews(boardCookie, slugs.spare, [
+    const item = await createNews(boardCookie, slugs.draft, [
       paragraph("Inte klar än."),
     ]);
 
-    const anonymous = await inject({
-      method: "GET",
-      url: `/nyheter/${slugs.spare}`,
-    });
-    const signedIn = await inject({
-      method: "GET",
-      url: `/nyheter/${slugs.spare}`,
-      headers: { cookie: memberCookie },
-    });
+    try {
+      const anonymous = await inject({
+        method: "GET",
+        url: `/nyheter/${slugs.draft}`,
+      });
+      const signedIn = await inject({
+        method: "GET",
+        url: `/nyheter/${slugs.draft}`,
+        headers: { cookie: memberCookie },
+      });
 
-    expect(anonymous.statusCode).toBe(404);
-    expect(signedIn.statusCode).toBe(404);
-
-    await inject({
-      method: "DELETE",
-      url: `/api/news/${item.id}`,
-      headers: { cookie: boardCookie },
-    });
+      expect(anonymous.statusCode).toBe(404);
+      expect(signedIn.statusCode).toBe(404);
+    } finally {
+      await removeNews(boardCookie, item.id);
+    }
   });
 
   it("keeps /nyheter out of the pages that can be written", async () => {

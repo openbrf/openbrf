@@ -11,6 +11,7 @@ import {
   createNews,
   editNews,
   listNews,
+  type NewsRow,
   publishNews,
   setPreferredLocale,
 } from "../src/news";
@@ -163,15 +164,22 @@ test("correcting the notice and publishing it again mails nobody", async ({
 }) => {
   await ensureRegisterFixture(request);
 
-  const item = (await listNews(request)).find(
+  const found = (await listNews(request)).find(
     (one) => one.slug === MEMBER_ITEM.slug,
   );
-  expect(item, "the news item from the first test is gone").toBeDefined();
-  expect(item?.emailQueuedAt).not.toBeNull();
+  expect(found, "the news item from the first test is gone").toBeDefined();
+  /*
+   * Narrowed here rather than read through `?.` below. This test works on what
+   * the one above it published, and a broken chain has to fail on the line that
+   * says so - not by sending an edit to /api/news//publish and coming back with
+   * a 404 about something else.
+   */
+  const item = found as NewsRow;
+  expect(item.emailQueuedAt).not.toBeNull();
 
   await clearMailbox();
 
-  await editNews(request, item?.id ?? "", {
+  await editNews(request, item.id, {
     slug: MEMBER_ITEM.slug,
     title: `${MEMBER_ITEM.title} (rättad)`,
     paragraphs: [MEMBER_ITEM.paragraph, "Rättelse: lokalen är ändrad."],
@@ -180,8 +188,8 @@ test("correcting the notice and publishing it again mails nobody", async ({
   // Taken down and put up again - the loudest version of "publish it once
   // more" the interface has. The column that says the mailing was claimed is
   // never cleared, so there is no second mailing to make.
-  await publishNews(request, item?.id ?? "", { published: false });
-  const again = await publishNews(request, item?.id ?? "", {
+  await publishNews(request, item.id, { published: false });
+  const again = await publishNews(request, item.id, {
     published: true,
     visibility: "MEMBER",
     sendEmail: true,
