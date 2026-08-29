@@ -1,0 +1,72 @@
+# What keeps the pins current.
+#
+# Everything this repository depends on is pinned to an exact revision: actions
+# by commit, container images by digest, packages by lockfile. A pin that
+# nothing updates is the other failure - it holds a known-good version long
+# after it stops being one - so the pinning and the updating are one decision
+# and this file is its second half.
+#
+# Grouped and weekly on purpose. Every pull request here costs a review, and a
+# reviewer reading one pull request of twelve patch bumps reads more of it than
+# a reviewer closing twelve.
+version: 2
+
+updates:
+  # The production image's base, and any other image named in a Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    # Squash merge is the only merge method, so a pull request title is a
+    # commit message on main and commitlint checks it as one.
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      docker:
+        patterns: ["*"]
+
+  # Compose files are a separate ecosystem rather than part of the one above,
+  # and this is what keeps the Postgres digest in docker-compose.prod.yml
+  # current. The Semgrep image is still not covered by anything: it sits in a
+  # workflow environment variable, which no updater reads, and is bumped by
+  # hand.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      compose:
+        patterns: ["*"]
+
+  # The `uses:` pins in .github/workflows, which are commit SHAs. Dependabot
+  # rewrites the SHA and the version comment beside it together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The workspace. Minor and patch updates arrive as one pull request per week;
+  # a major arrives on its own, because a major is a change to read rather than
+  # a number to bump.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      packages:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
