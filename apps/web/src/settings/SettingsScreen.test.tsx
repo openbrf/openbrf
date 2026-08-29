@@ -26,6 +26,13 @@ vi.mock("../api/instance", async (importOriginal) => ({
   fetchAddresses: () => fetchAddresses(),
 }));
 
+// The queue self-loads. This file is about which panels a viewer is offered,
+// so it answers with an empty queue rather than reaching for the network.
+vi.mock("../api/signup", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/signup")>()),
+  fetchSignupRequests: () => Promise.resolve({ ok: true, value: [] }),
+}));
+
 vi.mock("../auth/auth-client", () => ({
   useSession: () => ({ data: { user: { twoFactorEnabled: false } } }),
   authClient: {
@@ -100,6 +107,8 @@ function renderScreen(capabilities: string[]) {
 }
 
 const smtpHeading = () => screen.queryByRole("heading", { name: /^e-post$/i });
+const signupQueueHeading = () =>
+  screen.queryByRole("heading", { name: /väntande ansökningar/i });
 const profileHeading = () =>
   screen.queryByRole("heading", { name: /din profil/i });
 
@@ -142,6 +151,20 @@ describe("a board member", () => {
       true,
     );
   });
+
+  it("gets the sign-up queue it is the one allowed to decide", async () => {
+    renderScreen([
+      "association:read",
+      "addressBook:read",
+      "addressBook:write",
+      "signupRequest:decide",
+      "self:manage",
+    ]);
+
+    await waitFor(() => {
+      expect(signupQueueHeading()).toBeTruthy();
+    });
+  });
 });
 
 describe("an admin", () => {
@@ -161,6 +184,21 @@ describe("an admin", () => {
       "disabled",
       false,
     );
+  });
+
+  it("is offered no queue without the capability to decide a request", async () => {
+    /*
+     * Approving one creates a person, a residency and an invitation, and the
+     * API refuses the call for anyone without the capability. Offering the
+     * panel anyway would put the applicant's name and email address on the
+     * screen of somebody who may not act on either.
+     */
+    renderScreen(["association:read", "association:manage", "self:manage"]);
+
+    await waitFor(() => {
+      expect(smtpHeading()).toBeTruthy();
+    });
+    expect(signupQueueHeading()).toBeNull();
   });
 
   it("is pointed back to the wizard while setup is unfinished", async () => {

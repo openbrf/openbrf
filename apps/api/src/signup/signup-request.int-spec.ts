@@ -226,6 +226,39 @@ describe("the self-signup toggle", () => {
   });
 });
 
+describe("the public state endpoint", () => {
+  /*
+   * The form the visitor meets is rendered from this answer, so it has to be
+   * readable without a session and it has to follow the association rather
+   * than a cached idea of it. The alternative - offering the form always and
+   * letting the submission be refused - teaches a resident to retry a door the
+   * board has deliberately shut.
+   */
+  it("answers a caller with no session", async () => {
+    await setSelfSignup(true);
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/signup-requests/state",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ enabled: true });
+  });
+
+  it("follows the toggle when the board closes the door", async () => {
+    await setSelfSignup(false);
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/signup-requests/state",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ enabled: false });
+  });
+});
+
 describe("a pending request", () => {
   beforeAll(ensurePendingRequest);
 

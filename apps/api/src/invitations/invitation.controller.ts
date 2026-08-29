@@ -48,8 +48,21 @@ export class InvitationController {
 export class InvitationAcceptController {
   constructor(private readonly invitations: InvitationService) {}
 
+  /**
+   * Answers with the address the account was created for.
+   *
+   * Deliberate, and safe: only a caller holding a valid, unexpired, unused
+   * token - one that was mailed to that very address - ever reaches this line,
+   * so the address is disclosed to the person who already had it. Returning it
+   * lets the activation screen sign the new account in through the ordinary
+   * password path rather than asking someone to retype the address they just
+   * proved possession of. Every refusal above stays a bare `reason`, so no
+   * failed attempt learns anything.
+   */
   @Post()
-  async accept(@Body() body: unknown): Promise<{ personId: string }> {
+  async accept(
+    @Body() body: unknown,
+  ): Promise<{ personId: string; email: string }> {
     const input = acceptInvitationSchema.parse(body);
     return this.invitations.accept(input);
   }

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,12 +14,12 @@ import {
   type ThemeSummary,
   uninstallTheme,
 } from "../api/themes";
-import type { TranslationKey } from "../i18n/translation-key";
 import { useThemeRuntime } from "../theme/theme-runtime-context";
 import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { LintFindings } from "./LintFindings";
+import { failureKey, findingsOf } from "./theme-failures";
 
 /**
  * Installing, previewing and activating themes.
@@ -36,34 +37,6 @@ import { LintFindings } from "./LintFindings";
  * and under which licence, and which of the core's layouts it selects.
  */
 
-const FAILURE_KEYS: Readonly<Record<string, TranslationKey>> = {
-  "catalog-not-configured": "themeCatalog.errors.catalogNotConfigured",
-  "catalog-unreachable": "themeCatalog.errors.catalogUnreachable",
-  "catalog-invalid": "themeCatalog.errors.catalogInvalid",
-  "package-unreachable": "themeCatalog.errors.packageUnreachable",
-  "package-too-large": "themeCatalog.errors.packageTooLarge",
-  "checksum-mismatch": "themeCatalog.errors.checksumMismatch",
-  "package-unreadable": "themeCatalog.errors.packageUnreadable",
-  "manifest-invalid": "themeCatalog.errors.manifestInvalid",
-  "identity-mismatch": "themeCatalog.errors.identityMismatch",
-  "lint-failed": "themeCatalog.errors.lintFailed",
-  "not-in-catalog": "themeCatalog.errors.notInCatalog",
-  "theme-not-installed": "themeCatalog.errors.themeNotInstalled",
-  "built-in-theme": "themeCatalog.errors.builtInTheme",
-  "theme-in-use": "themeCatalog.errors.themeInUse",
-  "theme-has-dependants": "themeCatalog.errors.themeHasDependants",
-  "theme-unresolvable": "themeCatalog.errors.themeUnresolvable",
-  "housing-cooperative-missing":
-    "themeCatalog.errors.housingCooperativeMissing",
-};
-
-function failureKey(failure: ApiFailure): TranslationKey {
-  if (failure.status === 403) {
-    return "themeCatalog.errors.forbidden";
-  }
-  return FAILURE_KEYS[failure.reason] ?? "themeCatalog.errors.unknown";
-}
-
 /** Everything one read produces, applied to the screen in one step. */
 interface Loaded {
   installed: ThemeSummary[] | null;
@@ -79,18 +52,6 @@ type Action =
   /** Activated, but the re-read that follows it did not land. */
   | { kind: "stale" }
   | { kind: "installed"; themeId: string; warnings: ThemeLintFinding[] };
-
-/** Findings the server attached to a refusal, when it attached any. */
-function findingsOf(failure: ApiFailure): ThemeLintFinding[] {
-  return Array.isArray(failure.detail)
-    ? failure.detail.filter(
-        (entry): entry is ThemeLintFinding =>
-          typeof entry === "object" &&
-          entry !== null &&
-          typeof (entry as ThemeLintFinding).rule === "string",
-      )
-    : [];
-}
 
 export function ThemesScreen(): ReactElement {
   const { t } = useTranslation();
@@ -291,6 +252,11 @@ export function ThemesScreen(): ReactElement {
       <Panel
         title={t("themeCatalog.installed.title")}
         description={t("themeCatalog.installed.description")}
+        actions={
+          <Link to="/admin/themes/compose" className={SECONDARY_BUTTON}>
+            {t("themeCatalog.composer.composeLink")}
+          </Link>
+        }
       >
         {installed === null ? (
           <p role="status" className="text-body text-ink-muted">
@@ -390,6 +356,13 @@ function InstalledThemeRow({
             {t("themeCatalog.installed.builtIn")}
           </span>
         ) : null}
+        {/* Composed here, so the composer may edit it. A theme that came from
+            a catalog is replaced by the catalog, not edited on the instance. */}
+        {theme.composed ? (
+          <span className="text-chip text-ink-muted uppercase">
+            {t("themeCatalog.composer.composedChip")}
+          </span>
+        ) : null}
         {theme.version === null ? null : (
           <span className="font-data text-data text-ink-muted">
             {theme.version}
@@ -432,6 +405,16 @@ function InstalledThemeRow({
       </dl>
 
       <div className="flex flex-wrap gap-3">
+        {theme.composed ? (
+          <Link
+            to="/admin/themes/compose"
+            search={{ theme: theme.id }}
+            className={SECONDARY_BUTTON}
+          >
+            {t("themeCatalog.composer.editLink")}
+          </Link>
+        ) : null}
+
         {theme.active ? null : isPreviewing ? (
           <button
             type="button"

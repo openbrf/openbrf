@@ -22,6 +22,7 @@ import {
   ThemeInstallService,
 } from "./theme-install.service";
 import {
+  type ThemeDeclaration,
   type ThemeRendering,
   ThemeService,
   type ThemeSummary,
@@ -43,6 +44,33 @@ const themeIdSchema = z
   .regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/);
 
 const installSchema = z.object({ id: z.string().min(1).max(120) });
+
+/**
+ * Token values as the composer submits them.
+ *
+ * Held to the same caps the manifest schema states, so a value this route
+ * accepts is one the manifest can carry. Names are not checked against the
+ * contract here - the lint reports an unknown token and resolution ignores it,
+ * which is the same treatment a theme package gets.
+ */
+const tokenOverridesSchema = z
+  .record(z.string().min(1).max(64), z.string().min(1).max(200))
+  .default({});
+
+const composeSchema = z.object({
+  id: themeIdSchema,
+  displayName: z.string().min(1).max(120),
+  description: z.string().max(400).optional(),
+  /*
+   * Required, unlike the manifest's own optional `extends`. A composed theme
+   * states colours and nothing else, so one that inherited from nothing would
+   * leave every token it did not name unset and fail the lint on all of them.
+   */
+  extends: themeIdSchema,
+  modes: z
+    .object({ light: tokenOverridesSchema, dark: tokenOverridesSchema })
+    .default({ light: {}, dark: {} }),
+});
 
 const activateSchema = z.object({
   /** Null, or the built-in theme's id, returns to the default theme. */
@@ -176,6 +204,32 @@ export class ThemeAdminController {
   ): Promise<ThemeInstallResult> {
     const { id } = installSchema.parse(body);
     return this.installer.install(id, requirePersonId(request));
+  }
+
+  /**
+   * Composing a theme on this instance.
+   *
+   * The same endpoint saves a new theme and an edit to one: the id decides
+   * which, and the version is bumped either way. It runs the install lint, so a
+   * composed theme that renders the statutory register below WCAG AA is refused
+   * here exactly as a catalog package would be, and the refusal carries the
+   * findings the composer shows.
+   */
+  @Post("compose")
+  async compose(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ThemeInstallResult> {
+    return this.installer.compose(
+      composeSchema.parse(body),
+      requirePersonId(request),
+    );
+  }
+
+  /** What a theme declares, for the composer to prefill an edit from. */
+  @Get("installed/:id/source")
+  async source(@Param("id") id: string): Promise<ThemeDeclaration> {
+    return this.themes.sourceOf(themeIdSchema.parse(id));
   }
 
   /**

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { PersonPanel } from "./PersonPanel";
-import type { PersonDetail } from "./register-api";
+import { type PersonDetail, RegisterRequestError } from "./register-api";
 
 /**
  * The reveal flow.
@@ -20,17 +20,25 @@ import type { PersonDetail } from "./register-api";
 const EMAIL = "sara.berg@exempel.se";
 const IDENTITY_NUMBER = "19811228-9874";
 
-const { fetchPerson, revealFields, setProtectedPersonalData } = vi.hoisted(
-  () => ({
+const { fetchPerson, revealFields, sendInvitation, setProtectedPersonalData } =
+  vi.hoisted(() => ({
     fetchPerson: vi.fn(),
     revealFields: vi.fn(),
+    sendInvitation: vi.fn(),
     setProtectedPersonalData: vi.fn(),
-  }),
-);
+  }));
 
-vi.mock("./register-api", () => ({
+/*
+ * The real module is spread in and only the requests are replaced, because
+ * RegisterRequestError has to be the real class: the panel decides which
+ * failure sentence to show with `instanceof`, and a stubbed constructor would
+ * make every refusal read as the generic one.
+ */
+vi.mock("./register-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./register-api")>()),
   fetchPerson,
   revealFields,
+  sendInvitation,
   setProtectedPersonalData,
 }));
 
@@ -67,6 +75,55 @@ const PLAIN_PERSON: PersonDetail = {
   },
   contact: { state: "visible", email: EMAIL, phone: null },
   protectedPersonalData: false,
+};
+
+/*
+ * Four account states, on four people. The panel offers a different action for
+ * each, and the register keeps everyone it has ever held, so a person who has
+ * been invited is not the same person as one who has not.
+ */
+const UNINVITED: PersonDetail = {
+  ...PLAIN_PERSON,
+  personId: "person-elsa",
+  firstName: "Elsa",
+  lastName: "Nyman",
+  account: {
+    state: "none",
+    twoFactorEnabled: false,
+    invitationExpiresAt: null,
+  },
+};
+
+const UNINVITED_WITHOUT_EMAIL: PersonDetail = {
+  ...UNINVITED,
+  personId: "person-tore",
+  firstName: "Tore",
+  lastName: "Nyman",
+  contact: { state: "visible", email: null, phone: null },
+};
+
+const INVITED: PersonDetail = {
+  ...UNINVITED,
+  personId: "person-gunnar",
+  firstName: "Gunnar",
+  lastName: "Nyman",
+  account: {
+    state: "invited",
+    twoFactorEnabled: false,
+    invitationExpiresAt: "2099-01-15T09:00:00.000Z",
+  },
+};
+
+const INVITATION_EXPIRED: PersonDetail = {
+  ...INVITED,
+  personId: "person-hilda",
+  firstName: "Hilda",
+  lastName: "Nyman",
+  account: {
+    state: "invited",
+    twoFactorEnabled: false,
+    invitationExpiresAt: "2020-03-02T09:00:00.000Z",
+  },
 };
 
 const noop = (): void => {
@@ -273,5 +330,137 @@ describe("a person who is not protected", () => {
     );
 
     expect(setProtectedPersonalData).toHaveBeenCalledWith("person-johan", true);
+  });
+});
+
+/**
+ * Inviting from the person view.
+ *
+ * This is the board's half of the way in: an account is created by the person
+ * themselves, from a link the board sends here. What the panel has to get right
+ * is which state it is in - nobody invited yet, an invitation outstanding, one
+ * that has run out, an account that already exists - because the action and the
+ * wording differ for each, and a board member cannot see any of it from the
+ * rows.
+ */
+describe("inviting a person to activate an account", () => {
+  it("offers an invitation for a person the register has an address for", async () => {
+    renderPanel(UNINVITED);
+    await screen.findByText("Elsa Nyman");
+
+    expect(
+      screen.getByRole("button", { name: "Skicka inbjudan" }),
+    ).not.toBeNull();
+  });
+
+  it("sends the invitation and reads the person back afterwards", async () => {
+    // The refetch is what turns the button into "send again" and puts the new
+    // expiry date on screen. Without it the panel would keep offering to invite
+    // somebody who has just been invited.
+    sendInvitation.mockResolvedValue({ expiresAt: "2099-01-15T09:00:00.000Z" });
+    renderPanel(UNINVITED);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka inbjudan" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Inbjudan är skickad till personens e-postadress."),
+      ).not.toBeNull();
+    });
+    expect(sendInvitation).toHaveBeenCalledWith("person-elsa");
+    expect(fetchPerson).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains why a person with no address on file cannot be invited", async () => {
+    // A button here could only ever fail, and the reason is about the register
+    // rather than about the send.
+    renderPanel(UNINVITED_WITHOUT_EMAIL);
+    await screen.findByText("Tore Nyman");
+
+    expect(
+      screen.getByText(
+        "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /inbjudan/i })).toBeNull();
+  });
+
+  it("shows when an outstanding invitation runs out, and offers to send it again", async () => {
+    renderPanel(INVITED);
+    await screen.findByText("Gunnar Nyman");
+
+    expect(screen.getByText("Inbjudan giltig till 2099-01-15")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Skicka inbjudan igen" }),
+    ).not.toBeNull();
+    expect(screen.queryByText(/har gått ut/)).toBeNull();
+  });
+
+  it("says an invitation has expired, and still offers a new one", async () => {
+    // Re-sending is offered either way: the API deletes the outstanding
+    // invitation and mails a fresh link, so a lost email and an expired one are
+    // the same repair.
+    sendInvitation.mockResolvedValue({ expiresAt: "2099-01-15T09:00:00.000Z" });
+    renderPanel(INVITATION_EXPIRED);
+    await screen.findByText("Hilda Nyman");
+
+    expect(
+      screen.getByText("Inbjudan har gått ut. Skicka en ny."),
+    ).not.toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka inbjudan igen" }),
+    );
+
+    expect(sendInvitation).toHaveBeenCalledWith("person-hilda");
+  });
+
+  it("names the missing email settings rather than blaming the invitation", async () => {
+    // An instance whose setup skipped SMTP answers the send with this, and the
+    // fix is in settings: nothing is wrong with the person or the register.
+    sendInvitation.mockRejectedValue(
+      new RegisterRequestError(503, "mail-not-configured"),
+    );
+    renderPanel(UNINVITED);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka inbjudan" }),
+    );
+
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    expect(
+      await screen.findByText(
+        "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
+      ),
+    ).not.toBeNull();
+  });
+
+  it("says so when the invitation could not be sent at all", async () => {
+    sendInvitation.mockRejectedValue(new Error("network"));
+    renderPanel(UNINVITED);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka inbjudan" }),
+    );
+
+    expect(await screen.findByRole("alert")).not.toBeNull();
+    expect(
+      await screen.findByText("Inbjudan kunde inte skickas. Försök igen."),
+    ).not.toBeNull();
+    // Nothing was sent, so nothing is confirmed and the panel is not reloaded.
+    expect(fetchPerson).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers nothing for a person who already has an account", async () => {
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    expect(screen.getByText("Aktivt")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /inbjudan/i })).toBeNull();
   });
 });

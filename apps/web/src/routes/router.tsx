@@ -8,15 +8,18 @@ import {
 
 import { fetchSetupState } from "../api/instance";
 import { authClient } from "../auth/auth-client";
+import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { ImportRoute } from "./ImportRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
+import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
+import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
 
 /**
@@ -71,6 +74,27 @@ const signInRoute = createRoute({
 });
 
 /**
+ * The public request-an-account form.
+ *
+ * Signed-in visitors are sent away exactly as they are from the sign-in screen:
+ * they already have the account this form asks for. There is no unclaimed-
+ * instance redirect beside it, because self-signup is off until a board
+ * switches it on - a fresh instance therefore answers "closed" here on its own,
+ * and the wizard has nothing to offer somebody who wants an account on a
+ * cooperative that does not exist yet.
+ */
+const requestAccountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/request-account",
+  beforeLoad: async () => {
+    if (await hasSession()) {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: RequestAccountRoute,
+});
+
+/**
  * The setup wizard.
  *
  * Deliberately without a session guard: on first boot there is no account to
@@ -85,6 +109,31 @@ const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
   component: SetupRoute,
+});
+
+/**
+ * Activation, reached from the link in an invitation email.
+ *
+ * Deliberately without a session guard, like the wizard above and for the same
+ * kind of reason: the person has no account yet, which is the entire point of
+ * the screen. The token in the query string is the credential, and the API
+ * checks it, refuses an expired or already-used one, and creates nothing for a
+ * caller who does not hold one - so a guard here would add nothing and would
+ * shut out exactly the people the screen exists for.
+ */
+const activateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/activate",
+  /*
+   * The token is coerced rather than validated. A link mangled on its way
+   * through a mail client should reach the screen and be told that the link
+   * does not work, not throw a router error at somebody who only clicked what
+   * they were sent.
+   */
+  validateSearch: (search: Record<string, unknown>): { token: string } => ({
+    token: typeof search.token === "string" ? search.token : "",
+  }),
+  component: ActivateRoute,
 });
 
 /** Sends anyone without a session to sign in, before the screen renders. */
@@ -144,6 +193,27 @@ const themesRoute = createRoute({
   component: ThemesRoute,
 });
 
+/**
+ * The theme composer. `?theme=` names the composed theme being edited.
+ *
+ * The search parameter is validated rather than read raw: it reaches an API
+ * path, and a route that passed on whatever the address bar held would make the
+ * address bar an input to a request. Anything that is not a theme id is dropped
+ * and the screen composes a new theme instead.
+ */
+const themeComposerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/themes/compose",
+  validateSearch: (search: Record<string, unknown>): { theme?: string } => {
+    const theme = search["theme"];
+    return typeof theme === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(theme)
+      ? { theme }
+      : {};
+  },
+  beforeLoad: requireSession,
+  component: ThemeComposerRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -189,11 +259,14 @@ const importRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
+  requestAccountRoute,
   setupRoute,
+  activateRoute,
   settingsRoute,
   pluginsRoute,
   pluginViewRoute,
   themesRoute,
+  themeComposerRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,
   importRoute,

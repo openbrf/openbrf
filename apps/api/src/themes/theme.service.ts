@@ -97,12 +97,37 @@ export interface ThemeSummary {
   /** Null for the built-in theme, which is versioned with the core. */
   version: string | null;
   builtIn: boolean;
+  /**
+   * Whether this theme was composed on this instance rather than installed.
+   *
+   * Derived from the row having no catalog entry, which is the fact that
+   * decides it: a theme nobody published is one somebody here authored, and it
+   * is the only kind the composer may edit.
+   */
+  composed: boolean;
   active: boolean;
   extendsThemeId: string | null;
   fonts: ThemeFontSummary[];
   /** Every registered slot, with what this theme renders it as. */
   viewVariants: Record<string, string>;
   installedAt: string | null;
+}
+
+/**
+ * A theme's own declaration, which is what the composer edits.
+ *
+ * Only the values the theme states: everything else it inherits, and prefilling
+ * a form with resolved values would turn a four-line child theme into a copy of
+ * its parent the moment somebody saved it.
+ */
+export interface ThemeDeclaration {
+  id: string;
+  displayName: string;
+  description: string | null;
+  extendsThemeId: string | null;
+  version: string;
+  composed: boolean;
+  modes: { light: PartialTokenSet; dark: PartialTokenSet };
 }
 
 /** Everything the browser needs to render a theme. */
@@ -257,6 +282,7 @@ export class ThemeService {
       description: null,
       version: null,
       builtIn: true,
+      composed: false,
       active: activeId === null,
       extendsThemeId: null,
       fonts: [],
@@ -272,6 +298,7 @@ export class ThemeService {
         description: row.description,
         version: row.version,
         builtIn: false,
+        composed: row.catalogId === null,
         active: row.id === activeId,
         extendsThemeId: row.extendsThemeId,
         fonts: asFontDeclarations(row.fonts).map((font) => ({
@@ -378,6 +405,50 @@ export class ThemeService {
       viewVariants: resolvedViewVariants(asVariantSelection(row.viewVariants)),
       logoUrl:
         row.logoPath === null ? null : themeAssetUrl(row.id, row.logoPath),
+    };
+  }
+
+  /**
+   * One installed theme's own declaration.
+   *
+   * The default theme is refused rather than returned: it is built into the
+   * core, it has no row to edit, and offering it as a starting point would
+   * invite an edit that has nowhere to be saved. Composing a child of it is the
+   * supported way to change what it looks like.
+   *
+   * A theme installed from a catalog answers here too, with `composed: false`.
+   * Reading what it declares is harmless; it is the save that is refused, and
+   * the refusal belongs next to the write rather than to this read.
+   */
+  async sourceOf(themeId: string): Promise<ThemeDeclaration> {
+    if (themeId === PORTTAVLAN_ID) {
+      throw new ThemeError(
+        "The default theme is built into the core and has no declaration to edit.",
+        "built-in-theme",
+      );
+    }
+
+    const row = await this.prisma.installedTheme.findUnique({
+      where: { id: themeId },
+    });
+    if (row === null) {
+      throw new ThemeError(
+        `No theme ${themeId} is installed.`,
+        "theme-not-installed",
+      );
+    }
+
+    return {
+      id: row.id,
+      displayName: row.name,
+      description: row.description,
+      extendsThemeId: row.extendsThemeId,
+      version: row.version,
+      composed: row.catalogId === null,
+      modes: {
+        light: asTokenRecord(row.declaredLightTokens),
+        dark: asTokenRecord(row.declaredDarkTokens),
+      },
     };
   }
 

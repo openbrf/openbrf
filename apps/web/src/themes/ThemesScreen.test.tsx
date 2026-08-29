@@ -1,12 +1,35 @@
 import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "@openbrf/tokens";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CatalogTheme, ThemeRendering, ThemeSummary } from "../api/themes";
 import "../i18n";
 import { ThemeRuntimeProvider } from "../theme/theme-runtime-context";
 import { ThemesScreen } from "./ThemesScreen";
+
+/**
+ * The router's Link needs a router context these tests have no use for, so it
+ * is replaced with an anchor. What is under test here is the theme screen, not
+ * routing.
+ */
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    children,
+    className,
+  }: {
+    to: string;
+    search?: Record<string, string>;
+    children: ReactNode;
+    className?: string;
+  }): ReactElement => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
+}));
 
 /**
  * The theme screen.
@@ -44,6 +67,7 @@ const BUILT_IN: ThemeSummary = {
   description: null,
   version: null,
   builtIn: true,
+  composed: false,
   active: true,
   extendsThemeId: null,
   fonts: [],
@@ -57,6 +81,7 @@ const EXAMPLE: ThemeSummary = {
   description: "Inherits the default theme.",
   version: "1.0.0",
   builtIn: false,
+  composed: false,
   active: false,
   extendsThemeId: "porttavlan",
   fonts: [{ family: "Spline Sans Mono", license: "OFL-1.1" }],
@@ -164,6 +189,57 @@ describe("what a board sees before deciding", () => {
       expect(
         screen.getByText(/ingen temakatalog är konfigurerad/i),
       ).toBeTruthy();
+    });
+  });
+});
+
+describe("themes composed on this instance", () => {
+  /*
+   * The edit link is the composer's way in, and it is offered only for a theme
+   * this instance authored. A theme that came from a catalog is replaced by the
+   * catalog: offering to edit one would invite a change the next update takes
+   * away again.
+   */
+  it("offers an edit only for a theme composed here", async () => {
+    fetchInstalledThemes.mockResolvedValue({
+      ok: true,
+      value: [
+        BUILT_IN,
+        EXAMPLE,
+        { ...EXAMPLE, id: "eget-tema", name: "Eget", composed: true },
+      ],
+    });
+
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Eget" })).toBeTruthy();
+    });
+
+    expect(screen.getAllByRole("link", { name: /^ändra$/i })).toHaveLength(1);
+    expect(screen.getByText(/^Eget tema$/)).toBeTruthy();
+    // And the way to compose a new one, whatever is installed.
+    expect(
+      screen.getByRole("link", { name: /sätt ihop ett tema/i }),
+    ).toBeTruthy();
+  });
+
+  it("says why a catalog theme cannot be edited here", async () => {
+    uninstallTheme.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "theme-not-composed" },
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^ta bort$/i })).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: /^ta bort$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/kom från en katalog/i)).toBeTruthy();
     });
   });
 });
