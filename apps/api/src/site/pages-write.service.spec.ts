@@ -66,9 +66,10 @@ function build(): Fakes {
     // The transaction client is the same fake: what these tests check is that
     // the audit entry is written with the change, not that Postgres isolates
     // them.
-    $transaction: vi.fn(
-      async (run: unknown) =>
-        await (run as (tx: unknown) => Promise<unknown>)(prisma),
+    $transaction: vi.fn(async (arg: unknown) =>
+      Array.isArray(arg)
+        ? Promise.all(arg)
+        : await (arg as (tx: unknown) => Promise<unknown>)(prisma),
     ),
   };
 
@@ -443,6 +444,31 @@ describe("a picture on a published page", () => {
     );
 
     expect(refusal.reason).toBe("image-not-public");
+  });
+});
+
+describe("the order the pages sit in", () => {
+  it("writes each id the position it arrived at", async () => {
+    const { service, page } = build();
+
+    await service.reorder(["page-2", "page-1"]);
+
+    expect(page.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: "page-2" },
+      data: { sortOrder: 0 },
+    });
+    expect(page.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: "page-1" },
+      data: { sortOrder: 1 },
+    });
+  });
+
+  it("ignores an id the instance does not have", async () => {
+    // This is a drag on a list, and a stale row in the browser must not lose
+    // the whole arrangement.
+    const { service } = build();
+
+    await expect(service.reorder(["page-9"])).resolves.toEqual([]);
   });
 });
 

@@ -86,6 +86,16 @@ export function PageEditor({
   const [identifiable, setIdentifiable] = useState<ReadonlySet<string>>(
     new Set(),
   );
+  /**
+   * The image blocks whose picture has been declared to show identifiable
+   * persons, by position.
+   *
+   * By position rather than by anything stable, and that is sound because the
+   * answer only matters at the moment a file is uploaded: it travels with the
+   * bytes and is recorded on the stored file, so once a picture exists the
+   * truth is the server's rather than this screen's.
+   */
+  const [declared, setDeclared] = useState<ReadonlySet<number>>(new Set());
   const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [consentAsked, setConsentAsked] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -123,6 +133,22 @@ export function PageEditor({
 
   const body = { blocks: submittableBlocks(blocks) };
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
+
+  /**
+   * The places a refusal named, as a person reads them.
+   *
+   * The API answers with positions - the title, or a block's index - because a
+   * response body may never carry the value that was refused. One-based here,
+   * because the board is looking at a list of blocks and not at an array.
+   */
+  const refusedPlaces =
+    failure === null
+      ? []
+      : locationsOf(failure).map((place) =>
+          place === "title"
+            ? t("siteAdmin.editor.placeTitle")
+            : t("siteAdmin.editor.placeBlock", { number: place + 1 }),
+        );
 
   const askConsent =
     consentAsked ||
@@ -162,10 +188,10 @@ export function PageEditor({
                     "siteAdmin.errors.unknown",
                   ),
                 )}
-                {locationsOf(failure).length === 0
+                {refusedPlaces.length === 0
                   ? null
                   : ` ${t("siteAdmin.editor.refusedAt", {
-                      places: locationsOf(failure).join(", "),
+                      places: refusedPlaces.join(", "),
                     })}`}
               </Notice>
             )}
@@ -403,6 +429,32 @@ export function PageEditor({
 
               {block.type === "image" ? (
                 <div className="flex flex-col gap-3">
+                  {/*
+                   * The declaration is answered before the file is chosen,
+                   * because it travels with the bytes: the media layer records
+                   * it on the stored file, and it is what the publication
+                   * guardrail acts on. A picture nobody has declared cannot be
+                   * checked against a publication consent at all.
+                   */}
+                  <label className="flex min-h-11 items-start gap-3 text-small text-ink">
+                    <input
+                      type="checkbox"
+                      checked={declared.has(index)}
+                      onChange={(event) => {
+                        setDeclared((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) {
+                            next.add(index);
+                          } else {
+                            next.delete(index);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="mt-1 size-4 accent-trust"
+                    />
+                    {t("siteAdmin.editor.identifiable")}
+                  </label>
                   <label className={LABEL}>
                     {t("siteAdmin.editor.picture")}
                     <input
@@ -414,9 +466,7 @@ export function PageEditor({
                         if (file === undefined) {
                           return;
                         }
-                        const shows = window.confirm(
-                          t("siteAdmin.editor.identifiablePrompt"),
-                        );
+                        const shows = declared.has(index);
                         void (async () => {
                           setBusy(true);
                           const result = await uploadSiteImage(file, shows);
@@ -440,6 +490,9 @@ export function PageEditor({
                         })();
                       }}
                     />
+                    <span className={HINT}>
+                      {t("siteAdmin.editor.pictureHint")}
+                    </span>
                   </label>
                   <label className={LABEL}>
                     {t("siteAdmin.editor.alt")}
@@ -532,26 +585,20 @@ export function PageEditor({
   );
 }
 
-/**
- * The places a refusal named, as a person counts them.
- *
- * The API answers with positions - the title, or a block's index - because a
- * response body may never carry the value that was refused. One-based here,
- * because the board is looking at a list of blocks and not at an array.
- */
-function locationsOf(failure: ApiFailure): string[] {
+/** The positions a refusal named: the page's title, or a block's index. */
+function locationsOf(failure: ApiFailure): ("title" | number)[] {
   const detail = failure.detail;
   if (!Array.isArray(detail)) {
     return [];
   }
-  return detail.flatMap((entry) => {
+  return detail.flatMap((entry): ("title" | number)[] => {
     if (typeof entry !== "object" || entry === null) {
       return [];
     }
     const { part, index } = entry as { part?: unknown; index?: unknown };
     if (part === "title") {
-      return ["1"];
+      return ["title"];
     }
-    return typeof index === "number" ? [String(index + 1)] : [];
+    return typeof index === "number" ? [index] : [];
   });
 }

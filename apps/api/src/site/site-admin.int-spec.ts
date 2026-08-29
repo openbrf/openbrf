@@ -570,6 +570,38 @@ describe("a picture on a page", () => {
   });
 });
 
+describe("the order the pages sit in", () => {
+  it("is written from the ids the board sent", async () => {
+    const listed = (
+      await inject({
+        method: "GET",
+        url: "/api/site/pages",
+        headers: { cookie: boardCookie },
+      })
+    ).json() as PageBody[];
+
+    // This suite's own pages, reversed. Every other page on the instance keeps
+    // whatever order it had, which is why only these ids are sent.
+    const mine = listed
+      .filter((one) => one.slug.includes(suffix))
+      .map((one) => one.id);
+    expect(mine.length).toBeGreaterThan(1);
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/site/pages/order",
+      payload: { ids: [...mine].reverse() },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const after = (response.json() as PageBody[])
+      .filter((one) => one.slug.includes(suffix))
+      .map((one) => one.id);
+    expect(after).toEqual([...mine].reverse());
+  });
+});
+
 describe("the preview", () => {
   it("is the website's own renderer, and writes nothing", async () => {
     const before = await prisma.page.count({
