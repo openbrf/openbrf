@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import type { AssociationFactsInput } from "./association-facts.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -42,8 +43,56 @@ let prisma: PrismaService;
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
 
-const ORGANIZATION_NUMBER = "769600-0000";
-const ASSOCIATION_NAME = "Brf Maklarprovet";
+/**
+ * The association row is the most shared state in the database.
+ *
+ * One instance serves one association and a check constraint pins its row to
+ * id 1, so every suite in a run reads the same one. What this suite needs from
+ * it is small: a name and an organisation number to find on the page, a known
+ * default language, and a completed setup so the route answers at all. It
+ * therefore takes the name and the number as it finds them instead of writing
+ * its own, writes only the fields it cannot work without, and puts every one of
+ * them back afterwards. An earlier version renamed the association and walked
+ * away, which failed site.int-spec.ts's front page two files later in the same
+ * run - a suite that passes on its own and fails in company.
+ */
+const ASSOCIATION_COLUMNS = {
+  name: true,
+  organizationNumber: true,
+  defaultLocale: true,
+  setupCompletedAt: true,
+} as const;
+
+type AssociationSlice = {
+  name: string;
+  organizationNumber: string | null;
+  defaultLocale: string;
+  setupCompletedAt: Date | null;
+};
+
+/**
+ * The name a fresh instance would carry anyway.
+ *
+ * Only reached when this suite is the first thing in a run to need an
+ * association at all, in which case it creates the row and deletes it again -
+ * so this name never outlives the suite. It matches the shared fixture's so
+ * that even a failed teardown leaves the database in the state the other
+ * suites expect rather than in one of this suite's invention.
+ */
+const FALLBACK_NAME = "Brf Eksemplet";
+
+/** The association's own, and public: it is printed in the annual report. */
+const FALLBACK_ORGANIZATION_NUMBER = "769600-0000";
+
+/** Read off the row in beforeAll rather than written into it. */
+let associationName: string;
+let organizationNumber: string;
+
+/** What was there before this suite touched anything, and how to put it back. */
+let associationBefore: AssociationSlice | null = null;
+let associationCreated = false;
+let factsBefore: Record<string, unknown> | null = null;
+let factsCreated = false;
 
 const boardMember = {
   personId: `broker-board-${suffix}`,
@@ -114,8 +163,14 @@ function saveFacts(cookie: string, facts: object) {
   });
 }
 
-/** Every fact back to unrecorded, so one test cannot decide another's page. */
-const NOTHING_RECORDED = {
+/**
+ * Every fact back to unrecorded, so one test cannot decide another's page.
+ *
+ * Typed against the service's own input shape and required rather than partial,
+ * so a fact added later fails to compile here until it is added to the reset -
+ * which is also the list the capture and the restore below are derived from.
+ */
+const NOTHING_RECORDED: Required<AssociationFactsInput> = {
   propertyDesignation: null,
   buildYear: null,
   landLeasehold: null,
@@ -130,6 +185,17 @@ const NOTHING_RECORDED = {
   storage: null,
   renovations: null,
 };
+
+/**
+ * The fact columns, as a select.
+ *
+ * Derived from the reset above rather than written out a second time, so a
+ * fact added later is captured and restored without anybody remembering to
+ * extend a second list.
+ */
+const FACT_COLUMNS = Object.fromEntries(
+  Object.keys(NOTHING_RECORDED).map((column) => [column, true]),
+);
 
 let boardCookie: string;
 let residentCookie: string;
@@ -146,23 +212,62 @@ beforeAll(async () => {
 
   prisma = app.get(PrismaService);
 
-  await prisma.association.upsert({
+  associationBefore = await prisma.association.findUnique({
     where: { id: 1 },
-    create: {
-      id: 1,
-      name: ASSOCIATION_NAME,
-      organizationNumber: ORGANIZATION_NUMBER,
-      // Swedish, so the page's own language can be told from the visitor's.
-      defaultLocale: "sv",
-      setupCompletedAt: new Date(),
-    },
-    update: {
-      name: ASSOCIATION_NAME,
-      organizationNumber: ORGANIZATION_NUMBER,
-      defaultLocale: "sv",
-      setupCompletedAt: new Date(),
-    },
+    select: ASSOCIATION_COLUMNS,
   });
+
+  if (associationBefore === null) {
+    // Nothing to preserve: this suite is the first thing in the run to need an
+    // association, so it makes one and removes it again below.
+    associationCreated = true;
+    await prisma.association.create({
+      data: {
+        id: 1,
+        name: FALLBACK_NAME,
+        organizationNumber: FALLBACK_ORGANIZATION_NUMBER,
+        defaultLocale: "sv",
+        setupCompletedAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.association.update({
+      where: { id: 1 },
+      data: {
+        /*
+         * Never the name. The suite asserts on whatever the association is
+         * called, so it has no use for one of its own - and writing one is
+         * precisely what leaked out of this file and into a later suite.
+         *
+         * The language is the one field it cannot take as it finds it: every
+         * assertion below reads a Swedish label, and the point of one of them
+         * is that the page ignores what the visitor asked for. The other two
+         * are filled in only when they are empty, because a page carrying no
+         * organisation number, and an instance that still reads as unclaimed,
+         * would each leave an assertion below with nothing to check.
+         */
+        defaultLocale: "sv",
+        organizationNumber:
+          associationBefore.organizationNumber ?? FALLBACK_ORGANIZATION_NUMBER,
+        setupCompletedAt: associationBefore.setupCompletedAt ?? new Date(),
+      },
+    });
+  }
+
+  const association = await prisma.association.findUniqueOrThrow({
+    where: { id: 1 },
+    select: ASSOCIATION_COLUMNS,
+  });
+  associationName = association.name;
+  organizationNumber =
+    association.organizationNumber ?? FALLBACK_ORGANIZATION_NUMBER;
+
+  // The facts row is a singleton too, and this suite is about writing it.
+  factsBefore = await prisma.associationFacts.findUnique({
+    where: { id: 1 },
+    select: FACT_COLUMNS,
+  });
+  factsCreated = factsBefore === null;
 
   await prisma.person.createMany({
     data: [
@@ -215,32 +320,76 @@ beforeAll(async () => {
   residentCookie = await signIn(resident.email);
 }, 180_000);
 
+/**
+ * Runs every step, whatever any one of them does.
+ *
+ * A sequence of awaits stops at the first rejection, so one failing delete
+ * leaves everything after it in the database - and what this suite leaves
+ * behind is read by other suites rather than by this one, which is how the
+ * failure ends up being reported against somebody else's test.
+ */
+async function cleanUp(
+  steps: readonly (() => Promise<unknown>)[],
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const step of steps) {
+    await step().catch((cause: unknown) => failures.push(cause));
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "The broker page suite could not put the instance back as it found it.",
+    );
+  }
+}
+
 afterAll(async () => {
   try {
     if (prisma !== undefined) {
-      // The facts row is the instance's own single row, so it is emptied rather
-      // than deleted: another suite may have been looking at it.
-      await prisma.associationFacts
-        .updateMany({ where: { id: 1 }, data: NOTHING_RECORDED })
-        .catch(() => undefined);
-      await prisma.residency.deleteMany({
-        where: { personId: { in: personIds } },
-      });
-      await prisma.apartment.deleteMany({
-        where: { id: { in: [firstApartmentId, secondApartmentId] } },
-      });
-      await prisma.address.deleteMany({ where: { id: addressId } });
-      await prisma.boardPosition.deleteMany({
-        where: { personId: { in: personIds } },
-      });
-      await prisma.session.deleteMany({
-        where: { user: { personId: { in: personIds } } },
-      });
-      await prisma.account.deleteMany({
-        where: { user: { personId: { in: personIds } } },
-      });
-      await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-      await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      await cleanUp([
+        // The two singletons first: they are what a later suite reads.
+        () =>
+          factsCreated
+            ? prisma.associationFacts.deleteMany({ where: { id: 1 } })
+            : prisma.associationFacts.update({
+                where: { id: 1 },
+                data: factsBefore ?? NOTHING_RECORDED,
+              }),
+        () =>
+          associationCreated || associationBefore === null
+            ? prisma.association.deleteMany({ where: { id: 1 } })
+            : prisma.association.update({
+                where: { id: 1 },
+                // Field for field as it was found, rather than as this suite
+                // would like it: the name the fixture chose stays the name the
+                // next suite reads.
+                data: associationBefore,
+              }),
+        () =>
+          prisma.residency.deleteMany({
+            where: { personId: { in: personIds } },
+          }),
+        () =>
+          prisma.apartment.deleteMany({
+            where: { id: { in: [firstApartmentId, secondApartmentId] } },
+          }),
+        () => prisma.address.deleteMany({ where: { id: addressId } }),
+        () =>
+          prisma.boardPosition.deleteMany({
+            where: { personId: { in: personIds } },
+          }),
+        () =>
+          prisma.session.deleteMany({
+            where: { user: { personId: { in: personIds } } },
+          }),
+        () =>
+          prisma.account.deleteMany({
+            where: { user: { personId: { in: personIds } } },
+          }),
+        () =>
+          prisma.user.deleteMany({ where: { personId: { in: personIds } } }),
+        () => prisma.person.deleteMany({ where: { id: { in: personIds } } }),
+      ]);
     }
   } finally {
     await app?.close();
@@ -255,8 +404,8 @@ describe("the page an association has before it has recorded anything", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/html");
-    expect(response.body).toContain(ASSOCIATION_NAME);
-    expect(response.body).toContain(ORGANIZATION_NUMBER);
+    expect(response.body).toContain(associationName);
+    expect(response.body).toContain(organizationNumber);
   });
 
   it("raises none of the questions the board has not answered", async () => {
@@ -441,7 +590,7 @@ describe("what the page promises whoever reads it", () => {
     // identity number and not only one this suite wrote. The organisation
     // number is lawful here, is printed on the page on purpose, and has the
     // same shape, so it is removed first.
-    const body = response.body.replaceAll(ORGANIZATION_NUMBER, "");
+    const body = response.body.replaceAll(organizationNumber, "");
     expect(/\b(?:19|20)?\d{6}[-+]?\d{4}\b/.test(body)).toBe(false);
   });
 });
