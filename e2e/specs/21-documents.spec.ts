@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import {
   request as playwrightRequest,
   type Browser,
@@ -8,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { documentFixture, documentNamed, readArchive } from "../src/documents";
-import { expect, stack, test } from "../src/fixtures";
+import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -64,8 +62,9 @@ const MINUTES = documentFixture({
 });
 const BYLAWS = documentFixture({ title: "Stadgar", category: "Stadgar" });
 
-/**
- * A client address per person a test acts as, derived from the test's own.
+/*
+ * Every person a test acts as gets a client address of their own, from the
+ * shared fixtures' `clientAddressFor`.
  *
  * The authentication endpoints are rate-limited to twenty requests a minute
  * per client address, and the fixture gives each test one - on the reading
@@ -81,12 +80,6 @@ const BYLAWS = documentFixture({ title: "Stadgar", category: "Stadgar" });
  * the same buckets, and hashed into the same private range the fixture uses,
  * so these are addresses of the same kind as every other in the suite.
  */
-function addressFor(clientAddress: string, persona: string): string {
-  const digest = createHash("sha256")
-    .update(`${clientAddress}::${persona}`)
-    .digest();
-  return `10.${String(digest[0]!)}.${String(digest[1]!)}.${String((digest[2]! % 254) + 1)}`;
-}
 
 async function signIn(
   page: Page,
@@ -234,7 +227,7 @@ test("a member sees the minutes; a resident who is not a member does not", async
     const personId = people.get(who.name);
     expect(personId, `${who.name} is not in the register`).toBeDefined();
 
-    const address = addressFor(clientAddress, who.email);
+    const address = clientAddressFor(clientAddress, who.email);
     await ensureAccountFor(request, {
       personId: personId as string,
       email: who.email,
@@ -303,7 +296,7 @@ test("a published document is fetched by a visitor with no account, and the memb
   const visitor = await playwrightRequest.newContext({
     baseURL: stack.baseUrl,
     extraHTTPHeaders: {
-      "x-forwarded-for": addressFor(clientAddress, "visitor"),
+      "x-forwarded-for": clientAddressFor(clientAddress, "visitor"),
     },
   });
   try {
