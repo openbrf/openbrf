@@ -15,6 +15,7 @@ import type { ApiResult } from "../api/client";
 import {
   MENU_GENERATED_KEYS,
   MENU_ITEM_KINDS,
+  MENU_LABEL_LIMIT,
   type MenuGeneratedKey,
   type MenuItem,
   type MenuItemFields,
@@ -45,6 +46,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "unknown-generated-key": "siteAdmin.menu.errors.unknownGeneratedKey",
   "invalid-url": "siteAdmin.menu.errors.invalidUrl",
   "label-required": "siteAdmin.menu.errors.labelRequired",
+  "label-too-long": "siteAdmin.menu.errors.labelTooLong",
   "target-required": "siteAdmin.menu.errors.targetRequired",
   "nesting-too-deep": "siteAdmin.menu.errors.nestingTooDeep",
 };
@@ -222,6 +224,7 @@ export function MenuEntryForm({
         <input
           className={FIELD}
           id={labelId}
+          maxLength={MENU_LABEL_LIMIT}
           onChange={(event) => {
             setLabel(event.target.value);
           }}
@@ -263,9 +266,19 @@ export function MenuEntryForm({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
+        {/*
+         * An instance with no pages yet cannot have a page entry, and the
+         * notice above says so. Refused rather than sent: the form would
+         * otherwise submit an entry naming no page and answer the board with
+         * the server's refusal to something they were never offered a way to
+         * get right. The other two kinds stay selectable, so the way out is
+         * the one the form already shows.
+         */}
         <button
           className={PRIMARY_BUTTON}
-          disabled={state.kind === "saving"}
+          disabled={
+            state.kind === "saving" || (kind === "PAGE" && pages.length === 0)
+          }
           type="submit"
         >
           {state.kind === "saving"

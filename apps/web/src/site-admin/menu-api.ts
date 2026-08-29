@@ -35,6 +35,15 @@ export const MENU_GENERATED_KEYS: readonly MenuGeneratedKey[] = [
 
 export type PageVisibility = "PUBLIC" | "MEMBER";
 
+/**
+ * As long a label as fits a menu on a telephone.
+ *
+ * The server holds the same number and refuses a longer one; the field carries
+ * it too so the board is stopped while typing rather than told afterwards.
+ * Written out here rather than imported, like the wire shapes above.
+ */
+export const MENU_LABEL_LIMIT = 60;
+
 export interface MenuItem {
   id: string;
   label: string;
