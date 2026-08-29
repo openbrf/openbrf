@@ -533,18 +533,25 @@ describe("the menu a visitor is served", () => {
   it("leaves out a generated page whose feature this instance has not got", async () => {
     await addEntry(boardCookie, {
       kind: "GENERATED",
-      label: `Nyheter ${suffix}`,
-      generatedKey: "news",
-    });
-    await addEntry(boardCookie, {
-      kind: "GENERATED",
       label: `Mäklarinfo ${suffix}`,
       generatedKey: "broker",
     });
 
     const response = await inject({ method: "GET", url: `/${slugs.home}` });
-    expect(response.body).not.toContain(`Nyheter ${suffix}`);
     expect(response.body).not.toContain(`Mäklarinfo ${suffix}`);
+  });
+
+  it("offers the news index, which this instance serves", async () => {
+    const label = `Nyheter ${suffix}`;
+    await addEntry(boardCookie, {
+      kind: "GENERATED",
+      label,
+      generatedKey: "news",
+    });
+
+    const response = await inject({ method: "GET", url: `/${slugs.home}` });
+    expect(response.body).toContain(label);
+    expect(response.body).toContain('href="/nyheter"');
   });
 
   it("offers the account request form only while the board takes requests", async () => {

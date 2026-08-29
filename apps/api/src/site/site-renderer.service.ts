@@ -10,6 +10,8 @@ import { hasBlock } from "./page-content";
 import { buildSiteStylesheet } from "./site-css";
 import type { SiteFormKind, SiteFormState, SiteIssueType } from "./site-forms";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
+import { renderNewsArticle, renderNewsIndex } from "./site-news";
+import { type SiteNewsArticle, SiteNewsService } from "./site-news.service";
 import { PagesService, type SitePage } from "./pages.service";
 import { visitorLocale } from "./visitor-locale";
 
@@ -82,21 +84,28 @@ export class SiteRenderer {
     private readonly pages: PagesService,
     private readonly menu: MenuService,
     private readonly issueTypes: IssueTypeService,
+    private readonly news: SiteNewsService,
   ) {}
 
   /**
    * One page as a whole document.
    *
-   * The visit is what this request is, and it reaches two different parts of
-   * the answer. The session decides the menu: a member sees the entries for
-   * the pages a member may open. What was just submitted decides whether a
-   * form on the page shows a confirmation instead of itself - it comes from
-   * the query string the submit endpoint redirected to, which is what makes
-   * the confirmation a state of the page rather than a second document, and
-   * what keeps the whole exchange to plain HTML.
+   * The visit is what this request is, and it reaches three different parts
+   * of the answer. The session decides the menu: a member sees the entries for
+   * the pages a member may open. It decides a news teaser block on the page as
+   * well: a member sees the members' items among the public ones. What was
+   * just submitted decides whether a form on the page shows a confirmation
+   * instead of itself - it comes from the query string the submit endpoint
+   * redirected to, which is what makes the confirmation a state of the page
+   * rather than a second document, and what keeps the whole exchange to plain
+   * HTML.
    *
-   * Neither of them decides the page. That was settled by the caller, which is
+   * None of them decides the page. That was settled by the caller, which is
    * the one place that may settle it.
+   *
+   * One answer about the session serves the menu and the teaser both. Reading
+   * it twice would be two places for the same request to reach two conclusions
+   * about who is asking.
    */
   async page(
     acceptLanguage: string | undefined,
@@ -107,7 +116,11 @@ export class SiteRenderer {
       this.chrome(acceptLanguage, visit.hasSession),
       this.formState(page, visit),
     ]);
-    return renderPage(chrome, page, forms);
+    return renderPage(
+      await this.withNews(chrome, page, visit.hasSession),
+      page,
+      forms,
+    );
   }
 
   /**
@@ -145,17 +158,84 @@ export class SiteRenderer {
   }
 
   /**
+   * The news index as a whole document.
+   *
+   * Session-aware for the chrome around it, exactly as a page is. Which items
+   * the index lists was already decided by the caller; what the session
+   * decides here is the menu, and a member who reaches the news through the
+   * menu would otherwise lose it on arrival.
+   *
+   * It takes the same visit a page takes rather than a shape of its own, so
+   * there is one answer in the renderer to who is asking. A news document
+   * carries no form, so the submission half of the visit is not read here.
+   */
+  async newsIndex(
+    acceptLanguage: string | undefined,
+    items: readonly SiteNewsArticle[],
+    visit: SiteVisit,
+  ): Promise<string> {
+    return renderNewsIndex(
+      await this.chrome(acceptLanguage, visit.hasSession),
+      items,
+    );
+  }
+
+  /** One news item as a whole document, with the chrome this reader gets. */
+  async newsArticle(
+    acceptLanguage: string | undefined,
+    article: SiteNewsArticle,
+    visit: SiteVisit,
+  ): Promise<string> {
+    return renderNewsArticle(
+      await this.chrome(acceptLanguage, visit.hasSession),
+      article,
+    );
+  }
+
+  /**
    * The website's own not-found document, in the visitor's language.
    *
-   * Rendered with the menu an anonymous visitor gets, whoever asked. The
-   * refusal is one document for everybody by construction: a member-only page
-   * and an address that names nothing have to answer identically, and the menu
-   * is the only part of the chrome that could have differed between them. It
-   * is also the one place where showing less costs nothing - somebody who
-   * mistyped an address gets the public menu and can find their way from it.
+   * Built from the chrome alone, never from anything a reader asked for, and
+   * always with the menu an anonymous visitor gets. Every refusal the website
+   * makes is this document, so what it holds must not vary with the address
+   * that produced it, with what the association happens to have published, or
+   * with who is asking: a member-only page, a member-only news item and an
+   * address that names nothing have to answer identically, and the menu is the
+   * only part of the chrome that could have differed between them. It is also
+   * the one place where showing less costs nothing - somebody who mistyped an
+   * address gets the public menu and can find their way from it.
    */
   async notFound(acceptLanguage: string | undefined): Promise<string> {
     return renderNotFound(await this.chrome(acceptLanguage, false));
+  }
+
+  /**
+   * The chrome with the news a teaser block on this page would show.
+   *
+   * Read only when the page has such a block, so the ordinary page costs no
+   * query, and read for this reader so a member sees the members' items among
+   * the public ones. The largest count any block on the page asks for is what
+   * is fetched: several teasers on one page are then one query, and each shows
+   * as many items as it asked for.
+   */
+  private async withNews(
+    chrome: SiteChrome,
+    page: SitePage,
+    hasSession: boolean,
+  ): Promise<SiteChrome> {
+    const wanted = page.content.blocks.reduce(
+      (most, block) =>
+        block.type === "newsTeaser" ? Math.max(most, block.count) : most,
+      0,
+    );
+    if (wanted === 0) {
+      return chrome;
+    }
+
+    return {
+      ...chrome,
+      newsTeasers: await this.news.teasers(hasSession, wanted),
+    };
   }
 
   /**
@@ -217,6 +297,9 @@ export class SiteRenderer {
       mediaUrl,
       privacyNoticePath,
       menu,
+      // Filled in by withNews for a page that asks for it. Empty everywhere
+      // else, the news documents and the not-found document included.
+      newsTeasers: [],
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,

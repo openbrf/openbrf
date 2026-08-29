@@ -36,8 +36,10 @@ beforeAll(async () => {
     privacyNoticePath: null,
     // The menu is the board's arrangement of the site and has nothing to do
     // with the forms on a page. Empty here so these assertions are about the
-    // forms alone; the menu has its own tests in site-html.spec.ts.
+    // forms alone; the menu has its own tests in site-html.spec.ts. The news a
+    // teaser block would show is empty for the same reason.
     menu: [],
+    newsTeasers: [],
   };
 });
 

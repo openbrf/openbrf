@@ -17,6 +17,7 @@ import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError, MediaService } from "../media/media.service";
 import { submittedContent, submittedContentSchema } from "./page-content";
 import { type PageAdminView, PagesWriteService } from "./pages-write.service";
+import { acceptLanguage } from "./site-request";
 import { SiteRenderer } from "./site-renderer.service";
 
 /**
@@ -145,10 +146,15 @@ export class PagesAdminController {
         // of something else.
         publiclyReadable: true,
       },
-      // The same answer about the visitor rather than about the page: shown as
-      // the widest audience would see it, though the board member looking at
-      // it is signed in. A preview exists to answer "what am I publishing",
-      // and the menu entries a session adds are not part of that answer.
+      /*
+       * The same answer about the visitor rather than about the page: shown as
+       * the widest audience would see it, though the board member looking at
+       * it is signed in. A preview exists to answer "what am I publishing",
+       * and neither the menu entries a session adds nor the members' news a
+       * teaser block would pull in are part of that answer: what the board
+       * needs to see before publishing is what the street will get, not the
+       * fuller version its own session would produce.
+       */
       { hasSession: false },
     );
     return { html };
@@ -269,10 +275,4 @@ export class SiteImagesController {
       showsIdentifiablePersons,
     };
   }
-}
-
-/** The header as one string, whatever shape Fastify parsed it into. */
-function acceptLanguage(request: FastifyRequest): string | undefined {
-  const value = request.headers["accept-language"];
-  return typeof value === "string" ? value : undefined;
 }

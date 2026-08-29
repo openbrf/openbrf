@@ -174,15 +174,14 @@ describe("the menu a visitor is served", () => {
     // A menu survives a feature being switched off, and survives being written
     // by a newer version of the product than the one rendering it.
     const { service } = build([
-      { id: "1", label: "Nyheter", kind: "GENERATED", generatedKey: "news" },
       {
-        id: "2",
+        id: "1",
         label: "Mäklarinfo",
         kind: "GENERATED",
         generatedKey: "broker",
       },
       {
-        id: "3",
+        id: "2",
         label: "Något nytt",
         kind: "GENERATED",
         generatedKey: "en-nyhet-fran-framtiden",
@@ -190,6 +189,23 @@ describe("the menu a visitor is served", () => {
     ]);
 
     await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
+  });
+
+  it("offers the news index to everybody, session or none", async () => {
+    // The news module serves /nyheter, so the entry pointing at it is one the
+    // menu may render. Who may read which item is the index's own question and
+    // never the menu's: the entry is the same for both readers, and a visitor
+    // with no session is answered with the items anybody may read rather than
+    // with a count of the ones they may not.
+    const { service } = build([
+      { id: "1", label: "Nyheter", kind: "GENERATED", generatedKey: "news" },
+    ]);
+    const entry = [
+      { label: "Nyheter", href: "/nyheter", external: false, children: [] },
+    ];
+
+    await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual(entry);
+    await expect(service.siteMenu(MEMBER)).resolves.toEqual(entry);
   });
 
   it("offers the account request form only while it is open and unused", async () => {

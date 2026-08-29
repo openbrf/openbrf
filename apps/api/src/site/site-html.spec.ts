@@ -31,6 +31,7 @@ beforeAll(async () => {
     mediaUrl: (mediaFileId) => `/api/media/${mediaFileId}`,
     privacyNoticePath: null,
     menu: [],
+    newsTeasers: [],
   };
 });
 

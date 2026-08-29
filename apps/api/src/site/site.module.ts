@@ -15,10 +15,17 @@ import { PagesModule } from "./pages.module";
 import { PagesWriteService } from "./pages-write.service";
 import { SiteController } from "./site.controller";
 import { SiteFormsController } from "./site-forms.controller";
+import { SiteNewsController } from "./site-news.controller";
+import { SiteNewsService } from "./site-news.service";
 import { SiteRenderer } from "./site-renderer.service";
 
 /**
  * The public website.
+ *
+ * The news controller is declared ahead of the page controller because the page
+ * controller's parameter route claims every single-segment path: Fastify ranks
+ * a static path above a parameter whatever the order, and stating the order
+ * here as well says which way round the two are meant to be read.
  *
  * Imports the setup module for one question - has this instance been claimed -
  * the theme module for what it renders as, and the media module because a page
@@ -45,14 +52,20 @@ import { SiteRenderer } from "./site-renderer.service";
     ContactModule,
   ],
   controllers: [
-    // The two public ones first, then the board's.
+    // The three public ones first, then the board's.
+    SiteNewsController,
     SiteController,
     SiteFormsController,
     PagesAdminController,
     SiteImagesController,
     MenuAdminController,
   ],
-  providers: [SiteRenderer, PagesWriteService, MenuWriteService],
+  providers: [
+    SiteRenderer,
+    SiteNewsService,
+    PagesWriteService,
+    MenuWriteService,
+  ],
   exports: [SiteRenderer],
 })
 export class SiteModule {}

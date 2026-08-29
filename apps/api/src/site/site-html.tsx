@@ -67,6 +67,52 @@ export interface SiteChrome {
    * exists.
    */
   menu: SiteMenu;
+  /**
+   * The most recent news this reader may see, newest first.
+   *
+   * Resolved against the reader's own session by the caller and handed in like
+   * everything else here, so a page carrying a news teaser shows a visitor with
+   * no account the public items and a member theirs as well. Empty on every
+   * page that carries no teaser, and empty on the not-found document always:
+   * the refusal a visitor gets for a member-only address must not vary with
+   * what the association happens to have published.
+   */
+  newsTeasers: readonly NewsTeaser[];
+}
+
+/** One news item as a teaser shows it. */
+export interface NewsTeaser {
+  /** The path segment under /nyheter. */
+  slug: string;
+  title: string;
+  /** When it was published. Rendered as a calendar date, never a clock time. */
+  publishedAt: Date;
+  /** The opening of the body, as much of it as a teaser shows. */
+  teaser: string;
+}
+
+/** Where the association's news lives, and the prefix every article sits under. */
+export const NEWS_PATH = "/nyheter";
+
+/** The address of one news item. */
+export function newsPath(slug: string): string {
+  return `${NEWS_PATH}/${slug}`;
+}
+
+/**
+ * A published date, as a calendar date in the reader's own language.
+ *
+ * The date and not the time. When a notice about the stairwell went up is
+ * information a reader uses; the minute it went up is not, and printing it
+ * would say more about the board's evening than about the notice.
+ */
+export function formatNewsDate(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "Europe/Stockholm",
+  }).format(date);
 }
 
 const DOCTYPE = "<!doctype html>";
@@ -84,7 +130,7 @@ export function renderPage(
   page: SitePage,
   forms: SiteFormState,
 ): string {
-  return document(
+  return renderDocument(
     chrome,
     page.title,
     <>
@@ -106,7 +152,7 @@ export function renderPage(
  * one function and not two.
  */
 export function renderNotFound(chrome: SiteChrome): string {
-  return document(
+  return renderDocument(
     chrome,
     chrome.t("site.notFound.title"),
     <>
@@ -130,12 +176,17 @@ export function renderNotFound(chrome: SiteChrome): string {
  * freely: a link's address, which the parser has already limited to http,
  * https, mailto and a path on this instance, and a picture's, which is built
  * from a stored file's id and so cannot name another host at all.
+ *
+ * A null form state is a document that has no form to show - a news article,
+ * whose body is prose and nothing else - and a form block reaching this
+ * renderer there is shown as nothing rather than as a form posting to an
+ * address that is not a page.
  */
-function renderBlock(
+export function renderBlock(
   chrome: SiteChrome,
   block: PageBlock,
   index: number,
-  forms: SiteFormState,
+  forms: SiteFormState | null,
 ): ReactElement | null {
   switch (block.type) {
     case "paragraph":
@@ -161,16 +212,69 @@ function renderBlock(
       // form's intro is text runs like any other prose on the page, so it goes
       // through the same renderer rather than through a second one that could
       // treat a link differently.
-      return renderSiteForm(
-        chrome.t,
-        block,
-        forms,
-        block.intro === undefined ? null : <p>{renderRuns(block.intro)}</p>,
-        index,
-      );
+      return forms === null
+        ? null
+        : renderSiteForm(
+            chrome.t,
+            block,
+            forms,
+            block.intro === undefined ? null : <p>{renderRuns(block.intro)}</p>,
+            index,
+          );
+    case "newsTeaser":
+      return renderNewsTeaser(chrome, block.count, index);
     default:
       return null;
   }
+}
+
+/**
+ * The most recent news, on a page that asked for it.
+ *
+ * The items come from the chrome, already filtered to what this reader may
+ * see, so the block itself decides only how many of them to show. A block on a
+ * page of an instance that has published nothing renders as nothing at all
+ * rather than as an empty heading: a page must not announce a news section the
+ * association has not started writing.
+ */
+function renderNewsTeaser(
+  chrome: SiteChrome,
+  count: number,
+  index: number,
+): ReactElement | null {
+  const items = chrome.newsTeasers.slice(0, count);
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="site-news" key={index}>
+      <h2>{chrome.t("news.site.heading")}</h2>
+      <ul className="site-news-list">
+        {items.map((item) => (
+          <li className="site-news-item" key={item.slug}>
+            <p className="site-news-date">
+              <time dateTime={isoDate(item.publishedAt)}>
+                {formatNewsDate(item.publishedAt, chrome.locale)}
+              </time>
+            </p>
+            <h3>
+              <a href={newsPath(item.slug)}>{item.title}</a>
+            </h3>
+            {item.teaser === "" ? null : <p>{item.teaser}</p>}
+          </li>
+        ))}
+      </ul>
+      <p>
+        <a href={NEWS_PATH}>{chrome.t("news.site.allNews")}</a>
+      </p>
+    </section>
+  );
+}
+
+/** The machine-readable half of a published date, for the time element. */
+export function isoDate(date: Date): string {
+  return date.toISOString().slice(0, "0000-00-00".length);
 }
 
 /**
@@ -182,7 +286,7 @@ function renderBlock(
  * stored run, which is what lets the not-found page and every other rendering
  * be compared byte for byte.
  */
-function renderRuns(runs: readonly TextRun[]): ReactNode {
+export function renderRuns(runs: readonly TextRun[]): ReactNode {
   return runs.map((run, index) => (
     <Fragment key={index}>{renderRun(run)}</Fragment>
   ));
@@ -290,7 +394,15 @@ function renderMenuLink(link: SiteMenuLink): ReactElement {
   );
 }
 
-function document(
+/**
+ * One document, chrome and all.
+ *
+ * Exported so that everything the website answers with goes through this one
+ * function: the pages, the news index, an article, and the refusal. A second
+ * shell would be a second header and footer to keep in step, and the first time
+ * they disagreed the difference would be visible from the outside.
+ */
+export function renderDocument(
   chrome: SiteChrome,
   title: string,
   main: ReactElement,
