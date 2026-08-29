@@ -33,17 +33,32 @@ import { appPath } from "../src/stack";
 
 test.describe.configure({ mode: "serial" });
 
-/** The resident who reports. From the shared fixture: 12/1001, a member. */
+/**
+ * The resident who reports. From the shared fixture: 12/1001, a member.
+ *
+ * The password is the one the shared fixture accounts are activated with, and
+ * it has to stay the literal spec 03 uses - it is the spec that activates this
+ * account, and spec 06 and the screenshot capture spell out the same one for
+ * the other shared people. ensureAccountFor establishes its idempotency by
+ * signing in before it invites, so a password of this spec's own invention
+ * would fail that probe, fall through to an invitation, and be refused for an
+ * account that already exists. Do not invent another one.
+ */
 const REPORTER = {
   fullName: "Astrid Lindqvist",
   email: "astrid@eksemplet.test",
-  password: "kastanjeblad-portvalv-2026",
+  password: "granngarden-kastanj-2026",
 } as const;
 
 /*
  * The external property manager. Written by this spec and never removed again -
  * nothing in the suite can delete a person - so the identity is this run's.
  * They hold no apartment, which is the point: they do not live here.
+ *
+ * This one is the spec's own, not the shared fixture's, so it carries its own
+ * password: the address is unique to the run, no other spec activates it, and
+ * ensureAccountFor therefore creates the account with exactly this password the
+ * first time it is asked for.
  */
 const MANAGER = {
   firstName: "Frida",
