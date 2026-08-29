@@ -215,6 +215,7 @@ export class PurgeService implements OnModuleInit {
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
+    const defaultLocale = await this.defaultLocale();
 
     const persons = await this.prisma.person.findMany({
       where: {
@@ -234,7 +235,7 @@ export class PurgeService implements OnModuleInit {
         },
         systemRoles: { none: {} },
         legalHolds: { none: { releasedAt: null } },
-        OR: CLEARABLE_STATES,
+        OR: clearableStates(defaultLocale),
       },
       orderBy: [{ createdAt: "asc" }],
       take: MAX_PERSONS_PER_RUN,
@@ -403,15 +404,29 @@ export class PurgeService implements OnModuleInit {
  * the query filters on and the list {@link PurgeService.purgePerson} clears
  * are visibly the same list. A field added to one and not the other is a field
  * that is either never erased or erased over and over.
+ *
+ * A function rather than a constant because of the last term: "states a
+ * language other than the association's" cannot be written without knowing
+ * which language that is.
  */
-const CLEARABLE_STATES: Prisma.PersonWhereInput[] = [
-  { emailCipher: { not: null } },
-  { emailIndex: { not: null } },
-  { phoneCipher: { not: null } },
-  { phoneIndex: { not: null } },
-  { userAccount: { isNot: null } },
-  { invitations: { some: { acceptedAt: null } } },
-];
+function clearableStates(defaultLocale: string): Prisma.PersonWhereInput[] {
+  return [
+    { emailCipher: { not: null } },
+    { emailIndex: { not: null } },
+    { phoneCipher: { not: null } },
+    { phoneIndex: { not: null } },
+    /*
+     * The stated language, which purgePerson resets and the scan used to miss.
+     * Somebody with no email, no phone, no account and no open invitation was
+     * therefore never selected, and their stated preference stayed on file for
+     * good - the exact case this list exists to prevent. Imported members are
+     * how that state is reached in practice.
+     */
+    { preferredLocale: { not: defaultLocale } },
+    { userAccount: { isNot: null } },
+    { invitations: { some: { acceptedAt: null } } },
+  ];
+}
 
 /**
  * Whether this person is still eligible, judged on rows already read inside
