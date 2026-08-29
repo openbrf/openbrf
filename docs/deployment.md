@@ -56,11 +56,17 @@ onwards.
 
 Once the instance is claimed, `APP_URL` serves the association's own public
 website and the application moves to `/app` under it. Finishing the wizard
-writes one page so the address answers with something. Editing it needs the
-page editor, which is not built yet: until it is, the page stands as the wizard
-wrote it. The public pages are plain HTML rendered by the API through the active
-theme: they run no JavaScript, set no cookie and fetch nothing from any other
-host, which is also why the site needs no cookie banner.
+writes two pages so the address answers with something: a front page, and a
+privacy notice whose headings the board fills in and which is linked from the
+footer of every page. Both are edited from `/app/admin/site`, which the board
+reaches by default. The public pages are plain HTML rendered by the API through
+the active theme: they run no JavaScript, set no cookie and fetch nothing from
+any other host, which is also why the site needs no cookie banner.
+
+An instance claimed before the privacy notice existed is written one on its
+next start. It is the only page written outside the wizard, and writing it is
+idempotent: an instance that already has one is left alone, and so is a notice
+the board has since rewritten.
 
 ## What happens on every start
 

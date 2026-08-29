@@ -12,13 +12,13 @@ suite driving a browser against that image.
 The way in is there now: a board member invites a person from the register, the
 invitation arrives as an email, and the link in it opens a screen where the
 recipient chooses a password and is signed in as soon as it is set. The
-association's own website has its foundation as well - the site answers at the
-domain root, the application is served under `/app`, and a page is rendered as
-plain HTML with no JavaScript, no cookies and no third-party requests. What is
-still missing is everything a housing cooperative writes on it: the page
-editor, the menu, its documents and its news. Until the editor lands, an
-instance shows the single page the setup wizard writes. The project is not
-ready to hold your housing cooperative's data.
+association's own website is there as well - the site answers at the domain
+root, the application is served under `/app`, and a page is rendered as plain
+HTML with no JavaScript, no cookies and no third-party requests. The board
+writes those pages from the application now, with the publication guardrails
+inside the write path. What is still missing on the website is the menu, its
+documents and its news. The project is not ready to hold your housing
+cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -230,15 +230,16 @@ locally the application runs from source beside the PostgreSQL that
 ### The public website
 
 Decided into v1 on 2026-08-28: the association's own website, replacing the
-separate website vendor many cooperatives pay for today. The foundation is
-built: the site takes the domain root, the application is served under `/app`,
-and a page is rendered by the API as plain HTML through the theme tokens. A
-public page needs no JavaScript, sets no cookies and makes no third-party
-requests - which also means no cookie banner. What is missing is everything an
-association writes with: the page editor, the menu, news and the public forms.
-Until the editor lands, an instance gets the one page the setup wizard writes
-when the cooperative is claimed. Search engine optimisation is a non-goal: page
-titles, and no sitemap or metadata machinery.
+separate website vendor many cooperatives pay for today. The site takes the
+domain root, the application is served under `/app`, and a page is rendered by
+the API as plain HTML through the theme tokens. A public page needs no
+JavaScript, sets no cookies and makes no third-party requests - which also means
+no cookie banner. The board writes those pages now: text with emphasis and
+links, headings and pictures, each page published or not and public or for the
+members, with the publication guardrails inside the write path rather than
+beside it. What is still missing is the menu, news and the public forms. Search
+engine optimisation is a non-goal: page titles, and no sitemap or metadata
+machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
@@ -260,11 +261,19 @@ titles, and no sitemap or metadata machinery.
       Member-only pages are readable by anyone signed in and answered to
       everyone else with the same not-found document, byte for byte, that an
       address with no page behind it gets
-- [ ] Page editor: rich text with insertable data blocks - news teasers,
-      document list, board roster, association facts, FAQ, and the contact
-      and issue report forms. Editing pages, menu and news is a capability
-      granted to the board by default and grantable to others; site-wide
-      settings stay with an admin
+- [x] Page editor: the board writes the association's pages from the
+      application - paragraphs with emphasis and links, headings, and pictures
+      served from the instance's own origin - and each page is a draft until it
+      is published. What is stored is a block list rather than markup, so the
+      editor is a mapping onto the website's own format and never a second
+      format of its own; a preview is rendered by the website itself, so what
+      the board approves is what a visitor is served. Editing pages, the menu
+      and news is a capability granted to the board by default and grantable to
+      others; site-wide settings stay with an admin
+- [ ] The remaining insertable data blocks: document list, board roster,
+      association facts and FAQ. The news teaser and the two form blocks arrive
+      with the features below; these four are the ones that need no feature of
+      their own, only the block and its rendering
 - [ ] Menu editor: top level plus one dropdown level; pages, generated pages
       and external links
 - [ ] Public and member-only visibility in one site menu, gated by sign-in.
@@ -273,13 +282,17 @@ titles, and no sitemap or metadata machinery.
 - [ ] News on the site, member-only by default, with "email this to the
       members" at publish - a toggle, on by default, sent once through the
       job queue in each recipient's language, and never re-sent on edit
-- [ ] Publication guardrails: a person appears on a public page only with a
-      recorded publication consent, protected personal data never appears at
-      all, a personal identity number scan blocks publishing, minutes default
-      to member-only, free-text editors warn against special-category data,
-      a fill-in privacy notice page ships footer-linked, and every publish,
-      visibility change and consent change lands in the audit log. The
-      public rendering path has no route to the statutory registers
+- [x] Publication guardrails, inside the write path rather than beside it: a
+      picture reaches a published page only once the board has confirmed the
+      recorded publication consents of everyone who can be recognised in it, a
+      personal identity number anywhere on a page refuses the publication and
+      says which block it is in without repeating the number, minutes default
+      to member-only, the editor warns against writing special-category data
+      about a named person, a fill-in privacy notice ships footer-linked on
+      every page, and every publish, visibility change and consent change is
+      written to the audit log in the transaction that made it. Protected
+      personal data never appears at all, because the public rendering path
+      imports neither the registers, the address book nor the encryption layer - which a test asserts on the source rather than on a rendered page
 - [ ] Broker information page generated from association facts, and the
       public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
