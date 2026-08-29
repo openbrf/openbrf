@@ -15,6 +15,7 @@ import {
   moveInMail,
   moveOutMail,
 } from "../mail/templates";
+import { lockResidencyTransitions } from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 
@@ -717,41 +718,6 @@ export class MoveService implements OnModuleInit {
     });
     return true;
   }
-}
-
-/**
- * Serializes one person's residency transitions for the length of the
- * transaction.
- *
- * Both flows decide what to write into the member register by counting the
- * person's other tenant-ownerships, and that count is read before the row that
- * would change its answer exists. Two transitions for the same person running
- * at once each read a state the other is about to invalidate: two move-ins
- * would both find no membership running and both append an ENTRY, and two
- * move-outs would each see the other's apartment as still held and neither
- * would append the EXIT. The register refuses UPDATE and DELETE, so the first
- * mistake cannot be removed and the second can only be answered by a later
- * correction row.
- *
- * An advisory lock rather than a constraint, because the invariant is "one
- * membership per person for as long as a tenant-ownership is held" and it is
- * derived from a set of residency rows. No single row carries it, so no unique
- * index can state it. Taken as the first statement in the transaction, and
- * released by the commit or the rollback with nothing left to remember to
- * unlock.
- *
- * The key is namespaced and hashed to the int4 the lock space is addressed in.
- * A collision between two persons costs one of them a short wait and nothing
- * else.
- *
- * Run through $executeRaw rather than $queryRaw because the lock function
- * returns void, which the client has no column type for.
- */
-async function lockResidencyTransitions(
-  tx: Prisma.TransactionClient,
-  personId: string,
-): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency:${personId}`}))`;
 }
 
 /**

@@ -58,6 +58,10 @@ const apartments = {
   b: `imp-apartment-b-${suffix}`,
   c: `imp-apartment-c-${suffix}`,
   d: `imp-apartment-d-${suffix}`,
+  /** The apartment the overlapping move-in case imports into. */
+  e: `imp-apartment-e-${suffix}`,
+  /** The one the move-in it overlaps takes. */
+  f: `imp-apartment-f-${suffix}`,
 };
 
 const actors = {
@@ -77,6 +81,11 @@ const actors = {
   /** Two people of the same name in one apartment: the ambiguous case. */
   twinA: { personId: `imp-twin-a-${suffix}` },
   twinB: { personId: `imp-twin-b-${suffix}` },
+  /** Already in the register, and moving in while their row is applied. */
+  mover: {
+    personId: `imp-mover-${suffix}`,
+    email: `imp-mover-${suffix}@exempel.se`,
+  },
 } as const;
 
 const twinFirstName = "Dubbel";
@@ -238,6 +247,49 @@ async function upload(
  * Uploads a file and previews it, which is what the apply now requires: the
  * import that runs is the one the board looked at.
  */
+/**
+ * True while a transaction is waiting for this one person's transition lock.
+ *
+ * This person's, not any: the suite shares its database, and a count of every
+ * advisory wait in it would be answered by an unrelated test holding an
+ * unrelated lock - which would release the move-in below early and let the case
+ * pass without the chunk ever having waited for anything.
+ *
+ * Postgres addresses the advisory lock space with a 64-bit key and reports it
+ * split: the high half in classid, the low half in objid, and objsubid 1 for
+ * the one-argument form the lock is taken with. hashtext returns an int4 that
+ * the lock function widens to that key, so a negative hash sign-extends and its
+ * high half comes back as all ones - which is why both halves are masked out of
+ * the key rather than assumed to be zero.
+ */
+async function waitsForTransitionLock(personId: string): Promise<boolean> {
+  const key = `residency:${personId}`;
+  const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+    SELECT count(*) AS waiting
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND NOT granted
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return (row?.waiting ?? 0n) > 0n;
+}
+
+/** Polls until the condition holds, or gives up so a failure is a failure. */
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for the chunk to block or finish.");
+}
+
 async function uploadAndPreview(
   cookie: string,
   fileName: string,
@@ -397,6 +449,8 @@ beforeAll(async () => {
       { id: apartments.b, addressId, number: "2102", floor: 1 },
       { id: apartments.c, addressId, number: "2103", floor: 1 },
       { id: apartments.d, addressId, number: "2104", floor: 1 },
+      { id: apartments.e, addressId, number: "2105", floor: 1 },
+      { id: apartments.f, addressId, number: "2106", floor: 1 },
     ],
   });
 
@@ -414,6 +468,11 @@ beforeAll(async () => {
     personId: actors.existing.personId,
     firstName: "Existing",
     email: actors.existing.email,
+  });
+  await createPerson({
+    personId: actors.mover.personId,
+    firstName: "Mover",
+    email: actors.mover.email,
   });
   await createPerson({
     personId: actors.twinA.personId,
@@ -958,6 +1017,103 @@ describe("two applies of one session", () => {
     });
     expect(created).toHaveLength(1);
     expect(created[0]?.memberRegisterEntries).toHaveLength(1);
+  }, 60_000);
+});
+
+describe("an apply overlapping a move", () => {
+  it("waits for the move rather than reading round it", async () => {
+    // Whether a member row begins a membership is decided by counting the
+    // person's other tenant-ownerships, and the chunk reads that count before
+    // the row that would answer it exists. A move-in for the same person
+    // committing inside that window is invisible to the count, so the chunk
+    // appends a second ENTRY - to a register that refuses UPDATE and DELETE,
+    // where two tenant-ownerships are one membership and the mistake can only
+    // be answered by a later correction row.
+    //
+    // The move-in is played out here as the transaction it is, rather than
+    // through the service, because the case is about what the chunk sees while
+    // that transaction is open: it holds the person's transition lock, writes
+    // what a move-in writes, and does not commit until this test lets it. A
+    // chunk that takes the same lock cannot read until then; one that does not
+    // reads a register with no membership in it and writes the duplicate.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "flytt.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2105",
+        "Mover",
+        surname,
+        "Medlem",
+        actors.mover.email,
+        "",
+        "2023-03-01",
+      ],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const moveIn = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency:${actors.mover.personId}`}))`;
+        await tx.residency.create({
+          data: {
+            personId: actors.mover.personId,
+            apartmentId: apartments.f,
+            role: "MEMBER",
+            movedInOn: new Date("2023-03-01T00:00:00.000Z"),
+          },
+        });
+        await tx.memberRegisterEntry.create({
+          data: {
+            personId: actors.mover.personId,
+            apartmentId: apartments.f,
+            eventType: "ENTRY",
+            eventOn: new Date("2023-03-01T00:00:00.000Z"),
+            recordedFirstName: "Mover",
+            recordedLastName: surname,
+          },
+        });
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    let chunkSettled = false;
+    const chunk = applies
+      .applyNextChunk(session.sessionId)
+      .finally(() => (chunkSettled = true));
+
+    // Released only once the chunk can make no further progress on its own:
+    // either it is waiting for this person's lock, which is the whole of the
+    // fix, or it has finished without taking one, which is the defect. Waiting
+    // on the state rather than on a duration keeps both outcomes deterministic.
+    await waitFor(
+      async () =>
+        chunkSettled || (await waitsForTransitionLock(actors.mover.personId)),
+    );
+    release();
+    await Promise.all([moveIn, chunk]);
+
+    const entries = await prisma.memberRegisterEntry.findMany({
+      where: { personId: actors.mover.personId },
+      orderBy: { createdAt: "asc" },
+      select: { eventType: true },
+    });
+    // Two tenant-ownerships, one membership, one ENTRY: the chunk read the
+    // move-in's row because it waited for it.
+    expect(
+      await prisma.residency.count({
+        where: { personId: actors.mover.personId },
+      }),
+    ).toBe(2);
+    expect(entries.map((entry) => entry.eventType)).toEqual(["ENTRY"]);
   }, 60_000);
 });
 
