@@ -467,54 +467,49 @@ describe("a composed theme is an ordinary installed theme", () => {
     );
     await themes.activate(CHILD, null);
 
-    const before = await prisma.installedTheme.findUniqueOrThrow({
-      where: { id: COMPOSED },
-    });
+    try {
+      const before = await prisma.installedTheme.findUniqueOrThrow({
+        where: { id: COMPOSED },
+      });
 
-    // Legible in the parent itself, illegible under the child's own ink.
-    await expect(
-      installer.compose(
-        {
-          id: COMPOSED,
-          displayName: "Husets farger",
-          extends: "porttavlan",
-          modes: { light: { "surface-register": "#363636" }, dark: {} },
-          description: undefined,
-        },
-        null,
-      ),
-    ).rejects.toMatchObject({ reason: "lint-failed" });
+      // Legible in the parent itself, illegible under the child's own ink.
+      const error = await refusal(
+        installer.compose(
+          {
+            id: COMPOSED,
+            displayName: "Husets farger",
+            extends: "porttavlan",
+            modes: { light: { "surface-register": "#363636" }, dark: {} },
+            description: undefined,
+          },
+          null,
+        ),
+      );
 
-    // The refusal names the theme the board would have to go and look at.
-    await expect(
-      installer.compose(
-        {
-          id: COMPOSED,
-          displayName: "Husets farger",
-          extends: "porttavlan",
-          modes: { light: { "surface-register": "#363636" }, dark: {} },
-          description: undefined,
-        },
-        null,
-      ),
-    ).rejects.toMatchObject({
-      findings: expect.arrayContaining([
-        expect.objectContaining({
-          rule: "contrast",
-          detail: expect.objectContaining({ theme: CHILD, statutory: true }),
-        }),
-      ]),
-    });
+      expect(error.reason).toBe("lint-failed");
+      // The refusal names the theme the board would have to go and look at.
+      expect(error.findings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            rule: "contrast",
+            detail: expect.objectContaining({ theme: CHILD, statutory: true }),
+          }),
+        ]),
+      );
 
-    // Nothing was written: the parent stands at the version it had, and the
-    // child still renders what it rendered.
-    const after = await prisma.installedTheme.findUniqueOrThrow({
-      where: { id: COMPOSED },
-    });
-    expect(after.version).toBe(before.version);
-    expect(after.declaredLightTokens).toEqual(before.declaredLightTokens);
-
-    await themes.activate(null, null);
+      // Nothing was written: the parent stands at the version it had, and the
+      // child still renders what it rendered.
+      const after = await prisma.installedTheme.findUniqueOrThrow({
+        where: { id: COMPOSED },
+      });
+      expect(after.version).toBe(before.version);
+      expect(after.declaredLightTokens).toEqual(before.declaredLightTokens);
+    } finally {
+      // Whatever the assertions did, the shared database must not carry this
+      // suite's activation into the next test - an active theme cannot be
+      // uninstalled, and the failure would surface there instead of here.
+      await themes.activate(null, null);
+    }
   });
 
   it("uninstalls, taking its files with it", async () => {

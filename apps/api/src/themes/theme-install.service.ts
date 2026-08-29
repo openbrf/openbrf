@@ -528,9 +528,30 @@ export class ThemeInstallService {
         continue;
       }
 
+      // A descendant that could not resolve before this save has nothing to
+      // regress from: on the first install of a parent, every theme naming it
+      // had a missing-parent chain, and treating those as newly introduced
+      // would refuse the very install that makes them resolvable.
+      const priorChain = resolveThemeChain(row.id, (id) => before.get(id));
+      if (!priorChain.ok) {
+        continue;
+      }
+
       const was = failuresFor(row.id, before);
       for (const [key, { mode, finding }] of failuresFor(row.id, after)) {
         if (was.has(key)) {
+          continue;
+        }
+        /*
+         * Only the statutory pairs block. A theme's own failures are its
+         * author's to answer for, and the lint refuses all of them; a
+         * descendant's are somebody else's theme, and the author of the parent
+         * may have no way to change it. Blocking their edit is justified where
+         * the law is: the registers are documents the association must be able
+         * to produce and read (decision 45). Anything else is left to the
+         * descendant's own next save, which measures it in full.
+         */
+        if (!finding.statutory) {
           continue;
         }
         findings.push({
