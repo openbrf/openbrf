@@ -184,7 +184,25 @@
       "inviteNoEmail": "The register holds no email address for this person, so no invitation can be sent.",
       "inviteMailNotConfigured": "The email settings are missing, so the invitation could not be sent. Fill them in under Settings.",
       "invitationExpiresAt": "Invitation valid until",
-      "invitationExpired": "The invitation has expired. Send a new one."
+      "invitationExpired": "The invitation has expired. Send a new one.",
+      "publicationConsent": "Publication consent",
+      "publicationConsentExplained": "What the person has told the board may appear about them on the association's website. Recorded here; a withdrawal keeps the dates it applied between.",
+      "consentScope": {
+        "photo": "Photographs",
+        "nameOnSite": "Name on the website",
+        "boardRoster": "The published board roster"
+      },
+      "consentGranted": "Consent given",
+      "consentWithdrawn": "Consent withdrawn",
+      "consentNever": "Not asked",
+      "consentGrantedOn": "Given",
+      "consentWithdrawnOn": "Withdrawn",
+      "consentRecord": "Record consent",
+      "consentWithdraw": "Withdraw consent",
+      "consentRecordLabel": "Record consent for {{scope}}",
+      "consentWithdrawLabel": "Withdraw consent for {{scope}}",
+      "consentWorking": "Saving",
+      "consentFailed": "The consent could not be changed. Try again."
     },
     "reveal": {
       "action": "Reveal",

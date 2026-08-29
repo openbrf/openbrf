@@ -18,6 +18,10 @@ import {
   type MaskableField,
   toIsoDate,
 } from "./address-book-view";
+import {
+  consentStateFor,
+  type PublicationConsentView,
+} from "./publication-consent";
 
 export class PersonError extends Error {
   constructor(
@@ -95,6 +99,15 @@ export interface PersonDetail {
   boardPositions: PersonBoardPositionView[];
   systemRoles: SystemRoleType[];
   account: PersonAccountView;
+  /**
+   * Publication consent per scope (publiceringssamtycke).
+   *
+   * On this payload and no other. The resident-facing directory has no person
+   * view at all, so a resident never sees this - which is the point: it is what
+   * the board recorded about a person, and a person reading their own entry
+   * would be reading the board's note rather than giving consent.
+   */
+  publicationConsents: PublicationConsentView[];
 }
 
 export interface CreatePersonInput {
@@ -202,6 +215,15 @@ export class PersonService {
           take: 1,
           select: { expiresAt: true },
         },
+        publicationConsents: {
+          orderBy: [{ grantedAt: "desc" }],
+          select: {
+            scope: true,
+            grantedAt: true,
+            withdrawnAt: true,
+            note: true,
+          },
+        },
       },
     });
 
@@ -293,6 +315,7 @@ export class PersonService {
             ? null
             : pendingInvitation.expiresAt.toISOString(),
       },
+      publicationConsents: consentStateFor(person.publicationConsents),
     };
   }
 

@@ -24,11 +24,16 @@ import {
   MASKABLE_FIELDS,
   type ResidentDirectoryRow,
 } from "./address-book-view";
+import { ConsentService } from "./consent.service";
 import {
   type PersonDetail,
   PersonService,
   type RevealedFields,
 } from "./person.service";
+import {
+  CONSENT_SCOPES,
+  type PublicationConsentView,
+} from "./publication-consent";
 
 /** Bounded so a client cannot ask for the whole register in one response. */
 const MAX_PAGE_SIZE = 100;
@@ -66,6 +71,14 @@ const protectedFlagSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+const publicationConsentSchema = z.object({
+  scope: z.enum(CONSENT_SCOPES),
+  granted: z.boolean(),
+  // What the person said, in the board's words. Bounded like every other free
+  // text the board types into the register.
+  note: z.string().max(500).optional(),
+});
+
 const revealSchema = z.object({
   // Bounded and deduplicated. The entry recording who saw a personal identity
   // number is the evidence a supervisory authority asks for, so it must not be
@@ -94,6 +107,7 @@ export class AddressBookController {
   constructor(
     private readonly addressBook: AddressBookService,
     private readonly persons: PersonService,
+    private readonly consents: ConsentService,
   ) {}
 
   @Get()
@@ -137,6 +151,32 @@ export class AddressBookController {
       personId: id,
       protectedPersonalData: input.protectedPersonalData,
       reason: input.reason,
+      actorPersonId: actorOf(request),
+    });
+  }
+
+  /**
+   * Records or withdraws one publication consent (publiceringssamtycke).
+   *
+   * Shaped like the protected personal data flag above, and gated the same
+   * way: the board writes down what the person told them. The current state
+   * travels on the person payload, which `addressBook:read` already gates, so
+   * a viewer who may not read the board's address book never sees a consent
+   * either.
+   */
+  @Patch("persons/:id/publication-consent")
+  @RequireCapability("addressBook:read", "addressBook:write")
+  async setPublicationConsent(
+    @Req() request: RequestWithPrincipal,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<PublicationConsentView> {
+    const input = publicationConsentSchema.parse(body);
+    return this.consents.setConsent({
+      personId: id,
+      scope: input.scope,
+      granted: input.granted,
+      note: input.note,
       actorPersonId: actorOf(request),
     });
   }

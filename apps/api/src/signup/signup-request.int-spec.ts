@@ -371,3 +371,92 @@ describe("approval", () => {
     });
   });
 });
+
+/**
+ * What a decision leaves behind.
+ *
+ * A self-signup decision is a board act on a person's access to the
+ * association's data, so it is recorded like every other one. The entry has to
+ * commit with the decision it records: a board member who loses the race for a
+ * request finds it already decided and writes nothing, and the log must not
+ * end up claiming two people decided one request.
+ */
+describe("the audit trail of a decision", () => {
+  beforeAll(ensurePendingRequest);
+
+  it("records an approval, naming the request and the person it produced", async () => {
+    const pending = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+    });
+
+    const result = await requests.approve({
+      requestId: pending.id,
+      apartmentId,
+      decidedByPersonId: board.personId,
+    });
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "SIGNUP_REQUEST_APPROVED",
+        targetKind: "signupRequest",
+        targetId: pending.id,
+      },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.targetPersonId).toBe(result.personId);
+    expect(entry?.context).toMatchObject({ apartmentId, role: "RESIDENT" });
+  }, 60_000);
+
+  it("records a rejection, and names no person because none was created", async () => {
+    await ensurePendingRequest();
+    const pending = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+    });
+
+    await requests.reject({
+      requestId: pending.id,
+      decidedByPersonId: board.personId,
+      reason: "Bor inte i föreningen",
+    });
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "SIGNUP_REQUEST_REJECTED",
+        targetKind: "signupRequest",
+        targetId: pending.id,
+      },
+    });
+
+    expect(entry).not.toBeNull();
+    expect(entry?.actorPersonId).toBe(board.personId);
+    // The applicant is not in the register, so there is no person to name.
+    expect(entry?.targetPersonId).toBeNull();
+    expect(entry?.context).toMatchObject({ reason: "Bor inte i föreningen" });
+  });
+
+  it("writes nothing for a decision that was refused", async () => {
+    const decided = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber: "1105", status: "REJECTED" },
+      orderBy: [{ decidedAt: "desc" }],
+    });
+
+    await expect(
+      requests.reject({
+        requestId: decided.id,
+        decidedByPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "already-decided" });
+
+    // One entry, not two: the refusal rolled its transaction back.
+    const entries = await prisma.auditLogEntry.count({
+      where: {
+        action: "SIGNUP_REQUEST_REJECTED",
+        targetKind: "signupRequest",
+        targetId: decided.id,
+      },
+    });
+    expect(entries).toBe(1);
+  });
+});

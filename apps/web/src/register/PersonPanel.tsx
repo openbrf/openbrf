@@ -6,14 +6,17 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
+  type ConsentScope,
   fetchPerson,
   type MaskableField,
   type PersonDetail,
+  type PublicationConsent,
   RegisterRequestError,
   revealFields,
   type RevealedFields,
   sendInvitation,
   setProtectedPersonalData,
+  setPublicationConsent,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
@@ -45,6 +48,18 @@ const SYSTEM_ROLE_LABEL = {
   ADMIN: "register.person.systemRole.admin",
   PROPERTY_MANAGER: "register.person.systemRole.propertyManager",
 } as const satisfies Record<string, TranslationKey>;
+
+const CONSENT_SCOPE_LABEL = {
+  PHOTO: "register.person.consentScope.photo",
+  NAME_ON_SITE: "register.person.consentScope.nameOnSite",
+  BOARD_ROSTER: "register.person.consentScope.boardRoster",
+} as const satisfies Record<ConsentScope, TranslationKey>;
+
+const CONSENT_STATE_LABEL = {
+  granted: "register.person.consentGranted",
+  withdrawn: "register.person.consentWithdrawn",
+  never: "register.person.consentNever",
+} as const satisfies Record<PublicationConsent["state"], TranslationKey>;
 
 const ACCOUNT_LABEL = {
   active: "register.person.accountActive",
@@ -117,6 +132,8 @@ export function PersonPanel({
   const [revealing, setRevealing] = useState<MaskableField | null>(null);
   const [revealFailed, setRevealFailed] = useState(false);
   const [protectionFailed, setProtectionFailed] = useState(false);
+  const [consentFailed, setConsentFailed] = useState(false);
+  const [consentSaving, setConsentSaving] = useState<ConsentScope | null>(null);
   const [inviteStatus, setInviteStatus] = useState<InviteStatus>({
     kind: "idle",
   });
@@ -208,6 +225,37 @@ export function PersonPanel({
       onChanged();
     },
     [personId, onChanged],
+  );
+
+  /*
+   * Recording or withdrawing one publication consent.
+   *
+   * `onChanged` is deliberately not called, for the reason the invitation
+   * below gives: the board's rows carry no consent state, so reloading them
+   * would shift the list under whoever is reading it and change nothing they
+   * can see. The panel refetches itself, which is what puts the new date on
+   * screen.
+   *
+   * A failure must not look like success. A board member who read a failed
+   * withdrawal as a successful one would leave a person's name publishable
+   * after they asked for it to be taken down, which is the whole point of
+   * recording the consent in the first place.
+   */
+  const changeConsent = useCallback(
+    async (scope: ConsentScope, granted: boolean): Promise<void> => {
+      setConsentFailed(false);
+      setConsentSaving(scope);
+      try {
+        await setPublicationConsent(personId, scope, granted);
+      } catch {
+        setConsentFailed(true);
+        return;
+      } finally {
+        setConsentSaving(null);
+      }
+      setReloadToken((token) => token + 1);
+    },
+    [personId],
   );
 
   /*
@@ -622,6 +670,79 @@ export function PersonPanel({
               ) : null}
             </span>
           </Field>
+
+          {/*
+           * Publication consent, on the board's person view and nowhere else.
+           * This is the board's record of what the person told them - the same
+           * kind of note as the protected-data flag below - so it belongs where
+           * the board works, not on a screen a resident reads about themselves.
+           */}
+          <section className="flex flex-col gap-3 border-t border-line pt-4">
+            <h3 className="text-title">
+              {t("register.person.publicationConsent")}
+            </h3>
+            <p className="text-small text-ink-muted">
+              {t("register.person.publicationConsentExplained")}
+            </p>
+            <ul className="flex flex-col gap-3">
+              {person.publicationConsents.map((consent) => (
+                <li
+                  key={consent.scope}
+                  className="flex flex-col gap-1.5 border-t border-line pt-2"
+                >
+                  <span className="text-label text-ink-muted uppercase">
+                    {t(CONSENT_SCOPE_LABEL[consent.scope])}
+                  </span>
+                  <span className="text-body text-ink">
+                    {t(CONSENT_STATE_LABEL[consent.state])}
+                  </span>
+                  <DatePair
+                    from={consent.grantedOn}
+                    to={consent.withdrawnOn}
+                    fromLabelKey="register.person.consentGrantedOn"
+                    toLabelKey="register.person.consentWithdrawnOn"
+                  />
+                  {consent.note === null ? null : (
+                    <span className="text-small text-ink-muted">
+                      {consent.note}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void changeConsent(
+                        consent.scope,
+                        consent.state !== "granted",
+                      );
+                    }}
+                    disabled={consentSaving !== null}
+                    aria-label={t(
+                      consent.state === "granted"
+                        ? "register.person.consentWithdrawLabel"
+                        : "register.person.consentRecordLabel",
+                      { scope: t(CONSENT_SCOPE_LABEL[consent.scope]) },
+                    )}
+                    className={`${
+                      consent.state === "granted"
+                        ? CAUTION_BUTTON
+                        : SECONDARY_BUTTON
+                    } self-start disabled:opacity-60`}
+                  >
+                    {consentSaving === consent.scope
+                      ? t("register.person.consentWorking")
+                      : consent.state === "granted"
+                        ? t("register.person.consentWithdraw")
+                        : t("register.person.consentRecord")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {consentFailed ? (
+              <p role="alert" className="text-small text-danger">
+                {t("register.person.consentFailed")}
+              </p>
+            ) : null}
+          </section>
 
           <section className="flex flex-col gap-2 border-t border-line pt-4">
             <h3 className="text-title">{t("register.person.protectedFlag")}</h3>
