@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { PageBlock } from "../api/site";
 import {
+  blocksOf,
+  type EditorBlock,
+  editorBlocks,
   emptyBlock,
   insertBlock,
   moveBlock,
@@ -13,6 +16,8 @@ import {
   scanPage,
   submittableBlocks,
   textToRuns,
+  withBlock,
+  withUploadedPicture,
 } from "./page-blocks";
 
 /**
@@ -35,6 +40,13 @@ const PICTURE: PageBlock = {
   alt: "Garden",
 };
 
+const EMPTY_PICTURE: PageBlock = { type: "image", mediaFileId: "", alt: "" };
+
+/** The ids of a list, which is what the screen keys everything by. */
+function idsOf(entries: readonly EditorBlock[]): string[] {
+  return entries.map((entry) => entry.id);
+}
+
 describe("arranging blocks", () => {
   it("adds an empty block of the kind asked for", () => {
     expect(emptyBlock("heading")).toEqual({
@@ -42,33 +54,79 @@ describe("arranging blocks", () => {
       level: 2,
       runs: [],
     });
-    expect(insertBlock([TEXT], "image")).toHaveLength(2);
+    expect(insertBlock(editorBlocks([TEXT]), "image")).toHaveLength(2);
+  });
+
+  it("gives every block an identity of its own", () => {
+    const entries = editorBlocks([TEXT, HEADING, PICTURE]);
+
+    expect(new Set(idsOf(entries)).size).toBe(3);
+    expect(blocksOf(entries)).toEqual([TEXT, HEADING, PICTURE]);
+    // And a block added later gets one nothing already on the page has.
+    expect(new Set(idsOf(insertBlock(entries, "paragraph"))).size).toBe(4);
   });
 
   it("moves a block one step and stops at either end", () => {
-    expect(moveBlock([TEXT, HEADING], 1, -1)).toEqual([HEADING, TEXT]);
-    expect(moveBlock([TEXT, HEADING], 0, -1)).toEqual([TEXT, HEADING]);
-    expect(moveBlock([TEXT, HEADING], 1, 1)).toEqual([TEXT, HEADING]);
+    const entries = editorBlocks([TEXT, HEADING]);
+    const [first, second] = idsOf(entries);
+
+    expect(blocksOf(moveBlock(entries, 1, -1))).toEqual([HEADING, TEXT]);
+    expect(blocksOf(moveBlock(entries, 0, -1))).toEqual([TEXT, HEADING]);
+    expect(blocksOf(moveBlock(entries, 1, 1))).toEqual([TEXT, HEADING]);
+
+    // The identity travels with the block, which is what keeps the editor a
+    // paragraph is typed into, and the declaration a picture carries, with the
+    // block rather than with the position it used to sit at.
+    expect(idsOf(moveBlock(entries, 1, -1))).toEqual([second, first]);
   });
 
   it("replaces and removes by position", () => {
-    expect(replaceBlock([TEXT, HEADING], 0, PICTURE)).toEqual([
-      PICTURE,
-      HEADING,
-    ]);
-    expect(removeBlock([TEXT, HEADING], 0)).toEqual([HEADING]);
+    const entries = editorBlocks([TEXT, HEADING]);
+    const [first] = entries;
+
+    expect(
+      blocksOf(
+        replaceBlock(entries, 0, withBlock(first as EditorBlock, PICTURE)),
+      ),
+    ).toEqual([PICTURE, HEADING]);
+    // Replacing a block's content is not replacing the block: what the board
+    // is typing into stays the same block.
+    expect(
+      idsOf(replaceBlock(entries, 0, withBlock(first as EditorBlock, PICTURE))),
+    ).toEqual(idsOf(entries));
+    expect(blocksOf(removeBlock(entries, 0))).toEqual([HEADING]);
+    expect(idsOf(removeBlock(entries, 0))).toEqual([idsOf(entries)[1]]);
   });
 
   it("splices one block into several", () => {
     // A paragraph the board split by pressing return comes back as more than
     // one, because the mapping out of the editor is paragraph by paragraph.
-    const split = replaceBlockWith([TEXT, HEADING], 0, [
-      { type: "paragraph", runs: [{ text: "Ett." }] },
-      { type: "paragraph", runs: [{ text: "Tva." }] },
+    const entries = editorBlocks([TEXT, HEADING]);
+    const split = replaceBlockWith(entries, 0, [
+      { id: "kept", block: { type: "paragraph", runs: [{ text: "Ett." }] } },
+      { id: "added", block: { type: "paragraph", runs: [{ text: "Tva." }] } },
     ]);
 
     expect(split).toHaveLength(3);
-    expect(split[2]).toEqual(HEADING);
+    expect(split[2]).toEqual(entries[1]);
+    // The heading below the split keeps its own identity rather than taking on
+    // whatever now sits at its old position.
+    expect(idsOf(split)[2]).toBe(idsOf(entries)[1]);
+  });
+
+  it("records an uploaded file on the picture that asked for it", () => {
+    // The list can have moved while the bytes were on their way, so the block
+    // is found by identity rather than by where it was when the upload began.
+    const entries = editorBlocks([EMPTY_PICTURE, TEXT]);
+    const picture = idsOf(entries)[0] as string;
+    const moved = moveBlock(entries, 0, 1);
+
+    const stored = withUploadedPicture(moved, picture, "file-9");
+
+    expect(blocksOf(stored)).toEqual([
+      TEXT,
+      { type: "image", mediaFileId: "file-9", alt: "" },
+    ]);
   });
 });
 
@@ -82,7 +140,12 @@ describe("what is worth sending", () => {
       PICTURE,
     ];
 
-    expect(submittableBlocks(blocks)).toEqual([TEXT, PICTURE]);
+    // And where each one sits on the screen, because a refusal names a
+    // position in what was sent and the board is looking at the whole list.
+    expect(submittableBlocks(blocks)).toEqual({
+      blocks: [TEXT, PICTURE],
+      positions: [0, 4],
+    });
   });
 
   it("reads a text block as one string and back", () => {

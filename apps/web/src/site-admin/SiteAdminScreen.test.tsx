@@ -192,6 +192,42 @@ describe("the editor", () => {
     expect(await screen.findByText(/personnummer/i)).toBeDefined();
   });
 
+  it("names the block the board is looking at when the API refuses one", async () => {
+    /*
+     * The half-written blocks this screen leaves out of a submission are still
+     * on the screen, so the API's positions and the board's block numbers are
+     * not the same numbers. A notice naming the wrong one sends somebody to
+     * edit a paragraph that is not the problem, and disagrees with the warning
+     * standing above it about the same page.
+     */
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 422,
+        reason: "personal-identity-number",
+        detail: [{ part: "block", index: 1 }],
+      },
+    });
+
+    const add = screen.getByRole("button", {
+      name: /Lagg till ett stycke|Lägg till ett stycke/,
+    });
+    await user.click(add);
+    await user.click(add);
+    await user.type(
+      await screen.findByLabelText("Stycke 3"),
+      "Ring Anna pa 19811218-9876",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    // The second block sent is the third on the screen. Both notices name that
+    // one, and neither names the position it was sent at.
+    expect(await screen.findAllByText(/block 3/)).not.toHaveLength(0);
+    expect(screen.queryByText(/block 2/)).toBeNull();
+  });
+
   it("publishes the page the board is looking at", async () => {
     const user = await openEditor();
 

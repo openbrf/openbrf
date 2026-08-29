@@ -6,7 +6,6 @@ import type { ApiFailure } from "../api/client";
 import {
   type AdminPage,
   deletePage,
-  type PageBlock,
   publishPage,
   previewPage,
   savePage,
@@ -26,10 +25,14 @@ import {
 } from "../ui/controls";
 import { failureMessageKey } from "../ui/save-state";
 import {
+  blocksOf,
+  type EditorBlock,
+  editorBlocks,
   insertBlock,
   type InsertableBlock,
   INSERTABLE,
   moveBlock,
+  needsPhotoConsent,
   removeBlock,
   replaceBlock,
   replaceBlockWith,
@@ -37,6 +40,8 @@ import {
   scanPage,
   submittableBlocks,
   textToRuns,
+  withBlock,
+  withUploadedPicture,
 } from "./page-blocks";
 
 /**
@@ -82,20 +87,24 @@ export function PageEditor({
 
   const [title, setTitle] = useState(page.title);
   const [slug, setSlug] = useState(page.slug);
-  const [blocks, setBlocks] = useState<PageBlock[]>(page.content.blocks);
+  const [entries, setEntries] = useState<EditorBlock[]>(() =>
+    editorBlocks(page.content.blocks),
+  );
   const [identifiable, setIdentifiable] = useState<ReadonlySet<string>>(
     new Set(),
   );
   /**
    * The image blocks whose picture has been declared to show identifiable
-   * persons, by position.
+   * persons, by the block's own identity.
    *
-   * By position rather than by anything stable, and that is sound because the
-   * answer only matters at the moment a file is uploaded: it travels with the
-   * bytes and is recorded on the stored file, so once a picture exists the
-   * truth is the server's rather than this screen's.
+   * By identity and not by position, because the answer is given before the
+   * file is chosen and read again when it is: anything moved or removed in
+   * between renumbers the blocks, and a declaration read off the wrong one
+   * would upload a picture of identifiable people as showing nobody. That is
+   * recorded on the stored file, and the publication guardrail then never asks
+   * for a publiceringssamtycke for it again.
    */
-  const [declared, setDeclared] = useState<ReadonlySet<number>>(new Set());
+  const [declared, setDeclared] = useState<ReadonlySet<string>>(new Set());
   const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [consentAsked, setConsentAsked] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -103,6 +112,7 @@ export function PageEditor({
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const blocks = blocksOf(entries);
   const hits = scanPage({ title, blocks });
 
   const run = useCallback(
@@ -131,7 +141,8 @@ export function PageEditor({
     [onChanged],
   );
 
-  const body = { blocks: submittableBlocks(blocks) };
+  const submittable = submittableBlocks(blocks);
+  const body = { blocks: submittable.blocks };
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
 
   /**
@@ -140,6 +151,13 @@ export function PageEditor({
    * The API answers with positions - the title, or a block's index - because a
    * response body may never carry the value that was refused. One-based here,
    * because the board is looking at a list of blocks and not at an array.
+   *
+   * Mapped back through the positions that were sent, because the half-written
+   * blocks this screen leaves out of a submission are still on the screen: the
+   * API's third block can be the board's fourth, and a notice naming the wrong
+   * one sends somebody to edit a paragraph that is not the problem. It is also
+   * what keeps this notice and the personal-identity-number warning above
+   * agreeing about the same page.
    */
   const refusedPlaces =
     failure === null
@@ -147,14 +165,12 @@ export function PageEditor({
       : locationsOf(failure).map((place) =>
           place === "title"
             ? t("siteAdmin.editor.placeTitle")
-            : t("siteAdmin.editor.placeBlock", { number: place + 1 }),
+            : t("siteAdmin.editor.placeBlock", {
+                number: (submittable.positions[place] ?? place) + 1,
+              }),
         );
 
-  const askConsent =
-    consentAsked ||
-    blocks.some(
-      (block) => block.type === "image" && identifiable.has(block.mediaFileId),
-    );
+  const askConsent = consentAsked || needsPhotoConsent(blocks, identifiable);
 
   return (
     <div className="flex flex-col gap-5">
@@ -303,6 +319,19 @@ export function PageEditor({
               className={QUIET_BUTTON}
               disabled={busy}
               onClick={() => {
+                /*
+                 * Confirmed because the page goes with the row: the API deletes
+                 * it outright, and nothing on this screen puts a deleted page
+                 * back. The same reason the archive asks before removing a
+                 * document.
+                 */
+                if (
+                  !window.confirm(
+                    t("siteAdmin.editor.removeConfirm", { title: page.title }),
+                  )
+                ) {
+                  return;
+                }
                 void (async () => {
                   setBusy(true);
                   const result = await deletePage(page.id);
@@ -344,216 +373,247 @@ export function PageEditor({
         </label>
 
         <ol className="flex flex-col gap-4">
-          {blocks.map((block, index) => (
-            <li key={index} className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-label text-ink-muted uppercase">
-                  {t(`siteAdmin.editor.blocks.${block.type}`)}
-                </span>
-                <button
-                  type="button"
-                  className={QUIET_BUTTON}
-                  onClick={() => {
-                    setBlocks(moveBlock(blocks, index, -1));
-                  }}
-                >
-                  {t("siteAdmin.editor.moveUp")}
-                </button>
-                <button
-                  type="button"
-                  className={QUIET_BUTTON}
-                  onClick={() => {
-                    setBlocks(moveBlock(blocks, index, 1));
-                  }}
-                >
-                  {t("siteAdmin.editor.moveDown")}
-                </button>
-                <button
-                  type="button"
-                  className={QUIET_BUTTON}
-                  onClick={() => {
-                    setBlocks(removeBlock(blocks, index));
-                  }}
-                >
-                  {t("siteAdmin.editor.removeBlock")}
-                </button>
-              </div>
-
-              {block.type === "paragraph" ? (
-                <Suspense
-                  fallback={
-                    <p className={HINT} role="status">
-                      {t("siteAdmin.editor.loadingEditor")}
-                    </p>
-                  }
-                >
-                  <RichText
-                    label={t("siteAdmin.editor.paragraphLabel", {
-                      number: index + 1,
-                    })}
-                    runs={block.runs}
-                    onChange={(paragraphs) => {
-                      setBlocks(
-                        replaceBlockWith(
-                          blocks,
-                          index,
-                          paragraphs.map((runs) => ({
-                            type: "paragraph",
-                            runs,
-                          })),
-                        ),
-                      );
+          {entries.map((entry, index) => {
+            const block = entry.block;
+            return (
+              <li key={entry.id} className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-label text-ink-muted uppercase">
+                    {t(`siteAdmin.editor.blocks.${block.type}`)}
+                  </span>
+                  <button
+                    type="button"
+                    className={QUIET_BUTTON}
+                    onClick={() => {
+                      setEntries(moveBlock(entries, index, -1));
                     }}
-                  />
-                </Suspense>
-              ) : null}
-
-              {block.type === "heading" ? (
-                <div className="flex flex-wrap items-end gap-3">
-                  <label className={LABEL}>
-                    {t("siteAdmin.editor.headingLevel")}
-                    <select
-                      className={FIELD}
-                      value={String(block.level)}
-                      onChange={(event) => {
-                        setBlocks(
-                          replaceBlock(blocks, index, {
-                            ...block,
-                            level: event.target.value === "3" ? 3 : 2,
-                          }),
-                        );
-                      }}
-                    >
-                      <option value="2">
-                        {t("siteAdmin.editor.headingLevelTwo")}
-                      </option>
-                      <option value="3">
-                        {t("siteAdmin.editor.headingLevelThree")}
-                      </option>
-                    </select>
-                  </label>
-                  <label className={`${LABEL} flex-1`}>
-                    {t("siteAdmin.editor.headingText")}
-                    <input
-                      className={FIELD}
-                      value={runsToText(block.runs)}
-                      onChange={(event) => {
-                        setBlocks(
-                          replaceBlock(blocks, index, {
-                            ...block,
-                            runs: textToRuns(event.target.value),
-                          }),
-                        );
-                      }}
-                    />
-                  </label>
+                  >
+                    {t("siteAdmin.editor.moveUp")}
+                  </button>
+                  <button
+                    type="button"
+                    className={QUIET_BUTTON}
+                    onClick={() => {
+                      setEntries(moveBlock(entries, index, 1));
+                    }}
+                  >
+                    {t("siteAdmin.editor.moveDown")}
+                  </button>
+                  <button
+                    type="button"
+                    className={QUIET_BUTTON}
+                    onClick={() => {
+                      setEntries(removeBlock(entries, index));
+                    }}
+                  >
+                    {t("siteAdmin.editor.removeBlock")}
+                  </button>
                 </div>
-              ) : null}
 
-              {block.type === "image" ? (
-                <div className="flex flex-col gap-3">
-                  {/*
-                   * The declaration is answered before the file is chosen,
-                   * because it travels with the bytes: the media layer records
-                   * it on the stored file, and it is what the publication
-                   * guardrail acts on. A picture nobody has declared cannot be
-                   * checked against a publication consent at all.
-                   */}
-                  <label className="flex min-h-11 items-start gap-3 text-small text-ink">
-                    <input
-                      type="checkbox"
-                      checked={declared.has(index)}
-                      onChange={(event) => {
-                        setDeclared((current) => {
-                          const next = new Set(current);
-                          if (event.target.checked) {
-                            next.add(index);
-                          } else {
-                            next.delete(index);
-                          }
-                          return next;
-                        });
+                {block.type === "paragraph" ? (
+                  <Suspense
+                    fallback={
+                      <p className={HINT} role="status">
+                        {t("siteAdmin.editor.loadingEditor")}
+                      </p>
+                    }
+                  >
+                    <RichText
+                      label={t("siteAdmin.editor.paragraphLabel", {
+                        number: index + 1,
+                      })}
+                      runs={block.runs}
+                      onChange={(paragraphs) => {
+                        setEntries(
+                          replaceBlockWith(
+                            entries,
+                            index,
+                            /*
+                             * The first paragraph is the block that was already
+                             * here and keeps its identity: this runs on every
+                             * keystroke, and a new one would remount the editor
+                             * being typed into. Only a paragraph the board made
+                             * by pressing return is a new block.
+                             */
+                            paragraphs.map((runs, at) =>
+                              at === 0
+                                ? withBlock(entry, { type: "paragraph", runs })
+                                : {
+                                    id: `${entry.id}-${String(at)}`,
+                                    block: { type: "paragraph", runs },
+                                  },
+                            ),
+                          ),
+                        );
                       }}
-                      className="mt-1 size-4 accent-trust"
                     />
-                    {t("siteAdmin.editor.identifiable")}
-                  </label>
-                  <label className={LABEL}>
-                    {t("siteAdmin.editor.picture")}
-                    <input
-                      className={FIELD}
-                      type="file"
-                      accept="image/*"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file === undefined) {
-                          return;
-                        }
-                        const shows = declared.has(index);
-                        void (async () => {
-                          setBusy(true);
-                          const result = await uploadSiteImage(file, shows);
-                          setBusy(false);
-                          if (!result.ok) {
-                            setFailure(result.failure);
+                  </Suspense>
+                ) : null}
+
+                {block.type === "heading" ? (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className={LABEL}>
+                      {t("siteAdmin.editor.headingLevel")}
+                      <select
+                        className={FIELD}
+                        value={String(block.level)}
+                        onChange={(event) => {
+                          setEntries(
+                            replaceBlock(
+                              entries,
+                              index,
+                              withBlock(entry, {
+                                ...block,
+                                level: event.target.value === "3" ? 3 : 2,
+                              }),
+                            ),
+                          );
+                        }}
+                      >
+                        <option value="2">
+                          {t("siteAdmin.editor.headingLevelTwo")}
+                        </option>
+                        <option value="3">
+                          {t("siteAdmin.editor.headingLevelThree")}
+                        </option>
+                      </select>
+                    </label>
+                    <label className={`${LABEL} flex-1`}>
+                      {t("siteAdmin.editor.headingText")}
+                      <input
+                        className={FIELD}
+                        value={runsToText(block.runs)}
+                        onChange={(event) => {
+                          setEntries(
+                            replaceBlock(
+                              entries,
+                              index,
+                              withBlock(entry, {
+                                ...block,
+                                runs: textToRuns(event.target.value),
+                              }),
+                            ),
+                          );
+                        }}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+
+                {block.type === "image" ? (
+                  <div className="flex flex-col gap-3">
+                    {/*
+                     * The declaration is answered before the file is chosen,
+                     * because it travels with the bytes: the media layer records
+                     * it on the stored file, and it is what the publication
+                     * guardrail acts on. A picture nobody has declared cannot be
+                     * checked against a publication consent at all.
+                     */}
+                    <label className="flex min-h-11 items-start gap-3 text-small text-ink">
+                      <input
+                        type="checkbox"
+                        checked={declared.has(entry.id)}
+                        onChange={(event) => {
+                          setDeclared((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) {
+                              next.add(entry.id);
+                            } else {
+                              next.delete(entry.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="mt-1 size-4 accent-trust"
+                      />
+                      {t("siteAdmin.editor.identifiable")}
+                    </label>
+                    <label className={LABEL}>
+                      {t("siteAdmin.editor.picture")}
+                      <input
+                        className={FIELD}
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file === undefined) {
                             return;
                           }
-                          if (result.value.showsIdentifiablePersons) {
-                            setIdentifiable(
-                              (current) =>
-                                new Set([...current, result.value.id]),
+                          const shows = declared.has(entry.id);
+                          void (async () => {
+                            setBusy(true);
+                            const result = await uploadSiteImage(file, shows);
+                            setBusy(false);
+                            if (!result.ok) {
+                              setFailure(result.failure);
+                              return;
+                            }
+                            if (result.value.showsIdentifiablePersons) {
+                              setIdentifiable(
+                                (current) =>
+                                  new Set([...current, result.value.id]),
+                              );
+                            }
+                            setEntries((current) =>
+                              withUploadedPicture(
+                                current,
+                                entry.id,
+                                result.value.id,
+                              ),
                             );
-                          }
-                          setBlocks((current) =>
-                            replaceBlock(current, index, {
-                              ...block,
-                              mediaFileId: result.value.id,
-                            }),
+                          })();
+                        }}
+                      />
+                      <span className={HINT}>
+                        {t("siteAdmin.editor.pictureHint")}
+                      </span>
+                    </label>
+                    <label className={LABEL}>
+                      {t("siteAdmin.editor.alt")}
+                      <input
+                        className={FIELD}
+                        value={block.alt}
+                        onChange={(event) => {
+                          setEntries(
+                            replaceBlock(
+                              entries,
+                              index,
+                              withBlock(entry, {
+                                ...block,
+                                alt: event.target.value,
+                              }),
+                            ),
                           );
-                        })();
-                      }}
-                    />
-                    <span className={HINT}>
-                      {t("siteAdmin.editor.pictureHint")}
-                    </span>
-                  </label>
-                  <label className={LABEL}>
-                    {t("siteAdmin.editor.alt")}
-                    <input
-                      className={FIELD}
-                      value={block.alt}
-                      onChange={(event) => {
-                        setBlocks(
-                          replaceBlock(blocks, index, {
-                            ...block,
-                            alt: event.target.value,
-                          }),
-                        );
-                      }}
-                    />
-                    <span className={HINT}>
-                      {t("siteAdmin.editor.altHint")}
-                    </span>
-                  </label>
-                  <label className={LABEL}>
-                    {t("siteAdmin.editor.caption")}
-                    <input
-                      className={FIELD}
-                      value={block.caption ?? ""}
-                      onChange={(event) => {
-                        setBlocks(
-                          replaceBlock(blocks, index, {
-                            ...block,
-                            caption: event.target.value,
-                          }),
-                        );
-                      }}
-                    />
-                  </label>
-                </div>
-              ) : null}
-            </li>
-          ))}
+                        }}
+                      />
+                      <span className={HINT}>
+                        {t("siteAdmin.editor.altHint")}
+                      </span>
+                    </label>
+                    <label className={LABEL}>
+                      {t("siteAdmin.editor.caption")}
+                      <input
+                        className={FIELD}
+                        value={block.caption ?? ""}
+                        onChange={(event) => {
+                          setEntries(
+                            replaceBlock(
+                              entries,
+                              index,
+                              withBlock(entry, {
+                                ...block,
+                                caption: event.target.value,
+                              }),
+                            ),
+                          );
+                        }}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
         </ol>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -563,7 +623,7 @@ export function PageEditor({
               type="button"
               className={SECONDARY_BUTTON}
               onClick={() => {
-                setBlocks(insertBlock(blocks, kind));
+                setEntries(insertBlock(entries, kind));
               }}
             >
               {t(`siteAdmin.editor.add.${kind}`)}

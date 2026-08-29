@@ -1548,6 +1548,7 @@
       "makeMemberOnly": "Make it members only",
       "makePublic": "Make it public",
       "remove": "Delete the page",
+      "removeConfirm": "Delete the page {{title}}? The page and everything written on it goes, and nothing here puts it back.",
       "title": "Title",
       "slug": "Address",
       "slugHint": "Lowercase letters, digits and hyphens. The page is served at the association's own domain, directly under the root.",

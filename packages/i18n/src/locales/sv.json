@@ -1548,6 +1548,7 @@
       "makeMemberOnly": "Gör den till medlemssida",
       "makePublic": "Gör den öppen",
       "remove": "Ta bort sidan",
+      "removeConfirm": "Ta bort sidan {{title}}? Sidan och allt som står på den försvinner, och ingenting här lägger tillbaka den.",
       "title": "Rubrik",
       "slug": "Adress",
       "slugHint": "Små bokstäver, siffror och bindestreck. Sidan serveras på föreningens egen domän, direkt under roten.",

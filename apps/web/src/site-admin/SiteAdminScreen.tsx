@@ -140,10 +140,20 @@ export function SiteAdminScreen({
         title={t("siteAdmin.pages.heading")}
         description={t("siteAdmin.pages.description")}
       >
+        {/*
+         * A failed load says so once, in the notice above. Leaving the loading
+         * paragraph standing beside it would have a screen reader announce
+         * that the pages are still being read while the danger notice says
+         * they could not be - so the failure is answered first, and a list
+         * already on the screen when a reload failed is kept rather than
+         * replaced by a status that is no longer true.
+         */}
         {pages === null ? (
-          <p role="status" className="text-body text-ink-muted">
-            {t("siteAdmin.loading")}
-          </p>
+          failed ? null : (
+            <p role="status" className="text-body text-ink-muted">
+              {t("siteAdmin.loading")}
+            </p>
+          )
         ) : pages.length === 0 ? (
           <p className="text-body text-ink-muted">
             {t("siteAdmin.pages.none")}
