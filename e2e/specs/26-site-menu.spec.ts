@@ -210,21 +210,46 @@ test("the board arranges the menu and the website answers each visitor with thei
       await expect(nav).not.toContainText(ENTRIES.member);
       expect(await visitor.content()).not.toContain(minutes.slug);
 
-      // The second level is closed until it is asked for, and asking is a
-      // keyboard's business as much as a pointer's: nothing here runs a
-      // script, so focus is what opens it.
-      const child = nav.getByRole("link", {
+      /*
+       * The second level is closed until it is asked for, and asking is a
+       * keyboard's business as much as a pointer's: nothing here runs a
+       * script, so focus is what opens it.
+       *
+       * Two locators for one link, because the difference between them is the
+       * property under test. A role locator reads the accessibility tree, and
+       * ARIA excludes what is display:none - so `collapsed` has to say
+       * includeHidden to find the entry at all, and `exposed` finding nothing
+       * is what says the closed dropdown is genuinely not offered to a screen
+       * reader rather than merely painted out of sight.
+       */
+      const collapsed = nav.getByRole("link", {
+        name: ENTRIES.child,
+        exact: true,
+        includeHidden: true,
+      });
+      const exposed = nav.getByRole("link", {
         name: ENTRIES.child,
         exact: true,
       });
-      // Present in the document and not shown: a dropdown that was simply
-      // absent would satisfy a hidden check while being no dropdown at all.
-      await expect(child).toBeAttached();
-      await expect(child).not.toBeVisible();
+
+      // In the markup, and offered to nobody yet. A dropdown that was simply
+      // absent would satisfy a hidden check while being no dropdown at all,
+      // which is why the first of these asserts the entry is really there.
+      await expect(collapsed).toBeAttached();
+      await expect(collapsed).not.toBeVisible();
+      await expect(exposed).toHaveCount(0);
+
+      // Focus alone opens it - no click, no script - and the entry is then in
+      // the accessibility tree rather than only on the screen.
       await nav
         .getByRole("link", { name: ENTRIES.parent, exact: true })
         .focus();
-      await expect(child).toBeVisible();
+      await expect(exposed).toBeVisible();
+
+      // And the next tab lands on it, which is the whole claim: a person with
+      // no pointer can reach the second level of a menu that runs no script.
+      await visitor.keyboard.press("Tab");
+      await expect(exposed).toBeFocused();
 
       // An external entry is a link and never a request: nothing on the page
       // is fetched from the other host while it is being read.

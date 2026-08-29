@@ -51,18 +51,21 @@ const slugs = {
   home: `site-menu-home-${suffix}`,
   member: `site-menu-member-${suffix}`,
   draft: `site-menu-draft-${suffix}`,
+  child: `site-menu-child-${suffix}`,
 };
 
 const titles = {
   home: `Framsidan ${suffix}`,
   member: `Endast medlemmar ${suffix}`,
   draft: `Utkastet ${suffix}`,
+  child: `Stadgarna ${suffix}`,
 };
 
 const pageIds = {
   home: `site-menu-page-home-${suffix}`,
   member: `site-menu-page-member-${suffix}`,
   draft: `site-menu-page-draft-${suffix}`,
+  child: `site-menu-page-child-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -253,6 +256,19 @@ beforeAll(async () => {
         visibility: "PUBLIC",
         published: false,
         sortOrder: 2,
+      },
+      {
+        id: pageIds.child,
+        slug: slugs.child,
+        title: titles.child,
+        content: {
+          version: 1,
+          blocks: [{ type: "paragraph", runs: [{ text: "Stadgarna." }] }],
+        },
+        visibility: "PUBLIC",
+        published: true,
+        publishedAt: new Date(),
+        sortOrder: 3,
       },
     ],
   });
@@ -481,6 +497,38 @@ describe("the menu a visitor is served", () => {
     expect(member.body).toContain(`href="/${slugs.member}"`);
     expect(member.body).toContain(titles.member);
     expect(member.body).not.toContain(slugs.draft);
+
+    await clearMenu();
+  });
+
+  it("hangs a second level under its parent, in the served document", async () => {
+    /*
+     * The one shape no other test here reaches: a rendered dropdown. The unit
+     * tests prove the read model returns children and the renderer prints
+     * them; this is the only place the two meet over a real menu, and without
+     * it a second level that never arrived would look exactly like one the
+     * stylesheet had merely folded away.
+     */
+    const parent = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.child,
+      parentId: parent.id,
+    });
+
+    const response = await inject({ method: "GET", url: `/${slugs.home}` });
+
+    expect(response.statusCode).toBe(200);
+    // The group, the nested list and the entry itself. The dropdown is closed
+    // by the stylesheet rather than by leaving the entry out, which is what
+    // lets focus open it without a script.
+    expect(response.body).toContain('class="site-nav-group"');
+    expect(response.body).toContain('<ul class="site-nav-children">');
+    expect(response.body).toContain(`href="/${slugs.child}"`);
+    expect(response.body).toContain(titles.child);
 
     await clearMenu();
   });

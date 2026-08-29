@@ -93,6 +93,25 @@ describe("the website's stylesheet", () => {
     expect(/#[0-9a-f]{3,8}\b/i.test(layout)).toBe(false);
   });
 
+  it("folds a dropdown away without putting it out of reach", () => {
+    const css = buildSiteStylesheet({
+      rendering: BUILT_IN,
+      primaryColor: null,
+    });
+
+    /*
+     * The two halves of the disclosure, asserted as a pair because they are
+     * only correct together. Hiding the second level is what makes it a
+     * dropdown; revealing it on focus as well as on hover is what keeps it
+     * reachable by somebody with no pointer. Delete the focus half and the
+     * menu still looks right and still works with a mouse, which is exactly
+     * the kind of regression nobody notices.
+     */
+    expect(css).toContain(".site-nav-group .site-nav-children");
+    expect(css).toContain(".site-nav-group:hover > .site-nav-children");
+    expect(css).toContain(".site-nav-group:focus-within > .site-nav-children");
+  });
+
   it("adds the association's accent last, so it wins", () => {
     const withAccent = buildSiteStylesheet({
       rendering: BUILT_IN,
