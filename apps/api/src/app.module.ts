@@ -24,6 +24,7 @@ import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
 import { RegistersModule } from "./registers/registers.module";
+import { RetentionModule } from "./retention/retention.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
@@ -58,6 +59,7 @@ import { ThemesModule } from "./themes/themes.module";
     PluginsModule,
     IssuesModule,
     DocumentsModule,
+    RetentionModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

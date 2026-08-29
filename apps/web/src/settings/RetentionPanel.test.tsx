@@ -23,6 +23,7 @@ vi.mock("../api/instance", async (importOriginal) => ({
 }));
 
 const statutoryNotice = () => screen.queryByText(/omfattas inte/i);
+const purgeNotice = () => screen.queryByText(/körs varje natt/i);
 
 beforeEach(() => {
   saveRetention.mockReset().mockResolvedValue({
@@ -36,6 +37,16 @@ describe("the statutory notice", () => {
     render(<RetentionPanel daysAfterMoveOut={365} />);
 
     expect(statutoryNotice()).toBeTruthy();
+  });
+
+  it("says the erasure happens by itself, and what suspends it", () => {
+    // The number used to compute a date and nothing else. A board reading it
+    // now has to know that a job acts on it, and that a legal hold is the one
+    // thing that stops it for a named person.
+    render(<RetentionPanel daysAfterMoveOut={365} />);
+
+    expect(purgeNotice()).toBeTruthy();
+    expect(screen.getByText(/rättsligt bevarandekrav/i)).toBeTruthy();
   });
 
   it("stays after a successful save, beside the confirmation", async () => {

@@ -9,6 +9,7 @@ import { MoveOutPanel, type MoveOutTarget } from "../moves/MoveOutPanel";
 import { AddPersonPanel } from "../register/AddPersonPanel";
 import { ApartmentPanel } from "../register/ApartmentPanel";
 import { Board } from "../register/Board";
+import { DataSubjectReport } from "../register/DataSubjectReport";
 import { PersonPanel } from "../register/PersonPanel";
 import type { RegisterFilter } from "../register/register-api";
 import {
@@ -28,7 +29,14 @@ type OpenPanel =
   | { kind: "apartment"; apartmentId: string }
   | { kind: "addPerson" }
   | { kind: "moveIn" }
-  | { kind: "moveOut"; target: MoveOutTarget };
+  | { kind: "moveOut"; target: MoveOutTarget }
+  /**
+   * The data subject access report. Not a panel beside the board but a
+   * document instead of it: it decrypts everything about one person, and a
+   * register left on the same page would put somebody else's data on the
+   * paper it is printed onto.
+   */
+  | { kind: "dataSubjectReport"; personId: string };
 
 /**
  * The address book.
@@ -114,6 +122,17 @@ export function AddressBookRoute(): ReactElement {
     },
     [rememberOpener],
   );
+  const openReport = useCallback((personId: string) => {
+    setPanel({ kind: "dataSubjectReport", personId });
+  }, []);
+  /**
+   * Back to the person the report was about, rather than to the bare board.
+   * The report was opened from their panel, and closing a document returns to
+   * where it was produced from.
+   */
+  const closeReport = useCallback((personId: string) => {
+    setPanel({ kind: "person", personId });
+  }, []);
 
   const panelOpen = panel.kind !== "none";
 
@@ -181,196 +200,212 @@ export function AddressBookRoute(): ReactElement {
         });
       }}
     >
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-display">{t("register.heading")}</h1>
-            {stats === null ? null : (
-              /*
-               * The header stats line: uppercase labels with their numbers in the
-               * mono grid, so the figures line up with the register below rather
-               * than reading as prose. Label-then-value also keeps the line free
-               * of grammatical number, which a sentence would need in both
-               * languages.
-               */
-              <dl className="flex flex-wrap gap-x-6 gap-y-1">
-                <StatPair
-                  label={t("register.stats.apartments")}
-                  value={stats.apartments}
-                />
-                <StatPair
-                  label={t("register.stats.persons")}
-                  value={stats.persons}
-                />
-                <StatPair
-                  label={t("register.stats.members")}
-                  value={stats.members}
-                />
-              </dl>
-            )}
+      {/*
+       * The report replaces the whole screen while it is open, rather than
+       * being one more panel beside the board. It is a document that gets
+       * printed: the frame drops itself on paper, and the board would not.
+       */}
+      {panel.kind === "dataSubjectReport" ? (
+        <DataSubjectReport
+          key={panel.personId}
+          personId={panel.personId}
+          onClose={() => {
+            closeReport(panel.personId);
+          }}
+        />
+      ) : (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="flex flex-col gap-2">
+              <h1 className="text-display">{t("register.heading")}</h1>
+              {stats === null ? null : (
+                /*
+                 * The header stats line: uppercase labels with their numbers in the
+                 * mono grid, so the figures line up with the register below rather
+                 * than reading as prose. Label-then-value also keeps the line free
+                 * of grammatical number, which a sentence would need in both
+                 * languages.
+                 */
+                <dl className="flex flex-wrap gap-x-6 gap-y-1">
+                  <StatPair
+                    label={t("register.stats.apartments")}
+                    value={stats.apartments}
+                  />
+                  <StatPair
+                    label={t("register.stats.persons")}
+                    value={stats.persons}
+                  />
+                  <StatPair
+                    label={t("register.stats.members")}
+                    value={stats.members}
+                  />
+                </dl>
+              )}
+            </div>
+
+            {/*
+             * The statutory registers are reached from here rather than from the
+             * navigation band: they are documents produced out of the address
+             * book, and each has its own screen because the two may never be
+             * blended. The links are offered to everyone signed in - a
+             * tenant-owner is entitled to their own apartment register entry, and
+             * the API decides what each of them receives.
+             */}
+            <div className="flex flex-wrap items-center gap-3">
+              {view.state === "board" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      rememberOpener();
+                      setPanel({ kind: "addPerson" });
+                    }}
+                    className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
+                  >
+                    {t("register.actions.addPerson")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      rememberOpener();
+                      setPanel({ kind: "moveIn" });
+                    }}
+                    className={SECONDARY_BUTTON}
+                  >
+                    {t("moves.in.heading")}
+                  </button>
+                  <Link to="/import" className={SECONDARY_BUTTON}>
+                    {t("import.open")}
+                  </Link>
+                  <Link to="/registers/members" className={SECONDARY_BUTTON}>
+                    {t("registers.nav.memberRegister")}
+                  </Link>
+                </>
+              ) : null}
+              <Link to="/registers/apartments" className={SECONDARY_BUTTON}>
+                {view.state === "board"
+                  ? t("registers.nav.apartmentRegister")
+                  : t("registers.nav.ownApartmentRegister")}
+              </Link>
+              <ThemeModeToggle />
+            </div>
           </div>
 
-          {/*
-           * The statutory registers are reached from here rather than from the
-           * navigation band: they are documents produced out of the address
-           * book, and each has its own screen because the two may never be
-           * blended. The links are offered to everyone signed in - a
-           * tenant-owner is entitled to their own apartment register entry, and
-           * the API decides what each of them receives.
-           */}
-          <div className="flex flex-wrap items-center gap-3">
-            {view.state === "board" ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    rememberOpener();
-                    setPanel({ kind: "addPerson" });
-                  }}
-                  className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
-                >
-                  {t("register.actions.addPerson")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    rememberOpener();
-                    setPanel({ kind: "moveIn" });
-                  }}
-                  className={SECONDARY_BUTTON}
-                >
-                  {t("moves.in.heading")}
-                </button>
-                <Link to="/import" className={SECONDARY_BUTTON}>
-                  {t("import.open")}
-                </Link>
-                <Link to="/registers/members" className={SECONDARY_BUTTON}>
-                  {t("registers.nav.memberRegister")}
-                </Link>
-              </>
-            ) : null}
-            <Link to="/registers/apartments" className={SECONDARY_BUTTON}>
-              {view.state === "board"
-                ? t("registers.nav.apartmentRegister")
-                : t("registers.nav.ownApartmentRegister")}
-            </Link>
-            <ThemeModeToggle />
-          </div>
-        </div>
-
-        {view.state === "loading" ? (
-          <p className="text-body text-ink-muted" aria-live="polite">
-            {t("register.loading")}
-          </p>
-        ) : null}
-
-        {view.state === "failed" ? (
-          <div className="flex flex-col items-start gap-3 rounded-panel border border-line bg-raised p-5">
-            <p className="text-title text-danger">
-              {t("register.error.title")}
+          {view.state === "loading" ? (
+            <p className="text-body text-ink-muted" aria-live="polite">
+              {t("register.loading")}
             </p>
-            <button
-              type="button"
-              onClick={reload}
-              className="min-h-11 rounded-control border border-line-strong px-4 text-small font-semibold text-ink"
-            >
-              {t("register.error.retry")}
-            </button>
-          </div>
-        ) : null}
+          ) : null}
 
-        <div
-          className={
-            panelOpen
-              ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]"
-              : "grid gap-5"
-          }
-        >
-          {/*
-           * On a phone an open panel replaces the board rather than sitting
-           * below it, where a reader would never find it.
-           */}
-          <div className={panelOpen ? "hidden xl:block" : "block"}>
-            {view.state === "board" ? (
-              <Board
-                page={view.page}
-                filter={filter}
-                onFilterChange={changeFilter}
-                addressId={addressId}
-                onAddressChange={changeAddress}
-                onPageChange={setPage}
-                search={searchInput}
-                onSearchChange={changeSearch}
-                stampKey="register.stamp.addressBook"
-                contactOf={(row) => row.contact}
-                purgeOf={(row) => row.purgeOn}
+          {view.state === "failed" ? (
+            <div className="flex flex-col items-start gap-3 rounded-panel border border-line bg-raised p-5">
+              <p className="text-title text-danger">
+                {t("register.error.title")}
+              </p>
+              <button
+                type="button"
+                onClick={reload}
+                className="min-h-11 rounded-control border border-line-strong px-4 text-small font-semibold text-ink"
+              >
+                {t("register.error.retry")}
+              </button>
+            </div>
+          ) : null}
+
+          <div
+            className={
+              panelOpen
+                ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]"
+                : "grid gap-5"
+            }
+          >
+            {/*
+             * On a phone an open panel replaces the board rather than sitting
+             * below it, where a reader would never find it.
+             */}
+            <div className={panelOpen ? "hidden xl:block" : "block"}>
+              {view.state === "board" ? (
+                <Board
+                  page={view.page}
+                  filter={filter}
+                  onFilterChange={changeFilter}
+                  addressId={addressId}
+                  onAddressChange={changeAddress}
+                  onPageChange={setPage}
+                  search={searchInput}
+                  onSearchChange={changeSearch}
+                  stampKey="register.stamp.addressBook"
+                  contactOf={(row) => row.contact}
+                  purgeOf={(row) => row.purgeOn}
+                  onOpenPerson={openPerson}
+                  onOpenApartment={openApartment}
+                  loading={refreshing}
+                />
+              ) : null}
+
+              {view.state === "resident" ? (
+                <Board
+                  page={view.page}
+                  filter={filter}
+                  onFilterChange={changeFilter}
+                  addressId={addressId}
+                  onAddressChange={changeAddress}
+                  onPageChange={setPage}
+                  search={searchInput}
+                  onSearchChange={changeSearch}
+                  stampKey="register.stamp.addressBook"
+                  loading={refreshing}
+                />
+              ) : null}
+            </div>
+
+            {panel.kind === "person" ? (
+              <PersonPanel
+                key={panel.personId}
+                personId={panel.personId}
+                onClose={closePanel}
+                onChanged={reload}
+                onMoveOut={(target) => {
+                  setPanel({ kind: "moveOut", target });
+                }}
+                onOpenReport={openReport}
+              />
+            ) : null}
+
+            {panel.kind === "moveIn" ? (
+              <MoveInPanel onClose={closePanel} onMoved={reload} />
+            ) : null}
+
+            {panel.kind === "moveOut" ? (
+              <MoveOutPanel
+                key={panel.target.residencyId}
+                target={panel.target}
+                onClose={closePanel}
+                onMoved={reload}
+              />
+            ) : null}
+
+            {panel.kind === "apartment" ? (
+              <ApartmentPanel
+                key={panel.apartmentId}
+                apartmentId={panel.apartmentId}
+                onClose={closePanel}
                 onOpenPerson={openPerson}
-                onOpenApartment={openApartment}
-                loading={refreshing}
               />
             ) : null}
 
-            {view.state === "resident" ? (
-              <Board
-                page={view.page}
-                filter={filter}
-                onFilterChange={changeFilter}
-                addressId={addressId}
-                onAddressChange={changeAddress}
-                onPageChange={setPage}
-                search={searchInput}
-                onSearchChange={changeSearch}
-                stampKey="register.stamp.addressBook"
-                loading={refreshing}
+            {panel.kind === "addPerson" ? (
+              <AddPersonPanel
+                onClose={closePanel}
+                onAdded={(personId) => {
+                  reload();
+                  openPerson(personId);
+                }}
               />
             ) : null}
           </div>
-
-          {panel.kind === "person" ? (
-            <PersonPanel
-              key={panel.personId}
-              personId={panel.personId}
-              onClose={closePanel}
-              onChanged={reload}
-              onMoveOut={(target) => {
-                setPanel({ kind: "moveOut", target });
-              }}
-            />
-          ) : null}
-
-          {panel.kind === "moveIn" ? (
-            <MoveInPanel onClose={closePanel} onMoved={reload} />
-          ) : null}
-
-          {panel.kind === "moveOut" ? (
-            <MoveOutPanel
-              key={panel.target.residencyId}
-              target={panel.target}
-              onClose={closePanel}
-              onMoved={reload}
-            />
-          ) : null}
-
-          {panel.kind === "apartment" ? (
-            <ApartmentPanel
-              key={panel.apartmentId}
-              apartmentId={panel.apartmentId}
-              onClose={closePanel}
-              onOpenPerson={openPerson}
-            />
-          ) : null}
-
-          {panel.kind === "addPerson" ? (
-            <AddPersonPanel
-              onClose={closePanel}
-              onAdded={(personId) => {
-                reload();
-                openPerson(personId);
-              }}
-            />
-          ) : null}
         </div>
-      </div>
+      )}
     </AppShell>
   );
 }

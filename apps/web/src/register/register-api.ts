@@ -135,6 +135,140 @@ export interface PublicationConsent {
   note: string | null;
 }
 
+/**
+ * A legal hold (rattsligt bevarandekrav) on one person's service data.
+ *
+ * Mirrors `apps/api/src/retention/legal-hold.service.ts`. Released rather than
+ * deleted, so a hold that has been lifted still carries the dates it stood
+ * between - which is what explains a gap in the erasure record.
+ */
+export interface LegalHold {
+  holdId: string;
+  reason: string;
+  /** ISO instant: a hold is placed at a moment, not on a calendar day. */
+  placedAt: string;
+  releasedAt: string | null;
+  releaseReason: string | null;
+  placedByPersonId: string | null;
+  releasedByPersonId: string | null;
+}
+
+/**
+ * The data subject access report (registerutdrag, GDPR art. 15), as the
+ * browser sees it.
+ *
+ * Mirrors `apps/api/src/retention/data-subject-report.ts`, section for section.
+ * The list is the point rather than the convenience: the report is the
+ * association's answer to "what do you hold about me", and a section missing
+ * from this type is a section the document silently does not print.
+ */
+export interface ReportPostalAddress {
+  street: string | null;
+  postalCode: string | null;
+  city: string | null;
+}
+
+export interface DataSubjectReport {
+  /** ISO date the report was produced, for the document stamp. */
+  generatedOn: string;
+  housingCooperative: { name: string; organizationNumber: string | null };
+  person: {
+    personId: string;
+    firstName: string;
+    lastName: string;
+    postalAddress: ReportPostalAddress;
+    alternativePostalAddress: string | null;
+    email: string | null;
+    phone: string | null;
+    /** Decrypted here and on no other payload in the product. */
+    personalIdentityNumber: string | null;
+    protectedPersonalData: boolean;
+    preferredLocale: string;
+    recordedAt: string;
+  };
+  residencies: {
+    residencyId: string;
+    apartmentNumber: string;
+    addressLabel: string;
+    role: "MEMBER" | "RESIDENT";
+    movedInOn: string | null;
+    movedOutOn: string | null;
+    purgeOn: string | null;
+  }[];
+  boardPositions: {
+    position: "CHAIR" | "BOARD_MEMBER" | "DEPUTY_BOARD_MEMBER";
+    electedOn: string | null;
+    endedOn: string | null;
+  }[];
+  systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
+  account: {
+    email: string;
+    twoFactorEnabled: boolean;
+    createdAt: string;
+  } | null;
+  memberRegisterEntries: {
+    entryId: string;
+    eventType: "ENTRY" | "EXIT" | "CORRECTION";
+    eventOn: string;
+    apartment: string | null;
+    recordedName: string;
+    recordedPostalAddress: ReportPostalAddress;
+    note: string | null;
+  }[];
+  transfers: {
+    transferId: string;
+    apartment: string;
+    direction: "acquired" | "relinquished";
+    transferredOn: string;
+    price: string | null;
+    agreementReference: string | null;
+  }[];
+  publicationConsents: {
+    scope: ConsentScope;
+    grantedOn: string;
+    withdrawnOn: string | null;
+    note: string | null;
+  }[];
+  legalHolds: {
+    holdId: string;
+    reason: string;
+    placedAt: string;
+    releasedAt: string | null;
+    releaseReason: string | null;
+  }[];
+  issues: {
+    issueId: string;
+    typeName: string;
+    status: "NEW" | "IN_PROGRESS" | "DONE";
+    location: string | null;
+    description: string;
+    reportedAt: string;
+    photographs: number;
+  }[];
+  documents: {
+    documentId: string;
+    title: string;
+    category: string;
+    audience: "BOARD" | "MEMBER" | "PUBLIC";
+    filedAt: string;
+  }[];
+  auditEntries: {
+    entryId: string;
+    role: "subject" | "actor";
+    action: string;
+    at: string;
+    targetKind: string | null;
+    targetId: string | null;
+    /** Field names, identifiers and counts. Never a value. */
+    context: Record<string, unknown> | null;
+  }[];
+  retention: {
+    daysAfterMoveOut: number;
+    purgeOn: string | null;
+    onLegalHold: boolean;
+  };
+}
+
 export interface PersonDetail {
   personId: string;
   firstName: string;
@@ -163,6 +297,14 @@ export interface PersonDetail {
    * consent a board instrument.
    */
   publicationConsents: PublicationConsent[];
+  /**
+   * The hold that stands today, or null.
+   *
+   * Beside the purge date on each residency on purpose: the date is what the
+   * retention policy promises, and the hold is the reason it is not going to
+   * happen.
+   */
+  legalHold: LegalHold | null;
 }
 
 export interface RevealedFields {
@@ -399,5 +541,62 @@ export function setProtectedPersonalData(
       personId,
     )}/protected-personal-data`,
     { method: "PATCH", body: JSON.stringify({ protectedPersonalData }) },
+  );
+}
+
+/**
+ * Places a legal hold, so the purge stops reaching this person's service data.
+ *
+ * The reason is required by the API as well as by the form: an exception to the
+ * association's own retention promise that nobody wrote a reason for cannot be
+ * reviewed by the board that inherits it.
+ */
+export function placeLegalHold(
+  personId: string,
+  reason: string,
+): Promise<LegalHold> {
+  return request(`/api/legal-holds/persons/${encodeURIComponent(personId)}`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/**
+ * Releases the standing hold.
+ *
+ * Nothing is deleted and nothing is erased: the hold row keeps its dates, and
+ * the person becomes reachable by the purge again, which runs in its own time.
+ */
+export function releaseLegalHold(
+  personId: string,
+  reason?: string,
+): Promise<LegalHold> {
+  return request(
+    `/api/legal-holds/persons/${encodeURIComponent(personId)}/release`,
+    {
+      method: "POST",
+      body: JSON.stringify(reason === undefined ? {} : { reason }),
+    },
+  );
+}
+
+/**
+ * Produces the data subject access report (registerutdrag, GDPR art. 15).
+ *
+ * A POST although it reads, for the reason the reveal gives: it writes an audit
+ * entry, and the answer carries a decrypted personal identity number that must
+ * not sit in a URL, a proxy log or the browser's history. Never fired on a
+ * render - only in answer to a deliberate action.
+ */
+export function fetchDataSubjectReport(
+  personId: string,
+  signal: AbortSignal,
+): Promise<DataSubjectReport> {
+  return request(
+    `/api/data-subject-reports/persons/${encodeURIComponent(personId)}`,
+    // An empty JSON body rather than none: the route takes no input, and a
+    // POST with no content type at all is a shape the server framework treats
+    // differently from an empty object.
+    { method: "POST", body: "{}", signal },
   );
 }

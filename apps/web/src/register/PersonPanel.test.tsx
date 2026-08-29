@@ -27,12 +27,16 @@ const IDENTITY_NUMBER = "19811228-9874";
 
 const {
   fetchPerson,
+  placeLegalHold,
+  releaseLegalHold,
   revealFields,
   sendInvitation,
   setProtectedPersonalData,
   setPublicationConsent,
 } = vi.hoisted(() => ({
   fetchPerson: vi.fn(),
+  placeLegalHold: vi.fn(),
+  releaseLegalHold: vi.fn(),
   revealFields: vi.fn(),
   sendInvitation: vi.fn(),
   setProtectedPersonalData: vi.fn(),
@@ -48,6 +52,8 @@ const {
 vi.mock("./register-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./register-api")>()),
   fetchPerson,
+  placeLegalHold,
+  releaseLegalHold,
   revealFields,
   sendInvitation,
   setProtectedPersonalData,
@@ -86,6 +92,7 @@ const PROTECTED_PERSON: PersonDetail = {
     invitationExpiresAt: null,
   },
   publicationConsents: unasked(),
+  legalHold: null,
 };
 
 const PLAIN_PERSON: PersonDetail = {
@@ -633,5 +640,187 @@ describe("publication consent", () => {
         screen.getByText("Samtycket kunde inte ändras. Försök igen."),
       ).not.toBeNull();
     });
+  });
+});
+
+/**
+ * The legal hold, and the report it sits beside.
+ *
+ * A hold is the one thing that stops the purge, so what matters on screen is
+ * that a board member can tell whether one stands without reading a date and
+ * inferring it, that placing one is refused without a reason before a request
+ * is made, and that a failure never reads as a success - somebody who took a
+ * failed hold for a successful one would leave a person's data to be erased in
+ * the middle of a dispute.
+ */
+
+const HELD_PERSON: PersonDetail = {
+  ...PLAIN_PERSON,
+  personId: "person-siv",
+  firstName: "Siv",
+  lastName: "Holm",
+  legalHold: {
+    holdId: "hold-1",
+    reason: "Tvist om andrahandsuthyrning",
+    placedAt: "2026-08-01T09:00:00.000Z",
+    releasedAt: null,
+    releaseReason: null,
+    placedByPersonId: "person-bo",
+    releasedByPersonId: null,
+  },
+};
+
+describe("the legal hold", () => {
+  it("says a person is not held, rather than leaving it to be inferred", async () => {
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    expect(screen.getByText(/Inget rättsligt bevarandekrav/)).not.toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: "Inför ett rättsligt bevarandekrav",
+      }),
+    ).not.toBeNull();
+  });
+
+  it("says out loud that a standing hold stops the purge", async () => {
+    // The purge date sits on every ended residency a few lines above. A board
+    // member reading that date without this sentence would expect an erasure
+    // that is not going to happen.
+    renderPanel(HELD_PERSON);
+    await screen.findByText("Siv Holm");
+
+    expect(screen.getByText(/gallringen når inte/i)).not.toBeNull();
+    expect(screen.getByText("Tvist om andrahandsuthyrning")).not.toBeNull();
+    expect(screen.getByText(/Infört 2026-08-01/)).not.toBeNull();
+  });
+
+  it("refuses to place a hold with no reason, without asking the server", async () => {
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Inför ett rättsligt bevarandekrav",
+      }),
+    );
+
+    expect(
+      screen.getByText("Skriv varför uppgifterna bevaras."),
+    ).not.toBeNull();
+    expect(placeLegalHold).not.toHaveBeenCalled();
+  });
+
+  it("places a hold with the reason that was written, and refetches", async () => {
+    placeLegalHold.mockResolvedValue(HELD_PERSON.legalHold);
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    await userEvent.type(
+      screen.getByLabelText(/Varför uppgifterna bevaras/),
+      "Tvist om andrahandsuthyrning",
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Inför ett rättsligt bevarandekrav",
+      }),
+    );
+
+    expect(placeLegalHold).toHaveBeenCalledWith(
+      "person-johan",
+      "Tvist om andrahandsuthyrning",
+    );
+    // The refetch is what puts the standing hold on screen. Without it the
+    // panel could drop it and every assertion above would still pass.
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("releases the standing hold, and may be given a reason for lifting it", async () => {
+    releaseLegalHold.mockResolvedValue({
+      ...HELD_PERSON.legalHold,
+      releasedAt: "2026-09-01T09:00:00.000Z",
+    });
+    renderPanel(HELD_PERSON);
+    await screen.findByText("Siv Holm");
+
+    await userEvent.type(
+      screen.getByLabelText(/Varför bevarandekravet hävs/),
+      "Tvisten avgjord",
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Häv det rättsliga bevarandekravet",
+      }),
+    );
+
+    expect(releaseLegalHold).toHaveBeenCalledWith(
+      "person-siv",
+      "Tvisten avgjord",
+    );
+  });
+
+  it("says so when the hold could not be changed", async () => {
+    placeLegalHold.mockRejectedValue(
+      new RegisterRequestError(409, "already-held"),
+    );
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    await userEvent.type(
+      screen.getByLabelText(/Varför uppgifterna bevaras/),
+      "Tvist",
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Inför ett rättsligt bevarandekrav",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Det rättsliga bevarandekravet kunde inte ändras. Försök igen.",
+        ),
+      ).not.toBeNull();
+    });
+  });
+});
+
+describe("the data subject access report", () => {
+  it("is not offered where there is no document view to open it in", async () => {
+    // The report replaces the board rather than rendering inside this panel,
+    // so a panel with nowhere to send the reader must not offer a button that
+    // could only do nothing.
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    expect(
+      screen.queryByRole("button", { name: "Ta fram registerutdraget" }),
+    ).toBeNull();
+  });
+
+  it("hands the person on to the document view rather than fetching here", async () => {
+    // Producing the report decrypts a personal identity number and writes an
+    // audit entry, so this panel never asks for one: it opens the document,
+    // which asks once on mount.
+    const opened: string[] = [];
+    fetchPerson.mockResolvedValue(PLAIN_PERSON);
+    render(
+      <PersonPanel
+        personId={PLAIN_PERSON.personId}
+        onClose={noop}
+        onChanged={noop}
+        onOpenReport={(personId) => opened.push(personId)}
+      />,
+    );
+    await screen.findByText("Johan Berg");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta fram registerutdraget" }),
+    );
+
+    expect(opened).toEqual(["person-johan"]);
   });
 });

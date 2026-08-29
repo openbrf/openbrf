@@ -9,6 +9,7 @@ import type {
   ResidencyRole,
   SystemRoleType,
 } from "../generated/prisma/enums";
+import type { LegalHoldView } from "../retention/legal-hold.service";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -108,6 +109,16 @@ export interface PersonDetail {
    * would be reading the board's note rather than giving consent.
    */
   publicationConsents: PublicationConsentView[];
+  /**
+   * The legal hold that stands today, or null.
+   *
+   * On the same payload as the purge date on purpose: the date is what the
+   * retention policy promises and the hold is the reason it is not going to
+   * happen, and a board member reading one without the other would read a
+   * promise the instance is not keeping. Placing and releasing a hold live in
+   * the retention module; only its current state travels here.
+   */
+  legalHold: LegalHoldView | null;
 }
 
 export interface CreatePersonInput {
@@ -224,6 +235,20 @@ export class PersonService {
             note: true,
           },
         },
+        legalHolds: {
+          where: { releasedAt: null },
+          orderBy: [{ placedAt: "desc" }],
+          take: 1,
+          select: {
+            id: true,
+            reason: true,
+            placedAt: true,
+            releasedAt: true,
+            releaseReason: true,
+            placedByPersonId: true,
+            releasedByPersonId: true,
+          },
+        },
       },
     });
 
@@ -316,6 +341,7 @@ export class PersonService {
             : pendingInvitation.expiresAt.toISOString(),
       },
       publicationConsents: consentStateFor(person.publicationConsents),
+      legalHold: standingHold(person.legalHolds),
     };
   }
 
@@ -578,4 +604,39 @@ export class PersonService {
       return { protectedPersonalData: input.protectedPersonalData };
     });
   }
+}
+
+/**
+ * The hold that stands, as the person payload carries it.
+ *
+ * At most one row arrives - the query asks for the open ones, newest first,
+ * and takes one - so this is a narrowing rather than a choice. Released holds
+ * are not here: what the panel needs is whether the purge is suspended today,
+ * and the history belongs on the data subject access report, where it explains
+ * a gap in the erasure record.
+ */
+function standingHold(
+  holds: readonly {
+    id: string;
+    reason: string;
+    placedAt: Date;
+    releasedAt: Date | null;
+    releaseReason: string | null;
+    placedByPersonId: string | null;
+    releasedByPersonId: string | null;
+  }[],
+): LegalHoldView | null {
+  const hold = holds[0];
+  if (hold === undefined) {
+    return null;
+  }
+  return {
+    holdId: hold.id,
+    reason: hold.reason,
+    placedAt: hold.placedAt.toISOString(),
+    releasedAt: hold.releasedAt?.toISOString() ?? null,
+    releaseReason: hold.releaseReason,
+    placedByPersonId: hold.placedByPersonId,
+    releasedByPersonId: hold.releasedByPersonId,
+  };
 }
