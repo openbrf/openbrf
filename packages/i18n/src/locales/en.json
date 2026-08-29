@@ -46,6 +46,12 @@
       "heading": "A move-out needs your attention",
       "body": "{{name}} moved out of apartment {{apartment}} on {{movedOutOn}}. Service data is scheduled for erasure on {{purgeOn}}.",
       "action": "Open the address book"
+    },
+    "contactSubmission": {
+      "subject": "{{sender}} has written to the association",
+      "heading": "A message from the website",
+      "body": "{{sender}} wrote to the association on {{receivedAt}} through the contact form on the website. Answer to {{email}}.",
+      "action": "Open the messages"
     }
   },
   "theme": {
@@ -771,6 +777,26 @@
       "enabled": "Take issue reports from the website",
       "stateOn": "On: the form is on the website and offers the non-member types.",
       "stateOff": "Off: there is no form on the website, and reports come from signed-in residents only."
+    },
+    "contactInbox": {
+      "title": "Messages from the website",
+      "description": "What people have written through the contact form on the association's website. Every message is kept here whether or not the notification to the board could be sent.",
+      "loading": "Loading the messages...",
+      "loadFailed": "The messages could not be read just now. Reload the page.",
+      "empty": "No messages have arrived.",
+      "receivedOn": "Received",
+      "anonymous": "No name given",
+      "handledOn": "Handled",
+      "markHandled": "Mark as handled",
+      "markUnhandled": "Mark as not handled",
+      "saving": "Saving...",
+      "delete": "Delete",
+      "deleting": "Deleting...",
+      "deleteHint": "Removes the message from the instance. There is no undoing it.",
+      "errors": {
+        "notFound": "That message is gone. The list has been read again.",
+        "unknown": "The message could not be updated just now. Please try again."
+      }
     }
   },
   "plugins": {
@@ -1465,6 +1491,27 @@
         "rights": "Your rights",
         "contact": "How to reach the board"
       }
+    },
+    "contactForm": {
+      "title": "Write to the board",
+      "name": "Your name (optional)",
+      "email": "Your email address",
+      "message": "Your message",
+      "submit": "Send the message",
+      "sent": "Thank you. The message has reached the board, and they answer to the address you gave.",
+      "refused": "The message could not be read. Check that the email address is complete and that you have written something, then send it again."
+    },
+    "issueForm": {
+      "title": "Issue report",
+      "type": "What it concerns",
+      "location": "Where in the property (optional)",
+      "description": "Describe the fault",
+      "warning": "Write what is wrong with the building. Leave out health details and other people's personal data.",
+      "name": "Your name (optional)",
+      "email": "Your email address (optional)",
+      "submit": "Send the report",
+      "sent": "Thank you. The report has reached the association.",
+      "refused": "The report could not be read. Check that you have chosen what it concerns and described the fault, then send it again."
     }
   },
   "signup": {

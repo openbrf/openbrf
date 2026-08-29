@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasBlock,
   imageReferences,
   isPublishableUrl,
   pageTextParts,
@@ -295,5 +296,121 @@ describe("a body built from plain paragraphs", () => {
         { type: "paragraph", runs: [{ text: "Da." }] },
       ],
     });
+  });
+});
+
+describe("the form blocks", () => {
+  it("takes a form with nothing above it, and one with a sentence", () => {
+    expect(
+      submittedContent({
+        blocks: [
+          { type: "contactForm" },
+          {
+            type: "issueReportForm",
+            intro: [{ text: "Anmäl fel i huset här." }],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        // A form with no intro is still a form, unlike a paragraph with no
+        // words in it: the block is the form, and the intro is decoration.
+        { type: "contactForm" },
+        {
+          type: "issueReportForm",
+          intro: [{ text: "Anmäl fel i huset här." }],
+        },
+      ],
+    });
+  });
+
+  it("carries no configuration beyond that sentence", () => {
+    // Whatever else is sent is stripped rather than stored. What the forms ask
+    // for is fixed by the platform: a form whose fields could be edited per
+    // page would be a form that could ask a stranger for a personnummer.
+    expect(
+      submittedContent({
+        blocks: [
+          {
+            type: "contactForm",
+            intro: [{ text: "Hej." }],
+            fields: ["personalIdentityNumber"],
+            action: "https://tracker.invalid",
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "contactForm", intro: [{ text: "Hej." }] }],
+    });
+  });
+
+  it("refuses an intro linking somewhere this platform will not publish", () => {
+    expect(() =>
+      submittedContent({
+        blocks: [
+          {
+            type: "contactForm",
+            intro: [{ text: "Klicka", link: "javascript:alert(1)" }],
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("reads a stored form back, and keeps the text of a refused link", () => {
+    expect(
+      readPageContent({
+        version: 1,
+        blocks: [
+          { type: "contactForm" },
+          {
+            type: "issueReportForm",
+            intro: [
+              { text: "Läs mer", link: "javascript:alert(1)" },
+              { text: "" },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        { type: "contactForm" },
+        // The words the board wrote, never the address this version refuses to
+        // vouch for.
+        { type: "issueReportForm", intro: [{ text: "Läs mer" }] },
+      ],
+    });
+  });
+
+  it("puts a form's own sentence in front of the guardrail scanner", () => {
+    const content = submittedContent({
+      blocks: [
+        { type: "contactForm", intro: [{ text: "Skriv till oss" }] },
+        { type: "issueReportForm" },
+      ],
+    });
+
+    // The intro is published prose like any other. The labels and the button
+    // are chrome, translated rather than written by the board, so they are not
+    // the board's text to be scanned or held against them.
+    expect(pageTextParts(content)).toEqual([
+      { index: 0, text: "Skriv till oss" },
+      { index: 1, text: "" },
+    ]);
+  });
+
+  it("answers which forms a page carries", () => {
+    const content = submittedContent({
+      blocks: [
+        { type: "paragraph", runs: [{ text: "Hej." }] },
+        { type: "contactForm" },
+      ],
+    });
+
+    expect(hasBlock(content, "contactForm")).toBe(true);
+    expect(hasBlock(content, "issueReportForm")).toBe(false);
   });
 });

@@ -425,6 +425,24 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { panel: title },
     capture: { panel: title },
   })),
+  {
+    /*
+     * The board's inbox for the website's contact form, empty.
+     *
+     * Empty because nothing in this walk can put a message in it: the form
+     * lives on a page of the association's own, placed there by the board, and
+     * the wizard seeds no page that carries one. The empty state is the honest
+     * picture of this card on a fresh instance, and it is the one a board sees
+     * before anybody has written to them.
+     *
+     * Its own entry rather than a row in SETTINGS_PANELS above, because the
+     * marker has to be something that exists only once the card's own read has
+     * come back - and for an empty inbox that is the sentence saying so.
+     */
+    name: "settings-contact-inbox",
+    waitFor: { text: "Inga meddelanden har kommit in." },
+    capture: { panel: "Meddelanden från webbplatsen" },
+  },
 
   // --- the resident-facing board ---------------------------------------------
   // Last, with the tenant-owner below, because these two are the screens that

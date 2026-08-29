@@ -340,6 +340,14 @@ changes the screen, not later:
 - **The theme admin screen, its preview and its lint refusal.** Including the
   refusal, which is a screen in its own right: what a board sees when a theme is
   rejected at install time.
+- **The contact inbox with a message in it.** `settings-contact-inbox`
+  photographs the card empty, which is what a board sees before anybody has
+  written to them. A populated one needs a published page carrying the contact
+  block, and the walk has no way to place one until the page editor offers the
+  form blocks.
+- **The association's website with a form on it.** The contact form and the
+  issue report form as a visitor meets them, for the same reason: the walk
+  photographs the seeded front page, which carries neither.
 - **The appearance panel's logo states.** No logo, a logo set, and a logo that
   was refused. `{ panel: "Utseende" }` already photographs that card on its own,
   so these are three entries differing only in what `prepare` sets up.

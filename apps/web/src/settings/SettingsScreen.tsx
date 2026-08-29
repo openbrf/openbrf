@@ -10,6 +10,7 @@ import { Notice } from "../ui/Notice";
 import { AddressesPanel } from "./AddressesPanel";
 import { ApartmentsPanel } from "./ApartmentsPanel";
 import { BrandingPanel } from "./BrandingPanel";
+import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
@@ -224,6 +225,12 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               {canDecideSignup ? (
                 <SignupRequestQueuePanel addresses={addresses} />
               ) : null}
+
+              {/* The second inbound queue an anonymous visitor can put
+                  something in, read by the same circle for the same reason.
+                  A capability of its own would have had a grant list identical
+                  to this one's. */}
+              {canDecideSignup ? <ContactInboxPanel /> : null}
 
               <IssueReportingPanel
                 publicFormEnabled={settings.issueReporting.publicFormEnabled}

@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import type { PageVisibility } from "../generated/prisma/enums";
 import { MenuService } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
@@ -39,6 +40,19 @@ export interface SitePage {
   slug: string;
   title: string;
   content: PageContent;
+  /**
+   * Whether an anonymous visitor may read this page.
+   *
+   * Carried on the page rather than asked for again, because the renderer needs
+   * it: a public form on a member-only page would be a form whose submission
+   * the endpoint refuses - it resolves the page as an anonymous visitor so that
+   * a page nobody may read stays indistinguishable from one that was never
+   * written - and a form that cannot be sent is worse than no form.
+   *
+   * Deliberately not the visibility value. Nothing downstream has any business
+   * knowing how a page is classified; it needs one answer, and this is it.
+   */
+  publiclyReadable: boolean;
 }
 
 /**
@@ -160,7 +174,7 @@ export class PagesService {
     const row = await this.prisma.page.findFirst({
       where: { published: true, visibility: "PUBLIC" },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { slug: true, title: true, content: true },
+      select: { slug: true, title: true, content: true, visibility: true },
     });
     return row === null ? null : PagesService.toSitePage(row);
   }
@@ -368,11 +382,13 @@ export class PagesService {
     slug: string;
     title: string;
     content: unknown;
+    visibility: PageVisibility;
   }): SitePage {
     return {
       slug: row.slug,
       title: row.title,
       content: readPageContent(row.content),
+      publiclyReadable: row.visibility === "PUBLIC",
     };
   }
 }

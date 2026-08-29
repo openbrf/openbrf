@@ -305,6 +305,112 @@ body {
   outline: 2px solid var(--obrf-accent-trust);
   outline-offset: 2px;
 }
+
+/*
+ * The public forms.
+ *
+ * Set off on the raised surface, because a form is the one thing on this page
+ * that asks the reader for something rather than telling them something. Every
+ * control is at least 44px tall: a form on a housing cooperative's website is
+ * filled in on a telephone, standing in a stairwell, by somebody who has just
+ * found the door broken.
+ */
+.site-form {
+  background: var(--obrf-surface-raised);
+  border: 1px solid var(--obrf-border-subtle);
+  border-radius: 8px;
+  margin: 2rem 0;
+  padding: 1.5rem;
+}
+
+.site-form h2 {
+  margin-top: 0;
+}
+
+.site-field {
+  display: block;
+  margin: 0 0 1rem;
+}
+
+.site-field > span {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.site-field-hint {
+  color: var(--obrf-text-secondary);
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  margin-top: 0.25rem;
+}
+
+.site-field input,
+.site-field select,
+.site-field textarea {
+  background: var(--obrf-surface-page);
+  border: 1px solid var(--obrf-border-strong);
+  border-radius: 4px;
+  color: var(--obrf-text-primary);
+  font-family: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+
+.site-field textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.site-form button {
+  background: var(--obrf-accent-trust);
+  border: 1px solid var(--obrf-accent-trust);
+  border-radius: 4px;
+  color: var(--obrf-on-accent-trust);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0.5rem 1.25rem;
+}
+
+.site-form button:hover {
+  background: var(--obrf-accent-trust-hover);
+  border-color: var(--obrf-accent-trust-hover);
+}
+
+/* Colour is never the only signal: each of these carries its own words. */
+.site-form-sent {
+  background: var(--obrf-status-ok-soft);
+  border-left: 4px solid var(--obrf-status-ok);
+  padding: 0.75rem 1rem;
+}
+
+.site-form-refused {
+  background: var(--obrf-status-danger-soft);
+  border-left: 4px solid var(--obrf-status-danger);
+  padding: 0.75rem 1rem;
+}
+
+/*
+ * The decoy field on every public form: out of sight, and out of the
+ * accessibility tree by the aria-hidden the markup carries. Clipped rather than
+ * displayed as none, because a script reading the page has to find it - that is
+ * the whole point of it - while no person ever does.
+ */
+.site-hidden {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 `;
 
 /**

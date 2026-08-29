@@ -96,7 +96,47 @@ export interface ImageBlock {
   caption?: string;
 }
 
-export type PageBlock = ParagraphBlock | HeadingBlock | ImageBlock;
+/**
+ * The form the website offers anyone who wants to write to the board.
+ *
+ * A block with almost nothing in it, and that is the design. The fields are
+ * fixed - a name, an address to answer to, and the message - so the board
+ * decides where the form sits on the page and never what it asks for. A form
+ * whose fields were editable would be a form whose fields could ask for a
+ * personal identity number, on a page anybody can read.
+ *
+ * The intro is the association's own sentence above it, and it is the only
+ * content this block carries.
+ */
+export interface ContactFormBlock {
+  type: "contactForm";
+  intro?: TextRun[];
+}
+
+/**
+ * The form a passer-by reports a broken door with.
+ *
+ * Fixed fields for the same reason as the contact form, plus one the board
+ * does configure elsewhere: the issue types, which are offered here filtered to
+ * the non-member audience. The block names none of them - which types exist is
+ * read when the page is rendered, so a type deactivated this morning is gone
+ * from the form this afternoon without anybody editing a page.
+ *
+ * The block renders as nothing while the association has public issue
+ * reporting switched off, which is what lets a page carry it across the switch
+ * being turned.
+ */
+export interface IssueReportFormBlock {
+  type: "issueReportForm";
+  intro?: TextRun[];
+}
+
+export type PageBlock =
+  | ParagraphBlock
+  | HeadingBlock
+  | ImageBlock
+  | ContactFormBlock
+  | IssueReportFormBlock;
 
 export interface PageContent {
   version: 1;
@@ -199,6 +239,17 @@ const blockSchema = z.discriminatedUnion("type", [
     alt: z.string().max(LIMITS.alt),
     caption: z.string().max(LIMITS.caption).optional(),
   }),
+  // A form block takes a type and, at most, the sentence the board wants above
+  // it. Nothing else: what the form asks for is fixed by this platform, not
+  // configured per page.
+  z.object({
+    type: z.literal("contactForm"),
+    intro: runsSchema.optional(),
+  }),
+  z.object({
+    type: z.literal("issueReportForm"),
+    intro: runsSchema.optional(),
+  }),
 ]);
 
 /**
@@ -291,6 +342,21 @@ export function pageTextParts(content: PageContent): PageTextPart[] {
   }));
 }
 
+/**
+ * Whether a body carries a block of a given kind.
+ *
+ * The question the submit endpoints ask before they accept anything: a form
+ * posted to a page that does not carry that form is answered exactly as a page
+ * that does not exist is, so a request cannot be used to find out which of the
+ * association's pages have forms on them.
+ */
+export function hasBlock(
+  content: PageContent,
+  type: PageBlock["type"],
+): boolean {
+  return content.blocks.some((block) => block.type === type);
+}
+
 /** The stored files a body refers to, with the block each reference sits in. */
 export function imageReferences(
   content: PageContent,
@@ -311,6 +377,12 @@ function blockText(block: PageBlock): string {
       return block.runs.map((run) => run.text).join("");
     case "image":
       return [block.alt, block.caption ?? ""].join(" ").trim();
+    case "contactForm":
+    case "issueReportForm":
+      // The intro only. The labels and the button are chrome, translated
+      // rather than written by the board, so they are not the board's text to
+      // be scanned or held against them.
+      return (block.intro ?? []).map((run) => run.text).join("");
   }
 }
 
@@ -336,6 +408,20 @@ function normalize(block: PageBlock): PageBlock | null {
     }
     case "image":
       return block;
+    // A form with nothing above it is still a form, unlike a paragraph with no
+    // words in it: the block is the form, and the intro is decoration.
+    case "contactForm": {
+      const intro = (block.intro ?? []).filter((run) => run.text !== "");
+      return intro.length === 0
+        ? { type: "contactForm" }
+        : { type: "contactForm", intro };
+    }
+    case "issueReportForm": {
+      const intro = (block.intro ?? []).filter((run) => run.text !== "");
+      return intro.length === 0
+        ? { type: "issueReportForm" }
+        : { type: "issueReportForm", intro };
+    }
   }
 }
 
@@ -374,6 +460,18 @@ function readBlock(entry: unknown): PageBlock | null {
           : {}),
       };
     }
+    case "contactForm": {
+      const intro = readRunList(block["intro"]);
+      return intro.length === 0
+        ? { type: "contactForm" }
+        : { type: "contactForm", intro };
+    }
+    case "issueReportForm": {
+      const intro = readRunList(block["intro"]);
+      return intro.length === 0
+        ? { type: "issueReportForm" }
+        : { type: "issueReportForm", intro };
+    }
     default:
       return null;
   }
@@ -393,6 +491,22 @@ function readRuns(block: Record<string, unknown>): TextRun[] {
     return typeof legacy === "string" && legacy !== ""
       ? [{ text: legacy.slice(0, LIMITS.runText) }]
       : [];
+  }
+
+  return readRunList(raw);
+}
+
+/**
+ * A stored list of runs, whatever the column actually held.
+ *
+ * Separate from readRuns because a form block's intro is a list of runs under a
+ * different name and with no older plain-string shape behind it. Both go
+ * through here, so there is one answer to what a run may be rather than one per
+ * field that holds them.
+ */
+function readRunList(raw: unknown): TextRun[] {
+  if (!Array.isArray(raw)) {
+    return [];
   }
 
   const runs: TextRun[] = [];

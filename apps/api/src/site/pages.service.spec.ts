@@ -100,6 +100,9 @@ describe("the front page", () => {
       version: 1,
       blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
     },
+    // Public by both of the queries that can find it, and the renderer needs
+    // to know: a public form renders on no other kind of page.
+    publiclyReadable: true,
   };
 
   it("is the menu's first page entry", async () => {
@@ -158,7 +161,7 @@ describe("the front page", () => {
     expect(page.findFirst).toHaveBeenCalledWith({
       where: { published: true, visibility: "PUBLIC" },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { slug: true, title: true, content: true },
+      select: { slug: true, title: true, content: true, visibility: true },
     });
   });
 

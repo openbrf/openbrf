@@ -87,6 +87,30 @@ export interface ReportIssueInput {
 }
 
 /**
+ * A report filed from the association's public website, by nobody in
+ * particular.
+ *
+ * No apartment: the form is served before any sign-in and must not offer a
+ * picker that enumerates the building to whoever loads the page (decision 28).
+ * The free-text location covers everything an apartment number would have.
+ *
+ * No photograph either, and that is the same argument one step further: an
+ * anonymous upload surface is a place to put files on somebody else's server,
+ * and a passer-by reporting a broken door does not need one.
+ *
+ * The contact details are optional. Somebody who reports a fault in the street
+ * owes the association nothing, and a form that refused the report without a
+ * name would collect fewer reports rather than better ones.
+ */
+export interface ReportPublicIssueInput {
+  typeId: string;
+  location?: string | null;
+  description: string;
+  reporterName?: string | null;
+  reporterEmail?: string | null;
+}
+
+/**
  * Reported issues: filing one, reading one's own, and the triage queue.
  *
  * Two properties are enforced here rather than left to the screens.
@@ -145,6 +169,66 @@ export class IssueService {
     // The identifier and the type only. The description is the resident's own
     // account of their home and has no business in a log line.
     this.logger.log(`Reported issue ${issue.id} as ${type.audience}`);
+    return issue;
+  }
+
+  /**
+   * Files a report that arrived through the public website.
+   *
+   * The type is resolved through the same filter that decided which types to
+   * offer the form, called with no principal: a caller posting an identifier
+   * that was never on the page is answered as if that type did not exist, and
+   * an association with public reporting switched off is refused here rather
+   * than merely not shown a form. The switch is the rule; the missing form is
+   * its consequence.
+   *
+   * The reporter's details are encrypted exactly as a sign-up request's are,
+   * and the address carries a blind index so a second report from the same
+   * person is recognisable as theirs.
+   */
+  async reportPublicly(input: ReportPublicIssueInput): Promise<{ id: string }> {
+    const type = await this.types.requireReportable(null, input.typeId);
+
+    const name =
+      input.reporterName == null || input.reporterName === ""
+        ? null
+        : await this.encryption.encrypt(
+            "issue.reporterName",
+            input.reporterName,
+          );
+    const email =
+      input.reporterEmail == null || input.reporterEmail === ""
+        ? null
+        : await this.encryption.encrypt(
+            "issue.reporterEmail",
+            input.reporterEmail,
+          );
+
+    const issue = await this.prisma.issue.create({
+      data: {
+        typeId: type.id,
+        // No account behind it. The reporter reference stays null and the
+        // contact fields carry whatever the person chose to leave.
+        reporterPersonId: null,
+        reporterNameCipher: name?.cipher ?? null,
+        reporterEmailCipher: email?.cipher ?? null,
+        reporterEmailIndex: email?.index ?? null,
+        // Empty is nothing, exactly as it is for the name and the address
+        // above: the form's location field is optional, so a visitor who
+        // touched it and thought better of it must not leave the board an
+        // issue whose location is present and blank.
+        location:
+          input.location == null || input.location === ""
+            ? null
+            : input.location,
+        description: input.description,
+      },
+      select: { id: true },
+    });
+
+    // The identifier and the type. What a passer-by wrote about the building,
+    // and who they said they were, has no business in a log line.
+    this.logger.log(`Reported issue ${issue.id} from the public form`);
     return issue;
   }
 
