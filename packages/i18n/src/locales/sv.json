@@ -257,7 +257,8 @@
       "secondFactorExpired": "Det tog för lång tid. Börja om med e-postadress och lösenord.",
       "passkeyCancelled": "Ingen nyckel användes, så ingen loggades in. Försök igen eller använd lösenordet.",
       "unknown": "Det gick inte att logga in just nu. Försök igen."
-    }
+    },
+    "requestAccount": "Ansök om konto"
   },
   "app": {
     "loading": "Laddar",
@@ -544,6 +545,32 @@
       "warn": "Observera",
       "danger": "Fel",
       "info": "Information"
+    },
+    "signupQueue": {
+      "title": "Väntande ansökningar",
+      "description": "En ansökan ligger kvar här tills någon i styrelsen har stämt av den mot registret. Ett godkännande skapar personen, boendet och en inbjudan; ett avslag skapar ingenting.",
+      "empty": "Inga ansökningar väntar.",
+      "loading": "Hämtar ansökningarna...",
+      "loadFailed": "Ansökningarna kunde inte hämtas just nu. Ladda om sidan.",
+      "requestedOn": "Inkom",
+      "claimedLabel": "Uppgiven adress och lägenhet",
+      "selectAddress": "Adress i registret",
+      "selectApartment": "Lägenhet i registret",
+      "apartmentRequired": "Välj lägenhet",
+      "approve": "Godkänn",
+      "approving": "Godkänner...",
+      "approved": "Ansökan är godkänd. En inbjudan är på väg till {{email}}.",
+      "reject": "Avslå",
+      "rejecting": "Avslår...",
+      "rejected": "Ansökan är avslagen. Ingenting skapades.",
+      "rejectReason": "Skäl (frivilligt)",
+      "errors": {
+        "alreadyDecided": "Någon har redan avgjort den ansökan. Listan är hämtad på nytt.",
+        "notFound": "Ansökan finns inte kvar - en nyare från samma adress har ersatt den. Listan är hämtad på nytt.",
+        "apartmentNotFound": "Lägenheten finns inte kvar i registret. Ladda om sidan och välj på nytt.",
+        "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
+        "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
+      }
     }
   },
   "plugins": {
@@ -1138,9 +1165,29 @@
       }
     }
   },
+  "signup": {
+    "title": "Ansök om konto",
+    "intro": "Fyll i dina uppgifter så tar styrelsen ställning till ansökan. Ingenting skapas förrän någon i styrelsen har godkänt den.",
+    "firstName": "Förnamn",
+    "lastName": "Efternamn",
+    "email": "E-postadress",
+    "phone": "Telefonnummer (frivilligt)",
+    "address": "Adress",
+    "apartmentNumber": "Lägenhetsnummer",
+    "freeTextHint": "Skriv adressen och lägenhetsnumret som de står i trapphuset. Styrelsen stämmer av dem mot registret när ansökan behandlas.",
+    "submit": "Skicka ansökan",
+    "working": "Skickar...",
+    "receivedTitle": "Ansökan är mottagen",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. En ny ansökan från samma e-postadress ersätter den här.",
+    "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
+    "errors": {
+      "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",
+      "unknown": "Ansökan kunde inte skickas just nu. Försök igen."
+    }
+  },
   "activate": {
     "heading": "Aktivera ditt konto",
-    "intro": "Välj ett lösenord, så är kontot ditt. Dina uppgifter finns redan i föreningens register.",
+    "intro": "Välj ett lösenord, så är kontot ditt. Dina uppgifter finns redan i föreningens adressbok.",
     "password": "Lösenord",
     "passwordHint": "Minst 12 tecken. En fras med några ord är både lättare att minnas och svårare att gissa.",
     "submit": "Aktivera kontot",

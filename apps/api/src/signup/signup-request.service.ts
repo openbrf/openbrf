@@ -55,6 +55,25 @@ export class SignupRequestService {
     private readonly invitations: InvitationService,
   ) {}
 
+  /**
+   * Whether this instance is accepting sign-up requests at all.
+   *
+   * The public form asks before it renders, so a visitor is told the door is
+   * closed rather than offered a form whose every submission would be refused.
+   * It discloses nothing new: submit already answers self-signup-disabled to an
+   * anonymous caller before it validates anything, so the boolean is readable
+   * from the outside either way. Everything else about the association stays
+   * behind a login (decision 28).
+   */
+  async state(): Promise<{ enabled: boolean }> {
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: { selfSignupEnabled: true },
+    });
+
+    return { enabled: association?.selfSignupEnabled === true };
+  }
+
   async submit(input: SubmitSignupRequestInput): Promise<{ id: string }> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },
