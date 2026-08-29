@@ -20,9 +20,12 @@ import {
  * English-speaking cooperative, whose website should not answer a visitor with
  * no preference in a language the association does not write in.
  *
- * Quality values are parsed only far enough to be discarded. Honouring the
- * weights would mean sorting, and with two supported languages the sort can
- * only ever agree with the header's own order.
+ * Quality values decide, and the header's order breaks a tie. Both halves are
+ * needed: a browser normally writes its languages in descending weight, so
+ * order alone usually agrees - but nothing requires it to, and a header that
+ * asks for Swedish at 0.2 and English at 0.9 is asking for English however it
+ * was written down. A zero weight is a refusal rather than a weak preference,
+ * and survives into the fallback below.
  */
 /** "q=0", in the shapes RFC 9110 allows for it. */
 const ZERO_QUALITY = /^\s*q\s*=\s*0(?:\.0*)?\s*$/i;
@@ -76,35 +79,62 @@ function refusedLocales(header: string | undefined | null): Set<Locale> {
   return refused;
 }
 
-/** The first language in the header this instance can render, or null. */
+/** The language this instance can render that the visitor asked for most. */
 function preferredLocale(header: string | undefined | null): Locale | null {
   if (header === undefined || header === null) {
     return null;
   }
 
+  let best: { locale: Locale; quality: number } | null = null;
+
   for (const entry of header.split(",")) {
     // "sv-SE;q=0.9" - the tag is everything before the first parameter.
     const [tag = "", ...parameters] = entry.split(";");
 
-    /*
-     * q=0 is a refusal, not a weak preference: "sv;q=0,en" asks for anything
-     * but Swedish. Header order decides the rest, so the quality values are
-     * otherwise ignored - a visitor who ranks two languages this instance has
-     * gets the one they wrote first, which is the same answer ordering alone
-     * would give.
-     */
-    if (parameters.some((parameter) => ZERO_QUALITY.test(parameter))) {
+    const locale = supportedPrimarySubtag(tag);
+    if (locale === null) {
+      // "*" and any language this instance does not have fall through to the
+      // next entry rather than ending the search.
       continue;
     }
 
-    const locale = supportedPrimarySubtag(tag);
-    if (locale !== null) {
-      return locale;
+    // q=0 is a refusal rather than a weak preference: "sv;q=0,en" asks for
+    // anything but Swedish, and no ordering expresses that.
+    const quality = qualityOf(parameters);
+    if (quality === 0) {
+      continue;
     }
-    // "*" and any language this instance does not have fall through to the
-    // next entry rather than ending the search.
+
+    /*
+     * Strictly greater, so an equal weight leaves the earlier entry standing:
+     * where the visitor expressed no preference between two languages, the
+     * order they wrote them in is the only thing left to go on.
+     */
+    if (best === null || quality > best.quality) {
+      best = { locale, quality };
+    }
   }
-  return null;
+
+  return best?.locale ?? null;
+}
+
+/**
+ * The weight an Accept-Language entry carries, defaulting to 1.
+ *
+ * A malformed weight is read as the default rather than as a refusal: the
+ * header comes from whatever software the visitor happens to be using, and
+ * answering nothing at all because one parameter is unparseable would be a
+ * worse failure than ignoring it.
+ */
+function qualityOf(parameters: readonly string[]): number {
+  for (const parameter of parameters) {
+    const match = /^\s*q\s*=\s*(\d(?:\.\d+)?)\s*$/i.exec(parameter);
+    if (match !== undefined && match !== null) {
+      const quality = Number(match[1]);
+      return Number.isFinite(quality) ? Math.min(quality, 1) : 1;
+    }
+  }
+  return 1;
 }
 
 /** A language tag narrowed to a supported locale, or null if it is not one. */

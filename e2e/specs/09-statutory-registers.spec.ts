@@ -487,7 +487,13 @@ test("a tenant-owner reads their own entry and not the member register", async (
     personIds?: string[];
   } | null;
   expect(ownContext?.via).toBe("apartment-register-extract");
-  expect(ownContext?.personIds).toContain(sigridId);
+  /*
+   * Exactly her, and nobody else. `toContain` would have passed on an extract
+   * that disclosed her neighbours' numbers alongside her own, which is the
+   * failure this whole screen exists to prevent: a tenant-owner may read their
+   * own entry, and the log has to say that is all that was read.
+   */
+  expect(ownContext?.personIds).toEqual([sigridId]);
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.
