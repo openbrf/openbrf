@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
+  runPhone,
   runSuffix,
 } from "../testing/integration-env";
 import { LegalHoldService } from "./legal-hold.service";
@@ -66,6 +67,11 @@ const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 let dueAt: Date;
 let notDueAt: Date;
 
+// Per run, because the blind index makes a fixed number the answer to somebody
+// else's phone lookup - and this suite leaves its archived person behind on
+// purpose, so a literal here would accumulate one such row per run.
+const PHONE = runPhone(suffix);
+
 const addressId = `purge-address-${suffix}`;
 
 function apartmentId(name: string): string {
@@ -108,7 +114,7 @@ async function seedPerson(
     "person.email",
     `${personId}@exempel.se`,
   );
-  const phone = await encryption.encrypt("person.phone", "+46701234567");
+  const phone = await encryption.encrypt("person.phone", PHONE);
 
   await prisma.person.create({
     data: {
@@ -509,7 +515,7 @@ describe("what the purge erases", () => {
     // would be the one copy the purge did not reach.
     const written = JSON.stringify(entry?.context);
     expect(written).not.toContain("@exempel.se");
-    expect(written).not.toContain("+46701234567");
+    expect(written).not.toContain(PHONE);
   });
 
   it("states the purge date the register had been promising", async () => {

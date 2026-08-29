@@ -67,3 +67,27 @@ export function restoreEnvironmentVariable(
 export function runSuffix(): string {
   return process.hrtime.bigint().toString(36);
 }
+
+/**
+ * A per-run phone number, for the same reason ids get a suffix.
+ *
+ * A phone number carries a blind index, and the index normalises every spelling
+ * of a number to one value: "070-123 45 67" and "+46701234567" reach the same
+ * row, which is the property the seed suite exists to assert. So a number
+ * written as a literal in a fixture is not merely duplicated data - it answers
+ * a lookup that was about somebody else's person, and a suite that leaves a row
+ * behind on purpose keeps answering it on every later run. That is not
+ * hypothetical: two retention suites and the demo data all held +46701234567,
+ * and the seed suite's phone lookup found whichever row came back first.
+ *
+ * The prefix is 076 rather than the 070, 072 and 073 the demo data uses, so a
+ * collision needs a deliberate choice rather than seven unlucky digits.
+ */
+export function runPhone(seed: string): string {
+  let digits = 0n;
+  for (const character of seed) {
+    digits =
+      (digits * 131n + BigInt(character.codePointAt(0) ?? 0)) % 10_000_000n;
+  }
+  return `+4676${digits.toString().padStart(7, "0")}`;
+}

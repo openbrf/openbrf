@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
+  runPhone,
   runSuffix,
 } from "../testing/integration-env";
 import type { DataSubjectReport } from "./data-subject-report";
@@ -41,7 +42,9 @@ let prisma: PrismaService;
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
 const IDENTITY_NUMBER = "19850101-0017";
-const PHONE = "+46701234567";
+// Per run, because the blind index makes a fixed number the answer to somebody
+// else's phone lookup - and this suite leaves its subject behind on purpose.
+const PHONE = runPhone(suffix);
 
 const addressId = `dsar-address-${suffix}`;
 const apartmentId = `dsar-apartment-${suffix}`;
