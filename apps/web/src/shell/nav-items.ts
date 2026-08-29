@@ -71,6 +71,13 @@ const ENTRIES: readonly NavEntry[] = [
     // The archive's own word for itself, under its own namespace, so the label
     // moves with the feature.
     labelKey: "documents.navLabel",
+    // Offered to the people the archive is kept for - anyone living in the
+    // building, and whoever administers it. Deliberately not the external
+    // property manager: their seat is issue handling, and the association's
+    // own binder is not theirs to browse. This gates the band only; what any
+    // account may actually read is still each document's audience, decided on
+    // the server, and the public documents remain public on the website.
+    capability: ["residentDirectory:read", "documents:manage"],
   },
 ];
 
