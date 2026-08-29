@@ -45,7 +45,7 @@ describe("the other seats", () => {
   it("offers a resident the address book, settings and issues", () => {
     expect(
       destinations(["self:manage", "residentDirectory:read", "issues:report"]),
-    ).toEqual(["/", "/settings", "/issues"]);
+    ).toEqual(["/", "/settings", "/issues", "/documents"]);
   });
 
   it("offers the board everything its capabilities reach", () => {
@@ -56,8 +56,9 @@ describe("the other seats", () => {
         "self:manage",
         "issues:report",
         "issues:handle",
+        "documents:manage",
       ]),
-    ).toEqual(["/", "/plugins", "/settings", "/issues"]);
+    ).toEqual(["/", "/plugins", "/settings", "/issues", "/documents"]);
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {

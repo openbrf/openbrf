@@ -65,6 +65,19 @@ export const CAPABILITIES = [
    * their reports into is the board's own vocabulary for its building.
    */
   "issues:configure",
+  /**
+   * Put documents into the association's archive, and decide who each one is
+   * for.
+   *
+   * A board activity no existing capability describes: association:manage is
+   * the admin's, and addressBook:write is the register's. There is no
+   * separate capability for reading - a document's audience is its whole
+   * access rule - but this name is what identifies the board within that
+   * rule, so it decides the board's shelf as well as the writing, and it is
+   * what opens a file kept to the members for whoever manages the archive
+   * without holding a residency of their own.
+   */
+  "documents:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -97,6 +110,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "issues:handle",
   "issues:report",
   "issues:configure",
+  "documents:manage",
 ];
 
 /**

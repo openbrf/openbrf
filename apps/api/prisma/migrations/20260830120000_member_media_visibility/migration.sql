@@ -1,0 +1,17 @@
+-- AlterEnum
+--
+-- A third visibility, narrower than INTERNAL. A file marked MEMBER is readable
+-- by a member of the housing cooperative - an active residency with role
+-- MEMBER - or by a holder of the capability the file names, and by nobody else
+-- merely because they are signed in. The document archive's members' shelf is
+-- what needs it: minutes of a general meeting name the members who spoke and
+-- how they voted, and until now the audience was enforced on the list while
+-- the file behind it went to any account holding its address.
+--
+-- Adding a value is all this does. A statement in this migration that also
+-- USED 'MEMBER' would fail: PostgreSQL refuses to read an enum value added in
+-- the transaction still adding it, and Prisma runs a migration in one.
+-- Existing rows keep the visibility they have; the archive rewrites a file's
+-- visibility when a document's audience changes, in that document's own
+-- transaction.
+ALTER TYPE "MediaVisibility" ADD VALUE 'MEMBER';

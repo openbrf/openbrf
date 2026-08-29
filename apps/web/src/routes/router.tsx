@@ -11,6 +11,7 @@ import { authClient } from "../auth/auth-client";
 import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
+import { DocumentsRoute } from "./DocumentsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
@@ -230,6 +231,20 @@ const issuesRoute = createRoute({
   component: IssuesRoute,
 });
 
+/**
+ * The document archive. A session, and the archive decides the rest.
+ *
+ * Deliberately no capability in the guard. What a person sees in the archive
+ * follows from each document's audience, which is the server's decision, and a
+ * check here would be a second opinion that could disagree with it.
+ */
+const documentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/documents",
+  beforeLoad: requireSession,
+  component: DocumentsRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -284,6 +299,7 @@ const routeTree = rootRoute.addChildren([
   themesRoute,
   themeComposerRoute,
   issuesRoute,
+  documentsRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,
   importRoute,

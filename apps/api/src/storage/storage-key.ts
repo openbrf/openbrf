@@ -13,6 +13,7 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": "jpg",
   "image/webp": "webp",
   "image/gif": "gif",
+  "application/pdf": "pdf",
 };
 
 /**
@@ -31,7 +32,7 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
  * the bucket's settings instead of on the key.
  */
 export function generateStorageKey(
-  prefix: "branding" | "media",
+  prefix: "branding" | "documents" | "media",
   contentType: string,
   now: Date = new Date(),
 ): string {

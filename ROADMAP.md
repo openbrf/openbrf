@@ -159,6 +159,16 @@ locally the application runs from source beside the PostgreSQL that
       at once, the page can be closed while it runs, and an import interrupted by
       a restart carries on from where it stopped rather than writing anything a
       second time
+- [x] Document archive: the association's own documents - bylaws, minutes,
+      house rules, the annual report - each filed in a binder the board names
+      itself and each carrying the audience it is for. The board sees all three
+      shelves, a member sees theirs and the published one, a resident who is
+      not a member sees what is published, and a visitor with no account can
+      fetch a published document at its own address. The audience is written
+      onto the stored file in the same transaction, so taking a document off
+      the public shelf takes the file off the street with it, and every time a
+      board document is opened that lands in the audit log. Minutes go to the
+      members unless the board publishes a particular set deliberately
 - [x] Deployable production image and Compose file: one container serving the
       API and the built client, one PostgreSQL beside it, named volumes and
       health checks on both. The entrypoint provisions the field encryption key
@@ -348,7 +358,9 @@ Free, open source, and never moved behind a paywall.
       third-party requests on public pages - so no cookie banner. Personal
       data reaches a public page only through per-person publication consent,
       and never from the statutory registers
-- [ ] Document archive with per-role permissions
+- [x] Document archive with per-audience access: every document is for the
+      board, for the members or for anyone, and the file behind it is served
+      under the same decision
 - [x] Issue reporting with photos
 - [ ] Roles for board members, residents and external property managers
 - [ ] Swedish and English interface

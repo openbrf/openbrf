@@ -71,12 +71,12 @@ model Association {
   /// On by default, unlike self-signup, and the difference is what the two
   /// forms produce. A sign-up request asks for an account on an instance
   /// holding a statutory register, so it stays shut until a board opens it. An
-  /// issue report produces a maintenance ticket and nothing else, and a
-  /// cooperative's website is expected to let a neighbour report a broken door
-  /// without an account. A board that would rather take issues only from its
-  /// own residents turns this off, and the public form then does not exist -
-  /// the anonymous audience is refused at the service, never merely hidden in
-  /// the page.
+  /// issue report produces an issue and nothing else, and a cooperative's
+  /// website is expected to let a neighbour report a broken door without an
+  /// account. A board that would rather take issues only from its own
+  /// residents turns this off, and the public form then does not exist - the
+  /// anonymous audience is refused at the service, never merely hidden in the
+  /// page.
   issueReportingPublic Boolean @default(true)
 
   smtpHost           String?
@@ -940,6 +940,16 @@ enum MediaVisibility {
   /// narrowed to holders of it, and every serve of one is written to the audit
   /// log.
   INTERNAL
+  /// A member of the housing cooperative, or a holder of the capability the
+  /// file names.
+  ///
+  /// Narrower than INTERNAL rather than a variant of it. Membership is a
+  /// residency role and not a capability, so it is asked of the principal
+  /// instead of looked for in the column, and a file marked this way is not
+  /// readable by every account that happens to be signed in - which is what
+  /// the members' shelf of the document archive needs, since minutes of a
+  /// general meeting name the members who spoke and how they voted.
+  MEMBER
 }
 
 /// An uploaded file.
@@ -984,8 +994,15 @@ model MediaFile {
 
   visibility MediaVisibility @default(INTERNAL)
 
-  /// Narrows an INTERNAL file to holders of one capability, by its name in the
-  /// capability model. Null leaves it readable by anyone signed in.
+  /// A capability this file names, by its name in the capability model.
+  ///
+  /// What it does depends on the visibility, and the two are opposites on
+  /// purpose. On an INTERNAL file it narrows: only holders may read it, and
+  /// every serve is written to the audit log. On a MEMBER file it widens: it
+  /// names who may read the file besides the members themselves, which is how
+  /// the board and an administrator reach the members' shelf without holding a
+  /// residency of their own. Null on a PUBLIC file, and on an INTERNAL one
+  /// that anyone signed in may read.
   requiredCapability String?
 
   /// Who uploaded it.
@@ -998,6 +1015,7 @@ model MediaFile {
   associationLogo     Association[] @relation("AssociationLogo")
   associationLogoDark Association[] @relation("AssociationLogoDark")
   issuePhotos         IssuePhoto[]
+  document            Document?     @relation("DocumentFile")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1289,4 +1307,77 @@ model IssuePhoto {
   @@unique([issueId, fileId])
   @@index([issueId, sortOrder])
   @@map("issue_photo")
+}
+
+
+// ---------------------------------------------------------------------------
+// The document archive.
+// ---------------------------------------------------------------------------
+
+/// Who may read a document in the archive.
+///
+/// Three audiences and no more, because they are the three the association
+/// actually distinguishes: what the board keeps to itself, what belongs to the
+/// members (medlemmar), and what it publishes to the street. Reading is decided
+/// by this value alone - there is no read capability - so a document's audience
+/// is the whole of its access rule.
+enum DocumentAudience {
+  /// The board and an administrator. Every serve of one is written to the
+  /// audit log, because the file it points at is narrowed by capability.
+  BOARD
+  /// Members of the association. A resident who is not a member does not see
+  /// these: not every resident is a member (GLOSSARY: boende, medlem).
+  MEMBER
+  /// Anyone, with no session. What the cooperative publishes about itself -
+  /// the bylaws, the annual report - and readable by a broker or a buyer.
+  PUBLIC
+}
+
+/// A document in the association's archive.
+///
+/// Service tier: the bylaws, the minutes, the house rules and the annual
+/// report are association records rather than personal data, so they carry no
+/// append-only trigger, no retention floor and no purge date. The board that
+/// uploaded a document may also remove it.
+///
+/// The bytes live in a MediaFile and are served by the media route, which is
+/// the only route in the product that streams a stored file. The audience here
+/// and the visibility there are kept in step by the service in one transaction:
+/// the audience is what the archive shows, the visibility is what the serving
+/// path enforces, and a document demoted from PUBLIC whose file stayed public
+/// would still be fetchable at its own URL.
+model Document {
+  id String @id @default(cuid())
+
+  /// What the board calls it, in the language the board wrote it in. Site
+  /// content is monolingual (decision 59): stored as written, never
+  /// translated.
+  title String
+
+  /// The binder it belongs in - "Stadgar", "Protokoll", "Årsredovisning".
+  /// Free text with suggestions in the interface rather than an enum, because
+  /// associations name their own binders and an enum would make the product
+  /// argue with them about it.
+  category String
+
+  audience DocumentAudience @default(MEMBER)
+
+  /// The bytes. One document per file: a file shared by two documents could
+  /// not be given two audiences, and removing either document would decide
+  /// for the other whether its bytes still exist.
+  mediaFileId String    @unique
+  mediaFile   MediaFile @relation("DocumentFile", fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  /// Who put it in the archive.
+  ///
+  /// A plain column rather than a relation, for the reason the audit log and
+  /// the media file both give: a referential action would either rewrite this
+  /// row or veto erasure of the person it names.
+  uploadedByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([audience, category])
+  @@map("document")
 }

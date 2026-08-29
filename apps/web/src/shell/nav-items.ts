@@ -35,6 +35,10 @@ interface NavEntry extends NavItem {
  *
  * Plugins is different. Nothing on that screen belongs to a resident, so it is
  * offered only to whoever may read how the instance is configured.
+ *
+ * The document archive names no capability, because reading it needs none: the
+ * server filters the shelf by the viewer's audience, so an account with
+ * nothing to see there is shown an empty archive rather than a missing link.
  */
 const ENTRIES: readonly NavEntry[] = [
   {
@@ -61,6 +65,19 @@ const ENTRIES: readonly NavEntry[] = [
     // module's own word for itself and moves with it.
     labelKey: "issues.navLabel",
     capability: ["issues:report", "issues:handle"],
+  },
+  {
+    to: "/documents",
+    // The archive's own word for itself, under its own namespace, so the label
+    // moves with the feature.
+    labelKey: "documents.navLabel",
+    // Offered to the people the archive is kept for - anyone living in the
+    // building, and whoever administers it. Deliberately not the external
+    // property manager: their seat is issue handling, and the association's
+    // own binder is not theirs to browse. This gates the band only; what any
+    // account may actually read is still each document's audience, decided on
+    // the server, and the public documents remain public on the website.
+    capability: ["residentDirectory:read", "documents:manage"],
   },
 ];
 
