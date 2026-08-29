@@ -99,6 +99,11 @@ export class LegalHoldService {
    * releasing the person - and the board's question is whether the person is
    * held, not how many reasons there are. A further ground goes in the release
    * reason of the first and the reason of the next.
+   *
+   * The refusal narrows the window rather than closing it, since two callers
+   * can both read no open hold before either inserts. {@link release} is where
+   * that is made harmless: it closes every open hold rather than the one it
+   * read, so a duplicate can never survive a release.
    */
   async place(input: {
     personId: string;
@@ -149,7 +154,11 @@ export class LegalHoldService {
       return toView(hold);
     });
 
-    this.logger.log(`Legal hold placed on person ${input.personId}`);
+    // No person id: an operational log has looser access and retention than
+    // the audit log, and "this person is in a dispute" is an inference worth
+    // more protection than the act itself. The audit entry above carries the
+    // target.
+    this.logger.log("Legal hold placed");
     return view;
   }
 
@@ -187,13 +196,23 @@ export class LegalHoldService {
       }
 
       /*
-       * Conditional on the hold still being open. The read above ran in this
-       * transaction but two boards clicking release at the same moment both
-       * see it open, and an unconditional update would write a second release
-       * date over the first and a second audit entry for one act.
+       * Every open hold for this person, not only the one read above.
+       *
+       * Two placements that arrive at once both read no open hold and both
+       * insert: the invariant "at most one open hold per person" is a partial
+       * unique index, which Prisma's schema cannot express - the same reason
+       * publication consent closes every open row for a scope rather than the
+       * one it read. Releasing only the newest would leave the older one
+       * standing, so the person would still be held after the board released
+       * them and the purge would never reach their service data. That is the
+       * failure worth designing against: a retention promise silently not kept.
+       *
+       * The condition on releasedAt also makes this safe against two releases
+       * at once: the one that loses matches no rows rather than writing a
+       * second release date over an already released hold.
        */
       const released = await tx.legalHold.updateMany({
-        where: { id: open.id, releasedAt: null },
+        where: { personId: input.personId, releasedAt: null },
         data: {
           releasedAt: new Date(),
           releaseReason: input.reason ?? null,
@@ -214,6 +233,10 @@ export class LegalHoldService {
           targetPersonId: input.personId,
           targetKind: "legalHold",
           targetId: open.id,
+          // A count rather than the board's words. More than one means two
+          // placements raced, which is the only way a second open hold exists;
+          // without this the entry could not say that it had happened.
+          context: { holdsReleased: released.count },
         },
         tx,
       );
@@ -223,7 +246,7 @@ export class LegalHoldService {
       );
     });
 
-    this.logger.log(`Legal hold released on person ${input.personId}`);
+    this.logger.log("Legal hold released");
     return view;
   }
 
