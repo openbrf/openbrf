@@ -6,7 +6,7 @@ import { mediaUrl } from "../media/media.service";
 import { ThemeService } from "../themes/theme.service";
 import { buildSiteStylesheet } from "./site-css";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
-import type { SitePage } from "./pages.service";
+import { PagesService, type SitePage } from "./pages.service";
 import { visitorLocale } from "./visitor-locale";
 
 /**
@@ -50,6 +50,7 @@ export class SiteRenderer {
     private readonly prisma: PrismaService,
     private readonly themes: ThemeService,
     private readonly i18n: I18nService,
+    private readonly pages: PagesService,
   ) {}
 
   /** One page as a whole document. */
@@ -67,7 +68,8 @@ export class SiteRenderer {
 
   /**
    * Reads exactly the four things the website is allowed to know about the
-   * association: what it is called, its mark, its accent and its language.
+   * association - what it is called, its mark, its accent and its language -
+   * and whether it has a privacy notice to link in the footer.
    *
    * The select list is the boundary. Nothing in this module reaches a register,
    * the address book or the encryption layer, and the shape of this query is
@@ -76,7 +78,7 @@ export class SiteRenderer {
   private async chrome(
     acceptLanguage: string | undefined,
   ): Promise<SiteChrome> {
-    const [association, rendering] = await Promise.all([
+    const [association, rendering, privacyNoticePath] = await Promise.all([
       this.prisma.association.findUnique({
         where: { id: 1 },
         select: {
@@ -87,6 +89,7 @@ export class SiteRenderer {
         },
       }),
       this.themes.activeRendering(),
+      this.pages.privacyNoticePath(),
     ]);
 
     const locale = visitorLocale(acceptLanguage, association?.defaultLocale);
@@ -102,6 +105,8 @@ export class SiteRenderer {
         association?.logoFileId == null
           ? null
           : mediaUrl(association.logoFileId),
+      mediaUrl,
+      privacyNoticePath,
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,

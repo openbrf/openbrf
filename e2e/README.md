@@ -154,8 +154,15 @@ request the browser makes goes to this instance - the typefaces above all, which
 is the one that would silently become a third-party request - and a member-only
 page is byte-identically the same not-found as an address with no page behind
 it, while the same address opens for someone signed in. It writes its member
-page straight into the database through `src/site.ts`, because no endpoint
-creates a page until the editor lands.
+page through `src/site.ts`, which now uses the board's own endpoints, so the
+page under test is one the publication guardrails have already passed.
+
+`22-site-editing.spec.ts` drives the page editor. The board writes a page,
+previews it, publishes it, and it is then read on the website by somebody with
+no account; publishing is refused while the text carries a personal identity
+number; and a claimed instance links its privacy notice from the footer of
+every page. It is the third spec allowed to navigate the instance root, because
+reading the published page on the website is the assertion.
 
 ## Still to be written
 

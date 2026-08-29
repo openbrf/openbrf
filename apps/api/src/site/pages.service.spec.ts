@@ -46,7 +46,10 @@ function build(): Fakes {
 const PUBLISHED = {
   slug: "hem",
   title: "Välkommen",
-  content: { version: 1, blocks: [{ type: "paragraph", text: "Hej." }] },
+  content: {
+    version: 1,
+    blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
+  },
   published: true,
   visibility: "PUBLIC" as const,
 };
@@ -89,7 +92,10 @@ describe("the front page", () => {
     await expect(service.homePage()).resolves.toEqual({
       slug: "hem",
       title: "Välkommen",
-      content: { version: 1, blocks: [{ type: "paragraph", text: "Hej." }] },
+      content: {
+        version: 1,
+        blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
+      },
     });
 
     // Lowest order first, oldest first on a tie, and never a member-only page:
@@ -169,7 +175,25 @@ describe("a page by its address", () => {
     // A body written by a later editor renders as less, never as something
     // this version cannot vouch for.
     expect(found?.content.blocks).toEqual([
-      { type: "paragraph", text: "Hej." },
+      { type: "paragraph", runs: [{ text: "Hej." }] },
+    ]);
+  });
+
+  it("still reads a paragraph written before runs existed", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({
+      ...PUBLISHED,
+      content: {
+        version: 1,
+        blocks: [{ type: "paragraph", text: "Skrivet av den första guiden." }],
+      },
+    });
+
+    // Bodies in the database are in that shape and there is no migration to
+    // run: the plain string is read as one unmarked run.
+    const found = await service.bySlug("hem", false);
+    expect(found?.content.blocks).toEqual([
+      { type: "paragraph", runs: [{ text: "Skrivet av den första guiden." }] },
     ]);
   });
 
@@ -203,15 +227,19 @@ describe("seeding the association its first page", () => {
         title: string;
         published: boolean;
         visibility: string;
-        content: { blocks: { text: string }[] };
+        content: { blocks: { runs: { text: string }[] }[] };
       };
     };
     expect(written.data.slug).toBe("hem");
     expect(written.data.published).toBe(true);
     expect(written.data.visibility).toBe("PUBLIC");
     expect(written.data.content.blocks).toHaveLength(2);
-    expect(written.data.content.blocks[0]?.text).toContain("Brf Talgoxen");
-    expect(written.data.content.blocks[1]?.text).toContain("769600-1234");
+    expect(written.data.content.blocks[0]?.runs[0]?.text).toContain(
+      "Brf Talgoxen",
+    );
+    expect(written.data.content.blocks[1]?.runs[0]?.text).toContain(
+      "769600-1234",
+    );
   });
 
   it("writes nothing when the instance already has a page", async () => {
@@ -250,5 +278,96 @@ describe("seeding the association its first page", () => {
       { created: false },
     );
     expect(page.create).not.toHaveBeenCalled();
+  });
+
+  it("does not count the privacy notice as the instance having a page", async () => {
+    // The two are seeded by the same act of claiming an instance. Counting the
+    // notice would make whether a front page is written depend on which of them
+    // ran first.
+    const { service, page } = build();
+
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+
+    expect(page.count).toHaveBeenCalledWith({
+      where: { slug: { not: "integritetspolicy" } },
+    });
+  });
+});
+
+describe("seeding the privacy notice", () => {
+  it("writes a published public page of headings for the board to answer", async () => {
+    const { service, page } = build();
+
+    await expect(
+      service.seedPrivacyNotice(i18n.translatorFor("sv")),
+    ).resolves.toEqual({ created: true });
+
+    const written = page.create.mock.calls[0]?.[0] as {
+      data: {
+        slug: string;
+        published: boolean;
+        visibility: string;
+        sortOrder: number;
+        content: { blocks: { type: string; level?: number }[] };
+      };
+    };
+    expect(written.data.slug).toBe("integritetspolicy");
+    expect(written.data.published).toBe(true);
+    expect(written.data.visibility).toBe("PUBLIC");
+    // Never the lowest sort order, so the notice can never become the front
+    // page of the association's website.
+    expect(written.data.sortOrder).toBeGreaterThan(0);
+
+    const blocks = written.data.content.blocks;
+    expect(blocks[0]?.type).toBe("paragraph");
+    expect(blocks.slice(1).every((block) => block.type === "heading")).toBe(
+      true,
+    );
+    expect(blocks.slice(1).every((block) => block.level === 2)).toBe(true);
+  });
+
+  it("writes nothing when the notice already exists", async () => {
+    const { service, page } = build();
+    page.count.mockResolvedValue(1);
+
+    await expect(
+      service.seedPrivacyNotice(i18n.translatorFor("sv")),
+    ).resolves.toEqual({ created: false });
+    expect(page.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the privacy notice the footer links", () => {
+  it("is linked once the page is published and public", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({
+      published: true,
+      visibility: "PUBLIC",
+    });
+
+    await expect(service.privacyNoticePath()).resolves.toBe(
+      "/integritetspolicy",
+    );
+  });
+
+  it("is not linked when it is missing, unpublished or member-only", async () => {
+    // The footer is on every page, including the ones an anonymous visitor
+    // reads. A link printed there for a page they would be answered 404 for is
+    // both a broken link and a hint that the page exists.
+    const { service, page } = build();
+
+    await expect(service.privacyNoticePath()).resolves.toBeNull();
+
+    page.findUnique.mockResolvedValue({
+      published: false,
+      visibility: "PUBLIC",
+    });
+    await expect(service.privacyNoticePath()).resolves.toBeNull();
+
+    page.findUnique.mockResolvedValue({
+      published: true,
+      visibility: "MEMBER",
+    });
+    await expect(service.privacyNoticePath()).resolves.toBeNull();
   });
 });

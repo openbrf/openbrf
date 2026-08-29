@@ -6,8 +6,9 @@ import {
   ADMINISTRATOR,
   ensureInstance,
   HOUSING_COOPERATIVE,
+  signInAsAdministrator,
 } from "../src/provision";
-import { deletePage, insertPage } from "../src/site";
+import { createSitePage, deleteSitePage } from "../src/site";
 import { appPath, repositoryRoot } from "../src/stack";
 
 /**
@@ -103,10 +104,15 @@ test("a visitor's browser reaches nothing but this instance", async ({
 });
 
 test("a member-only page is indistinguishable from one that does not exist", async ({
+  api: request,
   browser,
   clientAddress,
 }) => {
-  const memberPage = await insertPage({ visibility: "MEMBER" });
+  // Written through the board's own endpoints, so the page under test is a page
+  // the publication guardrails have already passed rather than a row this spec
+  // arranged behind them.
+  await signInAsAdministrator(request);
+  const memberPage = await createSitePage(request, { visibility: "MEMBER" });
 
   try {
     // One language for both, because the page is rendered in the visitor's own
@@ -164,7 +170,7 @@ test("a member-only page is indistinguishable from one that does not exist", asy
 
     await member.close();
   } finally {
-    await deletePage(memberPage.slug);
+    await deleteSitePage(request, memberPage.id);
   }
 });
 
@@ -218,7 +224,13 @@ test("no spec addresses the client at the instance root", async () => {
   // for the spec somebody writes next, and a template literal is exactly what
   // a spec interpolating a path would reach for.
   const rootNavigation = /page\.goto\(\s*["'`]\//g;
-  const allowed = new Set(["01-first-boot.spec.ts", "93-public-site.spec.ts"]);
+  const allowed = new Set([
+    "01-first-boot.spec.ts",
+    // The page editor's spec reads the pages it publishes on the website
+    // itself, which really is at the root.
+    "22-site-editing.spec.ts",
+    "93-public-site.spec.ts",
+  ]);
 
   const offenders: string[] = [];
   for (const entry of await readdir(specs)) {

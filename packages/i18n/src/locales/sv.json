@@ -1452,6 +1452,19 @@
       "slug": "hem",
       "title": "Välkommen",
       "body": "{{association}} är en bostadsrättsförening. Den här sidan är föreningens egen, och styrelsen skriver vad som står här."
+    },
+    "privacyNotice": {
+      "link": "Integritetspolicy",
+      "title": "Integritetspolicy",
+      "intro": "Styrelsen skriver den här sidan. Rubrikerna nedan är det en integritetspolicy ska svara på, och texten under var och en av dem är föreningens egen.",
+      "sections": {
+        "controller": "Vem som är personuppgiftsansvarig",
+        "data": "Vilka personuppgifter föreningen behandlar",
+        "purpose": "Varför föreningen behandlar dem",
+        "retention": "Hur länge de sparas",
+        "rights": "Dina rättigheter",
+        "contact": "Så når du styrelsen"
+      }
     }
   },
   "signup": {
@@ -1643,6 +1656,99 @@
       "tooLarge": "Filen är större än vad den här instansen tar emot.",
       "empty": "Filen är tom.",
       "noFile": "Ingen fil är vald.",
+      "unknown": "Det gick inte att spara just nu. Försök igen."
+    }
+  },
+  "siteAdmin": {
+    "navLabel": "Webbplatsen",
+    "heading": "Föreningens webbplats",
+    "description": "Sidorna föreningen publicerar. En sida skrivs först och publiceras när den är klar, och varje sida är antingen öppen eller bara för medlemmarna.",
+    "loading": "Läser webbplatsen...",
+    "notAllowed": "Att skriva föreningens webbplats är styrelsens. Ditt konto har inte den behörigheten.",
+    "pages": {
+      "heading": "Sidor",
+      "description": "Allt föreningen har skrivit, utkast inräknade.",
+      "none": "Inga sidor ännu. Skriv den första nedan.",
+      "edit": "Redigera"
+    },
+    "newPage": {
+      "heading": "Ny sida",
+      "description": "En ny sida skrivs opublicerad. Ingen kan läsa den förrän du publicerar den.",
+      "create": "Skapa sidan",
+      "visibility": "Vem som får läsa den"
+    },
+    "state": {
+      "published": "Publicerad",
+      "draft": "Utkast",
+      "public": "Öppen",
+      "memberOnly": "Endast medlemmar"
+    },
+    "editor": {
+      "heading": "Sidan",
+      "description": "Sidan är en lista av block. Webbplatsen avgör vad varje block blir, och därför lagras ingen uppmärkning.",
+      "freeTextWarning": "Skriv ingenting om en namngiven persons hälsa, ekonomi, religion, politik eller familjeförhållanden. Det här är en sida föreningen publicerar, och den läses av personer föreningen inte har någon relation till.",
+      "scanWarning": "Det här ser ut som ett personnummer: {{places}}. Sidan går inte att publicera förrän det är borta.",
+      "placeTitle": "rubriken",
+      "placeBlock": "block {{number}}",
+      "refusedAt": "Det står i: {{places}}.",
+      "saved": "Sparad.",
+      "save": "Spara",
+      "preview": "Förhandsgranska",
+      "publish": "Publicera",
+      "unpublish": "Avpublicera",
+      "makeMemberOnly": "Gör den till medlemssida",
+      "makePublic": "Gör den öppen",
+      "remove": "Ta bort sidan",
+      "removeConfirm": "Ta bort sidan {{title}}? Sidan och allt som står på den försvinner, och ingenting här lägger tillbaka den.",
+      "title": "Rubrik",
+      "slug": "Adress",
+      "slugHint": "Små bokstäver, siffror och bindestreck. Sidan serveras på föreningens egen domän, direkt under roten.",
+      "moveUp": "Flytta upp",
+      "moveDown": "Flytta ner",
+      "removeBlock": "Ta bort",
+      "loadingEditor": "Öppnar textredigeraren...",
+      "paragraphLabel": "Stycke {{number}}",
+      "headingLevel": "Nivå",
+      "headingLevelTwo": "Rubrik",
+      "headingLevelThree": "Underrubrik",
+      "headingText": "Rubriktext",
+      "picture": "Bild",
+      "pictureHint": "Att välja en fil laddar upp den direkt, tillsammans med svaret ovan. Den lagras på den här instansen och serveras därifrån, aldrig från någon annanstans.",
+      "identifiable": "Någon går att känna igen på bilden. En person förekommer på en publicerad sida bara med ett registrerat publiceringssamtycke.",
+      "alt": "Beskrivning av bilden",
+      "altHint": "Vad bilden visar, för den som inte kan se den. Lämna tomt bara när bilden inte bär något som texten redan säger.",
+      "caption": "Bildtext",
+      "photoConsent": "Jag intygar att alla som går att känna igen på bilderna på den här sidan har lämnat publiceringssamtycke, och att det är registrerat.",
+      "bold": "Fet",
+      "italic": "Kursiv",
+      "link": "Länk",
+      "linkPrompt": "Adress att länka till. Lämna tomt för att ta bort länken.",
+      "blocks": {
+        "paragraph": "Stycke",
+        "heading": "Rubrik",
+        "image": "Bild"
+      },
+      "add": {
+        "paragraph": "Lägg till ett stycke",
+        "heading": "Lägg till en rubrik",
+        "image": "Lägg till en bild"
+      }
+    },
+    "preview": {
+      "heading": "Förhandsgranskning",
+      "description": "Sidan som webbplatsen skulle servera den, renderad av webbplatsen själv.",
+      "frameTitle": "Sidan som webbplatsen skulle servera den"
+    },
+    "errors": {
+      "loadFailed": "Webbplatsen kunde inte läsas just nu. Ladda om sidan.",
+      "invalidSlug": "Den adressen går inte att använda för en sida.",
+      "slugTaken": "En annan sida har redan den adressen.",
+      "invalidBody": "Sidan innehåller något som webbplatsen inte publicerar. En länk måste vara en vanlig webbadress, en e-postadress eller en sida på den här webbplatsen.",
+      "personalIdentityNumber": "Sidan innehåller ett personnummer och går därför inte att publicera.",
+      "photoConsentRequired": "En bild på sidan visar personer som går att känna igen. Intyga publiceringssamtycket först.",
+      "imageNotFound": "En bild på sidan finns inte längre lagrad på den här instansen.",
+      "imageNotPublic": "En bild på sidan serveras inte öppet, så sidan skulle visa en trasig bild.",
+      "pageGone": "Sidan finns inte längre.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   }

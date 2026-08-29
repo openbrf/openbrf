@@ -78,6 +78,17 @@ export const CAPABILITIES = [
    * without holding a residency of their own.
    */
   "documents:manage",
+  /**
+   * Write the association's own website: its pages, what they contain, and
+   * whether each one is public or for the members.
+   *
+   * The board's, by the same argument as the document archive: publishing in
+   * the cooperative's name is what a board does, while association:manage is
+   * the administrator's and covers how the instance is configured rather than
+   * what it says. Reading the website needs no capability at all - that is what
+   * a public website is - so this name only ever appears on a write.
+   */
+  "site:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -111,6 +122,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "issues:report",
   "issues:configure",
   "documents:manage",
+  "site:manage",
 ];
 
 /**

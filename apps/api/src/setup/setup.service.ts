@@ -1,7 +1,15 @@
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import {
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleInit,
+} from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
@@ -72,7 +80,7 @@ export interface CreateFirstAdministratorInput {
  * exactly one call on an unclaimed instance".
  */
 @Injectable()
-export class SetupService {
+export class SetupService implements OnModuleInit {
   private readonly logger = new Logger(SetupService.name);
 
   constructor(
@@ -82,7 +90,56 @@ export class SetupService {
     private readonly audit: AuditLogService,
     private readonly pages: PagesService,
     private readonly i18n: I18nService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (this.env.NODE_ENV === "test") {
+      // Integration tests drive the backfill themselves, so a boot does not
+      // write a page into a database a suite is in the middle of arranging.
+      return;
+    }
+    await this.backfillPrivacyNotice();
+  }
+
+  /**
+   * Writes the privacy notice to an instance claimed before it existed.
+   *
+   * The footer of every page links the notice, so an instance that was set up
+   * earlier would otherwise be the only one without it. Idempotent on the slug,
+   * so it does nothing on the second boot and nothing at all to a page the
+   * board has since written.
+   *
+   * Unclaimed instances are left alone: the wizard writes both pages when it is
+   * finished, and a notice on an instance nobody has claimed would be the
+   * privacy policy of no association.
+   *
+   * A failure is logged and swallowed. The instance is running, its website
+   * answers, and refusing to start over a page that can be written on the next
+   * boot would be the wrong trade.
+   *
+   * Public so an integration test can drive it.
+   */
+  async backfillPrivacyNotice(): Promise<void> {
+    try {
+      const association = await this.prisma.association.findUnique({
+        where: { id: 1 },
+        select: { defaultLocale: true, setupCompletedAt: true },
+      });
+      if (association?.setupCompletedAt == null) {
+        return;
+      }
+      await this.pages.seedPrivacyNotice(
+        this.i18n.translatorFor(association.defaultLocale),
+      );
+    } catch (cause) {
+      this.logger.error(
+        "The association's privacy notice could not be written. The footer " +
+          "links it once it exists; this is retried on the next start.",
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
+  }
 
   async state(): Promise<SetupState> {
     return { setupRequired: await this.isUnclaimed() };
@@ -231,16 +288,18 @@ export class SetupService {
      * it is reported rather than thrown.
      */
     try {
-      await this.pages.seedDefaultPage(
-        this.i18n.translatorFor(association.defaultLocale),
-        {
-          name: association.name,
-          organizationNumber: association.organizationNumber,
-        },
-      );
+      const t = this.i18n.translatorFor(association.defaultLocale);
+      await this.pages.seedDefaultPage(t, {
+        name: association.name,
+        organizationNumber: association.organizationNumber,
+      });
+      // Beside the front page, and for the same reason: a claimed instance
+      // links its privacy notice from the footer of every page, so the page
+      // that link points at has to exist from the moment the instance answers.
+      await this.pages.seedPrivacyNotice(t);
     } catch (cause) {
       this.logger.error(
-        "Setup finished, but the association's first page could not be " +
+        "Setup finished, but the association's first pages could not be " +
           "written. The public address answers with a not-found until a page " +
           "is created.",
         cause instanceof Error ? cause.stack : undefined,

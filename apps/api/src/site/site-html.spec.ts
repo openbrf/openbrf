@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { I18nService } from "../i18n/i18n.service";
+import type { PageBlock } from "./page-content";
+import type { SitePage } from "./pages.service";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
 
 /**
@@ -24,20 +26,23 @@ beforeAll(async () => {
     associationName: "Brf Talgoxen",
     logoUrl: null,
     css: ":root { --obrf-surface-page: #EFEDE7; }",
+    mediaUrl: (mediaFileId) => `/api/media/${mediaFileId}`,
+    privacyNoticePath: null,
   };
 });
 
-const PAGE = {
-  slug: "hem",
-  title: "Välkommen",
-  content: {
-    version: 1 as const,
-    blocks: [
-      { type: "paragraph" as const, text: "Föreningen bildades 1948." },
-      { type: "paragraph" as const, text: "Styrelsen nås på styrelsen@." },
-    ],
-  },
-};
+function page(blocks: PageBlock[]): SitePage {
+  return {
+    slug: "hem",
+    title: "Välkommen",
+    content: { version: 1, blocks },
+  };
+}
+
+const PAGE = page([
+  { type: "paragraph", runs: [{ text: "Föreningen bildades 1948." }] },
+  { type: "paragraph", runs: [{ text: "Styrelsen nås på styrelsen@." }] },
+]);
 
 describe("a rendered page", () => {
   it("is a whole document in the visitor's language", () => {
@@ -66,13 +71,12 @@ describe("a rendered page", () => {
   });
 
   it("carries no address off this instance", () => {
-    const html = renderPage(chrome, {
-      ...PAGE,
-      content: {
-        version: 1,
-        blocks: [{ type: "paragraph", text: "Se https://example.invalid" }],
-      },
-    });
+    const html = renderPage(
+      chrome,
+      page([
+        { type: "paragraph", runs: [{ text: "Se https://example.invalid" }] },
+      ]),
+    );
 
     // The visitor's browser fetches nothing from anywhere else. A URL the board
     // typed into a paragraph is text on the page, not a request the browser
@@ -81,19 +85,109 @@ describe("a rendered page", () => {
     expect(html).toContain("Se https://example.invalid");
   });
 
+  it("fetches nothing from another host even when a link points at one", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "paragraph",
+          runs: [
+            { text: "Se " },
+            { text: "Boverket", link: "https://boverket.invalid" },
+          ],
+        },
+      ]),
+    );
+
+    /*
+     * A link is the one external reference a page may carry: nothing is
+     * fetched from the other host while the page is read, and following it is
+     * the visitor's own act. What must not appear is a subresource - an image,
+     * a stylesheet, a font - pointing anywhere but this instance.
+     */
+    expect(/src="https?:/i.test(html)).toBe(false);
+    expect(html).toContain(
+      '<a href="https://boverket.invalid" rel="noopener noreferrer">Boverket</a>',
+    );
+  });
+
+  it("marks the runs a paragraph is written in", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "paragraph",
+          runs: [
+            { text: "Stämman " },
+            { text: "hålls i maj", bold: true },
+            { text: " varje år", italic: true },
+          ],
+        },
+      ]),
+    );
+
+    expect(html).toContain(
+      "<p>Stämman <strong>hålls i maj</strong><em> varje år</em></p>",
+    );
+  });
+
+  it("keeps a page's own headings below its title", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        { type: "heading", level: 2, runs: [{ text: "Styrelsen" }] },
+        { type: "heading", level: 3, runs: [{ text: "Sammanträden" }] },
+      ]),
+    );
+
+    // One h1 on the page, and it is the title. A heading the board writes is
+    // always below it, so the document keeps a single outline.
+    expect(html.match(/<h1/g)).toHaveLength(1);
+    expect(html).toContain("<h2>Styrelsen</h2>");
+    expect(html).toContain("<h3>Sammanträden</h3>");
+  });
+
+  it("serves a picture from this instance's own media route", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "image",
+          mediaFileId: "file-7",
+          alt: "Gården sedd från porten",
+          caption: "Gården, våren 2026",
+        },
+      ]),
+    );
+
+    expect(html).toContain(
+      '<img src="/api/media/file-7" alt="Gården sedd från porten"/>',
+    );
+    expect(html).toContain("<figcaption>Gården, våren 2026</figcaption>");
+  });
+
+  it("links the privacy notice when the association has published one", () => {
+    expect(renderPage(chrome, PAGE)).not.toContain("Integritetspolicy");
+
+    const html = renderPage(
+      { ...chrome, privacyNoticePath: "/integritetspolicy" },
+      PAGE,
+    );
+
+    expect(html).toContain(
+      '<a href="/integritetspolicy">Integritetspolicy</a>',
+    );
+  });
+
   it("shows markup a page's text contains rather than acting on it", () => {
     const html = renderPage(chrome, {
-      ...PAGE,
+      ...page([
+        {
+          type: "paragraph",
+          runs: [{ text: "<script>fetch('https://tracker.invalid')</script>" }],
+        },
+      ]),
       title: '<img src=x onerror="steal()">',
-      content: {
-        version: 1,
-        blocks: [
-          {
-            type: "paragraph",
-            text: "<script>fetch('https://tracker.invalid')</script>",
-          },
-        ],
-      },
     });
 
     expect(html).not.toContain("<script");

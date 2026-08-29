@@ -481,4 +481,27 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { heading: "Medlemsförteckningen" },
     capture: "page",
   },
+
+  // --- the association's own website, from the board's side ------------------
+  // The administrator again, because writing the website needs site:manage and
+  // the two entries above are residents.
+  {
+    name: "site-admin",
+    as: "administrator",
+    goto: appPath("/admin/site"),
+    // A page in the list rather than the heading: the heading renders before
+    // the pages come back.
+    waitFor: { button: "Redigera", first: true },
+  },
+  {
+    name: "site-page-editor",
+    prepare: [
+      { click: { button: "Redigera", first: true } },
+      // The text editor is loaded on demand, so the screen is not finished
+      // until a paragraph field is on it.
+      { see: { label: "Stycke 1" } },
+    ],
+    waitFor: { button: "Förhandsgranska" },
+    capture: "page",
+  },
 ];

@@ -21,6 +21,7 @@ import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
+import { SiteAdminRoute } from "./SiteAdminRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
 
@@ -217,6 +218,19 @@ const themeComposerRoute = createRoute({
 });
 
 /**
+ * The association's own website. Signed in here, site:manage inside the screen.
+ *
+ * The capability is checked by the screen and enforced by the API; this guard
+ * only keeps the route from rendering for someone with no session at all.
+ */
+const siteAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site",
+  beforeLoad: requireSession,
+  component: SiteAdminRoute,
+});
+
+/**
  * Issues. Signed in here, capabilities inside the screen.
  *
  * One route for both halves of the module: a resident reports and follows their
@@ -298,6 +312,7 @@ const routeTree = rootRoute.addChildren([
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,
+  siteAdminRoute,
   issuesRoute,
   documentsRoute,
   memberRegisterRoute,
