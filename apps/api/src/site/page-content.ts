@@ -22,7 +22,10 @@ import { z } from "zod";
  *
  *   submittedContentSchema is strict and refuses. The write path uses it, so a
  *   board that wrote a link this platform will not publish is told so, instead
- *   of silently getting a page with the link missing.
+ *   of silently getting a page with the link missing. Strict about keys as well
+ *   as about values: a field no block type declares is refused rather than
+ *   dropped, because a body quietly stripped of part of itself is the one
+ *   answer a write path must not give.
  *
  * A block type is added to both of those and to renderBlock in site-html.tsx in
  * one change. That pairing is what makes an unknown block safe: it renders as
@@ -166,7 +169,15 @@ function hasControlCharacter(value: string): boolean {
   });
 }
 
-const textRunSchema = z.object({
+/*
+ * strictObject throughout, and that is the point of the write path rather than
+ * a preference. z.object strips a key it does not know, which would mean a body
+ * carrying a field this version has no rendering for is accepted and silently
+ * loses it - the board told the platform something, the platform answered that
+ * it was saved, and it was not. A refusal names the path instead, which is what
+ * the exception filter turns into "invalid-body".
+ */
+const textRunSchema = z.strictObject({
   text: z.string().max(LIMITS.runText),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
@@ -176,13 +187,13 @@ const textRunSchema = z.object({
 const runsSchema = z.array(textRunSchema).max(LIMITS.runsPerBlock);
 
 const blockSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("paragraph"), runs: runsSchema }),
-  z.object({
+  z.strictObject({ type: z.literal("paragraph"), runs: runsSchema }),
+  z.strictObject({
     type: z.literal("heading"),
     level: z.union([z.literal(2), z.literal(3)]),
     runs: runsSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("image"),
     mediaFileId: z.string().min(1).max(64),
     alt: z.string().max(LIMITS.alt),
@@ -198,7 +209,7 @@ const blockSchema = z.discriminatedUnion("type", [
  * failure here into "invalid-body" carrying the field paths, and never the
  * submitted values.
  */
-export const submittedContentSchema = z.object({
+export const submittedContentSchema = z.strictObject({
   blocks: z.array(blockSchema).max(LIMITS.blocks),
 });
 

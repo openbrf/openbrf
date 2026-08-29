@@ -199,6 +199,27 @@ describe("reading a submitted body", () => {
     ).toThrow();
   });
 
+  it("refuses a field no block type declares", () => {
+    // Stripping it would accept the body, answer that it was saved, and store
+    // less than the board sent. The write path is the one that can say so.
+    expect(() =>
+      submittedContent({
+        blocks: [
+          {
+            type: "paragraph",
+            runs: [{ text: "Hej.", colour: "red" }],
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      submittedContent({
+        blocks: [{ type: "paragraph", runs: [], align: "center" }],
+      }),
+    ).toThrow();
+    expect(() => submittedContent({ blocks: [], version: 2 })).toThrow();
+  });
+
   it("refuses a heading level the page outline has no room for", () => {
     expect(() =>
       submittedContent({
