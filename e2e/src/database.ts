@@ -48,3 +48,77 @@ export async function auditEntriesFor(
     return result.rows;
   });
 }
+
+/**
+ * An audit entry read by what was done rather than by who it was done to.
+ *
+ * Two of the recorded acts name no person at all. Producing an extract of the
+ * member register is one act over the whole register, and the full apartment
+ * register extract discloses whatever the copy happened to hold, so both leave
+ * `targetPersonId` null and say what they were about in `targetKind` and in the
+ * context. `auditEntriesFor` cannot see either of them.
+ *
+ * Its own row type rather than a widened {@link AuditEntry}: the entries that
+ * name a person are read by the specs that are about that person, and a
+ * `targetKind` on those would be a column that is always null.
+ */
+export type AuditActionEntry = {
+  readonly action: string;
+  readonly actorPersonId: string | null;
+  readonly targetKind: string | null;
+  readonly context: Record<string, unknown> | null;
+  readonly createdAt: Date;
+};
+
+/** Every audit entry recording one action, newest last. */
+export async function auditEntriesByAction(
+  action: string,
+): Promise<readonly AuditActionEntry[]> {
+  return withClient(async (client) => {
+    const result = await client.query<AuditActionEntry>(
+      `SELECT action, "actorPersonId", "targetKind", context, "createdAt"
+         FROM public.audit_log_entry
+        WHERE action = $1
+        ORDER BY "createdAt" ASC, id ASC`,
+      [action],
+    );
+    return result.rows;
+  });
+}
+
+/**
+ * Rows in the statutory member register, by the surname the register recorded.
+ *
+ * The archive keeps the name as it stood at the time of the event rather than
+ * following the person record, so this is the only name a register entry can be
+ * found by. Every spec that writes one uses a surname unique to the run, which
+ * is what makes the answer this run's.
+ *
+ * Read directly for the same reason the audit log is: the member register has
+ * no read endpoint that answers "what was written", only the extract a board
+ * member is shown, and a spec proving that a move-in or an import wrote the
+ * statutory row has to look at the row.
+ */
+export type MemberRegisterEntryRow = {
+  readonly eventType: string;
+  readonly eventOn: Date;
+  readonly recordedFirstName: string;
+  readonly recordedLastName: string;
+  readonly createdAt: Date;
+};
+
+export async function memberRegisterEntriesByRecordedName(
+  recordedLastName: string,
+): Promise<readonly MemberRegisterEntryRow[]> {
+  return withClient(async (client) => {
+    const result = await client.query<MemberRegisterEntryRow>(
+      `SELECT "eventType", "eventOn", "recordedFirstName", "recordedLastName",
+              "createdAt"
+         FROM public.member_register_entry
+        WHERE "recordedLastName" = $1
+        ORDER BY "eventOn" ASC, "createdAt" ASC, id ASC`,
+      [recordedLastName],
+    );
+    return result.rows;
+  });
+}

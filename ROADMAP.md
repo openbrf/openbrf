@@ -167,7 +167,7 @@ locally the application runs from source beside the PostgreSQL that
       and the encryption key together, because either without the other is not
       a backup
 - [x] End-to-end test suite, driving a browser against that production image
-      rather than a development server. It covers the first six of the thirteen
+      rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
       passkey and authenticator app enrolment and signing in with each;
       invitations sent from the person view for a member, a resident and an
@@ -178,11 +178,21 @@ locally the application runs from source beside the PostgreSQL that
       both the screen and the endpoint with the toggle off; the address book
       with its house tabs,
       floor grouping, filter tabs, signs, legend and register stamp in light,
-      dark and follow-the-system; and protected personal data staying masked
-      with every reveal landing in the audit log. The remaining seven have no
-      spec here yet. The statutory register views, the move flows and the import
-      are built and carry their own tests, but nothing drives them through a
-      browser against the image; the rest wait on features that are not built
+      dark and follow-the-system; protected personal data staying masked with
+      every reveal landing in the audit log; an import mapped column by column,
+      previewed row by row - creates, updates, a row matching two people and a
+      row that cannot be read - and then written to the member register; a move-in
+      that writes the member register and welcomes the person in their own
+      language, and a move-out that states the purge date the retention policy
+      derives while the register entry stands; and the member register and the
+      apartment register as two documents on two screens, printed as documents,
+      with the full apartment register extract recorded in the audit log. The four
+      that remain are not driven from here: installing a plugin and installing
+      a theme are both built and tested against fixtures built in this
+      repository, but the reference plugin and the example theme a browser
+      would install belong to repositories that do not exist yet, and the last
+      two are about continuous integration and those same repositories rather
+      than about a screen
 
 ### The public website
 
