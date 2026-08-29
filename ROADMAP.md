@@ -247,7 +247,9 @@ What neither has yet is the ecosystem around it. The public catalog, the
 published `@openbrf/plugin-sdk` package, the reference plugin and the example
 theme belong in repositories that do not exist, so an instance has nothing to
 install from until they do. Both install paths are so far proven against a
-catalog and packages built inside this repository.
+catalog and packages built inside this repository. Composing a theme needs no
+catalog at all: the manifest is written on the instance and admitted through the
+same lint gate a downloaded package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
@@ -263,7 +265,12 @@ catalog and packages built inside this repository.
       inherits the rest; the default theme is built in, always inheritable and
       cannot be removed. A board member previews a theme in their own browser
       before activating it, and activating one restarts nothing
-- [ ] Theme composer in the admin interface
+- [x] Theme composer in the admin interface. An administrator names a theme,
+      chooses the theme it inherits from and changes the colours they want
+      changed. The draft is previewed in their own browser and nowhere else,
+      and saving it runs the same lint a catalog install runs, so it lands as
+      an ordinary installed theme that can be previewed, activated, edited
+      again and removed
 
 ## Core v1
 

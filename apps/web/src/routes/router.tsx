@@ -19,6 +19,7 @@ import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
 import { SignInRoute } from "./SignInRoute";
+import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
 
 /**
@@ -192,6 +193,27 @@ const themesRoute = createRoute({
   component: ThemesRoute,
 });
 
+/**
+ * The theme composer. `?theme=` names the composed theme being edited.
+ *
+ * The search parameter is validated rather than read raw: it reaches an API
+ * path, and a route that passed on whatever the address bar held would make the
+ * address bar an input to a request. Anything that is not a theme id is dropped
+ * and the screen composes a new theme instead.
+ */
+const themeComposerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/themes/compose",
+  validateSearch: (search: Record<string, unknown>): { theme?: string } => {
+    const theme = search["theme"];
+    return typeof theme === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(theme)
+      ? { theme }
+      : {};
+  },
+  beforeLoad: requireSession,
+  component: ThemeComposerRoute,
+});
+
 const addressBookRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -244,6 +266,7 @@ const routeTree = rootRoute.addChildren([
   pluginsRoute,
   pluginViewRoute,
   themesRoute,
+  themeComposerRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,
   importRoute,
