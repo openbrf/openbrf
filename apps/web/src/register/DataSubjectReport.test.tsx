@@ -49,6 +49,7 @@ const EMPTY_REPORT: Report = {
   account: null,
   memberRegisterEntries: [],
   transfers: [],
+  lienNotes: [],
   publicationConsents: [],
   legalHolds: [],
   issues: [],
@@ -59,6 +60,16 @@ const EMPTY_REPORT: Report = {
 
 const FULL_REPORT: Report = {
   ...EMPTY_REPORT,
+  lienNotes: [
+    {
+      lienNoteId: "lien-1",
+      apartment: "Storgatan 12 1001",
+      creditor: "Exempelbanken",
+      amount: "450000.00",
+      notedOn: "2016-05-01",
+      releasedOn: null,
+    },
+  ],
   housingCooperative: {
     name: "Brf Eksemplet",
     organizationNumber: "769600-0000",
@@ -225,6 +236,17 @@ describe("what the document prints", () => {
 
     expect(screen.getByText("Skyddade uppgifter visades")).not.toBeNull();
     expect(screen.queryByText("PROTECTED_DATA_REVEALED")).toBeNull();
+  });
+
+  it("prints a standing lien note, and says that it stands", async () => {
+    // A pledge with no release date is not a missing field: the document has to
+    // say that it is still in force.
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Pantnoteringar")).not.toBeNull();
+    expect(screen.getByText("Exempelbanken")).not.toBeNull();
+    expect(screen.getByText("Gäller fortfarande")).not.toBeNull();
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

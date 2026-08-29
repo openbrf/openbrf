@@ -264,6 +264,21 @@ export interface DataSubjectReport {
     price: string | null;
     agreementReference: string | null;
   }[];
+  /**
+   * Lien notes that stood against a tenant-ownership this person held.
+   *
+   * The only section not keyed on a person column: a lien note names an
+   * apartment and a creditor and never a person, so the API derives whose it is
+   * from the member register. See `apps/api/src/retention/holding-periods.ts`.
+   */
+  lienNotes: {
+    lienNoteId: string;
+    apartment: string;
+    creditor: string;
+    amount: string | null;
+    notedOn: string;
+    releasedOn: string | null;
+  }[];
   publicationConsents: {
     scope: ConsentScope;
     grantedOn: string;

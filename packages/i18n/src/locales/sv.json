@@ -234,6 +234,7 @@
         "back": "Tillbaka till personen",
         "stamp": "Framtaget {{date}}",
         "organizationNumber": "Organisationsnummer",
+        "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
         "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, överlåtelserna, pantnoteringarna och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
@@ -245,6 +246,7 @@
           "account": "Konto",
           "memberRegister": "Medlemsförteckningen",
           "transfers": "Överlåtelser",
+          "lienNotes": "Pantnoteringar",
           "consents": "Publiceringssamtycke",
           "legalHolds": "Rättsliga bevarandekrav",
           "issues": "Felanmälningar",
@@ -298,7 +300,10 @@
           "detail": "Detaljer",
           "twoFactor": "Autentiseringsapp",
           "retentionDays": "Dagar efter utflyttning",
-          "onLegalHold": "Rättsligt bevarandekrav"
+          "onLegalHold": "Rättsligt bevarandekrav",
+          "creditor": "Panthavare",
+          "amount": "Belopp",
+          "noted": "Noterad"
         },
         "event": {
           "ENTRY": "Inträde",

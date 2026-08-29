@@ -6,11 +6,13 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { resolveRegisterEvents } from "../registers/membership-periods";
 import type {
   DataSubjectReport,
   ReportAuditEntry,
   ReportPostalAddress,
 } from "./data-subject-report";
+import { holdingPeriods, lienNotesDuringHolding } from "./holding-periods";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -35,6 +37,7 @@ const SECTIONS = [
   "account",
   "memberRegisterEntries",
   "transfers",
+  "lienNotes",
   "publicationConsents",
   "legalHolds",
   "issues",
@@ -171,6 +174,17 @@ export class DataSubjectReportService {
             id: true,
             eventType: true,
             eventOn: true,
+            /*
+             * Read twice over: once as the register section below, and once as
+             * the archive that says which tenant-ownership this person held and
+             * when, which is what decides whose lien notes these are. The four
+             * fields after this one are the second reading's - a correction
+             * chain cannot be resolved without them.
+             */
+            personId: true,
+            apartmentId: true,
+            correctsEntryId: true,
+            createdAt: true,
             recordedFirstName: true,
             recordedLastName: true,
             recordedPostalStreet: true,
@@ -233,6 +247,44 @@ export class DataSubjectReportService {
         },
       },
     });
+
+    /*
+     * Lien notes reach a person only through the tenant-ownership they held, so
+     * the archive is read for the holdings first and the notes are bounded by
+     * them. Both steps are pure and covered in holding-periods.spec.ts, which
+     * is where the transfer-day cases are argued: a pledge redeemed as a sale
+     * completes belongs to the seller's report, not the buyer's.
+     */
+    const holdings = holdingPeriods(
+      resolveRegisterEvents(person.memberRegisterEntries),
+    );
+    const heldApartmentIds = [
+      ...new Set(holdings.map((holding) => holding.apartmentId)),
+    ];
+    const lienNotes =
+      heldApartmentIds.length === 0
+        ? []
+        : lienNotesDuringHolding(
+            await tx.lienNote.findMany({
+              where: { apartmentId: { in: heldApartmentIds } },
+              orderBy: [{ notedOn: "asc" }],
+              select: {
+                id: true,
+                apartmentId: true,
+                creditor: true,
+                amount: true,
+                notedOn: true,
+                releasedOn: true,
+                apartment: {
+                  select: {
+                    number: true,
+                    address: { select: { street: true, number: true } },
+                  },
+                },
+              },
+            }),
+            holdings,
+          );
 
     const issues = await tx.issue.findMany({
       where: { reporterPersonId: personId },
@@ -372,6 +424,16 @@ export class DataSubjectReportService {
         // would round in a document that states what an apartment sold for.
         price: transfer.price === null ? null : transfer.price.toString(),
         agreementReference: transfer.agreementReference,
+      })),
+      lienNotes: lienNotes.map((note) => ({
+        lienNoteId: note.id,
+        apartment: `${note.apartment.address.street} ${note.apartment.address.number} ${note.apartment.number}`,
+        creditor: note.creditor,
+        // Decimal through its own toString, for the reason the transfer price
+        // gives: a float would round a sum on a statutory record.
+        amount: note.amount === null ? null : note.amount.toString(),
+        notedOn: toIsoDate(note.notedOn) ?? "",
+        releasedOn: toIsoDate(note.releasedOn),
       })),
       publicationConsents: person.publicationConsents.map((consent) => ({
         scope: consent.scope,

@@ -264,6 +264,41 @@ beforeAll(async () => {
     },
   });
 
+  /*
+   * Three pledges on the one apartment, which is the only way to show the
+   * bounding rule doing its work: the subject held it from 2020-03-01 to
+   * 2026-02-01, and only the middle one is theirs. The other two land on the
+   * transfer days themselves, where the wrong rule would disclose the seller's
+   * or the buyer's creditor on this person's document.
+   */
+  await prisma.lienNote.createMany({
+    data: [
+      {
+        id: `dsar-lien-theirs-${suffix}`,
+        apartmentId,
+        creditor: `Bolanebanken ${suffix}`,
+        notedOn: new Date("2021-05-01"),
+        amount: "450000",
+      },
+      {
+        id: `dsar-lien-before-${suffix}`,
+        apartmentId,
+        creditor: `Tidigare panthavare ${suffix}`,
+        notedOn: new Date("2011-01-01"),
+        // Redeemed as the sale to the subject completed, which is how a
+        // transfer ordinarily ends. It is the seller's, not theirs.
+        releasedOn: new Date("2020-03-01"),
+      },
+      {
+        id: `dsar-lien-after-${suffix}`,
+        apartmentId,
+        creditor: `Senare panthavare ${suffix}`,
+        // Taken out as the sale away from the subject completed: the buyer's.
+        notedOn: new Date("2026-02-01"),
+      },
+    ],
+  });
+
   await prisma.publicationConsent.create({
     data: {
       personId: subject.personId,
@@ -525,6 +560,28 @@ describe("what the report contains", () => {
     expect(typeof report.transfers[0]?.price).toBe("string");
     expect(Number(report.transfers[0]?.price)).toBe(1_875_000);
     expect(report.transfers[0]?.agreementReference).toBe(`OVL-2020-${suffix}`);
+  });
+
+  it("lists the pledges on the apartment while this person held it", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.lienNotes).toHaveLength(1);
+    expect(report.lienNotes[0]?.creditor).toBe(`Bolanebanken ${suffix}`);
+    expect(report.lienNotes[0]?.notedOn).toBe("2021-05-01");
+    // Still standing, which the document has to say rather than leave blank.
+    expect(report.lienNotes[0]?.releasedOn).toBeNull();
+    expect(Number(report.lienNotes[0]?.amount)).toBe(450_000);
+  });
+
+  it("keeps another holder's pledge off this person's report", async () => {
+    // GDPR art. 15(4): the copy must not adversely affect the rights of
+    // others, and a creditor is somebody's financial position. Both boundary
+    // cases are on the same apartment, so only the rule separates them.
+    const report = await reportFor(boardCookie);
+
+    const creditors = report.lienNotes.map((note) => note.creditor);
+    expect(creditors).not.toContain(`Tidigare panthavare ${suffix}`);
+    expect(creditors).not.toContain(`Senare panthavare ${suffix}`);
   });
 
   it("lists the issues and archived documents that reference the person", async () => {

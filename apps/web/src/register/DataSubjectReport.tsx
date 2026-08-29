@@ -457,6 +457,32 @@ export function DataSubjectReport({
             </Rows>
           </Section>
 
+          <Section titleKey="register.person.report.section.lienNotes">
+            <Rows
+              empty={report.lienNotes.length === 0}
+              headings={[
+                "register.person.report.field.apartment",
+                "register.person.report.field.creditor",
+                "register.person.report.field.amount",
+                "register.person.report.field.noted",
+                "register.person.report.field.released",
+              ]}
+            >
+              {report.lienNotes.map((lienNote) => (
+                <tr key={lienNote.lienNoteId} className={ROW}>
+                  <td className={DATA_CELL}>{lienNote.apartment}</td>
+                  <td className={TEXT_CELL}>{lienNote.creditor}</td>
+                  <td className={DATA_CELL}>{lienNote.amount ?? nothing}</td>
+                  <td className={DATA_CELL}>{lienNote.notedOn}</td>
+                  <td className={DATA_CELL}>
+                    {lienNote.releasedOn ??
+                      t("register.person.report.standing")}
+                  </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
           <Section titleKey="register.person.report.section.consents">
             <Rows
               empty={report.publicationConsents.length === 0}

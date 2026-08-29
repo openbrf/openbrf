@@ -46,9 +46,15 @@ The data subject access report is everything the association holds about one
 person on one printable document: the register entry with the contact details
 and the personal identity number decrypted, the residencies with the date each
 one is erased on, positions of trust, system roles, the account, the statutory
-member register entries and transfers, publication consents, legal holds,
-issues reported, documents filed, and the audit log both about them and of
-what they did. It is produced by the board from the person's own view, gated on
+member register entries and transfers, the lien notes that stood against an
+apartment while they held it, publication consents, legal holds, issues
+reported, documents filed, and the audit log both about them and of what they
+did. A lien note names an apartment and a creditor and never a person, so
+which of them are theirs is read from the member register: a pledge redeemed
+as the sale to them completed belongs on the seller's report, not on theirs,
+and where the archive cannot say whose a note was it is left out - an omission
+the association can correct, where the other mistake discloses somebody else's
+finances. It is produced by the board from the person's own view, gated on
 the capability that governs every other deliberate disclosure of masked data,
 and written to the audit log as an export in the same transaction that reads
 it. There is no public path to it and no way to send it: it is printed and

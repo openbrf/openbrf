@@ -120,6 +120,26 @@ export interface ReportDocument {
 }
 
 /**
+ * A lien note (pantnotering) that stood against a tenant-ownership this person
+ * held.
+ *
+ * The one section of this report that is not keyed on a person column. A lien
+ * note names an apartment and a creditor, never a person, so which of them are
+ * this person's is derived from the member register - see `holding-periods.ts`
+ * for the rule and for why it errs towards leaving a note out.
+ */
+export interface ReportLienNote {
+  lienNoteId: string;
+  apartment: string;
+  creditor: string;
+  /** Decimal as written, or null where none was recorded. */
+  amount: string | null;
+  notedOn: string;
+  /** Null while the pledge still stands. */
+  releasedOn: string | null;
+}
+
+/**
  * One audit entry naming this person.
  *
  * `role` says which way round: "subject" is something done to them, "actor" is
@@ -150,6 +170,7 @@ export interface DataSubjectReport {
   account: ReportAccount | null;
   memberRegisterEntries: ReportMemberRegisterEntry[];
   transfers: ReportTransfer[];
+  lienNotes: ReportLienNote[];
   publicationConsents: ReportPublicationConsent[];
   legalHolds: {
     holdId: string;

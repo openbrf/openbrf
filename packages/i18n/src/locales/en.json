@@ -234,6 +234,7 @@
         "back": "Back to the person",
         "stamp": "Produced {{date}}",
         "organizationNumber": "Organisation number",
+        "standing": "Still standing",
         "nothing": "Nothing recorded",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
         "twoTiers": "Service data is erased on the purge date below. The member register, transfers, lien notes and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
@@ -245,6 +246,7 @@
           "account": "Account",
           "memberRegister": "The member register",
           "transfers": "Transfers",
+          "lienNotes": "Lien notes",
           "consents": "Publication consent",
           "legalHolds": "Legal holds",
           "issues": "Issue reports",
@@ -298,7 +300,10 @@
           "detail": "Detail",
           "twoFactor": "Authenticator app",
           "retentionDays": "Days after move-out",
-          "onLegalHold": "Legal hold"
+          "onLegalHold": "Legal hold",
+          "creditor": "Lienholder",
+          "amount": "Amount",
+          "noted": "Noted"
         },
         "event": {
           "ENTRY": "Membership granted",
