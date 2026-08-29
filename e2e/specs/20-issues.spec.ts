@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
@@ -8,7 +8,6 @@ import {
   ADMINISTRATOR,
   ensureAccountFor,
   ensureRegisterFixture,
-  signInAsAdministrator,
 } from "../src/provision";
 import { appPath } from "../src/stack";
 
@@ -103,20 +102,56 @@ async function signInThroughTheScreen(
   await expect(page).not.toHaveURL(/sign-in/);
 }
 
+type BoardPage = {
+  readonly rows: readonly {
+    readonly personId: string;
+    readonly name: string;
+  }[];
+};
+
+/**
+ * A person in the register, by name, or nothing.
+ *
+ * The `all` filter lists a person with no residency as well as one with, which
+ * is what makes it usable here: the property manager holds no apartment.
+ */
+async function findPerson(
+  request: APIRequestContext,
+  name: string,
+): Promise<string | undefined> {
+  const response = await request.get(
+    `${stack.baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `GET /api/address-book answered ${String(response.status())}`,
+    );
+  }
+  const page = (await response.json()) as BoardPage;
+  return page.rows.find((row) => row.name === name)?.personId;
+}
+
 /**
  * The instance every test here expects: the register fixture, two issue types,
  * an account for the reporter and one for the property manager.
  *
  * Idempotent against the database rather than against process state, like the
  * shared provisioning it builds on: Playwright may run spec files in different
- * worker processes.
+ * worker processes, and every test in this file calls it.
  */
 async function ensureIssueFixture(
-  request: Parameters<typeof ensureRegisterFixture>[0],
+  request: APIRequestContext,
   clientAddress: string,
 ): Promise<{ reporterPersonId: string; managerPersonId: string }> {
+  /*
+   * The context comes back signed in as the administrator: ensureInstance,
+   * which ensureRegisterFixture calls, signs it in. Do not sign in again here.
+   * A second sign-in goes out on a context that already holds the session
+   * cookie, and the authentication layer applies its origin check to a
+   * cookie-bearing state-changing request - which this context, carrying only
+   * a forwarded-for header, has no Origin to satisfy.
+   */
   const people = await ensureRegisterFixture(request);
-  await signInAsAdministrator(request);
 
   const existing = await api.listIssueTypes(request, stack.baseUrl);
   for (const wanted of [
@@ -139,11 +174,19 @@ async function ensureIssueFixture(
     clientAddress,
   });
 
-  const managerPersonId = await api.createPerson(request, stack.baseUrl, {
-    firstName: MANAGER.firstName,
-    lastName: MANAGER.lastName,
-    email: MANAGER.email,
-  });
+  /*
+   * Looked up before being created. Nothing in the suite can delete a person,
+   * and this helper runs once per test in the file, so creating unconditionally
+   * would leave four identical property managers in the register per run.
+   */
+  const managerFullName = `${MANAGER.firstName} ${MANAGER.lastName}`;
+  const managerPersonId =
+    (await findPerson(request, managerFullName)) ??
+    (await api.createPerson(request, stack.baseUrl, {
+      firstName: MANAGER.firstName,
+      lastName: MANAGER.lastName,
+      email: MANAGER.email,
+    }));
   await grantPropertyManager(managerPersonId);
   await ensureAccountFor(request, {
     personId: managerPersonId,
@@ -314,9 +357,14 @@ test("the board decides whether the website carries a report form", async ({
     await toggle.uncheck();
     await expect(page.getByText(/^Av: det finns inget formulär/)).toBeVisible();
   } finally {
-    // Restored over HTTP rather than through the screen, so a failure above
-    // still leaves the instance as the other specs expect to find it.
-    await signInAsAdministrator(request);
+    /*
+     * Restored over HTTP rather than through the screen, so a failure above
+     * still leaves the instance as the other specs expect to find it. No
+     * sign-in here: ensureIssueFixture left this context signed in as the
+     * administrator, and signing in again on a context that already holds the
+     * cookie is refused for want of an Origin - inside a finally, that refusal
+     * would replace whichever assertion actually failed.
+     */
     await api.setPublicIssueReporting(request, stack.baseUrl, true);
   }
 });
