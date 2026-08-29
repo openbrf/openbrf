@@ -73,10 +73,11 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
                 <ul className="flex flex-wrap gap-2">
                   {issue.photos.map((photo) => (
                     <li key={photo.id}>
+                      {/* Content, not decoration: the reporter has to be able
+                          to tell which photographs their report carries. */}
                       <img
                         src={photo.url}
-                        alt=""
-                        role="presentation"
+                        alt={t("issues.photos.alt", { name: photo.fileName })}
                         className="size-20 rounded-control border border-line object-cover"
                       />
                     </li>

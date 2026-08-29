@@ -207,8 +207,52 @@ describe("filing a report", () => {
       expect(screen.getByText(/kunde inte läggas till/i)).toBeTruthy();
     });
     // The report itself landed, and the screen must not send somebody away to
-    // write it again.
+    // write it again - so the confirmation stands beside the warning rather
+    // than being displaced by it.
+    expect(screen.getByText(/ligger nu i kön/i)).toBeTruthy();
     expect(onReported).toHaveBeenCalled();
+  });
+
+  it("attempts every staged photograph and names the ones that failed", async () => {
+    // One refusal is not a verdict on the next file, and the reporter has to be
+    // told which photographs are missing: the report is already filed, so
+    // sending the form again would file a second one.
+    attachIssuePhoto.mockImplementation(async (_issueId: string, file: File) =>
+      file.name === "trasig.png"
+        ? { ok: false, failure: { status: 413, reason: "too-large" } }
+        : {
+            ok: true,
+            value: {
+              id: "p-1",
+              url: "/api/media/f-1",
+              fileName: file.name,
+              width: null,
+              height: null,
+            },
+          },
+    );
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.type(screen.getByLabelText(/vad har hänt/i), "Trasig dörr.");
+    await session.upload(screen.getByLabelText(/lägg till foto/i), [
+      new File(["bytes"], "trasig.png", { type: "image/png" }),
+      new File(["bytes"], "hel.png", { type: "image/png" }),
+    ]);
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(attachIssuePhoto).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText(/trasig\.png/)).toBeTruthy();
+    expect(screen.queryByText(/hel\.png/)).toBeNull();
   });
 
   it("says which type is not one this account may report under", async () => {

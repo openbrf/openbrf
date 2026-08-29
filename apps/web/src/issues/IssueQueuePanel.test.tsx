@@ -154,6 +154,41 @@ describe("moving a report between the three states", () => {
     });
   });
 
+  it("puts the saving label on the row that was clicked and no other", async () => {
+    // One save action serves the whole panel, so without a per-row check every
+    // button in the queue reads "Sparar..." when one of them is clicked.
+    let release: (value: unknown) => void = () => undefined;
+    setIssueStatus.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[issue(), issue({ id: "issue-2", typeName: "Värme" })]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    const buttons = screen.getAllByRole("button", { name: /ta hand om det/i });
+    expect(buttons).toHaveLength(2);
+    await session.click(buttons[0]!);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /sparar/i })).toHaveLength(
+        1,
+      );
+    });
+    expect(
+      screen.getAllByRole("button", { name: /ta hand om det/i }),
+    ).toHaveLength(1);
+
+    release({ ok: true, value: issue() });
+  });
+
   it("says so when the change is refused", async () => {
     setIssueStatus.mockResolvedValue({
       ok: false,

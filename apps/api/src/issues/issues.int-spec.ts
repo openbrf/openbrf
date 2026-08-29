@@ -67,6 +67,17 @@ const addressId = `is-address-${suffix}`;
 const ownApartmentId = `is-apartment-own-${suffix}`;
 const otherApartmentId = `is-apartment-other-${suffix}`;
 
+/**
+ * The type the catalogue test creates through the API.
+ *
+ * Its id is the server's, so afterAll cannot clean it up by id. The name
+ * carries the run's suffix instead, and afterAll sweeps on that: an assertion
+ * that fails before the delete at the end of that test would otherwise leave an
+ * active MEMBER type behind, and the next run's reportable-list assertions
+ * compare the whole array.
+ */
+const laundryTypeName = `is-type-laundry-${suffix}`;
+
 const typeIds = {
   nonMember: `is-type-non-member-${suffix}`,
   member: `is-type-member-${suffix}`,
@@ -313,7 +324,13 @@ afterAll(async () => {
     where: { uploadedByPersonId: { in: personIds } },
   });
   await prisma.issueType.deleteMany({
-    where: { id: { in: Object.values(typeIds) } },
+    where: {
+      OR: [
+        { id: { in: Object.values(typeIds) } },
+        // The catalogue test's type, whose id only the server knows.
+        { name: { endsWith: suffix } },
+      ],
+    },
   });
   await prisma.session.deleteMany({
     where: { user: { personId: { in: personIds } } },
@@ -713,7 +730,7 @@ describe("the type catalogue", () => {
     const created = await inject({
       method: "POST",
       url: "/api/issue-types",
-      payload: { name: "Tvattstugan", audience: "MEMBER", sortOrder: 9 },
+      payload: { name: laundryTypeName, audience: "MEMBER", sortOrder: 9 },
       headers: { cookie: boardCookie },
     });
     expect(created.statusCode).toBe(201);
@@ -723,7 +740,7 @@ describe("the type catalogue", () => {
       method: "PUT",
       url: `/api/issue-types/${id}`,
       payload: {
-        name: "Tvattstugan",
+        name: laundryTypeName,
         audience: "MEMBER",
         active: false,
         sortOrder: 9,

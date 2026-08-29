@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -53,6 +53,17 @@ export function IssueQueuePanel({
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged);
+  /*
+   * Which row the save in flight belongs to.
+   *
+   * One action serves the whole panel, so without this every row reads the same
+   * save state and one click puts "saving" on every button in the queue - which
+   * is exactly the screen where a queue is long enough for that to matter. The
+   * buttons stay disabled together on purpose: only one status change should be
+   * in flight before the queue reloads.
+   */
+  const [actingOn, setActingOn] = useState<string | null>(null);
+  const saving = move.state.kind === "saving";
 
   const next = (status: IssueStatus): IssueStatus =>
     status === "DONE" ? "NEW" : status === "NEW" ? "IN_PROGRESS" : "DONE";
@@ -137,10 +148,12 @@ export function IssueQueuePanel({
                 <ul className="flex flex-wrap gap-2">
                   {issue.photos.map((photo) => (
                     <li key={photo.id}>
+                      {/* Content, not decoration: the photograph is the
+                          substance of the report, so a handler reading the
+                          queue by ear is told one is attached and which. */}
                       <img
                         src={photo.url}
-                        alt=""
-                        role="presentation"
+                        alt={t("issues.photos.alt", { name: photo.fileName })}
                         className="size-20 rounded-control border border-line object-cover"
                       />
                     </li>
@@ -151,8 +164,9 @@ export function IssueQueuePanel({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={move.state.kind === "saving"}
+                  disabled={saving}
                   onClick={() => {
+                    setActingOn(issue.id);
                     void move.submit({
                       issueId: issue.id,
                       status: next(issue.status),
@@ -162,7 +176,7 @@ export function IssueQueuePanel({
                     issue.status === "DONE" ? QUIET_BUTTON : SECONDARY_BUTTON
                   }
                 >
-                  {move.state.kind === "saving"
+                  {saving && actingOn === issue.id
                     ? t("issues.queue.saving")
                     : t(actionKey(issue.status))}
                 </button>

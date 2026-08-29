@@ -81,7 +81,14 @@ export function ReportIssuePanel({
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
   const [photos, setPhotos] = useState<readonly File[]>([]);
-  const [photoFailed, setPhotoFailed] = useState(false);
+  /*
+   * The photographs that did not make it, by name.
+   *
+   * A name rather than a flag because the reporter has to know which of the
+   * files is missing from the report, and there is no second chance to work it
+   * out: the report is filed, so submitting the form again would file another.
+   */
+  const [failedPhotos, setFailedPhotos] = useState<readonly string[]>([]);
 
   /**
    * Files the report, then hangs the staged photographs on it.
@@ -110,13 +117,17 @@ export function ReportIssuePanel({
         return filed;
       }
 
+      // Every one is attempted. Stopping at the first refusal would throw away
+      // the photographs after it for a reason that has nothing to do with them
+      // - one file too large is not a verdict on the next.
+      const failed: string[] = [];
       for (const photo of input.photos) {
         const attached = await attachIssuePhoto(filed.value.id, photo);
         if (!attached.ok) {
-          setPhotoFailed(true);
-          break;
+          failed.push(photo.name);
         }
       }
+      setFailedPhotos(failed);
 
       return filed;
     },
@@ -129,7 +140,7 @@ export function ReportIssuePanel({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    setPhotoFailed(false);
+    setFailedPhotos([]);
     void submit.submit({
       typeId: draft.typeId,
       apartmentId: draft.apartmentId === "" ? null : draft.apartmentId,
@@ -174,14 +185,22 @@ export function ReportIssuePanel({
               ),
             )}
           </Notice>
-        ) : photoFailed ? (
-          <Notice tone="warn" live>
-            {t("issues.photos.openFailed")}
-          </Notice>
         ) : submit.state.kind === "saved" ? (
-          <Notice tone="ok" live>
-            {t("issues.report.submitted")}
-          </Notice>
+          /* Both, when both are true. A warning on its own leaves the reporter
+             unsure whether the report itself landed, which is the one thing
+             that would send them away to write the whole thing again. */
+          <>
+            <Notice tone="ok" live>
+              {t("issues.report.submitted")}
+            </Notice>
+            {failedPhotos.length === 0 ? null : (
+              <Notice tone="warn" live>
+                {t("issues.photos.openFailed", {
+                  names: failedPhotos.join(", "),
+                })}
+              </Notice>
+            )}
+          </>
         ) : null
       }
     >
@@ -285,7 +304,7 @@ export function ReportIssuePanel({
                       );
                     }}
                   >
-                    {t("settings.issueTypes.remove")}
+                    {t("issues.photos.remove")}
                   </button>
                 </li>
               ))}
@@ -296,15 +315,26 @@ export function ReportIssuePanel({
             <p className={HINT}>{t("issues.photos.limit")}</p>
           ) : (
             <div>
-              <label className={`${SECONDARY_BUTTON} cursor-pointer`}>
-                {t("issues.photos.add")}
+              <label className="cursor-pointer">
                 <input
                   type="file"
                   accept={ACCEPTED_TYPES}
                   multiple
                   onChange={onPick}
-                  className="sr-only"
+                  className="peer sr-only"
                 />
+                <span
+                  className={[
+                    SECONDARY_BUTTON,
+                    // The input is visually hidden, so the focus ring has to be
+                    // drawn on the part the viewer can actually see. Same
+                    // construction as the theme toggle, for the same reason.
+                    "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
+                    "peer-focus-visible:outline-trust",
+                  ].join(" ")}
+                >
+                  {t("issues.photos.add")}
+                </span>
               </label>
             </div>
           )}

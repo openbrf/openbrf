@@ -616,7 +616,7 @@
     },
     "issueReporting": {
       "title": "Felanmälan från webbplatsen",
-      "description": "När det här är på har föreningens webbplats ett formulär där vem som helst kan anmäla ett fel i huset. Anmälningar därifrån erbjuds bara typerna för icke-medlem, tar inga foton och skapar inget konto.",
+      "description": "När det här är på har föreningens webbplats ett formulär där vem som helst kan anmäla ett fel i huset. Där erbjuds bara typerna för icke-medlem, och anmälningar därifrån tar inga foton och skapar inget konto.",
       "enabled": "Ta emot felanmälan från webbplatsen",
       "stateOn": "På: formuläret finns på webbplatsen och erbjuder typerna för icke-medlem.",
       "stateOff": "Av: det finns inget formulär på webbplatsen, och anmälningar kommer bara från inloggade boende."
@@ -1385,7 +1385,9 @@
       "adding": "Laddar upp...",
       "none": "Inga foton.",
       "limit": "Anmälan har redan så många foton som den får ha.",
-      "openFailed": "Fotot kunde inte läggas till just nu. Försök igen."
+      "openFailed": "De här fotona kunde inte läggas till: {{names}}. Allt annat i anmälan skickades.",
+      "alt": "Foto på den här anmälan: {{name}}",
+      "remove": "Ta bort"
     },
     "mine": {
       "title": "Dina anmälningar",

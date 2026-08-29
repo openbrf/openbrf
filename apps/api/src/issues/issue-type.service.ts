@@ -159,8 +159,14 @@ export class IssueTypeService {
       data: {
         name: input.name,
         audience: input.audience,
-        active: input.active ?? true,
-        sortOrder: input.sortOrder ?? 0,
+        // Only the fields the caller actually sent. The defaults above belong
+        // to create alone: an update that leaves out `active` must not reopen a
+        // category the board deliberately closed, and one that leaves out
+        // `sortOrder` must not move the type to the top of every picker.
+        ...(input.active === undefined ? {} : { active: input.active }),
+        ...(input.sortOrder === undefined
+          ? {}
+          : { sortOrder: input.sortOrder }),
       },
     });
 

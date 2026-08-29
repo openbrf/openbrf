@@ -1385,7 +1385,9 @@
       "adding": "Uploading...",
       "none": "No photographs.",
       "limit": "This report already carries as many photographs as it may.",
-      "openFailed": "The photograph could not be attached just now. Please try again."
+      "openFailed": "These photographs could not be attached: {{names}}. Everything else in the report was sent.",
+      "alt": "Photograph on this report: {{name}}",
+      "remove": "Remove"
     },
     "mine": {
       "title": "Your reports",
