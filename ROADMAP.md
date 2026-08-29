@@ -310,8 +310,8 @@ optimisation is a non-goal: page titles, and no sitemap or metadata machinery.
       written to the audit log in the transaction that made it. Protected
       personal data never appears at all, because the public rendering path
       imports neither the registers, the address book nor the encryption layer - which a test asserts on the source rather than on a rendered page
-- [ ] Broker information page generated from association facts, and the
-      public forms - protected by a honeypot and rate limiting, never a
+- [ ] Broker information page generated from association facts
+- [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
       apply-for-account page (a setting, on by default)
