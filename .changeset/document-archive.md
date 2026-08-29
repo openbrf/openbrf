@@ -9,11 +9,14 @@ audience.
 
 The board files the bylaws, the minutes, the house rules and the annual report
 into binders it names itself, and gives each document one of three audiences:
-the board, the members, or anyone. Reading needs no capability at all - the
-audience on the document is the whole of the rule - so the board sees all three
-shelves, a member sees theirs and the published one, a resident who is not a
-member sees what is published, and a visitor with no account can open a
-published document at its own address.
+the board, the members, or anyone. There is no separate capability for
+reading: the audience on the document is the whole of the rule, and which
+audiences a person is inside follows from who they are - the members' shelf
+from the tenant-ownership they hold, the board's from the capability that
+manages the archive, and the published one from nothing at all. So the board
+sees all three shelves, a member sees theirs and the published one, a resident
+who is not a member sees what is published, and a visitor with no account can
+open a published document at its own address.
 
 The audience is enforced on the file rather than only on the list, for all
 three of them. Filing a document writes the same decision onto the stored
