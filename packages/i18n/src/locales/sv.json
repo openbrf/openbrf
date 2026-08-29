@@ -566,7 +566,7 @@
       "rejectReason": "Skäl (frivilligt)",
       "errors": {
         "alreadyDecided": "Någon har redan avgjort den ansökan. Listan är hämtad på nytt.",
-        "notFound": "Ansökan finns inte kvar - en nyare från samma adress har ersatt den. Listan är hämtad på nytt.",
+        "notFound": "Ansökan finns inte kvar - en nyare från samma e-postadress har ersatt den. Listan är hämtad på nytt.",
         "apartmentNotFound": "Lägenheten finns inte kvar i registret. Ladda om sidan och välj på nytt.",
         "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
         "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
