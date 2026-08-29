@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { TranslationKey } from "../i18n/translation-key";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { QUIET_BUTTON } from "../ui/controls";
@@ -45,6 +46,7 @@ export function MenuScreen(): ReactElement {
   const [pages, setPages] = useState<readonly MenuPage[]>([]);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<TranslationKey | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -110,6 +112,7 @@ export function MenuScreen(): ReactElement {
     async (entry: MenuItem): Promise<void> => {
       const result = await removeMenuItem(entry.id);
       if (result.ok) {
+        setOutcome("siteAdmin.menu.edit.removed");
         reload();
       } else {
         setFailed(true);
@@ -238,6 +241,7 @@ export function MenuScreen(): ReactElement {
             }}
             onSaved={() => {
               setEditing(null);
+              setOutcome("siteAdmin.menu.edit.saved");
               reload();
             }}
             pages={pages}
@@ -272,7 +276,13 @@ export function MenuScreen(): ReactElement {
         </Notice>
       ) : null}
 
-      <Panel title={t("siteAdmin.menu.heading")}>
+      {outcome === null ? null : (
+        <Notice live tone="ok">
+          {t(outcome)}
+        </Notice>
+      )}
+
+      <Panel title={t("siteAdmin.menu.listHeading")}>
         {items === null ? (
           <p className="text-body text-ink-muted" role="status">
             {t("siteAdmin.menu.loading")}
@@ -287,8 +297,17 @@ export function MenuScreen(): ReactElement {
       </Panel>
 
       <Panel title={t("siteAdmin.menu.add.heading")}>
+        {/*
+         * Remounted after every save, so the form the board sees next is
+         * empty: an entry has just been added, and the fields it was added
+         * from are the previous answer rather than a draft of the next one.
+         */}
         <MenuEntryForm
-          onSaved={reload}
+          key={reloadToken}
+          onSaved={() => {
+            setOutcome("siteAdmin.menu.add.saved");
+            reload();
+          }}
           pages={pages}
           parents={topLevel}
           save={addMenuItem}
