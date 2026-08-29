@@ -587,3 +587,84 @@ export async function findPersonIdByName(
 ): Promise<string | undefined> {
   return (await findPersonByName(request, baseUrl, name))?.personId;
 }
+
+/** A block in a page's body, as the write API takes it. */
+export type SitePageBlock = Record<string, unknown>;
+
+export type SitePageRow = {
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly published: boolean;
+};
+
+/**
+ * Writes a page through the board's own API.
+ *
+ * Here rather than through the editor screen because the specs that need one
+ * are about what the page DOES for a visitor - a form on it, above all - and
+ * the screen that writes pages has its own coverage. A page arrives
+ * unpublished; publishing is the separate act the audit log records, so it is
+ * a separate call here too.
+ */
+export async function createSitePage(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    slug: string;
+    title: string;
+    blocks: readonly SitePageBlock[];
+    visibility: "PUBLIC" | "MEMBER";
+  },
+): Promise<SitePageRow> {
+  const response = await request.post(`${baseUrl}/api/site/pages`, {
+    data: {
+      slug: input.slug,
+      title: input.title,
+      content: { blocks: input.blocks },
+      visibility: input.visibility,
+    },
+  });
+  await expectOk(response, "POST /api/site/pages");
+  return (await response.json()) as SitePageRow;
+}
+
+export async function publishSitePage(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/site/pages/${id}/publish`,
+    { data: { published: true } },
+  );
+  await expectOk(response, "POST /api/site/pages/:id/publish");
+}
+
+/** Removes a page this suite wrote. Pages are service tier, so this is allowed. */
+export async function deleteSitePage(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const response = await request.delete(`${baseUrl}/api/site/pages/${id}`);
+  await expectOk(response, "DELETE /api/site/pages/:id");
+}
+
+export type ContactSubmissionRow = {
+  readonly id: string;
+  readonly name: string | null;
+  readonly email: string;
+  readonly message: string;
+  readonly handled: boolean;
+};
+
+/** The board's inbox for the website's contact form. */
+export async function listContactSubmissions(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly ContactSubmissionRow[]> {
+  const response = await request.get(`${baseUrl}/api/contact-submissions`);
+  await expectOk(response, "GET /api/contact-submissions");
+  return (await response.json()) as readonly ContactSubmissionRow[];
+}

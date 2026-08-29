@@ -15,6 +15,14 @@ import { describe, expect, it } from "vitest";
  * Asserted on the source rather than on a rendered page, because a rendering
  * test can only show that today's pages carry nothing. This shows that
  * tomorrow's cannot.
+ *
+ * What it does not say is that nothing here ever reaches a service which
+ * decrypts. The public forms take a name and an address from the person filling
+ * them in, and the services that store those - in src/contact and src/issues -
+ * encrypt them like every other contact detail. A file here may call one of
+ * those. The rule is about the direction: this directory may hand a stranger's
+ * own details onward, and may not read the association's registers, which is
+ * what the list below names.
  */
 
 /*

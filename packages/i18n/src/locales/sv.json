@@ -46,6 +46,12 @@
       "heading": "En utflytt behöver din uppmärksamhet",
       "body": "{{name}} flyttade ut från lägenhet {{apartment}} den {{movedOutOn}}. Tjänstedata är schemalagd för gallring {{purgeOn}}.",
       "action": "Öppna adressboken"
+    },
+    "contactSubmission": {
+      "subject": "{{sender}} har skrivit till föreningen",
+      "heading": "Ett meddelande från webbplatsen",
+      "body": "{{sender}} skrev till föreningen den {{receivedAt}} genom kontaktformuläret på webbplatsen. Svara till {{email}}.",
+      "action": "Öppna meddelandena"
     }
   },
   "theme": {
@@ -771,6 +777,23 @@
       "enabled": "Ta emot felanmälan från webbplatsen",
       "stateOn": "På: formuläret finns på webbplatsen och erbjuder typerna för icke-medlem.",
       "stateOff": "Av: det finns inget formulär på webbplatsen, och anmälningar kommer bara från inloggade boende."
+    },
+    "contactInbox": {
+      "title": "Meddelanden från webbplatsen",
+      "description": "Det som har skrivits genom kontaktformuläret på föreningens webbplats. Varje meddelande sparas här oavsett om aviseringen till styrelsen kunde skickas.",
+      "loading": "Hämtar meddelandena...",
+      "loadFailed": "Meddelandena kunde inte hämtas just nu. Ladda om sidan.",
+      "empty": "Inga meddelanden har kommit in.",
+      "receivedOn": "Inkom",
+      "anonymous": "Inget namn angivet",
+      "handledOn": "Hanterat",
+      "markHandled": "Markera som hanterat",
+      "markUnhandled": "Markera som ohanterat",
+      "saving": "Sparar...",
+      "errors": {
+        "notFound": "Meddelandet finns inte kvar. Listan är hämtad på nytt.",
+        "unknown": "Meddelandet kunde inte uppdateras just nu. Försök igen."
+      }
     }
   },
   "plugins": {
@@ -1465,6 +1488,27 @@
         "rights": "Dina rättigheter",
         "contact": "Så når du styrelsen"
       }
+    },
+    "contactForm": {
+      "title": "Skriv till styrelsen",
+      "name": "Ditt namn (frivilligt)",
+      "email": "Din e-postadress",
+      "message": "Ditt meddelande",
+      "submit": "Skicka meddelandet",
+      "sent": "Tack. Meddelandet har nått styrelsen, som svarar till adressen du angav.",
+      "refused": "Meddelandet kunde inte läsas. Kontrollera att e-postadressen är fullständig och att du har skrivit något, och skicka sedan igen."
+    },
+    "issueForm": {
+      "title": "Anmäl ett fel",
+      "type": "Vad det gäller",
+      "location": "Var i fastigheten (frivilligt)",
+      "description": "Beskriv felet",
+      "warning": "Skriv det som är fel i huset. Utelämna uppgifter om hälsa och andra personers personuppgifter.",
+      "name": "Ditt namn (frivilligt)",
+      "email": "Din e-postadress (frivilligt)",
+      "submit": "Skicka anmälan",
+      "sent": "Tack. Anmälan har nått föreningen.",
+      "refused": "Anmälan kunde inte läsas. Kontrollera att du har valt vad det gäller och beskrivit felet, och skicka sedan igen."
     }
   },
   "signup": {

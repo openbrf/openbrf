@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 
+import { ContactModule } from "../contact/contact.module";
+import { IssuesModule } from "../issues/issues.module";
 import { MediaModule } from "../media/media.module";
 import { SetupModule } from "../setup/setup.module";
 import { ThemesModule } from "../themes/themes.module";
@@ -12,6 +14,7 @@ import {
 import { PagesModule } from "./pages.module";
 import { PagesWriteService } from "./pages-write.service";
 import { SiteController } from "./site.controller";
+import { SiteFormsController } from "./site-forms.controller";
 import { SiteRenderer } from "./site-renderer.service";
 
 /**
@@ -30,9 +33,21 @@ import { SiteRenderer } from "./site-renderer.service";
  * detail instead of a property of the class.
  */
 @Module({
-  imports: [PagesModule, SetupModule, ThemesModule, MediaModule],
+  imports: [
+    PagesModule,
+    SetupModule,
+    ThemesModule,
+    MediaModule,
+    // The two modules behind the public forms. The website renders and submits
+    // them in process rather than calling its own API over HTTP, which is what
+    // both of those modules' export lists were written for.
+    IssuesModule,
+    ContactModule,
+  ],
   controllers: [
+    // The two public ones first, then the board's.
     SiteController,
+    SiteFormsController,
     PagesAdminController,
     SiteImagesController,
     MenuAdminController,

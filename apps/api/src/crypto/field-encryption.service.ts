@@ -30,6 +30,7 @@ export type EncryptedFieldId =
   | "person.phone"
   | "person.personalIdentityNumber"
   | "signupRequest.email"
+  | "contactSubmission.email"
   | "issue.reporterName"
   | "issue.reporterEmail"
   | "association.smtpPassword"
@@ -89,6 +90,22 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   },
   "signupRequest.email": {
     table: "signup_request",
+    field: "email",
+    indexed: true,
+    fastHash: true,
+    normalize: (value) => emptyToNull(normalizeEmail(value)),
+  },
+  /*
+   * The address somebody left on the website's contact form.
+   *
+   * The same argument as a sign-up request's: it is not register content, it
+   * is how the board answers a message, and it is held encrypted for exactly
+   * that. Indexed so a second message from one address is recognisable as
+   * theirs - a board reading its inbox has to be able to see that it is one
+   * conversation rather than two strangers.
+   */
+  "contactSubmission.email": {
+    table: "contact_submission",
     field: "email",
     indexed: true,
     fastHash: true,

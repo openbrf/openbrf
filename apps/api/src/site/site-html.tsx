@@ -6,6 +6,7 @@ import { APP_BASE_PATH } from "../http/app-base-path";
 import type { SiteMenu, SiteMenuLink } from "./menu.service";
 import type { PageBlock, TextRun } from "./page-content";
 import type { SitePage } from "./pages.service";
+import { renderSiteForm, type SiteFormState } from "./site-forms";
 
 /**
  * The association's public website, as HTML.
@@ -70,15 +71,26 @@ export interface SiteChrome {
 
 const DOCTYPE = "<!doctype html>";
 
-/** One page, rendered. */
-export function renderPage(chrome: SiteChrome, page: SitePage): string {
+/**
+ * One page, rendered.
+ *
+ * The form state travels beside the page rather than inside it because it is
+ * about this request: which form was just sent, and whether the association is
+ * taking public reports at all. A page's body records that a form is here, and
+ * nothing else about it.
+ */
+export function renderPage(
+  chrome: SiteChrome,
+  page: SitePage,
+  forms: SiteFormState,
+): string {
   return document(
     chrome,
     page.title,
     <>
       <h1 className="site-title">{page.title}</h1>
       {page.content.blocks.map((block, index) =>
-        renderBlock(chrome, block, index),
+        renderBlock(chrome, block, index, forms),
       )}
     </>,
   );
@@ -123,6 +135,7 @@ function renderBlock(
   chrome: SiteChrome,
   block: PageBlock,
   index: number,
+  forms: SiteFormState,
 ): ReactElement | null {
   switch (block.type) {
     case "paragraph":
@@ -141,6 +154,19 @@ function renderBlock(
             <figcaption>{block.caption}</figcaption>
           )}
         </figure>
+      );
+    case "contactForm":
+    case "issueReportForm":
+      // The markup is in site-forms.tsx, and the intro is rendered here: a
+      // form's intro is text runs like any other prose on the page, so it goes
+      // through the same renderer rather than through a second one that could
+      // treat a link differently.
+      return renderSiteForm(
+        chrome.t,
+        block,
+        forms,
+        block.intro === undefined ? null : <p>{renderRuns(block.intro)}</p>,
+        index,
       );
     default:
       return null;

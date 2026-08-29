@@ -7,7 +7,16 @@ import { APP_BASE_PATH } from "../http/app-base-path";
 import { isApiRequest } from "../http/serve-single-page-app";
 import { SetupService } from "../setup/setup.service";
 import { PagesService } from "./pages.service";
-import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
+import {
+  siteFormKind,
+  SITE_FORM_REFUSED_PARAM,
+  SITE_FORM_SENT_PARAM,
+} from "./site-forms";
+import {
+  SITE_HTML_HEADERS,
+  SiteRenderer,
+  type SiteSubmissionState,
+} from "./site-renderer.service";
 
 /**
  * The association's own website, at the root of its own domain.
@@ -70,6 +79,7 @@ export class SiteController {
         // The front page is public whoever asks, but the menu around it is
         // not: a member is shown the entries a member may open.
         hasSession: await this.hasSession(request),
+        ...submissionState(request),
       }),
     );
   }
@@ -109,7 +119,10 @@ export class SiteController {
     this.send(
       reply,
       200,
-      await this.renderer.page(acceptLanguage(request), page, { hasSession }),
+      await this.renderer.page(acceptLanguage(request), page, {
+        hasSession,
+        ...submissionState(request),
+      }),
     );
   }
 
@@ -161,5 +174,39 @@ export class SiteController {
 /** The header as one string, whatever shape Fastify parsed it into. */
 function acceptLanguage(request: FastifyRequest): string | undefined {
   const value = request.headers["accept-language"];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * What the visitor has just done on this page, according to the query string.
+ *
+ * The submit endpoints answer 303 to the page with one of these parameters set,
+ * and this is where the page reads it back. Nothing is trusted beyond the two
+ * words the parameter may hold: an unrecognised value is nobody having done
+ * anything, so the query string can produce a confirmation sentence and no
+ * other effect at all. There is nothing here to reflect - the confirmation is
+ * a fixed translated sentence - and nothing to store, since the website sets no
+ * cookie and keeps no session.
+ */
+function submissionState(request: FastifyRequest): SiteSubmissionState {
+  const query = request.query;
+  if (typeof query !== "object" || query === null) {
+    return {};
+  }
+  const values = query as Record<string, unknown>;
+  return {
+    sent: siteFormKind(oneValue(values[SITE_FORM_SENT_PARAM])),
+    refused: siteFormKind(oneValue(values[SITE_FORM_REFUSED_PARAM])),
+  };
+}
+
+/**
+ * One string out of a query parameter, whatever shape it arrived in.
+ *
+ * A repeated parameter parses to an array. Taking neither of them is the right
+ * answer: a caller sending the same name twice is not a browser following a
+ * redirect this instance produced.
+ */
+function oneValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }

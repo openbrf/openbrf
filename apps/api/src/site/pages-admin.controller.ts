@@ -139,11 +139,16 @@ export class PagesAdminController {
         slug: input.slug ?? "",
         title: input.title,
         content: submittedContent(input.content),
+        // The draft as an anonymous reader would get it, whatever visibility
+        // it is going to be given. A preview of a public website that hid the
+        // parts only the public sees - a form, above all - would be a preview
+        // of something else.
+        publiclyReadable: true,
       },
-      // Shown as the widest audience would see it, though the board member
-      // looking at it is signed in. A preview exists to answer "what am I
-      // publishing", and the menu entries a session adds are not part of that
-      // answer.
+      // The same answer about the visitor rather than about the page: shown as
+      // the widest audience would see it, though the board member looking at
+      // it is signed in. A preview exists to answer "what am I publishing",
+      // and the menu entries a session adds are not part of that answer.
       { hasSession: false },
     );
     return { html };

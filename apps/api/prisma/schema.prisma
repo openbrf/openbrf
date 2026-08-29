@@ -1455,7 +1455,6 @@ model LegalHold {
 }
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // The site menu.
 // ---------------------------------------------------------------------------
 
@@ -1545,4 +1544,60 @@ model MenuItem {
 
   @@index([parentId, sortOrder])
   @@map("menu_item")
+}
+
+/// A message somebody sent the board through the website's contact form.
+///
+/// Service tier, and the first thing a person with no account can write into
+/// this instance besides a sign-up request. It is stored before anything is
+/// sent: the board is notified by email through the job queue, and a mail
+/// server that is down or unconfigured must never be able to lose a message
+/// somebody wrote to their housing cooperative. The inbox in settings is
+/// therefore the record, and the email is a notification about it.
+///
+/// The address is encrypted exactly as a sign-up request's is, and for the same
+/// reason: it is personal data held for a service purpose rather than register
+/// content, and the board reads it back when it answers. The name is stored as
+/// written, like a sign-up request's, because it is what the sender typed
+/// rather than something this platform asserts about a person. The index exists
+/// so a second message from one address can be recognised as theirs.
+///
+/// The message itself is free text and is neither scanned nor refused. Somebody
+/// writing to a board about a neighbour, a debt or their health writes it here,
+/// and refusing the message would refuse the correspondence the form exists
+/// for. Nothing here is ever published: the website writes into this table and
+/// never reads from it.
+model ContactSubmission {
+  id String @id @default(cuid())
+
+  /// What the sender called themselves. Optional: a message can be anonymous,
+  /// and the address is what the board answers to.
+  name String?
+
+  emailCipher String
+  emailIndex  String?
+
+  message String
+
+  /// Whether somebody on the board has dealt with it.
+  ///
+  /// A flag rather than a status, because there are two states a board can
+  /// keep true about its own inbox. Anything richer - assignment, a reply
+  /// thread - would be a correspondence module, and this is a form.
+  handled   Boolean   @default(false)
+  handledAt DateTime?
+
+  /// Who marked it handled.
+  ///
+  /// A plain column rather than a relation, for the reason the audit log, the
+  /// media file and the issue all give: a referential action would either
+  /// rewrite this row or veto erasure of the person it names, and service-tier
+  /// data has to be purgeable without negotiating with the board's inbox.
+  handledByPersonId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([handled, createdAt])
+  @@index([emailIndex])
+  @@map("contact_submission")
 }

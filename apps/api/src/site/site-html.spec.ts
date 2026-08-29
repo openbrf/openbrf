@@ -4,6 +4,7 @@ import { I18nService } from "../i18n/i18n.service";
 import type { SiteMenu } from "./menu.service";
 import type { PageBlock } from "./page-content";
 import type { SitePage } from "./pages.service";
+import type { SiteFormState } from "./site-forms";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
 
 /**
@@ -43,8 +44,22 @@ function page(blocks: PageBlock[]): SitePage {
     slug: "hem",
     title: "Välkommen",
     content: { version: 1, blocks },
+    publiclyReadable: true,
   };
 }
+
+/**
+ * A page nobody has just submitted anything on, with the public report form
+ * open. What the forms do with this is asserted in site-forms.spec.ts; here it
+ * is the ordinary case every other assertion renders against.
+ */
+const FORMS: SiteFormState = {
+  pagePath: "/hem",
+  publiclyReadable: true,
+  sent: null,
+  refused: null,
+  issueTypes: [{ id: "type-1", name: "Trasig port" }],
+};
 
 const PAGE = page([
   { type: "paragraph", runs: [{ text: "Föreningen bildades 1948." }] },
@@ -53,7 +68,7 @@ const PAGE = page([
 
 describe("a rendered page", () => {
   it("is a whole document in the visitor's language", () => {
-    const html = renderPage(chrome, PAGE);
+    const html = renderPage(chrome, PAGE, FORMS);
 
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).toContain('<html lang="sv">');
@@ -62,14 +77,14 @@ describe("a rendered page", () => {
   });
 
   it("renders each paragraph the board wrote", () => {
-    const html = renderPage(chrome, PAGE);
+    const html = renderPage(chrome, PAGE, FORMS);
 
     expect(html).toContain("<p>Föreningen bildades 1948.</p>");
     expect(html).toContain("<p>Styrelsen nås på styrelsen@.</p>");
   });
 
   it("carries no script of any kind", () => {
-    const html = renderPage(chrome, PAGE);
+    const html = renderPage(chrome, PAGE, FORMS);
 
     expect(html).not.toContain("<script");
     expect(html).not.toContain("javascript:");
@@ -83,6 +98,7 @@ describe("a rendered page", () => {
       page([
         { type: "paragraph", runs: [{ text: "Se https://example.invalid" }] },
       ]),
+      FORMS,
     );
 
     // The visitor's browser fetches nothing from anywhere else. A URL the board
@@ -104,6 +120,7 @@ describe("a rendered page", () => {
           ],
         },
       ]),
+      FORMS,
     );
 
     /*
@@ -131,6 +148,7 @@ describe("a rendered page", () => {
           ],
         },
       ]),
+      FORMS,
     );
 
     expect(html).toContain(
@@ -145,6 +163,7 @@ describe("a rendered page", () => {
         { type: "heading", level: 2, runs: [{ text: "Styrelsen" }] },
         { type: "heading", level: 3, runs: [{ text: "Sammanträden" }] },
       ]),
+      FORMS,
     );
 
     // One h1 on the page, and it is the title. A heading the board writes is
@@ -165,6 +184,7 @@ describe("a rendered page", () => {
           caption: "Gården, våren 2026",
         },
       ]),
+      FORMS,
     );
 
     expect(html).toContain(
@@ -174,11 +194,12 @@ describe("a rendered page", () => {
   });
 
   it("links the privacy notice when the association has published one", () => {
-    expect(renderPage(chrome, PAGE)).not.toContain("Integritetspolicy");
+    expect(renderPage(chrome, PAGE, FORMS)).not.toContain("Integritetspolicy");
 
     const html = renderPage(
       { ...chrome, privacyNoticePath: "/integritetspolicy" },
       PAGE,
+      FORMS,
     );
 
     expect(html).toContain(
@@ -187,15 +208,21 @@ describe("a rendered page", () => {
   });
 
   it("shows markup a page's text contains rather than acting on it", () => {
-    const html = renderPage(chrome, {
-      ...page([
-        {
-          type: "paragraph",
-          runs: [{ text: "<script>fetch('https://tracker.invalid')</script>" }],
-        },
-      ]),
-      title: '<img src=x onerror="steal()">',
-    });
+    const html = renderPage(
+      chrome,
+      {
+        ...page([
+          {
+            type: "paragraph",
+            runs: [
+              { text: "<script>fetch('https://tracker.invalid')</script>" },
+            ],
+          },
+        ]),
+        title: '<img src=x onerror="steal()">',
+      },
+      FORMS,
+    );
 
     expect(html).not.toContain("<script");
     expect(html).not.toContain("<img src=x");
@@ -203,13 +230,17 @@ describe("a rendered page", () => {
   });
 
   it("shows the association's mark from this instance's own media route", () => {
-    const html = renderPage({ ...chrome, logoUrl: "/api/media/file-1" }, PAGE);
+    const html = renderPage(
+      { ...chrome, logoUrl: "/api/media/file-1" },
+      PAGE,
+      FORMS,
+    );
 
     expect(html).toContain('src="/api/media/file-1"');
   });
 
   it("offers the way in to the application", () => {
-    const html = renderPage(chrome, PAGE);
+    const html = renderPage(chrome, PAGE, FORMS);
 
     expect(html).toContain('href="/app"');
     expect(html).toContain("Logga in");
@@ -221,6 +252,7 @@ describe("a rendered page", () => {
     const html = renderPage(
       { ...chrome, css: ':root[data-theme="dark"] { color: red; }' },
       PAGE,
+      FORMS,
     );
 
     expect(html).toContain(':root[data-theme="dark"] { color: red; }');
@@ -229,7 +261,7 @@ describe("a rendered page", () => {
 
 describe("the menu", () => {
   it("is absent entirely when the board has arranged none", () => {
-    expect(renderPage(chrome, PAGE)).not.toContain("<nav");
+    expect(renderPage(chrome, PAGE, FORMS)).not.toContain("<nav");
   });
 
   it("prints the entries it was handed, in order", () => {
@@ -244,6 +276,7 @@ describe("the menu", () => {
         },
       ]),
       PAGE,
+      FORMS,
     );
 
     expect(html).toContain('<a href="/hem">Hem</a>');
@@ -263,6 +296,7 @@ describe("the menu", () => {
         },
       ]),
       PAGE,
+      FORMS,
     );
 
     // The disclosure is the stylesheet's work. There is nothing here to click
@@ -286,6 +320,7 @@ describe("the menu", () => {
         },
       ]),
       PAGE,
+      FORMS,
     );
 
     /*
@@ -312,6 +347,7 @@ describe("the menu", () => {
         },
       ]),
       PAGE,
+      FORMS,
     );
 
     expect(html).not.toContain("<img src=x");

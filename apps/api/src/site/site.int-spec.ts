@@ -233,7 +233,10 @@ describe("what an anonymous visitor gets", () => {
 
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["content-security-policy"]).toBe(
-      "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
+        // Where a form may submit to, which default-src 'none' does not cover:
+        // without it a stored page could post somewhere else entirely.
+        "font-src 'self'; form-action 'self'",
     );
     expect(response.headers["cache-control"]).toBe("no-cache");
     // A member page answers differently to a visitor with a session, so a cache
