@@ -3,7 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -277,6 +277,16 @@ beforeAll(async () => {
   residentCookie = await signIn(resident.email);
 }, 180_000);
 
+/*
+ * Each test arranges the menu it is about, so each test hands it back - here
+ * rather than at the end of the test body, because a test that fails leaves
+ * its entries behind and the tests after it then read a menu they did not
+ * arrange. One broken rule would be reported as several.
+ */
+afterEach(async () => {
+  await clearMenu();
+});
+
 afterAll(async () => {
   try {
     if (prisma !== undefined) {
@@ -339,8 +349,6 @@ describe("arranging the menu", () => {
 
     expect(entry.label).toBe(titles.home);
     expect(entry.parentId).toBeNull();
-
-    await clearMenu();
   });
 
   it("refuses a third level", async () => {
@@ -369,8 +377,6 @@ describe("arranging the menu", () => {
     expect(JSON.parse(refused.body)).toMatchObject({
       reason: "nesting-too-deep",
     });
-
-    await clearMenu();
   });
 
   it("refuses an address that is not https", async () => {
@@ -416,8 +422,6 @@ describe("arranging the menu", () => {
       written.includes(entry.id),
     );
     expect(menu.map((entry) => entry.id)).toEqual([second.id, first.id]);
-
-    await clearMenu();
   });
 
   it("takes an entry's children away with it", async () => {
@@ -439,8 +443,6 @@ describe("arranging the menu", () => {
     expect(removed.statusCode).toBe(200);
 
     expect(await prisma.menuItem.count({ where: { id: child.id } })).toBe(0);
-
-    await clearMenu();
   });
 
   it("takes an entry away with the page it points at", async () => {
@@ -466,7 +468,6 @@ describe("arranging the menu", () => {
     await prisma.page.delete({ where: { id: spareId } });
 
     expect(await prisma.menuItem.count({ where: { id: entry.id } })).toBe(0);
-    await clearMenu();
   });
 });
 
@@ -497,8 +498,6 @@ describe("the menu a visitor is served", () => {
     expect(member.body).toContain(`href="/${slugs.member}"`);
     expect(member.body).toContain(titles.member);
     expect(member.body).not.toContain(slugs.draft);
-
-    await clearMenu();
   });
 
   it("hangs a second level under its parent, in the served document", async () => {
@@ -529,8 +528,6 @@ describe("the menu a visitor is served", () => {
     expect(response.body).toContain('<ul class="site-nav-children">');
     expect(response.body).toContain(`href="/${slugs.child}"`);
     expect(response.body).toContain(titles.child);
-
-    await clearMenu();
   });
 
   it("leaves out a generated page whose feature this instance has not got", async () => {
@@ -548,8 +545,6 @@ describe("the menu a visitor is served", () => {
     const response = await inject({ method: "GET", url: `/${slugs.home}` });
     expect(response.body).not.toContain(`Nyheter ${suffix}`);
     expect(response.body).not.toContain(`Mäklarinfo ${suffix}`);
-
-    await clearMenu();
   });
 
   it("offers the account request form only while the board takes requests", async () => {
@@ -596,7 +591,6 @@ describe("the menu a visitor is served", () => {
           selfSignupEnabled: association?.selfSignupEnabled ?? false,
         },
       });
-      await clearMenu();
     }
   });
 
@@ -618,8 +612,6 @@ describe("the menu a visitor is served", () => {
     expect(/src="https?:/i.test(response.body)).toBe(false);
     expect(/<link[^>]+https?:/i.test(response.body)).toBe(false);
     expect(response.body.includes("<script")).toBe(false);
-
-    await clearMenu();
   });
 });
 
@@ -632,21 +624,24 @@ describe("the front page the menu names", () => {
     /*
      * Put first outright. A new entry goes to the end of its level, and the
      * database this suite runs against may already hold a menu - the one the
-     * menu migration backfilled from whatever pages were there. What is under
-     * test is which entry the root follows, not which entries exist, so the
-     * entry is moved to a position nothing else can hold: the backfill copies
-     * a page's sort order and those are never below zero.
+     * menu migration backfilled from whatever pages were there, and whatever
+     * a run that did not finish left behind. What is under test is which entry
+     * the root follows, not which entries exist, so the entry is moved below
+     * whatever the top level holds now rather than to a position assumed to be
+     * nobody's: a fixed one is only free until a second suite wants it too.
      */
+    const lowest = await prisma.menuItem.aggregate({
+      where: { parentId: null },
+      _min: { sortOrder: true },
+    });
     await prisma.menuItem.update({
       where: { id: entry.id },
-      data: { sortOrder: -1 },
+      data: { sortOrder: (lowest._min.sortOrder ?? 0) - 1 },
     });
 
     const root = await inject({ method: "GET", url: "/" });
     expect(root.statusCode).toBe(200);
     expect(root.body).toContain(titles.home);
-
-    await clearMenu();
   });
 });
 
@@ -655,31 +650,27 @@ describe("what a page nobody may read looks like, with a menu on the site", () =
     await addEntry(boardCookie, { kind: "PAGE", pageId: pageIds.home });
     await addEntry(boardCookie, { kind: "PAGE", pageId: pageIds.member });
 
-    try {
-      const closed = await inject({ method: "GET", url: `/${slugs.member}` });
-      const missing = await inject({
-        method: "GET",
-        url: `/en-sida-som-aldrig-skrivits-${suffix}`,
-      });
+    const closed = await inject({ method: "GET", url: `/${slugs.member}` });
+    const missing = await inject({
+      method: "GET",
+      url: `/en-sida-som-aldrig-skrivits-${suffix}`,
+    });
 
-      expect(closed.statusCode).toBe(404);
-      expect(missing.statusCode).toBe(404);
-      // The whole guarantee, and the menu is the part of the chrome that could
-      // most easily have broken it: the refusal is one document for everybody.
-      expect(closed.body).toBe(missing.body);
-      expect(closed.body).not.toContain(titles.member);
+    expect(closed.statusCode).toBe(404);
+    expect(missing.statusCode).toBe(404);
+    // The whole guarantee, and the menu is the part of the chrome that could
+    // most easily have broken it: the refusal is one document for everybody.
+    expect(closed.body).toBe(missing.body);
+    expect(closed.body).not.toContain(titles.member);
 
-      // And the same for a visitor who does carry a session: the not-found
-      // document does not change with who asked for it.
-      const asMember = await inject({
-        method: "GET",
-        url: `/en-sida-som-aldrig-skrivits-${suffix}`,
-        headers: { cookie: residentCookie },
-      });
-      expect(asMember.body).toBe(missing.body);
-      expect(asMember.headers["set-cookie"]).toBeUndefined();
-    } finally {
-      await clearMenu();
-    }
+    // And the same for a visitor who does carry a session: the not-found
+    // document does not change with who asked for it.
+    const asMember = await inject({
+      method: "GET",
+      url: `/en-sida-som-aldrig-skrivits-${suffix}`,
+      headers: { cookie: residentCookie },
+    });
+    expect(asMember.body).toBe(missing.body);
+    expect(asMember.headers["set-cookie"]).toBeUndefined();
   });
 });

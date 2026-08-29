@@ -185,17 +185,24 @@ beforeAll(async () => {
    *
    * The root serves the menu's first page entry, so a suite asserting what the
    * root answers with has to arrange the menu it is asserting about. The
-   * position is below zero because the database this runs against may already
-   * hold the menu the migration backfilled, and those entries carry a page's
-   * own sort order, which is never negative.
+   * position is below whatever the top level holds now rather than a fixed one
+   * below zero: the database this runs against may already hold the menu the
+   * migration backfilled, and it may hold another suite's own front-page entry
+   * from a run that did not finish - a fixed position is only free until
+   * somebody else wants the same one, and a tie is settled by which was
+   * written first.
    */
+  const lowest = await prisma.menuItem.aggregate({
+    where: { parentId: null },
+    _min: { sortOrder: true },
+  });
   await prisma.menuItem.create({
     data: {
       id: menuItemId,
       label: "Om föreningen",
       kind: "PAGE",
       pageId: publicPageId,
-      sortOrder: -1,
+      sortOrder: (lowest._min.sortOrder ?? 0) - 1,
     },
   });
 }, 180_000);
