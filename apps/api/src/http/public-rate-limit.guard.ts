@@ -19,6 +19,22 @@ const WINDOW_MS = 60_000;
 /** The client address used when the request carries none that can be trusted. */
 const UNKNOWN_ADDRESS = "unknown";
 
+/**
+ * How many buckets are held before a sweep is forced, whatever the clock says.
+ *
+ * The sweep below runs at most once a window, so between two sweeps the map
+ * grows by one entry for every address that arrives - and a caller who rotates
+ * the forwarded header decides how many addresses that is. Rotating also means
+ * every request starts on a full bucket and no budget is ever spent, so the
+ * only cost of the flood is this map. The cap turns "as many as arrive in a
+ * window" into a fixed number, on an anonymous route served by the same process
+ * as the member register.
+ *
+ * 50 000 is far above what a cooperative's residents produce in a minute and
+ * small enough that the map costs a few megabytes.
+ */
+const MAX_BUCKETS = 50_000;
+
 /** Too many requests from one client address in too little time. */
 export class TooManyRequestsError extends DomainError {
   readonly status = HttpStatus.TOO_MANY_REQUESTS;
@@ -131,17 +147,19 @@ export class TokenBuckets {
   }
 
   /**
-   * Forgets the buckets that have refilled, at most once a window.
+   * Forgets the buckets that have refilled, at most once a window, and empties
+   * the map outright when one window's arrivals have filled it past the cap.
    *
    * A bucket untouched for a whole window is full again whatever its capacity,
-   * which makes it indistinguishable from a caller who has never been seen. So
-   * dropping it loses nothing, and what is left is bounded by the number of
-   * addresses actually spending tokens - rather than by the number of addresses
-   * that have ever reached the instance, which is the number an attacker
-   * chooses.
+   * which makes it indistinguishable from a caller who has never been seen, so
+   * dropping it loses nothing. That alone does not bound the map though: what
+   * it leaves is every address seen since the last sweep, and a caller who
+   * rotates the forwarded header picks that number. MAX_BUCKETS is the bound
+   * that does not depend on the caller, which is why it is a second condition
+   * here rather than a belt-and-braces one.
    */
   private sweep(now: number): void {
-    if (now - this.sweptAt < WINDOW_MS) {
+    if (now - this.sweptAt < WINDOW_MS && this.buckets.size < MAX_BUCKETS) {
       return;
     }
     this.sweptAt = now;
@@ -149,6 +167,20 @@ export class TokenBuckets {
       if (now - bucket.filledAt >= WINDOW_MS) {
         this.buckets.delete(key);
       }
+    }
+    if (this.buckets.size >= MAX_BUCKETS) {
+      /*
+       * Nothing idle was left to drop, so the map holds buckets a flood made
+       * inside one window and there is no honest one to keep in preference:
+       * evicting the oldest entries would keep the flood's newest and throw out
+       * the residents who were here first. Everything goes instead. A caller
+       * loses a partly spent budget, which is what a restart costs them anyway,
+       * and the map is small again - so the scan above stays once a window
+       * rather than becoming a scan of the whole map on every request, which
+       * would hand the flood a processor to exhaust once it had run out of
+       * memory to grow.
+       */
+      this.buckets.clear();
     }
   }
 }

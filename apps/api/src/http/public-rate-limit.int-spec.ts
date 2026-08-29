@@ -77,14 +77,43 @@ function activate(address: string) {
   });
 }
 
-/** Spends one address's whole budget, asserting each attempt was answered. */
-async function spendTheBudget(address: string): Promise<void> {
-  for (let attempt = 0; attempt < ACTIVATIONS_PER_MINUTE; attempt += 1) {
+/**
+ * When a budget that has not refused is a defect rather than a slow machine.
+ *
+ * Spending outpaces the refill until one attempt takes longer than
+ * WINDOW_MS / ACTIVATIONS_PER_MINUTE, six seconds here; at this many attempts
+ * the suite tolerates a little under five seconds per request before it calls
+ * the limiter broken, which no rejected token lookup comes close to.
+ */
+const MOST_ATTEMPTS = ACTIVATIONS_PER_MINUTE * 5;
+
+/**
+ * Spends one address's budget until it is refused, and returns the refusal.
+ *
+ * Counting exactly ACTIVATIONS_PER_MINUTE attempts would race the refill: the
+ * bucket gains a token every six seconds, so a machine that took longer than
+ * that to spend the budget would have one back before the last attempt landed
+ * and the request after it would answer 400. That is a test that passes or
+ * fails by how fast the machine is, which this file's header rules out.
+ *
+ * The size of the budget is asserted in public-rate-limit.guard.spec.ts, where
+ * the clock is injected and the arithmetic can be exact. What is left for this
+ * file is what only real HTTP can show: that the budget is spent by refused
+ * requests too, and that spending it is answered with a refusal of its own.
+ */
+async function spendTheBudget(address: string) {
+  for (let attempt = 0; attempt < MOST_ATTEMPTS; attempt += 1) {
     const answered = await activate(address);
+    if (answered.statusCode === 429) {
+      return answered;
+    }
     // Refused on its merits, which is what a wrong token deserves - and what
     // costs a token all the same.
     expect(answered.statusCode).toBe(400);
   }
+  throw new Error(
+    `The budget from ${address} was never spent in ${MOST_ATTEMPTS} attempts.`,
+  );
 }
 
 beforeAll(async () => {
@@ -104,11 +133,11 @@ afterAll(async () => {
 
 describe("a public endpoint's budget", () => {
   it("refuses the request after it, whatever the ones before it answered", async () => {
-    await spendTheBudget(ADDRESSES.refused);
+    // The refusal that ended the spending is the request after the budget.
+    // Asking again to obtain one would put a second gap between the last spent
+    // token and the assertion, for a bucket that refills while the suite runs.
+    const refused = await spendTheBudget(ADDRESSES.refused);
 
-    const refused = await activate(ADDRESSES.refused);
-
-    expect(refused.statusCode).toBe(429);
     expect(refused.json()).toMatchObject({ reason: "too-many-requests" });
     // So a client that means well knows when to come back rather than
     // hammering the door it was just turned away from.
@@ -119,8 +148,9 @@ describe("a public endpoint's budget", () => {
   });
 
   it("is one address's alone", async () => {
+    // Returning only once refused, so reaching here is the assertion that this
+    // address is spent.
     await spendTheBudget(ADDRESSES.spent);
-    expect((await activate(ADDRESSES.spent)).statusCode).toBe(429);
 
     /*
      * A resident on another connection is unaffected, which is the whole reason
@@ -135,7 +165,6 @@ describe("a public endpoint's budget", () => {
 
   it("is not spent by reading", async () => {
     await spendTheBudget(ADDRESSES.reader);
-    expect((await activate(ADDRESSES.reader)).statusCode).toBe(429);
 
     /*
      * Budgets sit on unauthenticated mutations only. The interface makes many

@@ -32,6 +32,9 @@ import {
 
 const WINDOW_MS = 60_000;
 
+/** Matches MAX_BUCKETS in the guard. */
+const MAX_BUCKETS = 50_000;
+
 /*
  * The routes under test, declared the way a controller declares them so the
  * guard reads real metadata rather than metadata this file wrote by hand.
@@ -182,10 +185,33 @@ describe("a token bucket", () => {
     expect(buckets.size).toBe(2);
 
     // A full window later both are full again, which is what an address nobody
-    // has ever seen looks like - so keeping them would only grow a map an
-    // attacker chooses the size of.
+    // has ever seen looks like - so keeping them would only grow the map for
+    // nothing.
     buckets.take("form 192.0.2.1", 3, start + WINDOW_MS);
     expect(buckets.size).toBe(1);
+  });
+
+  it("stops growing when addresses arrive faster than the sweep", () => {
+    const buckets = new TokenBuckets();
+    const start = 1_000_000;
+    let largest = 0;
+
+    /*
+     * A caller rotating the forwarded header: every request is a new key, so
+     * every request costs a bucket and none costs a token. The clock never
+     * moves here, which is the point - within one window the once-a-window
+     * sweep finds nothing idle to drop, so it is not what bounds this map, and
+     * the size the caller could otherwise choose is memory on the instance that
+     * also serves the register.
+     */
+    for (let attempt = 0; attempt < MAX_BUCKETS * 3; attempt += 1) {
+      buckets.take(`form 198.51.100.${attempt}`, 3, start);
+      largest = Math.max(largest, buckets.size);
+    }
+
+    // Reached the cap and never went past it, over three times as many
+    // addresses as the map is allowed to hold.
+    expect(largest).toBe(MAX_BUCKETS);
   });
 });
 
