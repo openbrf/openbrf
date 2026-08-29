@@ -422,4 +422,56 @@ describe("recording and withdrawing", () => {
     const detail = await personDetail(cookie);
     expect(viewOf(detail, "NAME_ON_SITE")?.state).toBe("granted");
   });
+
+  it("closes every row a race left standing, not only the newest", async () => {
+    const cookie = await signIn(board.email);
+
+    /*
+     * Two open rows for one scope is what two grants arriving at the same
+     * moment produce: the invariant is a unique index restricted to rows where
+     * withdrawnAt is null, which Prisma's schema cannot express, so the write
+     * path is what has to hold it. Written directly because the race cannot be
+     * provoked reliably through the endpoint, and given the same grant date so
+     * that neither row is the obvious one to pick.
+     */
+    const grantedAt = new Date("2026-02-01T09:00:00.000Z");
+    await prisma.publicationConsent.createMany({
+      data: [
+        {
+          personId: subject.personId,
+          scope: "BOARD_ROSTER",
+          grantedAt,
+          recordedByPersonId: board.personId,
+        },
+        {
+          personId: subject.personId,
+          scope: "BOARD_ROSTER",
+          grantedAt,
+          recordedByPersonId: board.personId,
+        },
+      ],
+    });
+
+    const response = await setConsent(cookie, {
+      scope: "BOARD_ROSTER",
+      granted: false,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ state: "withdrawn" });
+
+    // A row left open behind a withdrawal is the one way this record could say
+    // a page was lawful to publish after the person asked to be taken off it.
+    expect(
+      await prisma.publicationConsent.count({
+        where: {
+          personId: subject.personId,
+          scope: "BOARD_ROSTER",
+          withdrawnAt: null,
+        },
+      }),
+    ).toBe(0);
+
+    const detail = await personDetail(cookie);
+    expect(viewOf(detail, "BOARD_ROSTER")?.state).toBe("withdrawn");
+  });
 });

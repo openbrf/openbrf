@@ -23,6 +23,24 @@ export const CONSENT_SCOPES = [
 ] as const satisfies readonly ConsentScope[];
 
 /**
+ * Fails to compile unless the list above names every scope in the schema.
+ *
+ * The `satisfies` proves each entry is a real scope. It does not prove the
+ * reverse, which is the property the comment above promises: a scope added to
+ * the Prisma enum and not given a place here would not appear unlabelled on
+ * the board's person view, it would not appear at all, and a consent that
+ * stands would be missing from the screen that has to answer for it. The
+ * default argument has to satisfy the `never` constraint, so the omission is a
+ * type error on this line instead of a silent gap on screen.
+ */
+export type EveryConsentScopeIsListed<
+  Unlisted extends never = Exclude<
+    ConsentScope,
+    (typeof CONSENT_SCOPES)[number]
+  >,
+> = Unlisted;
+
+/**
  * What one scope stands at.
  *
  * Three states, not two. "Never asked" is not the same answer as "asked and

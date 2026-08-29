@@ -92,7 +92,7 @@ export class ConsentService {
       const latest = await tx.publicationConsent.findFirst({
         where: { personId: input.personId, scope: input.scope },
         orderBy: [{ grantedAt: "desc" }],
-        select: { id: true, ...CONSENT_VIEW_COLUMNS },
+        select: CONSENT_VIEW_COLUMNS,
       });
       const standing =
         latest !== null && latest.withdrawnAt === null ? latest : null;
@@ -142,11 +142,41 @@ export class ConsentService {
         return consentViewOf(input.scope, latest);
       }
 
-      const withdrawn = await tx.publicationConsent.update({
-        where: { id: standing.id },
+      /*
+       * Every open row for the scope, not only the one read above.
+       *
+       * Two grants that arrive at once both read no standing consent and both
+       * insert, because the invariant "at most one open row per person and
+       * scope" is a partial unique index, which Prisma's schema cannot
+       * express. Closing them all keeps the invariant that matters: a
+       * duplicate can never leave a consent standing behind a withdrawal, and
+       * the person view can never report that a page is lawful to publish
+       * after the person asked for it to be taken down.
+       *
+       * The condition on withdrawnAt also makes this safe against two
+       * withdrawals at once: the one that loses matches no rows rather than
+       * overwriting the date the winner recorded on an append-only fact.
+       */
+      const closed = await tx.publicationConsent.updateMany({
+        where: {
+          personId: input.personId,
+          scope: input.scope,
+          withdrawnAt: null,
+        },
         data: { withdrawnAt: now },
-        select: CONSENT_VIEW_COLUMNS,
       });
+
+      if (closed.count === 0) {
+        // Another withdrawal committed between the read and the write. It
+        // recorded the act and the date; this call changed nothing, so by the
+        // rule above it writes nothing and answers with the state as it is.
+        const current = await tx.publicationConsent.findFirst({
+          where: { personId: input.personId, scope: input.scope },
+          orderBy: [{ grantedAt: "desc" }],
+          select: CONSENT_VIEW_COLUMNS,
+        });
+        return consentViewOf(input.scope, current);
+      }
 
       await this.audit.record(
         {
@@ -167,7 +197,12 @@ export class ConsentService {
       this.logger.log(
         `Withdrew publication consent ${input.scope} for person ${input.personId}`,
       );
-      return consentViewOf(input.scope, withdrawn);
+      return consentViewOf(input.scope, {
+        scope: standing.scope,
+        grantedAt: standing.grantedAt,
+        withdrawnAt: now,
+        note: standing.note,
+      });
     });
   }
 }

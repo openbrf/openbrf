@@ -32,6 +32,13 @@ const board = {
   email: `su-board-${suffix}@exempel.se`,
 };
 const applicantEmail = `applicant-${suffix}@exempel.se`;
+/*
+ * The claim the queries below select on, made run-scoped like every other
+ * fixture value here. Integration tests share one database, so a fixed number
+ * would let a concurrent run's pending request answer findFirstOrThrow, and
+ * would let this suite's cleanup delete that run's rows on the way out.
+ */
+const claimedApartmentNumber = `1105-${suffix}`;
 let apartmentId: string;
 
 let ipCounter = 0;
@@ -82,7 +89,7 @@ const submission = () => ({
   lastName: "Ny",
   email: applicantEmail,
   claimedAddress: "Storgatan 12",
-  claimedApartmentNumber: "1105",
+  claimedApartmentNumber,
 });
 
 /**
@@ -177,7 +184,7 @@ afterAll(async () => {
   const personIds = [board.personId, ...applicants.map((p) => p.id)];
 
   await prisma.signupRequest.deleteMany({
-    where: { claimedApartmentNumber: "1105" },
+    where: { claimedApartmentNumber },
   });
   await prisma.invitation.deleteMany({
     where: { personId: { in: personIds } },
@@ -280,7 +287,7 @@ describe("a pending request", () => {
     });
 
     const pending = await prisma.signupRequest.count({
-      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+      where: { claimedApartmentNumber, status: "PENDING" },
     });
     expect(pending).toBe(1);
   });
@@ -313,7 +320,7 @@ describe("approval", () => {
 
   it("creates the person and residency, and invites them", async () => {
     const pending = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+      where: { claimedApartmentNumber, status: "PENDING" },
     });
 
     const result = await requests.approve({
@@ -337,7 +344,7 @@ describe("approval", () => {
 
   it("refuses to decide the same request twice", async () => {
     const decided = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "APPROVED" },
+      where: { claimedApartmentNumber, status: "APPROVED" },
     });
 
     await expect(
@@ -386,7 +393,7 @@ describe("the audit trail of a decision", () => {
 
   it("records an approval, naming the request and the person it produced", async () => {
     const pending = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+      where: { claimedApartmentNumber, status: "PENDING" },
     });
 
     const result = await requests.approve({
@@ -412,7 +419,7 @@ describe("the audit trail of a decision", () => {
   it("records a rejection, and names no person because none was created", async () => {
     await ensurePendingRequest();
     const pending = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "PENDING" },
+      where: { claimedApartmentNumber, status: "PENDING" },
     });
 
     await requests.reject({
@@ -438,7 +445,7 @@ describe("the audit trail of a decision", () => {
 
   it("writes nothing for a decision that was refused", async () => {
     const decided = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber: "1105", status: "REJECTED" },
+      where: { claimedApartmentNumber, status: "REJECTED" },
       orderBy: [{ decidedAt: "desc" }],
     });
 

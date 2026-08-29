@@ -581,6 +581,11 @@ describe("publication consent", () => {
       "BOARD_ROSTER",
       true,
     );
+    // The refetch is what puts the new date on screen. Without this the panel
+    // could drop it and every assertion above would still pass.
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("offers to withdraw the one that stands, and asks for exactly that", async () => {
@@ -605,6 +610,9 @@ describe("publication consent", () => {
       "PHOTO",
       false,
     );
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("says so when the consent could not be changed", async () => {
