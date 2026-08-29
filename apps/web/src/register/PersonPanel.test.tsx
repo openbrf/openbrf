@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { PersonPanel } from "./PersonPanel";
-import { type PersonDetail, RegisterRequestError } from "./register-api";
+import {
+  type ConsentScope,
+  type PersonDetail,
+  type PublicationConsent,
+  RegisterRequestError,
+} from "./register-api";
 
 /**
  * The reveal flow.
@@ -20,13 +25,19 @@ import { type PersonDetail, RegisterRequestError } from "./register-api";
 const EMAIL = "sara.berg@exempel.se";
 const IDENTITY_NUMBER = "19811228-9874";
 
-const { fetchPerson, revealFields, sendInvitation, setProtectedPersonalData } =
-  vi.hoisted(() => ({
-    fetchPerson: vi.fn(),
-    revealFields: vi.fn(),
-    sendInvitation: vi.fn(),
-    setProtectedPersonalData: vi.fn(),
-  }));
+const {
+  fetchPerson,
+  revealFields,
+  sendInvitation,
+  setProtectedPersonalData,
+  setPublicationConsent,
+} = vi.hoisted(() => ({
+  fetchPerson: vi.fn(),
+  revealFields: vi.fn(),
+  sendInvitation: vi.fn(),
+  setProtectedPersonalData: vi.fn(),
+  setPublicationConsent: vi.fn(),
+}));
 
 /*
  * The real module is spread in and only the requests are replaced, because
@@ -40,7 +51,21 @@ vi.mock("./register-api", async (importOriginal) => ({
   revealFields,
   sendInvitation,
   setProtectedPersonalData,
+  setPublicationConsent,
 }));
+
+/** Every scope, none of them asked about: what a new person carries. */
+function unasked(): PublicationConsent[] {
+  return (["PHOTO", "NAME_ON_SITE", "BOARD_ROSTER"] as ConsentScope[]).map(
+    (scope) => ({
+      scope,
+      state: "never",
+      grantedOn: null,
+      withdrawnOn: null,
+      note: null,
+    }),
+  );
+}
 
 const PROTECTED_PERSON: PersonDetail = {
   personId: "person-sara",
@@ -60,6 +85,7 @@ const PROTECTED_PERSON: PersonDetail = {
     twoFactorEnabled: false,
     invitationExpiresAt: null,
   },
+  publicationConsents: unasked(),
 };
 
 const PLAIN_PERSON: PersonDetail = {
@@ -462,5 +488,150 @@ describe("inviting a person to activate an account", () => {
 
     expect(screen.getByText("Aktivt")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /inbjudan/i })).toBeNull();
+  });
+});
+
+/**
+ * Publication consent, as the board records it.
+ *
+ * The panel is the board's record of a conversation that happened elsewhere,
+ * so what it has to get right is which of three states each scope is in - never
+ * asked, agreed, withdrawn - and that a withdrawal keeps the dates it applied
+ * between on screen. A failed save must read as a failure: a board member who
+ * took one for a success would leave a name publishable after the person asked
+ * for it to be taken down.
+ */
+describe("publication consent", () => {
+  const WITH_CONSENTS: PersonDetail = {
+    ...PLAIN_PERSON,
+    personId: "person-vera",
+    firstName: "Vera",
+    lastName: "Sund",
+    publicationConsents: [
+      {
+        scope: "PHOTO",
+        state: "granted",
+        grantedOn: "2026-03-01",
+        withdrawnOn: null,
+        note: "Sa ja på stämman",
+      },
+      {
+        scope: "NAME_ON_SITE",
+        state: "withdrawn",
+        grantedOn: "2026-01-10",
+        withdrawnOn: "2026-05-05",
+        note: null,
+      },
+      {
+        scope: "BOARD_ROSTER",
+        state: "never",
+        grantedOn: null,
+        withdrawnOn: null,
+        note: null,
+      },
+    ],
+  };
+
+  it("names every scope, including the ones nobody has asked about", async () => {
+    renderPanel(WITH_CONSENTS);
+    await screen.findByText("Vera Sund");
+
+    expect(screen.getByText("Fotografier")).not.toBeNull();
+    expect(screen.getByText("Namn på webbplatsen")).not.toBeNull();
+    expect(screen.getByText("Den publicerade styrelselistan")).not.toBeNull();
+    expect(screen.getByText("Inte tillfrågad")).not.toBeNull();
+  });
+
+  it("keeps the dates a withdrawn consent applied between", async () => {
+    renderPanel(WITH_CONSENTS);
+    await screen.findByText("Vera Sund");
+
+    expect(screen.getByText("Samtycke återkallat")).not.toBeNull();
+    expect(screen.getByText("2026-01-10")).not.toBeNull();
+    expect(screen.getByText("2026-05-05")).not.toBeNull();
+  });
+
+  it("shows what the person said when they agreed", async () => {
+    renderPanel(WITH_CONSENTS);
+    await screen.findByText("Vera Sund");
+
+    expect(screen.getByText("Samtycke lämnat")).not.toBeNull();
+    expect(screen.getByText("Sa ja på stämman")).not.toBeNull();
+  });
+
+  it("records a consent for the scope that was asked about", async () => {
+    setPublicationConsent.mockResolvedValue({
+      scope: "BOARD_ROSTER",
+      state: "granted",
+      grantedOn: "2026-08-29",
+      withdrawnOn: null,
+      note: null,
+    });
+    renderPanel(WITH_CONSENTS);
+    await screen.findByText("Vera Sund");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Anteckna samtycke för Den publicerade styrelselistan",
+      }),
+    );
+
+    expect(setPublicationConsent).toHaveBeenCalledWith(
+      "person-vera",
+      "BOARD_ROSTER",
+      true,
+    );
+    // The refetch is what puts the new date on screen. Without this the panel
+    // could drop it and every assertion above would still pass.
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("offers to withdraw the one that stands, and asks for exactly that", async () => {
+    setPublicationConsent.mockResolvedValue({
+      scope: "PHOTO",
+      state: "withdrawn",
+      grantedOn: "2026-03-01",
+      withdrawnOn: "2026-08-29",
+      note: null,
+    });
+    renderPanel(WITH_CONSENTS);
+    await screen.findByText("Vera Sund");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Återkalla samtycke för Fotografier",
+      }),
+    );
+
+    expect(setPublicationConsent).toHaveBeenCalledWith(
+      "person-vera",
+      "PHOTO",
+      false,
+    );
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("says so when the consent could not be changed", async () => {
+    setPublicationConsent.mockRejectedValue(
+      new RegisterRequestError(500, null),
+    );
+    renderPanel(WITH_CONSENTS);
+    await screen.findByText("Vera Sund");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Återkalla samtycke för Fotografier",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Samtycket kunde inte ändras. Försök igen."),
+      ).not.toBeNull();
+    });
   });
 });

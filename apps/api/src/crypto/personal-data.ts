@@ -10,8 +10,25 @@
  *   A change therefore needs a migration that decrypts each affected field and
  *   recomputes its index, and a bump of NORMALIZATION_VERSION below.
  *
+ * The personal identity number's own parse, normalization and checksum live in
+ * `@openbrf/shared` and are re-exported below, because the browser needs them
+ * as well: text about to be published has to be checked for an identity number
+ * before it is sent. They carry the same warning there, and the version below
+ * covers them.
+ *
  * Swedish domain terms follow GLOSSARY.md.
  */
+
+export {
+  isValidPersonalIdentityNumber,
+  normalizePersonalIdentityNumber,
+  parsePersonalIdentityNumber,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
+export type {
+  PersonalIdentityNumberMatch,
+  PersonalIdentityNumberParts,
+} from "@openbrf/shared";
 
 /**
  * Bumped whenever the normalization rules change. Stored alongside the data so
@@ -66,148 +83,4 @@ export function normalizePhone(input: string): string {
   // No country and no trunk prefix: assume Sweden, which is what a
   // spreadsheet that ate the leading zero produces.
   return `+46${digits}`;
-}
-
-export interface PersonalIdentityNumberParts {
-  /** Full four-digit year. */
-  year: number;
-  month: number;
-  /** Day as written, i.e. still carrying the +60 offset for a coordination number. */
-  day: number;
-  /** The four last digits, including the check digit. */
-  suffix: string;
-  /** True for a coordination number (samordningsnummer), where day is offset by 60. */
-  isCoordinationNumber: boolean;
-}
-
-const PERSONAL_IDENTITY_NUMBER_PATTERN =
-  /^(?<century>\d{2})?(?<year>\d{2})(?<month>\d{2})(?<day>\d{2})(?<separator>[-+])?(?<suffix>\d{4})$/;
-
-/**
- * Parses a Swedish personal identity number in any of its written forms and
- * returns its parts with the century resolved.
- *
- * Returns null when the input is not shaped like a personal identity number.
- * Shape is not validity: use isValidPersonalIdentityNumber for the checksum.
- *
- * @param referenceDate Date the age is judged against. Injected so tests do
- *   not depend on the current date and so an import can be replayed.
- */
-export function parsePersonalIdentityNumber(
-  input: string,
-  referenceDate: Date = new Date(),
-): PersonalIdentityNumberParts | null {
-  const compact = input.trim().replace(/\s/g, "");
-  const match = PERSONAL_IDENTITY_NUMBER_PATTERN.exec(compact);
-  if (match?.groups === undefined) {
-    return null;
-  }
-
-  const { century, year, month, day, separator, suffix } = match.groups;
-  if (
-    year === undefined ||
-    month === undefined ||
-    day === undefined ||
-    suffix === undefined
-  ) {
-    return null;
-  }
-
-  const twoDigitYear = Number(year);
-  const monthNumber = Number(month);
-  const dayNumber = Number(day);
-
-  let fullYear: number;
-  if (century !== undefined) {
-    // Written with the century, so take it at face value.
-    fullYear = Number(century) * 100 + twoDigitYear;
-  } else {
-    // Without a century, the most recent year that is not in the future wins,
-    // and a plus separator means the person has turned 100.
-    const referenceYear = referenceDate.getFullYear();
-    fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
-    if (fullYear > referenceYear) {
-      fullYear -= 100;
-    }
-    if (separator === "+") {
-      fullYear -= 100;
-    }
-  }
-
-  const isCoordinationNumber = dayNumber > 60;
-  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
-
-  if (monthNumber < 1 || monthNumber > 12 || actualDay < 1) {
-    return null;
-  }
-  // A range check alone accepts 30 February and 31 April. Those dates never
-  // existed, so a number carrying one is not a mis-typed real number: it is
-  // not a personal identity number at all, and a valid Luhn digit must not
-  // make it look like one.
-  if (actualDay > daysInMonth(fullYear, monthNumber)) {
-    return null;
-  }
-
-  return {
-    year: fullYear,
-    month: monthNumber,
-    day: dayNumber,
-    suffix,
-    isCoordinationNumber,
-  };
-}
-
-/**
- * Canonical form for a personal identity number: twelve digits, no separator
- * (YYYYMMDDNNNN).
- *
- * Returns null when the input is not shaped like a personal identity number,
- * so a caller can reject the row rather than store an index that can never be
- * matched.
- */
-export function normalizePersonalIdentityNumber(
-  input: string,
-  referenceDate: Date = new Date(),
-): string | null {
-  const parts = parsePersonalIdentityNumber(input, referenceDate);
-  if (parts === null) {
-    return null;
-  }
-  const month = String(parts.month).padStart(2, "0");
-  const day = String(parts.day).padStart(2, "0");
-  return `${String(parts.year)}${month}${day}${parts.suffix}`;
-}
-
-/**
- * Verifies the Luhn check digit, which the last ten digits of a Swedish
- * personal identity number carry.
- *
- * Coordination numbers use the same checksum over the offset day, so no
- * special case is needed here.
- */
-export function isValidPersonalIdentityNumber(
-  input: string,
-  referenceDate: Date = new Date(),
-): boolean {
-  const normalized = normalizePersonalIdentityNumber(input, referenceDate);
-  if (normalized === null) {
-    return false;
-  }
-
-  // Luhn runs over the ten-digit form: YYMMDDNNNC.
-  const tenDigits = normalized.slice(2);
-  let sum = 0;
-  for (let position = 0; position < 9; position++) {
-    const digit = Number(tenDigits[position]);
-    const weighted = position % 2 === 0 ? digit * 2 : digit;
-    sum += weighted > 9 ? weighted - 9 : weighted;
-  }
-  const expectedCheckDigit = (10 - (sum % 10)) % 10;
-  return expectedCheckDigit === Number(tenDigits[9]);
-}
-
-/** Days in a month, honouring the Gregorian leap-year rule. */
-function daysInMonth(year: number, month: number): number {
-  // Day 0 of the next month is the last day of this one.
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
