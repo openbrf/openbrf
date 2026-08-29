@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
+  runIdentityNumber,
   runPhone,
   runSuffix,
 } from "../testing/integration-env";
@@ -41,9 +42,10 @@ let prisma: PrismaService;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
-const IDENTITY_NUMBER = "19850101-0017";
-// Per run, because the blind index makes a fixed number the answer to somebody
-// else's phone lookup - and this suite leaves its subject behind on purpose.
+// Both per run, because both carry a blind index that normalizes every
+// spelling to one value - so a literal here is the answer to a lookup that was
+// about somebody else, and this suite leaves its subject behind on purpose.
+const IDENTITY_NUMBER = runIdentityNumber(suffix);
 const PHONE = runPhone(suffix);
 
 const addressId = `dsar-address-${suffix}`;

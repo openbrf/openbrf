@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
+  runIdentityNumber,
   runPhone,
   runSuffix,
 } from "../testing/integration-env";
@@ -67,10 +68,12 @@ const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 let dueAt: Date;
 let notDueAt: Date;
 
-// Per run, because the blind index makes a fixed number the answer to somebody
-// else's phone lookup - and this suite leaves its archived person behind on
-// purpose, so a literal here would accumulate one such row per run.
+// Both per run, because both carry a blind index that normalizes every
+// spelling to one value - so a literal here is the answer to a lookup that was
+// about somebody else. This suite leaves its archived person behind on purpose,
+// so a literal would accumulate one such row per run.
 const PHONE = runPhone(suffix);
+const IDENTITY_NUMBER = runIdentityNumber(suffix);
 
 const addressId = `purge-address-${suffix}`;
 
@@ -236,7 +239,7 @@ beforeAll(async () => {
   // one on file so the purge can be shown not to reach it.
   const identityNumber = await encryption.encrypt(
     "person.personalIdentityNumber",
-    "19850101-0017",
+    IDENTITY_NUMBER,
   );
   await prisma.person.update({
     where: { id: people.archived },
