@@ -1291,5 +1291,79 @@
       "noEmail": "The register holds no email address for you, so the account cannot be activated. Contact the board.",
       "unknown": "The account could not be activated just now. Please try again."
     }
+  },
+  "documents": {
+    "navLabel": "Documents",
+    "heading": "Document archive",
+    "description": "The association's own documents. What each one says is who it is for, and that is the whole of the rule: the archive shows what your audience allows, and the file behind it is served on the same decision.",
+    "loading": "Loading the archive",
+    "empty": "There is nothing in the archive yet.",
+    "emptyForYou": "There is nothing here for you yet. The board decides which documents are the members' and which are published.",
+    "openFile": "Open {{title}}",
+    "fileSummary": "{{fileName}}, {{size}}",
+    "uploadedOn": "Filed {{date}}",
+    "size": {
+      "bytes": "{{size}} bytes",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "audience": {
+      "board": "The board",
+      "member": "Members",
+      "public": "Published"
+    },
+    "audienceHint": {
+      "board": "The board and an administrator. Every time one of these is opened, that is written to the audit log.",
+      "member": "Members of the association. A resident who is not a member does not see it.",
+      "public": "Anyone, with no account. This is what the association publishes to the street."
+    },
+    "filter": {
+      "legend": "Show",
+      "all": "All",
+      "none": "No documents have that audience."
+    },
+    "categories": {
+      "bylaws": "Bylaws",
+      "minutes": "Minutes",
+      "houseRules": "House rules",
+      "annualReport": "Annual report"
+    },
+    "upload": {
+      "heading": "File a document",
+      "description": "Documents as PDF. The file is identified from its own bytes, so what it is named decides nothing.",
+      "title": "Title",
+      "titleHint": "What the document is called. Written as the board writes it, and never translated.",
+      "category": "Binder",
+      "categoryHint": "The binder it belongs in. Take one of the suggestions or write your own.",
+      "audience": "Who it is for",
+      "file": "File",
+      "choose": "Choose a file",
+      "chosen": "Chosen: {{fileName}}",
+      "submit": "File the document",
+      "working": "Filing...",
+      "saved": "The document is in the archive.",
+      "minutesGuard": "Minutes stay with the members until the board publishes them deliberately. Choose the published audience again if that is what this document is."
+    },
+    "edit": {
+      "heading": "Edit {{title}}",
+      "open": "Edit",
+      "cancel": "Cancel",
+      "submit": "Save the changes",
+      "working": "Saving...",
+      "saved": "The changes are saved.",
+      "remove": "Remove",
+      "removeConfirm": "Remove {{title}} from the archive? The file goes with it.",
+      "removing": "Removing...",
+      "removed": "The document has been removed."
+    },
+    "errors": {
+      "loadFailed": "The archive could not be read just now. Reload the page.",
+      "notFound": "That document is no longer in the archive.",
+      "unsupportedType": "That file is not a PDF, whatever it is named.",
+      "tooLarge": "That file is larger than this instance accepts.",
+      "empty": "That file is empty.",
+      "noFile": "No file was chosen.",
+      "unknown": "That could not be saved just now. Please try again."
+    }
   }
 }

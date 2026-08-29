@@ -1,5 +1,6 @@
 import fastifyMultipart, {
   type FastifyMultipartOptions,
+  type MultipartFields,
 } from "@fastify/multipart";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { FastifyRequest } from "fastify";
@@ -17,6 +18,14 @@ export interface UploadedFile {
   fileName: string;
   /** What the request claimed. Kept only to be compared, never trusted. */
   declaredContentType: string;
+  /**
+   * The text fields that arrived ahead of the file, by name.
+   *
+   * Ahead of it, and not merely beside it: see readSingleFile below. Values
+   * are strings, so a caller validates them like any other input - these come
+   * from a request and nothing here has looked at them.
+   */
+  fields: Readonly<Record<string, string>>;
 }
 
 /**
@@ -96,8 +105,37 @@ export async function readSingleFile(
   }
 
   return {
+    // Read before the buffer: the parser stops at the file part, so what it
+    // has collected is what came before it, and reading afterwards would not
+    // add the rest.
+    fields: textFields(part.fields),
     bytes: await part.toBuffer(),
     fileName: part.filename,
     declaredContentType: part.mimetype,
   };
+}
+
+/**
+ * The text fields out of a parsed multipart request.
+ *
+ * Only the fields that are text, and only the first value of a repeated name.
+ * A second value under one name is a caller sending something the endpoint
+ * did not ask for, and taking the last would let a request append a value that
+ * overrides the one it also sent.
+ */
+function textFields(
+  fields: MultipartFields | undefined,
+): Readonly<Record<string, string>> {
+  const values: Record<string, string> = {};
+  if (fields === undefined) {
+    return values;
+  }
+
+  for (const [name, field] of Object.entries(fields)) {
+    const first = Array.isArray(field) ? field[0] : field;
+    if (first !== undefined && first.type === "field") {
+      values[name] = String(first.value);
+    }
+  }
+  return values;
 }

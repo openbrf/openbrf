@@ -12,6 +12,7 @@ import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
 import { generateStorageKey } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
+import { readDocumentHeader } from "./document-bytes";
 import { readImageHeader } from "./image-bytes";
 
 export type MediaVisibility = "PUBLIC" | "INTERNAL";
@@ -46,17 +47,29 @@ export interface UploadInput {
   bytes: Buffer;
   /** The name the file arrived under. Kept, never used to build a key. */
   fileName: string;
+  /**
+   * What kind of file this upload is for. Images unless stated otherwise.
+   *
+   * Stated by the caller rather than inferred from the bytes, because the two
+   * are not interchangeable and the wrong one is not a near miss: a PDF is not
+   * the housing cooperative's mark, and a photograph in the document archive
+   * would be a picture of people carrying no declaration about whether it
+   * shows any. The default is images because that is what every path but the
+   * archive uploads, and because a caller that says nothing should get the
+   * narrower answer.
+   */
+  accept?: "image" | "document";
   visibility: MediaVisibility;
   /** Narrows an INTERNAL file to holders of one capability. */
   requiredCapability?: Capability;
   /**
-   * Whether the image shows identifiable persons. Required for an image, and
-   * refused for anything that is not one.
+   * Whether the image shows identifiable persons. Required for an image; not
+   * carried by anything else, and recorded as null there.
    */
   showsIdentifiablePersons?: boolean;
   uploadedByPersonId?: string | null;
   /** Groups the object in storage. Not part of the file's identity. */
-  prefix?: "branding" | "media";
+  prefix?: "branding" | "documents" | "media";
 }
 
 export interface MediaFileView {
@@ -111,7 +124,7 @@ export function mediaUrl(id: string): string {
  * uploaded. Nothing acts on that here; it is the input the publication
  * guardrails need, because a person may appear on a public page only with a
  * recorded publication consent, and an image nobody declared cannot be checked
- * against that rule.
+ * against that rule. A document carries no such declaration and records none.
  */
 @Injectable()
 export class MediaService {
@@ -137,14 +150,17 @@ export class MediaService {
       throw new MediaError("The uploaded file is empty.", "empty-file");
     }
 
-    const header = readImageHeader(input.bytes);
-    if (header === null) {
+    const accept = input.accept ?? "image";
+    const identified = identify(input.bytes, accept);
+    if (identified === null) {
       throw new MediaError(
-        "The uploaded file is not a PNG, JPEG, WebP or GIF image.",
+        accept === "image"
+          ? "The uploaded file is not a PNG, JPEG, WebP or GIF image."
+          : "The uploaded file is not a PDF document.",
         "unsupported-type",
       );
     }
-    if (input.showsIdentifiablePersons === undefined) {
+    if (identified.isImage && input.showsIdentifiablePersons === undefined) {
       throw new MediaError(
         "An image upload has to declare whether it shows identifiable persons.",
         "declaration-required",
@@ -153,24 +169,29 @@ export class MediaService {
 
     const storageKey = generateStorageKey(
       input.prefix ?? "media",
-      header.contentType,
+      identified.contentType,
     );
     const checksum = createHash("sha256").update(input.bytes).digest("hex");
 
-    await this.storage.put(storageKey, input.bytes, header.contentType);
+    await this.storage.put(storageKey, input.bytes, identified.contentType);
 
     let file;
     try {
       file = await this.prisma.mediaFile.create({
         data: {
           storageKey,
-          contentType: header.contentType,
+          contentType: identified.contentType,
           byteSize: input.bytes.length,
           checksum,
           fileName: safeFileName(input.fileName),
-          width: header.width,
-          height: header.height,
-          showsIdentifiablePersons: input.showsIdentifiablePersons,
+          width: identified.width,
+          height: identified.height,
+          // Null for anything that is not an image, whatever the caller
+          // passed: the column records a declaration about a picture, and a
+          // PDF has nobody's face in it to declare.
+          showsIdentifiablePersons: identified.isImage
+            ? (input.showsIdentifiablePersons ?? null)
+            : null,
           visibility: input.visibility,
           requiredCapability: input.requiredCapability ?? null,
           uploadedByPersonId: input.uploadedByPersonId ?? null,
@@ -314,6 +335,49 @@ export class MediaService {
       );
     });
   }
+}
+
+/**
+ * What the bytes are, as the row records it.
+ *
+ * An image and a document are identified by different evidence - a coherent
+ * header carrying dimensions, or a signature with a matching end-of-file
+ * marker - so the two readers stay apart, and only the one the caller asked
+ * for is run. This is where either answer is put into the shape the row needs.
+ */
+interface IdentifiedFile {
+  contentType: string;
+  /** Read out of an image header. Null for a document, which has no canvas. */
+  width: number | null;
+  height: number | null;
+  isImage: boolean;
+}
+
+function identify(
+  bytes: Buffer,
+  accept: "image" | "document",
+): IdentifiedFile | null {
+  if (accept === "image") {
+    const image = readImageHeader(bytes);
+    return image === null
+      ? null
+      : {
+          contentType: image.contentType,
+          width: image.width,
+          height: image.height,
+          isImage: true,
+        };
+  }
+
+  const document = readDocumentHeader(bytes);
+  return document === null
+    ? null
+    : {
+        contentType: document.contentType,
+        width: null,
+        height: null,
+        isImage: false,
+      };
 }
 
 /**

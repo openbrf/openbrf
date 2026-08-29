@@ -1291,5 +1291,79 @@
       "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
       "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
     }
+  },
+  "documents": {
+    "navLabel": "Dokument",
+    "heading": "Dokumentarkiv",
+    "description": "Föreningens egna dokument. På varje dokument står vem det är till för, och det är hela regeln: arkivet visar det din målgrupp tillåter, och filen bakom lämnas ut på samma beslut.",
+    "loading": "Läser in arkivet",
+    "empty": "Arkivet är ännu tomt.",
+    "emptyForYou": "Här finns ännu inget för dig. Styrelsen avgör vilka dokument som är medlemmarnas och vilka som publiceras.",
+    "openFile": "Öppna {{title}}",
+    "fileSummary": "{{fileName}}, {{size}}",
+    "uploadedOn": "Inlagt {{date}}",
+    "size": {
+      "bytes": "{{size}} byte",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "audience": {
+      "board": "Styrelsen",
+      "member": "Medlemmar",
+      "public": "Publicerat"
+    },
+    "audienceHint": {
+      "board": "Styrelsen och en administratör. Varje gång ett sådant dokument öppnas skrivs det i granskningsloggen.",
+      "member": "Föreningens medlemmar. En boende som inte är medlem ser det inte.",
+      "public": "Vem som helst, utan konto. Det här är vad föreningen publicerar utåt."
+    },
+    "filter": {
+      "legend": "Visa",
+      "all": "Alla",
+      "none": "Inga dokument har den målgruppen."
+    },
+    "categories": {
+      "bylaws": "Stadgar",
+      "minutes": "Protokoll",
+      "houseRules": "Trivselregler",
+      "annualReport": "Årsredovisning"
+    },
+    "upload": {
+      "heading": "Lägg in ett dokument",
+      "description": "Dokument som PDF. Filen identifieras utifrån sitt eget innehåll, så vad den heter avgör ingenting.",
+      "title": "Titel",
+      "titleHint": "Vad dokumentet heter. Skrivs som styrelsen skriver det och översätts aldrig.",
+      "category": "Pärm",
+      "categoryHint": "Pärmen det hör hemma i. Ta ett av förslagen eller skriv ett eget.",
+      "audience": "Vem det är till för",
+      "file": "Fil",
+      "choose": "Välj en fil",
+      "chosen": "Vald: {{fileName}}",
+      "submit": "Lägg in dokumentet",
+      "working": "Lägger in...",
+      "saved": "Dokumentet ligger i arkivet.",
+      "minutesGuard": "Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet. Välj målgruppen Publicerat igen om det är vad det här dokumentet är."
+    },
+    "edit": {
+      "heading": "Ändra {{title}}",
+      "open": "Ändra",
+      "cancel": "Avbryt",
+      "submit": "Spara ändringarna",
+      "working": "Sparar...",
+      "saved": "Ändringarna är sparade.",
+      "remove": "Ta bort",
+      "removeConfirm": "Ta bort {{title}} ur arkivet? Filen följer med.",
+      "removing": "Tar bort...",
+      "removed": "Dokumentet är borttaget."
+    },
+    "errors": {
+      "loadFailed": "Arkivet kunde inte läsas just nu. Ladda om sidan.",
+      "notFound": "Dokumentet finns inte längre i arkivet.",
+      "unsupportedType": "Filen är ingen PDF, vad den än heter.",
+      "tooLarge": "Filen är större än vad den här instansen tar emot.",
+      "empty": "Filen är tom.",
+      "noFile": "Ingen fil är vald.",
+      "unknown": "Det gick inte att spara just nu. Försök igen."
+    }
   }
 }

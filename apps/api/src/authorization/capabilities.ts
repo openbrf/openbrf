@@ -50,6 +50,16 @@ export const CAPABILITIES = [
   "residentDirectory:read",
   /** Handle issue reports. Granted to the property manager; unused in phase 1. */
   "issues:handle",
+  /**
+   * Put documents into the association's archive, and decide who each one is
+   * for.
+   *
+   * A board activity no existing capability describes: association:manage is
+   * the admin's, and addressBook:write is the register's. Reading the archive
+   * needs no capability at all - a document's audience is its whole access
+   * rule - so this name governs the writing side alone.
+   */
+  "documents:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -79,6 +89,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "signupRequest:decide",
   "self:manage",
   "residentDirectory:read",
+  "documents:manage",
 ];
 
 /**

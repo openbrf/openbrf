@@ -949,6 +949,7 @@ model MediaFile {
 
   associationLogo     Association[] @relation("AssociationLogo")
   associationLogoDark Association[] @relation("AssociationLogoDark")
+  document            Document?     @relation("DocumentFile")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1015,4 +1016,76 @@ model Page {
 
   @@index([visibility, published, sortOrder])
   @@map("page")
+}
+
+// ---------------------------------------------------------------------------
+// The document archive.
+// ---------------------------------------------------------------------------
+
+/// Who may read a document in the archive.
+///
+/// Three audiences and no more, because they are the three the association
+/// actually distinguishes: what the board keeps to itself, what belongs to the
+/// members (medlemmar), and what it publishes to the street. Reading is decided
+/// by this value alone - there is no read capability - so a document's audience
+/// is the whole of its access rule.
+enum DocumentAudience {
+  /// The board and an administrator. Every serve of one is written to the
+  /// audit log, because the file it points at is narrowed by capability.
+  BOARD
+  /// Members of the association. A resident who is not a member does not see
+  /// these: not every resident is a member (GLOSSARY: boende, medlem).
+  MEMBER
+  /// Anyone, with no session. What the cooperative publishes about itself -
+  /// the bylaws, the annual report - and readable by a broker or a buyer.
+  PUBLIC
+}
+
+/// A document in the association's archive.
+///
+/// Service tier: the bylaws, the minutes, the house rules and the annual
+/// report are association records rather than personal data, so they carry no
+/// append-only trigger, no retention floor and no purge date. The board that
+/// uploaded a document may also remove it.
+///
+/// The bytes live in a MediaFile and are served by the media route, which is
+/// the only route in the product that streams a stored file. The audience here
+/// and the visibility there are kept in step by the service in one transaction:
+/// the audience is what the archive shows, the visibility is what the serving
+/// path enforces, and a document demoted from PUBLIC whose file stayed public
+/// would still be fetchable at its own URL.
+model Document {
+  id String @id @default(cuid())
+
+  /// What the board calls it, in the language the board wrote it in. Site
+  /// content is monolingual (decision 59): stored as written, never
+  /// translated.
+  title String
+
+  /// The binder it belongs in - "Stadgar", "Protokoll", "Årsredovisning".
+  /// Free text with suggestions in the interface rather than an enum, because
+  /// associations name their own binders and an enum would make the product
+  /// argue with them about it.
+  category String
+
+  audience DocumentAudience @default(MEMBER)
+
+  /// The bytes. One document per file: a file shared by two documents could
+  /// not be given two audiences, and removing either document would decide
+  /// for the other whether its bytes still exist.
+  mediaFileId String    @unique
+  mediaFile   MediaFile @relation("DocumentFile", fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  /// Who put it in the archive.
+  ///
+  /// A plain column rather than a relation, for the reason the audit log and
+  /// the media file both give: a referential action would either rewrite this
+  /// row or veto erasure of the person it names.
+  uploadedByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([audience, category])
+  @@map("document")
 }

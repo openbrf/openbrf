@@ -27,6 +27,10 @@ interface NavEntry extends NavItem {
  *
  * Plugins is different. Nothing on that screen belongs to a resident, so it is
  * offered only to whoever may read how the instance is configured.
+ *
+ * The document archive names no capability, because reading it needs none: the
+ * server filters the shelf by the viewer's audience, so an account with
+ * nothing to see there is shown an empty archive rather than a missing link.
  */
 const ENTRIES: readonly NavEntry[] = [
   { to: "/", labelKey: "nav.addressBook" },
@@ -38,6 +42,12 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "association:read",
   },
   { to: "/settings", labelKey: "nav.settings" },
+  {
+    to: "/documents",
+    // The archive's own word for itself, under its own namespace, so the label
+    // moves with the feature.
+    labelKey: "documents.navLabel",
+  },
 ];
 
 /**

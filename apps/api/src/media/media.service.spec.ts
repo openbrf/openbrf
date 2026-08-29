@@ -10,6 +10,7 @@ import {
 import type { PrismaService } from "../database/prisma.service";
 import type { StorageService } from "../storage/storage.service";
 import { MediaError, MediaService } from "./media.service";
+import { pdfBytes } from "./testing/document-fixtures";
 import { pngBytes } from "./testing/image-fixtures";
 
 /**
@@ -254,7 +255,7 @@ describe("uploading", () => {
     expect(file.fileName).toBe("..logo; drop.png");
   });
 
-  it("refuses a file that is not an image whatever it is named", async () => {
+  it("refuses a file that is neither an image nor a document, whatever it is named", async () => {
     await expect(
       fakes.service.upload({
         bytes: Buffer.from("<html><script>alert(1)</script>", "utf8"),
@@ -302,6 +303,62 @@ describe("uploading", () => {
         visibility: "INTERNAL",
       }),
     ).rejects.toMatchObject({ reason: "declaration-required" });
+  });
+
+  it("accepts a document, and records neither a canvas nor a declaration for it", async () => {
+    const file = await fakes.service.upload({
+      bytes: pdfBytes(),
+      fileName: "stadgar.pdf",
+      accept: "document",
+      visibility: "PUBLIC",
+      prefix: "documents",
+    });
+
+    expect(file.contentType).toBe("application/pdf");
+    // A document has no canvas to measure, and no face in it to declare
+    // against a publication consent. Both are recorded as absent rather than
+    // as an answer nobody gave.
+    expect(file.width).toBeNull();
+    expect(file.height).toBeNull();
+    expect(file.showsIdentifiablePersons).toBeNull();
+  });
+
+  it("keeps the declaration off a document even when one is passed", async () => {
+    const file = await fakes.service.upload({
+      bytes: pdfBytes(),
+      fileName: "stadgar.pdf",
+      accept: "document",
+      visibility: "PUBLIC",
+      showsIdentifiablePersons: true,
+    });
+
+    expect(file.showsIdentifiablePersons).toBeNull();
+  });
+
+  it("refuses a document where an image was asked for, and the other way round", async () => {
+    /*
+     * The caller says which kind it is asking for, so neither of these is a
+     * near miss: a PDF is not the housing cooperative's mark, and a photograph
+     * in the document archive would be a picture of people carrying no
+     * declaration about whether it shows any.
+     */
+    await expect(
+      fakes.service.upload({
+        bytes: pdfBytes(),
+        fileName: "logotyp.png",
+        visibility: "PUBLIC",
+        showsIdentifiablePersons: false,
+      }),
+    ).rejects.toMatchObject({ reason: "unsupported-type" });
+
+    await expect(
+      fakes.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "stadgar.pdf",
+        accept: "document",
+        visibility: "PUBLIC",
+      }),
+    ).rejects.toMatchObject({ reason: "unsupported-type" });
   });
 
   it("records the declaration as given", async () => {
