@@ -219,7 +219,7 @@ reviews:
         another suite. Leaving those rows is therefore the required behaviour
         and the law's, not an oversight: the Swedish Economic Associations Act
         (EFL 5 kap., via BRL 9 kap.) requires the register to be retained. Any
-        suite that writes an audit entry leaves one behind on purpose. What such
+        suite that writes to the audit log leaves one behind on purpose. What such
         a suite owes instead is assertions that select on a per-run or
         per-record identifier rather than on a count of the whole table, so flag
         that if it is missing. Do not propose deleting the entries, disabling
