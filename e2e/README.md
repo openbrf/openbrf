@@ -82,7 +82,11 @@ on the account the later specs sign in as.
   can read in a diff.
 - `src/fixtures.ts` gives each test its own client address. Better Auth
   rate-limits to twenty requests a minute per client and identifies the client
-  by `X-Forwarded-For`; without this the suite would throttle itself.
+  by `X-Forwarded-For`; without this the suite would throttle itself. A test
+  where two people act asks it for a second address as well, rather than
+  spending one person's budget on the other's sign-ins: a session check runs on
+  every guarded navigation, so signing in through the screen and landing on the
+  board costs four requests rather than one, and twenty is not far away.
 
 Specs run serially, in file-name order. `01-first-boot` needs an unclaimed
 instance, which an instance is exactly once, and the rest share the instance it

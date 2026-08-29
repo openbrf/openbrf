@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 
 import * as api from "../src/api";
-import { expect, stack, test } from "../src/fixtures";
+import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, expectNoMessage, waitForMessage } from "../src/mailpit";
 import {
@@ -127,8 +127,10 @@ function queueRow(page: Page, email: string): Locator {
 }
 
 test("a visitor asks for an account, the board approves, the account activates", async ({
+  browser,
   page,
   api: request,
+  clientAddress,
 }) => {
   await ensureInstance(request);
   await api.setSelfSignup(request, stack.baseUrl, true);
@@ -154,92 +156,119 @@ test("a visitor asks for an account, the board approves, the account activates",
 
   const claimedAddress = `${apartment.address.street} ${apartment.address.number}`;
 
-  await test.step("the way in is offered from the sign-in screen", async () => {
-    await page.goto(appPath("/sign-in"));
-    await page.getByRole("link", { name: "Ansök om konto" }).click();
-    await expect(
-      page.getByRole("heading", { name: "Ansök om konto" }),
-    ).toBeVisible();
+  /*
+   * The applicant's own browser, on an address of their own.
+   *
+   * Two people act in this test, and they are two clients: somebody with no
+   * account asks for one, activates it and signs in, while a board member signs
+   * in and decides the request. The instance rate-limits authentication per
+   * client address, and the test's own address is the board member's, so one
+   * browser between them would spend the applicant's budget on the board's
+   * sign-ins and be refused a sign-in this test asserts on. Separating them is
+   * the same argument the address fixture itself makes: each of these people is
+   * at home, on their own connection.
+   */
+  const visitor = await browser.newContext({
+    baseURL: stack.baseUrl,
+    extraHTTPHeaders: {
+      "x-forwarded-for": clientAddressFor(clientAddress, "applicant"),
+    },
   });
+  const applicantPage = await visitor.newPage();
 
-  await test.step("the visitor asks, and is told nothing exists yet", async () => {
-    // Typed by hand, because that is all the form offers: no picker, and so
-    // nothing on this screen tells a stranger which addresses exist.
-    await requestAnAccount(page, APPLICANT, {
-      address: claimedAddress,
-      apartmentNumber: CLAIMED_APARTMENT,
+  try {
+    await test.step("the way in is offered from the sign-in screen", async () => {
+      await applicantPage.goto(appPath("/sign-in"));
+      await applicantPage.getByRole("link", { name: "Ansök om konto" }).click();
+      await expect(
+        applicantPage.getByRole("heading", { name: "Ansök om konto" }),
+      ).toBeVisible();
     });
-    await expect(
-      page.getByText(/varken konto eller post i registret/i),
-    ).toBeVisible();
-  });
 
-  await test.step("the board matches the claim and approves it", async () => {
-    await signInThroughTheScreen(
-      page,
-      ADMINISTRATOR.email,
-      ADMINISTRATOR.password,
-    );
-    await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
-    ).toBeVisible();
+    await test.step("the visitor asks, and is told nothing exists yet", async () => {
+      // Typed by hand, because that is all the form offers: no picker, and so
+      // nothing on this screen tells a stranger which addresses exist.
+      await requestAnAccount(applicantPage, APPLICANT, {
+        address: claimedAddress,
+        apartmentNumber: CLAIMED_APARTMENT,
+      });
+      await expect(
+        applicantPage.getByText(/varken konto eller post i registret/i),
+      ).toBeVisible();
+    });
 
-    await page.goto(appPath("/settings"));
-    const row = queueRow(page, APPLICANT.email);
-    await expect(row).toHaveCount(1);
-    // What the applicant wrote, verbatim, beside the register's own entries.
-    await expect(row).toContainText(claimedAddress);
+    await test.step("the board matches the claim and approves it", async () => {
+      await signInThroughTheScreen(
+        page,
+        ADMINISTRATOR.email,
+        ADMINISTRATOR.password,
+      );
+      await expect(
+        page.getByRole("heading", { name: "Adressbok" }),
+      ).toBeVisible();
 
-    await row
-      .getByLabel("Adress i registret")
-      .selectOption({ label: claimedAddress });
-    await row
-      .getByLabel("Lägenhet i registret")
-      .selectOption({ label: CLAIMED_APARTMENT });
-    await row.getByRole("button", { name: "Godkänn" }).click();
+      await page.goto(appPath("/settings"));
+      const row = queueRow(page, APPLICANT.email);
+      await expect(row).toHaveCount(1);
+      // What the applicant wrote, verbatim, beside the register's own entries.
+      await expect(row).toContainText(claimedAddress);
 
-    await expect(
-      page.getByText(`En inbjudan är på väg till ${APPLICANT.email}`),
-    ).toBeVisible();
-    // Decided, so it leaves the queue rather than waiting to be decided twice.
-    await expect(queueRow(page, APPLICANT.email)).toHaveCount(0);
-  });
+      await row
+        .getByLabel("Adress i registret")
+        .selectOption({ label: claimedAddress });
+      await row
+        .getByLabel("Lägenhet i registret")
+        .selectOption({ label: CLAIMED_APARTMENT });
+      await row.getByRole("button", { name: "Godkänn" }).click();
 
-  await test.step("the invitation activates the account", async () => {
-    const { text } = await waitForMessage(APPLICANT.email);
-    const token = activationTokenFrom(text);
+      await expect(
+        page.getByText(`En inbjudan är på väg till ${APPLICANT.email}`),
+      ).toBeVisible();
+      // Decided, so it leaves the queue rather than waiting to be decided
+      // twice.
+      await expect(queueRow(page, APPLICANT.email)).toHaveCount(0);
+    });
 
-    /*
-     * The board first, because the link in the message is for the applicant:
-     * the activation screen signs the new account in as soon as it is created,
-     * and a browser that still held the board's session would be replacing one
-     * session with another rather than doing what the applicant does.
-     */
-    await signOut(page);
+    await test.step("the invitation activates the account", async () => {
+      const { text } = await waitForMessage(APPLICANT.email);
+      const token = activationTokenFrom(text);
 
-    // The link out of the message, opened as the applicant opens it - which is
-    // the one part of this criterion that has a screen of its own.
-    await page.goto(appPath(`/activate?token=${encodeURIComponent(token)}`));
-    await expect(
-      page.getByRole("heading", { name: "Aktivera ditt konto" }),
-    ).toBeVisible();
-    await page.getByLabel("Lösenord").fill(APPLICANT.password);
-    await page.getByRole("button", { name: "Aktivera kontot" }).click();
+      // The link out of the message, opened in the browser it was written for -
+      // which is the one part of this criterion that has a screen of its own.
+      // The board stays signed in beside it, as a board member would.
+      await applicantPage.goto(
+        appPath(`/activate?token=${encodeURIComponent(token)}`),
+      );
+      await expect(
+        applicantPage.getByRole("heading", { name: "Aktivera ditt konto" }),
+      ).toBeVisible();
+      await applicantPage.getByLabel("Lösenord").fill(APPLICANT.password);
+      await applicantPage
+        .getByRole("button", { name: "Aktivera kontot" })
+        .click();
 
-    // Activation leaves the person signed in: the screen creates the account
-    // and then signs in with the address the endpoint answers with, through the
-    // ordinary password path.
-    await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
-    ).toBeVisible();
+      // Activation leaves the person signed in: the screen creates the account
+      // and then signs in with the address the endpoint answers with, through
+      // the ordinary password path.
+      await expect(
+        applicantPage.getByRole("heading", { name: "Adressbok" }),
+      ).toBeVisible();
 
-    // And the password is the account's from here on, not only this session's.
-    await signOut(page);
-    await signInThroughTheScreen(page, APPLICANT.email, APPLICANT.password);
-    await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
-    ).toBeVisible();
-  });
+      // And the password is the account's from here on, not only this
+      // session's.
+      await signOut(applicantPage);
+      await signInThroughTheScreen(
+        applicantPage,
+        APPLICANT.email,
+        APPLICANT.password,
+      );
+      await expect(
+        applicantPage.getByRole("heading", { name: "Adressbok" }),
+      ).toBeVisible();
+    });
+  } finally {
+    await visitor.close();
+  }
 });
 
 test("a request the board turns away creates nothing", async ({
