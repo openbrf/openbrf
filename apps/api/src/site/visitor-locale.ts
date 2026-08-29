@@ -24,6 +24,9 @@ import {
  * weights would mean sorting, and with two supported languages the sort can
  * only ever agree with the header's own order.
  */
+/** "q=0", in the shapes RFC 9110 allows for it. */
+const ZERO_QUALITY = /^\s*q\s*=\s*0(?:\.0*)?\s*$/i;
+
 export function visitorLocale(
   acceptLanguage: string | undefined | null,
   associationDefault: string | undefined | null,
@@ -33,8 +36,44 @@ export function visitorLocale(
     return asked;
   }
 
+  /*
+   * A refusal outlives the header it was written in. "sv;q=0" on an instance
+   * whose own default is Swedish would otherwise fall straight back onto the
+   * language the visitor just said they did not want, which is the one answer
+   * the header ruled out.
+   */
+  const refused = refusedLocales(acceptLanguage);
   const fallback = supportedPrimarySubtag(associationDefault ?? "");
-  return fallback ?? DEFAULT_LOCALE;
+  for (const candidate of [fallback, DEFAULT_LOCALE]) {
+    if (candidate !== null && !refused.has(candidate)) {
+      return candidate;
+    }
+  }
+  const spare = SUPPORTED_LOCALES.find((locale) => !refused.has(locale));
+
+  // Every language this instance has was refused. The page still has to be
+  // rendered in one, so the association's own is the least surprising.
+  return spare ?? fallback ?? DEFAULT_LOCALE;
+}
+
+/** Locales the header explicitly refused with a zero quality value. */
+function refusedLocales(header: string | undefined | null): Set<Locale> {
+  const refused = new Set<Locale>();
+  if (header === undefined || header === null) {
+    return refused;
+  }
+
+  for (const entry of header.split(",")) {
+    const [tag = "", ...parameters] = entry.split(";");
+    if (!parameters.some((parameter) => ZERO_QUALITY.test(parameter))) {
+      continue;
+    }
+    const locale = supportedPrimarySubtag(tag);
+    if (locale !== null) {
+      refused.add(locale);
+    }
+  }
+  return refused;
 }
 
 /** The first language in the header this instance can render, or null. */
@@ -54,11 +93,7 @@ function preferredLocale(header: string | undefined | null): Locale | null {
      * gets the one they wrote first, which is the same answer ordering alone
      * would give.
      */
-    if (
-      parameters.some((parameter) =>
-        /^\s*q\s*=\s*0(?:\.0*)?\s*$/i.test(parameter),
-      )
-    ) {
+    if (parameters.some((parameter) => ZERO_QUALITY.test(parameter))) {
       continue;
     }
 

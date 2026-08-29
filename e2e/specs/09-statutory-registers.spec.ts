@@ -266,6 +266,18 @@ test("the member register is its own document and taking a copy is recorded", as
   ).toBeVisible();
 
   /*
+   * And the wider scope carries no personal identity number either. The print
+   * assertion below reads the default view, so without this a renderer that
+   * leaked a number only into the all-members scope would pass every check
+   * this spec makes - and that scope is the one holding people who have left,
+   * whose numbers the member register may never carry at all.
+   */
+  expect(
+    identityNumbersIn(await printableDocument(page).innerText()),
+    "the all-members extract carries no personal identity number",
+  ).toEqual([]);
+
+  /*
    * Who took a copy of the member list, and when, is a question a supervisory
    * authority asks and a board asks after a leak, so the read is audited. The
    * entry names no person - it is one act over the whole register - which is
@@ -435,6 +447,9 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     rowFor(page, SIGRID.lastName).getByText("Maskerat"),
   ).toBeVisible();
+
+  const revealsBefore = await auditEntriesByAction("PROTECTED_DATA_REVEALED");
+
   await page
     .getByRole("button", {
       name: "Ta fram det fullständiga lagstadgade utdraget",
@@ -443,6 +458,36 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     rowFor(page, SIGRID.lastName).getByText(SIGRID.personalIdentityNumber),
   ).toBeVisible();
+
+  /*
+   * And her own reveal is recorded like anyone else's. This is the path where
+   * that is easiest to get wrong: she is reading her own entry, which feels
+   * like it needs no record, but the log answers "who saw this number" rather
+   * than "who was not entitled to" - and a disclosure nobody wrote down is the
+   * one a board cannot account for afterwards.
+   */
+  await expect
+    .poll(
+      async () =>
+        (await auditEntriesByAction("PROTECTED_DATA_REVEALED")).length,
+      {
+        message: "the tenant-owner's own extract is recorded",
+        timeout: 10_000,
+      },
+    )
+    .toBe(revealsBefore.length + 1);
+
+  const ownReveal = (await auditEntriesByAction("PROTECTED_DATA_REVEALED")).at(
+    -1,
+  )!;
+  expect(ownReveal.targetKind).toBe("apartmentRegister");
+  expect(ownReveal.actorPersonId).toBe(sigridId);
+  const ownContext = ownReveal.context as {
+    via?: string;
+    personIds?: string[];
+  } | null;
+  expect(ownContext?.via).toBe("apartment-register-extract");
+  expect(ownContext?.personIds).toContain(sigridId);
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.

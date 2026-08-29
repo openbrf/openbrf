@@ -85,8 +85,16 @@ test("a visitor's browser reaches nothing but this instance", async ({
     subresources.some((url) => /\.(?:woff2?|ttf|otf)(?:\?|$)/i.test(url)),
     subresources.join(", "),
   ).toBe(true);
+  /*
+   * Origins, not prefixes. "http://localhost:3010@third-party.example/f.woff2"
+   * starts with the instance's own address and is a request to somebody else
+   * entirely - the part before the @ is userinfo, not a host. On the assertion
+   * that exists to prove no third party learns a visitor's IP, a string
+   * comparison is the wrong instrument.
+   */
+  const instance = new URL(stack.baseUrl).origin;
   for (const url of requested) {
-    expect(url.startsWith(stack.baseUrl), url).toBe(true);
+    expect(new URL(url).origin, url).toBe(instance);
   }
 
   // Nothing ran, and nothing was stored.
@@ -205,7 +213,11 @@ test("the application answers under its own prefix", async ({
  */
 test("no spec addresses the client at the instance root", async () => {
   const specs = join(repositoryRoot, "e2e", "specs");
-  const rootNavigation = /page\.goto\("\//g;
+  // Every shape the call can take: "/", '/', and `/...`. Prettier settles on
+  // double quotes, so today only the first can occur - but the guard exists
+  // for the spec somebody writes next, and a template literal is exactly what
+  // a spec interpolating a path would reach for.
+  const rootNavigation = /page\.goto\(\s*["'`]\//g;
   const allowed = new Set(["01-first-boot.spec.ts", "93-public-site.spec.ts"]);
 
   const offenders: string[] = [];

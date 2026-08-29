@@ -199,11 +199,17 @@ export async function serveSinglePageApp(
       logger.error(
         `The website's not-found page could not be rendered: ${String(cause)}`,
       );
+      /*
+       * The status and nothing else. What just failed is the code that reads
+       * the association's name and its language in order to say anything at
+       * all, so this is not the place to reach for a sentence: an English one
+       * would be the wrong language for a visitor the renderer was about to
+       * greet in their own, and a translated one would call the machinery that
+       * has already thrown. A bare 404 is honest, and the browser has its own
+       * words for it.
+       */
       if (!reply.sent) {
-        await reply
-          .code(404)
-          .type("text/plain; charset=utf-8")
-          .send("The page does not exist.");
+        await reply.code(404).send();
       }
     }
   });

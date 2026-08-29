@@ -53,4 +53,17 @@ describe("visitorLocale", () => {
     // lower-weighted Swedish entry comes first and wins.
     expect(visitorLocale("sv;q=0.2,en;q=0.9", "en")).toBe("sv");
   });
+
+  it("does not fall back onto a language the header refused", () => {
+    // The instance's own default is the refused one, which is the case the
+    // fallback would otherwise walk straight into.
+    expect(visitorLocale("sv;q=0", "sv")).toBe("en");
+    expect(visitorLocale("sv;q=0,en;q=1", "sv")).toBe("en");
+    expect(visitorLocale("sv;q=0.0", "sv")).toBe("en");
+  });
+
+  it("still answers in something when every language is refused", () => {
+    // Nothing is left to prefer, and a page cannot be rendered in no language.
+    expect(visitorLocale("sv;q=0,en;q=0", "sv")).toBe("sv");
+  });
 });
