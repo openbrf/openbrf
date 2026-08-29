@@ -30,13 +30,10 @@ While writing a spec:
   fail; use it with `--grep` on a later spec. The first test in
   `03-invitations` fails on a reused instance too, and has to: an invitation
   activates an account for a person who has none, and the two it invites got
-  theirs on the run before. `08-move-in` and `09-statutory-registers` are the
-  same case: the people are named for the run, but the apartments they are
-  moved into are not, and a residency and a transfer cannot be taken back, so
-  on a second run 1401 and 1301 are already held and the grant those specs
-  assert is no longer the first. The rest re-runs without colliding, because a
+  theirs on the run before. The rest re-runs without colliding, because a
   person a spec makes for itself is named for the run that made them
-  (`src/identity.ts`).
+  (`src/identity.ts`), and an apartment a spec moves somebody into is claimed
+  for the run that claimed it (`src/apartments.ts`).
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
@@ -64,6 +61,13 @@ on the account the later specs sign in as.
 - `src/provision.ts` builds the instance every spec after the first one expects,
   idempotently and over HTTP. The first-boot spec builds the same instance
   through the wizard, screen by screen, because that is what it is testing.
+- `src/apartments.ts` adds an apartment to the register and hands it to the
+  spec that asked for one. A residency, a transfer and a member register entry
+  are all kept for good, so a spec naming a fixed apartment describes an
+  apartment somebody already holds on its second run against one database - and
+  the first grant it asserts has already been recorded. The apartment is added
+  rather than looked for because a number the register does not hold yet cannot
+  have a resident, which a list read a moment ago does not promise.
 - `src/mailpit.ts` reads the mail the instance really sent. Invitations and
   sign-in links exist only as email, so there is no other way to check them.
 - `src/totp.ts` is RFC 6238 in twenty lines, standing in for an authenticator
@@ -163,13 +167,16 @@ that do not exist yet.
   and primary colour regenerating the accent set with its contrast check, and
   the per-user light/dark/system override.
 
-Two smaller gaps are worth naming, because a spec here works around them rather
-than pretending they are not there:
+Two more things are worth naming, because in each of them a spec here chooses
+a path rather than there being only one:
 
-- **There is no `/activate` route in the client.** The invitation email points
-  at one. The invitation specs take the token from the message and post it to
-  the activation endpoint; when the screen exists, they should fill in its form
-  instead.
+- **Activation has a screen, and not every spec goes through it.**
+  `04-self-signup` opens the link out of the message and fills in the form,
+  which is what the person an invitation was written for does.
+  `03-invitations` posts the token to the activation endpoint instead, because
+  what that spec is about is the invitation rather than the form, and
+  `src/provision.ts` does the same when it gives a fixture person an account
+  with no browser involved.
 - **The register fixture puts people on apartments through sign-up approval.**
   Move-in creates a residency too, and is the path a board actually uses, but
   the fixture predates it and needs no screen to run. `08-move-in-and-move-out`
@@ -207,9 +214,13 @@ capture can photograph is published.
 The capture builds the demo cooperative - Brf Eksemplet, Storgatan 12 and 14 -
 through `src/provision.ts`, which seeds four people with no personal identity
 number, no phone number, and email addresses on `.test`, the TLD RFC 2606
-reserves so that nothing can resolve. It never runs `db:seed`, whose demo data
-carries a plausible-looking personal identity number and Swedish mobile numbers,
-and which refuses to run against a production image in any case.
+reserves so that nothing can resolve. It moves one more person in as a
+tenant-owner, so that the two statutory registers have an entry to show, and
+she carries neither a number nor a phone number either: everybody the capture
+invents is declared in `screenshots/people.ts` under that one rule. It never
+runs `db:seed`, whose demo data carries a plausible-looking personal identity
+number and Swedish mobile numbers, and which refuses to run against a
+production image in any case.
 
 That is checked rather than trusted. Before each image is written, the capture
 reads the rendered text and every filled-in field, and fails the run on anything
@@ -231,7 +242,8 @@ it is not writing a test:
 ```ts
 {
   name: "member-register-extract",   // the file stem, so <name>-light.png
-  as: "administrator",               // "nobody" | "administrator" | "resident"
+  as: "administrator",               // "nobody", "administrator", "resident"
+                                     // or "member"
   goto: "/register/members",         // omit to stay where the entry above left off
   prepare: [                         // clicks and fills, when a URL is not enough
     { click: { button: "Skriv ut utdrag" } },
@@ -266,10 +278,13 @@ The pieces:
 - **`waitFor`** proves the right screen rendered and is what the capture waits
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
-- **An action** is `{ click }`, `{ fill, value }`, `{ select, option }` or
-  `{ see }`. A screen needing a kind that is not there - a file upload, for the
-  import steps - adds it to the `Action` union and to `perform` in
-  `capture.spec.ts`, once, and every later screen has it.
+- **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
+  `{ upload, file }` or `{ see }`. An uploaded file is written out in the
+  manifest - a name, a media type and its text - rather than read from disk, so
+  what a screen is photographed reading can be checked against the publishing
+  rules in the diff. A screen needing a kind that is not there adds it to the
+  `Action` union and to `perform` in `capture.spec.ts`, once, and every later
+  screen has it.
 
 Both themes come for free. The client follows the operating system unless
 somebody has chosen otherwise, and it subscribes to the media query while it
@@ -279,15 +294,15 @@ held in React state, can be shown in both. The viewport, pixel density and
 motion setting are fixed in `capture.spec.ts`, and animations are stopped at the
 capture, so a rerun differs only where the interface differs.
 
-### Screens waiting on other branches
+### Screens with no entry yet
 
-These do not exist yet. Each one is an entry appended to `screens.ts` in the
-pull request that builds the screen, not later:
+Each of these is an entry appended to `screens.ts` by the pull request that next
+changes the screen, not later:
 
-- **The member and apartment register extracts, and the import steps.** The two
-  registers as separate printable views, and the upload, column mapping, preview
-  and result of an import. The mapping and preview steps are the case that will
-  want a file-upload action.
+- **The result of an import.** The file, the columns and the preview are
+  photographed; the walk stops before applying one, because an import writes
+  the statutory member register and the walk photographs that register before
+  it reaches the import screens.
 - **The plugin catalog, the consent screen and a plugin's settings form.** The
   catalog as it lists what can be installed, the permissions and personal-data
   declaration a board consents to, and the form an installed plugin contributes.

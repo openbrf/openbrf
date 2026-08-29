@@ -207,13 +207,33 @@ test("a visitor asks for an account, the board approves, the account activates",
 
   await test.step("the invitation activates the account", async () => {
     const { text } = await waitForMessage(APPLICANT.email);
-    // SEAM - swap this API step for the /activate browser screen once that PR
-    // lands (invitation.service.ts:218-222).
-    await api.acceptInvitation(request, stack.baseUrl, {
-      token: activationTokenFrom(text),
-      password: APPLICANT.password,
-    });
+    const token = activationTokenFrom(text);
 
+    /*
+     * The board first, because the link in the message is for the applicant:
+     * the activation screen signs the new account in as soon as it is created,
+     * and a browser that still held the board's session would be replacing one
+     * session with another rather than doing what the applicant does.
+     */
+    await signOut(page);
+
+    // The link out of the message, opened as the applicant opens it - which is
+    // the one part of this criterion that has a screen of its own.
+    await page.goto(appPath(`/activate?token=${encodeURIComponent(token)}`));
+    await expect(
+      page.getByRole("heading", { name: "Aktivera ditt konto" }),
+    ).toBeVisible();
+    await page.getByLabel("Lösenord").fill(APPLICANT.password);
+    await page.getByRole("button", { name: "Aktivera kontot" }).click();
+
+    // Activation leaves the person signed in: the screen creates the account
+    // and then signs in with the address the endpoint answers with, through the
+    // ordinary password path.
+    await expect(
+      page.getByRole("heading", { name: "Adressbok" }),
+    ).toBeVisible();
+
+    // And the password is the account's from here on, not only this session's.
     await signOut(page);
     await signInThroughTheScreen(page, APPLICANT.email, APPLICANT.password);
     await expect(

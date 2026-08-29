@@ -434,3 +434,35 @@ export async function moveOut(
   await expectOk(response, "POST /api/moves/move-out");
   return (await response.json()) as MoveOutResult;
 }
+
+/**
+ * The id of the person the address book lists under exactly this name.
+ *
+ * The only way the suite has of finding somebody it did not just create: a
+ * person id appears in no email and on no screen, and the address book is the
+ * one surface that searches. Nobody matching is answered with `undefined`
+ * rather than an error, because every caller asks in order to decide whether to
+ * create the person - which is what makes a fixture idempotent against the
+ * database rather than against the process that built it.
+ *
+ * The search narrows and the name decides: the endpoint matches names
+ * incrementally, so it answers "Bo Ek" with everyone whose name begins that
+ * way, and only an exact match is the person that was asked for.
+ */
+export async function findPersonIdByName(
+  request: APIRequestContext,
+  baseUrl: string,
+  name: string,
+): Promise<string | undefined> {
+  const response = await request.get(
+    `${baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
+  );
+  await expectOk(response, "GET /api/address-book");
+  const page = (await response.json()) as {
+    readonly rows: readonly {
+      readonly personId: string;
+      readonly name: string;
+    }[];
+  };
+  return page.rows.find((row) => row.name === name)?.personId;
+}
