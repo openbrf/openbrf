@@ -1,0 +1,67 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly full scan, matching the cadence the repository had before this
+    # workflow existed. Pull requests and pushes cover changed code; this run
+    # catches alerts that appear when the query packs update between changes.
+    - cron: "41 5 * * 6"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege rather than whatever the repository default happens to be.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    # This job name is what the main ruleset requires, one context per matrix
+    # language: "Analyze (actions)" and "Analyze (javascript-typescript)".
+    # Renaming the job or a language value silently detaches those required
+    # checks and every pull request waits forever on a status that will never
+    # be reported - change the ruleset in the same breath or not at all.
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Uploads the analysis results to code scanning. On a pull request from
+      # a fork the token cannot write security events; code scanning accepts
+      # the upload for fork pull requests through its own channel instead.
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          # The categories the repository's alerts were filed under before this
+          # workflow took over the analysis. Keeping them means an existing
+          # alert stays one alert with its history rather than closing and
+          # reopening as a new one under a new category.
+          category: "/language:${{ matrix.language }}"
