@@ -63,16 +63,22 @@ export interface EditDocumentInput {
  * file computes it and why every write that sets one sets the other in the
  * same transaction.
  *
- * BOARD narrows the file to holders of documents:manage, which is what makes
- * every serve of a board document land in the audit log: the media service
- * records MEDIA_ACCESSED for exactly the files whose access is narrowed.
+ * Each audience has a visibility of its own, so a file is reachable by exactly
+ * the people its shelf is, and by nobody else holding its address.
  *
- * MEMBER is INTERNAL and unnarrowed, because membership is not a capability -
- * it is a residency role - and the column names capabilities. The list is
- * therefore what decides who learns a member document's address at all, and
- * the file behind it is readable by anyone signed in who already holds that
- * address. PUBLIC is the one audience with no session at all behind it, which
- * is the whole point of it.
+ * BOARD narrows the file to holders of documents:manage, which is also what
+ * puts every serve of a board document in the audit log: the media service
+ * records MEDIA_ACCESSED for the files narrowed by capability.
+ *
+ * MEMBER is the media layer's own MEMBER visibility, readable by whoever holds
+ * an active residency as a member. It names documents:manage as well, where
+ * that capability widens rather than narrows - it is how the board and an
+ * administrator reach the members' shelf without holding a residency of their
+ * own, which the archive already offers them. Serving one is deliberately not
+ * audited, for the reason given on the serving path.
+ *
+ * PUBLIC is the one audience with no session at all behind it, which is the
+ * whole point of it.
  */
 function transportFor(audience: DocumentAudience): {
   visibility: MediaVisibility;
@@ -82,7 +88,7 @@ function transportFor(audience: DocumentAudience): {
     case "PUBLIC":
       return { visibility: "PUBLIC", requiredCapability: null };
     case "MEMBER":
-      return { visibility: "INTERNAL", requiredCapability: null };
+      return { visibility: "MEMBER", requiredCapability: "documents:manage" };
     case "BOARD":
       return {
         visibility: "INTERNAL",

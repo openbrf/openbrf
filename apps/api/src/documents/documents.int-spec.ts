@@ -520,6 +520,99 @@ describe("what each principal is shown, and what each may fetch", () => {
     expect(asMember.body).toBe(missing.body);
   });
 
+  it("serves a member document to a member", async () => {
+    const response = await inject({
+      method: "GET",
+      url: members.url,
+      headers: { cookie: memberCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("application/pdf");
+  });
+
+  it("keeps a member document from a resident who is not a member", async () => {
+    /*
+     * The audience enforced on the bytes rather than only on the shelf. The
+     * list already leaves the minutes off this resident's shelf; this is the
+     * other half, and the half that survives somebody passing on the address.
+     * Minutes of a general meeting name the members who spoke and how they
+     * voted, and not every resident is a member.
+     */
+    const asResident = await inject({
+      method: "GET",
+      url: members.url,
+      headers: { cookie: residentCookie },
+    });
+    const missing = await inject({
+      method: "GET",
+      url: "/api/media/en-fil-som-aldrig-funnits",
+      headers: { cookie: residentCookie },
+    });
+
+    expect(asResident.statusCode).toBe(404);
+    expect(missing.statusCode).toBe(404);
+    // Byte for byte, so holding the address teaches nothing about whether the
+    // association has a file at it.
+    expect(asResident.body).toBe(missing.body);
+  });
+
+  it("refuses a member document to a caller with no session at all", async () => {
+    expect((await inject({ method: "GET", url: members.url })).statusCode).toBe(
+      404,
+    );
+  });
+
+  it("serves a member document to the board and to an administrator", async () => {
+    // Neither holds a residency in this fixture, so neither is a member. They
+    // read it through documents:manage, which on a member file widens rather
+    // than narrows - the archive lists the document to both of them, and the
+    // link under it has to work.
+    const asBoard = await inject({
+      method: "GET",
+      url: members.url,
+      headers: { cookie: boardCookie },
+    });
+    const asAdmin = await inject({
+      method: "GET",
+      url: members.url,
+      headers: { cookie: adminCookie },
+    });
+
+    expect(asBoard.statusCode).toBe(200);
+    expect(asAdmin.statusCode).toBe(200);
+  });
+
+  it("keeps the serve of a member document out of the audit log", async () => {
+    const fileId = members.url.split("/").pop() ?? "";
+    const before = await prisma.auditLogEntry.count({
+      where: { action: "MEDIA_ACCESSED", targetId: fileId },
+    });
+
+    expect(
+      (
+        await inject({
+          method: "GET",
+          url: members.url,
+          headers: { cookie: memberCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    /*
+     * Narrowed and deliberately not recorded, which is the one place the
+     * archive's two narrowed audiences part company. The board's papers are
+     * few and opened rarely, so a row each is accountability; the members read
+     * the bylaws, the annual report and every set of minutes as a matter of
+     * course, and a row each would be a permanent record - in a table the
+     * purge cannot reach - of which member read which document when.
+     */
+    const after = await prisma.auditLogEntry.count({
+      where: { action: "MEDIA_ACCESSED", targetId: fileId },
+    });
+    expect(after).toBe(before);
+  });
+
   it("writes every serve of a board document to the audit log", async () => {
     const fileId = board.url.split("/").pop() ?? "";
     const before = await prisma.auditLogEntry.count({
@@ -588,6 +681,56 @@ describe("changing who a document is for", () => {
       headers: { cookie: memberCookie },
     });
     expect(toMember.statusCode).toBe(404);
+  });
+
+  it("takes a published document off the street when it goes to the members", async () => {
+    const document = (
+      await fileDocument(boardCookie, {
+        title: `Stämmoprotokoll ${suffix}-2`,
+        category: "Protokoll",
+        audience: "PUBLIC",
+      })
+    ).json() as DocumentBody;
+
+    expect(
+      (await inject({ method: "GET", url: document.url })).statusCode,
+    ).toBe(200);
+
+    const changed = await inject({
+      method: "PUT",
+      url: `/api/documents/${document.id}`,
+      payload: {
+        title: document.title,
+        category: document.category,
+        audience: "MEMBER",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(changed.statusCode).toBe(200);
+
+    // No session at all, and a session that is not a member's: both closed by
+    // the same write, in the transaction that moved the shelf.
+    expect(
+      (await inject({ method: "GET", url: document.url })).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await inject({
+          method: "GET",
+          url: document.url,
+          headers: { cookie: residentCookie },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await inject({
+          method: "GET",
+          url: document.url,
+          headers: { cookie: memberCookie },
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 
   it("is refused to a member, who can neither rename nor remove", async () => {

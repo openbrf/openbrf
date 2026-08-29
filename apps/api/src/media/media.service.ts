@@ -15,7 +15,7 @@ import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
 import { readImageHeader } from "./image-bytes";
 
-export type MediaVisibility = "PUBLIC" | "INTERNAL";
+export type MediaVisibility = "PUBLIC" | "INTERNAL" | "MEMBER";
 
 export class MediaError extends DomainError {
   readonly status: number;
@@ -60,7 +60,10 @@ export interface UploadInput {
    */
   accept?: "image" | "document";
   visibility: MediaVisibility;
-  /** Narrows an INTERNAL file to holders of one capability. */
+  /**
+   * A capability the file names. Narrows an INTERNAL file to holders of it;
+   * widens a MEMBER one to them, beside the members themselves.
+   */
   requiredCapability?: Capability;
   /**
    * Whether the image shows identifiable persons. Required for an image; not
@@ -244,12 +247,37 @@ export class MediaService {
 
     const visibility = file.visibility;
     const required = file.requiredCapability;
+    const named =
+      viewer !== null && required !== null && holds(viewer, required);
 
     if (visibility === "PUBLIC") {
       // Anyone, deliberately: a mail client rendering the association's logo
       // carries no session, and the public website's visitors have no account.
+    } else if (visibility === "MEMBER") {
+      /*
+       * Membership is asked of the principal rather than looked for among the
+       * capabilities, because it is not one: it is an active residency with
+       * role MEMBER, derived per request like every other role. The capability
+       * the file names widens this rather than narrowing it - it is how the
+       * board and an administrator reach the members' shelf without holding a
+       * residency of their own.
+       */
+      if (viewer === null || !(viewer.isMember || named)) {
+        throw new MediaError("No such file.", "not-found");
+      }
+      /*
+       * Deliberately not written to the audit log, though the file is narrowed.
+       * The rule is not "narrowed is logged" but "the accesses that have to be
+       * accountable are logged, and nothing may bury them": the board's own
+       * papers are few and opened rarely, while members read the bylaws, the
+       * annual report and every set of minutes as a matter of course. A row per
+       * serve would put that traffic in an append-only table the purge cannot
+       * reach - and it would be a permanent record of which member read which
+       * document when, which is surveillance of ordinary membership rather than
+       * the accountability the log exists for.
+       */
     } else if (visibility === "INTERNAL") {
-      if (viewer === null || (required !== null && !holds(viewer, required))) {
+      if (viewer === null || (required !== null && !named)) {
         throw new MediaError("No such file.", "not-found");
       }
       if (required !== null) {

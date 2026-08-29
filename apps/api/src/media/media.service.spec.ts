@@ -34,7 +34,7 @@ interface Row {
   width: number | null;
   height: number | null;
   showsIdentifiablePersons: boolean | null;
-  visibility: "PUBLIC" | "INTERNAL";
+  visibility: "PUBLIC" | "INTERNAL" | "MEMBER";
   requiredCapability: string | null;
   uploadedByPersonId: string | null;
 }
@@ -407,7 +407,7 @@ describe("uploading", () => {
 describe("serving", () => {
   async function upload(
     overrides: {
-      visibility?: "PUBLIC" | "INTERNAL";
+      visibility?: "PUBLIC" | "INTERNAL" | "MEMBER";
       requiredCapability?: Capability;
     } = {},
   ): Promise<string> {
@@ -479,6 +479,61 @@ describe("serving", () => {
     ).resolves.toMatchObject({ contentType: "image/png" });
   });
 
+  it("keeps a member file from a signed-in caller who is not a member", async () => {
+    /*
+     * The case the MEMBER visibility exists for. INTERNAL would have served
+     * this to any account at all, so a resident who is not a member - or an
+     * external property manager - could read it by holding the address alone.
+     */
+    const id = await upload({ visibility: "MEMBER" });
+
+    await expect(fakes.service.open(id, principal())).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    await expect(
+      fakes.service.open(id, principal({ isMember: true })),
+    ).resolves.toMatchObject({ contentType: "image/png" });
+  });
+
+  it("refuses a member file to an anonymous caller", async () => {
+    const id = await upload({ visibility: "MEMBER" });
+
+    await expect(fakes.service.open(id, null)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+  });
+
+  it("opens a member file to the capability it names, without a residency", async () => {
+    // On a MEMBER file the capability widens rather than narrows: it is how
+    // the board and an administrator read the members' shelf, neither of whom
+    // necessarily holds a tenant-ownership.
+    const id = await upload({
+      visibility: "MEMBER",
+      requiredCapability: "documents:manage",
+    });
+
+    await expect(
+      fakes.service.open(id, withCapability("documents:manage")),
+    ).resolves.toMatchObject({ contentType: "image/png" });
+    await expect(fakes.service.open(id, principal())).rejects.toMatchObject({
+      reason: "not-found",
+    });
+  });
+
+  it("answers for a member file it will not serve exactly as for one that is not there", async () => {
+    const id = await upload({ visibility: "MEMBER" });
+
+    const refused = await fakes.service
+      .open(id, principal())
+      .catch((error: MediaError) => error);
+    const absent = await fakes.service
+      .open("file-absent", principal())
+      .catch((error: MediaError) => error);
+
+    expect((refused as MediaError).reason).toBe((absent as MediaError).reason);
+    expect((refused as MediaError).status).toBe((absent as MediaError).status);
+  });
+
   it("logs the serve of a capability-restricted file, and only that", async () => {
     const restricted = await upload({
       visibility: "INTERNAL",
@@ -486,17 +541,26 @@ describe("serving", () => {
     });
     const ordinary = await upload({ visibility: "INTERNAL" });
     const open = await upload({ visibility: "PUBLIC" });
+    const members = await upload({
+      visibility: "MEMBER",
+      requiredCapability: "documents:manage",
+    });
 
     await fakes.service.open(restricted, withCapability("memberRegister:read"));
     await fakes.service.open(ordinary, principal());
     await fakes.service.open(open, null);
+    await fakes.service.open(members, principal({ isMember: true }));
+    await fakes.service.open(members, withCapability("documents:manage"));
 
     const accesses = fakes.audited.filter(
       (entry) => entry.action === "MEDIA_ACCESSED",
     );
 
     // One row per image request would swamp an append-only table that the law
-    // requires to carry protected-data accesses and register extracts.
+    // requires to carry protected-data accesses and register extracts. A
+    // member file is narrowed and still not logged, by the same argument: the
+    // members read the bylaws and every set of minutes as a matter of course,
+    // and a permanent record of who read what is not what the log is for.
     expect(accesses).toEqual([
       expect.objectContaining({ targetId: restricted }),
     ]);
@@ -512,7 +576,7 @@ describe("serving", () => {
     const id = await upload({ visibility: "PUBLIC" });
     const row = fakes.rows.get(id);
     if (row !== undefined) {
-      row.visibility = "MEMBERS_ONLY" as "PUBLIC";
+      row.visibility = "EVERY_TENANT" as "PUBLIC";
     }
 
     await expect(fakes.service.open(id, null)).rejects.toMatchObject({

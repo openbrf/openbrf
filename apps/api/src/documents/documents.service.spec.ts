@@ -41,7 +41,7 @@ interface FileRow {
   fileName: string;
   contentType: string;
   byteSize: number;
-  visibility: "PUBLIC" | "INTERNAL";
+  visibility: "PUBLIC" | "INTERNAL" | "MEMBER";
   requiredCapability: string | null;
 }
 
@@ -178,7 +178,7 @@ function makeFakes(): Fakes {
   const upload = vi.fn(
     (input: {
       fileName: string;
-      visibility: "PUBLIC" | "INTERNAL";
+      visibility: "PUBLIC" | "INTERNAL" | "MEMBER";
       requiredCapability?: string;
     }) => {
       nextId += 1;
@@ -284,12 +284,16 @@ describe("filing a document", () => {
     });
   });
 
-  it("keeps a member document internal without narrowing it", async () => {
+  it("marks a member document for the members, and lets the archive's managers in", async () => {
     await file("MEMBER");
 
+    // Not INTERNAL: that would be readable by every account signed in, which
+    // is not who the members' shelf is for. The capability is named so the
+    // board and an administrator can open what the archive already lists for
+    // them, and there it widens rather than narrows.
     expect(fakes.upload.mock.calls[0]?.[0]).toMatchObject({
-      visibility: "INTERNAL",
-      requiredCapability: undefined,
+      visibility: "MEMBER",
+      requiredCapability: "documents:manage",
     });
   });
 
@@ -324,6 +328,24 @@ describe("filing a document", () => {
 });
 
 describe("changing who a document is for", () => {
+  it("takes a published document off the street when it goes to the members", async () => {
+    const document = await file("PUBLIC");
+
+    await fakes.service.edit(document.id, {
+      title: document.title,
+      category: document.category,
+      audience: "MEMBER",
+    });
+
+    // The direction that matters for this audience too: a file left PUBLIC
+    // would stay readable with no session at all by anyone who saw the address
+    // while it was published.
+    expect(fakes.files.get("file-1")).toMatchObject({
+      visibility: "MEMBER",
+      requiredCapability: "documents:manage",
+    });
+  });
+
   it("locks the file in the same transaction as the demotion", async () => {
     const document = await file("PUBLIC");
 

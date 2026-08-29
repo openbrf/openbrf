@@ -940,6 +940,16 @@ enum MediaVisibility {
   /// narrowed to holders of it, and every serve of one is written to the audit
   /// log.
   INTERNAL
+  /// A member of the housing cooperative, or a holder of the capability the
+  /// file names.
+  ///
+  /// Narrower than INTERNAL rather than a variant of it. Membership is a
+  /// residency role and not a capability, so it is asked of the principal
+  /// instead of looked for in the column, and a file marked this way is not
+  /// readable by every account that happens to be signed in - which is what
+  /// the members' shelf of the document archive needs, since minutes of a
+  /// general meeting name the members who spoke and how they voted.
+  MEMBER
 }
 
 /// An uploaded file.
@@ -984,8 +994,15 @@ model MediaFile {
 
   visibility MediaVisibility @default(INTERNAL)
 
-  /// Narrows an INTERNAL file to holders of one capability, by its name in the
-  /// capability model. Null leaves it readable by anyone signed in.
+  /// A capability this file names, by its name in the capability model.
+  ///
+  /// What it does depends on the visibility, and the two are opposites on
+  /// purpose. On an INTERNAL file it narrows: only holders may read it, and
+  /// every serve is written to the audit log. On a MEMBER file it widens: it
+  /// names who may read the file besides the members themselves, which is how
+  /// the board and an administrator reach the members' shelf without holding a
+  /// residency of their own. Null on a PUBLIC file, and on an INTERNAL one
+  /// that anyone signed in may read.
   requiredCapability String?
 
   /// Who uploaded it.
