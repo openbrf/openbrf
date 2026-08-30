@@ -22,6 +22,7 @@ import {
   type InstanceSettings,
   type LogoSlot,
   SettingsService,
+  type SmsSettingsView,
   type SmtpSettingsView,
 } from "./settings.service";
 
@@ -51,6 +52,36 @@ const smtpSchema = z.object({
   /** Omit to keep the stored password; null or "" to clear it. */
   password: z.string().max(200).nullish(),
   fromAddress: z.email().max(320).nullable(),
+});
+
+/**
+ * What an association may point the SMS adapter at.
+ *
+ * The driver is a bounded string rather than an enumerated list of the drivers
+ * this build happens to ship. An adapter whose settings screen has to be edited
+ * before a new driver can be selected is not open, and the service already
+ * answers a name it does not recognise with the no-provider driver - which the
+ * screen then reports as unable to send.
+ *
+ * The gateway address is refused unless it is an http or https URL. The process
+ * that answers this call holds the member register, and this is the one setting
+ * that tells it to dial somewhere.
+ */
+const smsSchema = z.object({
+  driver: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/, "must be lower-case letters, digits and hyphens")
+    .nullable(),
+  gatewayUrl: z
+    .url({ protocol: /^https?$/ })
+    .max(2048)
+    .nullable(),
+  senderName: z.string().trim().max(64).nullable(),
+  /** Omit to keep the stored credential; null or "" to clear it. */
+  token: z.string().max(500).nullish(),
 });
 
 /**
@@ -205,6 +236,18 @@ export class SettingsWriteController {
     @Req() request: RequestWithPrincipal,
   ): Promise<{ sentTo: string; host: string }> {
     return this.settings.sendTestMessage(requirePersonId(request));
+  }
+
+  @Put("sms")
+  async updateSms(@Body() body: unknown): Promise<SmsSettingsView> {
+    return this.settings.updateSms(smsSchema.parse(body));
+  }
+
+  @Post("sms/test")
+  async testSms(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ sentTo: string }> {
+    return this.settings.sendTestSms(requirePersonId(request));
   }
 
   @Put("retention")

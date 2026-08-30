@@ -6,7 +6,9 @@ import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import {
+  type NewsDeliveryReport,
   type NewsItem,
+  type NewsRecipients,
   type NewsVisibility,
   publishNews,
   removeNews,
@@ -20,11 +22,18 @@ import {
  * published once to the people it was written for rather than carrying a
  * standing audience that gets revisited.
  *
- * The mailing is offered exactly once. Once the instance has claimed it - which
- * the item reports as a date - the checkbox is gone and a sentence stands in
- * its place, because there is no second mailing to ask for: the server writes
- * that column once and never clears it, so an edit and a republish cannot put
- * the announcement in anybody's mailbox again.
+ * Each mailing is offered exactly once. Once the instance has claimed one -
+ * which the item reports as a date - that checkbox is gone and a sentence
+ * stands in its place, because there is no second mailing to ask for: the
+ * server writes that column once and never clears it, so an edit and a
+ * republish cannot put the announcement in anybody's mailbox again.
+ *
+ * The two channels are offered separately and answered separately. The email
+ * is on by default because it costs nothing and reaches everyone in the
+ * register; the text message is off, because it is billed per member and
+ * reaches only those who have given the association a number. An instance with
+ * no SMS provider is told so where the toggle would be, rather than being
+ * offered a switch that cannot work.
  */
 
 const PUBLISH_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -38,15 +47,15 @@ const REMOVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
 
 export interface NewsItemPanelProps {
   item: NewsItem;
-  /** How many members a mailing would reach right now. */
-  recipientCount: number | null;
+  /** Who a mailing would reach right now, per channel. Null while unread. */
+  recipients: NewsRecipients | null;
   onEdit: (item: NewsItem) => void;
   onChanged: () => void;
 }
 
 export function NewsItemPanel({
   item,
-  recipientCount,
+  recipients,
   onEdit,
   onChanged,
 }: NewsItemPanelProps): ReactElement {
@@ -61,16 +70,36 @@ export function NewsItemPanel({
    */
   const mailable = item.emailQueuedAt === null;
   const [sendEmail, setSendEmail] = useState(true);
+  /*
+   * The SMS mailing is offered on the same terms and defaults the other way.
+   * It is billed per member and reaches only the members who gave a number, so
+   * it is a decision the board makes rather than one it has to remember to
+   * undo.
+   */
+  const textable = item.smsQueuedAt === null;
+  const smsConfigured = recipients?.sms.configured ?? false;
+  const [sendSms, setSendSms] = useState(false);
   const [outcome, setOutcome] = useState<TranslationKey | null>(null);
-  const [mailedTo, setMailedTo] = useState<number | null>(null);
+  const [reachedTo, setReachedTo] = useState<number | null>(null);
 
   const publication = useSaveAction(publishNews, (published) => {
-    setMailedTo(published.mailedTo);
+    /*
+     * One sentence, and the mailing it names is whichever was claimed.
+     *
+     * A publish can claim both, and the counts differ - everyone with an
+     * address, and the smaller set with a number. Rather than run two
+     * confirmations together, the email count is reported where there is one,
+     * because it is the mailing that reaches the whole membership; the SMS
+     * count stands alone only when the text message was the mailing claimed.
+     */
+    setReachedTo(published.mailedTo ?? published.textedTo);
     setOutcome(
       published.published
-        ? published.mailedTo === null
-          ? "news.item.published"
-          : "news.item.publishedAndMailed"
+        ? published.mailedTo !== null
+          ? "news.item.publishedAndMailed"
+          : published.textedTo !== null
+            ? "news.item.publishedAndTexted"
+            : "news.item.published"
         : "news.item.unpublished",
     );
     onChanged();
@@ -158,9 +187,9 @@ export function NewsItemPanel({
               }}
               className="size-4 accent-trust"
             />
-            {recipientCount === null
+            {recipients === null
               ? t("news.item.sendEmailUnknown")
-              : t("news.item.sendEmail", { count: recipientCount })}
+              : t("news.item.sendEmail", { count: recipients.count })}
           </label>
           <p className="text-small text-ink-muted">
             {t("news.item.sendEmailHint")}
@@ -174,27 +203,64 @@ export function NewsItemPanel({
         </p>
       )}
 
-      {item.emailQueuedAt === null ? null : (
-        <section className="flex flex-col gap-1">
-          <h4 className="text-label text-ink-muted uppercase">
-            {t("news.delivery.heading")}
-          </h4>
-          <p className="font-data text-small text-ink">
-            {[
-              t("news.delivery.sent", { count: item.delivery.sent }),
-              t("news.delivery.pending", { count: item.delivery.pending }),
-              t("news.delivery.failed", { count: item.delivery.failed }),
-            ].join("  ")}
+      {!textable ? (
+        <p className="font-data text-small text-ink-muted">
+          {t("news.item.alreadyTexted", {
+            date: formatDate(item.smsQueuedAt ?? "", i18n.language),
+          })}
+        </p>
+      ) : recipients === null || smsConfigured ? (
+        /* Offered while the count is still unknown as well. Whether this
+           instance has a provider is not known until the read lands, and
+           saying it has none would be a claim nobody has checked - the same
+           honesty the email side keeps with its own unknown label. */
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-11 items-center gap-2 text-small text-ink">
+            <input
+              type="checkbox"
+              checked={sendSms}
+              onChange={(event) => {
+                setSendSms(event.target.checked);
+              }}
+              className="size-4 accent-trust"
+            />
+            {recipients === null
+              ? t("news.item.sendSmsUnknown")
+              : t("news.item.sendSms", { count: recipients.sms.count })}
+          </label>
+          <p className="text-small text-ink-muted">
+            {t("news.item.sendSmsHint")}
           </p>
-          {item.delivery.mailNotConfigured ? (
-            <Notice tone="warn">{t("news.delivery.mailNotConfigured")}</Notice>
-          ) : null}
-        </section>
+        </div>
+      ) : (
+        /* Said plainly rather than hidden, and only once it is known. A board
+           that expected to be able to text its members has to learn that this
+           instance cannot, and where to go about it - not find the option
+           quietly absent. */
+        <p className="text-small text-ink-muted">
+          {t("news.item.sendSmsUnavailable")}
+        </p>
+      )}
+
+      {item.emailQueuedAt === null ? null : (
+        <DeliverySection
+          heading={t("news.delivery.heading")}
+          report={item.delivery.email}
+          notConfiguredNotice={t("news.delivery.mailNotConfigured")}
+        />
+      )}
+
+      {item.smsQueuedAt === null ? null : (
+        <DeliverySection
+          heading={t("news.delivery.smsHeading")}
+          report={item.delivery.sms}
+          notConfiguredNotice={t("news.delivery.smsNotConfigured")}
+        />
       )}
 
       {outcome === null ? null : (
         <Notice tone="ok" live>
-          {t(outcome, { count: mailedTo ?? 0 })}
+          {t(outcome, { count: reachedTo ?? 0 })}
         </Notice>
       )}
 
@@ -214,6 +280,7 @@ export function NewsItemPanel({
               published: true,
               visibility,
               ...(mailable ? { sendEmail } : {}),
+              ...(textable && smsConfigured ? { sendSms } : {}),
             });
           }}
           className={PRIMARY_BUTTON}
@@ -271,6 +338,42 @@ export function NewsItemPanel({
         </button>
       </footer>
     </article>
+  );
+}
+
+/**
+ * One channel's delivery report.
+ *
+ * The same three counts either way, because they mean the same thing on both:
+ * claimed and not yet handed over, accepted by a provider, and failed. Only the
+ * heading and the notice differ, and the notice is the whole of what a board
+ * needs to tell the two apart - which of the two did not go out.
+ */
+function DeliverySection({
+  heading,
+  report,
+  notConfiguredNotice,
+}: {
+  heading: string;
+  report: NewsDeliveryReport;
+  notConfiguredNotice: string;
+}): ReactElement {
+  const { t } = useTranslation();
+
+  return (
+    <section className="flex flex-col gap-1">
+      <h4 className="text-label text-ink-muted uppercase">{heading}</h4>
+      <p className="font-data text-small text-ink">
+        {[
+          t("news.delivery.sent", { count: report.sent }),
+          t("news.delivery.pending", { count: report.pending }),
+          t("news.delivery.failed", { count: report.failed }),
+        ].join("  ")}
+      </p>
+      {report.notConfigured ? (
+        <Notice tone="warn">{notConfiguredNotice}</Notice>
+      ) : null}
+    </section>
   );
 }
 

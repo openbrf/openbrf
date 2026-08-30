@@ -5,6 +5,8 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
 import type { MediaService } from "../media/media.service";
+import type { I18nService } from "../i18n/i18n.service";
+import type { SmsService } from "../sms/sms.service";
 import { SettingsService } from "./settings.service";
 
 /**
@@ -50,6 +52,10 @@ const STORED = {
   smtpPasswordCipher: null as string | null,
   smtpFromAddress: null as string | null,
   smtpSecure: true,
+  smsDriver: null as string | null,
+  smsGatewayUrl: null as string | null,
+  smsGatewayTokenCipher: null as string | null,
+  smsSenderName: null as string | null,
   activeThemeId: null as string | null,
   setupCompletedAt: null as Date | null,
 };
@@ -75,6 +81,11 @@ interface Fakes {
    * row itself, so an assertion cannot read a value captured before the write.
    */
   current: () => Association | null;
+  sms: {
+    send: ReturnType<typeof vi.fn>;
+    isConfigured: ReturnType<typeof vi.fn>;
+  };
+  i18n: { translatorFor: ReturnType<typeof vi.fn> };
 }
 
 function build(overrides: Partial<Association> = {}, exists = true): Fakes {
@@ -114,6 +125,13 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
   };
 
   const mail = { send: vi.fn().mockResolvedValue(undefined) };
+  const sms = {
+    send: vi.fn().mockResolvedValue(undefined),
+    isConfigured: vi.fn().mockResolvedValue(false),
+  };
+  const i18n = {
+    translatorFor: vi.fn(() => (key: string) => key),
+  };
 
   // No logo is uploaded in this suite: these cases are about the SMTP secret
   // and the contrast gate, and the media layer has its own tests.
@@ -124,9 +142,11 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
     new FieldEncryptionService(TEST_ENV),
     mail as unknown as MailService,
     media as unknown as MediaService,
+    sms as unknown as SmsService,
+    i18n as unknown as I18nService,
   );
 
-  return { service, prisma, mail, current: () => row };
+  return { service, prisma, mail, sms, i18n, current: () => row };
 }
 
 describe("reading the settings", () => {
@@ -397,6 +417,151 @@ describe("the SMTP test message", () => {
     await expect(service.sendTestMessage("person-1")).rejects.toMatchObject({
       reason: "no-email",
     });
+  });
+});
+
+describe("SMS settings", () => {
+  it("never returns the gateway credential, only whether one is stored", async () => {
+    const { service } = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+      smsGatewayTokenCipher: "brf:some-ciphertext",
+    });
+
+    const settings = await service.read();
+
+    expect(settings.sms.tokenSet).toBe(true);
+    expect(JSON.stringify(settings)).not.toContain("some-ciphertext");
+    expect(Object.keys(settings.sms)).not.toContain("token");
+  });
+
+  it("reports SMS as unconfigured until a driver has what it needs", async () => {
+    const none = build();
+    await expect(none.service.read()).resolves.toMatchObject({
+      sms: { configured: false },
+    });
+
+    // Named but unusable is reported as unable to send, not as half set up:
+    // that is what a member would experience.
+    const halfway = build({ smsDriver: "http-gateway" });
+    await expect(halfway.service.read()).resolves.toMatchObject({
+      sms: { configured: false },
+    });
+
+    const both = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+    });
+    await expect(both.service.read()).resolves.toMatchObject({
+      sms: { configured: true },
+    });
+  });
+
+  it("stores the credential encrypted and keeps it when the field is left out", async () => {
+    const { service, current } = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+    });
+
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "https://gateway.example/send",
+      senderName: "Ekhagen",
+      token: "a-gateway-secret",
+    });
+    const stored = current()?.smsGatewayTokenCipher;
+    expect(stored).toBeTypeOf("string");
+    expect(stored).not.toContain("a-gateway-secret");
+
+    // Saving the rest of the form must not silently wipe a credential the
+    // screen never showed.
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "https://gateway.example/send",
+      senderName: "Ekhagen",
+    });
+    expect(current()?.smsGatewayTokenCipher).toBe(stored);
+  });
+
+  it("clears the credential when the field is explicitly emptied", async () => {
+    const { service, current } = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+      smsGatewayTokenCipher: "brf:some-ciphertext",
+    });
+
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "https://gateway.example/send",
+      senderName: null,
+      token: null,
+    });
+
+    expect(current()?.smsGatewayTokenCipher).toBeNull();
+  });
+});
+
+describe("the SMS test message", () => {
+  it("refuses before a provider is set up", async () => {
+    const { service, sms } = build();
+
+    await expect(service.sendTestSms("person-1")).rejects.toMatchObject({
+      name: "SmsNotConfiguredError",
+    });
+    expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it("texts the number as a gateway needs it, in the recipient's language", async () => {
+    const { service, prisma, sms, i18n } = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+    });
+    const stored = await new FieldEncryptionService(TEST_ENV).encrypt(
+      "person.phone",
+      "070-123 45 67",
+    );
+    prisma.person.findUnique.mockResolvedValue({
+      firstName: "Holger",
+      phoneCipher: stored.cipher,
+      preferredLocale: "sv",
+    });
+
+    await expect(service.sendTestSms("person-1")).resolves.toEqual({
+      sentTo: "+46701234567",
+    });
+
+    /*
+     * The whole message, not a part of it. `to` is normalized because
+     * SmsMessage.to is E.164 and a gateway handed the register's spacing would
+     * refuse it or send it somewhere else; `body` is asserted because a
+     * regression handing over an English literal would still have called the
+     * translator, and this case exists to catch exactly that. The suite's
+     * translator returns the key it was given, so the key is the body.
+     */
+    expect(sms.send).toHaveBeenCalledWith({
+      to: "+46701234567",
+      body: "sms.test.body",
+    });
+    // The recipient's own language, never the acting session's: the person
+    // reading the message is the one whose locale it is written in.
+    expect(i18n.translatorFor).toHaveBeenCalledWith("sv");
+  });
+
+  it("refuses when the administrator's own record has no number", async () => {
+    const { service, prisma, sms } = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+    });
+    prisma.person.findUnique.mockResolvedValue({
+      firstName: "Holger",
+      phoneCipher: null,
+      preferredLocale: "sv",
+    });
+
+    await expect(service.sendTestSms("person-1")).rejects.toMatchObject({
+      reason: "no-phone",
+    });
+    expect(sms.send).not.toHaveBeenCalled();
   });
 });
 

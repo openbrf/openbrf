@@ -43,7 +43,11 @@ const DRAFT: NewsItem = {
   published: false,
   publishedAt: null,
   emailQueuedAt: null,
-  delivery: { pending: 0, sent: 0, failed: 0, mailNotConfigured: false },
+  smsQueuedAt: null,
+  delivery: {
+    email: { pending: 0, sent: 0, failed: 0, notConfigured: false },
+    sms: { pending: 0, sent: 0, failed: 0, notConfigured: false },
+  },
   updatedAt: "2026-09-01T10:00:00.000Z",
 };
 
@@ -55,7 +59,10 @@ const MAILED: NewsItem = {
   published: true,
   publishedAt: "2026-09-01T10:00:00.000Z",
   emailQueuedAt: "2026-09-01T10:00:00.000Z",
-  delivery: { pending: 1, sent: 2, failed: 1, mailNotConfigured: true },
+  delivery: {
+    email: { pending: 1, sent: 2, failed: 1, notConfigured: true },
+    sms: { pending: 0, sent: 0, failed: 0, notConfigured: false },
+  },
 };
 
 function viewerWith(capabilities: string[]): Viewer {
@@ -81,11 +88,16 @@ function renderScreen(capabilities: string[] = ["site:manage"]) {
 beforeEach(() => {
   vi.clearAllMocks();
   fetchNews.mockResolvedValue({ ok: true, value: [DRAFT] });
-  fetchRecipientCount.mockResolvedValue({ ok: true, value: { count: 12 } });
+  fetchRecipientCount.mockResolvedValue({
+    ok: true,
+    // Fewer members can be texted than mailed: a number is optional in
+    // the register and an address is how the board reaches everyone.
+    value: { count: 12, sms: { count: 7, configured: true } },
+  });
   createNews.mockResolvedValue({ ok: true, value: DRAFT });
   publishNews.mockResolvedValue({
     ok: true,
-    value: { ...DRAFT, published: true, mailedTo: 12 },
+    value: { ...DRAFT, published: true, mailedTo: 12, textedTo: null },
   });
 });
 
@@ -154,6 +166,9 @@ describe("publishing", () => {
         published: true,
         visibility: "PUBLIC",
         sendEmail: true,
+        // Off unless the board asks. A text message is billed per member and
+        // reaches only those who gave the association a number.
+        sendSms: false,
       });
     });
     expect(await screen.findByText(/på väg till 12 medlemmar/)).toBeTruthy();
@@ -172,6 +187,7 @@ describe("publishing", () => {
         published: true,
         visibility: "MEMBER",
         sendEmail: false,
+        sendSms: false,
       });
     });
   });
@@ -181,7 +197,7 @@ describe("publishing", () => {
     fetchNews.mockResolvedValue({ ok: true, value: [MAILED] });
     publishNews.mockResolvedValue({
       ok: true,
-      value: { ...MAILED, mailedTo: null },
+      value: { ...MAILED, mailedTo: null, textedTo: null },
     });
     renderScreen();
     await screen.findByRole("heading", { name: "Städdag" });
@@ -196,6 +212,7 @@ describe("publishing", () => {
       expect(publishNews).toHaveBeenCalledWith("news-2", {
         published: true,
         visibility: "MEMBER",
+        sendSms: false,
       });
     });
   });
@@ -208,5 +225,111 @@ describe("publishing", () => {
     expect(
       screen.getByText(/publicerad, men utskicket kunde inte göras/),
     ).toBeTruthy();
+  });
+});
+
+describe("texting the members", () => {
+  it("offers the text message off by default, with its own smaller count", async () => {
+    renderScreen();
+
+    const toggle = (await screen.findByLabelText(
+      "Sms:a medlemmarna (7)",
+    )) as HTMLInputElement;
+    // The email is on and the text message is off. One costs nothing and
+    // reaches everyone with an address; the other is billed per member.
+    expect(toggle.checked).toBe(false);
+    expect(
+      (screen.getByLabelText("Mejla medlemmarna (12)") as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+  });
+
+  it("sends the SMS decision with the publish when the board asks for it", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole("heading", { name: "Nya tider i tvättstugan" });
+
+    await user.click(screen.getByLabelText("Sms:a medlemmarna (7)"));
+    await user.click(screen.getByRole("button", { name: "Publicera" }));
+
+    await waitFor(() => {
+      expect(publishNews).toHaveBeenCalledWith("news-1", {
+        published: true,
+        visibility: "MEMBER",
+        sendEmail: true,
+        sendSms: true,
+      });
+    });
+  });
+
+  it("says so plainly on an instance with no SMS provider", async () => {
+    // Said rather than hidden. A board that expected to be able to text its
+    // members has to learn that this instance cannot, and where to go about it.
+    fetchRecipientCount.mockResolvedValue({
+      ok: true,
+      value: { count: 12, sms: { count: 0, configured: false } },
+    });
+    renderScreen();
+
+    expect(await screen.findByText(/har ingen sms-leverantör/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Sms:a medlemmarna/)).toBeNull();
+  });
+
+  it("carries no SMS decision when the instance could not act on one", async () => {
+    const user = userEvent.setup();
+    fetchRecipientCount.mockResolvedValue({
+      ok: true,
+      value: { count: 12, sms: { count: 0, configured: false } },
+    });
+    renderScreen();
+    await screen.findByRole("heading", { name: "Nya tider i tvättstugan" });
+
+    await user.click(screen.getByRole("button", { name: "Publicera" }));
+
+    await waitFor(() => {
+      expect(publishNews).toHaveBeenCalledWith("news-1", {
+        published: true,
+        visibility: "MEMBER",
+        sendEmail: true,
+      });
+    });
+  });
+
+  it("offers no second text message once one has been claimed", async () => {
+    const texted = {
+      ...MAILED,
+      smsQueuedAt: "2026-09-01T10:00:00.000Z",
+      delivery: {
+        ...MAILED.delivery,
+        sms: { pending: 0, sent: 5, failed: 2, notConfigured: true },
+      },
+    };
+    fetchNews.mockResolvedValue({ ok: true, value: [texted] });
+    renderScreen();
+
+    expect(await screen.findByText(/En nyhet sms:as en gång/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Sms:a medlemmarna/)).toBeNull();
+  });
+
+  it("reports the two channels apart, so one failing does not read as both", async () => {
+    const texted = {
+      ...MAILED,
+      smsQueuedAt: "2026-09-01T10:00:00.000Z",
+      delivery: {
+        email: { pending: 0, sent: 12, failed: 0, notConfigured: false },
+        sms: { pending: 0, sent: 0, failed: 7, notConfigured: true },
+      },
+    };
+    fetchNews.mockResolvedValue({ ok: true, value: [texted] });
+    renderScreen();
+
+    expect(await screen.findByText("Sms-utskicket")).toBeTruthy();
+    expect(screen.getByText("Utskicket")).toBeTruthy();
+    // The SMS half failed for want of a provider; the mailing went out. A board
+    // reading a column of failures has to be able to see which of the two it was.
+    expect(screen.getByText(/men sms:en kunde inte skickas/)).toBeTruthy();
+    expect(
+      screen.queryByText(/publicerad, men utskicket kunde inte göras/),
+    ).toBeNull();
   });
 });

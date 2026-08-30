@@ -34,6 +34,7 @@ export type EncryptedFieldId =
   | "issue.reporterName"
   | "issue.reporterEmail"
   | "association.smtpPassword"
+  | "association.smsGatewayToken"
   | "importSession.rows";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
@@ -137,6 +138,15 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   "association.smtpPassword": {
     table: "association",
     field: "smtpPassword",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  // The credential the SMS gateway is presented with. The SMTP password's
+  // argument, unchanged: read back by primary key alone, so no index.
+  "association.smsGatewayToken": {
+    table: "association",
+    field: "smsGatewayToken",
     indexed: false,
     fastHash: true,
     normalize: () => null,

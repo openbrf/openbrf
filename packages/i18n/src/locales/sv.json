@@ -59,6 +59,14 @@
       "action": "Läs nyheten"
     }
   },
+  "sms": {
+    "news": {
+      "lead": "Nyhet från {{association}}: {{title}}"
+    },
+    "test": {
+      "body": "Det här är ett testmeddelande från {{association}}, skickat för att visa att sms-inställningarna fungerar."
+    }
+  },
   "theme": {
     "mode": {
       "label": "Utseende",
@@ -353,6 +361,7 @@
           "PAGE_VISIBILITY_CHANGED": "Sidans synlighet ändrades",
           "NEWS_PUBLISHED": "Nyhet publicerades",
           "NEWS_EMAILED": "Nyhet skickades med e-post",
+          "NEWS_TEXTED": "Nyhet skickades med sms",
           "LEGAL_HOLD_PLACED": "Rättsligt bevarandekrav infördes",
           "LEGAL_HOLD_RELEASED": "Rättsligt bevarandekrav upphävdes",
           "SERVICE_DATA_PURGED": "Servicedata gallrades"
@@ -636,6 +645,31 @@
         "subject": "Testmeddelande från {{association}}",
         "heading": "E-posten fungerar",
         "body": "Det här meddelandet skickades av {{association}} via {{host}} för att visa att e-postinställningarna fungerar. Inbjudningar och inloggningslänkar kommer fram till mottagarna."
+      }
+    },
+    "sms": {
+      "title": "Sms",
+      "description": "Föreningen kan nå sina medlemmar med sms lika väl som med e-post, via en leverantör som den väljer själv. Inget skickas förrän en är inställd, och sms debiteras per meddelande.",
+      "driver": "Leverantör",
+      "driverNone": "Ingen",
+      "driverHttpGateway": "HTTP-gateway",
+      "driverHint": "Gateway-drivrutinen postar varje meddelande till en adress du anger, så vilken leverantör som helst som svarar på en HTTP-förfrågan kan användas.",
+      "gatewayUrl": "Gatewayadress",
+      "gatewayUrlHint": "En http- eller https-adress som meddelandet postas till.",
+      "senderName": "Avsändarnamn",
+      "senderNameHint": "Vad meddelandet ser ut att komma från, där leverantören stödjer det.",
+      "token": "Gatewaynyckel",
+      "tokenKept": "En nyckel är sparad. Lämna fältet tomt för att behålla den, eller töm det för att ta bort den.",
+      "tokenClear": "Ta bort den sparade nyckeln",
+      "sendTest": "Skicka ett testmeddelande till mig",
+      "sending": "Skickar...",
+      "testSentTo": "Ett testmeddelande är på väg till",
+      "notConfigured": "Ingen sms-leverantör är inställd, så medlemmarna kan inte sms:as.",
+      "configured": "Sms är inställt.",
+      "errors": {
+        "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
+        "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln."
       }
     },
     "retention": {
@@ -2019,6 +2053,13 @@
       "sendEmail": "Mejla medlemmarna ({{count}})",
       "sendEmailUnknown": "Mejla medlemmarna",
       "sendEmailHint": "Skickas en gång. En ändring efteråt mejlas aldrig om.",
+      "sendSms": "Sms:a medlemmarna ({{count}})",
+      "sendSmsUnknown": "Sms:a medlemmarna",
+      "sendSmsHint": "Skickas en gång, och bara till de medlemmar som har lämnat ett nummer till föreningen. Sms debiteras per meddelande.",
+      "sendSmsUnavailable": "Den här instansen har ingen sms-leverantör, så medlemmarna kan inte sms:as. Ställ in en under Sms.",
+      "alreadyTexted": "Sms:ad {{date}}. En nyhet sms:as en gång.",
+      "publishedAndTexted_one": "Nyheten är publicerad och är på väg till {{count}} medlem.",
+      "publishedAndTexted_other": "Nyheten är publicerad och är på väg till {{count}} medlemmar.",
       "alreadyMailed": "Mejlad {{date}}. En nyhet mejlas en gång.",
       "publish": "Publicera",
       "publishing": "Publicerar...",
@@ -2035,6 +2076,8 @@
     },
     "delivery": {
       "heading": "Utskicket",
+      "smsHeading": "Sms-utskicket",
+      "smsNotConfigured": "Nyheten är publicerad, men sms:en kunde inte skickas: den här instansen har ingen sms-leverantör. Ställ in en under Sms.",
       "sent": "Skickade: {{count}}",
       "pending": "Väntar: {{count}}",
       "failed": "Misslyckade: {{count}}",

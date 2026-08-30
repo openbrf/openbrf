@@ -117,7 +117,7 @@ describe("working through a mailing", () => {
 
     expect(order).toEqual(["claim", "send"]);
     expect(newsDelivery.updateMany).toHaveBeenCalledWith({
-      where: { id: "delivery-1", status: "PENDING" },
+      where: { id: "delivery-1", channel: "EMAIL", status: "PENDING" },
       data: { status: "SENT", sentAt: expect.any(Date) },
     });
   });
@@ -151,14 +151,14 @@ describe("working through a mailing", () => {
     expect(result).toEqual({ sent: 0, failed: 0 });
   });
 
-  it("asks for the rows still waiting, and no others", async () => {
+  it("asks only for this channel's rows, so the SMS worker keeps its own", async () => {
     const { service, newsDelivery } = build();
 
     await service.runMailing("news-1");
 
     expect(newsDelivery.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { newsId: "news-1", status: "PENDING" },
+        where: { newsId: "news-1", channel: "EMAIL", status: "PENDING" },
       }),
     );
   });
@@ -236,13 +236,13 @@ describe("working through a mailing", () => {
 });
 
 describe("a mailing that was given up on", () => {
-  it("marks whatever is left of the ledger as interrupted", async () => {
+  it("marks this channel's remaining rows as interrupted and leaves the SMS alone", async () => {
     const { service, newsDelivery } = build();
 
     await service.recordAbandoned("news-1");
 
     expect(newsDelivery.updateMany).toHaveBeenCalledWith({
-      where: { newsId: "news-1", status: "PENDING" },
+      where: { newsId: "news-1", channel: "EMAIL", status: "PENDING" },
       data: { status: "FAILED", failureReason: "mailing-interrupted" },
     });
   });

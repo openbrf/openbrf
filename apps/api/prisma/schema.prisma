@@ -86,6 +86,34 @@ model Association {
   smtpFromAddress    String?
   smtpSecure         Boolean @default(true)
 
+  /// Which SMS driver this instance sends through, or null for none.
+  ///
+  /// A plain string rather than an enumerated type, and that is the point of an
+  /// adapter: a driver written against another provider is a file and a branch
+  /// in the selection, not a migration on this column. A value the running
+  /// build does not recognise is treated as no provider at all, so an instance
+  /// restored with a driver it no longer has records its text messages as
+  /// unsent rather than guessing at one.
+  ///
+  /// Null by default. An association that has not signed up for SMS reaches its
+  /// members by email, which is the ordinary case and costs nothing.
+  smsDriver String?
+
+  /// Where the HTTP gateway driver posts. Required by that driver and unused by
+  /// any other: an instance naming a driver without the settings it needs is
+  /// reported as unable to send, never as half configured.
+  smsGatewayUrl String?
+
+  /// Bearer credential for the gateway. Encrypted at rest like the SMTP
+  /// password, unindexed for the same reason - it is read back by primary key
+  /// and indexing a secret is pure downside.
+  smsGatewayTokenCipher String?
+
+  /// What a text message appears to come from, where the provider supports one.
+  /// Sender identity is the one part of SMS that is not portable between
+  /// routes, so it is stored beside the driver rather than assumed.
+  smsSenderName String?
+
   /// Null means the built-in default theme (Porttavlan) is active.
   activeThemeId String?
 
@@ -517,6 +545,8 @@ enum AuditAction {
   NEWS_PUBLISHED
   /// A published news item was mailed to its recipients.
   NEWS_EMAILED
+  /// A published news item was texted to its recipients.
+  NEWS_TEXTED
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.
@@ -1649,6 +1679,16 @@ model News {
   /// the schema rather than of anybody's care.
   emailQueuedAt DateTime?
 
+  /// When the SMS mailing to the members was claimed, and never cleared.
+  ///
+  /// A second column rather than a second meaning for the first, because the
+  /// two channels are claimed independently: a board that published by email
+  /// alone can still decide to text the members afterwards, and one that has
+  /// texted them must not be able to email them twice. Each column is written
+  /// once, by its own conditional update, in the transaction that writes that
+  /// channel's ledger rows and enqueues its job.
+  smsQueuedAt DateTime?
+
   /// Who wrote it.
   ///
   /// A plain column rather than a relation, for the reason the audit log and
@@ -1663,6 +1703,18 @@ model News {
 
   @@index([published, visibility, publishedAt])
   @@map("news")
+}
+
+/// Which way one recipient's copy of a news mailing was sent.
+///
+/// A column on the ledger rather than a second ledger table. The two channels
+/// are the same fact about the same act - the board addressed this person about
+/// this news item - and keeping them in one table is what lets the claim, the
+/// unique pair and the worker's discipline be written once instead of drifting
+/// apart in two copies.
+enum NewsDeliveryChannel {
+  EMAIL
+  SMS
 }
 
 /// How far one recipient's copy of a news mailing got.
@@ -1703,6 +1755,12 @@ model NewsDelivery {
   /// time the worker runs is recorded as undeliverable rather than mailed.
   personId String
 
+  /// Which channel this row is the record of.
+  ///
+  /// Defaulted to EMAIL so the rows written before there was a second channel
+  /// keep their meaning: every mailing there has ever been was an email.
+  channel NewsDeliveryChannel @default(EMAIL)
+
   status        NewsDeliveryStatus @default(PENDING)
   /// Why it failed, as a code and never as the mail server's own words: a
   /// rejection quotes the address back, and the address is personal data.
@@ -1711,8 +1769,12 @@ model NewsDelivery {
   queuedAt DateTime  @default(now())
   sentAt   DateTime?
 
-  @@unique([newsId, personId])
-  @@index([newsId, status])
+  /// One row per recipient per channel. The channel is part of the pair
+  /// because a member reached both ways has been reached once each way - and
+  /// because leaving it out would let the SMS snapshot collide with the email
+  /// one and abort a publish that was doing exactly what it was asked to.
+  @@unique([newsId, personId, channel])
+  @@index([newsId, channel, status])
   @@map("news_delivery")
 }
 

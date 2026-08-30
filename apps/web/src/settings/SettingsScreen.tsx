@@ -19,6 +19,7 @@ import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { SelfSignupPanel } from "./SelfSignupPanel";
 import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
+import { SmsPanel } from "./SmsPanel";
 import { SmtpPanel } from "./SmtpPanel";
 import { ThemesPanel } from "../themes/ThemesPanel";
 
@@ -198,6 +199,13 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               <SmtpPanel
                 key={`smtp-${settings.smtp.host ?? ""}-${String(settings.smtp.passwordSet)}`}
                 value={settings.smtp}
+                editable={canManage}
+                onSaved={reload}
+              />
+
+              <SmsPanel
+                key={`sms-${settings.sms.driver ?? ""}-${settings.sms.gatewayUrl ?? ""}-${String(settings.sms.tokenSet)}`}
+                value={settings.sms}
                 editable={canManage}
                 onSaved={reload}
               />

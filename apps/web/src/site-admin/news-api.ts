@@ -26,13 +26,22 @@ export interface NewsContent {
   blocks: NewsBlock[];
 }
 
-/** How far a mailing got, as the board's screen reports it. */
+/** How far one channel of a mailing got, as the board's screen reports it. */
 export interface NewsDeliveryReport {
   pending: number;
   sent: number;
   failed: number;
-  /** At least one delivery failed because the instance has no mail server. */
-  mailNotConfigured: boolean;
+  /**
+   * At least one delivery failed because the instance has no provider for that
+   * channel: no mail server, or no SMS provider.
+   */
+  notConfigured: boolean;
+}
+
+/** How a mailing is going, per channel. */
+export interface NewsMailingReport {
+  email: NewsDeliveryReport;
+  sms: NewsDeliveryReport;
 }
 
 export interface NewsItem {
@@ -51,13 +60,20 @@ export interface NewsItem {
    * to it.
    */
   emailQueuedAt: string | null;
-  delivery: NewsDeliveryReport;
+  /**
+   * ISO instant the SMS mailing was claimed, or null. Claimed separately from
+   * the email one, so a board that mailed the members can still text them.
+   */
+  smsQueuedAt: string | null;
+  delivery: NewsMailingReport;
   updatedAt: string;
 }
 
 export interface PublishedNewsItem extends NewsItem {
   /** How many members the mailing was claimed for, or null if none was. */
   mailedTo: number | null;
+  /** How many members the SMS mailing was claimed for, or null if none was. */
+  textedTo: number | null;
 }
 
 export interface NewsFields {
@@ -70,14 +86,27 @@ export interface PublishFields {
   published: boolean;
   visibility?: NewsVisibility;
   sendEmail?: boolean;
+  sendSms?: boolean;
+}
+
+/**
+ * Who a mailing would reach, and whether this instance could text them.
+ *
+ * Two counts because they are not the same people: every member with an
+ * address can be emailed, and only those who have given the association a
+ * number can be texted.
+ */
+export interface NewsRecipients {
+  count: number;
+  sms: { count: number; configured: boolean };
 }
 
 export function fetchNews(): Promise<ApiResult<NewsItem[]>> {
   return apiRequest("GET", "/api/news");
 }
 
-/** How many members a mailing would reach, right now. */
-export function fetchRecipientCount(): Promise<ApiResult<{ count: number }>> {
+/** How many members a mailing would reach, right now, on each channel. */
+export function fetchRecipientCount(): Promise<ApiResult<NewsRecipients>> {
   return apiRequest("GET", "/api/news/recipients");
 }
 

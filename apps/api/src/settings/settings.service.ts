@@ -11,6 +11,10 @@ import { DomainError } from "../http/domain-error";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { smtpTestMail } from "../mail/templates";
 import { mediaUrl, MediaService } from "../media/media.service";
+import { normalizePhone } from "../crypto/personal-data";
+import { I18nService } from "../i18n/i18n.service";
+import { SmsNotConfiguredError } from "../sms/sms.driver";
+import { selectedDriverKind, SmsService } from "../sms/sms.service";
 
 /**
  * A contrast pair that stopped a colour from being saved, in the shape the
@@ -37,7 +41,8 @@ export class SettingsError extends DomainError {
       | "colour-unreadable"
       | "colour-fails-contrast"
       | "person-not-found"
-      | "no-email",
+      | "no-email"
+      | "no-phone",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
@@ -47,7 +52,7 @@ export class SettingsError extends DomainError {
         ? HttpStatus.CONFLICT
         : reason === "person-not-found"
           ? HttpStatus.NOT_FOUND
-          : reason === "no-email"
+          : reason === "no-email" || reason === "no-phone"
             ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.BAD_REQUEST;
   }
@@ -118,10 +123,33 @@ export interface SmtpSettingsView {
   configured: boolean;
 }
 
+/**
+ * How the instance sends text messages, as the settings screen renders it.
+ *
+ * The gateway credential is never returned, for the reason the SMTP password is
+ * not: it is a secret held encrypted at rest, and a screen that renders it back
+ * turns every administrator's browser session into a way to read it.
+ */
+export interface SmsSettingsView {
+  /** Which driver is selected, or null while the instance sends no SMS. */
+  driver: string | null;
+  gatewayUrl: string | null;
+  senderName: string | null;
+  /** Whether a gateway credential is stored. Never the credential itself. */
+  tokenSet: boolean;
+  /**
+   * Whether the instance could actually send. A driver named without the
+   * settings it needs is reported as unable to send rather than as half set up,
+   * because that is what a member would experience.
+   */
+  configured: boolean;
+}
+
 export interface InstanceSettings {
   housingCooperative: HousingCooperativeSettings;
   branding: BrandingSettings;
   smtp: SmtpSettingsView;
+  sms: SmsSettingsView;
   retention: { daysAfterMoveOut: number };
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
@@ -142,6 +170,15 @@ export interface SmtpInput {
   /** Undefined keeps the stored password; null clears it. */
   password?: string | null;
   fromAddress: string | null;
+}
+
+export interface SmsInput {
+  /** Null turns SMS off entirely, which is where an instance starts. */
+  driver: string | null;
+  gatewayUrl: string | null;
+  senderName: string | null;
+  /** Undefined keeps the stored credential; null clears it. */
+  token?: string | null;
 }
 
 /**
@@ -167,6 +204,8 @@ export class SettingsService {
     private readonly encryption: FieldEncryptionService,
     private readonly mail: MailService,
     private readonly media: MediaService,
+    private readonly sms: SmsService,
+    private readonly i18n: I18nService,
   ) {}
 
   async read(): Promise<InstanceSettings> {
@@ -203,6 +242,20 @@ export class SettingsService {
         passwordSet: association.smtpPasswordCipher !== null,
         configured:
           association.smtpHost !== null && association.smtpFromAddress !== null,
+      },
+      sms: {
+        driver: association.smsDriver,
+        gatewayUrl: association.smsGatewayUrl,
+        senderName: association.smsSenderName,
+        tokenSet: association.smsGatewayTokenCipher !== null,
+        // The adapter's own selection rather than a second reading of the same
+        // columns, so the screen cannot say "set up" about settings the service
+        // would answer with the no-provider driver.
+        configured:
+          selectedDriverKind({
+            driver: association.smsDriver,
+            gatewayUrl: association.smsGatewayUrl,
+          }) !== "none",
       },
       retention: { daysAfterMoveOut: association.retentionDaysAfterMoveOut },
       selfSignup: { enabled: association.selfSignupEnabled },
@@ -503,6 +556,104 @@ export class SettingsService {
     });
 
     return { sentTo: email, host };
+  }
+
+  /**
+   * Stores which SMS provider the instance sends through.
+   *
+   * The driver name is not checked against a list here on purpose. What makes
+   * an adapter open is that a driver can arrive without this file changing, so
+   * the service answers an unrecognised name with the no-provider driver and
+   * the screen reports the instance as unable to send - which is true, and is
+   * the failure a board can act on.
+   */
+  async updateSms(input: SmsInput): Promise<SmsSettingsView> {
+    await this.requireAssociation();
+
+    const tokenCipher =
+      input.token === undefined
+        ? undefined
+        : input.token === null || input.token === ""
+          ? null
+          : (
+              await this.encryption.encrypt(
+                "association.smsGatewayToken",
+                input.token,
+              )
+            ).cipher;
+
+    await this.prisma.association.update({
+      where: { id: 1 },
+      data: {
+        smsDriver: input.driver,
+        smsGatewayUrl: input.gatewayUrl,
+        smsSenderName: input.senderName,
+        // Left out of the update entirely when undefined, so saving the rest of
+        // the form does not silently wipe a credential the screen never showed.
+        ...(tokenCipher === undefined
+          ? {}
+          : { smsGatewayTokenCipher: tokenCipher }),
+      },
+    });
+
+    // The driver only. The gateway address is an endpoint an administrator
+    // configured and the token is a secret; neither belongs in a log line.
+    this.logger.log(`Updated SMS settings: driver=${input.driver ?? "none"}`);
+
+    const settings = await this.read();
+    return settings.sms;
+  }
+
+  /**
+   * Texts the administrator who asked for it.
+   *
+   * Their own number from the register rather than one supplied in the request,
+   * for the reason the test email uses their own address: an endpoint that
+   * texts an arbitrary number on demand is a relay somebody else pays for, and
+   * proving the configuration works only means anything if the message reaches
+   * a handset the person asking already holds.
+   */
+  async sendTestSms(actorPersonId: string): Promise<{ sentTo: string }> {
+    const settings = await this.read();
+    if (!settings.sms.configured) {
+      throw new SmsNotConfiguredError();
+    }
+
+    const person = await this.prisma.person.findUnique({
+      where: { id: actorPersonId },
+      select: { firstName: true, phoneCipher: true, preferredLocale: true },
+    });
+    if (person === null) {
+      throw new SettingsError("No such person.", "person-not-found");
+    }
+    if (person.phoneCipher === null) {
+      throw new SettingsError(
+        "Your own record has no phone number to send the test to.",
+        "no-phone",
+      );
+    }
+
+    const number = normalizePhone(
+      await this.encryption.decrypt("person.phone", person.phoneCipher),
+    );
+    if (number === "") {
+      throw new SettingsError(
+        "Your own record has no phone number to send the test to.",
+        "no-phone",
+      );
+    }
+
+    await this.sms.send({
+      to: number,
+      body: this.i18n.translatorFor(person.preferredLocale)("sms.test.body", {
+        // read() above loaded the association and threw if there was none, so
+        // the name is known here without asking a second time - and there is no
+        // fallback to put an English placeholder on somebody's telephone.
+        association: settings.housingCooperative.name,
+      }),
+    });
+
+    return { sentTo: number };
   }
 
   /**
