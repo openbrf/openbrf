@@ -14,12 +14,13 @@ invitation arrives as an email, and the link in it opens a screen where the
 recipient chooses a password and is signed in as soon as it is set. The
 association's own website is there as well - the site answers at the domain
 root, the application is served under `/app`, and a page is rendered as plain
-HTML with no JavaScript, no third-party requests and no cookie of its own. The board
-writes those pages from the application now, with the publication guardrails
-inside the write path, arranges the menu a visitor finds them through, and
-answers a broker from the facts it has recorded. What is still missing on the
-website is its documents. The project is not ready to hold your housing
-cooperative's data.
+HTML with no JavaScript, no third-party requests and no cookie of its own. The
+board writes those pages from the application now, with the publication
+guardrails inside the write path, arranges the menu a visitor finds them
+through, and answers a broker from the facts it has recorded. What is still
+missing on the website are the blocks that draw on the instance's own data: the
+document list, the board roster, the association facts and a FAQ. The project
+is not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -368,13 +369,13 @@ same lint gate a downloaded package passes.
 
 Free, open source, and never moved behind a paywall.
 
-- [ ] Apartment-based address book and member register, with import. Contact
+- [x] Apartment-based address book and member register, with import. Contact
       details and personal identity numbers are encrypted at rest and stay
       searchable through blind indexes; names and postal addresses are held in
       plaintext on purpose, because the statutory register has to be
       searchable and printable. Those are protected by access control,
       masking and the audit log instead
-- [ ] The statutory registers under Swedish law: the member register (public on
+- [x] The statutory registers under Swedish law: the member register (public on
       request) and the confidential apartment register, kept strictly separate
 - [x] GDPR engine: data subject access reports, legal hold, consents, masking
       of protected personal data, and configurable retention and purging of
@@ -392,8 +393,13 @@ Free, open source, and never moved behind a paywall.
       run out; a legal hold, entered against one person with a reason,
       suspends it until the board releases it. Issues and archived documents
       are listed in the data subject access report but not yet purged
-- [ ] News and mailings, by email and through an open SMS adapter
-- [ ] Public website with a page CMS, replacing the separate website vendor
+- [x] News on the association's website and by email: an item is for the
+      members unless the board publishes it to the street, and publishing mails
+      every member once - a toggle, on by default - through the job queue and
+      in each recipient's own language, never again on an edit
+- [ ] An open SMS adapter, so the same notice can also reach a member as a text
+      message
+- [x] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain
       root, public and member-only pages in one editable menu, a broker
       information page generated from association facts, contact and
@@ -401,18 +407,36 @@ Free, open source, and never moved behind a paywall.
       Server-rendered with no JavaScript required, no cookies and no
       third-party requests on public pages - so no cookie banner. Personal
       data reaches a public page only through per-person publication consent,
-      and never from the statutory registers
+      and never from the statutory registers. Four insertable blocks remain, as
+      listed under The public website above: the document list, the board
+      roster, the association facts and a FAQ
 - [x] Document archive with per-audience access: every document is for the
       board, for the members or for anyone, and the file behind it is served
       under the same decision
 - [x] Issue reporting with photos
-- [ ] Roles for board members, residents and external property managers
-- [ ] Swedish and English interface
-- [ ] Plugin and theme system
+- [ ] Roles for board members, residents and external property managers. The
+      model is built and enforced: the code asks what a principal may do rather
+      than which role they hold, a board seat does not carry an
+      administrator's rights, and an external property manager reaches the
+      issue queue and never the address book - which the end-to-end suite
+      checks. What is missing is conferring a role from the application. A
+      residency and its member or resident role are written by the move-in, by
+      the import and by an approved sign-up request, but a board seat and the
+      property manager grant have no screen and no endpoint, so both are
+      entered directly in the database
+- [x] Swedish and English interface: both languages are complete and carry the
+      same keys, each person chooses theirs in their own profile, and the
+      public website answers a visitor with no account from the language their
+      browser asks for
+- [x] Plugin and theme system. There is nothing to install from yet: the
+      public catalog, the published SDK package, the reference plugin and the
+      example theme belong in repositories that do not exist, so both install
+      paths are so far proven against a catalog and packages built inside this
+      repository
 
-Partly built already, as listed under Progress: the address book's data layer,
-the registers' storage and guards, authentication, roles, and the theme
-foundation.
+Three things in this list are still open: the SMS adapter, conferring a board
+seat or the property manager grant from the application, and the four
+insertable page blocks under The public website above.
 
 ## After v1
 
