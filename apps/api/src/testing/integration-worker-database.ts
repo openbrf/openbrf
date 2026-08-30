@@ -1,5 +1,9 @@
 import { loadNearestEnvFile } from "../config/load-env-file";
-import { withDatabase, workerDatabaseName } from "./integration-database";
+import {
+  redirectToWorker,
+  withDatabase,
+  workerDatabaseName,
+} from "./integration-database";
 
 /**
  * Points this worker at the database provisioned for it.
@@ -43,11 +47,13 @@ const workerUrl = withDatabase(baseUrl, workerDatabaseName(baseUrl, poolId));
 
 process.env.DATABASE_URL = workerUrl;
 // Set only where a run deliberately exercises the non-owner role. It names the
-// same cluster, so it follows the same redirection; left alone when absent, so
-// the application keeps connecting as the owner it does locally.
-if (process.env.DATABASE_URL_RUNTIME !== undefined) {
-  process.env.DATABASE_URL_RUNTIME = withDatabase(
-    process.env.DATABASE_URL_RUNTIME,
-    workerDatabaseName(baseUrl, poolId),
-  );
+// same cluster, so it follows the same redirection; left alone when absent or
+// empty, so the application keeps connecting as the owner it does locally.
+const runtimeUrl = redirectToWorker(
+  process.env.DATABASE_URL_RUNTIME,
+  baseUrl,
+  poolId,
+);
+if (runtimeUrl !== undefined) {
+  process.env.DATABASE_URL_RUNTIME = runtimeUrl;
 }

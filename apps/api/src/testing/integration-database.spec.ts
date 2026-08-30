@@ -6,6 +6,7 @@ import {
   maintenanceUrl,
   quoteIdentifier,
   redact,
+  redirectToWorker,
   templateDatabaseName,
   withDatabase,
   workerDatabaseName,
@@ -112,5 +113,34 @@ describe("redact", () => {
 
   it("says something usable when the string is not a URL at all", () => {
     expect(redact("not a url")).toBe("the configured connection string");
+  });
+});
+
+describe("redirectToWorker", () => {
+  it("points a configured connection string at the worker's database", () => {
+    const redirected = redirectToWorker(BASE, BASE, 3);
+    expect(redirected).toBeDefined();
+    expect(databaseName(redirected ?? "")).toBe(workerDatabaseName(BASE, 3));
+  });
+
+  it("leaves an unset variable unset", () => {
+    expect(redirectToWorker(undefined, BASE, 1)).toBeUndefined();
+  });
+
+  it("treats a variable that is set but empty as unset", () => {
+    // DATABASE_URL_RUNTIME= in a .env is set aside, not configured. Parsing it
+    // would throw a TypeError out of a setup file and stop every worker before
+    // it loaded a suite, in place of the configuration error loadEnv gives.
+    expect(redirectToWorker("", BASE, 1)).toBeUndefined();
+  });
+
+  it("redirects a role other than the one in DATABASE_URL", () => {
+    // The runtime role names the same cluster and the same database, so it
+    // follows the redirection while keeping its own credentials.
+    const runtime = "postgresql://openbrf_app:apppass@localhost:5432/openbrf";
+    const redirected = new URL(redirectToWorker(runtime, BASE, 2) ?? "");
+    expect(redirected.username).toBe("openbrf_app");
+    expect(redirected.password).toBe("apppass");
+    expect(redirected.pathname).toBe(`/${workerDatabaseName(BASE, 2)}`);
   });
 });

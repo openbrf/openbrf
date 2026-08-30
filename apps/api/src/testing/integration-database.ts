@@ -70,6 +70,26 @@ export function workerDatabaseName(url: string, poolId: number): string {
 }
 
 /**
+ * Points an optional connection string at a worker's database.
+ *
+ * A variable that is present but empty is one somebody set aside rather than
+ * configured, and `new URL("")` throws. Raising that as a TypeError from a
+ * setup file, before any suite has loaded, buries what is really a
+ * configuration mistake; returning undefined leaves the value untouched for
+ * loadEnv to reject with a message that names it.
+ */
+export function redirectToWorker(
+  url: string | undefined,
+  baseUrl: string,
+  poolId: number,
+): string | undefined {
+  if (url === undefined || url === "") {
+    return undefined;
+  }
+  return withDatabase(url, workerDatabaseName(baseUrl, poolId));
+}
+
+/**
  * Quotes an identifier for interpolation into SQL.
  *
  * `CREATE DATABASE` takes no parameters - a database name cannot be bound the
