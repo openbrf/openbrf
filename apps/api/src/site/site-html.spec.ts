@@ -38,6 +38,9 @@ beforeAll(async () => {
     privacyNoticePath: null,
     menu: [],
     newsTeasers: [],
+    documents: [],
+    roster: [],
+    facts: null,
   };
 });
 
@@ -359,6 +362,260 @@ describe("the menu", () => {
 
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;img");
+  });
+});
+
+/**
+ * The four blocks that name something the instance already holds.
+ *
+ * Each is handed its data by the caller rather than reading any, which is the
+ * property these assertions are about: a block renders what the renderer was
+ * given, so the audience decisions are made where the reading is and cannot be
+ * undone here.
+ */
+describe("the document list block", () => {
+  const documents = [
+    {
+      title: "Stadgar",
+      category: "Stadgar",
+      url: "/api/media/file-1",
+      fileName: "stadgar.pdf",
+      byteSize: 240_000,
+    },
+    {
+      title: "Protokoll 2026-01",
+      category: "Protokoll",
+      url: "/api/media/file-2",
+      fileName: "protokoll-2026-01.pdf",
+      byteSize: 2_400_000,
+    },
+    {
+      title: "Protokoll 2026-02",
+      category: "Protokoll",
+      url: "/api/media/file-3",
+      fileName: "protokoll-2026-02.pdf",
+      byteSize: 600,
+    },
+  ];
+
+  const withDocuments = (): SiteChrome => ({ ...chrome, documents });
+
+  it("links each document at the address the caller gave it", () => {
+    const html = renderPage(
+      withDocuments(),
+      page([{ type: "documentList" }]),
+      FORMS,
+    );
+
+    expect(html).toContain('<a href="/api/media/file-1">Stadgar</a>');
+    expect(html).toContain("Protokoll 2026-01");
+  });
+
+  it("groups by binder when it lists everything", () => {
+    const html = renderPage(
+      withDocuments(),
+      page([{ type: "documentList" }]),
+      FORMS,
+    );
+
+    expect(html).toContain("<h3>Stadgar</h3>");
+    expect(html).toContain("<h3>Protokoll</h3>");
+  });
+
+  it("shows one binder under its own name, with no sub-headings", () => {
+    const html = renderPage(
+      withDocuments(),
+      page([{ type: "documentList", category: "Protokoll" }]),
+      FORMS,
+    );
+
+    expect(html).toContain("<h2>Protokoll</h2>");
+    expect(html).not.toContain("<h3>");
+    expect(html).not.toContain("Stadgar");
+  });
+
+  it("renders as nothing when this reader may see none of them", () => {
+    // Nothing, rather than a heading over an empty list: an empty shelf is
+    // also how a visitor would learn that the members have documents.
+    const html = renderPage(chrome, page([{ type: "documentList" }]), FORMS);
+
+    expect(html).not.toContain("site-documents");
+  });
+
+  it("renders as nothing when the binder holds nothing", () => {
+    const html = renderPage(
+      withDocuments(),
+      page([{ type: "documentList", category: "Årsredovisning" }]),
+      FORMS,
+    );
+
+    expect(html).not.toContain("site-documents");
+  });
+
+  it("says how big each file is, in the reader's own language", () => {
+    const html = renderPage(
+      withDocuments(),
+      page([{ type: "documentList" }]),
+      FORMS,
+    );
+
+    expect(html).toContain("stadgar.pdf, 240 kB");
+    // Decimal megabytes, and the Swedish decimal comma.
+    expect(html).toContain("protokoll-2026-01.pdf, 2,4 MB");
+    // A file of a few hundred bytes exists. "0 kB" would read as a fault.
+    expect(html).toContain("protokoll-2026-02.pdf, 1 kB");
+  });
+});
+
+describe("the board roster block", () => {
+  it("prints the names it was handed, with the position beside each", () => {
+    const html = renderPage(
+      {
+        ...chrome,
+        roster: [
+          { position: "CHAIR", name: "Anna Andersson" },
+          { position: "DEPUTY_BOARD_MEMBER", name: "Bo Ek" },
+        ],
+      },
+      page([{ type: "boardRoster" }]),
+      FORMS,
+    );
+
+    expect(html).toContain("Anna Andersson");
+    expect(html).toContain("Ordförande");
+    expect(html).toContain("Bo Ek");
+    expect(html).toContain("Suppleant");
+  });
+
+  it("renders as nothing when nobody may be published", () => {
+    // Which is what an association whose board has not been asked for its
+    // publication consents gets. A heading with no names under it would read
+    // as the board having resigned.
+    const html = renderPage(chrome, page([{ type: "boardRoster" }]), FORMS);
+
+    expect(html).not.toContain("site-roster");
+  });
+});
+
+describe("the association facts block", () => {
+  const facts = {
+    propertyDesignation: null,
+    buildYear: 1948,
+    siteLeasehold: null,
+    siteLeaseholdNote: null,
+    feePolicy: null,
+    feeIncludes: null,
+    transferFeePolicy: null,
+    pledgeFeePolicy: null,
+    legalPersonOwners: null,
+    legalPersonOwnersNote: null,
+    parking: null,
+    storage: null,
+    renovations: null,
+    updatedAt: null,
+  };
+
+  it("renders the recorded facts a level below the block's own heading", () => {
+    const html = renderPage(
+      {
+        ...chrome,
+        facts: { organizationNumber: "769600-0000", apartmentCount: 24, facts },
+      },
+      page([{ type: "associationFacts" }]),
+      FORMS,
+    );
+
+    expect(html).toContain("<h2>Om föreningen</h2>");
+    // The groups sit under the block's heading here, where on the broker page
+    // they sit directly under the title.
+    expect(html).toContain("<h3>Fastigheten</h3>");
+    expect(html).toContain("<dd><p>1948</p></dd>");
+    expect(html).toContain("769600-0000");
+  });
+
+  it("renders as nothing while the board has recorded no facts", () => {
+    const html = renderPage(
+      {
+        ...chrome,
+        facts: { organizationNumber: "769600-0000", apartmentCount: 24, facts },
+      },
+      page([{ type: "associationFacts" }]),
+      FORMS,
+    );
+
+    const nothingRecorded = renderPage(
+      {
+        ...chrome,
+        facts: {
+          organizationNumber: "769600-0000",
+          apartmentCount: 24,
+          facts: { ...facts, buildYear: null },
+        },
+      },
+      page([{ type: "associationFacts" }]),
+      FORMS,
+    );
+
+    expect(html).toContain("site-facts-block");
+    expect(nothingRecorded).not.toContain("site-facts-block");
+  });
+
+  it("renders as nothing on a page nothing was read for", () => {
+    expect(
+      renderPage(chrome, page([{ type: "associationFacts" }]), FORMS),
+    ).not.toContain("site-facts-block");
+  });
+});
+
+describe("the FAQ block", () => {
+  const faq = page([
+    {
+      type: "faq",
+      items: [
+        {
+          question: "Var finns tvättstugan?",
+          answer: [
+            { text: "I källaren. " },
+            { text: "Boka i porten", link: "https://exempel.se/boka" },
+          ],
+        },
+      ],
+    },
+  ]);
+
+  it("is a description list of the board's own questions and answers", () => {
+    const html = renderPage(chrome, faq, FORMS);
+
+    expect(html).toContain("<h2>Vanliga frågor</h2>");
+    expect(html).toContain("<dt>Var finns tvättstugan?</dt>");
+    expect(html).toContain("I källaren.");
+  });
+
+  it("carries a marked answer through the one renderer that escapes it", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "faq",
+          items: [
+            {
+              question: "Vad gäller <script>?",
+              answer: [{ text: "Ingenting.", bold: true }],
+            },
+          ],
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("<strong>Ingenting.</strong>");
+  });
+
+  it("sends a link that leaves this origin without a referrer", () => {
+    expect(renderPage(chrome, faq, FORMS)).toContain(
+      '<a href="https://exempel.se/boka" rel="noopener noreferrer">',
+    );
   });
 });
 

@@ -3,14 +3,18 @@ import { describe, expect, it } from "vitest";
 import type { PageBlock } from "../api/site";
 import {
   blocksOf,
+  blockText,
   type EditorBlock,
   editorBlocks,
   emptyBlock,
+  emptyFaqItem,
   insertBlock,
+  INSERTABLE,
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
   removeBlock,
+  removeFaqItem,
   replaceBlock,
   replaceBlockWith,
   runsToText,
@@ -18,6 +22,7 @@ import {
   submittableBlocks,
   textToRuns,
   withBlock,
+  withFaqItem,
   withUploadedPicture,
 } from "./page-blocks";
 
@@ -181,6 +186,121 @@ describe("what is worth sending", () => {
     );
     expect(textToRuns("Styrelsen")).toEqual([{ text: "Styrelsen" }]);
     expect(textToRuns("")).toEqual([]);
+  });
+});
+
+describe("the blocks that name what the instance already holds", () => {
+  it("are inserted empty and are ready as they are", () => {
+    // There is nothing on any of them for the board to fill in: what they show
+    // is decided when the page is rendered, against whoever is reading it.
+    const ready: PageBlock[] = [
+      emptyBlock("documentList"),
+      emptyBlock("boardRoster"),
+      emptyBlock("associationFacts"),
+    ];
+
+    expect(ready).toEqual([
+      { type: "documentList" },
+      { type: "boardRoster" },
+      { type: "associationFacts" },
+    ]);
+    expect(submittableBlocks(ready).positions).toEqual([0, 1, 2]);
+  });
+
+  it("carry no text of their own for the scan to read", () => {
+    // What they show is scanned where it was written: on the news item, in the
+    // archive, on the facts screen.
+    expect(
+      scanPage({
+        title: "Om foreningen",
+        blocks: [
+          { type: "documentList", category: "Protokoll" },
+          { type: "boardRoster" },
+          { type: "associationFacts" },
+          { type: "newsTeaser", count: 3 },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("do not offer the blocks another feature's screen places", () => {
+    // A page can carry a form or a news teaser, and the editor arranges one it
+    // is handed. Inserting one is the other screen's to offer.
+    expect(INSERTABLE).not.toContain("contactForm");
+    expect(INSERTABLE).not.toContain("newsTeaser");
+  });
+});
+
+describe("questions and answers", () => {
+  it("start as one empty pair, which is not worth sending", () => {
+    const block = emptyBlock("faq");
+
+    expect(block).toEqual({ type: "faq", items: [emptyFaqItem()] });
+    expect(submittableBlocks([block]).blocks).toEqual([]);
+  });
+
+  it("are sent once a question has an answer under it", () => {
+    const block: PageBlock = {
+      type: "faq",
+      items: [
+        { question: "Var finns tvattstugan?", answer: [] },
+        {
+          question: "Nar tommer vi soporna?",
+          answer: [{ text: "Pa mandag." }],
+        },
+      ],
+    };
+
+    // Sent whole: the API drops the half-written entry, exactly as it drops an
+    // empty paragraph, and one finished question is a block worth having.
+    expect(submittableBlocks([block]).blocks).toEqual([block]);
+  });
+
+  it("rewrite and remove one pair without touching the others", () => {
+    const items = [
+      { question: "Ett?", answer: [{ text: "Ja." }] },
+      { question: "Tva?", answer: [{ text: "Nej." }] },
+    ];
+
+    expect(
+      withFaqItem(items, 1, {
+        question: "Tva?",
+        answer: [{ text: "Kanske." }],
+      }),
+    ).toEqual([
+      { question: "Ett?", answer: [{ text: "Ja." }] },
+      { question: "Tva?", answer: [{ text: "Kanske." }] },
+    ]);
+    expect(removeFaqItem(items, 0)).toEqual([
+      { question: "Tva?", answer: [{ text: "Nej." }] },
+    ]);
+  });
+
+  it("put both halves in front of the scan", () => {
+    // A question is as good a place to paste a personal identity number into
+    // as an answer, and both are published.
+    expect(
+      blockText({
+        type: "faq",
+        items: [{ question: "Vem?", answer: [{ text: "Anna." }] }],
+      }),
+    ).toBe("Vem? Anna.");
+    expect(
+      scanPage({
+        title: "Vanliga fragor",
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              {
+                question: "Vem ar 19811218-9876?",
+                answer: [{ text: "Anna." }],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([{ block: 0 }]);
   });
 });
 

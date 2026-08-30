@@ -147,13 +147,107 @@ export interface NewsTeaserBlock {
   count: number;
 }
 
+/**
+ * The association's document archive, on a page.
+ *
+ * The block carries no documents in it - at most the binder to narrow to. What
+ * it becomes is resolved by the renderer against the reader's own account, so
+ * one stored page lists the public shelf to a visitor with no session and the
+ * members' shelf as well to a member. Storing the documents in the block
+ * instead would freeze one reader's answer into a page every reader gets, and
+ * would put a member-only title into a public page's stored body.
+ *
+ * There is deliberately no audience on this block. Who may read a document is a
+ * property of the document, decided once in the archive, and a block that could
+ * name an audience would be a second place to decide it - one that a board
+ * could get wrong on a page anybody can open.
+ *
+ * The binder is matched exactly against the archive's own free-text category. A
+ * binder nobody has filed anything in lists nothing, and the block then renders
+ * as nothing: a page must not announce a shelf the association has not filled.
+ */
+export interface DocumentListBlock {
+  type: "documentList";
+  /**
+   * The binder to list, or absent for every document the reader may see.
+   *
+   * Absent and empty are the same thing here, and the write path stores the
+   * absence: a binder narrowed to "" would list nothing at all, which is not
+   * what a board that cleared the field meant.
+   */
+  category?: string;
+}
+
+/**
+ * Who the association's board is, on a page.
+ *
+ * The block carries no names in it, and that is the whole of its safety
+ * argument. Who appears is resolved when the page is rendered, against the
+ * publication consent each person has given for exactly this scope - so a
+ * consent withdrawn this morning is off the page this afternoon without
+ * anybody editing it. A stored roster would be a name published for as long as
+ * the page stood, whatever the person later said.
+ */
+export interface BoardRosterBlock {
+  type: "boardRoster";
+}
+
+/**
+ * The association's own recorded facts, on a page.
+ *
+ * The same facts the broker information page is generated from, rendered by
+ * the same code: a cooperative that would rather answer those questions on a
+ * page of its own arranging than at /maklarinfo puts this block on it. The
+ * block carries none of them - they are read when the page is rendered, so a
+ * fact corrected on the board's screen is corrected everywhere it stands.
+ */
+export interface AssociationFactsBlock {
+  type: "associationFacts";
+}
+
+/** One question the association answers, and its answer. */
+export interface FaqItem {
+  /**
+   * The question, as plain text.
+   *
+   * Not runs, unlike an answer. A question is a label on the answer below it -
+   * the markup is a description list - and emphasis or a link inside a label
+   * is formatting nobody reads and one more shape for the parser to be wrong
+   * about.
+   */
+  question: string;
+  /** The answer, as one paragraph carrying its marks. */
+  answer: TextRun[];
+}
+
+/**
+ * The questions the association is asked, with the board's answers.
+ *
+ * The one block among these four that carries its own content rather than
+ * naming something the instance already holds. That is deliberate and it is
+ * why this needs no feature of its own: a FAQ is the board's own writing about
+ * its own house, with no second screen to maintain it on and nothing to
+ * publish separately - the page it sits on is the thing that is published.
+ *
+ * An answer is one paragraph. An answer that needs several is a page, and the
+ * board can write one and link it from here.
+ */
+export interface FaqBlock {
+  type: "faq";
+  items: FaqItem[];
+}
+
 export type PageBlock =
   | ParagraphBlock
   | HeadingBlock
   | ImageBlock
   | ContactFormBlock
   | IssueReportFormBlock
-  | NewsTeaserBlock;
+  | NewsTeaserBlock
+  | DocumentListBlock
+  | BoardRosterBlock
+  | AssociationFactsBlock
+  | FaqBlock;
 
 export interface PageContent {
   version: 1;
@@ -172,6 +266,11 @@ const LIMITS = {
   caption: 500,
   /** How many news items one teaser block may ask for. */
   teaserCount: 10,
+  /** The binder a document list narrows to. The archive's own bound. */
+  category: 80,
+  /** How many questions one FAQ block may hold. */
+  faqItems: 50,
+  faqQuestion: 300,
 } as const;
 
 /**
@@ -272,6 +371,28 @@ const blockSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("newsTeaser"),
     count: z.int().min(1).max(LIMITS.teaserCount),
+  }),
+  // The three blocks that name something the instance already holds. Two of
+  // them take nothing at all: what they show is decided when the page is
+  // rendered, against the reader, and there is nothing on the block for a
+  // board to configure that would not be a second place to decide who may see
+  // what.
+  z.strictObject({
+    type: z.literal("documentList"),
+    category: z.string().max(LIMITS.category).optional(),
+  }),
+  z.strictObject({ type: z.literal("boardRoster") }),
+  z.strictObject({ type: z.literal("associationFacts") }),
+  z.strictObject({
+    type: z.literal("faq"),
+    items: z
+      .array(
+        z.strictObject({
+          question: z.string().max(LIMITS.faqQuestion),
+          answer: runsSchema,
+        }),
+      )
+      .max(LIMITS.faqItems),
   }),
 ]);
 
@@ -429,10 +550,26 @@ function blockText(block: PageBlock): string {
       // rather than written by the board, so they are not the board's text to
       // be scanned or held against them.
       return (block.intro ?? []).map((run) => run.text).join("");
+    case "faq":
+      // Both halves, because both are the board's own writing published on the
+      // page. A question is as good a place to paste a personal identity
+      // number into as an answer.
+      return block.items
+        .map((item) =>
+          [item.question, ...item.answer.map((run) => run.text)].join(" "),
+        )
+        .join(" ")
+        .trim();
     case "newsTeaser":
-      // Nothing of the board's own writing. What this block shows is each news
-      // item's own title and opening, and those are scanned where they are
-      // written rather than again on every page that links to them.
+    case "documentList":
+    case "boardRoster":
+    case "associationFacts":
+      // Nothing of the board's own writing. What these blocks show - a news
+      // item's title, a document's, a board member's name, a recorded fact -
+      // is scanned where it is written rather than again on every page that
+      // names it. The binder on a document list is the exception in shape
+      // only: it selects rows rather than being published as prose, and it is
+      // bounded to the archive's own category.
       return "";
   }
 }
@@ -459,7 +596,30 @@ function normalize(block: PageBlock): PageBlock | null {
     }
     case "image":
     case "newsTeaser":
+    case "boardRoster":
+    case "associationFacts":
       return block;
+    case "documentList": {
+      // A binder cleared back to nothing is no binder, not a binder named "".
+      // The second would list nothing at all, which is not what the board that
+      // emptied the field asked for.
+      const category = (block.category ?? "").trim();
+      return category === ""
+        ? { type: "documentList" }
+        : { type: "documentList", category };
+    }
+    case "faq": {
+      const items = block.items
+        .map((item) => ({
+          question: item.question.trim(),
+          answer: item.answer.filter((run) => run.text !== ""),
+        }))
+        .filter((item) => item.question !== "" && item.answer.length > 0);
+      // A question with no answer is a question the page asks the reader, so
+      // an entry needs both halves to survive - and a block left with no
+      // entries is the empty paragraph case: a gap in the page.
+      return items.length === 0 ? null : { type: "faq", items };
+    }
     // A form with nothing above it is still a form, unlike a paragraph with no
     // words in it: the block is the form, and the intro is decoration.
     case "contactForm": {
@@ -537,9 +697,61 @@ function readBlock(entry: unknown): PageBlock | null {
         ? { type: "newsTeaser", count }
         : null;
     }
+    case "documentList": {
+      const category = block["category"];
+      return typeof category === "string" && category.trim() !== ""
+        ? {
+            type: "documentList",
+            category: category.trim().slice(0, LIMITS.category),
+          }
+        : { type: "documentList" };
+    }
+    case "boardRoster":
+      return { type: "boardRoster" };
+    case "associationFacts":
+      return { type: "associationFacts" };
+    case "faq": {
+      const items = readFaqItems(block["items"]);
+      return items.length === 0 ? null : { type: "faq", items };
+    }
     default:
       return null;
   }
+}
+
+/**
+ * The questions a stored FAQ block holds.
+ *
+ * An entry missing either half is dropped rather than repaired. A question
+ * with no answer under it is the page asking the reader something, and an
+ * answer with no question is a paragraph that has lost what it was about -
+ * neither is a thing this renderer can vouch for having been meant.
+ */
+function readFaqItems(raw: unknown): FaqItem[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const items: FaqItem[] = [];
+  for (const entry of raw.slice(0, LIMITS.faqItems)) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const item = entry as Record<string, unknown>;
+    const question = item["question"];
+    if (typeof question !== "string" || question.trim() === "") {
+      continue;
+    }
+    const answer = readRunList(item["answer"]);
+    if (answer.length === 0) {
+      continue;
+    }
+    items.push({
+      question: question.trim().slice(0, LIMITS.faqQuestion),
+      answer,
+    });
+  }
+  return items;
 }
 
 /**

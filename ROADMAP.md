@@ -277,10 +277,17 @@ sitemap or metadata machinery.
       capability granted to the board by default and grantable to others, and
       it opens page editing today; the menu and news editors below are the
       later work it will also cover. Site-wide settings stay with an admin
-- [ ] The remaining insertable data blocks: document list, board roster,
+- [x] The remaining insertable data blocks: document list, board roster,
       association facts and FAQ. The news teaser and the two form blocks arrive
       with the features below; these four are the ones that need no feature of
-      their own, only the block and its rendering
+      their own, only the block and its rendering. A document list follows the
+      archive's own audience for whoever is reading, so a public page lists the
+      public shelf and never the members' - and the board's shelf is on no page
+      at all. A board roster names the people who have given a publication
+      consent for exactly that, and never anybody carrying protected personal
+      data. The facts are the ones the broker information page is generated
+      from, rendered by the same code, and the questions and answers are the
+      board's own writing carried in the block itself
 - [x] Menu editor: top level plus one dropdown level; pages, generated pages
       and external links. The menu is also the ordering of the site - its
       first page entry is the front page, so there is no separate home-page

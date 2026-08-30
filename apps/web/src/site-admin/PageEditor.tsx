@@ -28,6 +28,7 @@ import {
   blocksOf,
   type EditorBlock,
   editorBlocks,
+  emptyFaqItem,
   insertBlock,
   type InsertableBlock,
   INSERTABLE,
@@ -35,6 +36,7 @@ import {
   needsPhotoConsent,
   newBlockWith,
   removeBlock,
+  removeFaqItem,
   replaceBlock,
   replaceBlockWith,
   runsToText,
@@ -42,6 +44,7 @@ import {
   submittableBlocks,
   textToRuns,
   withBlock,
+  withFaqItem,
   withUploadedPicture,
 } from "./page-blocks";
 
@@ -622,6 +625,168 @@ export function PageEditor({
                         }}
                       />
                     </label>
+                  </div>
+                ) : null}
+
+                {block.type === "documentList" ? (
+                  <label className={LABEL}>
+                    {t("siteAdmin.editor.documentBinder")}
+                    <input
+                      className={FIELD}
+                      value={block.category ?? ""}
+                      onChange={(event) => {
+                        const category = event.target.value;
+                        setEntries(
+                          replaceBlock(
+                            entries,
+                            index,
+                            withBlock(
+                              entry,
+                              /*
+                               * An emptied field is no binder rather than a
+                               * binder named "". The API stores it the same
+                               * way; keeping the two in step here is what
+                               * makes the field read back as the board left
+                               * it after a save.
+                               */
+                              category.trim() === ""
+                                ? { type: "documentList" }
+                                : { type: "documentList", category },
+                            ),
+                          ),
+                        );
+                      }}
+                    />
+                    <span className={HINT}>
+                      {t("siteAdmin.editor.documentBinderHint")}
+                    </span>
+                  </label>
+                ) : null}
+
+                {/*
+                 * Two blocks with nothing to configure. They still say what
+                 * they will publish, because that is the part a board member
+                 * cannot see from here: a roster is empty until the consents
+                 * are recorded, and a fact nobody has answered is not on the
+                 * page.
+                 */}
+                {block.type === "boardRoster" ? (
+                  <p className={HINT}>{t("siteAdmin.editor.rosterHint")}</p>
+                ) : null}
+
+                {block.type === "associationFacts" ? (
+                  <p className={HINT}>{t("siteAdmin.editor.factsHint")}</p>
+                ) : null}
+
+                {block.type === "faq" ? (
+                  <div className="flex flex-col gap-3">
+                    {block.items.map((item, at) => (
+                      <div
+                        className="flex flex-col gap-2"
+                        // By position, and it is safe here in a way it is not
+                        // for a block: a question is two plain inputs whose
+                        // value is read from the props on every render, so a
+                        // reordered list shows the right text rather than the
+                        // document an editor was built from.
+                        key={at}
+                      >
+                        <label className={LABEL}>
+                          {t("siteAdmin.editor.faqQuestion", {
+                            number: at + 1,
+                          })}
+                          <input
+                            className={FIELD}
+                            value={item.question}
+                            onChange={(event) => {
+                              setEntries(
+                                replaceBlock(
+                                  entries,
+                                  index,
+                                  withBlock(entry, {
+                                    type: "faq",
+                                    items: withFaqItem(block.items, at, {
+                                      ...item,
+                                      question: event.target.value,
+                                    }),
+                                  }),
+                                ),
+                              );
+                            }}
+                          />
+                        </label>
+                        <label className={LABEL}>
+                          {t("siteAdmin.editor.faqAnswer", { number: at + 1 })}
+                          {/*
+                           * A plain field, though the answer is stored as runs
+                           * like every other stretch of text on a page. The
+                           * stored shape is the website's, so an answer goes
+                           * through the same renderer - and the same escaping -
+                           * as a paragraph; what this screen does not offer yet
+                           * is the marks, which can be added without anything
+                           * stored having to change.
+                           */}
+                          <input
+                            className={FIELD}
+                            value={runsToText(item.answer)}
+                            onChange={(event) => {
+                              setEntries(
+                                replaceBlock(
+                                  entries,
+                                  index,
+                                  withBlock(entry, {
+                                    type: "faq",
+                                    items: withFaqItem(block.items, at, {
+                                      ...item,
+                                      answer: textToRuns(event.target.value),
+                                    }),
+                                  }),
+                                ),
+                              );
+                            }}
+                          />
+                        </label>
+                        <div>
+                          <button
+                            type="button"
+                            className={QUIET_BUTTON}
+                            onClick={() => {
+                              setEntries(
+                                replaceBlock(
+                                  entries,
+                                  index,
+                                  withBlock(entry, {
+                                    type: "faq",
+                                    items: removeFaqItem(block.items, at),
+                                  }),
+                                ),
+                              );
+                            }}
+                          >
+                            {t("siteAdmin.editor.faqRemoveItem")}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <div>
+                      <button
+                        type="button"
+                        className={SECONDARY_BUTTON}
+                        onClick={() => {
+                          setEntries(
+                            replaceBlock(
+                              entries,
+                              index,
+                              withBlock(entry, {
+                                type: "faq",
+                                items: [...block.items, emptyFaqItem()],
+                              }),
+                            ),
+                          );
+                        }}
+                      >
+                        {t("siteAdmin.editor.faqAddItem")}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </li>

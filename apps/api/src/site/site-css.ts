@@ -378,6 +378,111 @@ body {
 }
 
 /*
+ * The document archive on a page.
+ *
+ * A list of links with the file underneath each, because a document on a
+ * housing cooperative's website is opened on a telephone: the title is what is
+ * tapped and has the whole target height to itself, and the file's name and
+ * size sit below it rather than inside the link, where they would be read out
+ * as part of it.
+ */
+.site-documents {
+  margin: 2.5rem 0 0;
+}
+
+.site-document-list {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+
+.site-document {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0;
+}
+
+.site-document-meta {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+/*
+ * The board.
+ *
+ * Name first and position after it, on one line where there is room and on two
+ * where there is not. The position is not a badge and is not coloured: it is a
+ * fact about a named person on a page anybody can read, and dressing it up
+ * would be the website making more of somebody's name than the roster does.
+ */
+.site-roster {
+  margin: 2.5rem 0 0;
+}
+
+.site-roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-roster-entry {
+  border-top: 1px solid var(--obrf-border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  padding: 0.75rem 0;
+}
+
+.site-roster-name {
+  font-weight: 500;
+}
+
+.site-roster-position {
+  color: var(--obrf-text-secondary);
+}
+
+/* The association's facts, where they sit inside a page rather than on their
+   own generated one. The rows themselves are .site-facts either way. */
+.site-facts-block {
+  margin: 2.5rem 0 0;
+}
+
+/*
+ * Questions and answers.
+ *
+ * A description list, styled like the facts it sits beside, because it is the
+ * same shape: a label and what stands against it. The question is emphasised
+ * by weight rather than by size, so a page of them does not read as a page of
+ * headings.
+ */
+.site-faq {
+  margin: 2.5rem 0 0;
+}
+
+.site-faq-list {
+  margin: 0;
+}
+
+.site-faq-list > div {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 1rem 0;
+}
+
+.site-faq-list dt {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.site-faq-list dd {
+  margin: 0;
+}
+
+.site-faq-list dd p:last-child {
+  margin-bottom: 0;
+}
+
+/*
  * Never removed, only replaced. A page with no script of its own is navigated
  * with the keyboard, and an invisible focus position makes it unusable.
  */

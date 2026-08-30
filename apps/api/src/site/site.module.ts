@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 
+import { BoardModule } from "../board/board.module";
 import { ContactModule } from "../contact/contact.module";
+import { DocumentsModule } from "../documents/documents.module";
 import { IssuesModule } from "../issues/issues.module";
 import { MediaModule } from "../media/media.module";
 import { SetupModule } from "../setup/setup.module";
@@ -52,6 +54,17 @@ import { SiteRenderer } from "./site-renderer.service";
     // both of those modules' export lists were written for.
     IssuesModule,
     ContactModule,
+    // The archive, for a document list block. Asked with the reader's own
+    // principal, so the website lists exactly the shelves the archive would.
+    DocumentsModule,
+    /*
+     * The board roster, for a roster block. It lives outside this directory
+     * because the website may not read the address book, and a roster is
+     * personal data: who may be named on a published page is decided there,
+     * against each person's own publication consent, and the website is handed
+     * the answer.
+     */
+    BoardModule,
   ],
   controllers: [
     // The three public ones first, then the board's.

@@ -49,6 +49,9 @@ beforeAll(async () => {
     privacyNoticePath: null,
     menu: [],
     newsTeasers: [],
+    documents: [],
+    roster: [],
+    facts: null,
   };
 });
 

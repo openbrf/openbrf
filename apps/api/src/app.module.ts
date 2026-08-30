@@ -6,6 +6,7 @@ import { AddressesModule } from "./addresses/addresses.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { AuthorizationModule } from "./authorization/authorization.module";
+import { BoardModule } from "./board/board.module";
 import { ConfigModule } from "./config/config.module";
 import { ContactModule } from "./contact/contact.module";
 import { CryptoModule } from "./crypto/crypto.module";
@@ -64,6 +65,7 @@ import { ThemesModule } from "./themes/themes.module";
     RetentionModule,
     ContactModule,
     NewsModule,
+    BoardModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

@@ -464,6 +464,205 @@ describe("the news teaser block", () => {
   });
 });
 
+describe("the document list block", () => {
+  it("stores a binder, or the absence of one", () => {
+    expect(
+      submittedContent({
+        blocks: [
+          { type: "documentList" },
+          { type: "documentList", category: "Protokoll" },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        { type: "documentList" },
+        { type: "documentList", category: "Protokoll" },
+      ],
+    });
+  });
+
+  it("reads a binder cleared back to nothing as no binder", () => {
+    // Not a binder named "", which would list nothing at all - the opposite of
+    // what a board that emptied the field asked for.
+    expect(
+      submittedContent({ blocks: [{ type: "documentList", category: "  " }] }),
+    ).toEqual({ version: 1, blocks: [{ type: "documentList" }] });
+    expect(
+      readPageContent({ blocks: [{ type: "documentList", category: "" }] }),
+    ).toEqual({ version: 1, blocks: [{ type: "documentList" }] });
+  });
+
+  it("carries no audience for a board to set", () => {
+    // Who may read a document is a property of the document, decided once in
+    // the archive. A block that could name an audience would be a second place
+    // to decide it, on a page anybody can open.
+    expect(() =>
+      submittedContent({
+        blocks: [{ type: "documentList", audience: "BOARD" }],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("the board roster block", () => {
+  it("carries nothing at all", () => {
+    expect(submittedContent({ blocks: [{ type: "boardRoster" }] })).toEqual({
+      version: 1,
+      blocks: [{ type: "boardRoster" }],
+    });
+    expect(readPageContent({ blocks: [{ type: "boardRoster" }] })).toEqual({
+      version: 1,
+      blocks: [{ type: "boardRoster" }],
+    });
+  });
+
+  it("refuses a stored roster of names", () => {
+    // The names are resolved against each person's own publication consent
+    // when the page is rendered. A stored roster would publish a name for as
+    // long as the page stood, whatever the person later said.
+    expect(() =>
+      submittedContent({
+        blocks: [{ type: "boardRoster", names: ["Anna Andersson"] }],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("the association facts block", () => {
+  it("carries nothing at all", () => {
+    expect(
+      submittedContent({ blocks: [{ type: "associationFacts" }] }),
+    ).toEqual({ version: 1, blocks: [{ type: "associationFacts" }] });
+  });
+});
+
+describe("the FAQ block", () => {
+  it("carries the board's own questions and answers", () => {
+    expect(
+      submittedContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              {
+                question: "Var finns tvättstugan?",
+                answer: [{ text: "I källaren, ", bold: true }],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        {
+          type: "faq",
+          items: [
+            {
+              question: "Var finns tvättstugan?",
+              answer: [{ text: "I källaren, ", bold: true }],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("drops an entry missing either half, and the block when none is left", () => {
+    expect(
+      readPageContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              { question: "Utan svar?", answer: [] },
+              { question: "  ", answer: [{ text: "Utan fråga." }] },
+              { question: "Med båda?", answer: [{ text: "Ja." }] },
+            ],
+          },
+          { type: "faq", items: [{ question: "Ensam?", answer: [] }] },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        {
+          type: "faq",
+          items: [{ question: "Med båda?", answer: [{ text: "Ja." }] }],
+        },
+      ],
+    });
+  });
+
+  it("drops a link in an answer that this version will not publish", () => {
+    expect(
+      readPageContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              {
+                question: "Var står stadgarna?",
+                answer: [{ text: "Här", link: "javascript:alert(1)" }],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        {
+          type: "faq",
+          items: [
+            { question: "Var står stadgarna?", answer: [{ text: "Här" }] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("puts both halves in front of the guardrail scan", () => {
+    // A question is as good a place to paste a personal identity number into
+    // as an answer, and both are published.
+    expect(
+      pageTextParts(
+        readPageContent({
+          blocks: [
+            {
+              type: "faq",
+              items: [
+                { question: "Vem är ordförande?", answer: [{ text: "Anna." }] },
+              ],
+            },
+          ],
+        }),
+      ),
+    ).toEqual([{ index: 0, text: "Vem är ordförande? Anna." }]);
+  });
+});
+
+describe("the blocks that name what the instance already holds", () => {
+  it("carry no text of their own to be scanned", () => {
+    expect(
+      pageTextParts(
+        readPageContent({
+          blocks: [
+            { type: "documentList", category: "Protokoll" },
+            { type: "boardRoster" },
+            { type: "associationFacts" },
+          ],
+        }),
+      ),
+    ).toEqual([
+      { index: 0, text: "" },
+      { index: 1, text: "" },
+      { index: 2, text: "" },
+    ]);
+  });
+});
+
 describe("a body narrowed to its prose", () => {
   it("keeps the paragraphs and headings and drops everything else", () => {
     const content = readPageContent({
