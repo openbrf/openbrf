@@ -2,10 +2,25 @@ import type { TFunction } from "i18next";
 import { Fragment, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import {
+  type BoardRosterEntry,
+  POSITION_LABEL_KEYS,
+} from "../board/board-roster";
 import { APP_BASE_PATH } from "../http/app-base-path";
 import type { SiteMenu, SiteMenuLink } from "./menu.service";
-import type { PageBlock, TextRun } from "./page-content";
+import type {
+  DocumentListBlock,
+  FaqBlock,
+  PageBlock,
+  TextRun,
+} from "./page-content";
 import type { SitePage } from "./pages.service";
+import {
+  associationFactGroups,
+  type BrokerPageInput,
+  hasRecordedFacts,
+  renderFactGroups,
+} from "./site-facts";
 import { renderSiteForm, type SiteFormState } from "./site-forms";
 
 /**
@@ -29,9 +44,16 @@ import { renderSiteForm, type SiteFormState } from "./site-forms";
  *   media route. A visitor's IP address is disclosed to nobody by reading the
  *   page.
  *
- *   No personal data. This module is given a page and an association name;
- *   it imports nothing from the registers, the address book or the encryption
- *   layer, so there is no path by which a resident's details could reach it.
+ *   No personal data except the board roster, and that only by consent. This
+ *   module imports nothing from the registers, the address book or the
+ *   encryption layer, so there is no path by which a resident's contact
+ *   details, apartment or personal identity number could reach it. The one
+ *   exception is a name and an elected position on the published board roster,
+ *   which arrives already decided: who may be named is settled in
+ *   src/board/board-roster.ts against each person's own publication consent,
+ *   and a person with protected personal data is never in the list this module
+ *   is handed. Nothing here filters it, exactly as nothing here filters the
+ *   menu - a name that may not be published is absent rather than hidden.
  */
 
 export interface SiteChrome {
@@ -78,6 +100,54 @@ export interface SiteChrome {
    * what the association happens to have published.
    */
   newsTeasers: readonly NewsTeaser[];
+  /**
+   * The documents this reader may fetch, in the archive's own order.
+   *
+   * Narrowed by the caller against the reader's own account, exactly as the
+   * menu and the news teasers are, so there is no branch here that could list
+   * a shelf to the wrong person. A visitor with no session is handed the
+   * public shelf; a member is handed theirs as well. Empty on every page that
+   * carries no document list, and on the not-found document always.
+   *
+   * Deliberately not the archive's own row shape: there is no audience on
+   * these and no identifier, so neither can reach the markup.
+   */
+  documents: readonly SiteDocument[];
+  /**
+   * The board, as the association publishes it. Already decided.
+   *
+   * Every name in this list has a standing publication consent for the board
+   * roster scope, and nobody in it carries protected personal data. That is
+   * settled in src/board, before the list is built, which is what makes the
+   * absence of a filter here a property rather than an oversight.
+   */
+  roster: readonly BoardRosterEntry[];
+  /**
+   * The association's recorded facts, for a page that carries a facts block.
+   *
+   * Null on every other page, so an ordinary page costs no query and the block
+   * renders as nothing where nothing was read.
+   */
+  facts: BrokerPageInput | null;
+}
+
+/**
+ * One document as the website lists it.
+ *
+ * A title, where it is fetched from, and enough about the file that a person
+ * on a telephone knows what they are about to download. Not the archive's
+ * DocumentView: that carries the audience the document was filed under and the
+ * row's own identifier, and neither has any business on a published page.
+ */
+export interface SiteDocument {
+  /** What the board called it, in the language the board wrote it in. */
+  title: string;
+  /** The binder it is filed in, which is what a list groups by. */
+  category: string;
+  /** A path on this instance, served by the media route. */
+  url: string;
+  fileName: string;
+  byteSize: number;
 }
 
 /** One news item as a teaser shows it. */
@@ -233,9 +303,262 @@ export function renderBlock(
           );
     case "newsTeaser":
       return renderNewsTeaser(chrome, block.count, index);
+    case "documentList":
+      return renderDocumentList(chrome, block, index);
+    case "boardRoster":
+      return renderBoardRoster(chrome, index);
+    case "associationFacts":
+      return renderAssociationFacts(chrome, index);
+    case "faq":
+      return renderFaq(chrome, block, index);
     default:
       return null;
   }
+}
+
+/**
+ * The association's documents, on a page that asked for them.
+ *
+ * The list comes from the chrome, already narrowed to what this reader may
+ * fetch, so the block itself decides only which binder to show. A block that
+ * names a binder nothing is filed in renders as nothing, and so does one on an
+ * instance whose archive holds nothing this reader may have: a page must not
+ * announce a shelf that is empty for whoever is looking at it, and an empty
+ * heading is also how a visitor would learn that the members have documents
+ * they do not.
+ *
+ * A binder's own name is the board's word and is printed as written; the
+ * heading over a list of everything is chrome and is translated.
+ */
+function renderDocumentList(
+  chrome: SiteChrome,
+  block: DocumentListBlock,
+  index: number,
+): ReactElement | null {
+  const listed =
+    block.category === undefined
+      ? chrome.documents
+      : chrome.documents.filter(
+          (document) => document.category === block.category,
+        );
+  if (listed.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="site-documents" key={index}>
+      <h2>{block.category ?? chrome.t("site.documents.heading")}</h2>
+      {/*
+       * Grouped by binder only when the block lists every one of them.
+       * A list the board narrowed to "Protokoll" already says so in its
+       * heading, and repeating the word over the one group would be the page
+       * telling the reader the same thing twice.
+       */}
+      {block.category === undefined
+        ? groupByCategory(listed).map((group) => (
+            <Fragment key={group.category}>
+              <h3>{group.category}</h3>
+              {renderDocuments(chrome, group.documents)}
+            </Fragment>
+          ))
+        : renderDocuments(chrome, listed)}
+    </section>
+  );
+}
+
+/** The binders in the order the archive returned them, each with its files. */
+function groupByCategory(
+  documents: readonly SiteDocument[],
+): { category: string; documents: SiteDocument[] }[] {
+  const groups: { category: string; documents: SiteDocument[] }[] = [];
+  for (const document of documents) {
+    const last = groups.at(-1);
+    if (last !== undefined && last.category === document.category) {
+      last.documents.push(document);
+      continue;
+    }
+    groups.push({ category: document.category, documents: [document] });
+  }
+  return groups;
+}
+
+/**
+ * One shelf, as links.
+ *
+ * The address is the media route's, built from the stored file's id by the
+ * caller, so a document cannot name another host any more than a picture can.
+ * The media route decides for itself whether it will serve the bytes: this
+ * list is what the archive said the reader may see, and the file behind each
+ * entry is served under the same decision rather than under this page's.
+ *
+ * The file's own name and size sit under the title because a document on a
+ * housing cooperative's website is opened on a telephone, and knowing it is a
+ * four megabyte scan before tapping it is the difference between a link and a
+ * surprise.
+ */
+function renderDocuments(
+  chrome: SiteChrome,
+  documents: readonly SiteDocument[],
+): ReactElement {
+  return (
+    <ul className="site-document-list">
+      {documents.map((document) => (
+        <li className="site-document" key={document.url}>
+          <a href={document.url}>{document.title}</a>
+          <p className="site-document-meta">
+            {chrome.t("site.documents.file", {
+              name: document.fileName,
+              size: fileSize(document.byteSize, chrome),
+            })}
+          </p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * A file's size, as a person reads it.
+ *
+ * Decimal kilobytes and megabytes rather than the binary ones, because that is
+ * what the file manager the reader downloaded it into will say, and a page that
+ * disagrees with the operating system about the size of the same file reads as
+ * wrong. The number is formatted for the reader's own language: a Swedish
+ * reader is shown 1,2 MB and an English one 1.2 MB.
+ */
+function fileSize(bytes: number, chrome: SiteChrome): string {
+  const kilobytes = bytes / 1000;
+  if (kilobytes < 1000) {
+    // Never zero. A file of a few hundred bytes exists, and "0 kB" reads as a
+    // fault in the archive rather than as a small file.
+    return chrome.t("site.documents.kilobytes", {
+      size: format(chrome.locale, Math.max(1, Math.round(kilobytes)), 0),
+    });
+  }
+  return chrome.t("site.documents.megabytes", {
+    size: format(chrome.locale, kilobytes / 1000, 1),
+  });
+}
+
+function format(locale: string, value: number, decimals: number): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+}
+
+/**
+ * The board, on a page that publishes it.
+ *
+ * Every name here arrived with a standing publication consent for this scope,
+ * and nobody with protected personal data is in the list at all. Neither is
+ * decided here: this renders what it was handed, exactly as it prints the menu
+ * it was handed, so there is no branch in the markup that could name the wrong
+ * person.
+ *
+ * An empty roster renders as nothing rather than as a heading over nothing. An
+ * association whose board has not been asked for its consents publishes no
+ * roster, and a heading with no names under it would read as the board having
+ * resigned.
+ */
+function renderBoardRoster(
+  chrome: SiteChrome,
+  index: number,
+): ReactElement | null {
+  if (chrome.roster.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="site-roster" key={index}>
+      <h2>{chrome.t("site.roster.heading")}</h2>
+      <ul className="site-roster-list">
+        {chrome.roster.map((entry, at) => (
+          <li className="site-roster-entry" key={at}>
+            <span className="site-roster-name">{entry.name}</span>
+            <span className="site-roster-position">
+              {chrome.t(POSITION_LABEL_KEYS[entry.position])}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The association's recorded facts, on a page the board arranged.
+ *
+ * The same rows the broker information page is made of, from the same builder.
+ * The groups sit a level lower here because the block carries a heading of its
+ * own and the page carries a title above that: the broker page's outline is
+ * h1 then the groups, and a block's is h1, the block, then the groups.
+ *
+ * Nothing recorded renders as nothing. The broker page is the other way round -
+ * it exists from the day the feature ships, because a broker was given its
+ * address - but a block is put on a page by a board that means to publish
+ * facts, and one that showed the association its own name back and nothing else
+ * would read as a fault.
+ */
+function renderAssociationFacts(
+  chrome: SiteChrome,
+  index: number,
+): ReactElement | null {
+  const facts = chrome.facts;
+  if (facts === null) {
+    return null;
+  }
+
+  const groups = associationFactGroups(chrome, facts);
+  if (!hasRecordedFacts(groups)) {
+    return null;
+  }
+
+  return (
+    <section className="site-facts-block" key={index}>
+      <h2>{chrome.t("site.facts.heading")}</h2>
+      {renderFactGroups(groups, 3)}
+    </section>
+  );
+}
+
+/**
+ * The questions the association answers, and its answers.
+ *
+ * A description list, because that is what a question and its answer are: a
+ * screen reader announces the pair, and the question is a label rather than a
+ * heading for a section that does not exist. Not a disclosure widget either -
+ * an answer folded away is an answer missing from a printed page and from the
+ * reader's own search of it, and a housing cooperative's FAQ is short enough
+ * to read.
+ *
+ * The heading is chrome and is translated; everything under it is the board's
+ * own writing, escaped by being a React child like every other stored string.
+ */
+function renderFaq(
+  chrome: SiteChrome,
+  block: FaqBlock,
+  index: number,
+): ReactElement | null {
+  if (block.items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="site-faq" key={index}>
+      <h2>{chrome.t("site.faq.heading")}</h2>
+      <dl className="site-faq-list">
+        {block.items.map((item, at) => (
+          <div key={at}>
+            <dt>{item.question}</dt>
+            <dd>
+              <p>{renderRuns(item.answer)}</p>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
 }
 
 /**

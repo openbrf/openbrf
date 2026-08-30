@@ -1518,6 +1518,26 @@
       "sent": "Thank you. The report has reached the association.",
       "refused": "The report could not be read. Check that you have chosen what it concerns and described the fault, then send it again."
     },
+    "documents": {
+      "heading": "Documents",
+      "file": "{{name}}, {{size}}",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "roster": {
+      "heading": "The board",
+      "positions": {
+        "CHAIR": "Chair",
+        "BOARD_MEMBER": "Board member",
+        "DEPUTY_BOARD_MEMBER": "Deputy board member"
+      }
+    },
+    "facts": {
+      "heading": "About the association"
+    },
+    "faq": {
+      "heading": "Frequently asked questions"
+    },
     "broker": {
       "title": "Broker information",
       "groups": {
@@ -1803,6 +1823,14 @@
       "altHint": "What the picture shows, for somebody who cannot see it. Leave it empty only when the picture carries nothing the text does not already say.",
       "caption": "Caption",
       "photoConsent": "I confirm that everyone who can be recognised in the pictures on this page has given publication consent, and that it has been recorded.",
+      "documentBinder": "Binder",
+      "documentBinderHint": "Only the documents filed in this binder. Leave it empty to list every document the reader may see. The archive decides who may see what: nobody is shown a document their account does not open, and the board's own shelf is never on the website.",
+      "rosterHint": "The board is read from the register when the page is rendered. A person appears only with a recorded publication consent for the board roster, and never if they carry protected personal data - so the block is empty until the consents have been recorded.",
+      "factsHint": "The facts the board records on the association facts screen, the same ones the broker information page is generated from. A question nobody has answered is not on the page.",
+      "faqQuestion": "Question {{number}}",
+      "faqAnswer": "Answer {{number}}",
+      "faqAddItem": "Add a question",
+      "faqRemoveItem": "Remove the question",
       "bold": "Bold",
       "italic": "Italic",
       "link": "Link",
@@ -1810,12 +1838,23 @@
       "blocks": {
         "paragraph": "Paragraph",
         "heading": "Heading",
-        "image": "Picture"
+        "image": "Picture",
+        "contactForm": "Contact form",
+        "issueReportForm": "Issue report form",
+        "newsTeaser": "The latest news",
+        "documentList": "Document list",
+        "boardRoster": "The board",
+        "associationFacts": "The association's facts",
+        "faq": "Questions and answers"
       },
       "add": {
         "paragraph": "Add a paragraph",
         "heading": "Add a heading",
-        "image": "Add a picture"
+        "image": "Add a picture",
+        "documentList": "Add a document list",
+        "boardRoster": "Add the board",
+        "associationFacts": "Add the association's facts",
+        "faq": "Add questions and answers"
       }
     },
     "preview": {

@@ -78,3 +78,53 @@ export function documentNamed(
 ): ArchivedDocument | undefined {
   return shelf.find((entry) => entry.title === title);
 }
+
+/**
+ * Files a document over HTTP, on the shelf it is meant for.
+ *
+ * The archive screen has its own coverage in 21-documents, where filing one is
+ * the criterion. Here it is the arrangement a spec about the website needs -
+ * there has to be something on each shelf before a page can be asked which of
+ * them it lists - so it is done the cheap way, without a browser sign-in the
+ * spec does not otherwise need.
+ *
+ * The caller's context has to be signed in as somebody holding
+ * documents:manage.
+ */
+export async function fileDocument(
+  request: APIRequestContext,
+  input: DocumentFixture & { audience: "BOARD" | "MEMBER" | "PUBLIC" },
+): Promise<ArchivedDocument> {
+  const response = await request.post(`${stack.baseUrl}/api/documents`, {
+    multipart: {
+      title: input.title,
+      category: input.category,
+      audience: input.audience,
+      file: {
+        name: input.fileName,
+        mimeType: "application/pdf",
+        buffer: input.bytes,
+      },
+    },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `POST /api/documents answered ${String(response.status())}: ${await response.text()}`,
+    );
+  }
+  return (await response.json()) as ArchivedDocument;
+}
+
+/** Takes a document this suite filed back out of the archive. */
+export async function removeDocument(
+  request: APIRequestContext,
+  id: string,
+): Promise<void> {
+  const response = await request.delete(`${stack.baseUrl}/api/documents/${id}`);
+  // One a spec already removed is not a failure of the cleanup after it.
+  if (!response.ok() && response.status() !== 404) {
+    throw new Error(
+      `DELETE /api/documents/:id answered ${String(response.status())}`,
+    );
+  }
+}

@@ -738,3 +738,32 @@ export async function clearAssociationFacts(
 
   await saveAssociationFacts(request, baseUrl, nothingRecorded);
 }
+
+/**
+ * Records or withdraws one person's publication consent (publiceringssamtycke).
+ *
+ * Over HTTP rather than through the person view, for the reason the association
+ * facts are: the screen that records a consent has its own coverage, and a spec
+ * about what the website publishes needs the consent to exist rather than to be
+ * recorded in front of it. The caller's context has to be signed in as somebody
+ * holding addressBook:write.
+ */
+export async function setPublicationConsent(
+  request: APIRequestContext,
+  baseUrl: string,
+  personId: string,
+  input: {
+    scope: "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
+    granted: boolean;
+    note?: string;
+  },
+): Promise<void> {
+  const response = await request.patch(
+    `${baseUrl}/api/address-book/persons/${personId}/publication-consent`,
+    { data: input },
+  );
+  await expectOk(
+    response,
+    "PATCH /api/address-book/persons/:id/publication-consent",
+  );
+}

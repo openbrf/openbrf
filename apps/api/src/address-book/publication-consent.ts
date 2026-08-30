@@ -60,11 +60,24 @@ export interface PublicationConsentView {
   note: string | null;
 }
 
-/** One consent row, as much of it as the projection needs. */
-export interface PublicationConsentRecord {
+/**
+ * The dates one consent row holds.
+ *
+ * Everything deciding whether a consent stands needs, and nothing else. The
+ * board's own screen wants the note as well; a caller asking only "may this be
+ * published" has no business loading what the person said, so it is not part of
+ * the shape that question is asked in.
+ */
+export interface ConsentDates {
   scope: ConsentScope;
   grantedAt: Date;
+  /** Null while the consent stands. */
   withdrawnAt: Date | null;
+}
+
+/** One consent row, as much of it as the projection needs. */
+export interface PublicationConsentRecord extends ConsentDates {
+  /** What the person said when they granted it, as the board wrote it down. */
   note: string | null;
 }
 
@@ -117,18 +130,54 @@ export function consentStateFor(
   );
 }
 
-function latestForScope(
-  rows: readonly PublicationConsentRecord[],
+/**
+ * Whether a consent for one scope stands right now.
+ *
+ * The predicate every publication asks, expressed through the same "most
+ * recent grant is the state that holds" rule the board's screen is projected
+ * by. One rule and not two: a page deciding for itself what a stack of dated
+ * rows means would be the second place able to reach a different answer about
+ * the same person, and the two would disagree on exactly the person who
+ * granted, withdrew and granted again.
+ *
+ * Never asked and withdrawn are the same answer here, deliberately. The board
+ * needs to tell them apart because they are two different conversations to
+ * have; a page needs only to know that this name may not be on it.
+ */
+export function hasStandingConsent(
+  rows: readonly ConsentDates[],
   scope: ConsentScope,
-): PublicationConsentRecord | null {
-  return rows.reduce<PublicationConsentRecord | null>(
-    (newest, row) =>
-      row.scope !== scope
-        ? newest
-        : newest === null ||
-            row.grantedAt.getTime() > newest.grantedAt.getTime()
-          ? row
-          : newest,
-    null,
-  );
+): boolean {
+  return latestForScope(rows, scope)?.withdrawnAt === null;
+}
+
+function latestForScope<Row extends ConsentDates>(
+  rows: readonly Row[],
+  scope: ConsentScope,
+): Row | null {
+  return rows.reduce<Row | null>((newest, row) => {
+    if (row.scope !== scope) {
+      return newest;
+    }
+    if (newest === null) {
+      return row;
+    }
+
+    const difference = row.grantedAt.getTime() - newest.grantedAt.getTime();
+    if (difference !== 0) {
+      return difference > 0 ? row : newest;
+    }
+
+    /*
+     * Two records of the same scope bearing the same instant, which happens
+     * when somebody withdraws and grants again on one day. The database
+     * promises no order between them, so without a rule here the answer would
+     * depend on the order the rows came back in.
+     *
+     * The withdrawal wins. What this decides is whether a name goes onto a page
+     * anybody can open, and of the two ways to be wrong, leaving a name off is
+     * the one that can be put right by asking again.
+     */
+    return row.withdrawnAt !== null ? row : newest;
+  }, null);
 }

@@ -36,6 +36,28 @@ export async function hasSession(
   auth: AuthService,
   request: FastifyRequest,
 ): Promise<boolean> {
+  return (await sessionPersonId(auth, request)) !== null;
+}
+
+/**
+ * Who this request's session belongs to, or nobody.
+ *
+ * The same lookup hasSession makes, answering with the person rather than with
+ * a boolean, because one thing on the website needs to know which reader it is
+ * talking to: the archive's shelves are narrower than "signed in", and a
+ * resident who is not a member sees the public one. Everything else on the
+ * website - the menu, the news, whether a page opens at all - is decided by the
+ * boolean, and that is deliberate: a session buys a member-only page, and
+ * nothing on the site may start varying per person beyond what the archive
+ * already decides.
+ *
+ * Read once per request and handed on, so the menu, the page and the archive
+ * cannot reach two conclusions about who is asking.
+ */
+export async function sessionPersonId(
+  auth: AuthService,
+  request: FastifyRequest,
+): Promise<string | null> {
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (typeof value === "string") {
@@ -44,8 +66,8 @@ export async function hasSession(
   }
 
   try {
-    return (await auth.personIdFromHeaders(headers)) !== null;
+    return await auth.personIdFromHeaders(headers);
   } catch {
-    return false;
+    return null;
   }
 }

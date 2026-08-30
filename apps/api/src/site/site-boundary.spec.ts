@@ -23,6 +23,14 @@ import { describe, expect, it } from "vitest";
  * those. The rule is about the direction: this directory may hand a stranger's
  * own details onward, and may not read the association's registers, which is
  * what the list below names.
+ *
+ * The board roster is the one thing the website publishes about named people,
+ * and it is why src/board exists. A roster query written in this directory
+ * would be the first personal-data read in it; written next door, the decision
+ * about who may be named stays in one place, and the website is handed the
+ * answer the way it is handed a menu. That module is bounded in its turn by the
+ * second assertion below: it may not decrypt, so a name and an elected position
+ * are the most it can ever produce.
  */
 
 /*
@@ -32,6 +40,18 @@ import { describe, expect, it } from "vitest";
  * this suite into one that checks nothing.
  */
 const SITE_DIRECTORY = join(process.cwd(), "src", "site");
+
+/**
+ * The module the website is allowed to ask about people, and the one thing it
+ * may not do itself.
+ *
+ * It reads the register's board positions and each holder's publication
+ * consent, which is exactly what deciding a published roster needs. It may not
+ * reach the encryption layer, because everything a person's row holds beyond
+ * their name is encrypted: with no path to decryption, a contact detail cannot
+ * be produced here however the query is written.
+ */
+const BOARD_DIRECTORY = join(process.cwd(), "src", "board");
 
 const FORBIDDEN = ["registers", "address-book", "crypto"] as const;
 
@@ -102,5 +122,21 @@ describe("the site module's imports", () => {
     // Without this, a rename of the directory would turn the check above into a
     // test that passes because it looked at nothing.
     expect(boundedSources(SITE_DIRECTORY).length).toBeGreaterThan(5);
+  });
+});
+
+describe("the board roster's imports", () => {
+  it("reach no encryption layer, so no contact detail can be produced", () => {
+    const offenders = boundedSources(BOARD_DIRECTORY).filter((path) =>
+      reaches(readFileSync(path, "utf8"), "crypto"),
+    );
+
+    expect(offenders.map((path) => relative(BOARD_DIRECTORY, path))).toEqual(
+      [],
+    );
+  });
+
+  it("is asserted over a directory that actually has files in it", () => {
+    expect(boundedSources(BOARD_DIRECTORY).length).toBeGreaterThan(1);
   });
 });

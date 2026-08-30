@@ -1518,6 +1518,26 @@
       "sent": "Tack. Anmälan har nått föreningen.",
       "refused": "Anmälan kunde inte läsas. Kontrollera att du har valt vad det gäller och beskrivit felet, och skicka sedan igen."
     },
+    "documents": {
+      "heading": "Dokument",
+      "file": "{{name}}, {{size}}",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "roster": {
+      "heading": "Styrelsen",
+      "positions": {
+        "CHAIR": "Ordförande",
+        "BOARD_MEMBER": "Ledamot",
+        "DEPUTY_BOARD_MEMBER": "Suppleant"
+      }
+    },
+    "facts": {
+      "heading": "Om föreningen"
+    },
+    "faq": {
+      "heading": "Vanliga frågor"
+    },
     "broker": {
       "title": "Mäklarinformation",
       "groups": {
@@ -1803,6 +1823,14 @@
       "altHint": "Vad bilden visar, för den som inte kan se den. Lämna tomt bara när bilden inte bär något som texten redan säger.",
       "caption": "Bildtext",
       "photoConsent": "Jag intygar att alla som går att känna igen på bilderna på den här sidan har lämnat publiceringssamtycke, och att det är registrerat.",
+      "documentBinder": "Pärm",
+      "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
+      "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
+      "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
+      "faqQuestion": "Fråga {{number}}",
+      "faqAnswer": "Svar {{number}}",
+      "faqAddItem": "Lägg till en fråga",
+      "faqRemoveItem": "Ta bort frågan",
       "bold": "Fet",
       "italic": "Kursiv",
       "link": "Länk",
@@ -1810,12 +1838,23 @@
       "blocks": {
         "paragraph": "Stycke",
         "heading": "Rubrik",
-        "image": "Bild"
+        "image": "Bild",
+        "contactForm": "Kontaktformulär",
+        "issueReportForm": "Felanmälan",
+        "newsTeaser": "Senaste nytt",
+        "documentList": "Dokumentlista",
+        "boardRoster": "Styrelsen",
+        "associationFacts": "Föreningens uppgifter",
+        "faq": "Frågor och svar"
       },
       "add": {
         "paragraph": "Lägg till ett stycke",
         "heading": "Lägg till en rubrik",
-        "image": "Lägg till en bild"
+        "image": "Lägg till en bild",
+        "documentList": "Lägg till en dokumentlista",
+        "boardRoster": "Lägg till styrelsen",
+        "associationFacts": "Lägg till föreningens uppgifter",
+        "faq": "Lägg till frågor och svar"
       }
     },
     "preview": {

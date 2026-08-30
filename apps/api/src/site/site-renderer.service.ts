@@ -1,6 +1,12 @@
 import { Injectable } from "@nestjs/common";
 
+import { PrincipalService } from "../authorization/principal.service";
+import { BoardRosterService } from "../board/board-roster.service";
 import { PrismaService } from "../database/prisma.service";
+import {
+  type DocumentView,
+  DocumentsService,
+} from "../documents/documents.service";
 import { I18nService } from "../i18n/i18n.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { mediaUrl } from "../media/media.service";
@@ -10,8 +16,15 @@ import { MenuService } from "./menu.service";
 import { hasBlock } from "./page-content";
 import { renderBrokerPage } from "./site-broker";
 import { buildSiteStylesheet } from "./site-css";
+import type { BrokerPageInput } from "./site-facts";
 import type { SiteFormKind, SiteFormState, SiteIssueType } from "./site-forms";
-import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
+import {
+  type NewsTeaser,
+  renderNotFound,
+  renderPage,
+  type SiteChrome,
+  type SiteDocument,
+} from "./site-html";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
 import { type SiteNewsArticle, SiteNewsService } from "./site-news.service";
 import { PagesService, type SitePage } from "./pages.service";
@@ -75,6 +88,21 @@ export interface SiteSubmissionState {
  */
 export interface SiteVisit extends SiteSubmissionState {
   hasSession: boolean;
+  /**
+   * Who is asking, when a session says so.
+   *
+   * Read for one thing only: a document list block, where "signed in" is not
+   * the question the archive answers. A page kept for the members is readable
+   * by anyone signed in, deliberately, but the archive's shelves are narrower -
+   * a resident who is not a member sees the public one, because the minutes and
+   * the annual report are the members'. Answering that needs the person and not
+   * a boolean.
+   *
+   * Nothing else reads it, and nothing else may: the menu, the news teasers and
+   * the page itself are decided by hasSession, so a change here cannot widen
+   * what any of those disclose.
+   */
+  personId: string | null;
 }
 
 @Injectable()
@@ -88,27 +116,32 @@ export class SiteRenderer {
     private readonly issueTypes: IssueTypeService,
     private readonly news: SiteNewsService,
     private readonly facts: AssociationFactsService,
+    private readonly documents: DocumentsService,
+    private readonly roster: BoardRosterService,
+    private readonly principals: PrincipalService,
   ) {}
 
   /**
    * One page as a whole document.
    *
-   * The visit is what this request is, and it reaches three different parts
-   * of the answer. The session decides the menu: a member sees the entries for
+   * The visit is what this request is, and it reaches four different parts of
+   * the answer. The session decides the menu: a member sees the entries for
    * the pages a member may open. It decides a news teaser block on the page as
-   * well: a member sees the members' items among the public ones. What was
-   * just submitted decides whether a form on the page shows a confirmation
-   * instead of itself - it comes from the query string the submit endpoint
-   * redirected to, which is what makes the confirmation a state of the page
-   * rather than a second document, and what keeps the whole exchange to plain
-   * HTML.
+   * well: a member sees the members' items among the public ones. Who the
+   * session belongs to decides a document list, where "signed in" is not the
+   * question the archive answers - it is asked per person, because a resident
+   * who is not a member reads the public shelf. And what was just submitted
+   * decides whether a form on the page shows a confirmation instead of itself -
+   * it comes from the query string the submit endpoint redirected to, which is
+   * what makes the confirmation a state of the page rather than a second
+   * document, and what keeps the whole exchange to plain HTML.
    *
    * None of them decides the page. That was settled by the caller, which is
    * the one place that may settle it.
    *
-   * One answer about the session serves the menu and the teaser both. Reading
-   * it twice would be two places for the same request to reach two conclusions
-   * about who is asking.
+   * One answer about the session serves all of them. Reading it twice would be
+   * two places for the same request to reach two conclusions about who is
+   * asking.
    */
   async page(
     acceptLanguage: string | undefined,
@@ -120,7 +153,7 @@ export class SiteRenderer {
       this.formState(page, visit),
     ]);
     return renderPage(
-      await this.withNews(chrome, page, visit.hasSession),
+      await this.withBlockData(chrome, page, visit),
       page,
       forms,
     );
@@ -213,32 +246,133 @@ export class SiteRenderer {
   }
 
   /**
-   * The chrome with the news a teaser block on this page would show.
+   * The chrome with whatever the blocks on this page need read for them.
    *
-   * Read only when the page has such a block, so the ordinary page costs no
-   * query, and read for this reader so a member sees the members' items among
-   * the public ones. The largest count any block on the page asks for is what
-   * is fetched: several teasers on one page are then one query, and each shows
-   * as many items as it asked for.
+   * Every one of these is read only when the page actually carries the block
+   * that shows it, so an ordinary page still costs the queries the chrome
+   * itself needs and no more. That is the rule the news teaser established and
+   * the reason it is worth keeping: a housing cooperative's front page is the
+   * one address that has to answer quickly for somebody with no account.
+   *
+   * The four reads are independent and run together. Each is resolved for this
+   * reader rather than for the page, which is what lets one stored page read
+   * correctly for a visitor and for a member without the page knowing who
+   * either of them is.
    */
-  private async withNews(
+  private async withBlockData(
     chrome: SiteChrome,
     page: SitePage,
-    hasSession: boolean,
+    visit: SiteVisit,
   ): Promise<SiteChrome> {
+    const [newsTeasers, documents, roster, facts] = await Promise.all([
+      this.teasersFor(page, visit.hasSession),
+      hasBlock(page.content, "documentList")
+        ? this.documentsFor(visit.personId)
+        : [],
+      hasBlock(page.content, "boardRoster") ? this.roster.published() : [],
+      hasBlock(page.content, "associationFacts")
+        ? this.associationFacts()
+        : null,
+    ]);
+
+    return { ...chrome, newsTeasers, documents, roster, facts };
+  }
+
+  /**
+   * The news a teaser block on this page would show.
+   *
+   * Read for this reader, so a member sees the members' items among the public
+   * ones. The largest count any block on the page asks for is what is fetched:
+   * several teasers on one page are then one query, and each shows as many
+   * items as it asked for.
+   */
+  private async teasersFor(
+    page: SitePage,
+    hasSession: boolean,
+  ): Promise<readonly NewsTeaser[]> {
     const wanted = page.content.blocks.reduce(
       (most, block) =>
         block.type === "newsTeaser" ? Math.max(most, block.count) : most,
       0,
     );
-    if (wanted === 0) {
-      return chrome;
-    }
+    return wanted === 0 ? [] : this.news.teasers(hasSession, wanted);
+  }
 
-    return {
-      ...chrome,
-      newsTeasers: await this.news.teasers(hasSession, wanted),
-    };
+  /**
+   * The documents a list block may show this reader.
+   *
+   * The archive decides, and it is asked with the reader's own principal rather
+   * than with the boolean the rest of the website runs on: who may read a
+   * document is a property of the document, and the archive's audiences do not
+   * line up with "signed in". A resident who is not a member is offered the
+   * public shelf, because the minutes and the annual report belong to the
+   * members - that distinction is the archive's, expressed once in
+   * audiencesFor, and reading it again here in a different shape would be the
+   * second place able to get it wrong.
+   *
+   * Then one narrowing of the archive's answer, and it is this module's own:
+   * the board's shelf is never listed on the website. A BOARD document's file
+   * is served under a capability and every serve of one is written to the audit
+   * log, while the website is the one surface in the product with no capability
+   * check at all - so a link to one on a published page would be an invitation
+   * nobody reading the page can act on, and a hint about what the board holds.
+   * The board reads its own shelf in the archive, where it is signed in as the
+   * board.
+   *
+   * Written as the two audiences that may be listed rather than as the one that
+   * may not, so a fourth audience added to the schema later is left off the
+   * website until somebody decides it belongs there.
+   */
+  private async documentsFor(
+    personId: string | null,
+  ): Promise<readonly SiteDocument[]> {
+    const viewer =
+      personId === null ? null : await this.principals.forPerson(personId);
+    const documents = await this.documents.list(viewer);
+
+    return documents
+      .filter(
+        (document) =>
+          document.audience === "PUBLIC" || document.audience === "MEMBER",
+      )
+      .map((document) => toSiteDocument(document));
+  }
+
+  /**
+   * The association's own facts, as both the broker page and a facts block
+   * render them.
+   *
+   * Null only when the instance holds no association row at all. Three reads,
+   * and the select lists are the boundary exactly as in chrome() below: the
+   * name and the organisation number are the cooperative's own legal-person
+   * facts, the recorded facts are what the board typed, and the apartment count
+   * is a count. Nothing per-apartment and nothing per-person is selected.
+   */
+  private async associationFacts(): Promise<BrokerPageInput | null> {
+    const [association, facts, apartmentCount] = await Promise.all([
+      this.prisma.association.findUnique({
+        where: { id: 1 },
+        select: { organizationNumber: true },
+      }),
+      this.facts.read(),
+      /*
+       * How many apartments the association has: a count, and the only value
+       * here derived from data the website does not own. It is a fact about the
+       * association - printed in its annual report, asked for by every broker -
+       * while the register is the list, and no part of the list crosses this
+       * line. A query that selected rows rather than counted them would be the
+       * first step over it.
+       */
+      this.prisma.apartment.count(),
+    ]);
+
+    return association === null
+      ? null
+      : {
+          organizationNumber: association.organizationNumber,
+          apartmentCount,
+          facts,
+        };
   }
 
   /**
@@ -261,48 +395,23 @@ export class SiteRenderer {
    * on the page itself does not depend on it, and the page carries no form, so
    * the session is the only part of the visit this answer reads.
    *
-   * Four reads, and the select lists are the boundary exactly as in chrome()
-   * below. The name and the organisation number are the cooperative's own
-   * legal-person facts, the recorded facts are what the board typed, and the
-   * apartment count is a count. Nothing per-apartment and nothing per-person is
-   * selected, and nothing here could be: this module imports neither the
-   * registers, the address book nor the encryption layer, which
-   * site-boundary.spec.ts holds as a property of the module graph.
+   * The reads and the select lists that bound them are in associationFacts()
+   * above, which is also what a facts block on a page the board wrote is
+   * rendered from: one account of the association, not two that can drift.
    */
   async broker(
     acceptLanguage: string | undefined,
     visit: SiteVisit,
   ): Promise<string | null> {
-    const [chrome, association, facts, apartmentCount] = await Promise.all([
+    const [chrome, input] = await Promise.all([
       // The association's own language, not the visitor's. The facts are stored
       // as the board wrote them and are never translated, so the labels around
       // them are rendered in the language the answers are already in.
       this.chrome(acceptLanguage, visit.hasSession, "association"),
-      this.prisma.association.findUnique({
-        where: { id: 1 },
-        select: { organizationNumber: true },
-      }),
-      this.facts.read(),
-      /*
-       * How many apartments the association has: a count, and the only value on
-       * this page derived from data the website does not own. It is a fact
-       * about the association - printed in its annual report, asked for by
-       * every broker - while the register is the list, and no part of the list
-       * crosses this line. A query that selected rows rather than counted them
-       * would be the first step over it.
-       */
-      this.prisma.apartment.count(),
+      this.associationFacts(),
     ]);
 
-    if (association === null) {
-      return null;
-    }
-
-    return renderBrokerPage(chrome, {
-      organizationNumber: association.organizationNumber,
-      apartmentCount,
-      facts,
-    });
+    return input === null ? null : renderBrokerPage(chrome, input);
   }
 
   /**
@@ -375,13 +484,36 @@ export class SiteRenderer {
       mediaUrl,
       privacyNoticePath,
       menu,
-      // Filled in by withNews for a page that asks for it. Empty everywhere
-      // else, the news documents and the not-found document included.
+      // Filled in by withBlockData for a page that carries the block each one
+      // belongs to. Empty everywhere else, the news documents and the not-found
+      // document included: the refusal a visitor gets for a member-only address
+      // must not vary with what the association happens to have published.
       newsTeasers: [],
+      documents: [],
+      roster: [],
+      facts: null,
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,
       }),
     };
   }
+}
+
+/**
+ * One archived document, narrowed to what a public page may say about it.
+ *
+ * The audience it was filed under and the row's own identifier are dropped
+ * here rather than carried and then not rendered: the renderer is handed a
+ * shape with nowhere to put either, so neither can reach the markup by a
+ * mistake in a template.
+ */
+function toSiteDocument(document: DocumentView): SiteDocument {
+  return {
+    title: document.title,
+    category: document.category,
+    url: document.url,
+    fileName: document.fileName,
+    byteSize: document.byteSize,
+  };
 }

@@ -614,4 +614,45 @@ export const SCREENS: readonly Screen[] = [
     goto: "/",
     waitFor: { text: "Integritet" },
   },
+
+  // --- the blocks that name what the instance already holds -------------------
+  // Last, because the first of these two writes the front page and the second
+  // photographs what it wrote. Three of the four blocks show what the instance
+  // holds and this walk holds none of it - no document is filed, no
+  // publication consent is recorded and no association fact is entered - so
+  // they render as nothing on the page and the editor is where they can be
+  // seen at all. That is the state a board is in the moment it inserts one,
+  // and the hints beside them are what say so.
+  {
+    name: "site-page-blocks",
+    as: "administrator",
+    goto: appPath("/admin/site"),
+    prepare: [
+      { click: { button: "Redigera", first: true } },
+      { see: { label: "Stycke 1" } },
+      { click: { button: "Lägg till en dokumentlista" } },
+      { click: { button: "Lägg till styrelsen" } },
+      { click: { button: "Lägg till föreningens uppgifter" } },
+      { click: { button: "Lägg till frågor och svar" } },
+      { fill: { label: "Fråga 1" }, value: "Var finns tvättstugan?" },
+      {
+        fill: { label: "Svar 1" },
+        value: "I källaren i port 12, öppen mellan sju och tjugoett.",
+      },
+      { click: { button: "Spara" } },
+      { see: { text: "Sparad." } },
+    ],
+    waitFor: { label: "Svar 1" },
+    capture: "page",
+  },
+  {
+    // The one of the four with content of its own, on the page the entry above
+    // saved. The board writes the questions and the answers here rather than on
+    // a screen of their own, which is why this block needs no feature behind
+    // it.
+    name: "site-faq",
+    as: "nobody",
+    goto: "/",
+    waitFor: { text: "Var finns tvättstugan?" },
+  },
 ];

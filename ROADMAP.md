@@ -17,10 +17,10 @@ root, the application is served under `/app`, and a page is rendered as plain
 HTML with no JavaScript, no third-party requests and no cookie of its own. The
 board writes those pages from the application now, with the publication
 guardrails inside the write path, arranges the menu a visitor finds them
-through, and answers a broker from the facts it has recorded. What is still
-missing on the website are the blocks that draw on the instance's own data: the
-document list, the board roster, the association facts and a FAQ. The project
-is not ready to hold your housing cooperative's data.
+through, and answers a broker from the facts it has recorded. A page can also
+carry the blocks that draw on the instance's own data: the document list, the
+board roster, the association facts and a FAQ. The project is not ready to hold
+your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -240,9 +240,9 @@ no cookie banner. The board writes those pages now: text with emphasis and
 links, headings and pictures, each page published or not and public or for the
 members, with the publication guardrails inside the write path rather than
 beside it, arranges the menu a visitor finds those pages through, and answers a
-broker from the facts it records itself. What is still missing is the remaining
-data blocks. Search engine optimisation is a non-goal: page titles, and no
-sitemap or metadata machinery.
+broker from the facts it records itself. A page can also carry the blocks that
+draw on what the instance already knows. Search engine optimisation is a
+non-goal: page titles, and no sitemap or metadata machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
@@ -277,10 +277,18 @@ sitemap or metadata machinery.
       capability granted to the board by default and grantable to others, and
       it opens page editing today; the menu and news editors below are the
       later work it will also cover. Site-wide settings stay with an admin
-- [ ] The remaining insertable data blocks: document list, board roster,
+- [x] The remaining insertable data blocks: document list, board roster,
       association facts and FAQ. The news teaser and the two form blocks arrive
       with the features below; these four are the ones that need no feature of
-      their own, only the block and its rendering
+      their own, only the block and its rendering. A document list follows the
+      archive's own audience for whoever is reading, per document and per
+      reader: a visitor with no account is shown the public shelf, somebody
+      signed in is shown what their own account may open as well, and the
+      board's shelf is on no page at all. A board roster names the people who have given a publication
+      consent for exactly that, and never anybody carrying protected personal
+      data. The facts are the ones the broker information page is generated
+      from, rendered by the same code, and the FAQ is the board's own writing
+      carried in the block itself
 - [x] Menu editor: top level plus one dropdown level; pages, generated pages
       and external links. The menu is also the ordering of the site - its
       first page entry is the front page, so there is no separate home-page
@@ -409,9 +417,7 @@ Free, open source, and never moved behind a paywall.
       Server-rendered with no JavaScript required, no cookies and no
       third-party requests on public pages - so no cookie banner. Personal
       data reaches a public page only through per-person publication consent,
-      and never from the statutory registers. Four insertable blocks remain, as
-      listed under The public website above: the document list, the board
-      roster, the association facts and a FAQ
+      and never from the statutory registers
 - [x] Document archive with per-audience access: every document is for the
       board, for the members or for anyone, and the file behind it is served
       under the same decision
@@ -436,9 +442,8 @@ Free, open source, and never moved behind a paywall.
       paths are so far proven against a catalog and packages built inside this
       repository
 
-Three things in this list are still open: the SMS adapter, conferring a board
-seat or the property manager grant from the application, and the four
-insertable page blocks under The public website above.
+Two things in this list are still open: the SMS adapter, and conferring a board
+seat or the property manager grant from the application.
 
 ## After v1
 

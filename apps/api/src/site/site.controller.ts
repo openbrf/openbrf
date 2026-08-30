@@ -12,7 +12,7 @@ import {
   SITE_FORM_REFUSED_PARAM,
   SITE_FORM_SENT_PARAM,
 } from "./site-forms";
-import { acceptLanguage, hasSession } from "./site-request";
+import { acceptLanguage, sessionPersonId } from "./site-request";
 import {
   SITE_HTML_HEADERS,
   SiteRenderer,
@@ -82,11 +82,13 @@ export class SiteController {
      * serves. What the query string says was just submitted travels with it,
      * so a form on the front page shows its confirmation where it stood.
      */
+    const personId = await sessionPersonId(this.auth, request);
     this.send(
       reply,
       200,
       await this.renderer.page(acceptLanguage(request), page, {
-        hasSession: await hasSession(this.auth, request),
+        hasSession: personId !== null,
+        personId,
         ...submissionState(request),
       }),
     );
@@ -123,11 +125,14 @@ export class SiteController {
      * answered with the website's own not-found document rather than with a
      * form asking them to claim somebody else's housing cooperative.
      */
-    const html = (await this.setup.state()).setupRequired
-      ? null
-      : await this.renderer.broker(acceptLanguage(request), {
-          hasSession: await hasSession(this.auth, request),
-        });
+    const claimed = !(await this.setup.state()).setupRequired;
+    const personId = claimed ? await sessionPersonId(this.auth, request) : null;
+    const html = claimed
+      ? await this.renderer.broker(acceptLanguage(request), {
+          hasSession: personId !== null,
+          personId,
+        })
+      : null;
 
     if (html === null) {
       await this.sendNotFound(request, reply);
@@ -162,7 +167,8 @@ export class SiteController {
       return;
     }
 
-    const session = await hasSession(this.auth, request);
+    const personId = await sessionPersonId(this.auth, request);
+    const session = personId !== null;
     const page = await this.pages.bySlug(slug, session);
     if (page === null) {
       await this.sendNotFound(request, reply);
@@ -174,6 +180,7 @@ export class SiteController {
       200,
       await this.renderer.page(acceptLanguage(request), page, {
         hasSession: session,
+        personId,
         ...submissionState(request),
       }),
     );

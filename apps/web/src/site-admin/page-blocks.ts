@@ -1,6 +1,6 @@
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
-import type { PageBlock, TextRun } from "../api/site";
+import type { FaqItem, PageBlock, TextRun } from "../api/site";
 
 /**
  * Working with a page's blocks in the browser.
@@ -10,8 +10,23 @@ import type { PageBlock, TextRun } from "../api/site";
  * a text editor, a network or a rendered component.
  */
 
-/** A block the board can insert, and the order the editor offers them in. */
-export const INSERTABLE = ["paragraph", "heading", "image"] as const;
+/**
+ * A block the board can insert, and the order the editor offers them in.
+ *
+ * Prose first, then the blocks that name something the instance already holds.
+ * Not every block type is here: the two public forms and the news teaser are
+ * placed by the screens those features own, and a page can carry one without
+ * this list knowing about it.
+ */
+export const INSERTABLE = [
+  "paragraph",
+  "heading",
+  "image",
+  "documentList",
+  "boardRoster",
+  "associationFacts",
+  "faq",
+] as const;
 
 export type InsertableBlock = (typeof INSERTABLE)[number];
 
@@ -95,7 +110,41 @@ export function emptyBlock(kind: InsertableBlock): PageBlock {
       return { type: "heading", level: 2, runs: [] };
     case "image":
       return { type: "image", mediaFileId: "", alt: "" };
+    // A binder is not chosen here. An absent one lists every document the
+    // reader may see, which is the block a board that has just inserted one
+    // most often meant.
+    case "documentList":
+      return { type: "documentList" };
+    case "boardRoster":
+      return { type: "boardRoster" };
+    case "associationFacts":
+      return { type: "associationFacts" };
+    // One empty question, so the board is looking at the pair of fields it came
+    // here to fill in rather than at a button that produces them.
+    case "faq":
+      return { type: "faq", items: [emptyFaqItem()] };
   }
+}
+
+/** A question nobody has written yet. */
+export function emptyFaqItem(): FaqItem {
+  return { question: "", answer: [] };
+}
+
+/** The same block with one question rewritten, keeping the others as they are. */
+export function withFaqItem(
+  items: readonly FaqItem[],
+  index: number,
+  item: FaqItem,
+): FaqItem[] {
+  return items.map((current, at) => (at === index ? item : current));
+}
+
+export function removeFaqItem(
+  items: readonly FaqItem[],
+  index: number,
+): FaqItem[] {
+  return items.filter((_, at) => at !== index);
 }
 
 export function insertBlock(
@@ -183,7 +232,15 @@ export function withUploadedPicture(
   );
 }
 
-/** The plain text of a block, as the warnings and the scan read it. */
+/**
+ * The plain text of a block, as the warnings and the scan read it.
+ *
+ * The same answer the API's own scanner gives for the same block, because the
+ * warning on this screen and the refusal from the server have to agree about
+ * which block a personal identity number is in. A block that carries none of
+ * the board's own writing has no text: what it shows is scanned where it was
+ * written - on the news item, in the archive, on the facts screen.
+ */
 export function blockText(block: PageBlock): string {
   switch (block.type) {
     case "paragraph":
@@ -191,6 +248,21 @@ export function blockText(block: PageBlock): string {
       return block.runs.map((run) => run.text).join("");
     case "image":
       return [block.alt, block.caption ?? ""].join(" ").trim();
+    case "contactForm":
+    case "issueReportForm":
+      return (block.intro ?? []).map((run) => run.text).join("");
+    case "faq":
+      return block.items
+        .map((item) =>
+          [item.question, ...item.answer.map((run) => run.text)].join(" "),
+        )
+        .join(" ")
+        .trim();
+    case "newsTeaser":
+    case "documentList":
+    case "boardRoster":
+    case "associationFacts":
+      return "";
   }
 }
 
@@ -270,15 +342,43 @@ export function submittableBlocks(
   const positions: number[] = [];
 
   blocks.forEach((block, index) => {
-    const worthSending =
-      block.type === "image"
-        ? block.mediaFileId !== ""
-        : block.runs.some((run) => run.text !== "");
-    if (worthSending) {
+    if (worthSending(block)) {
       sent.push(block);
       positions.push(index);
     }
   });
 
   return { blocks: sent, positions };
+}
+
+/**
+ * Whether a block is finished enough for the website to render it.
+ *
+ * A block that names something the instance holds is always ready: there is
+ * nothing on it for the board to fill in, and what it shows is decided when the
+ * page is rendered. A FAQ needs at least one question with an answer under it,
+ * for the same reason an empty paragraph is not sent - the API drops the empty
+ * entries anyway, and a block left with none of them is a gap in the page.
+ */
+function worthSending(block: PageBlock): boolean {
+  switch (block.type) {
+    case "paragraph":
+    case "heading":
+      return block.runs.some((run) => run.text !== "");
+    case "image":
+      return block.mediaFileId !== "";
+    case "faq":
+      return block.items.some(
+        (item) =>
+          item.question.trim() !== "" &&
+          item.answer.some((run) => run.text !== ""),
+      );
+    case "contactForm":
+    case "issueReportForm":
+    case "newsTeaser":
+    case "documentList":
+    case "boardRoster":
+    case "associationFacts":
+      return true;
+  }
 }

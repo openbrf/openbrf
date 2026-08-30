@@ -153,9 +153,12 @@ export class PagesAdminController {
        * and neither the menu entries a session adds nor the members' news a
        * teaser block would pull in are part of that answer: what the board
        * needs to see before publishing is what the street will get, not the
-       * fuller version its own session would produce.
+       * fuller version its own session would produce. A document list on the
+       * draft is previewed the same way and shows the public shelf: a board
+       * member reading their own page must not be shown the members' documents
+       * on it and take that for what a visitor gets.
        */
-      { hasSession: false },
+      { hasSession: false, personId: null },
     );
     return { html };
   }

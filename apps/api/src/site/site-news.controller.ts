@@ -50,6 +50,11 @@ export class SiteNewsController {
       200,
       await this.renderer.newsIndex(acceptLanguage(request), items, {
         hasSession: session,
+        // A news document carries no blocks, so nothing on it varies by
+        // person. Named all the same, because the visit is what the renderer
+        // is told about this request and a caller that had not thought about
+        // it should have to say so.
+        personId: null,
       }),
     );
   }
@@ -94,6 +99,7 @@ export class SiteNewsController {
       200,
       await this.renderer.newsArticle(acceptLanguage(request), article, {
         hasSession: session,
+        personId: null,
       }),
     );
   }
