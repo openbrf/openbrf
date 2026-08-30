@@ -153,6 +153,32 @@ describe("a recorded fact", () => {
     ).toContain("Godkänns inte");
   });
 
+  it("carries the leasehold terms only where there is a leasehold", () => {
+    // The two questions are answered separately, so a note can outlive the
+    // answer that made it true. Printed against owned land it would read as
+    // leasehold terms for a leasehold that does not exist, on the one page a
+    // broker takes at face value.
+    const note = "Avgälden är 45 000 kr och omförhandlas 2031.";
+
+    expect(
+      renderBrokerPage(
+        chrome,
+        withFacts({ siteLeasehold: true, siteLeaseholdNote: note }),
+      ),
+    ).toContain(note);
+
+    for (const siteLeasehold of [false, null]) {
+      const html = renderBrokerPage(
+        chrome,
+        withFacts({ siteLeasehold, siteLeaseholdNote: note }),
+      );
+      expect(html, String(siteLeasehold)).not.toContain(note);
+      expect(html, String(siteLeasehold)).not.toContain(
+        "Villkor för tomträtten",
+      );
+    }
+  });
+
   it("keeps the line breaks the board typed", () => {
     const html = renderBrokerPage(
       chrome,

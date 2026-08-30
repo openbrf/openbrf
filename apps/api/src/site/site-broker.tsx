@@ -180,7 +180,13 @@ function brokerGroups(chrome: SiteChrome, input: BrokerPageInput): FactGroup[] {
                   : "site.broker.values.ownedLand",
               ),
         ),
-        ...row(label("siteLeaseholdNote"), facts.siteLeaseholdNote),
+        // Only where there is a leasehold to have terms. The board can answer
+        // the two questions independently, so a note left behind by an earlier
+        // answer would otherwise print "site leasehold terms" against land the
+        // association owns - on the one page a broker takes at face value.
+        ...(facts.siteLeasehold === true
+          ? row(label("siteLeaseholdNote"), facts.siteLeaseholdNote)
+          : []),
         ...row(label("parking"), facts.parking),
         ...row(label("storage"), facts.storage),
         ...row(label("renovations"), facts.renovations),
