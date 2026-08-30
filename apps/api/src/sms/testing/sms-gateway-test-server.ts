@@ -95,6 +95,18 @@ export async function startSmsGatewayTestServer(): Promise<SmsGatewayTestServer>
       return;
     }
 
+    /*
+     * The fourth half of the contract this server exists to hold a driver to.
+     * Without it a driver could post the right body as text/plain and still
+     * pass, which is exactly the kind of agreement a real gateway would refuse
+     * and this suite is supposed to catch first.
+     */
+    const contentType = String(request.headers["content-type"] ?? "");
+    if (!contentType.toLowerCase().startsWith("application/json")) {
+      response.writeHead(415).end("application/json is required");
+      return;
+    }
+
     const parsed = JSON.parse(body) as {
       to?: unknown;
       message?: unknown;

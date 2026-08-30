@@ -101,12 +101,15 @@ describe("the stored gateway credential", () => {
 });
 
 describe("an instance with no SMS provider", () => {
-  it("says the members are reached by email in the meantime", () => {
+  it("says so as a state rather than as a fault", () => {
     // Not a fault. Text messages are an addition an association pays for, and
-    // the notice reads as a state rather than as something broken.
+    // the notice reads as a state rather than as something broken. It says
+    // nothing about email: whether that is set up is the email panel's answer
+    // to give, and this panel has not asked.
     render(<SmsPanel value={EMPTY} />);
 
-    expect(screen.getByText(/når dem med e-post/i)).toBeTruthy();
+    expect(screen.getByText(/kan inte sms:as/i)).toBeTruthy();
+    expect(screen.queryByText(/når dem med e-post/i)).toBeNull();
   });
 
   it("cannot send a test before there is a gateway to send through", () => {

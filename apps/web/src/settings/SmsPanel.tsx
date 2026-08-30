@@ -119,7 +119,12 @@ export function SmsPanel({
           </Notice>
         ) : test.state.kind === "saved" && testedNumber !== null ? (
           <Notice tone="ok" live>
-            {t("settings.sms.testSent", { phone: testedNumber })}
+            {/* The number in the data face, the sentence around it in the UI
+                face, as everywhere else a number is printed. Split rather than
+                interpolated because both languages end the sentence with it;
+                a translation needing it in the middle would want a Trans. */}
+            {t("settings.sms.testSentTo")}{" "}
+            <span className="font-data">{testedNumber}</span>
           </Notice>
         ) : save.state.kind === "saved" ? (
           /* Confirmed here rather than left to the standing "configured"

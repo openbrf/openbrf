@@ -722,17 +722,32 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
     gateway.token,
   );
 
-  await prisma.association.upsert({
+  /*
+   * What the row held before, so the restoration below puts that back rather
+   * than a row of nulls. Nulls would be a guess: a suite that ran earlier and
+   * left a provider configured would lose it, and these suites share one
+   * database in sequence.
+   */
+  const before = await prisma.association.findUnique({
     where: { id: 1 },
-    create: {
-      id: 1,
-      name: "Brf Eksemplet",
-      smsDriver: "http-gateway",
-      smsGatewayUrl: gateway.endpoint,
-      smsGatewayTokenCipher: token.cipher,
-      smsSenderName: "Ekhagen",
+    select: {
+      smsDriver: true,
+      smsGatewayUrl: true,
+      smsGatewayTokenCipher: true,
+      smsSenderName: true,
     },
-    update: {
+  });
+  if (before === null) {
+    // Updated rather than created: an association this helper invented would
+    // outlive the suite, and every test here needs a claimed instance anyway.
+    throw new Error(
+      "The association row is missing, so the SMS gateway cannot be configured for this suite.",
+    );
+  }
+
+  await prisma.association.update({
+    where: { id: 1 },
+    data: {
       smsDriver: "http-gateway",
       smsGatewayUrl: gateway.endpoint,
       smsGatewayTokenCipher: token.cipher,
@@ -743,15 +758,7 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
   try {
     return await use();
   } finally {
-    await prisma.association.update({
-      where: { id: 1 },
-      data: {
-        smsDriver: null,
-        smsGatewayUrl: null,
-        smsGatewayTokenCipher: null,
-        smsSenderName: null,
-      },
-    });
+    await prisma.association.update({ where: { id: 1 }, data: before });
   }
 }
 

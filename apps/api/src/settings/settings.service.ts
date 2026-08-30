@@ -643,15 +643,13 @@ export class SettingsService {
       );
     }
 
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { name: true },
-    });
-
     await this.sms.send({
       to: number,
       body: this.i18n.translatorFor(person.preferredLocale)("sms.test.body", {
-        association: association?.name ?? "Open BRF",
+        // read() above loaded the association and threw if there was none, so
+        // the name is known here without asking a second time - and there is no
+        // fallback to put an English placeholder on somebody's telephone.
+        association: settings.housingCooperative.name,
       }),
     });
 

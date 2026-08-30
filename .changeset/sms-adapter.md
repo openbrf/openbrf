@@ -4,8 +4,8 @@
 "@openbrf/i18n": minor
 ---
 
-Add the open SMS adapter, so a board can reach the members by text message as
-well as by email.
+Add the open SMS adapter, so a board can send an SMS mailing as well as a news
+mailing.
 
 Open is the load-bearing word. Sending is behind one interface with a driver
 behind it, the way file storage already is, and no SMS provider's package is a
@@ -21,7 +21,7 @@ ordinary case.
 
 Publishing a news item now offers both channels, and offers them separately.
 The email is on by default because it costs nothing and reaches everyone in the
-register with an address; the text message is off, because it is billed per
+register with an address; the SMS mailing is off, because it is billed per
 member and reaches only those who have given the association a number. Each is
 claimed once and only once, by its own conditional update inside the publish
 transaction, so a board that emailed the members in the morning can still text
@@ -50,10 +50,10 @@ are reported apart for that reason - a cooperative that mails its members and
 has never bought SMS must not read a column of failures as though the mailing
 had failed.
 
-A text message is a headline and the address of the article, in the recipient's
+An SMS mailing is a headline and the address of the article, in the recipient's
 own language, and never the announcement itself: it arrives unencrypted on a
 lock screen over a network the association does not run, so it carries nothing
 that was not published anyway. It is bounded, and the link is what survives the
-bound - a long headline is cut, the address never is. Once the members have been
-texted, the item's address is settled and a rename is refused, because that link
-is the only copy of it they have.
+bound - a long headline is cut, the address never is. Once the members have
+been texted, the item's address is settled and a rename is refused, because
+that link is the only copy of it they have.

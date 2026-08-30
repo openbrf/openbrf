@@ -413,7 +413,7 @@ Free, open source, and never moved behind a paywall.
       than a vendor integration: no provider's package is a dependency, the
       board configures the one it pays for in settings, and an instance with
       none configured publishes the item all the same and says on the screen
-      that the text messages were what did not go out
+      that the SMS mailing was what did not go out
 - [x] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain
       root, public and member-only pages in one editable menu, a broker

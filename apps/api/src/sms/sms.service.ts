@@ -139,8 +139,8 @@ export class SmsService {
    * news notice and a settings test send are both from the cooperative.
    */
   async send(message: Omit<SmsMessage, "sender">): Promise<void> {
-    const settings = await this.loadSettings();
-    const driver = this.driverFor(settings);
+    const { settings, fingerprint } = await this.loadSettings();
+    const driver = this.driverFor(settings, fingerprint);
 
     await driver.send({
       to: message.to,
@@ -149,7 +149,17 @@ export class SmsService {
     });
   }
 
-  private async loadSettings(): Promise<SmsSettings | null> {
+  /**
+   * The stored settings, and a fingerprint that changes exactly when they do.
+   *
+   * The fingerprint is taken from the ciphertext rather than the decrypted
+   * token: it only has to tell one configuration from another, and a second
+   * long-lived copy of a secret is exposure with no purpose behind it.
+   */
+  private async loadSettings(): Promise<{
+    settings: SmsSettings | null;
+    fingerprint: string;
+  }> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },
       select: {
@@ -161,7 +171,7 @@ export class SmsService {
     });
 
     if (association === null || association.smsDriver === null) {
-      return null;
+      return { settings: null, fingerprint: "none" };
     }
 
     const gatewayToken =
@@ -173,10 +183,18 @@ export class SmsService {
           );
 
     return {
-      driver: association.smsDriver,
-      gatewayUrl: association.smsGatewayUrl,
-      gatewayToken,
-      senderName: association.smsSenderName,
+      settings: {
+        driver: association.smsDriver,
+        gatewayUrl: association.smsGatewayUrl,
+        gatewayToken,
+        senderName: association.smsSenderName,
+      },
+      fingerprint: JSON.stringify([
+        association.smsDriver,
+        association.smsGatewayUrl,
+        association.smsGatewayTokenCipher,
+        association.smsSenderName,
+      ]),
     };
   }
 
@@ -187,21 +205,13 @@ export class SmsService {
    * edited from the settings screen and a board that fixes a gateway address
    * must not have to restart the instance to be believed.
    */
-  private driverFor(settings: SmsSettings | null): SmsDriver {
-    const key = JSON.stringify(
-      settings === null
-        ? null
-        : [
-            settings.driver,
-            settings.gatewayUrl,
-            settings.gatewayToken,
-            settings.senderName,
-          ],
-    );
-
-    if (this.driverKey !== key) {
+  private driverFor(
+    settings: SmsSettings | null,
+    fingerprint: string,
+  ): SmsDriver {
+    if (this.driverKey !== fingerprint) {
       this.driver = createDriver(settings);
-      this.driverKey = key;
+      this.driverKey = fingerprint;
       // The kind only. The address is an endpoint an administrator configured
       // and the token is a secret; neither belongs in a log line.
       this.logger.log(`SMS driver: ${this.driver.kind}`);

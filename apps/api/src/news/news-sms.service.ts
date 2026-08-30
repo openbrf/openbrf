@@ -168,6 +168,18 @@ export class NewsSmsService implements OnModuleInit {
       where: { id: 1 },
       select: { name: true },
     });
+    if (association === null) {
+      /*
+       * The association is the singleton every one of these messages is sent
+       * in the name of, and a news item cannot have been published without it.
+       * Standing in an English placeholder would put a sender no member
+       * recognises on every telephone; failing here leaves the mailing to be
+       * retried once whatever broke the instance is put right.
+       */
+      throw new Error(
+        "The association row is missing, so a news SMS mailing has no sender to name.",
+      );
+    }
     const articleUrl = new URL(
       `/nyheter/${news.slug}`,
       this.env.APP_URL,
@@ -192,7 +204,7 @@ export class NewsSmsService implements OnModuleInit {
 
     for (const delivery of pending) {
       const outcome = await this.deliver(delivery, {
-        association: association?.name ?? "Open BRF",
+        association: association.name,
         title: news.title,
         articleUrl,
       });

@@ -12,6 +12,7 @@ import { AddressBookError } from "../address-book/address-book.service";
 import { PersonError } from "../address-book/person.service";
 import { InvitationError } from "../invitations/invitation.service";
 import { MailNotConfiguredError } from "../mail/mail.service";
+import { SmsNotConfiguredError } from "../sms/sms.driver";
 import { SignupRequestError } from "../signup/signup-request.service";
 import { DomainError } from "./domain-error";
 
@@ -34,6 +35,7 @@ import { DomainError } from "./domain-error";
   AddressBookError,
   PersonError,
   MailNotConfiguredError,
+  SmsNotConfiguredError,
   DomainError,
 )
 export class DomainExceptionFilter implements ExceptionFilter {
@@ -47,6 +49,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       | AddressBookError
       | PersonError
       | MailNotConfiguredError
+      | SmsNotConfiguredError
       | DomainError,
     host: ArgumentsHost,
   ): void {
@@ -63,6 +66,20 @@ export class DomainExceptionFilter implements ExceptionFilter {
           path: issue.path.join("."),
           message: issue.message,
         })),
+      });
+      return;
+    }
+
+    if (exception instanceof SmsNotConfiguredError) {
+      // The same answer the mail branch below gives, for the same reason: the
+      // instance works and simply has no provider yet. An SMS provider is a
+      // contract the board signs, so having none is an ordinary state with a
+      // known fix rather than a fault.
+      void reply.status(HttpStatus.SERVICE_UNAVAILABLE).send({
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        error: exception.name,
+        reason: "sms-not-configured",
+        message: exception.message,
       });
       return;
     }

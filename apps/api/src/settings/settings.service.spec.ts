@@ -85,6 +85,7 @@ interface Fakes {
     send: ReturnType<typeof vi.fn>;
     isConfigured: ReturnType<typeof vi.fn>;
   };
+  i18n: { translatorFor: ReturnType<typeof vi.fn> };
 }
 
 function build(overrides: Partial<Association> = {}, exists = true): Fakes {
@@ -128,7 +129,9 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
     send: vi.fn().mockResolvedValue(undefined),
     isConfigured: vi.fn().mockResolvedValue(false),
   };
-  const i18n = { translatorFor: () => (key: string) => key };
+  const i18n = {
+    translatorFor: vi.fn(() => (key: string) => key),
+  };
 
   // No logo is uploaded in this suite: these cases are about the SMTP secret
   // and the contrast gate, and the media layer has its own tests.
@@ -143,7 +146,7 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
     i18n as unknown as I18nService,
   );
 
-  return { service, prisma, mail, sms, current: () => row };
+  return { service, prisma, mail, sms, i18n, current: () => row };
 }
 
 describe("reading the settings", () => {
@@ -506,6 +509,36 @@ describe("the SMS test message", () => {
       name: "SmsNotConfiguredError",
     });
     expect(sms.send).not.toHaveBeenCalled();
+  });
+
+  it("texts the number as a gateway needs it, in the recipient's language", async () => {
+    const { service, prisma, sms, i18n } = build({
+      smsDriver: "http-gateway",
+      smsGatewayUrl: "https://gateway.example/send",
+    });
+    const stored = await new FieldEncryptionService(TEST_ENV).encrypt(
+      "person.phone",
+      "070-123 45 67",
+    );
+    prisma.person.findUnique.mockResolvedValue({
+      firstName: "Holger",
+      phoneCipher: stored.cipher,
+      preferredLocale: "sv",
+    });
+
+    await expect(service.sendTestSms("person-1")).resolves.toEqual({
+      sentTo: "+46701234567",
+    });
+
+    // Normalized on the way out, because SmsMessage.to is E.164: a gateway
+    // handed the spacing the register stores would refuse it or send it
+    // somewhere else.
+    expect(sms.send).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "+46701234567" }),
+    );
+    // The recipient's own language, never the acting session's: the person
+    // reading the message is the one whose locale it is written in.
+    expect(i18n.translatorFor).toHaveBeenCalledWith("sv");
   });
 
   it("refuses when the administrator's own record has no number", async () => {

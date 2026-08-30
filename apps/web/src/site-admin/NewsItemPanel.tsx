@@ -209,7 +209,11 @@ export function NewsItemPanel({
             date: formatDate(item.smsQueuedAt ?? "", i18n.language),
           })}
         </p>
-      ) : smsConfigured ? (
+      ) : recipients === null || smsConfigured ? (
+        /* Offered while the count is still unknown as well. Whether this
+           instance has a provider is not known until the read lands, and
+           saying it has none would be a claim nobody has checked - the same
+           honesty the email side keeps with its own unknown label. */
         <div className="flex flex-col gap-1">
           <label className="flex min-h-11 items-center gap-2 text-small text-ink">
             <input
@@ -229,9 +233,10 @@ export function NewsItemPanel({
           </p>
         </div>
       ) : (
-        /* Said plainly rather than hidden. A board that expected to be able to
-           text its members has to learn that this instance cannot, and where
-           to go about it - not find the option quietly absent. */
+        /* Said plainly rather than hidden, and only once it is known. A board
+           that expected to be able to text its members has to learn that this
+           instance cannot, and where to go about it - not find the option
+           quietly absent. */
         <p className="text-small text-ink-muted">
           {t("news.item.sendSmsUnavailable")}
         </p>

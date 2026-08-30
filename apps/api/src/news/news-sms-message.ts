@@ -19,13 +19,18 @@ import type { TFunction } from "i18next";
 /**
  * Characters the whole message is held to.
  *
- * Two GSM-7 segments. The count is characters rather than segments on purpose:
- * how a provider divides a message depends on the alphabet it picks, and a
- * headline with a typographic apostrophe in it can halve the capacity of every
- * segment. A fixed character budget is a bound the board can reason about
- * without knowing any of that, and it errs towards the cheaper message.
+ * Two concatenated GSM-7 segments, which hold 153 characters each rather than
+ * 160: a message split across segments carries a header in every one of them,
+ * and that header is taken out of the text. Three hundred and twenty would
+ * have bought a third segment while claiming to buy two.
+ *
+ * The count is characters rather than segments on purpose. How a provider
+ * divides a message depends on the alphabet it picks, and a headline with a
+ * typographic apostrophe in it can halve the capacity of every segment, so this
+ * is a ceiling the board can reason about rather than a guarantee. It errs
+ * towards the cheaper message.
  */
-export const MAX_SMS_CHARACTERS = 320;
+export const MAX_SMS_CHARACTERS = 306;
 
 /** The mark left where a headline was cut. */
 const ELLIPSIS = "...";
