@@ -102,8 +102,8 @@ export function runPhone(seed: string): string {
  * too, an expensive one precisely because a birth date leaves it almost no
  * entropy, and the suites that write it leave the person holding it behind.
  * Nothing searches by that index yet, which is the argument for fixing it now
- * - the suite that eventually does would match every identity-number row its
- * worker wrote before it.
+ * - the suite that eventually does would match every personal identity number
+ * its worker wrote before it.
  *
  * Twelve digits rather than the six-plus-four form the fixtures used to write.
  * The short form has no century, so the parser infers one from today's date,
