@@ -12,6 +12,7 @@ import {
   SITE_FORM_REFUSED_PARAM,
   SITE_FORM_SENT_PARAM,
 } from "./site-forms";
+import { acceptLanguage, hasSession } from "./site-request";
 import {
   SITE_HTML_HEADERS,
   SiteRenderer,
@@ -72,13 +73,20 @@ export class SiteController {
       return;
     }
 
+    /*
+     * The front page is public whoever asks; what is around it is not. A
+     * member is shown the menu entries a member may open, and a news teaser
+     * block on the page shows them the members' items among the public ones,
+     * exactly as the news index would. The session is read for those two
+     * things and for nothing else - it never decides which page the root
+     * serves. What the query string says was just submitted travels with it,
+     * so a form on the front page shows its confirmation where it stood.
+     */
     this.send(
       reply,
       200,
       await this.renderer.page(acceptLanguage(request), page, {
-        // The front page is public whoever asks, but the menu around it is
-        // not: a member is shown the entries a member may open.
-        hasSession: await this.hasSession(request),
+        hasSession: await hasSession(this.auth, request),
         ...submissionState(request),
       }),
     );
@@ -109,8 +117,8 @@ export class SiteController {
       return;
     }
 
-    const hasSession = await this.hasSession(request);
-    const page = await this.pages.bySlug(slug, hasSession);
+    const session = await hasSession(this.auth, request);
+    const page = await this.pages.bySlug(slug, session);
     if (page === null) {
       await this.sendNotFound(request, reply);
       return;
@@ -120,39 +128,10 @@ export class SiteController {
       reply,
       200,
       await this.renderer.page(acceptLanguage(request), page, {
-        hasSession,
+        hasSession: session,
         ...submissionState(request),
       }),
     );
-  }
-
-  /**
-   * Whether this request carries a valid session.
-   *
-   * Reads the cookie the browser sent and nothing else. Better Auth's session
-   * lookup can produce response headers of its own - a refreshed cookie, most
-   * of all - and none of them are copied onto the reply: the website never sets
-   * a cookie, and a page that starts setting one on a member's visit would have
-   * quietly turned the association's public site into something that tracks its
-   * readers.
-   *
-   * A lookup that fails is nobody. The alternative is a public page that stops
-   * rendering because a session row was unreadable, which is the wrong failure
-   * for the one surface that has to work for someone with no account at all.
-   */
-  private async hasSession(request: FastifyRequest): Promise<boolean> {
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(request.headers)) {
-      if (typeof value === "string") {
-        headers.append(name, value);
-      }
-    }
-
-    try {
-      return (await this.auth.personIdFromHeaders(headers)) !== null;
-    } catch {
-      return false;
-    }
   }
 
   private async sendNotFound(
@@ -169,12 +148,6 @@ export class SiteController {
   private send(reply: FastifyReply, status: number, html: string): void {
     void reply.code(status).headers(SITE_HTML_HEADERS).send(html);
   }
-}
-
-/** The header as one string, whatever shape Fastify parsed it into. */
-function acceptLanguage(request: FastifyRequest): string | undefined {
-  const value = request.headers["accept-language"];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**

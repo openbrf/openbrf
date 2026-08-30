@@ -8,6 +8,7 @@ import {
   paragraphsContent,
   readPageContent,
   submittedContent,
+  textBlocksOnly,
 } from "./page-content";
 
 /**
@@ -412,5 +413,74 @@ describe("the form blocks", () => {
 
     expect(hasBlock(content, "contactForm")).toBe(true);
     expect(hasBlock(content, "issueReportForm")).toBe(false);
+  });
+});
+
+describe("the news teaser block", () => {
+  it("stores a count the parser recognises", () => {
+    expect(
+      submittedContent({ blocks: [{ type: "newsTeaser", count: 3 }] }),
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "newsTeaser", count: 3 }],
+    });
+  });
+
+  it("refuses a count outside what a page may ask for", () => {
+    expect(() =>
+      submittedContent({ blocks: [{ type: "newsTeaser", count: 0 }] }),
+    ).toThrow();
+    expect(() =>
+      submittedContent({ blocks: [{ type: "newsTeaser", count: 99 }] }),
+    ).toThrow();
+    expect(() =>
+      submittedContent({ blocks: [{ type: "newsTeaser", count: 2.5 }] }),
+    ).toThrow();
+  });
+
+  it("drops a stored one whose count it does not recognise", () => {
+    // Not clamped to the nearest allowed number: a block this parser cannot
+    // read is one it must not guess the meaning of.
+    expect(
+      readPageContent({
+        blocks: [
+          { type: "newsTeaser", count: "3" },
+          { type: "newsTeaser", count: 999 },
+          { type: "newsTeaser", count: 2 },
+        ],
+      }),
+    ).toEqual({ version: 1, blocks: [{ type: "newsTeaser", count: 2 }] });
+  });
+
+  it("carries no text of its own to be scanned", () => {
+    // What a teaser shows is each news item's own title and opening, and those
+    // are scanned where they are written rather than on every page that links
+    // to them.
+    expect(
+      pageTextParts(
+        readPageContent({ blocks: [{ type: "newsTeaser", count: 3 }] }),
+      ),
+    ).toEqual([{ index: 0, text: "" }]);
+  });
+});
+
+describe("a body narrowed to its prose", () => {
+  it("keeps the paragraphs and headings and drops everything else", () => {
+    const content = readPageContent({
+      blocks: [
+        { type: "paragraph", runs: [{ text: "Hej." }] },
+        { type: "image", mediaFileId: "file-1", alt: "" },
+        { type: "heading", level: 2, runs: [{ text: "Tider" }] },
+        { type: "newsTeaser", count: 3 },
+      ],
+    });
+
+    expect(textBlocksOnly(content)).toEqual({
+      version: 1,
+      blocks: [
+        { type: "paragraph", runs: [{ text: "Hej." }] },
+        { type: "heading", level: 2, runs: [{ text: "Tider" }] },
+      ],
+    });
   });
 });

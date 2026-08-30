@@ -89,6 +89,16 @@ const ENTRIES: readonly NavEntry[] = [
     // what a public website is.
     capability: "site:manage",
   },
+  {
+    to: "/admin/site/news",
+    // The module's own word for itself, under its own namespace, so the label
+    // moves with the feature.
+    labelKey: "news.navLabel",
+    // Writing the association's website, which is what news is. Reading the
+    // news needs no capability at all - it is on the public website - so this
+    // entry is only ever offered to whoever writes it.
+    capability: "site:manage",
+  },
 ];
 
 /**

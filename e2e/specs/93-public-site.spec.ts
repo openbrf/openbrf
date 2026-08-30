@@ -229,6 +229,9 @@ test("no spec addresses the client at the instance root", async () => {
     // The page editor's spec reads the pages it publishes on the website
     // itself, which really is at the root.
     "22-site-editing.spec.ts",
+    // Reads the association's news at its own address on the website, which
+    // really is at the root.
+    "23-news.spec.ts",
     // Reads the association's own website, which really is at the root: its
     // public forms are pages a visitor with no account opens by name.
     "24-public-forms.spec.ts",

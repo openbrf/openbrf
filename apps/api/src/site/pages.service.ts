@@ -72,6 +72,13 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "health",
   "fonts",
   "setup",
+  // The association's news, in both languages the platform speaks. Only the
+  // Swedish one is routed, and the English one is held anyway: a page written
+  // at /news on an English-speaking cooperative's instance would be reachable
+  // today and unreachable the day that route is added, and a page that stops
+  // opening is worse than an address that was never free.
+  "nyheter",
+  "news",
 ]);
 
 /**
@@ -85,8 +92,20 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
  */
 const SLUG_SHAPE = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
+/**
+ * Whether a slug is shaped like an address at all.
+ *
+ * Apart from the reserved list, because not everything addressed by a slug sits
+ * at the root: a news item's address is under /nyheter, where nothing the
+ * router claims can be in its way, and refusing it the name "api" would be a
+ * rule inherited from a namespace it is not in.
+ */
+export function isSlugShaped(slug: string): boolean {
+  return SLUG_SHAPE.test(slug);
+}
+
 export function isUsableSlug(slug: string): boolean {
-  return SLUG_SHAPE.test(slug) && !RESERVED_SLUGS.has(slug);
+  return isSlugShaped(slug) && !RESERVED_SLUGS.has(slug);
 }
 
 /**

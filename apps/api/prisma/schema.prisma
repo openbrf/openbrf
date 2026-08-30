@@ -1601,3 +1601,117 @@ model ContactSubmission {
   @@index([emailIndex])
   @@map("contact_submission")
 }
+
+// ---------------------------------------------------------------------------
+// News.
+// ---------------------------------------------------------------------------
+
+/// A news item on the association's website.
+///
+/// Service tier: what the board writes to the people who live in the house and
+/// to whoever reads the website. It carries no register data and is deletable,
+/// like a page.
+///
+/// The body is the same block list a page stores, read by the same parser, and
+/// narrowed to prose: paragraphs and headings, never a picture and never a
+/// block that reads something else out of the database. A news item is an
+/// announcement rather than a page layout, and a data block on one would be a
+/// second place where what the website discloses is decided.
+///
+/// Visibility is PageVisibility rather than an enum of its own. The question is
+/// the same question - may somebody with no account read this - and a second
+/// enum would be a second place for the two answers to drift apart.
+model News {
+  id String @id @default(cuid())
+
+  /// The path segment under /nyheter. Unique for the same reason a page's is:
+  /// the address is the identity.
+  slug String @unique
+
+  title   String
+  content Json
+
+  /// Members only unless the board says otherwise. A notice about the laundry
+  /// room is written for the people who live in the house, and publishing one
+  /// to the street is a deliberate second answer.
+  visibility PageVisibility @default(MEMBER)
+
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+
+  /// When the mailing to the members was claimed, and never cleared.
+  ///
+  /// This column is the mailing's identity, not a progress flag. It is set by a
+  /// conditional update that only matches while it is null, inside the same
+  /// transaction that writes the delivery ledger and enqueues the job, so a
+  /// news item is mailed at most once in its life. No edit and no republish
+  /// writes it, which is what makes "never re-sent on an edit" a property of
+  /// the schema rather than of anybody's care.
+  emailQueuedAt DateTime?
+
+  /// Who wrote it.
+  ///
+  /// A plain column rather than a relation, for the reason the audit log and
+  /// the archived document both give: a referential action would either rewrite
+  /// this row or veto erasure of the person it names.
+  authorPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries NewsDelivery[]
+
+  @@index([published, visibility, publishedAt])
+  @@map("news")
+}
+
+/// How far one recipient's copy of a news mailing got.
+enum NewsDeliveryStatus {
+  /// Claimed at publish and not yet handed to a mail server.
+  PENDING
+  /// Accepted by the mail server. It is not a claim that anybody read it.
+  SENT
+  /// The mail server refused it, or this instance has none configured. The
+  /// news item is published either way: only the mailing failed.
+  FAILED
+}
+
+/// One recipient's copy of one news mailing.
+///
+/// The ledger is what makes "exactly once per recipient" mechanical. The
+/// recipients are snapshotted into it inside the publish transaction, and the
+/// pair (newsId, personId) is unique, so a second attempt at the same mailing
+/// cannot add a second row for anybody. The worker then claims each row
+/// conditionally - PENDING to SENT - before it hands the message to a mail
+/// server, so a retried or duplicated job re-sends to nobody it already
+/// reached.
+///
+/// The snapshot is taken at publish and never refreshed. A member who moves in
+/// afterwards is not mailed old news, and somebody who moves out between the
+/// publish and the worker still receives it: the ledger is the record of who
+/// the board was writing to at the moment it published, which is the honest
+/// reading of the act.
+model NewsDelivery {
+  id String @id @default(cuid())
+
+  newsId String
+  news   News   @relation(fields: [newsId], references: [id], onDelete: Cascade)
+
+  /// The recipient. A plain column, like every other person reference outside
+  /// the registers: a referential action here would either rewrite the ledger
+  /// or veto erasure of the person it names. A recipient who is gone by the
+  /// time the worker runs is recorded as undeliverable rather than mailed.
+  personId String
+
+  status        NewsDeliveryStatus @default(PENDING)
+  /// Why it failed, as a code and never as the mail server's own words: a
+  /// rejection quotes the address back, and the address is personal data.
+  failureReason String?
+
+  queuedAt DateTime  @default(now())
+  sentAt   DateTime?
+
+  @@unique([newsId, personId])
+  @@index([newsId, status])
+  @@map("news_delivery")
+}

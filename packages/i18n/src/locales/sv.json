@@ -52,6 +52,11 @@
       "heading": "Ett meddelande från webbplatsen",
       "body": "{{sender}} skrev till föreningen den {{receivedAt}} genom kontaktformuläret på webbplatsen. Svara till {{email}}.",
       "action": "Öppna meddelandena"
+    },
+    "news": {
+      "subject": "{{title}} - {{association}}",
+      "body": "{{association}} har publicerat en nyhet.",
+      "action": "Läs nyheten"
     }
   },
   "theme": {
@@ -1868,6 +1873,79 @@
         "nestingTooDeep": "Menyn har en toppnivå och en nivå under den, och inte fler.",
         "unknown": "Det gick inte att spara just nu. Försök igen."
       }
+    }
+  },
+  "news": {
+    "navLabel": "Nyheter",
+    "heading": "Nyheter",
+    "description": "Styrelsen skriver till dem som bor i huset och till dem som läser föreningens webbplats. En nyhet är för medlemmarna tills styrelsen säger något annat.",
+    "loading": "Läser nyheterna...",
+    "empty": "Inget är skrivet än.",
+    "compose": {
+      "title": "Skriv en nyhet",
+      "editTitle": "Ändra {{title}}",
+      "description": "Nyheten sparas som utkast. Ingen kan läsa den förrän den publiceras.",
+      "titleField": "Rubrik",
+      "slugField": "Adress",
+      "slugHint": "Adressen under /nyheter. Små bokstäver, siffror och bindestreck.",
+      "bodyField": "Text",
+      "bodyHint": "En tom rad börjar ett nytt stycke. En rad som börjar med ## blir en mellanrubrik.",
+      "sensitiveWarning": "Skriv inget om någons hälsa, en grannes förhållanden eller något annat sådant. En publicerad nyhet läses av alla den är skriven för, och ett personnummer i den avvisas.",
+      "submit": "Spara nyheten",
+      "working": "Sparar...",
+      "saved": "Nyheten är sparad.",
+      "cancel": "Avbryt"
+    },
+    "item": {
+      "draft": "Utkast",
+      "publishedPublic": "Publicerad för alla",
+      "publishedMember": "Publicerad för medlemmarna",
+      "publishedOn": "Publicerad {{date}}",
+      "address": "/nyheter/{{slug}}",
+      "edit": "Ändra",
+      "audience": "Vem nyheten är för",
+      "audiencePublic": "Alla",
+      "audienceMember": "Medlemmarna",
+      "sendEmail": "Mejla medlemmarna ({{count}})",
+      "sendEmailUnknown": "Mejla medlemmarna",
+      "sendEmailHint": "Skickas en gång. En ändring efteråt mejlas aldrig om.",
+      "alreadyMailed": "Mejlad {{date}}. En nyhet mejlas en gång.",
+      "publish": "Publicera",
+      "publishing": "Publicerar...",
+      "published": "Nyheten är publicerad.",
+      "publishedAndMailed_one": "Nyheten är publicerad och är på väg till {{count}} medlem.",
+      "publishedAndMailed_other": "Nyheten är publicerad och är på väg till {{count}} medlemmar.",
+      "unpublish": "Ta ned",
+      "unpublishing": "Tar ned...",
+      "unpublished": "Nyheten ligger inte längre på webbplatsen.",
+      "remove": "Ta bort",
+      "removing": "Tar bort...",
+      "removeConfirm": "Ta bort {{title}}? Den försvinner från webbplatsen med den.",
+      "removed": "Nyheten är borttagen."
+    },
+    "delivery": {
+      "heading": "Utskicket",
+      "sent": "Skickade: {{count}}",
+      "pending": "Väntar: {{count}}",
+      "failed": "Misslyckade: {{count}}",
+      "mailNotConfigured": "Nyheten är publicerad, men utskicket kunde inte göras: den här instansen har ingen e-postserver. Ställ in en under E-post."
+    },
+    "errors": {
+      "loadFailed": "Nyheterna kunde inte läsas just nu. Ladda om sidan.",
+      "invalidSlug": "Adressen kan inte användas. Små bokstäver, siffror och bindestreck.",
+      "slugTaken": "En annan nyhet har redan den adressen.",
+      "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det innan nyheten publiceras.",
+      "unsupportedBlock": "En nyhet innehåller bara text.",
+      "addressMailed": "Adressen har mejlats till medlemmarna och kan inte ändras.",
+      "notPlainText": "Nyheten innehåller formatering som den här redigeraren inte kan visa. Att redigera den här skulle ta bort den.",
+      "notFound": "Nyheten finns inte längre. Listan har lästs om.",
+      "unknown": "Det gick inte att spara just nu. Försök igen."
+    },
+    "site": {
+      "indexTitle": "Nyheter",
+      "heading": "Senaste nytt",
+      "allNews": "Alla nyheter",
+      "empty": "Inget är skrivet än."
     }
   }
 }

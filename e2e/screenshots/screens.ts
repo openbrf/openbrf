@@ -522,6 +522,54 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Förhandsgranska" },
     capture: "page",
   },
+
+  // --- news ------------------------------------------------------------------
+  // The board's own screen, then the item it published, then that item on the
+  // association's website. In that order, because the last two photograph what
+  // the ones above them did.
+  {
+    name: "news-compose",
+    as: "administrator",
+    goto: appPath("/admin/site/news"),
+    prepare: [
+      { fill: { label: "Rubrik" }, value: "Städdag i trapphuset" },
+      { fill: { label: "Adress" }, value: "staddag-i-trapphuset" },
+      {
+        fill: { label: "Text" },
+        value:
+          "Vi städar trapphuset lördagen den 12 oktober klockan tio.\n\n## Ta med\n\nHandskar och en hink.",
+      },
+    ],
+    waitFor: { button: "Spara nyheten" },
+  },
+  {
+    name: "news-published",
+    prepare: [
+      { click: { button: "Spara nyheten" } },
+      { see: { text: "Nyheten är sparad." } },
+      // For anyone, and without mailing the members: the picture is of the
+      // screen, and a capture run has no business putting post in anybody's
+      // mailbox.
+      { click: { label: "Alla" } },
+      { click: { label: "Mejla medlemmarna" } },
+      { click: { button: "Publicera" } },
+    ],
+    waitFor: { text: "Nyheten är publicerad." },
+  },
+  {
+    name: "site-news",
+    as: "nobody",
+    goto: "/nyheter",
+    waitFor: { heading: "Städdag i trapphuset" },
+  },
+  {
+    name: "site-news-article",
+    goto: "/nyheter/staddag-i-trapphuset",
+    waitFor: {
+      text: "Vi städar trapphuset lördagen den 12 oktober klockan tio.",
+    },
+  },
+
   // --- the menu on the association's own website -----------------------------
   // Last, because arranging the menu changes what the website's front page is
   // and every screen above has already been photographed against the one the

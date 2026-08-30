@@ -298,6 +298,47 @@ body {
 }
 
 /*
+ * News, on the index and as a teaser on a page. One list, so an item reads the
+ * same in both places and there is one set of rules to keep legible.
+ */
+.site-news {
+  margin: 2.5rem 0 0;
+}
+
+.site-news-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-news-item {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 1.5rem 0;
+}
+
+.site-news-item h3 {
+  margin: 0 0 0.5rem;
+}
+
+.site-news-date {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+/*
+ * The date under an article's own title, where the title is the h1 and the
+ * date is not a paragraph of the body.
+ */
+.site-article-date {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: -1rem 0 1.5rem;
+}
+
+/*
  * Never removed, only replaced. A page with no script of its own is navigated
  * with the keyboard, and an invisible focus position makes it unusable.
  */

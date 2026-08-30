@@ -131,12 +131,29 @@ export interface IssueReportFormBlock {
   intro?: TextRun[];
 }
 
+/**
+ * A list of the association's most recent news, on a page.
+ *
+ * The block carries no news in it - only how many items to show. What it
+ * becomes is resolved by the renderer against the reader's own session, so a
+ * page carrying this block shows a visitor with no account the public items and
+ * a member theirs as well. Storing the items in the block instead would freeze
+ * one reader's answer into a page every reader gets, and would put a
+ * member-only headline into a public page's stored body.
+ */
+export interface NewsTeaserBlock {
+  type: "newsTeaser";
+  /** How many of the most recent items to show, newest first. */
+  count: number;
+}
+
 export type PageBlock =
   | ParagraphBlock
   | HeadingBlock
   | ImageBlock
   | ContactFormBlock
-  | IssueReportFormBlock;
+  | IssueReportFormBlock
+  | NewsTeaserBlock;
 
 export interface PageContent {
   version: 1;
@@ -153,6 +170,8 @@ const LIMITS = {
   link: 2000,
   alt: 300,
   caption: 500,
+  /** How many news items one teaser block may ask for. */
+  teaserCount: 10,
 } as const;
 
 /**
@@ -250,6 +269,10 @@ const blockSchema = z.discriminatedUnion("type", [
     type: z.literal("issueReportForm"),
     intro: runsSchema.optional(),
   }),
+  z.object({
+    type: z.literal("newsTeaser"),
+    count: z.int().min(1).max(LIMITS.teaserCount),
+  }),
 ]);
 
 /**
@@ -272,6 +295,29 @@ export function submittedContent(value: unknown): PageContent {
     blocks: parsed.blocks
       .map((block) => normalize(block))
       .filter((block): block is PageBlock => block !== null),
+  };
+}
+
+/**
+ * The blocks that are prose the board typed, rather than a reference to
+ * something else the instance holds.
+ *
+ * A news item's body is limited to these. A news item is an announcement, and
+ * a block that reads a picture or a list of other news out of the database
+ * would make one announcement a second place where what the website discloses
+ * is decided.
+ */
+export function isTextBlock(
+  block: PageBlock,
+): block is ParagraphBlock | HeadingBlock {
+  return block.type === "paragraph" || block.type === "heading";
+}
+
+/** A body narrowed to its prose, dropping everything else. Total. */
+export function textBlocksOnly(content: PageContent): PageContent {
+  return {
+    version: PAGE_CONTENT_VERSION,
+    blocks: content.blocks.filter((block) => isTextBlock(block)),
   };
 }
 
@@ -383,6 +429,11 @@ function blockText(block: PageBlock): string {
       // rather than written by the board, so they are not the board's text to
       // be scanned or held against them.
       return (block.intro ?? []).map((run) => run.text).join("");
+    case "newsTeaser":
+      // Nothing of the board's own writing. What this block shows is each news
+      // item's own title and opening, and those are scanned where they are
+      // written rather than again on every page that links to them.
+      return "";
   }
 }
 
@@ -407,6 +458,7 @@ function normalize(block: PageBlock): PageBlock | null {
         : { type: "heading", level: block.level, runs };
     }
     case "image":
+    case "newsTeaser":
       return block;
     // A form with nothing above it is still a form, unlike a paragraph with no
     // words in it: the block is the form, and the intro is decoration.
@@ -471,6 +523,19 @@ function readBlock(entry: unknown): PageBlock | null {
       return intro.length === 0
         ? { type: "issueReportForm" }
         : { type: "issueReportForm", intro };
+    }
+    case "newsTeaser": {
+      const count = block["count"];
+      // Not clamped to the nearest allowed number: a count this parser does
+      // not recognise is a block written by something this renderer cannot
+      // vouch for, and showing an arbitrary amount of news would be a guess
+      // about what the board meant.
+      return typeof count === "number" &&
+        Number.isInteger(count) &&
+        count >= 1 &&
+        count <= LIMITS.teaserCount
+        ? { type: "newsTeaser", count }
+        : null;
     }
     default:
       return null;

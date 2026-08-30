@@ -52,6 +52,11 @@
       "heading": "A message from the website",
       "body": "{{sender}} wrote to the association on {{receivedAt}} through the contact form on the website. Answer to {{email}}.",
       "action": "Open the messages"
+    },
+    "news": {
+      "subject": "{{title}} - {{association}}",
+      "body": "{{association}} has published a news item.",
+      "action": "Read the news item"
     }
   },
   "theme": {
@@ -1868,6 +1873,79 @@
         "nestingTooDeep": "The menu has a top level and one level under it, and no more.",
         "unknown": "That could not be saved just now. Please try again."
       }
+    }
+  },
+  "news": {
+    "navLabel": "News",
+    "heading": "News",
+    "description": "The board writes to the people who live in the house and to whoever reads the association's website. A news item is for the members until the board says otherwise.",
+    "loading": "Reading the news...",
+    "empty": "Nothing has been written yet.",
+    "compose": {
+      "title": "Write a news item",
+      "editTitle": "Edit {{title}}",
+      "description": "It is saved as a draft. Nobody can read it until it is published.",
+      "titleField": "Headline",
+      "slugField": "Address",
+      "slugHint": "The address under /nyheter. Lower-case letters, digits and hyphens.",
+      "bodyField": "Text",
+      "bodyHint": "A blank line starts a new paragraph. A line beginning with ## becomes a subheading.",
+      "sensitiveWarning": "Write nothing about anybody's health, a neighbour's circumstances or anything else of that kind. A published news item is read by everyone it was written for, and a personal identity number in it is refused.",
+      "submit": "Save the news item",
+      "working": "Saving...",
+      "saved": "The news item is saved.",
+      "cancel": "Cancel"
+    },
+    "item": {
+      "draft": "Draft",
+      "publishedPublic": "Published for anyone",
+      "publishedMember": "Published for the members",
+      "publishedOn": "Published {{date}}",
+      "address": "/nyheter/{{slug}}",
+      "edit": "Edit",
+      "audience": "Who it is for",
+      "audiencePublic": "Anyone",
+      "audienceMember": "The members",
+      "sendEmail": "Email the members ({{count}})",
+      "sendEmailUnknown": "Email the members",
+      "sendEmailHint": "Sent once. An edit afterwards is never mailed again.",
+      "alreadyMailed": "Mailed {{date}}. A news item is mailed once.",
+      "publish": "Publish",
+      "publishing": "Publishing...",
+      "published": "The news item is published.",
+      "publishedAndMailed_one": "The news item is published and is on its way to {{count}} member.",
+      "publishedAndMailed_other": "The news item is published and is on its way to {{count}} members.",
+      "unpublish": "Take it down",
+      "unpublishing": "Taking it down...",
+      "unpublished": "The news item is no longer on the website.",
+      "remove": "Remove",
+      "removing": "Removing...",
+      "removeConfirm": "Remove {{title}}? It leaves the website with it.",
+      "removed": "The news item has been removed."
+    },
+    "delivery": {
+      "heading": "The mailing",
+      "sent": "Sent: {{count}}",
+      "pending": "Waiting: {{count}}",
+      "failed": "Failed: {{count}}",
+      "mailNotConfigured": "The news item is published, but the mailing could not be sent: this instance has no email server. Set one up under Email."
+    },
+    "errors": {
+      "loadFailed": "The news could not be read just now. Reload the page.",
+      "invalidSlug": "That address cannot be used. Lower-case letters, digits and hyphens.",
+      "slugTaken": "Another news item already has that address.",
+      "personalIdentityNumber": "The text holds a personal identity number. Remove it before the news item is published.",
+      "unsupportedBlock": "A news item holds text and nothing else.",
+      "addressMailed": "The address was mailed to the members, so it cannot be changed.",
+      "notPlainText": "That news item holds formatting this editor cannot show. Editing it here would remove it.",
+      "notFound": "That news item is gone. The list has been read again.",
+      "unknown": "That could not be saved just now. Please try again."
+    },
+    "site": {
+      "indexTitle": "News",
+      "heading": "Latest news",
+      "allNews": "All news",
+      "empty": "Nothing has been written yet."
     }
   }
 }

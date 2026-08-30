@@ -14,11 +14,11 @@ invitation arrives as an email, and the link in it opens a screen where the
 recipient chooses a password and is signed in as soon as it is set. The
 association's own website is there as well - the site answers at the domain
 root, the application is served under `/app`, and a page is rendered as plain
-HTML with no JavaScript, no cookies and no third-party requests. The board
+HTML with no JavaScript, no third-party requests and no cookie of its own. The board
 writes those pages from the application now, with the publication guardrails
 inside the write path, and arranges the menu a visitor finds them through. What
-is still missing on the website is its documents and its news. The project is
-not ready to hold your housing cooperative's data.
+is still missing on the website is its documents. The project is not ready to
+hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -238,8 +238,8 @@ no cookie banner. The board writes those pages now: text with emphasis and
 links, headings and pictures, each page published or not and public or for the
 members, with the publication guardrails inside the write path rather than
 beside it, and arranges the menu a visitor finds those pages through. What is
-still missing is news and the public forms. Search engine optimisation is a
-non-goal: page titles, and no sitemap or metadata machinery.
+still missing is the broker page and the remaining data blocks. Search engine
+optimisation is a non-goal: page titles, and no sitemap or metadata machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
@@ -295,9 +295,9 @@ non-goal: page titles, and no sitemap or metadata machinery.
       account is served rather than shown and refused. The navigation therefore
       cannot become the thing that tells them the page is there. News carries a
       visibility of its own and arrives with the news module below
-- [ ] News on the site, member-only by default, with "email this to the
-      members" at publish - a toggle, on by default, sent once through the
-      job queue in each recipient's language, and never re-sent on edit
+- [x] News on the site, member-only by default, with a news mailing at
+      publish - a toggle, on by default, sent at most once through the job
+      queue in each recipient's language, and never re-sent on edit
 - [x] Publication guardrails, inside the write path rather than beside it: a
       picture reaches a published page only once the board has confirmed the
       recorded publication consents of everyone who can be recognised in it, a
@@ -309,8 +309,8 @@ non-goal: page titles, and no sitemap or metadata machinery.
       written to the audit log in the transaction that made it. Protected
       personal data never appears at all, because the public rendering path
       imports neither the registers, the address book nor the encryption layer - which a test asserts on the source rather than on a rendered page
-- [ ] Broker information page generated from association facts, and the
-      public forms - protected by a honeypot and rate limiting, never a
+- [ ] Broker information page generated from association facts
+- [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
       apply-for-account page (a setting, on by default)

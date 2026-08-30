@@ -81,7 +81,7 @@ export type SiteMenu = readonly SiteMenuEntry[];
  *
  * The path is written here and the feature that serves it is built elsewhere,
  * so the two have to be kept in step by whoever builds the feature - which is
- * why `available` is false for the two that do not exist yet rather than the
+ * why `available` is false for the one that does not exist yet rather than the
  * entry being absent: the editor can offer the destination the day the page
  * lands, and until then the item is silently left out of the rendered menu.
  */
@@ -91,10 +91,15 @@ const GENERATED_DESTINATIONS: Readonly<
     { path: string; available: (audience: MenuAudience) => boolean }
   >
 > = {
-  // The news index. Served once the news module lands; the path is the slug
-  // that module reserves.
-  news: { path: "/nyheter", available: () => false },
-  // The generated broker information page, for the same reason.
+  /*
+   * The news index, served by the news module at the slug that module
+   * reserves. Available to everybody: the index is public in the same sense a
+   * page is, and it answers a visitor with no session with the items anybody
+   * may read - never with a refusal, and never with a count that would say how
+   * much the members are being told.
+   */
+  news: { path: "/nyheter", available: () => true },
+  // The generated broker information page, which does not exist yet.
   broker: { path: "/maklarinfo", available: () => false },
   /*
    * The account request form, which is part of the application rather than the

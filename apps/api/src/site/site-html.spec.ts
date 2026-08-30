@@ -5,7 +5,13 @@ import type { SiteMenu } from "./menu.service";
 import type { PageBlock } from "./page-content";
 import type { SitePage } from "./pages.service";
 import type { SiteFormState } from "./site-forms";
-import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
+import {
+  formatNewsDate,
+  isoDate,
+  renderNotFound,
+  renderPage,
+  type SiteChrome,
+} from "./site-html";
 
 /**
  * What the association's website may and may not contain.
@@ -31,6 +37,7 @@ beforeAll(async () => {
     mediaUrl: (mediaFileId) => `/api/media/${mediaFileId}`,
     privacyNoticePath: null,
     menu: [],
+    newsTeasers: [],
   };
 });
 
@@ -372,5 +379,28 @@ describe("the not-found page", () => {
 
   it("carries no script either", () => {
     expect(renderNotFound(chrome)).not.toContain("<script");
+  });
+});
+
+describe("a published date", () => {
+  /*
+   * The association is in Sweden, and the two halves of a date used to be read
+   * against different calendars: one shown in Stockholm, one marked up in UTC.
+   * They only disagree for the couple of hours a day that fall either side of
+   * midnight, which is exactly when a notice put up in the evening is dated.
+   */
+  it("marks up the same day it shows, on an evening the two zones disagree", () => {
+    const halfPastMidnightInStockholm = new Date("2026-08-31T22:30:00.000Z");
+
+    expect(isoDate(halfPastMidnightInStockholm)).toBe("2026-09-01");
+    expect(formatNewsDate(halfPastMidnightInStockholm, "sv")).toContain(
+      "1 september",
+    );
+  });
+
+  it("is the plain calendar date the rest of the day", () => {
+    const middayInStockholm = new Date("2026-08-31T10:00:00.000Z");
+
+    expect(isoDate(middayInStockholm)).toBe("2026-08-31");
   });
 });

@@ -1,0 +1,293 @@
+import { useId, useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
+
+import type { TranslationKey } from "../i18n/translation-key";
+import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import { Notice } from "../ui/Notice";
+import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import {
+  type NewsItem,
+  type NewsVisibility,
+  publishNews,
+  removeNews,
+} from "./news-api";
+
+/**
+ * One news item, with everything the board can do to it.
+ *
+ * Publication is one decision here, not two: the board says whether the item is
+ * on the website and who it is for in the same act, because a news item is
+ * published once to the people it was written for rather than carrying a
+ * standing audience that gets revisited.
+ *
+ * The mailing is offered exactly once. Once the instance has claimed it - which
+ * the item reports as a date - the checkbox is gone and a sentence stands in
+ * its place, because there is no second mailing to ask for: the server writes
+ * that column once and never clears it, so an edit and a republish cannot put
+ * the announcement in anybody's mailbox again.
+ */
+
+const PUBLISH_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "not-found": "news.errors.notFound",
+  "personal-identity-number": "news.errors.personalIdentityNumber",
+};
+
+const REMOVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "not-found": "news.errors.notFound",
+};
+
+export interface NewsItemPanelProps {
+  item: NewsItem;
+  /** How many members a mailing would reach right now. */
+  recipientCount: number | null;
+  onEdit: (item: NewsItem) => void;
+  onChanged: () => void;
+}
+
+export function NewsItemPanel({
+  item,
+  recipientCount,
+  onEdit,
+  onChanged,
+}: NewsItemPanelProps): ReactElement {
+  const { t, i18n } = useTranslation();
+  const audienceName = useId();
+
+  const [visibility, setVisibility] = useState<NewsVisibility>(item.visibility);
+  /*
+   * The mailing is offered only while one is still possible, and it defaults
+   * to on: the decision log says the board mails the members when it publishes,
+   * and the toggle is there to say otherwise rather than to have to remember.
+   */
+  const mailable = item.emailQueuedAt === null;
+  const [sendEmail, setSendEmail] = useState(true);
+  const [outcome, setOutcome] = useState<TranslationKey | null>(null);
+  const [mailedTo, setMailedTo] = useState<number | null>(null);
+
+  const publication = useSaveAction(publishNews, (published) => {
+    setMailedTo(published.mailedTo);
+    setOutcome(
+      published.published
+        ? published.mailedTo === null
+          ? "news.item.published"
+          : "news.item.publishedAndMailed"
+        : "news.item.unpublished",
+    );
+    onChanged();
+  });
+
+  const removal = useSaveAction(removeNews, () => {
+    onChanged();
+  });
+
+  const failure =
+    publication.state.kind === "failed"
+      ? publication.state.failure
+      : removal.state.kind === "failed"
+        ? removal.state.failure
+        : null;
+  const failureKeys =
+    publication.state.kind === "failed" ? PUBLISH_FAILURES : REMOVE_FAILURES;
+
+  const busy =
+    publication.state.kind === "saving" || removal.state.kind === "saving";
+
+  return (
+    <article className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
+      <header className="flex flex-col gap-1">
+        <p className="text-chip text-ink-muted uppercase">
+          {item.published
+            ? t(
+                item.visibility === "PUBLIC"
+                  ? "news.item.publishedPublic"
+                  : "news.item.publishedMember",
+              )
+            : t("news.item.draft")}
+        </p>
+        <h3 className="text-title">{item.title}</h3>
+        <p className="font-data text-small text-ink-muted">
+          {t("news.item.address", { slug: item.slug })}
+        </p>
+        {item.publishedAt === null ? null : (
+          <p className="font-data text-small text-ink-muted">
+            {t("news.item.publishedOn", {
+              date: formatDate(item.publishedAt, i18n.language),
+            })}
+          </p>
+        )}
+      </header>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-label text-ink-muted uppercase">
+          {t("news.item.audience")}
+        </legend>
+        <div className="flex flex-wrap gap-4">
+          {(["MEMBER", "PUBLIC"] as const).map((candidate) => (
+            <label
+              key={candidate}
+              className="flex min-h-11 items-center gap-2 text-small text-ink"
+            >
+              <input
+                type="radio"
+                name={`${audienceName}-${item.id}`}
+                value={candidate}
+                checked={visibility === candidate}
+                onChange={() => {
+                  setVisibility(candidate);
+                }}
+                className="size-4 accent-trust"
+              />
+              {t(
+                candidate === "PUBLIC"
+                  ? "news.item.audiencePublic"
+                  : "news.item.audienceMember",
+              )}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {mailable ? (
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-11 items-center gap-2 text-small text-ink">
+            <input
+              type="checkbox"
+              checked={sendEmail}
+              onChange={(event) => {
+                setSendEmail(event.target.checked);
+              }}
+              className="size-4 accent-trust"
+            />
+            {recipientCount === null
+              ? t("news.item.sendEmailUnknown")
+              : t("news.item.sendEmail", { count: recipientCount })}
+          </label>
+          <p className="text-small text-ink-muted">
+            {t("news.item.sendEmailHint")}
+          </p>
+        </div>
+      ) : (
+        <p className="font-data text-small text-ink-muted">
+          {t("news.item.alreadyMailed", {
+            date: formatDate(item.emailQueuedAt ?? "", i18n.language),
+          })}
+        </p>
+      )}
+
+      {item.emailQueuedAt === null ? null : (
+        <section className="flex flex-col gap-1">
+          <h4 className="text-label text-ink-muted uppercase">
+            {t("news.delivery.heading")}
+          </h4>
+          <p className="font-data text-small text-ink">
+            {[
+              t("news.delivery.sent", { count: item.delivery.sent }),
+              t("news.delivery.pending", { count: item.delivery.pending }),
+              t("news.delivery.failed", { count: item.delivery.failed }),
+            ].join("  ")}
+          </p>
+          {item.delivery.mailNotConfigured ? (
+            <Notice tone="warn">{t("news.delivery.mailNotConfigured")}</Notice>
+          ) : null}
+        </section>
+      )}
+
+      {outcome === null ? null : (
+        <Notice tone="ok" live>
+          {t(outcome, { count: mailedTo ?? 0 })}
+        </Notice>
+      )}
+
+      {failure === null ? null : (
+        <Notice tone="danger" live>
+          {t(failureMessageKey(failure, failureKeys, "news.errors.unknown"))}
+        </Notice>
+      )}
+
+      <footer className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setOutcome(null);
+            void publication.submit(item.id, {
+              published: true,
+              visibility,
+              ...(mailable ? { sendEmail } : {}),
+            });
+          }}
+          className={PRIMARY_BUTTON}
+        >
+          {publication.state.kind === "saving"
+            ? t("news.item.publishing")
+            : t("news.item.publish")}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            onEdit(item);
+          }}
+          className={SECONDARY_BUTTON}
+        >
+          {t("news.item.edit")}
+        </button>
+
+        {item.published ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setOutcome(null);
+              void publication.submit(item.id, { published: false });
+            }}
+            className={QUIET_BUTTON}
+          >
+            {publication.state.kind === "saving"
+              ? t("news.item.unpublishing")
+              : t("news.item.unpublish")}
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            // Confirmed because the item leaves the website with the row, and
+            // nothing here puts a removed news item back.
+            if (
+              window.confirm(
+                t("news.item.removeConfirm", { title: item.title }),
+              )
+            ) {
+              void removal.submit(item.id);
+            }
+          }}
+          className={QUIET_BUTTON}
+        >
+          {removal.state.kind === "saving"
+            ? t("news.item.removing")
+            : t("news.item.remove")}
+        </button>
+      </footer>
+    </article>
+  );
+}
+
+/**
+ * A stored instant as a calendar date in the reader's own language.
+ *
+ * The date and not the time, exactly as the website prints it: when a notice
+ * went up is information the board uses, and the minute it went up is not.
+ */
+function formatDate(iso: string, locale: string): string {
+  const value = new Date(iso);
+  return Number.isNaN(value.getTime())
+    ? iso
+    : new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "Europe/Stockholm",
+      }).format(value);
+}
