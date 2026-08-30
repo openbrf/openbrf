@@ -267,6 +267,19 @@ beforeAll(async () => {
   gateway = await startSmsGatewayTestServer();
   const encryption = app.get(FieldEncryptionService);
 
+  /*
+   * The association this suite needs, made the way every other suite in this
+   * directory makes its own: nothing seeds it. Created with no SMS settings,
+   * which is the ordinary state of an instance that has not bought text
+   * messages and the state the no-provider case below is about. An existing
+   * row is left as it is - a suite that ran first is entitled to its own.
+   */
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: { id: 1, name: "Brf Eksemplet" },
+    update: {},
+  });
+
   const addressOf = async (plaintext: string) =>
     await encryption.encrypt("person.email", plaintext);
 
@@ -728,7 +741,7 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
    * left a provider configured would lose it, and these suites share one
    * database in sequence.
    */
-  const before = await prisma.association.findUnique({
+  const before = (await prisma.association.findUnique({
     where: { id: 1 },
     select: {
       smsDriver: true,
@@ -736,7 +749,12 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
       smsGatewayTokenCipher: true,
       smsSenderName: true,
     },
-  });
+  })) ?? {
+    smsDriver: null,
+    smsGatewayUrl: null,
+    smsGatewayTokenCipher: null,
+    smsSenderName: null,
+  };
   const gatewaySettings = {
     smsDriver: "http-gateway",
     smsGatewayUrl: gateway.endpoint,
@@ -744,12 +762,6 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
     smsSenderName: "Ekhagen",
   };
 
-  /*
-   * Created when there is nothing there, like every other suite in this
-   * directory: nothing seeds the association, so whichever suite runs first
-   * makes it. Waiting for somebody else to would tie this file to the order
-   * the suites happen to run in, and to their sharing one database at all.
-   */
   await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet", ...gatewaySettings },
@@ -759,13 +771,10 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
   try {
     return await use();
   } finally {
-    // Put back exactly what was found: the settings if the row was already
-    // there, and no row at all if this helper is what made it.
-    if (before === null) {
-      await prisma.association.delete({ where: { id: 1 } });
-    } else {
-      await prisma.association.update({ where: { id: 1 }, data: before });
-    }
+    // The settings are lent and given back. The row itself is not deleted:
+    // it is a singleton other suites read, and this file is not the only
+    // thing that may be running.
+    await prisma.association.update({ where: { id: 1 }, data: before });
   }
 }
 
