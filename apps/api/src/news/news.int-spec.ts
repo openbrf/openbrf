@@ -737,28 +737,35 @@ async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
       smsSenderName: true,
     },
   });
-  if (before === null) {
-    // Updated rather than created: an association this helper invented would
-    // outlive the suite, and every test here needs a claimed instance anyway.
-    throw new Error(
-      "The association row is missing, so the SMS gateway cannot be configured for this suite.",
-    );
-  }
+  const gatewaySettings = {
+    smsDriver: "http-gateway",
+    smsGatewayUrl: gateway.endpoint,
+    smsGatewayTokenCipher: token.cipher,
+    smsSenderName: "Ekhagen",
+  };
 
-  await prisma.association.update({
+  /*
+   * Created when there is nothing there, like every other suite in this
+   * directory: nothing seeds the association, so whichever suite runs first
+   * makes it. Waiting for somebody else to would tie this file to the order
+   * the suites happen to run in, and to their sharing one database at all.
+   */
+  await prisma.association.upsert({
     where: { id: 1 },
-    data: {
-      smsDriver: "http-gateway",
-      smsGatewayUrl: gateway.endpoint,
-      smsGatewayTokenCipher: token.cipher,
-      smsSenderName: "Ekhagen",
-    },
+    create: { id: 1, name: "Brf Eksemplet", ...gatewaySettings },
+    update: gatewaySettings,
   });
 
   try {
     return await use();
   } finally {
-    await prisma.association.update({ where: { id: 1 }, data: before });
+    // Put back exactly what was found: the settings if the row was already
+    // there, and no row at all if this helper is what made it.
+    if (before === null) {
+      await prisma.association.delete({ where: { id: 1 } });
+    } else {
+      await prisma.association.update({ where: { id: 1 }, data: before });
+    }
   }
 }
 

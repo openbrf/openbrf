@@ -530,12 +530,18 @@ describe("the SMS test message", () => {
       sentTo: "+46701234567",
     });
 
-    // Normalized on the way out, because SmsMessage.to is E.164: a gateway
-    // handed the spacing the register stores would refuse it or send it
-    // somewhere else.
-    expect(sms.send).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "+46701234567" }),
-    );
+    /*
+     * The whole message, not a part of it. `to` is normalized because
+     * SmsMessage.to is E.164 and a gateway handed the register's spacing would
+     * refuse it or send it somewhere else; `body` is asserted because a
+     * regression handing over an English literal would still have called the
+     * translator, and this case exists to catch exactly that. The suite's
+     * translator returns the key it was given, so the key is the body.
+     */
+    expect(sms.send).toHaveBeenCalledWith({
+      to: "+46701234567",
+      body: "sms.test.body",
+    });
     // The recipient's own language, never the acting session's: the person
     // reading the message is the one whose locale it is written in.
     expect(i18n.translatorFor).toHaveBeenCalledWith("sv");
