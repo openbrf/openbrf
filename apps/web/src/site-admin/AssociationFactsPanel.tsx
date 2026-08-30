@@ -38,13 +38,13 @@ import {
 /** The form's own state: every value a string, as a form field holds it. */
 type FactsForm = Record<TextField, string> & {
   buildYear: string;
-  landLeasehold: FlagValue;
+  siteLeasehold: FlagValue;
   legalPersonOwners: FlagValue;
 };
 
 type TextField =
   | "propertyDesignation"
-  | "landLeaseholdNote"
+  | "siteLeaseholdNote"
   | "feePolicy"
   | "feeIncludes"
   | "transferFeePolicy"
@@ -64,8 +64,8 @@ const MAX_YEAR = 2200;
 const EMPTY: FactsForm = {
   propertyDesignation: "",
   buildYear: "",
-  landLeasehold: "",
-  landLeaseholdNote: "",
+  siteLeasehold: "",
+  siteLeaseholdNote: "",
   feePolicy: "",
   feeIncludes: "",
   transferFeePolicy: "",
@@ -81,8 +81,8 @@ function toForm(facts: AssociationFacts): FactsForm {
   return {
     propertyDesignation: facts.propertyDesignation ?? "",
     buildYear: facts.buildYear === null ? "" : String(facts.buildYear),
-    landLeasehold: flagValue(facts.landLeasehold),
-    landLeaseholdNote: facts.landLeaseholdNote ?? "",
+    siteLeasehold: flagValue(facts.siteLeasehold),
+    siteLeaseholdNote: facts.siteLeaseholdNote ?? "",
     feePolicy: facts.feePolicy ?? "",
     feeIncludes: facts.feeIncludes ?? "",
     transferFeePolicy: facts.transferFeePolicy ?? "",
@@ -103,8 +103,8 @@ function toInput(form: FactsForm): AssociationFactsInput {
   return {
     propertyDesignation: form.propertyDesignation,
     buildYear: form.buildYear === "" ? null : Number(form.buildYear),
-    landLeasehold: flagOf(form.landLeasehold),
-    landLeaseholdNote: form.landLeaseholdNote,
+    siteLeasehold: flagOf(form.siteLeasehold),
+    siteLeaseholdNote: form.siteLeaseholdNote,
     feePolicy: form.feePolicy,
     feeIncludes: form.feeIncludes,
     transferFeePolicy: form.transferFeePolicy,
@@ -136,7 +136,15 @@ export function AssociationFactsPanel(): ReactElement {
       }
       setLoadFailed(!result.ok);
       if (result.ok) {
-        setForm(toForm(result.value));
+        /*
+         * The first fill only. The fields are interactive from the first
+         * render, so a board member who started typing while this read was in
+         * flight keeps what they typed - every edit replaces the object, so
+         * still holding EMPTY is what "nothing typed yet" means.
+         */
+        setForm((current) =>
+          current === EMPTY ? toForm(result.value) : current,
+        );
       }
     })();
 
@@ -264,10 +272,10 @@ export function AssociationFactsPanel(): ReactElement {
         <label className={LABEL}>
           {t("siteAdmin.facts.fields.land")}
           <select
-            name="landLeasehold"
-            value={form.landLeasehold}
+            name="siteLeasehold"
+            value={form.siteLeasehold}
             onChange={(event) => {
-              set("landLeasehold", event.target.value);
+              set("siteLeasehold", event.target.value);
             }}
             className={FIELD}
           >
@@ -278,9 +286,9 @@ export function AssociationFactsPanel(): ReactElement {
         </label>
 
         {text(
-          "landLeaseholdNote",
+          "siteLeaseholdNote",
           2,
-          "siteAdmin.facts.fields.landLeaseholdNoteHint",
+          "siteAdmin.facts.fields.siteLeaseholdNoteHint",
         )}
         {text("feePolicy", 3, "siteAdmin.facts.fields.feePolicyHint")}
         {text("feeIncludes", 3)}

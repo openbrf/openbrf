@@ -24,7 +24,7 @@ import { DomainError } from "../http/domain-error";
 /** The free-text facts, in the order the board's screen asks for them. */
 export const FACT_TEXT_FIELDS = [
   "propertyDesignation",
-  "landLeaseholdNote",
+  "siteLeaseholdNote",
   "feePolicy",
   "feeIncludes",
   "transferFeePolicy",
@@ -38,7 +38,7 @@ export const FACT_TEXT_FIELDS = [
 export type FactTextField = (typeof FACT_TEXT_FIELDS)[number];
 
 /** The facts that are a yes or a no rather than a sentence. */
-export const FACT_FLAG_FIELDS = ["landLeasehold", "legalPersonOwners"] as const;
+export const FACT_FLAG_FIELDS = ["siteLeasehold", "legalPersonOwners"] as const;
 
 export type FactFlagField = (typeof FACT_FLAG_FIELDS)[number];
 
@@ -91,8 +91,8 @@ const MAX_TEXT = 4000;
 const UNRECORDED: AssociationFactsView = {
   propertyDesignation: null,
   buildYear: null,
-  landLeasehold: null,
-  landLeaseholdNote: null,
+  siteLeasehold: null,
+  siteLeaseholdNote: null,
   feePolicy: null,
   feeIncludes: null,
   transferFeePolicy: null,
@@ -222,8 +222,8 @@ function refusePersonalIdentityNumbers(data: AssociationFactsInput): void {
 function toView(row: {
   propertyDesignation: string | null;
   buildYear: number | null;
-  landLeasehold: boolean | null;
-  landLeaseholdNote: string | null;
+  siteLeasehold: boolean | null;
+  siteLeaseholdNote: string | null;
   feePolicy: string | null;
   feeIncludes: string | null;
   transferFeePolicy: string | null;
@@ -238,8 +238,8 @@ function toView(row: {
   return {
     propertyDesignation: row.propertyDesignation,
     buildYear: row.buildYear,
-    landLeasehold: row.landLeasehold,
-    landLeaseholdNote: row.landLeaseholdNote,
+    siteLeasehold: row.siteLeasehold,
+    siteLeaseholdNote: row.siteLeaseholdNote,
     feePolicy: row.feePolicy,
     feeIncludes: row.feeIncludes,
     transferFeePolicy: row.transferFeePolicy,

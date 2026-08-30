@@ -19,12 +19,14 @@ and at /broker for a cooperative that keeps its site in English.
 The page is generated from the recorded facts and from nothing else. Beside
 them it carries the association's name and organisation number, which are the
 cooperative's own legal-person facts, and the number of apartments, which is a
-count. Nothing on it comes from the statutory registers: the code that renders
-it imports neither the member register, the address book nor the encryption
-layer, so there is no path from this page to a resident's details rather than
-merely no query written today. The paid transactional broker extract is a
-different product for exactly that reason - it needs per-apartment facts this
-page may not hold.
+count. That count is the one value on the page no board member typed, and it is
+an aggregate over the apartment register: a number of rows, never a row.
+Nothing personal and nothing per-apartment reaches the page, and nothing could:
+the code that renders it imports neither the member register, the address book
+nor the encryption layer, so there is no path from this page to a resident's
+details rather than merely no query written today. The paid transactional
+broker extract is a different product for exactly that reason - it needs
+per-apartment facts this page may not hold.
 
 A question the board has not answered is not on the page. There is no empty
 label, no dash and no "not recorded": the person reading the page cannot go and

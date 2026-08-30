@@ -679,8 +679,8 @@ export async function listContactSubmissions(
 export type AssociationFactsInput = {
   readonly propertyDesignation?: string | null;
   readonly buildYear?: number | null;
-  readonly landLeasehold?: boolean | null;
-  readonly landLeaseholdNote?: string | null;
+  readonly siteLeasehold?: boolean | null;
+  readonly siteLeaseholdNote?: string | null;
   readonly feePolicy?: string | null;
   readonly feeIncludes?: string | null;
   readonly transferFeePolicy?: string | null;
@@ -718,11 +718,13 @@ export async function clearAssociationFacts(
   request: APIRequestContext,
   baseUrl: string,
 ): Promise<void> {
-  await saveAssociationFacts(request, baseUrl, {
+  // Required, so a fact added later fails to compile here rather than being
+  // quietly left recorded for whichever spec runs next.
+  const nothingRecorded: Required<AssociationFactsInput> = {
     propertyDesignation: null,
     buildYear: null,
-    landLeasehold: null,
-    landLeaseholdNote: null,
+    siteLeasehold: null,
+    siteLeaseholdNote: null,
     feePolicy: null,
     feeIncludes: null,
     transferFeePolicy: null,
@@ -732,5 +734,7 @@ export async function clearAssociationFacts(
     parking: null,
     storage: null,
     renovations: null,
-  });
+  };
+
+  await saveAssociationFacts(request, baseUrl, nothingRecorded);
 }

@@ -42,8 +42,8 @@ const factsSchema = z.object({
    * the upper end leaves room for a building that is not finished yet.
    */
   buildYear: z.number().int().min(1000).max(2200).nullable().optional(),
-  landLeasehold: flagFact,
-  landLeaseholdNote: textFact,
+  siteLeasehold: flagFact,
+  siteLeaseholdNote: textFact,
   feePolicy: textFact,
   feeIncludes: textFact,
   transferFeePolicy: textFact,

@@ -23,8 +23,8 @@ let chrome: SiteChrome;
 const NOTHING_RECORDED: AssociationFactsView = {
   propertyDesignation: null,
   buildYear: null,
-  landLeasehold: null,
-  landLeaseholdNote: null,
+  siteLeasehold: null,
+  siteLeaseholdNote: null,
   feePolicy: null,
   feeIncludes: null,
   transferFeePolicy: null,
@@ -143,10 +143,10 @@ describe("a recorded fact", () => {
     // "Tomträtt: Ja" is a row a reader has to interpret. The value states the
     // fact, so it stands on its own wherever it is copied to.
     expect(
-      renderBrokerPage(chrome, withFacts({ landLeasehold: true })),
+      renderBrokerPage(chrome, withFacts({ siteLeasehold: true })),
     ).toContain("Föreningen innehar marken med tomträtt");
     expect(
-      renderBrokerPage(chrome, withFacts({ landLeasehold: false })),
+      renderBrokerPage(chrome, withFacts({ siteLeasehold: false })),
     ).toContain("Föreningen äger marken");
     expect(
       renderBrokerPage(chrome, withFacts({ legalPersonOwners: false })),

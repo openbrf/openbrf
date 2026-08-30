@@ -31,7 +31,7 @@ test.describe.configure({ mode: "serial" });
 const FACTS = {
   propertyDesignation: "Talgoxen 4",
   buildYear: 1948,
-  landLeasehold: false,
+  siteLeasehold: false,
   feeIncludes: "Värme, vatten och bredband ingår i avgiften.",
   transferFeePolicy: "2,5 % av prisbasbeloppet, betalas av köparen.",
   legalPersonOwners: false,

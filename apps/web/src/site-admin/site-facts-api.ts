@@ -22,8 +22,8 @@ import { apiRequest, type ApiResult } from "../api/client";
 export interface AssociationFacts {
   propertyDesignation: string | null;
   buildYear: number | null;
-  landLeasehold: boolean | null;
-  landLeaseholdNote: string | null;
+  siteLeasehold: boolean | null;
+  siteLeaseholdNote: string | null;
   feePolicy: string | null;
   feeIncludes: string | null;
   transferFeePolicy: string | null;

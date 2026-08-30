@@ -29,8 +29,8 @@ vi.mock("./site-facts-api", () => ({
 const NOTHING_RECORDED: AssociationFacts = {
   propertyDesignation: null,
   buildYear: null,
-  landLeasehold: null,
-  landLeaseholdNote: null,
+  siteLeasehold: null,
+  siteLeaseholdNote: null,
   feePolicy: null,
   feeIncludes: null,
   transferFeePolicy: null,
@@ -119,7 +119,7 @@ describe("the three-way answer", () => {
       expect(saveAssociationFacts).toHaveBeenCalled();
     });
     expect(saveAssociationFacts.mock.calls[0]?.[0]).toMatchObject({
-      landLeasehold: false,
+      siteLeasehold: false,
       legalPersonOwners: null,
     });
   });
@@ -195,5 +195,30 @@ describe("what the board is told afterwards", () => {
     await waitFor(() => {
       expect(screen.getByText(/kunde inte läsas just nu/)).toBeTruthy();
     });
+  });
+});
+
+describe("a read that lands after the board has started typing", () => {
+  it("keeps what was typed rather than replacing it with the stored facts", async () => {
+    // The fields are interactive from the first render, so the read can land
+    // second. What the board typed is the newer of the two and has to win: the
+    // alternative is a form that quietly discards a sentence somebody wrote.
+    let land: (result: unknown) => void = () => undefined;
+    fetchAssociationFacts.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve;
+      }),
+    );
+
+    render(<AssociationFactsPanel />);
+    const buildYear = screen.getByLabelText(/^Byggår/);
+    await userEvent.type(buildYear, "1948");
+
+    land({ ok: true, value: recorded({ buildYear: 1911 }) });
+
+    await waitFor(() => {
+      expect(fetchAssociationFacts).toHaveBeenCalled();
+    });
+    expect(buildYear).toHaveProperty("value", "1948");
   });
 });

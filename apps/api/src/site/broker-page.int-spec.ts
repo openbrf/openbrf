@@ -173,8 +173,8 @@ function saveFacts(cookie: string, facts: object) {
 const NOTHING_RECORDED: Required<AssociationFactsInput> = {
   propertyDesignation: null,
   buildYear: null,
-  landLeasehold: null,
-  landLeaseholdNote: null,
+  siteLeasehold: null,
+  siteLeaseholdNote: null,
   feePolicy: null,
   feeIncludes: null,
   transferFeePolicy: null,
@@ -427,16 +427,28 @@ describe("the page an association has before it has recorded anything", () => {
   });
 
   it("counts the apartments rather than listing them", async () => {
-    // Against the live count rather than against this suite's two: the local
-    // database is shared, and a hard number would make this test about which
-    // other suite ran first.
-    const total = await prisma.apartment.count();
-    expect(total).toBeGreaterThanOrEqual(2);
+    /*
+     * Against the live count rather than against this suite's two, because the
+     * local database is shared. Counted either side of the request as well: a
+     * suite running beside this one can add an apartment between the count and
+     * the render, and the page is then entitled to either number. What is
+     * being asserted is that the page carries a count at all and never an
+     * apartment - not which number somebody else left behind.
+     */
+    const before = await prisma.apartment.count();
+    expect(before).toBeGreaterThanOrEqual(2);
 
     const response = await inject({ method: "GET", url: "/maklarinfo" });
+    const after = await prisma.apartment.count();
 
     expect(response.body).toContain("Antal lägenheter");
-    expect(response.body).toContain(`<dd><p>${String(total)}</p></dd>`);
+    const shown = /<dd><p>(\d+)<\/p><\/dd>/.exec(
+      response.body.slice(response.body.indexOf("Antal lägenheter")),
+    );
+    expect(shown, "the page carries an apartment count").not.toBeNull();
+    const rendered = Number(shown?.[1]);
+    expect(rendered).toBeGreaterThanOrEqual(Math.min(before, after));
+    expect(rendered).toBeLessThanOrEqual(Math.max(before, after));
     // The count is the whole of what this page takes from the register's side
     // of the line. An apartment number on it would be the line crossed.
     expect(response.body).not.toContain("1001");
@@ -476,7 +488,7 @@ describe("the facts the board records", () => {
       ...NOTHING_RECORDED,
       propertyDesignation: "Talgoxen 4",
       buildYear: 1948,
-      landLeasehold: false,
+      siteLeasehold: false,
       feeIncludes: "Värme, vatten och bredband.",
       transferFeePolicy: "2,5 % av prisbasbeloppet, betalas av köparen.",
       legalPersonOwners: false,
@@ -626,11 +638,19 @@ describe("the boundary the page rests on", () => {
     const offenders: string[] = [];
     for (const name of brokerPath) {
       const source = readFileSync(path(name), "utf8");
+      /*
+       * Every specifier the file imports, however it is spelled. Matching only
+       * "../<module>/" would miss a barrel - "../registers" - and anything
+       * reached from a different depth or through an alias, which is a
+       * narrower assertion than the claim above it.
+       */
+      const specifiers = [
+        ...source.matchAll(/(?:from|import)\s+["']([^"']+)["']/g),
+      ]
+        .map((match) => match[1])
+        .filter((one): one is string => one !== undefined);
       for (const module of forbidden) {
-        if (
-          source.includes(`"../${module}/`) ||
-          source.includes(`'../${module}/`)
-        ) {
+        if (specifiers.some((one) => one.split("/").includes(module))) {
           offenders.push(`${name} -> ${module}`);
         }
       }

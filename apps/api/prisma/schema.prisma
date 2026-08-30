@@ -1756,11 +1756,11 @@ model AssociationFacts {
   /// rather than owning it. Null is "not recorded" and is not the same answer
   /// as false: a broker reading "the association owns the land" needs the
   /// board to have said so.
-  landLeasehold Boolean?
+  siteLeasehold Boolean?
 
   /// The terms of the leasehold, when there is one: the ground rent and when
   /// it is next renegotiated.
-  landLeaseholdNote String?
+  siteLeaseholdNote String?
 
   /// How the fee (avgift) is set and when it was last changed.
   feePolicy String?

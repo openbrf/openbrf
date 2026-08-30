@@ -69,7 +69,7 @@ type BrokerLabelKey =
   | "propertyDesignation"
   | "buildYear"
   | "land"
-  | "landLeaseholdNote"
+  | "siteLeaseholdNote"
   | "parking"
   | "storage"
   | "renovations"
@@ -172,15 +172,15 @@ function brokerGroups(chrome: SiteChrome, input: BrokerPageInput): FactGroup[] {
         ),
         ...row(
           label("land"),
-          facts.landLeasehold === null
+          facts.siteLeasehold === null
             ? null
             : t(
-                facts.landLeasehold
+                facts.siteLeasehold
                   ? "site.broker.values.leasehold"
                   : "site.broker.values.ownedLand",
               ),
         ),
-        ...row(label("landLeaseholdNote"), facts.landLeaseholdNote),
+        ...row(label("siteLeaseholdNote"), facts.siteLeaseholdNote),
         ...row(label("parking"), facts.parking),
         ...row(label("storage"), facts.storage),
         ...row(label("renovations"), facts.renovations),

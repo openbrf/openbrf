@@ -316,9 +316,10 @@ sitemap or metadata machinery.
       the fee is set and what it covers, the transfer and pledge fees, whether
       a legal person may be a member, parking, storage and renovations. The
       board records them, and the page omits every question it has not
-      answered rather than printing an empty one. Nothing on the page comes
-      from the statutory registers - the only value not typed by a board member
-      is how many apartments the association has, which is a count
+      answered rather than printing an empty one. Nothing personal and
+      nothing per-apartment reaches it - the only value no board member typed
+      is how many apartments the association has, an aggregate over the
+      apartment register
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an

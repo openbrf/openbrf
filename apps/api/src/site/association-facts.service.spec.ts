@@ -22,8 +22,8 @@ const STORED = {
   id: 1,
   propertyDesignation: null,
   buildYear: null,
-  landLeasehold: null,
-  landLeaseholdNote: null,
+  siteLeasehold: null,
+  siteLeaseholdNote: null,
   feePolicy: null,
   feeIncludes: null,
   transferFeePolicy: null,
@@ -86,7 +86,7 @@ describe("reading facts nobody has recorded", () => {
     const facts = await service.read();
 
     expect(facts.propertyDesignation).toBeNull();
-    expect(facts.landLeasehold).toBeNull();
+    expect(facts.siteLeasehold).toBeNull();
     expect(facts.updatedAt).toBeNull();
   });
 });
@@ -130,10 +130,10 @@ describe("what a save keeps", () => {
     // different answers to a broker, and false must not collapse into null.
     const { service, associationFacts } = build();
 
-    await service.save({ landLeasehold: false, legalPersonOwners: null });
+    await service.save({ siteLeasehold: false, legalPersonOwners: null });
 
     expect(associationFacts.upsert.mock.calls[0]?.[0]).toMatchObject({
-      update: { landLeasehold: false, legalPersonOwners: null },
+      update: { siteLeasehold: false, legalPersonOwners: null },
     });
   });
 });
