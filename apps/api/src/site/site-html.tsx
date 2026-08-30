@@ -421,7 +421,8 @@ function renderMenuLink(link: SiteMenuLink): ReactElement {
  * One document, chrome and all.
  *
  * Exported so that everything the website answers with goes through this one
- * function: the pages, the news index, an article, and the refusal. A second
+ * function: the pages, the news index, an article, the broker page, and the
+ * refusal. A second
  * shell would be a second header and footer to keep in step, and the first time
  * they disagreed the difference would be visible from the outside.
  */

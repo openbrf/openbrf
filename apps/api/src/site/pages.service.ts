@@ -79,6 +79,13 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   // opening is worse than an address that was never free.
   "nyheter",
   "news",
+  // The broker information page is generated from the association's recorded
+  // facts and is answered at both of these addresses, so a page written at
+  // either would never be reached. Both spellings are claimed rather than only
+  // the Swedish one: a cooperative keeping its site in English links /broker,
+  // and the generated page shadows a written one at whichever it links.
+  "maklarinfo",
+  "broker",
 ]);
 
 /**

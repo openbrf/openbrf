@@ -668,3 +668,73 @@ export async function listContactSubmissions(
   await expectOk(response, "GET /api/contact-submissions");
   return (await response.json()) as readonly ContactSubmissionRow[];
 }
+
+/**
+ * The facts a broker asks the association about.
+ *
+ * Every field optional and nullable, because that is what the endpoint takes:
+ * an absent field is one the request does not touch, and a null is the board
+ * clearing a fact off the public page.
+ */
+export type AssociationFactsInput = {
+  readonly propertyDesignation?: string | null;
+  readonly buildYear?: number | null;
+  readonly siteLeasehold?: boolean | null;
+  readonly siteLeaseholdNote?: string | null;
+  readonly feePolicy?: string | null;
+  readonly feeIncludes?: string | null;
+  readonly transferFeePolicy?: string | null;
+  readonly pledgeFeePolicy?: string | null;
+  readonly legalPersonOwners?: boolean | null;
+  readonly legalPersonOwnersNote?: string | null;
+  readonly parking?: string | null;
+  readonly storage?: string | null;
+  readonly renovations?: string | null;
+};
+
+/**
+ * Records the association's facts, as the board.
+ *
+ * Here rather than driven through the board's own screen because the criterion
+ * this serves is about the page a broker reads: the facts have to be recorded
+ * before there is anything to read, and the form that records them has its own
+ * coverage in the component tests. Driving the screen would also cost a browser
+ * sign-in the spec does not otherwise need, and Better Auth's twenty requests a
+ * minute are budgeted per test.
+ */
+export async function saveAssociationFacts(
+  request: APIRequestContext,
+  baseUrl: string,
+  facts: AssociationFactsInput,
+): Promise<void> {
+  const response = await request.put(`${baseUrl}/api/site/facts`, {
+    data: facts,
+  });
+  await expectOk(response, "PUT /api/site/facts");
+}
+
+/** Every fact back to unrecorded, so one spec cannot decide another's page. */
+export async function clearAssociationFacts(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<void> {
+  // Required, so a fact added later fails to compile here rather than being
+  // quietly left recorded for whichever spec runs next.
+  const nothingRecorded: Required<AssociationFactsInput> = {
+    propertyDesignation: null,
+    buildYear: null,
+    siteLeasehold: null,
+    siteLeaseholdNote: null,
+    feePolicy: null,
+    feeIncludes: null,
+    transferFeePolicy: null,
+    pledgeFeePolicy: null,
+    legalPersonOwners: null,
+    legalPersonOwnersNote: null,
+    parking: null,
+    storage: null,
+    renovations: null,
+  };
+
+  await saveAssociationFacts(request, baseUrl, nothingRecorded);
+}

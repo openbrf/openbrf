@@ -93,6 +93,51 @@ export class SiteController {
   }
 
   /**
+   * The broker information page.
+   *
+   * A generated page rather than one the board wrote, so it has a route of its
+   * own instead of a row in the page table: what stands on it is the facts the
+   * board recorded on its own screen, and there is nothing here for anyone to
+   * edit as a page. Both addresses answer with the same document, and both are
+   * reserved slugs for that reason - a static path outranks the page parameter
+   * below, so a page written at either would simply never be reached.
+   *
+   * Declared above the parameter route, like the preview route on the board's
+   * own controller, so the word is never read as a page's address.
+   *
+   * There is no member-only variant and no visibility to set. A broker page
+   * that only members could read would be a broker page nobody asks for, and
+   * the facts on it are the association's own account of itself. The menu
+   * around it is still the visitor's own, like the front page's: the page is
+   * public to everybody, and the chrome is what each reader is entitled to.
+   */
+  @Get(["maklarinfo", "broker"])
+  async broker(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    /*
+     * An instance nobody has claimed publishes nothing. The front page sends
+     * such a visitor to the setup wizard, which is right for the address an
+     * operator types and wrong for this one: a deep link a broker followed is
+     * answered with the website's own not-found document rather than with a
+     * form asking them to claim somebody else's housing cooperative.
+     */
+    const html = (await this.setup.state()).setupRequired
+      ? null
+      : await this.renderer.broker(acceptLanguage(request), {
+          hasSession: await hasSession(this.auth, request),
+        });
+
+    if (html === null) {
+      await this.sendNotFound(request, reply);
+      return;
+    }
+
+    this.send(reply, 200, html);
+  }
+
+  /**
    * One page by its address.
    *
    * Three different situations end here with the same answer: the address names

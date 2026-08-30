@@ -530,15 +530,17 @@ describe("the menu a visitor is served", () => {
     expect(response.body).toContain(titles.child);
   });
 
-  it("leaves out a generated page whose feature this instance has not got", async () => {
+  it("offers the broker information page, which every claimed instance has", async () => {
+    const label = `Mäklarinfo ${suffix}`;
     await addEntry(boardCookie, {
       kind: "GENERATED",
-      label: `Mäklarinfo ${suffix}`,
+      label,
       generatedKey: "broker",
     });
 
     const response = await inject({ method: "GET", url: `/${slugs.home}` });
-    expect(response.body).not.toContain(`Mäklarinfo ${suffix}`);
+    expect(response.body).toContain(label);
+    expect(response.body).toContain('href="/maklarinfo"');
   });
 
   it("offers the news index, which this instance serves", async () => {

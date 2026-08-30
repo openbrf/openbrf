@@ -235,6 +235,9 @@ test("no spec addresses the client at the instance root", async () => {
     // Reads the association's own website, which really is at the root: its
     // public forms are pages a visitor with no account opens by name.
     "24-public-forms.spec.ts",
+    // The broker information page is at the instance root, like the front
+    // page: it is the association's own website and not the application.
+    "25-broker-page.spec.ts",
     // The menu is chrome on the website itself, so the only place to read it
     // is the website's own address.
     "26-site-menu.spec.ts",

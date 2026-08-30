@@ -16,9 +16,10 @@ association's own website is there as well - the site answers at the domain
 root, the application is served under `/app`, and a page is rendered as plain
 HTML with no JavaScript, no third-party requests and no cookie of its own. The board
 writes those pages from the application now, with the publication guardrails
-inside the write path, and arranges the menu a visitor finds them through. What
-is still missing on the website is its documents. The project is not ready to
-hold your housing cooperative's data.
+inside the write path, arranges the menu a visitor finds them through, and
+answers a broker from the facts it has recorded. What is still missing on the
+website is its documents. The project is not ready to hold your housing
+cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -237,9 +238,10 @@ JavaScript, sets no cookies and makes no third-party requests - which also means
 no cookie banner. The board writes those pages now: text with emphasis and
 links, headings and pictures, each page published or not and public or for the
 members, with the publication guardrails inside the write path rather than
-beside it, and arranges the menu a visitor finds those pages through. What is
-still missing is the broker page and the remaining data blocks. Search engine
-optimisation is a non-goal: page titles, and no sitemap or metadata machinery.
+beside it, arranges the menu a visitor finds those pages through, and answers a
+broker from the facts it records itself. What is still missing is the remaining
+data blocks. Search engine optimisation is a non-goal: page titles, and no
+sitemap or metadata machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
@@ -309,7 +311,15 @@ optimisation is a non-goal: page titles, and no sitemap or metadata machinery.
       written to the audit log in the transaction that made it. Protected
       personal data never appears at all, because the public rendering path
       imports neither the registers, the address book nor the encryption layer - which a test asserts on the source rather than on a rendered page
-- [ ] Broker information page generated from association facts
+- [x] Broker information page generated from association facts: the property
+      designation and build year, whether the association owns its land, how
+      the fee is set and what it covers, the transfer and pledge fees, whether
+      a legal person may be a member, parking, storage and renovations. The
+      board records them, and the page omits every question it has not
+      answered rather than printing an empty one. Nothing personal and
+      nothing per-apartment reaches it - the only value no board member typed
+      is how many apartments the association has, an aggregate over the
+      apartment register
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an

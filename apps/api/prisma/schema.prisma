@@ -1715,3 +1715,82 @@ model NewsDelivery {
   @@index([newsId, status])
   @@map("news_delivery")
 }
+
+// The association's own facts, as a broker asks for them.
+// ---------------------------------------------------------------------------
+
+/// What a housing cooperative can say about itself to a broker or a buyer.
+///
+/// Service tier, and a table of its own rather than columns on Association:
+/// that model carries what the instance runs on - the SMTP credentials, the
+/// retention policy, the self-signup switch - and these are published prose the
+/// board writes for the street. Keeping them apart means the query that renders
+/// the public page selects from a table holding nothing operational.
+///
+/// One row, id 1, like Association. Every field is optional, because a board
+/// fills this in over weeks rather than in one sitting and a half-answered page
+/// is more use to a broker than none: an unrecorded fact is rendered as
+/// nothing at all on the public page, never as an empty label.
+///
+/// Monolingual (decision 59). Free text is stored exactly as the board wrote
+/// it and is never translated; the labels around it are chrome and are rendered
+/// in the association's own default language, so a page does not mix a Swedish
+/// answer under an English question.
+///
+/// Nothing here is derived from the statutory registers, and nothing here may
+/// become so. The page these facts render is the association's own account of
+/// itself; the per-apartment and per-person facts a transactional broker
+/// extract (maklarbild) needs are a different product and out of core.
+model AssociationFacts {
+  id Int @id @default(1)
+
+  /// The property's designation with Lantmateriet, e.g. "Eken 12".
+  propertyDesignation String?
+
+  /// The year the building was completed. An integer rather than free text so
+  /// a page cannot show "cirka 1949?" as though the association were unsure of
+  /// a fact a broker will read as certain.
+  buildYear Int?
+
+  /// Whether the association holds the land on a site leasehold (tomtratt)
+  /// rather than owning it. Null is "not recorded" and is not the same answer
+  /// as false: a broker reading "the association owns the land" needs the
+  /// board to have said so.
+  siteLeasehold Boolean?
+
+  /// The terms of the leasehold, when there is one: the ground rent and when
+  /// it is next renegotiated.
+  siteLeaseholdNote String?
+
+  /// How the fee (avgift) is set and when it was last changed.
+  feePolicy String?
+
+  /// What the fee covers - heating, water, broadband - and what it does not.
+  feeIncludes String?
+
+  /// The transfer fee (overlatelseavgift) and who pays it.
+  transferFeePolicy String?
+
+  /// The pledge fee (pantsattningsavgift) and who pays it.
+  pledgeFeePolicy String?
+
+  /// Whether the association accepts a legal person as a member. Null is "not
+  /// recorded"; the note carries the conditions when there are any.
+  legalPersonOwners Boolean?
+
+  legalPersonOwnersNote String?
+
+  /// Parking, garage places and how they are queued for.
+  parking String?
+
+  /// Storage: cellar and attic spaces, bicycle rooms, pram rooms.
+  storage String?
+
+  /// Renovations of note the association has carried out, and what is planned.
+  renovations String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("association_facts")
+}

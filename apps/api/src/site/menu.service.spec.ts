@@ -175,12 +175,6 @@ describe("the menu a visitor is served", () => {
     // by a newer version of the product than the one rendering it.
     const { service } = build([
       {
-        id: "1",
-        label: "Mäklarinfo",
-        kind: "GENERATED",
-        generatedKey: "broker",
-      },
-      {
         id: "2",
         label: "Något nytt",
         kind: "GENERATED",
@@ -206,6 +200,29 @@ describe("the menu a visitor is served", () => {
 
     await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual(entry);
     await expect(service.siteMenu(MEMBER)).resolves.toEqual(entry);
+  });
+
+  it("offers the broker information page, which every claimed instance has", async () => {
+    // The page is generated from the association's own facts and needs no
+    // setting turned on, so the entry is shown to anybody - a broker reading
+    // the site has no account, and is the reader it is there for.
+    const { service } = build([
+      {
+        id: "1",
+        label: "Mäklarinfo",
+        kind: "GENERATED",
+        generatedKey: "broker",
+      },
+    ]);
+
+    await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([
+      {
+        label: "Mäklarinfo",
+        href: "/maklarinfo",
+        external: false,
+        children: [],
+      },
+    ]);
   });
 
   it("offers the account request form only while it is open and unused", async () => {

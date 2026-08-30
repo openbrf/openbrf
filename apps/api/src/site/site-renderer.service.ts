@@ -5,8 +5,10 @@ import { I18nService } from "../i18n/i18n.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { mediaUrl } from "../media/media.service";
 import { ThemeService } from "../themes/theme.service";
+import { AssociationFactsService } from "./association-facts.service";
 import { MenuService } from "./menu.service";
 import { hasBlock } from "./page-content";
+import { renderBrokerPage } from "./site-broker";
 import { buildSiteStylesheet } from "./site-css";
 import type { SiteFormKind, SiteFormState, SiteIssueType } from "./site-forms";
 import { renderNotFound, renderPage, type SiteChrome } from "./site-html";
@@ -85,6 +87,7 @@ export class SiteRenderer {
     private readonly menu: MenuService,
     private readonly issueTypes: IssueTypeService,
     private readonly news: SiteNewsService,
+    private readonly facts: AssociationFactsService,
   ) {}
 
   /**
@@ -239,6 +242,70 @@ export class SiteRenderer {
   }
 
   /**
+   * The broker information page, or nothing at all.
+   *
+   * Nothing only when the instance holds no association row at all - a wizard
+   * that has not reached its first step - and the caller answers that with the
+   * website's own not-found document. It refuses an unclaimed instance a step
+   * earlier, for the same reason.
+   *
+   * A claimed instance always has this page, even before its board has recorded
+   * a single fact: it then carries the association's name and its organisation
+   * number, which is more than a broker gets from a 404, and it does not make
+   * the address start existing halfway through the board's first session.
+   *
+   * The page is public whoever asks - there is no member-only variant of it -
+   * but the visit is still an argument, because the menu around it is the same
+   * chrome every other page carries: a member reading the broker page is shown
+   * the entries a member may open, exactly as on the front page. What stands
+   * on the page itself does not depend on it, and the page carries no form, so
+   * the session is the only part of the visit this answer reads.
+   *
+   * Four reads, and the select lists are the boundary exactly as in chrome()
+   * below. The name and the organisation number are the cooperative's own
+   * legal-person facts, the recorded facts are what the board typed, and the
+   * apartment count is a count. Nothing per-apartment and nothing per-person is
+   * selected, and nothing here could be: this module imports neither the
+   * registers, the address book nor the encryption layer, which
+   * site-boundary.spec.ts holds as a property of the module graph.
+   */
+  async broker(
+    acceptLanguage: string | undefined,
+    visit: SiteVisit,
+  ): Promise<string | null> {
+    const [chrome, association, facts, apartmentCount] = await Promise.all([
+      // The association's own language, not the visitor's. The facts are stored
+      // as the board wrote them and are never translated, so the labels around
+      // them are rendered in the language the answers are already in.
+      this.chrome(acceptLanguage, visit.hasSession, "association"),
+      this.prisma.association.findUnique({
+        where: { id: 1 },
+        select: { organizationNumber: true },
+      }),
+      this.facts.read(),
+      /*
+       * How many apartments the association has: a count, and the only value on
+       * this page derived from data the website does not own. It is a fact
+       * about the association - printed in its annual report, asked for by
+       * every broker - while the register is the list, and no part of the list
+       * crosses this line. A query that selected rows rather than counted them
+       * would be the first step over it.
+       */
+      this.prisma.apartment.count(),
+    ]);
+
+    if (association === null) {
+      return null;
+    }
+
+    return renderBrokerPage(chrome, {
+      organizationNumber: association.organizationNumber,
+      apartmentCount,
+      facts,
+    });
+  }
+
+  /**
    * Reads exactly what the website is allowed to know about the association -
    * what it is called, its mark, its accent, its language and whether it takes
    * account requests - plus its privacy notice and the menu the board
@@ -253,10 +320,18 @@ export class SiteRenderer {
    * extra round trip on a page that is already reading four things is the
    * cheaper half of the trade against asking the association the same question
    * twice.
+   *
+   * Whose language it is rendered in is the caller's to say. A page the board
+   * wrote is answered in the visitor's, because a cooperative that keeps an
+   * English page and a Swedish one should serve each reader the one they asked
+   * for. A generated page is answered in the association's own, because its
+   * labels sit beside stored text that is never translated. The menu is the
+   * board's own words either way, so it reads the same in both.
    */
   private async chrome(
     acceptLanguage: string | undefined,
     hasSession: boolean,
+    language: "visitor" | "association" = "visitor",
   ): Promise<SiteChrome> {
     const [association, rendering, privacyNoticePath] = await Promise.all([
       this.prisma.association.findUnique({
@@ -281,7 +356,10 @@ export class SiteRenderer {
       selfSignupEnabled: association?.selfSignupEnabled ?? false,
     });
 
-    const locale = visitorLocale(acceptLanguage, association?.defaultLocale);
+    const locale =
+      language === "association"
+        ? this.i18n.resolveLocale(association?.defaultLocale)
+        : visitorLocale(acceptLanguage, association?.defaultLocale);
 
     return {
       t: this.i18n.translatorFor(locale),
