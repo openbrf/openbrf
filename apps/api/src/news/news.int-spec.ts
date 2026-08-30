@@ -43,6 +43,9 @@ import { NewsWriteService } from "./news-write.service";
 const baseEnv = loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
+/** Whether this suite is what created the association, and so owes its removal. */
+let associationCreated = false;
+
 let prisma: PrismaService;
 let writes: NewsWriteService;
 let mailer: NewsMailerService;
@@ -274,11 +277,16 @@ beforeAll(async () => {
    * messages and the state the no-provider case below is about. An existing
    * row is left as it is - a suite that ran first is entitled to its own.
    */
-  await prisma.association.upsert({
+  const associationBefore = await prisma.association.findUnique({
     where: { id: 1 },
-    create: { id: 1, name: "Brf Eksemplet" },
-    update: {},
+    select: { id: true },
   });
+  if (associationBefore === null) {
+    associationCreated = true;
+    await prisma.association.create({
+      data: { id: 1, name: "Brf Eksemplet" },
+    });
+  }
 
   const addressOf = async (plaintext: string) =>
     await encryption.encrypt("person.email", plaintext);
@@ -471,6 +479,16 @@ afterAll(async () => {
         () =>
           prisma.user.deleteMany({ where: { personId: { in: personIds } } }),
         () => prisma.person.deleteMany({ where: { id: { in: personIds } } }),
+        /*
+         * Only when this suite is what made it. The association is a singleton
+         * the whole database shares, so a suite that found one leaves it for
+         * whoever put it there - and one that made it owes its removal, or the
+         * next suite inherits a fixture nobody chose.
+         */
+        () =>
+          associationCreated
+            ? prisma.association.deleteMany({ where: { id: 1 } })
+            : Promise.resolve(),
       ]);
     }
   } finally {
