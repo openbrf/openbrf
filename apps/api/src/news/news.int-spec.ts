@@ -500,9 +500,10 @@ describe("who a mailing would reach", () => {
 
     expect(response.statusCode).toBe(200);
     // Other suites leave people in the register, so this asserts the derivation
-    // rather than a total: the one member this suite created with an address is
-    // counted, and its resident, its mover-out and its member with no address
-    // are not.
+    // rather than a total: both members this suite created with an address are
+    // counted - the one it also texts and the one reachable by post only - and
+    // its resident, its mover-out and its member with no address are not. A
+    // number is what the SMS ledger turns on; an address is what this one does.
     const recipients = await prisma.person.findMany({
       where: {
         id: { in: personIds },
@@ -516,7 +517,9 @@ describe("who a mailing would reach", () => {
       },
       select: { id: true },
     });
-    expect(recipients.map((one) => one.id)).toEqual([member.personId]);
+    expect(recipients.map((one) => one.id).sort()).toEqual(
+      [member.personId, memberWithoutPhone.personId].sort(),
+    );
   });
 });
 
