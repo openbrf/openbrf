@@ -324,7 +324,9 @@ sitemap or metadata machinery.
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
-      apply-for-account page (a setting, on by default)
+      apply-for-account page (a setting, off by default: an instance holding a
+      statutory register does not accept open registration until its board says
+      so)
 
 ### Plugins and themes
 
