@@ -12,6 +12,7 @@ export type {
   ApartmentNumberRow,
   GenerateApartmentNumbersInput,
 } from "./apartment-numbering.ts";
+export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,

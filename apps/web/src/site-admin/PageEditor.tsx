@@ -1,3 +1,4 @@
+import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 import { lazy, Suspense, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
@@ -633,6 +634,7 @@ export function PageEditor({
                     {t("siteAdmin.editor.documentBinder")}
                     <input
                       className={FIELD}
+                      maxLength={PAGE_CONTENT_LIMITS.category}
                       value={block.category ?? ""}
                       onChange={(event) => {
                         const category = event.target.value;
@@ -696,6 +698,7 @@ export function PageEditor({
                           })}
                           <input
                             className={FIELD}
+                            maxLength={PAGE_CONTENT_LIMITS.faqQuestion}
                             value={item.question}
                             onChange={(event) => {
                               setEntries(
@@ -727,6 +730,7 @@ export function PageEditor({
                            */}
                           <input
                             className={FIELD}
+                            maxLength={PAGE_CONTENT_LIMITS.runText}
                             value={runsToText(item.answer)}
                             onChange={(event) => {
                               setEntries(
@@ -771,6 +775,12 @@ export function PageEditor({
                       <button
                         type="button"
                         className={SECONDARY_BUTTON}
+                        // A page the write path would refuse is not a page the
+                        // board should be able to build and only be told about
+                        // when they press save.
+                        disabled={
+                          block.items.length >= PAGE_CONTENT_LIMITS.faqItems
+                        }
                         onClick={() => {
                           setEntries(
                             replaceBlock(

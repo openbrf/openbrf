@@ -1,3 +1,4 @@
+import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 /**
@@ -256,22 +257,13 @@ export interface PageContent {
 
 export const PAGE_CONTENT_VERSION = 1;
 
-/** How much a body may hold. Bounds against abuse, not design guidance. */
-const LIMITS = {
-  blocks: 200,
-  runsPerBlock: 200,
-  runText: 5000,
-  link: 2000,
-  alt: 300,
-  caption: 500,
-  /** How many news items one teaser block may ask for. */
-  teaserCount: 10,
-  /** The binder a document list narrows to. The archive's own bound. */
-  category: 80,
-  /** How many questions one FAQ block may hold. */
-  faqItems: 50,
-  faqQuestion: 300,
-} as const;
+/**
+ * How much a body may hold. Bounds against abuse, not design guidance.
+ *
+ * Shared with the editor rather than declared here, so the screen cannot offer
+ * what this schema would refuse.
+ */
+const LIMITS = PAGE_CONTENT_LIMITS;
 
 /**
  * Whether a URL may be published.

@@ -73,6 +73,20 @@ export interface BoardSeat {
   consents: readonly ConsentDates[];
 }
 
+/**
+ * What the website calls each position.
+ *
+ * Written out rather than built from the value at the point of rendering. A
+ * template key cannot be checked, so a position added to the schema would have
+ * printed its own enum name onto a page anybody can open; this fails to compile
+ * until somebody has decided what to call it.
+ */
+export const POSITION_LABEL_KEYS = {
+  CHAIR: "site.roster.positions.CHAIR",
+  BOARD_MEMBER: "site.roster.positions.BOARD_MEMBER",
+  DEPUTY_BOARD_MEMBER: "site.roster.positions.DEPUTY_BOARD_MEMBER",
+} satisfies Record<BoardPositionType, string>;
+
 /** One line of the published roster. A name and a position, and nothing else. */
 export interface BoardRosterEntry {
   position: BoardPositionType;

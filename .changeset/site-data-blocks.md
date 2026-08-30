@@ -16,18 +16,19 @@ this afternoon, a consent withdrawn today takes a name off it today, and a fee
 policy corrected on the board's own screen is corrected everywhere it stands -
 none of it an edit to a page.
 
-A document list follows the archive rather than the page it sits on. The archive
-already decides who may read a document, per document, and the block asks it
-with the reader's own account rather than with "is somebody signed in": a
-resident who is not a member is offered the public shelf, because the minutes
-and the annual report belong to the members. The board's own shelf is on no page
-at all - every serve of one of those files is written to the audit log and gated
-by a capability, and the website is the one surface in the product that has
-neither, so a link to one would be an invitation nobody reading the page could
-follow and a hint about what the board holds. The board reads that shelf in the
-archive, signed in as the board. A block can be narrowed to one binder, and one
-that names a binder nothing is filed in renders as nothing rather than as an
-empty heading.
+A document list follows the archive rather than the page it sits on. The
+archive already decides who may read a document, per document, and the block
+asks it with the reader's own account rather than with "is somebody signed in":
+a resident who is not a member is offered the public shelf, because the archive
+gives every document its own audience and the minutes and the annual report are
+kept for the members unless a board publishes one deliberately. The board's own
+shelf is on no page at all - every serve of one of those files is written to
+the audit log and gated by a capability, and the website is the one surface in
+the product that has neither, so a link to one would be an invitation nobody
+reading the page could follow and a hint about what the board holds. The board
+reads that shelf in the archive, signed in as the board. A block can be
+narrowed to one binder, and one that names a binder nothing is filed in renders
+as nothing rather than as an empty heading.
 
 A board roster publishes a name and an elected position, and nothing else. A
 person appears only with their own recorded publication consent for exactly that
@@ -47,7 +48,7 @@ from, rendered by the same code onto a page the board arranged itself. One
 account of the association rather than two that could drift, and a question
 nobody has answered is on neither.
 
-Questions and answers are the one block with content of its own, which is why it
+The FAQ is the one block with content of its own, which is why it
 needs no screen behind it: a FAQ is the board's own writing about its own house,
 written on the page it is published on. It renders as a description list, so a
 screen reader announces each question with its answer, and every answer is on

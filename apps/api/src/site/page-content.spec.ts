@@ -623,6 +623,27 @@ describe("the FAQ block", () => {
     });
   });
 
+  it("refuses an answer carrying a link this platform will not publish", () => {
+    // The read path drops such a link; the write path has to refuse it. Without
+    // this, a regression that stripped it on save would pass the suite, and the
+    // board would be told the page was saved with the link they typed.
+    expect(() =>
+      submittedContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              {
+                question: "Var står stadgarna?",
+                answer: [{ text: "Klicka", link: "javascript:steal()" }],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("puts both halves in front of the guardrail scan", () => {
     // A question is as good a place to paste a personal identity number into
     // as an answer, and both are published.

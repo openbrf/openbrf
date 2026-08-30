@@ -41,6 +41,9 @@ import {
 loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
+/** The association facts as this suite found them, or null for no row. */
+let factsFound: { buildYear: number | null } | null = null;
+
 let prisma: PrismaService;
 
 const suffix = runSuffix();
@@ -325,6 +328,15 @@ beforeAll(async () => {
     requiredCapability: "documents:manage",
   });
 
+  /*
+   * The facts row is one singleton the whole database shares, not a fixture
+   * this suite owns. Read what it holds first so the cleanup can put it back:
+   * a build year left behind here is a build year the next suite reads.
+   */
+  factsFound = await prisma.associationFacts.findUnique({
+    where: { id: 1 },
+    select: { buildYear: true },
+  });
   await prisma.associationFacts.upsert({
     where: { id: 1 },
     create: { id: 1, buildYear: 1948 },
@@ -398,6 +410,13 @@ afterAll(async () => {
     if (prisma !== undefined) {
       await cleanUp([
         () => prisma.page.deleteMany({ where: { slug: pageSlug } }),
+        () =>
+          factsFound === null
+            ? prisma.associationFacts.deleteMany({ where: { id: 1 } })
+            : prisma.associationFacts.update({
+                where: { id: 1 },
+                data: { buildYear: factsFound.buildYear },
+              }),
         // The document rows go with their files, by the cascade on the
         // reference.
         () =>

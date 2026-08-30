@@ -155,14 +155,29 @@ function latestForScope<Row extends ConsentDates>(
   rows: readonly Row[],
   scope: ConsentScope,
 ): Row | null {
-  return rows.reduce<Row | null>(
-    (newest, row) =>
-      row.scope !== scope
-        ? newest
-        : newest === null ||
-            row.grantedAt.getTime() > newest.grantedAt.getTime()
-          ? row
-          : newest,
-    null,
-  );
+  return rows.reduce<Row | null>((newest, row) => {
+    if (row.scope !== scope) {
+      return newest;
+    }
+    if (newest === null) {
+      return row;
+    }
+
+    const difference = row.grantedAt.getTime() - newest.grantedAt.getTime();
+    if (difference !== 0) {
+      return difference > 0 ? row : newest;
+    }
+
+    /*
+     * Two records of the same scope bearing the same instant, which happens
+     * when somebody withdraws and grants again on one day. The database
+     * promises no order between them, so without a rule here the answer would
+     * depend on the order the rows came back in.
+     *
+     * The withdrawal wins. What this decides is whether a name goes onto a page
+     * anybody can open, and of the two ways to be wrong, leaving a name off is
+     * the one that can be put right by asking again.
+     */
+    return row.withdrawnAt !== null ? row : newest;
+  }, null);
 }

@@ -2,7 +2,10 @@ import type { TFunction } from "i18next";
 import { Fragment, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { BoardRosterEntry } from "../board/board-roster";
+import {
+  type BoardRosterEntry,
+  POSITION_LABEL_KEYS,
+} from "../board/board-roster";
 import { APP_BASE_PATH } from "../http/app-base-path";
 import type { SiteMenu, SiteMenuLink } from "./menu.service";
 import type {
@@ -405,7 +408,7 @@ function renderDocuments(
           <p className="site-document-meta">
             {chrome.t("site.documents.file", {
               name: document.fileName,
-              size: fileSize(document.byteSize, chrome.locale),
+              size: fileSize(document.byteSize, chrome),
             })}
           </p>
         </li>
@@ -423,14 +426,18 @@ function renderDocuments(
  * wrong. The number is formatted for the reader's own language: a Swedish
  * reader is shown 1,2 MB and an English one 1.2 MB.
  */
-function fileSize(bytes: number, locale: string): string {
+function fileSize(bytes: number, chrome: SiteChrome): string {
   const kilobytes = bytes / 1000;
   if (kilobytes < 1000) {
     // Never zero. A file of a few hundred bytes exists, and "0 kB" reads as a
     // fault in the archive rather than as a small file.
-    return `${format(locale, Math.max(1, Math.round(kilobytes)), 0)} kB`;
+    return chrome.t("site.documents.kilobytes", {
+      size: format(chrome.locale, Math.max(1, Math.round(kilobytes)), 0),
+    });
   }
-  return `${format(locale, kilobytes / 1000, 1)} MB`;
+  return chrome.t("site.documents.megabytes", {
+    size: format(chrome.locale, kilobytes / 1000, 1),
+  });
 }
 
 function format(locale: string, value: number, decimals: number): string {
@@ -470,7 +477,7 @@ function renderBoardRoster(
           <li className="site-roster-entry" key={at}>
             <span className="site-roster-name">{entry.name}</span>
             <span className="site-roster-position">
-              {chrome.t(`site.roster.positions.${entry.position}`)}
+              {chrome.t(POSITION_LABEL_KEYS[entry.position])}
             </span>
           </li>
         ))}

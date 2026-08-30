@@ -78,6 +78,22 @@ describe("the published board roster", () => {
     ).toEqual([]);
   });
 
+  it("leaves a name off when a withdrawal and a grant share an instant", () => {
+    /*
+     * Somebody who withdrew and consented again on one day, so both rows carry
+     * the same grantedAt. The database promises no order between them, and the
+     * answer must not depend on which came back first: asserted both ways
+     * round, because a rule that holds in one order and not the other is the
+     * bug rather than the fix.
+     */
+    const sameDay = [withdrawn(JANUARY, MARCH), granted(JANUARY)];
+
+    expect(publishableRoster([seat({ consents: sameDay })])).toEqual([]);
+    expect(
+      publishableRoster([seat({ consents: [...sameDay].reverse() })]),
+    ).toEqual([]);
+  });
+
   it("ignores a consent given for another scope", () => {
     // One consent covers one scope. Agreeing to a photograph is not agreeing
     // to be named in the roster.

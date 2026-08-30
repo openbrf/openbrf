@@ -1520,7 +1520,9 @@
     },
     "documents": {
       "heading": "Dokument",
-      "file": "{{name}}, {{size}}"
+      "file": "{{name}}, {{size}}",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
     },
     "roster": {
       "heading": "Styrelsen",

@@ -240,9 +240,9 @@ no cookie banner. The board writes those pages now: text with emphasis and
 links, headings and pictures, each page published or not and public or for the
 members, with the publication guardrails inside the write path rather than
 beside it, arranges the menu a visitor finds those pages through, and answers a
-broker from the facts it records itself. What is still missing is the remaining
-data blocks. Search engine optimisation is a non-goal: page titles, and no
-sitemap or metadata machinery.
+broker from the facts it records itself. A page can also carry the blocks that
+draw on what the instance already knows. Search engine optimisation is a
+non-goal: page titles, and no sitemap or metadata machinery.
 
 - [x] File uploads and media storage behind one interface, with local-disk
       and S3-compatible drivers both shipped and tested. Files are always
@@ -286,8 +286,8 @@ sitemap or metadata machinery.
       at all. A board roster names the people who have given a publication
       consent for exactly that, and never anybody carrying protected personal
       data. The facts are the ones the broker information page is generated
-      from, rendered by the same code, and the questions and answers are the
-      board's own writing carried in the block itself
+      from, rendered by the same code, and the FAQ is the board's own writing
+      carried in the block itself
 - [x] Menu editor: top level plus one dropdown level; pages, generated pages
       and external links. The menu is also the ordering of the site - its
       first page entry is the front page, so there is no separate home-page

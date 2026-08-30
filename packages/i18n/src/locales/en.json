@@ -1520,7 +1520,9 @@
     },
     "documents": {
       "heading": "Documents",
-      "file": "{{name}}, {{size}}"
+      "file": "{{name}}, {{size}}",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
     },
     "roster": {
       "heading": "The board",
