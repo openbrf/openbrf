@@ -62,8 +62,10 @@ beforeAll(async () => {
     privacyNoticePath: null,
     // The broker page carries the same chrome every other page does, menu
     // included. What the menu holds is the caller's business and not this
-    // renderer's, so the unit under test is given an empty one.
+    // renderer's, so the unit under test is given an empty one. The same goes
+    // for the news a teaser block would show: this page carries no such block.
     menu: [],
+    newsTeasers: [],
   };
 });
 

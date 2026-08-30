@@ -421,7 +421,8 @@ function renderMenuLink(link: SiteMenuLink): ReactElement {
  * One document, chrome and all.
  *
  * Exported so that everything the website answers with goes through this one
- * function: the pages, the news index, an article, and the refusal. A second
+ * function: the pages, the news index, an article, the broker page, and the
+ * refusal. A second
  * shell would be a second header and footer to keep in step, and the first time
  * they disagreed the difference would be visible from the outside.
  */
@@ -472,14 +473,3 @@ export function renderDocument(
 
   return `${DOCTYPE}${markup}`;
 }
-
-/**
- * The document shell, for a page rendered elsewhere in this module.
- *
- * Exported so a generated page - the broker information page - is wrapped in
- * the same header, footer, stylesheet and title as every page the board writes,
- * by the same function. A second shell would be a second footer to keep in step
- * with this one, and the first time the two drifted the website would have two
- * chromes depending on which page a visitor happened to open.
- */
-export { document as siteDocument };

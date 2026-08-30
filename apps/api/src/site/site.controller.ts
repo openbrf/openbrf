@@ -126,7 +126,7 @@ export class SiteController {
     const html = (await this.setup.state()).setupRequired
       ? null
       : await this.renderer.broker(acceptLanguage(request), {
-          hasSession: await this.hasSession(request),
+          hasSession: await hasSession(this.auth, request),
         });
 
     if (html === null) {

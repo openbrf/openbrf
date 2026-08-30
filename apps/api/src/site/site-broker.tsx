@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 
 import type { AssociationFactsView } from "./association-facts.service";
-import { type SiteChrome, siteDocument } from "./site-html";
+import { renderDocument, type SiteChrome } from "./site-html";
 
 /**
  * The broker information page (maklarinfo), as HTML.
@@ -110,7 +110,7 @@ export function renderBrokerPage(
 ): string {
   const title = chrome.t("site.broker.title");
 
-  return siteDocument(
+  return renderDocument(
     chrome,
     title,
     <>
