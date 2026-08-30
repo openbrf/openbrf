@@ -11,14 +11,14 @@ import { runIdentityNumber, runPhone, runSuffix } from "./integration-env";
  * The fixture generators, which are the answer to a collision that cost a
  * green suite.
  *
- * Integration suites share one database and several of them leave a person
- * behind on purpose, because append-only register rows hold them. Contact
- * details carry a blind index that normalizes every spelling to one value, so
- * a fixture written as a literal does not merely duplicate data: it answers a
- * lookup that was about somebody else's row, and it keeps answering it on
- * every later run. Two retention suites and the demo data all held
- * +46701234567, and the seed suite's phone lookup returned whichever came back
- * first.
+ * A worker runs several integration suites against one database, and several
+ * of them leave a person behind on purpose, because append-only register rows
+ * hold them. Contact details carry a blind index that normalizes every
+ * spelling to one value, so a fixture written as a literal does not merely
+ * duplicate data: it answers a lookup that was about somebody else's row, and
+ * it keeps answering it for every suite that follows. Two retention suites and
+ * the demo data all held +46701234567, and the seed suite's phone lookup
+ * returned whichever came back first.
  *
  * These tests are unit tests on purpose. The property that matters - that a
  * generated value is valid, stable and unlike anything else in the tree - is

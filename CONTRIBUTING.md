@@ -86,6 +86,7 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 ## Tests
 
 - **Vitest** across the monorepo (API and web); **Playwright** for end-to-end tests, in the `e2e` workspace. `pnpm test:e2e` builds the production image, brings up `docker-compose.prod.yml` from empty volumes and drives a browser against it - never a dev server, because several of the properties under test only exist in the deployed artefact. It needs Docker running and Chromium installed once (`pnpm --filter @openbrf/e2e browsers`); see [e2e/README.md](e2e/README.md).
+- `pnpm test:int` runs the suites that need a real database (`docker compose up -d db`). They run in parallel, each worker against a database of its own: the run clones a migrated template into `<database>_test_1`, `_test_2` and so on, rebuilding the template whenever the migrations change. Those databases are recreated on every run and the one in `DATABASE_URL` is never touched, so the data you develop against survives a test run.
 - **Bug fixes must include a regression test** that fails without the fix.
 - **Features must include tests for their core logic.** UI polish, docs, and chores are exempt.
 - `pnpm test` must pass locally before you open the PR.
