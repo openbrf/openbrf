@@ -241,6 +241,9 @@ test("no spec addresses the client at the instance root", async () => {
     // The menu is chrome on the website itself, so the only place to read it
     // is the website's own address.
     "26-site-menu.spec.ts",
+    // The data blocks are read on the association's own website, which
+    // really is at the root: a visitor opens the page by name.
+    "27-site-data-blocks.spec.ts",
     "93-public-site.spec.ts",
   ]);
 
