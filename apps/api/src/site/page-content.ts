@@ -735,7 +735,10 @@ function readFaqItems(raw: unknown): FaqItem[] {
       continue;
     }
     const answer = readRunList(item["answer"]);
-    if (answer.length === 0) {
+    // Nothing visible under the question is the same as no answer, exactly as
+    // a blank question above is the same as no question. A run holding only
+    // spaces would otherwise render a heading with an empty space beneath it.
+    if (answer.every((run) => run.text.trim() === "")) {
       continue;
     }
     items.push({

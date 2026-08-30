@@ -623,6 +623,35 @@ describe("the FAQ block", () => {
     });
   });
 
+  it("drops a question whose answer is nothing but spaces", () => {
+    // A blank question is already dropped above; an answer holding only spaces
+    // is the same absence and has to go the same way, or the page renders a
+    // question with nothing under it.
+    expect(
+      readPageContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              { question: "Var står stadgarna?", answer: [{ text: "   " }] },
+              { question: "Vem sköter trädgården?", answer: [{ text: "Vi." }] },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        {
+          type: "faq",
+          items: [
+            { question: "Vem sköter trädgården?", answer: [{ text: "Vi." }] },
+          ],
+        },
+      ],
+    });
+  });
+
   it("refuses an answer carrying a link this platform will not publish", () => {
     // The read path drops such a link; the write path has to refuse it. Without
     // this, a regression that stripped it on save would pass the suite, and the

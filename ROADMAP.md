@@ -281,9 +281,10 @@ non-goal: page titles, and no sitemap or metadata machinery.
       association facts and FAQ. The news teaser and the two form blocks arrive
       with the features below; these four are the ones that need no feature of
       their own, only the block and its rendering. A document list follows the
-      archive's own audience for whoever is reading, so a public page lists the
-      public shelf and never the members' - and the board's shelf is on no page
-      at all. A board roster names the people who have given a publication
+      archive's own audience for whoever is reading, per document and per
+      reader: a visitor with no account is shown the public shelf, somebody
+      signed in is shown what their own account may open as well, and the
+      board's shelf is on no page at all. A board roster names the people who have given a publication
       consent for exactly that, and never anybody carrying protected personal
       data. The facts are the ones the broker information page is generated
       from, rendered by the same code, and the FAQ is the board's own writing
