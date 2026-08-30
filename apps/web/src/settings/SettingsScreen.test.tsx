@@ -85,6 +85,13 @@ const SETTINGS: InstanceSettings = {
     passwordSet: true,
     configured: true,
   },
+  sms: {
+    driver: null,
+    gatewayUrl: null,
+    senderName: null,
+    tokenSet: false,
+    configured: false,
+  },
   retention: { daysAfterMoveOut: 365 },
   selfSignup: { enabled: false },
   issueReporting: { publicFormEnabled: true },

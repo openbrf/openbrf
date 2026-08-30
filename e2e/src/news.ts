@@ -13,6 +13,14 @@ import { stack } from "./stack";
  * than about the one guarantee this module makes.
  */
 
+/** One channel of a mailing, as the board's screen reports it. */
+export type NewsChannelReport = {
+  readonly pending: number;
+  readonly sent: number;
+  readonly failed: number;
+  readonly notConfigured: boolean;
+};
+
 export type NewsRow = {
   readonly id: string;
   readonly slug: string;
@@ -20,16 +28,16 @@ export type NewsRow = {
   readonly published: boolean;
   readonly visibility: "PUBLIC" | "MEMBER";
   readonly emailQueuedAt: string | null;
+  readonly smsQueuedAt: string | null;
   readonly delivery: {
-    readonly pending: number;
-    readonly sent: number;
-    readonly failed: number;
-    readonly mailNotConfigured: boolean;
+    readonly email: NewsChannelReport;
+    readonly sms: NewsChannelReport;
   };
 };
 
 export type PublishedNewsRow = NewsRow & {
   readonly mailedTo: number | null;
+  readonly textedTo: number | null;
 };
 
 async function expectOk(
@@ -105,6 +113,7 @@ export async function publishNews(
     published: boolean;
     visibility?: "PUBLIC" | "MEMBER";
     sendEmail?: boolean;
+    sendSms?: boolean;
   },
 ): Promise<PublishedNewsRow> {
   const response = await request.post(

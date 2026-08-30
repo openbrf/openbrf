@@ -20,6 +20,7 @@ import { InvitationsModule } from "./invitations/invitations.module";
 import { IssuesModule } from "./issues/issues.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { SmsModule } from "./sms/sms.module";
 import { MediaModule } from "./media/media.module";
 import { MovesModule } from "./moves/moves.module";
 import { NewsModule } from "./news/news.module";
@@ -46,6 +47,7 @@ import { ThemesModule } from "./themes/themes.module";
     StorageModule,
     MediaModule,
     MailModule,
+    SmsModule,
     AuthModule,
     AuthorizationModule,
     InvitationsModule,

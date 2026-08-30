@@ -4,6 +4,7 @@ import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { paragraphsContent, type PageContent } from "../site/page-content";
 import type { NewsMailerService } from "./news-mailer.service";
+import type { NewsSmsService } from "./news-sms.service";
 import { NewsWriteError, NewsWriteService } from "./news-write.service";
 
 /**
@@ -25,8 +26,13 @@ const ITEM = {
   published: false,
   publishedAt: null,
   emailQueuedAt: null as Date | null,
+  smsQueuedAt: null as Date | null,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
-  deliveries: [] as { status: string; failureReason: string | null }[],
+  deliveries: [] as {
+    channel: string;
+    status: string;
+    failureReason: string | null;
+  }[],
 };
 
 interface Fakes {
@@ -46,6 +52,10 @@ interface Fakes {
   newsDelivery: { createMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   mailer: {
+    ensureQueues: ReturnType<typeof vi.fn>;
+    enqueueInTransaction: ReturnType<typeof vi.fn>;
+  };
+  texter: {
     ensureQueues: ReturnType<typeof vi.fn>;
     enqueueInTransaction: ReturnType<typeof vi.fn>;
   };
@@ -101,6 +111,14 @@ function build(
       order.push("enqueue");
     }),
   };
+  const texter = {
+    ensureQueues: vi.fn(async () => {
+      order.push("ensureSmsQueues");
+    }),
+    enqueueInTransaction: vi.fn(async () => {
+      order.push("enqueueSms");
+    }),
+  };
 
   const prisma = {
     news,
@@ -120,12 +138,14 @@ function build(
       prisma as unknown as PrismaService,
       audit as unknown as AuditLogService,
       mailer as unknown as NewsMailerService,
+      texter as unknown as NewsSmsService,
     ),
     news,
     person,
     newsDelivery,
     audit,
     mailer,
+    texter,
     order,
   };
 }
@@ -340,8 +360,8 @@ describe("the mailing, which happens once", () => {
     expect(published.mailedTo).toBe(2);
     expect(newsDelivery.createMany).toHaveBeenCalledWith({
       data: [
-        { newsId: "news-1", personId: "person-1" },
-        { newsId: "news-1", personId: "person-2" },
+        { newsId: "news-1", personId: "person-1", channel: "EMAIL" },
+        { newsId: "news-1", personId: "person-2", channel: "EMAIL" },
       ],
     });
     expect(mailer.enqueueInTransaction).toHaveBeenCalled();
@@ -468,6 +488,140 @@ describe("editing a published item", () => {
   });
 });
 
+describe("the SMS mailing, which happens once and separately", () => {
+  it("claims its own column, and only when the board asks for it", async () => {
+    const { service, news } = build();
+
+    const published = await service.publish("news-1", {
+      published: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(published.textedTo).toBe(2);
+    expect(news.updateMany).toHaveBeenCalledWith({
+      where: { id: "news-1", smsQueuedAt: null },
+      data: { smsQueuedAt: expect.any(Date) },
+    });
+  });
+
+  it("does not claim the mailing when only the text message was asked for", async () => {
+    // The two columns are two decisions. Asking for the channel that is still
+    // available must not re-send the one that is not.
+    const { service, news, mailer } = build();
+
+    const published = await service.publish("news-1", {
+      published: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(published.mailedTo).toBeNull();
+    expect(mailer.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(news.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ emailQueuedAt: null }),
+      }),
+    );
+  });
+
+  it("can be claimed afterwards on an item that was already mailed", async () => {
+    const { service, texter, mailer } = build({
+      published: true,
+      emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    const published = await service.publish("news-1", {
+      published: true,
+      sendEmail: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(published.mailedTo).toBeNull();
+    expect(published.textedTo).toBe(2);
+    expect(mailer.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(texter.enqueueInTransaction).toHaveBeenCalled();
+  });
+
+  it("writes its own ledger rows, its own audit entry and its own job", async () => {
+    const { service, newsDelivery, texter, audit } = build();
+
+    await service.publish("news-1", {
+      published: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(newsDelivery.createMany).toHaveBeenCalledWith({
+      data: [
+        { newsId: "news-1", personId: "person-1", channel: "SMS" },
+        { newsId: "news-1", personId: "person-2", channel: "SMS" },
+      ],
+    });
+    expect(texter.enqueueInTransaction).toHaveBeenCalled();
+    expect(audit.record.mock.calls.map((call) => call[0].action)).toEqual([
+      "NEWS_PUBLISHED",
+      "NEWS_TEXTED",
+    ]);
+  });
+
+  it("claims both channels in one publish, each on its own condition", async () => {
+    const { service, mailer, texter, audit } = build();
+
+    const published = await service.publish("news-1", {
+      published: true,
+      sendEmail: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(published.mailedTo).toBe(2);
+    expect(published.textedTo).toBe(2);
+    expect(mailer.enqueueInTransaction).toHaveBeenCalled();
+    expect(texter.enqueueInTransaction).toHaveBeenCalled();
+    expect(audit.record.mock.calls.map((call) => call[0].action)).toEqual([
+      "NEWS_PUBLISHED",
+      "NEWS_EMAILED",
+      "NEWS_TEXTED",
+    ]);
+  });
+
+  it("is not offered again once the column carries a date", async () => {
+    const { service, texter } = build({
+      published: true,
+      smsQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    const published = await service.publish("news-1", {
+      published: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(published.textedTo).toBeNull();
+    expect(texter.ensureQueues).not.toHaveBeenCalled();
+    expect(texter.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a rename once the address has been texted", async () => {
+    // The link in a text message is the only copy of the address a member has,
+    // and there is no sender to write back to.
+    const { service } = build({
+      published: true,
+      smsQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    await expect(
+      service.update("news-1", {
+        slug: "nya-tider",
+        title: "Tvättstugan",
+        content: paragraphsContent(["Nya tider."]),
+      }),
+    ).rejects.toMatchObject({ reason: "address-mailed" });
+  });
+});
+
 describe("who a mailing goes to", () => {
   it("is the members with an address, and nobody else", async () => {
     const { service, person } = build();
@@ -494,5 +648,31 @@ describe("who a mailing goes to", () => {
         },
       }),
     );
+  });
+
+  it("is the members with a number when the channel is SMS", async () => {
+    // A member the association holds no number for is left out of the snapshot
+    // rather than written into it and failed: being unreachable one way is an
+    // absence from that ledger, not a column of failures on the board's screen.
+    const { service, person } = build();
+
+    await service.publish("news-1", {
+      published: true,
+      sendSms: true,
+      actorPersonId: "board-1",
+    });
+
+    expect(person.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ phoneCipher: { not: null } }),
+      }),
+    );
+  });
+
+  it("counts the two audiences separately", async () => {
+    const { service, person } = build();
+    person.count.mockResolvedValueOnce(40).mockResolvedValueOnce(12);
+
+    expect(await service.recipientCounts()).toEqual({ email: 40, sms: 12 });
   });
 });

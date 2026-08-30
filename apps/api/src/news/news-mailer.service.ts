@@ -14,14 +14,15 @@ import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { newsMail } from "../mail/templates";
 import { readPageContent, textBlocksOnly } from "../site/page-content";
 import { teaserOf } from "../site/site-news.service";
+import { DELIVERY_FAILURES } from "./news-delivery";
 
 /**
  * Mailing a published news item to the members, as a background job.
  *
  * The publish transaction has already written down who the mailing is for: one
- * ledger row per recipient, with the pair (news, person) unique. This service
- * works through that ledger, and the single rule it lives by is that it claims
- * a row before it mails it.
+ * ledger row per recipient, with the triple (news, person, channel) unique.
+ * This service works through the email rows of that ledger, and the single rule
+ * it lives by is that it claims a row before it mails it.
  *
  * The claim is a conditional update from PENDING, so:
  *
@@ -57,18 +58,6 @@ export const NEWS_MAILING_QUEUE = "news-mailing";
  * reported as stopped rather than left looking like one still on its way.
  */
 export const NEWS_MAILING_ABANDONED_QUEUE = "news-mailing-abandoned";
-
-/** Reasons a delivery carries when it did not go out. Codes, never prose. */
-export const DELIVERY_FAILURES = {
-  /** This instance has no mail server. The item is published all the same. */
-  mailNotConfigured: "mail-not-configured",
-  /** The mail server refused the message. */
-  refused: "send-failed",
-  /** The person is no longer in the register, or has no address any more. */
-  recipientGone: "recipient-gone",
-  /** The mailing was given up on before it reached this row. */
-  interrupted: "mailing-interrupted",
-} as const;
 
 const MAILING_JOB_OPTIONS = {
   // A failed attempt resumes from the ledger rather than starting again, so a
@@ -187,8 +176,16 @@ export class NewsMailerService implements OnModuleInit {
       this.env.APP_URL,
     ).toString();
 
+    /*
+     * This channel's rows and no others.
+     *
+     * The ledger holds one row per recipient per channel, so the filter is what
+     * keeps the two workers off each other's rows: without it the mail worker
+     * would claim an SMS row, mark it sent, and that member's text message
+     * would never go out - claimed by a worker that cannot send one.
+     */
     const pending = await this.prisma.newsDelivery.findMany({
-      where: { newsId, status: "PENDING" },
+      where: { newsId, channel: "EMAIL", status: "PENDING" },
       select: { id: true, personId: true },
       orderBy: { queuedAt: "asc" },
     });
@@ -225,7 +222,7 @@ export class NewsMailerService implements OnModuleInit {
    */
   async recordAbandoned(newsId: string): Promise<void> {
     const { count } = await this.prisma.newsDelivery.updateMany({
-      where: { newsId, status: "PENDING" },
+      where: { newsId, channel: "EMAIL", status: "PENDING" },
       data: {
         status: "FAILED",
         failureReason: DELIVERY_FAILURES.interrupted,
@@ -249,7 +246,7 @@ export class NewsMailerService implements OnModuleInit {
     message: { title: string; teaser: string; articleUrl: string },
   ): Promise<"sent" | "failed" | "skipped"> {
     const claimed = await this.prisma.newsDelivery.updateMany({
-      where: { id: delivery.id, status: "PENDING" },
+      where: { id: delivery.id, channel: "EMAIL", status: "PENDING" },
       data: { status: "SENT", sentAt: new Date() },
     });
     if (claimed.count === 0) {

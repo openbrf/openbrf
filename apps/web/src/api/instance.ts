@@ -49,10 +49,23 @@ export interface SmtpSettings {
   configured: boolean;
 }
 
+/** How the instance sends text messages. */
+export interface SmsSettings {
+  /** Which driver is selected, or null while the instance sends no SMS. */
+  driver: string | null;
+  gatewayUrl: string | null;
+  senderName: string | null;
+  /** Whether a credential is stored. The credential itself never leaves the API. */
+  tokenSet: boolean;
+  /** Whether the instance could actually send a text message. */
+  configured: boolean;
+}
+
 export interface InstanceSettings {
   housingCooperative: HousingCooperativeSettings;
   branding: BrandingSettings;
   smtp: SmtpSettings;
+  sms: SmsSettings;
   retention: { daysAfterMoveOut: number };
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
@@ -111,6 +124,14 @@ export interface SmtpInput {
   /** Omit to keep the stored password; null to clear it. */
   password?: string | null;
   fromAddress: string | null;
+}
+
+export interface SmsInput {
+  driver: string | null;
+  gatewayUrl: string | null;
+  senderName: string | null;
+  /** Omit to keep the stored credential; null to clear it. */
+  token?: string | null;
 }
 
 /** One contrast pair that stopped a colour from being saved. */
@@ -183,6 +204,14 @@ export function sendSmtpTest(): Promise<
   ApiResult<{ sentTo: string; host: string }>
 > {
   return apiRequest("POST", "/api/settings/smtp/test");
+}
+
+export function saveSms(input: SmsInput): Promise<ApiResult<SmsSettings>> {
+  return apiRequest("PUT", "/api/settings/sms", input);
+}
+
+export function sendSmsTest(): Promise<ApiResult<{ sentTo: string }>> {
+  return apiRequest("POST", "/api/settings/sms/test");
 }
 
 export function saveRetention(input: {

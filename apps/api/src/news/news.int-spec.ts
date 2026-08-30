@@ -12,10 +12,15 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
+  startSmsGatewayTestServer,
+  type SmsGatewayTestServer,
+} from "../sms/testing/sms-gateway-test-server";
+import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
 import { NewsMailerService } from "./news-mailer.service";
+import { NewsSmsService } from "./news-sms.service";
 import { NewsWriteService } from "./news-write.service";
 
 /**
@@ -23,10 +28,16 @@ import { NewsWriteService } from "./news-write.service";
  *
  * The unit tests pin the rules. What only this suite can show is that the
  * mailing really is claimed once when two publishes race each other through
- * PostgreSQL, that the ledger's unique pair holds, that the worker's claim
+ * PostgreSQL, that the ledger's unique triple holds, that the worker's claim
  * leaves a second run with nothing to send, and that the website answers a
  * member-only article to an anonymous visitor with exactly the document a
  * missing address produces.
+ *
+ * The SMS half is here for the same reason and one more: the two channels share
+ * one ledger, and only a real database can show that each worker claims its own
+ * rows and leaves the other's alone. The gateway it sends through runs in this
+ * process, so the suite reaches no network and can still assert what a member
+ * would actually have received.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -35,6 +46,8 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let writes: NewsWriteService;
 let mailer: NewsMailerService;
+let texter: NewsSmsService;
+let gateway: SmsGatewayTestServer;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
@@ -50,6 +63,12 @@ const member = {
 const formerMember = { personId: `news-former-${suffix}` };
 const resident = { personId: `news-resident-${suffix}` };
 const memberWithoutEmail = { personId: `news-noemail-${suffix}` };
+/** Reachable by post but not by text: in the email ledger and not the SMS one. */
+const memberWithoutPhone = { personId: `news-nophone-${suffix}` };
+
+/** The one number this suite texts, and the form a gateway should receive. */
+const MEMBER_PHONE = "070-123 45 67";
+const MEMBER_PHONE_E164 = "+46701234567";
 
 const personIds = [
   boardMember.personId,
@@ -57,10 +76,13 @@ const personIds = [
   formerMember.personId,
   resident.personId,
   memberWithoutEmail.personId,
+  memberWithoutPhone.personId,
 ];
 
 const addressId = `news-address-${suffix}`;
-const apartmentIds = [1, 2, 3, 4].map((n) => `news-apartment-${suffix}-${n}`);
+const apartmentIds = [1, 2, 3, 4, 5].map(
+  (n) => `news-apartment-${suffix}-${n}`,
+);
 
 /**
  * Every slug this suite claims, so the cleanup can find them again.
@@ -77,6 +99,9 @@ const slugs = {
   mailed: `news-mailed-${suffix}`,
   raced: `news-raced-${suffix}`,
   abandoned: `news-abandoned-${suffix}`,
+  texted: `news-texted-${suffix}`,
+  smsUnconfigured: `news-sms-unconfigured-${suffix}`,
+  smsAbandoned: `news-sms-abandoned-${suffix}`,
   /** Named in a create that is refused before it writes anything. */
   refused: `news-refused-${suffix}`,
   scanned: `news-scanned-${suffix}`,
@@ -128,6 +153,13 @@ async function signIn(email: string): Promise<string> {
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
+interface ChannelReport {
+  pending: number;
+  sent: number;
+  failed: number;
+  notConfigured: boolean;
+}
+
 interface NewsBody {
   id: string;
   slug: string;
@@ -135,7 +167,8 @@ interface NewsBody {
   published: boolean;
   visibility: "PUBLIC" | "MEMBER";
   emailQueuedAt: string | null;
-  delivery: { pending: number; sent: number; failed: number };
+  smsQueuedAt: string | null;
+  delivery: { email: ChannelReport; sms: ChannelReport };
 }
 
 function paragraph(text: string) {
@@ -230,12 +263,18 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   writes = app.get(NewsWriteService);
   mailer = app.get(NewsMailerService);
+  texter = app.get(NewsSmsService);
+  gateway = await startSmsGatewayTestServer();
   const encryption = app.get(FieldEncryptionService);
 
   const addressOf = async (plaintext: string) =>
     await encryption.encrypt("person.email", plaintext);
 
   const memberEmail = await addressOf(member.email);
+  const memberPhone = await encryption.encrypt("person.phone", MEMBER_PHONE);
+  const withoutPhoneEmail = await addressOf(
+    `news-nophone-${suffix}@exempel.se`,
+  );
   const formerEmail = await addressOf(`news-former-${suffix}@exempel.se`);
   const residentEmail = await addressOf(`news-resident-${suffix}@exempel.se`);
 
@@ -248,6 +287,10 @@ beforeAll(async () => {
         lastName: `Nyhet${suffix}`,
         emailCipher: memberEmail.cipher,
         emailIndex: memberEmail.index,
+        // Reachable both ways, so this person appears once in each channel's
+        // ledger and is the one recipient the gateway should see.
+        phoneCipher: memberPhone.cipher,
+        phoneIndex: memberPhone.index,
         // English, so the mailing has a recipient whose own language is not the
         // association's default.
         preferredLocale: "en",
@@ -273,6 +316,16 @@ beforeAll(async () => {
         id: memberWithoutEmail.personId,
         firstName: "Nils",
         lastName: `Nyhet${suffix}`,
+      },
+      // A member with an address and no number. In the email ledger and not in
+      // the SMS one: being unreachable by text is an absence from that ledger
+      // rather than a delivery that failed.
+      {
+        id: memberWithoutPhone.personId,
+        firstName: "Petra",
+        lastName: `Nyhet${suffix}`,
+        emailCipher: withoutPhoneEmail.cipher,
+        emailIndex: withoutPhoneEmail.index,
       },
     ],
   });
@@ -326,6 +379,12 @@ beforeAll(async () => {
       {
         personId: memberWithoutEmail.personId,
         apartmentId: apartmentIds[3] as string,
+        role: "MEMBER",
+        movedInOn: new Date("2026-01-01"),
+      },
+      {
+        personId: memberWithoutPhone.personId,
+        apartmentId: apartmentIds[4] as string,
         role: "MEMBER",
         movedInOn: new Date("2026-01-01"),
       },
@@ -403,6 +462,7 @@ afterAll(async () => {
     }
   } finally {
     await app?.close();
+    await gateway?.close();
   }
 });
 
@@ -630,6 +690,268 @@ describe("the worker that mails it", () => {
 
     const ledger = await prisma.newsDelivery.findMany({
       where: { newsId: item.id },
+      select: { status: true, failureReason: true },
+    });
+    expect(ledger.length).toBeGreaterThanOrEqual(1);
+    expect(
+      ledger.every(
+        (one) =>
+          one.status === "FAILED" &&
+          one.failureReason === "mailing-interrupted",
+      ),
+    ).toBe(true);
+  });
+});
+
+/**
+ * Points the instance at the in-process gateway for the duration of one case.
+ *
+ * Set and restored the way every other suite handles a shared setting: these
+ * run against one database in sequence, and an SMS provider left configured
+ * here would change what every test after it does. The service keys its driver
+ * on the settings, so both the change and the restoration take effect without
+ * a restart.
+ */
+async function withSmsGateway<T>(use: () => Promise<T>): Promise<T> {
+  const encryption = app.get(FieldEncryptionService);
+  const token = await encryption.encrypt(
+    "association.smsGatewayToken",
+    gateway.token,
+  );
+
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: {
+      id: 1,
+      name: "Brf Eksemplet",
+      smsDriver: "http-gateway",
+      smsGatewayUrl: gateway.endpoint,
+      smsGatewayTokenCipher: token.cipher,
+      smsSenderName: "Ekhagen",
+    },
+    update: {
+      smsDriver: "http-gateway",
+      smsGatewayUrl: gateway.endpoint,
+      smsGatewayTokenCipher: token.cipher,
+      smsSenderName: "Ekhagen",
+    },
+  });
+
+  try {
+    return await use();
+  } finally {
+    await prisma.association.update({
+      where: { id: 1 },
+      data: {
+        smsDriver: null,
+        smsGatewayUrl: null,
+        smsGatewayTokenCipher: null,
+        smsSenderName: null,
+      },
+    });
+  }
+}
+
+describe("the SMS mailing, which happens once and separately", () => {
+  it("claims its own column and writes its own half of the ledger", async () => {
+    const item = await createNews(boardCookie, slugs.texted);
+
+    const published = await inject({
+      method: "POST",
+      url: `/api/news/${item.id}/publish`,
+      payload: { published: true, sendEmail: true, sendSms: true },
+      headers: { cookie: boardCookie },
+    });
+    expect(published.statusCode).toBe(201);
+
+    const body = published.json() as NewsBody & {
+      mailedTo: number | null;
+      textedTo: number | null;
+    };
+    expect(body.emailQueuedAt).not.toBeNull();
+    expect(body.smsQueuedAt).not.toBeNull();
+    expect(body.mailedTo).toBeGreaterThanOrEqual(1);
+    expect(body.textedTo).toBeGreaterThanOrEqual(1);
+
+    const ledger = await prisma.newsDelivery.findMany({
+      where: { newsId: item.id },
+      select: { personId: true, channel: true, status: true },
+    });
+
+    const texted = ledger
+      .filter((one) => one.channel === "SMS")
+      .map((one) => one.personId);
+    const mailed = ledger
+      .filter((one) => one.channel === "EMAIL")
+      .map((one) => one.personId);
+
+    // The member with both is in both ledgers, once each. The unique triple is
+    // what makes that possible without the two snapshots colliding.
+    expect(texted).toContain(member.personId);
+    expect(mailed).toContain(member.personId);
+
+    // A member with an address and no number is written to by post and is
+    // simply not among the people the association can text: absent from the SMS
+    // ledger rather than present in it and failed.
+    expect(mailed).toContain(memberWithoutPhone.personId);
+    expect(texted).not.toContain(memberWithoutPhone.personId);
+
+    expect(texted).not.toContain(resident.personId);
+    expect(texted).not.toContain(formerMember.personId);
+    expect(ledger.every((one) => one.status === "PENDING")).toBe(true);
+
+    const actions = (
+      await prisma.auditLogEntry.findMany({
+        where: { targetKind: "news", targetId: item.id },
+        orderBy: { createdAt: "asc" },
+        select: { action: true },
+      })
+    ).map((entry) => entry.action);
+    expect(actions).toEqual(["NEWS_PUBLISHED", "NEWS_EMAILED", "NEWS_TEXTED"]);
+  });
+
+  it("is not claimed a second time, and does not re-claim the mailing", async () => {
+    const item = await newsAt(boardCookie, slugs.texted);
+    const before = await prisma.newsDelivery.count({
+      where: { newsId: item.id },
+    });
+
+    const again = await inject({
+      method: "POST",
+      url: `/api/news/${item.id}/publish`,
+      payload: { published: true, sendEmail: true, sendSms: true },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(again.statusCode).toBe(201);
+    const body = again.json() as {
+      mailedTo: number | null;
+      textedTo: number | null;
+    };
+    expect(body.mailedTo).toBeNull();
+    expect(body.textedTo).toBeNull();
+    expect(
+      await prisma.newsDelivery.count({ where: { newsId: item.id } }),
+    ).toBe(before);
+  });
+
+  it("claims nothing for the loser when two publishes race each other", async () => {
+    const item = await createNews(boardCookie, slugs.smsAbandoned);
+
+    const [first, second] = await Promise.all([
+      writes.publish(item.id, {
+        published: true,
+        sendSms: true,
+        actorPersonId: boardMember.personId,
+      }),
+      writes.publish(item.id, {
+        published: true,
+        sendSms: true,
+        actorPersonId: boardMember.personId,
+      }),
+    ]);
+
+    const claims = [first.textedTo, second.textedTo].filter(
+      (one) => one !== null,
+    );
+    expect(claims).toHaveLength(1);
+
+    const rows = await prisma.newsDelivery.groupBy({
+      by: ["personId"],
+      where: { newsId: item.id, channel: "SMS" },
+      _count: { personId: true },
+    });
+    expect(rows.every((row) => row._count.personId === 1)).toBe(true);
+  });
+});
+
+describe("the worker that texts it", () => {
+  it("sends through the configured gateway, claiming each row first", async () => {
+    const item = await newsAt(boardCookie, slugs.texted);
+
+    const before = gateway.accepted.length;
+    const result = await withSmsGateway(() => texter.runMailing(item.id));
+
+    expect(result.sent).toBeGreaterThanOrEqual(1);
+    expect(result.failed).toBe(0);
+
+    const delivered = gateway.accepted.slice(before);
+    expect(delivered.map((one) => one.to)).toContain(MEMBER_PHONE_E164);
+
+    // The message a member actually receives: a headline and the address of
+    // the article, in the recipient's own language, and nothing else.
+    const message = delivered.find((one) => one.to === MEMBER_PHONE_E164);
+    expect(message?.message).toContain(`/nyheter/${slugs.texted}`);
+    expect(message?.from).toBe("Ekhagen");
+
+    const ledger = await prisma.newsDelivery.findMany({
+      where: { newsId: item.id, channel: "SMS" },
+      select: { status: true, sentAt: true },
+    });
+    expect(ledger.every((one) => one.status === "SENT")).toBe(true);
+    expect(ledger.every((one) => one.sentAt !== null)).toBe(true);
+  });
+
+  it("sends nothing on a second run, and leaves the email ledger alone", async () => {
+    const item = await newsAt(boardCookie, slugs.texted);
+
+    const before = gateway.accepted.length;
+    // The retry that a killed process would produce. Every row is claimed, so
+    // there is nothing left to send to anybody.
+    const second = await withSmsGateway(() => texter.runMailing(item.id));
+
+    expect(second).toEqual({ sent: 0, failed: 0 });
+    expect(gateway.accepted).toHaveLength(before);
+
+    // The email half of this item's ledger was never touched by the SMS worker:
+    // its rows are still waiting for the mail worker that owns them.
+    const mailed = await prisma.newsDelivery.findMany({
+      where: { newsId: item.id, channel: "EMAIL" },
+      select: { status: true },
+    });
+    expect(mailed.length).toBeGreaterThanOrEqual(1);
+    expect(mailed.every((one) => one.status === "PENDING")).toBe(true);
+  });
+
+  it("records the failure on every row when the instance has no SMS provider", async () => {
+    // No withSmsGateway: this is the ordinary state of an instance that has not
+    // bought SMS, and it is the case the board has to be told about plainly.
+    const item = await createNews(boardCookie, slugs.smsUnconfigured);
+    await writes.publish(item.id, {
+      published: true,
+      sendSms: true,
+      actorPersonId: boardMember.personId,
+    });
+
+    const result = await texter.runMailing(item.id);
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+
+    const ledger = await prisma.newsDelivery.findMany({
+      where: { newsId: item.id, channel: "SMS" },
+      select: { status: true, failureReason: true },
+    });
+    expect(
+      ledger.every(
+        (one) =>
+          one.status === "FAILED" && one.failureReason === "sms-not-configured",
+      ),
+    ).toBe(true);
+
+    // The news item is published either way. What failed was the post.
+    const published = await newsAt(boardCookie, slugs.smsUnconfigured);
+    expect(published.published).toBe(true);
+    expect(published.delivery.sms.notConfigured).toBe(true);
+  });
+
+  it("marks what is left of an abandoned SMS mailing as interrupted", async () => {
+    const item = await newsAt(boardCookie, slugs.smsAbandoned);
+
+    // What the dead-letter queue does once the retries are spent.
+    await texter.recordAbandoned(item.id);
+
+    const ledger = await prisma.newsDelivery.findMany({
+      where: { newsId: item.id, channel: "SMS" },
       select: { status: true, failureReason: true },
     });
     expect(ledger.length).toBeGreaterThanOrEqual(1);

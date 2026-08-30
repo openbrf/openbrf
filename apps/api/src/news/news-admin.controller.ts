@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { submittedContent, submittedContentSchema } from "../site/page-content";
+import { SmsService } from "../sms/sms.service";
 import {
   type NewsAdminView,
   NewsWriteService,
@@ -45,6 +46,7 @@ const publishSchema = z.object({
   published: z.boolean(),
   visibility: z.enum(["PUBLIC", "MEMBER"]).optional(),
   sendEmail: z.boolean().optional(),
+  sendSms: z.boolean().optional(),
 });
 
 /**
@@ -65,7 +67,10 @@ function requirePrincipal(request: RequestWithPrincipal) {
 @Controller("api/news")
 @RequireCapability("site:manage")
 export class NewsAdminController {
-  constructor(private readonly news: NewsWriteService) {}
+  constructor(
+    private readonly news: NewsWriteService,
+    private readonly sms: SmsService,
+  ) {}
 
   @Get()
   async list(): Promise<NewsAdminView[]> {
@@ -73,15 +78,31 @@ export class NewsAdminController {
   }
 
   /**
-   * How many members a mailing would reach.
+   * How many members a mailing would reach, per channel, and whether this
+   * instance could text them at all.
    *
    * Its own route, declared above the parameter route so "recipients" is never
-   * read as an item's id. A count and not a list: who the members are is the
+   * read as an item's id. Counts and not lists: who the members are is the
    * register's answer to give, under the register's own capability.
+   *
+   * Whether SMS is configured travels with the counts because it is the same
+   * question from the board's side - what will happen if I press publish. It is
+   * one boolean about this instance's own setup and says nothing about anybody
+   * in the register.
    */
   @Get("recipients")
-  async recipients(): Promise<{ count: number }> {
-    return { count: await this.news.recipientCount() };
+  async recipients(): Promise<{
+    count: number;
+    sms: { count: number; configured: boolean };
+  }> {
+    const [counts, smsConfigured] = await Promise.all([
+      this.news.recipientCounts(),
+      this.sms.isConfigured(),
+    ]);
+    return {
+      count: counts.email,
+      sms: { count: counts.sms, configured: smsConfigured },
+    };
   }
 
   @Post()

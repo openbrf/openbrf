@@ -59,6 +59,14 @@
       "action": "Read the news item"
     }
   },
+  "sms": {
+    "news": {
+      "lead": "News from {{association}}: {{title}}"
+    },
+    "test": {
+      "body": "This is a test message from {{association}}, sent to prove that the SMS settings work."
+    }
+  },
   "theme": {
     "mode": {
       "label": "Appearance",
@@ -353,6 +361,7 @@
           "PAGE_VISIBILITY_CHANGED": "Page visibility changed",
           "NEWS_PUBLISHED": "News published",
           "NEWS_EMAILED": "News emailed",
+          "NEWS_TEXTED": "News texted",
           "LEGAL_HOLD_PLACED": "Legal hold placed",
           "LEGAL_HOLD_RELEASED": "Legal hold released",
           "SERVICE_DATA_PURGED": "Service data purged"
@@ -636,6 +645,31 @@
         "subject": "Test message from {{association}}",
         "heading": "Email works",
         "body": "This message was sent by {{association}} through {{host}} to prove that the email settings work. Invitations and sign-in links will reach their recipients."
+      }
+    },
+    "sms": {
+      "title": "Text messages",
+      "description": "The association can reach its members by SMS as well as by email, through a provider it chooses. Nothing is sent until one is set up, and text messages are billed per message.",
+      "driver": "Provider",
+      "driverNone": "None",
+      "driverHttpGateway": "HTTP gateway",
+      "driverHint": "The gateway driver posts each message to an address you provide, so any provider that answers an HTTP request can be used.",
+      "gatewayUrl": "Gateway address",
+      "gatewayUrlHint": "An https address the message is posted to.",
+      "senderName": "Sender name",
+      "senderNameHint": "What the message appears to come from, where the provider supports it.",
+      "token": "Gateway credential",
+      "tokenKept": "A credential is stored. Leave this empty to keep it, or clear it to remove it.",
+      "tokenClear": "Remove the stored credential",
+      "sendTest": "Send a test message to me",
+      "sending": "Sending...",
+      "testSent": "A test message is on its way to {{phone}}.",
+      "notConfigured": "No SMS provider is set up, so the members cannot be texted. The association reaches them by email in the meantime.",
+      "configured": "Text messages are set up.",
+      "errors": {
+        "notConfigured": "Save a provider and a gateway address before sending a test.",
+        "noPhone": "Your own record has no phone number to send the test to.",
+        "unknown": "The message could not be sent. Check the gateway address and the credential."
       }
     },
     "retention": {
@@ -2019,6 +2053,13 @@
       "sendEmail": "Email the members ({{count}})",
       "sendEmailUnknown": "Email the members",
       "sendEmailHint": "Sent once. An edit afterwards is never mailed again.",
+      "sendSms": "Text the members ({{count}})",
+      "sendSmsUnknown": "Text the members",
+      "sendSmsHint": "Sent once, and only to the members who have given the association a number. Text messages are billed per message.",
+      "sendSmsUnavailable": "This instance has no SMS provider, so the members cannot be texted. Set one up under Text messages.",
+      "alreadyTexted": "Texted {{date}}. A news item is texted once.",
+      "publishedAndTexted_one": "The news item is published and is on its way to {{count}} member.",
+      "publishedAndTexted_other": "The news item is published and is on its way to {{count}} members.",
       "alreadyMailed": "Mailed {{date}}. A news item is mailed once.",
       "publish": "Publish",
       "publishing": "Publishing...",
@@ -2035,6 +2076,8 @@
     },
     "delivery": {
       "heading": "The mailing",
+      "smsHeading": "The SMS mailing",
+      "smsNotConfigured": "The news item is published, but the text messages could not be sent: this instance has no SMS provider. Set one up under Text messages.",
       "sent": "Sent: {{count}}",
       "pending": "Waiting: {{count}}",
       "failed": "Failed: {{count}}",

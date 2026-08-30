@@ -407,8 +407,13 @@ Free, open source, and never moved behind a paywall.
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and
       in each recipient's own language, never again on an edit
-- [ ] An open SMS adapter, so the same notice can also reach a member as a text
-      message
+- [x] An open SMS adapter, so the same notice can also reach a member as a text
+      message. Each channel is claimed once - one ledger row per recipient per
+      channel, claimed before anything is handed to a mail server or a provider - so a correction and a retry reach nobody twice. It is an adapter rather
+      than a vendor integration: no provider's package is a dependency, the
+      board configures the one it pays for in settings, and an instance with
+      none configured publishes the item all the same and says on the screen
+      that the text messages were what did not go out
 - [x] Public website with a page CMS, replacing the separate website vendor
       many cooperatives pay for today: the association's own site at the domain
       root, public and member-only pages in one editable menu, a broker
@@ -442,8 +447,8 @@ Free, open source, and never moved behind a paywall.
       paths are so far proven against a catalog and packages built inside this
       repository
 
-Two things in this list are still open: the SMS adapter, and conferring a board
-seat or the property manager grant from the application.
+One thing in this list is still open: conferring a board seat or the
+property manager grant from the application.
 
 ## After v1
 

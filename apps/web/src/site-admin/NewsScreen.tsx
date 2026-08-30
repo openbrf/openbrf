@@ -27,6 +27,7 @@ import {
   fetchNews,
   fetchRecipientCount,
   type NewsItem,
+  type NewsRecipients,
 } from "./news-api";
 import { NewsItemPanel } from "./NewsItemPanel";
 
@@ -74,7 +75,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const canManage = viewer.capabilities.includes("site:manage");
 
   const [items, setItems] = useState<NewsItem[] | null>(null);
-  const [recipients, setRecipients] = useState<number | null>(null);
+  const [recipients, setRecipients] = useState<NewsRecipients | null>(null);
   const [failed, setFailed] = useState(false);
   /* An item holding marks this editor cannot spell. See isPlainText. */
   const [notEditable, setNotEditable] = useState(false);
@@ -103,7 +104,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
         setItems(list.value);
       }
       if (count.ok) {
-        setRecipients(count.value.count);
+        setRecipients(count.value);
       }
     })();
 
@@ -293,7 +294,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
         <NewsItemPanel
           key={item.id}
           item={item}
-          recipientCount={recipients}
+          recipients={recipients}
           onEdit={(chosen) => {
             save.reset();
             if (!isPlainText(chosen.content)) {

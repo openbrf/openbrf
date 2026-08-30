@@ -15,7 +15,9 @@ import {
 } from "../site/page-content";
 import { isSlugShaped } from "../site/pages.service";
 import type { PageTextLocation } from "../site/pages-write.service";
-import { DELIVERY_FAILURES, NewsMailerService } from "./news-mailer.service";
+import { DELIVERY_FAILURES } from "./news-delivery";
+import { NewsMailerService } from "./news-mailer.service";
+import { NewsSmsService } from "./news-sms.service";
 
 /**
  * Where in a news item a refused value sits.
@@ -68,18 +70,32 @@ export class NewsWriteError extends DomainError {
   }
 }
 
-/** How a mailing is going, as the board's screen reports it. */
+/** How one channel of a mailing is going, as the board's screen reports it. */
 export interface NewsDeliveryReport {
-  /** Claimed at publish and not yet handed to a mail server. */
+  /** Claimed at publish and not yet handed to a provider. */
   pending: number;
   sent: number;
   failed: number;
   /**
-   * That at least one delivery failed because this instance has no mail server.
-   * The news item is published either way; only the mailing failed, and that
-   * distinction is the whole of what the screen has to say about it.
+   * That at least one delivery failed because this instance has no provider for
+   * that channel - no mail server, or no SMS provider. The news item is
+   * published either way; only that channel failed, and that distinction is the
+   * whole of what the screen has to say about it.
    */
-  mailNotConfigured: boolean;
+  notConfigured: boolean;
+}
+
+/**
+ * How a mailing is going, per channel.
+ *
+ * Two reports rather than one total, because the two channels succeed and fail
+ * independently: an association with no SMS provider still mails its members,
+ * and a board looking at a column of failures has to be able to see which post
+ * it was that did not go out.
+ */
+export interface NewsMailingReport {
+  email: NewsDeliveryReport;
+  sms: NewsDeliveryReport;
 }
 
 /** A news item as the board's own screen shows it: drafts included. */
@@ -98,7 +114,13 @@ export interface NewsAdminView {
    * mailed exactly once.
    */
   emailQueuedAt: string | null;
-  delivery: NewsDeliveryReport;
+  /**
+   * ISO instant the SMS mailing was claimed, or null. Claimed separately from
+   * the email one: a board that published without texting can still decide to,
+   * and one that has texted cannot do it twice.
+   */
+  smsQueuedAt: string | null;
+  delivery: NewsMailingReport;
   updatedAt: string;
 }
 
@@ -126,6 +148,16 @@ export interface PublishNewsInput {
   visibility?: PageVisibility;
   /** Whether to mail the members. Ignored on anything but a first mailing. */
   sendEmail?: boolean;
+  /**
+   * Whether to text the members. Ignored on anything but a first SMS mailing.
+   *
+   * Off unless the board asks, unlike the email, and the difference is what the
+   * two cost. An email costs nothing and reaches everyone in the register with
+   * an address; a text message is billed per member and reaches only those who
+   * have given the association a number, so it is a decision rather than a
+   * default.
+   */
+  sendSms?: boolean;
   actorPersonId: string;
 }
 
@@ -136,6 +168,14 @@ export interface PublishNewsResult extends NewsAdminView {
    * already been claimed, or because the item was taken down rather than put up.
    */
   mailedTo: number | null;
+  /**
+   * How many members the SMS mailing was claimed for, on the same terms.
+   *
+   * Its own count rather than the same one, because the two audiences are not
+   * the same people: the association can email everyone whose address it holds
+   * and text only those who gave it a number.
+   */
+  textedTo: number | null;
 }
 
 const NEWS_COLUMNS = {
@@ -147,12 +187,13 @@ const NEWS_COLUMNS = {
   published: true,
   publishedAt: true,
   emailQueuedAt: true,
+  smsQueuedAt: true,
   updatedAt: true,
 } as const;
 
 /**
  * The board's side of the association's news: writing it, publishing it, and
- * mailing it to the members exactly once.
+ * sending it to the members exactly once by each channel they asked for.
  *
  * Two rules live here and nowhere else.
  *
@@ -171,15 +212,23 @@ const NEWS_COLUMNS = {
  *
  * And one guarantee, which is why this service exists at all.
  *
- * **The members are mailed exactly once.** Publishing with the mailing asked
- * for is one transaction that conditionally claims `emailQueuedAt` while it is
- * null, snapshots the recipients into the delivery ledger - whose (news,
- * person) pair is unique - writes both audit entries, and enqueues the job
- * through the same transaction. Two concurrent publishes both run the claim;
- * the second finds the column set and claims nothing. No edit and no republish
- * writes that column, so re-sending on an edit is impossible rather than
- * unlikely. The worker then claims each ledger row before it mails it, so a
- * retried job re-sends to nobody.
+ * **The members are reached exactly once, per channel.** Publishing with a
+ * mailing asked for is one transaction that conditionally claims that channel's
+ * column - `emailQueuedAt`, `smsQueuedAt` - while it is null, snapshots that
+ * channel's recipients into the delivery ledger - whose (news, person, channel)
+ * triple is unique - writes the audit entries, and enqueues the job through the
+ * same transaction. Two concurrent publishes both run the claim; the second
+ * finds the column set and claims nothing. No edit and no republish writes
+ * either column, so re-sending on an edit is impossible rather than unlikely.
+ * The worker then claims each ledger row before it sends it, so a retried job
+ * reaches nobody twice.
+ *
+ * The two channels are two decisions and two claims on one row. A board that
+ * emailed the members can still text them about the same notice, and a board
+ * that has done both can do neither again: each update matches on its own
+ * column alone, so asking for the channel still available never re-sends the
+ * one that is not. Each channel then has its own job, its own retries and its
+ * own dead letter, so an SMS provider that is down costs the mailing nothing.
  */
 @Injectable()
 export class NewsWriteService {
@@ -189,6 +238,7 @@ export class NewsWriteService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly mailer: NewsMailerService,
+    private readonly texter: NewsSmsService,
   ) {}
 
   /** Every news item, drafts included, newest first. */
@@ -205,15 +255,25 @@ export class NewsWriteService {
   }
 
   /**
-   * How many members a mailing would reach, right now.
+   * How many members a mailing would reach on each channel, right now.
    *
-   * Shown beside the mailing toggle so the board knows what it is about to do,
-   * and deliberately a count rather than a list: who the association's members
+   * Shown beside the mailing toggles so the board knows what it is about to do,
+   * and deliberately counts rather than lists: who the association's members
    * are is the register's answer to give, on the register's own screen and
    * under the register's own capability.
+   *
+   * Two counts, because they are not the same people. Every member with an
+   * address can be emailed; only the members who have given the association a
+   * number can be texted, and a board about to spend money on messages has to
+   * be able to see the difference before it presses publish.
    */
-  async recipientCount(): Promise<number> {
-    return this.prisma.person.count({ where: recipientsWhere(new Date()) });
+  async recipientCounts(): Promise<{ email: number; sms: number }> {
+    const now = new Date();
+    const [email, sms] = await Promise.all([
+      this.prisma.person.count({ where: recipientsWhere(now, "EMAIL") }),
+      this.prisma.person.count({ where: recipientsWhere(now, "SMS") }),
+    ]);
+    return { email, sms };
   }
 
   /**
@@ -251,15 +311,19 @@ export class NewsWriteService {
    * this method does not write.
    *
    * The address is the one thing a mailing settles. Once the members have been
-   * written to, the link in that mail is the only copy of the address they
+   * written to, the link in that message is the only copy of the address they
    * have, and nothing on this instance would answer the old one afterwards: a
-   * rename is refused rather than allowed to break it.
+   * rename is refused rather than allowed to break it. Either channel settles
+   * it, and a text message settles it harder - it is a bare link with no
+   * sender to write back to and no thread to correct it in.
    */
   async update(id: string, input: NewsInput): Promise<NewsAdminView> {
     const news = await this.require(id);
-    if (news.emailQueuedAt !== null && input.slug !== news.slug) {
+    const addressSent =
+      news.emailQueuedAt !== null || news.smsQueuedAt !== null;
+    if (addressSent && input.slug !== news.slug) {
       throw new NewsWriteError(
-        "The address was mailed to the members and cannot be changed.",
+        "The address was sent to the members and cannot be changed.",
         "address-mailed",
       );
     }
@@ -308,146 +372,195 @@ export class NewsWriteService {
     }
 
     /*
-     * Whether this call is the mailing.
+     * Whether this call is the mailing, and whether it is the SMS mailing.
      *
-     * Only a publish mails, only when the board asked, and only while the
-     * column is still null. The last of the three is re-checked inside the
-     * transaction by the claim itself - this one is here so an ordinary
-     * republish does not open a transaction that reads the register for
-     * nothing.
+     * Only a publish sends, only when the board asked, and only while that
+     * channel's column is still null. The last of the three is re-checked
+     * inside the transaction by the claim itself - these are here so an
+     * ordinary republish does not open a transaction that reads the register
+     * for nothing.
+     *
+     * Two independent tests, because the two channels are two decisions. A
+     * board that emailed the members in the morning may text them in the
+     * afternoon about the same notice, and neither claim can be taken twice.
      */
     const mailing =
       input.published &&
       input.sendEmail === true &&
       news.emailQueuedAt === null;
 
+    const texting =
+      input.published && input.sendSms === true && news.smsQueuedAt === null;
+
     /*
      * A write that changes nothing writes nothing.
      *
      * Pressing publish on an item that is already published to the same people,
-     * with no mailing left to claim, is not an event and does not belong in the
-     * audit log. The mailing is part of the test rather than an afterthought:
-     * a board that published without mailing and comes back to press it again
-     * is asking for the one thing this call could still do.
+     * with neither mailing left to claim, is not an event and does not belong
+     * in the audit log. The mailings are part of the test rather than an
+     * afterthought: a board that published without sending and comes back to
+     * press it again is asking for the one thing this call could still do.
      */
     if (
       news.published === input.published &&
       news.visibility === visibility &&
-      !mailing
+      !mailing &&
+      !texting
     ) {
-      return { ...toAdminView(news), mailedTo: null };
+      return { ...toAdminView(news), mailedTo: null, textedTo: null };
     }
 
+    // Before the transaction opens: creating a queue is the queue backend's own
+    // work on its own connection, and it has no business inside somebody else's
+    // transaction.
     if (mailing) {
-      // Before the transaction opens: creating a queue is the queue backend's
-      // own work on its own connection, and it has no business inside somebody
-      // else's transaction.
       await this.mailer.ensureQueues();
+    }
+    if (texting) {
+      await this.texter.ensureQueues();
     }
 
     const now = new Date();
 
-    const { row, mailedTo } = await this.prisma.$transaction(async (tx) => {
-      /*
-       * The claim, and the only writer of this column in the codebase.
-       *
-       * Conditional on it still being null, because the read above ran before
-       * this transaction and is only as fresh as the moment it was taken. Two
-       * publishes racing each other both reach here; the second blocks on the
-       * row until the first commits and then matches nothing, so it claims no
-       * mailing, writes no ledger and enqueues no job.
-       */
-      const claimed =
-        mailing &&
-        (
-          await tx.news.updateMany({
-            where: { id, emailQueuedAt: null },
-            data: { emailQueuedAt: now },
-          })
-        ).count === 1;
+    const { row, mailedTo, textedTo } = await this.prisma.$transaction(
+      async (tx) => {
+        /*
+         * The claims, and the only writers of these two columns in the codebase.
+         *
+         * Conditional on the column still being null, because the read above ran
+         * before this transaction and is only as fresh as the moment it was
+         * taken. Two publishes racing each other both reach here; the second
+         * blocks on the row until the first commits and then matches nothing, so
+         * it claims no mailing, writes no ledger and enqueues no job.
+         *
+         * One row, two columns, two conditions. A publish that claims the SMS
+         * mailing cannot take the email one with it, and vice versa: each update
+         * matches on its own column alone, so asking for the channel that is
+         * still available never re-sends the one that is not.
+         */
+        const claimedEmail =
+          mailing &&
+          (
+            await tx.news.updateMany({
+              where: { id, emailQueuedAt: null },
+              data: { emailQueuedAt: now },
+            })
+          ).count === 1;
 
-      const updated = await tx.news.update({
-        where: { id },
-        data: {
-          published: input.published,
-          visibility,
-          // Kept once set. It is when the item was first published, and a
-          // republish after a correction does not make it newer news.
-          publishedAt:
-            input.published && news.publishedAt === null
-              ? now
-              : news.publishedAt,
-        },
-        select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
-      });
+        const claimedSms =
+          texting &&
+          (
+            await tx.news.updateMany({
+              where: { id, smsQueuedAt: null },
+              data: { smsQueuedAt: now },
+            })
+          ).count === 1;
 
-      await this.audit.record(
-        {
-          action: "NEWS_PUBLISHED",
-          actorPersonId: input.actorPersonId,
-          targetKind: "news",
-          targetId: id,
-          context: {
-            slug: updated.slug,
+        const updated = await tx.news.update({
+          where: { id },
+          data: {
             published: input.published,
             visibility,
+            // Kept once set. It is when the item was first published, and a
+            // republish after a correction does not make it newer news.
+            publishedAt:
+              input.published && news.publishedAt === null
+                ? now
+                : news.publishedAt,
           },
-        },
-        tx,
-      );
+          select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+        });
 
-      if (!claimed) {
-        return { row: updated, mailedTo: null };
-      }
+        await this.audit.record(
+          {
+            action: "NEWS_PUBLISHED",
+            actorPersonId: input.actorPersonId,
+            targetKind: "news",
+            targetId: id,
+            context: {
+              slug: updated.slug,
+              published: input.published,
+              visibility,
+            },
+          },
+          tx,
+        );
 
-      /*
-       * The recipients, as they stand at this instant, written down.
-       *
-       * The snapshot is the record of who the board was writing to when it
-       * pressed publish, and it is never refreshed. A member who moves in
-       * tomorrow is not mailed today's news; somebody who moves out between
-       * this commit and the worker's run still receives it. Both follow from
-       * the same reading of the act, and the second is the honest one: the
-       * board addressed them.
-       */
-      const recipients = await tx.person.findMany({
-        where: recipientsWhere(now),
-        select: { id: true },
-      });
+        /**
+         * One channel's recipients, as they stand at this instant, written down.
+         *
+         * The snapshot is the record of who the board was writing to when it
+         * pressed publish, and it is never refreshed. A member who moves in
+         * tomorrow is not sent today's news; somebody who moves out between this
+         * commit and the worker's run still receives it. Both follow from the
+         * same reading of the act, and the second is the honest one: the board
+         * addressed them.
+         *
+         * Reached only from behind a claim that held, so the ledger it writes and
+         * the job it enqueues belong to a mailing that has been claimed exactly
+         * once.
+         */
+        const snapshot = async (channel: "EMAIL" | "SMS"): Promise<number> => {
+          const recipients = await tx.person.findMany({
+            where: recipientsWhere(now, channel),
+            select: { id: true },
+          });
 
-      // No skipDuplicates. The unique pair is the guarantee, and a duplicate
-      // reaching here would mean the claim above had failed to hold - which
-      // must abort the publish loudly rather than be quietly dropped.
-      await tx.newsDelivery.createMany({
-        data: recipients.map((person) => ({ newsId: id, personId: person.id })),
-      });
+          // No skipDuplicates. The unique triple is the guarantee, and a
+          // duplicate reaching here would mean the claim above had failed to
+          // hold - which must abort the publish loudly rather than be quietly
+          // dropped.
+          await tx.newsDelivery.createMany({
+            data: recipients.map((person) => ({
+              newsId: id,
+              personId: person.id,
+              channel,
+            })),
+          });
 
-      await this.audit.record(
-        {
-          action: "NEWS_EMAILED",
-          actorPersonId: input.actorPersonId,
-          targetKind: "news",
-          targetId: id,
-          context: { slug: updated.slug, recipients: recipients.length },
-        },
-        tx,
-      );
+          await this.audit.record(
+            {
+              action: channel === "SMS" ? "NEWS_TEXTED" : "NEWS_EMAILED",
+              actorPersonId: input.actorPersonId,
+              targetKind: "news",
+              targetId: id,
+              context: { slug: updated.slug, recipients: recipients.length },
+            },
+            tx,
+          );
 
-      // In this transaction, so the job row commits with the ledger it works
-      // through or with neither. A job sent after the commit could fail on its
-      // own and leave a mailing claimed with nothing coming for it.
-      await this.mailer.enqueueInTransaction(tx, id);
+          // In this transaction, so the job row commits with the ledger it works
+          // through or with neither. A job sent after the commit could fail on
+          // its own and leave a mailing claimed with nothing coming for it.
+          if (channel === "SMS") {
+            await this.texter.enqueueInTransaction(tx, id);
+          } else {
+            await this.mailer.enqueueInTransaction(tx, id);
+          }
 
-      return { row: updated, mailedTo: recipients.length };
-    });
+          return recipients.length;
+        };
+
+        return {
+          row: updated,
+          mailedTo: claimedEmail ? await snapshot("EMAIL") : null,
+          textedTo: claimedSms ? await snapshot("SMS") : null,
+        };
+      },
+    );
 
     if (mailedTo !== null) {
       this.logger.log(
         `Published news ${id} and claimed a mailing for ${String(mailedTo)} members`,
       );
     }
+    if (textedTo !== null) {
+      this.logger.log(
+        `Published news ${id} and claimed an SMS mailing for ${String(textedTo)} members`,
+      );
+    }
 
-    return { ...toAdminView(row), mailedTo };
+    return { ...toAdminView(row), mailedTo, textedTo };
   }
 
   /**
@@ -580,10 +693,18 @@ export class NewsWriteService {
  * A member with protected personal data is included. The protection governs
  * what the association discloses about them to others; it has never meant that
  * the association stops writing to them.
+ *
+ * The channel decides which contact detail has to be there. A member the
+ * association holds no number for is simply not among the people it can text:
+ * they are left out of the snapshot rather than written into it and failed, so
+ * being unreachable one way is an absence from that ledger and never a column
+ * of failures on the board's screen.
  */
-export function recipientsWhere(now: Date) {
+export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
   return {
-    emailCipher: { not: null },
+    ...(channel === "SMS"
+      ? { phoneCipher: { not: null } }
+      : { emailCipher: { not: null } }),
     residencies: {
       some: {
         role: "MEMBER" as const,
@@ -593,7 +714,11 @@ export function recipientsWhere(now: Date) {
   };
 }
 
-const DELIVERY_COLUMNS = { status: true, failureReason: true } as const;
+const DELIVERY_COLUMNS = {
+  channel: true,
+  status: true,
+  failureReason: true,
+} as const;
 
 /**
  * A body narrowed to what a news item may hold, refusing the rest.
@@ -632,8 +757,13 @@ function toAdminView(row: {
   published: boolean;
   publishedAt: Date | null;
   emailQueuedAt: Date | null;
+  smsQueuedAt: Date | null;
   updatedAt: Date;
-  deliveries: readonly { status: string; failureReason: string | null }[];
+  deliveries: readonly {
+    channel: string;
+    status: string;
+    failureReason: string | null;
+  }[];
 }): NewsAdminView {
   return {
     id: row.id,
@@ -646,15 +776,47 @@ function toAdminView(row: {
     published: row.published,
     publishedAt: row.publishedAt?.toISOString() ?? null,
     emailQueuedAt: row.emailQueuedAt?.toISOString() ?? null,
+    smsQueuedAt: row.smsQueuedAt?.toISOString() ?? null,
     delivery: {
-      pending: row.deliveries.filter((one) => one.status === "PENDING").length,
-      sent: row.deliveries.filter((one) => one.status === "SENT").length,
-      failed: row.deliveries.filter((one) => one.status === "FAILED").length,
-      mailNotConfigured: row.deliveries.some(
-        (one) => one.failureReason === DELIVERY_FAILURES.mailNotConfigured,
+      email: channelReport(
+        row.deliveries,
+        "EMAIL",
+        DELIVERY_FAILURES.mailNotConfigured,
+      ),
+      sms: channelReport(
+        row.deliveries,
+        "SMS",
+        DELIVERY_FAILURES.smsNotConfigured,
       ),
     },
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * One channel's counts, from the rows that belong to it.
+ *
+ * Filtered by channel rather than counted over the whole ledger, because the
+ * two are reported side by side: a total that mixed them would tell a board
+ * with no SMS provider that its email mailing had failures in it.
+ */
+function channelReport(
+  deliveries: readonly {
+    channel: string;
+    status: string;
+    failureReason: string | null;
+  }[],
+  channel: "EMAIL" | "SMS",
+  notConfiguredReason: string,
+): NewsDeliveryReport {
+  const rows = deliveries.filter((one) => one.channel === channel);
+  return {
+    pending: rows.filter((one) => one.status === "PENDING").length,
+    sent: rows.filter((one) => one.status === "SENT").length,
+    failed: rows.filter((one) => one.status === "FAILED").length,
+    notConfigured: rows.some(
+      (one) => one.failureReason === notConfiguredReason,
+    ),
   };
 }
 
