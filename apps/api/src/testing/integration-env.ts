@@ -64,7 +64,7 @@ export function restoreEnvironmentVariable(
   }
 }
 
-/** A per-run suffix, so two overlapping runs cannot collide on a fixed id. */
+/** A per-call suffix, so nothing collides with a fixed id from elsewhere. */
 export function runSuffix(): string {
   return process.hrtime.bigint().toString(36);
 }
@@ -76,10 +76,12 @@ export function runSuffix(): string {
  * of a number to one value: "070-123 45 67" and "+46701234567" reach the same
  * row, which is the property the seed suite exists to assert. So a number
  * written as a literal in a fixture is not merely duplicated data - it answers
- * a lookup that was about somebody else's person, and a suite that leaves a row
- * behind on purpose keeps answering it on every later run. That is not
- * hypothetical: two retention suites and the demo data all held +46701234567,
- * and the seed suite's phone lookup found whichever row came back first.
+ * a lookup that was about somebody else's person. A worker runs several suites
+ * against its database in turn, and append-only register rows keep the people
+ * they name, so a literal written by one suite goes on answering the next
+ * one's lookup. That is not hypothetical: two retention suites and the demo
+ * data all held +46701234567, and the seed suite's phone lookup found whichever
+ * row came back first.
  *
  * The prefix is 076 rather than the 070, 072 and 073 the demo data uses, so a
  * collision needs a deliberate choice rather than seven unlucky digits.
@@ -98,9 +100,10 @@ export function runPhone(seed: string): string {
  *
  * The same hazard one step behind the phone: the number carries a blind index
  * too, an expensive one precisely because a birth date leaves it almost no
- * entropy, and the suites that write it leave their carrier behind. Nothing
- * searches by that index yet, which is the argument for fixing it now - the
- * suite that eventually does would inherit rows from every run before it.
+ * entropy, and the suites that write it leave the person holding it behind.
+ * Nothing searches by that index yet, which is the argument for fixing it now
+ * - the suite that eventually does would match every personal identity number
+ * its worker wrote before it.
  *
  * Twelve digits rather than the six-plus-four form the fixtures used to write.
  * The short form has no century, so the parser infers one from today's date,
