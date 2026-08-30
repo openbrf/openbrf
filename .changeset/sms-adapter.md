@@ -20,13 +20,14 @@ billed per message, and an association that only mails its members is the
 ordinary case.
 
 Publishing a news item now offers both delivery channels, and offers them
-separately. The email is on by default because it costs nothing and reaches
-everyone in the register with an address; the SMS mailing is off, because it is
-billed per member and reaches only those who have given the association a
-number. Each is claimed once and only once, by its own conditional update
-inside the publish transaction, so a board that emailed the members in the
-morning can still text them in the afternoon about the same notice and neither
-claim can be taken twice. Editing a published item touches neither.
+separately. The news mailing is on by default because it costs nothing and
+reaches everyone in the register with an address; the SMS mailing is off,
+because it is billed per member and reaches only those who have given the
+association a number. Each is claimed once and only once, by its own
+conditional update inside the publish transaction, so a board that emailed the
+members in the morning can still text them in the afternoon about the same
+notice and neither claim can be taken twice. Editing a published item touches
+neither.
 
 The delivery ledger carries the channel, so the two share one record of who the
 board addressed while each keeps its own claim. Each worker claims a recipient's
