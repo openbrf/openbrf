@@ -918,6 +918,60 @@ describe("the quota", () => {
     expect(nextWeekForBeta.statusCode).toBe(404);
   });
 
+  it("bites a stay that runs past the day the residency ends", async () => {
+    /*
+     * The case the periods above cannot show. Every other mode begins and ends
+     * inside one day, so checking the day a period starts answers the whole
+     * question; a stay does not. Bengt leaves on the Thursday, and a check-in on
+     * the Wednesday is his - but the nights from the Thursday are not, and a
+     * stay that stops being his halfway through is the guest apartment taken
+     * from whoever moves in.
+     */
+    const wednesday = addLocalDays(WEEK, 2);
+    const thursday = addLocalDays(WEEK, 3);
+    const friday = addLocalDays(WEEK, 4);
+
+    await prisma.residency.updateMany({
+      where: { personId: beta.personId, apartmentId: jointApartmentId },
+      data: {
+        movedOutOn: new Date(`${formatLocalDay(thursday)}T00:00:00.000Z`),
+      },
+    });
+
+    const checkIn = await slotOn(betaCookie, guestApartmentId, wednesday);
+    const lastNightHeld = await slotOn(betaCookie, guestApartmentId, wednesday);
+    const nightAfterLeaving = await slotOn(
+      betaCookie,
+      guestApartmentId,
+      friday,
+    );
+
+    // Checks in on a night he holds and out on a morning he does not.
+    const straddling = await claim(betaCookie, {
+      resourceId: guestApartmentId,
+      apartmentId: jointApartmentId,
+      startsAt: checkIn.startsAt,
+      endsAt: nightAfterLeaving.endsAt,
+    });
+    expect(straddling.statusCode).toBe(404);
+    expect(straddling.json<{ reason: string }>().reason).toBe(
+      "apartment-not-found",
+    );
+
+    // The Wednesday night alone ends before the move-out and stands.
+    const insideHisTime = await claim(betaCookie, {
+      resourceId: guestApartmentId,
+      apartmentId: jointApartmentId,
+      startsAt: checkIn.startsAt,
+      endsAt: lastNightHeld.endsAt,
+    });
+    expect(insideHisTime.statusCode).toBe(201);
+
+    await prisma.booking.deleteMany({
+      where: { id: insideHisTime.json<OwnBookingView>().id },
+    });
+  });
+
   it("counts unstarted bookings against the concurrent limit", async () => {
     const first = await slotOn(gammaCookie, commonRoomId, NEXT_WEEK);
     const second = await slotOn(

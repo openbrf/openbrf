@@ -4,9 +4,9 @@
 "@openbrf/i18n": minor
 ---
 
-Add the slot engine and the booking API: residents can see what a resource
-offers, take a slot, cancel their own, and the board can see who holds what and
-cancel on somebody's behalf.
+Add the slot engine and the booking API: residents can see what a bookable
+resource offers, take a slot, cancel their own, and the board can see who holds
+what and cancel on somebody's behalf.
 
 Slots are generated from the board's configuration and never stored. A stored
 calendar would be a second copy of the opening hours that has to be regenerated

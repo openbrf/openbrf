@@ -630,7 +630,7 @@ export class BookingService {
   ): Promise<string> {
     const held = await this.prisma.residency.count({
       where: {
-        ...residencyCovering(personId, period.startsAt),
+        ...residencyCoveringPeriod(personId, period),
         apartmentId,
       },
     });
@@ -770,19 +770,29 @@ function activeResidencyOf(
 }
 
 /**
- * A residency covering an instant, which is what a claim is checked against.
+ * A residency covering every instant of a period, both ends included.
  *
  * The move-out date is the first day not held, which is how every other reader
  * of this table treats it, and the move-in date is the first day that is.
+ *
+ * Checking the start alone is enough for a resource whose period begins and
+ * ends inside one day, and wrong for one that does not. A guest apartment is
+ * booked as a stay: a household whose move-out date falls on the twelfth could
+ * claim the tenth to the fifteenth on the strength of the tenth, and the nights
+ * from the twelfth would then stand in a flat it no longer holds - taken from
+ * whoever moved in. So the last instant the period covers is checked as well as
+ * the first, and `endsAt` is exclusive, which is why it is the moment before it
+ * that has to be held.
  */
-function residencyCovering(
+function residencyCoveringPeriod(
   personId: string,
-  instant: Date,
+  period: Period,
 ): Prisma.ResidencyWhereInput {
+  const lastInstant = new Date(period.endsAt.getTime() - 1);
   return {
     personId,
-    movedInOn: { lte: instant },
-    OR: [{ movedOutOn: null }, { movedOutOn: { gt: instant } }],
+    movedInOn: { lte: period.startsAt },
+    OR: [{ movedOutOn: null }, { movedOutOn: { gt: lastInstant } }],
   };
 }
 
