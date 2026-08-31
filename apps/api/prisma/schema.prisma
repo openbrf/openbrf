@@ -2160,7 +2160,7 @@ enum EventRecurrenceFrequency {
 /// BookableResource sets with its slot mechanics: a rule has exactly one row
 /// per series and no identity of its own, and a second table would be a join
 /// for every read of the calendar. They are set together or not at all, which
-/// `checkRecurrenceRule` enforces, and the API presents them as one nested
+/// `checkRecurrenceSchedule` enforces, and the API presents them as one nested
 /// object so that "there is a rule" and "there is no rule" are one field
 /// rather than four.
 ///

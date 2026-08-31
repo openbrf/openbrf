@@ -122,11 +122,43 @@ async function signIn(email: string): Promise<string> {
 }
 
 /**
+ * The year every date this suite states falls in: the next one.
+ *
+ * Derived rather than written out, and that is the whole reason it exists. The
+ * service freezes an occurrence the moment it starts, so three of the
+ * assertions below - the two about what an edit rewrites and the one about a
+ * called-off date surviving an edit around it - describe the reconciliation
+ * only while their dates are still ahead of the clock. A year written out would
+ * make those pass until it arrived and then fail on the calendar rather than on
+ * a regression, which is the opposite of what a test is for.
+ *
+ * Next year is between three and fifteen months ahead whenever this runs, so
+ * every date below is future by a wide margin.
+ *
+ * The month, the day and every instant asserted stay written out by hand. April,
+ * May and June are inside summer time in every year, so ten in the morning in
+ * Stockholm is 08:00 UTC on all of these dates whichever year they fall in -
+ * which is what lets the expectations come from the calendar rather than from
+ * the generator they are checking.
+ */
+const YEAR = new Date().getUTCFullYear() + 1;
+
+/**
+ * A year that is behind us, for the occurrence this suite writes directly.
+ *
+ * The reconciliation test needs a date on each side of now, and a series' own
+ * rule cannot name a past one without its first date being past too. Last year
+ * is between three and fifteen months behind whenever this runs.
+ */
+const PAST_YEAR = YEAR - 2;
+
+/**
  * A cleaning day on Sundays at ten in the morning, four hours long.
  *
- * The 18th of April 2027 is a Sunday, and April is inside summer time, so ten in
- * the morning in Stockholm is 08:00 UTC - which is what every instant asserted
- * below is written out from.
+ * April is inside summer time, so ten in the morning in Stockholm is 08:00 UTC -
+ * which is what every instant asserted below is written out from. The weekly
+ * step is seven calendar days, so which weekday the 18th falls on differs
+ * between years and no assertion depends on it.
  */
 const cleaningDay = {
   title: `Stadag ${suffix}`,
@@ -135,7 +167,7 @@ const cleaningDay = {
   location: "Innergarden",
   signupOpen: true,
   capacity: 20,
-  firstOn: "2027-04-18",
+  firstOn: `${String(YEAR)}-04-18`,
   startsAtMinute: 10 * 60,
   durationMinutes: 4 * 60,
   recurrence: { frequency: "WEEKLY", interval: 1, count: 3 },
@@ -296,20 +328,20 @@ describe("entering a series", () => {
     expect(
       created.occurrences.map((occurrence) => occurrence.startsAt),
     ).toEqual([
-      "2027-04-18T08:00:00.000Z",
-      "2027-04-25T08:00:00.000Z",
-      "2027-05-02T08:00:00.000Z",
+      `${String(YEAR)}-04-18T08:00:00.000Z`,
+      `${String(YEAR)}-04-25T08:00:00.000Z`,
+      `${String(YEAR)}-05-02T08:00:00.000Z`,
     ]);
     expect(created.occurrences.map((occurrence) => occurrence.endsAt)).toEqual([
-      "2027-04-18T12:00:00.000Z",
-      "2027-04-25T12:00:00.000Z",
-      "2027-05-02T12:00:00.000Z",
+      `${String(YEAR)}-04-18T12:00:00.000Z`,
+      `${String(YEAR)}-04-25T12:00:00.000Z`,
+      `${String(YEAR)}-05-02T12:00:00.000Z`,
     ]);
     // The local date each one is filed under, which is what a calendar reads.
     expect(created.occurrences.map((occurrence) => occurrence.on)).toEqual([
-      "2027-04-18",
-      "2027-04-25",
-      "2027-05-02",
+      `${String(YEAR)}-04-18`,
+      `${String(YEAR)}-04-25`,
+      `${String(YEAR)}-05-02`,
     ]);
 
     // They are rows, not a computed answer.
@@ -327,7 +359,7 @@ describe("entering a series", () => {
 
     // The date column round trip: stated as the 18th, stored as a date, read
     // back as the 18th rather than as the evening before.
-    expect(created.firstOn).toBe("2027-04-18");
+    expect(created.firstOn).toBe(`${String(YEAR)}-04-18`);
     expect(created.startsAtMinute).toBe(600);
     expect(created.durationMinutes).toBe(240);
     expect(created.recurrence).toEqual({
@@ -357,7 +389,7 @@ describe("entering a series", () => {
       location: "Foreningslokalen",
       signupOpen: false,
       capacity: null,
-      firstOn: "2027-06-25",
+      firstOn: `${String(YEAR)}-06-25`,
       startsAtMinute: 18 * 60,
       durationMinutes: 120,
       recurrence: null,
@@ -365,7 +397,9 @@ describe("entering a series", () => {
 
     expect(created.recurrence).toBeNull();
     expect(created.occurrences).toHaveLength(1);
-    expect(created.occurrences[0]?.startsAt).toBe("2027-06-25T16:00:00.000Z");
+    expect(created.occurrences[0]?.startsAt).toBe(
+      `${String(YEAR)}-06-25T16:00:00.000Z`,
+    );
   });
 
   it("is in the audit log with the shape of the series and no free text", async () => {
@@ -386,7 +420,7 @@ describe("entering a series", () => {
       frequency: "WEEKLY",
       interval: 1,
       occurrences: 3,
-      firstOn: "2027-04-18",
+      firstOn: `${String(YEAR)}-04-18`,
       signupOpen: true,
     });
     // The title, the description, the category and the location are free text
@@ -405,7 +439,7 @@ describe("entering a series", () => {
         recurrence: {
           frequency: "WEEKLY",
           interval: 1,
-          until: "2030-01-01",
+          until: `${String(YEAR + 3)}-01-01`,
         },
       },
       headers: { cookie: boardCookie },
@@ -448,8 +482,8 @@ describe("the database's own rule", () => {
       prisma.eventOccurrence.create({
         data: {
           eventId: created.id,
-          startsAt: new Date("2027-04-18T08:00:00.000Z"),
-          endsAt: new Date("2027-04-18T12:00:00.000Z"),
+          startsAt: new Date(`${String(YEAR)}-04-18T08:00:00.000Z`),
+          endsAt: new Date(`${String(YEAR)}-04-18T12:00:00.000Z`),
         },
       }),
     ).rejects.toMatchObject({ code: "P2002" });
@@ -608,8 +642,8 @@ describe("editing a series", () => {
     const past = await prisma.eventOccurrence.create({
       data: {
         eventId: created.id,
-        startsAt: new Date("2026-05-10T08:00:00.000Z"),
-        endsAt: new Date("2026-05-10T12:00:00.000Z"),
+        startsAt: new Date(`${String(PAST_YEAR)}-05-10T08:00:00.000Z`),
+        endsAt: new Date(`${String(PAST_YEAR)}-05-10T12:00:00.000Z`),
       },
       select: { id: true },
     });
@@ -636,11 +670,14 @@ describe("editing a series", () => {
       ]),
     ).toEqual([
       // Untouched: it happened, at the time it happened.
-      ["2026-05-10", "2026-05-10T08:00:00.000Z"],
+      [
+        `${String(PAST_YEAR)}-05-10`,
+        `${String(PAST_YEAR)}-05-10T08:00:00.000Z`,
+      ],
       // Moved to nine, keeping its row.
-      ["2027-04-18", "2027-04-18T07:00:00.000Z"],
+      [`${String(YEAR)}-04-18`, `${String(YEAR)}-04-18T07:00:00.000Z`],
       // New.
-      ["2027-04-25", "2027-04-25T07:00:00.000Z"],
+      [`${String(YEAR)}-04-25`, `${String(YEAR)}-04-25T07:00:00.000Z`],
     ]);
     expect(updated.occurrences[0]?.id).toBe(past.id);
 
@@ -690,7 +727,7 @@ describe("editing a series", () => {
     const after = response.json<EventView>().occurrences[0];
     // The same row, at a new time: a sign-up pointing at it survives the edit.
     expect(after?.id).toBe(before);
-    expect(after?.startsAt).toBe("2027-04-18T09:00:00.000Z");
+    expect(after?.startsAt).toBe(`${String(YEAR)}-04-18T09:00:00.000Z`);
   });
 });
 
@@ -714,7 +751,7 @@ describe("calling off one date", () => {
       after.occurrences.map((occurrence) => occurrence.cancelledAt === null),
     ).toEqual([true, false, true]);
     // The row is still there, on the date it was.
-    expect(after.occurrences[1]?.on).toBe("2027-04-25");
+    expect(after.occurrences[1]?.on).toBe(`${String(YEAR)}-04-25`);
 
     const entry = await prisma.auditLogEntry.findFirst({
       where: {
@@ -726,7 +763,7 @@ describe("calling off one date", () => {
     expect(entry?.actorPersonId).toBe(board.personId);
     expect(entry?.context).toEqual({
       eventId: created.id,
-      on: "2027-04-25",
+      on: `${String(YEAR)}-04-25`,
     });
   });
 
@@ -785,7 +822,7 @@ describe("calling off one date", () => {
     // Moved with the rest, and still called off: the board's decision about
     // that date is not undone by a change to the series' time.
     expect(after?.id).toBe(second?.id);
-    expect(after?.startsAt).toBe("2027-04-25T10:00:00.000Z");
+    expect(after?.startsAt).toBe(`${String(YEAR)}-04-25T10:00:00.000Z`);
     expect(after?.cancelledAt).not.toBeNull();
   });
 });
@@ -868,7 +905,7 @@ describe("a date that is not a date", () => {
         ...cleaningDay,
         title: `Omojligt datum ${suffix}`,
         // The 30th of February, which Date.parse would silently read as March.
-        firstOn: "2027-02-30",
+        firstOn: `${String(YEAR)}-02-30`,
       },
       headers: { cookie: boardCookie },
     });
