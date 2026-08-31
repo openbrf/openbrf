@@ -12,12 +12,12 @@ import { type EventInput, EventService } from "./event.service";
  * about a decision the service takes before it writes anything and neither needs
  * a database to be true.
  *
- * The first is the refusal to move a date people are standing on. Sign-ups are a
- * table this change does not create, so the one question the service cannot
- * answer itself - which occurrences somebody has signed up to - is asked through
- * `event-attendance.ts` and is stubbed here. Stubbing it is the point: the
- * refusal has to be exercised now, or the branch that carries it would arrive
- * with the sign-up endpoint having never once run.
+ * The first is the refusal to move a date people are standing on. The one
+ * question the service cannot answer itself - which occurrences somebody has
+ * signed up to - is asked through `event-attendance.ts` and is stubbed here, so
+ * that what is exercised is the refusal rather than a query. The query itself is
+ * `event-attendance.spec.ts`, including the rule that a withdrawal does not hold
+ * a date, and the two together against a database are `event-signups.int-spec.ts`.
  *
  * The second is the personal-identity-number scan. A published series is scanned
  * on every edit, because an edit to something already published is itself a
@@ -91,7 +91,11 @@ const STORED_OCCURRENCES = [
   },
 ];
 
-function storedEvent(published: boolean, title = AS_STATED.title) {
+function storedEvent(
+  published: boolean,
+  title = AS_STATED.title,
+  cancelledOccurrenceId?: string,
+) {
   return {
     id: "event-1",
     title,
@@ -110,7 +114,11 @@ function storedEvent(published: boolean, title = AS_STATED.title) {
     recurrenceInterval: 1,
     recurrenceCount: 3,
     recurrenceUntil: null,
-    occurrences: STORED_OCCURRENCES,
+    occurrences: STORED_OCCURRENCES.map((occurrence) =>
+      occurrence.id === cancelledOccurrenceId
+        ? { ...occurrence, cancelledAt: new Date("2027-04-01T09:00:00.000Z") }
+        : occurrence,
+    ),
   };
 }
 
@@ -121,8 +129,14 @@ function storedEvent(published: boolean, title = AS_STATED.title) {
  * "already started" half of the plan is not in play here - `occurrence-plan.spec.ts`
  * takes its own clock and covers that.
  */
-function build(options: { published?: boolean } = {}) {
-  const row = storedEvent(options.published ?? false);
+function build(
+  options: { published?: boolean; cancelledOccurrenceId?: string } = {},
+) {
+  const row = storedEvent(
+    options.published ?? false,
+    AS_STATED.title,
+    options.cancelledOccurrenceId,
+  );
 
   const tx = {
     event: {
@@ -199,6 +213,50 @@ describe("editing a series people have signed up to", () => {
       ),
     ).rejects.toMatchObject({ reason: "occurrence-in-use" });
     expect(tx.event.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a change that would move a called-off date somebody holds", async () => {
+    /*
+     * A called-off date is still one somebody is standing on. Nothing withdraws
+     * a sign-up when the board calls a date off - the row stays with the date on
+     * it precisely because people may have signed up to it - so somebody who has
+     * not stood down is still expecting to be there, and an edit that moved that
+     * date would move their sign-up onto a day they never chose.
+     *
+     * The board's way out is dated and deliberate: leave the date alone, or
+     * withdraw those sign-ups on those people's behalf.
+     */
+    signedUpTo("occurrence-25");
+    const { service, tx } = build({ cancelledOccurrenceId: "occurrence-25" });
+
+    await expect(
+      service.update(
+        "event-1",
+        { ...AS_STATED, startsAtMinute: 9 * 60 },
+        "board-1",
+      ),
+    ).rejects.toMatchObject({ reason: "occurrence-in-use" });
+    expect(tx.eventOccurrence.update).not.toHaveBeenCalled();
+    expect(tx.event.update).not.toHaveBeenCalled();
+  });
+
+  it("asks about a called-off date rather than leaving it out", async () => {
+    // The set the question is asked of, stated directly: an implementation that
+    // filtered called-off dates out before asking would pass the refusal test
+    // above only because the stub was told about the same id.
+    const { service } = build({ cancelledOccurrenceId: "occurrence-25" });
+
+    await service.update(
+      "event-1",
+      { ...AS_STATED, startsAtMinute: 9 * 60 },
+      "board-1",
+    );
+
+    expect(held.mock.calls[0]?.[1]).toEqual([
+      "occurrence-18",
+      "occurrence-25",
+      "occurrence-02",
+    ]);
   });
 
   it("names the dates on the association's own calendar and nothing else", async () => {

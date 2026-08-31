@@ -181,6 +181,9 @@ const AUDIT_ACTION_LABEL = {
   MOTION_SUBMITTED: "register.person.report.action.MOTION_SUBMITTED",
   MOTION_ACKNOWLEDGED: "register.person.report.action.MOTION_ACKNOWLEDGED",
   MOTION_WITHDRAWN: "register.person.report.action.MOTION_WITHDRAWN",
+  EVENT_SIGNUP_MADE: "register.person.report.action.EVENT_SIGNUP_MADE",
+  EVENT_SIGNUP_WITHDRAWN:
+    "register.person.report.action.EVENT_SIGNUP_WITHDRAWN",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
@@ -735,6 +738,53 @@ export function DataSubjectReport({
                    */}
                   <td className={DATA_CELL}>
                     {motion.erasableFrom ?? nothing}
+                  </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          <Section titleKey="register.person.report.section.eventSignups">
+            <Rows
+              empty={report.eventSignups.length === 0}
+              headings={[
+                "register.person.report.field.eventTitle",
+                "register.person.report.field.date",
+                "register.person.report.field.signedUp",
+                "register.person.report.field.withdrawn",
+                "register.person.report.field.calledOff",
+                "register.person.report.field.erasableFrom",
+              ]}
+            >
+              {report.eventSignups.map((signup) => (
+                <tr key={signup.signupId} className={ROW}>
+                  <td className={TEXT_CELL}>{signup.eventTitle}</td>
+                  {/*
+                   * The date the server stated, printed as it arrived. Reading it
+                   * off the instant here would name the day before for anything
+                   * starting in the first hours of the morning.
+                   */}
+                  <td className={DATA_CELL}>{signup.on}</td>
+                  <td className={DATA_CELL}>{day(signup.signedUpAt)}</td>
+                  {/*
+                   * A withdrawal is a date and not an absence, which is what
+                   * lets this document tell somebody who stood down from
+                   * somebody who never signed up.
+                   */}
+                  <td className={DATA_CELL}>
+                    {signup.withdrawnOn === null
+                      ? nothing
+                      : day(signup.withdrawnOn)}
+                  </td>
+                  <td className={TEXT_CELL}>
+                    {t(
+                      signup.calledOff
+                        ? "register.person.report.yes"
+                        : "register.person.report.no",
+                    )}
+                  </td>
+                  <td className={DATA_CELL}>
+                    {signup.erasableFrom ?? nothing}
                   </td>
                 </tr>
               ))}

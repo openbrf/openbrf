@@ -163,6 +163,35 @@ export const CAPABILITIES = [
    */
   "events:manage",
   /**
+   * Sign up (anmalan) to a date in the association's calendar, and stand down
+   * again.
+   *
+   * Residents and the board, because putting your name down for the cleaning day
+   * is part of living here rather than a board activity, and a board member lives
+   * here too.
+   *
+   * A capability of its own rather than self:manage, although a sign-up is a row
+   * about the person making it. A capability answers what a principal may do, and
+   * "may take a place at something the association arranges" is a different
+   * question from "may edit their own record and account settings": one is about
+   * the house's activities, the other is a person's own data and would be wrong
+   * to withhold from anybody who has an account at all. Folding the two together
+   * would also mean the external person mid-onboarding who holds self:manage and
+   * nothing else could put their name down for the general meeting.
+   *
+   * It does not carry reading the calendar as a whole. A published series reaches
+   * the people it was published to without any capability, which is what
+   * publishing means; what this name gates is the sign-up itself and the
+   * occurrence list that carries the caller's own place. Who else is coming stays
+   * behind events:manage.
+   *
+   * Deliberately not granted to the property manager, on the bookings:book
+   * precedent and for the same reason: they handle the association's issues, they
+   * do not live in the building, and a place taken by an external contractor is a
+   * place taken from a household.
+   */
+  "events:attend",
+  /**
    * Grant and revoke a system role: the administrator grant and the external
    * property manager grant.
    *
@@ -278,6 +307,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "bookings:configure",
   "events:manage",
   "motions:handle",
+  "events:attend",
 ];
 
 /**
@@ -318,6 +348,7 @@ const RESIDENT_CAPABILITIES: readonly Capability[] = [
   "residentDirectory:read",
   "issues:report",
   "bookings:book",
+  "events:attend",
 ];
 
 /**

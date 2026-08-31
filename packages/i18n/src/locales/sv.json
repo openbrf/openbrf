@@ -309,6 +309,7 @@
           "documents": "Inlagda dokument",
           "bookings": "Bokningar",
           "motions": "Motioner",
+          "eventSignups": "Anmälningar till evenemang",
           "audit": "Granskningsloggen",
           "retention": "Gallring"
         },
@@ -356,6 +357,9 @@
           "binder": "Pärm",
           "audience": "Målgrupp",
           "filed": "Inlagt",
+          "eventTitle": "Evenemang",
+          "signedUp": "Anmäld",
+          "calledOff": "Inställt",
           "resource": "Resurs",
           "starts": "Börjar",
           "ends": "Slutar",
@@ -431,7 +435,9 @@
           "EVENT_OCCURRENCE_CANCELLED": "Evenemangstillfälle ställdes in",
           "MOTION_SUBMITTED": "Motion inlämnad",
           "MOTION_ACKNOWLEDGED": "Motion antecknad som mottagen",
-          "MOTION_WITHDRAWN": "Motion återkallad"
+          "MOTION_WITHDRAWN": "Motion återkallad",
+          "EVENT_SIGNUP_MADE": "Anmälan till evenemang gjordes",
+          "EVENT_SIGNUP_WITHDRAWN": "Anmälan till evenemang återkallades"
         },
         "auditRole": {
           "subject": "Om den här personen",

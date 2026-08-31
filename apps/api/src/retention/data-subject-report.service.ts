@@ -4,8 +4,10 @@ import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
+import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { computeEventSignupPurgeDate } from "../events/event-signup-retention";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { resolveRegisterEvents } from "../registers/membership-periods";
@@ -51,6 +53,7 @@ const SECTIONS = [
   "documents",
   "bookings",
   "motions",
+  "eventSignups",
   "auditEntries",
 ] as const;
 
@@ -104,12 +107,13 @@ const SECTIONS = [
  * their retention story was unfinished would be an incomplete answer to an
  * access request, which is the one failure this document cannot have.
  *
- * Two sections state an erasure date per row, because two modules purge on
- * clocks of their own. A booking is purged a year after the booked period ended
- * and a motion two years after it was closed, so the date at the foot of the
- * document is not the date that governs either, and each row says when it goes.
- * A motion still with the board states no date at all: it has no closing date to
- * count from, and the association is still processing it.
+ * Three sections state an erasure date per row, because three modules purge on
+ * clocks of their own. A booking is purged a year after the booked period ended,
+ * an event sign-up a year after the date it was for, and a motion two years
+ * after it was closed - so the date at the foot of the document is not the date
+ * that governs any of them, and each row says when it goes. A motion still with
+ * the board states no date at all: it has no closing date to count from, and the
+ * association is still processing it.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -410,6 +414,31 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Sign-ups this person made to the association's own dates, the ones they
+     * stood down from included. `personId` is a plain column and not a relation,
+     * for the reason `bookedByPersonId` is, so this is a query of its own; the
+     * occurrence IS one, which is how the date and the series it belongs to reach
+     * the document without being copied onto the sign-up.
+     */
+    const eventSignups = await tx.eventSignup.findMany({
+      where: { personId },
+      orderBy: [{ signedUpAt: "desc" }],
+      select: {
+        id: true,
+        signedUpAt: true,
+        withdrawnAt: true,
+        occurrence: {
+          select: {
+            startsAt: true,
+            endsAt: true,
+            cancelledAt: true,
+            event: { select: { title: true } },
+          },
+        },
+      },
+    });
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -617,6 +646,29 @@ export class DataSubjectReportService {
          * still processing it, so no purge date exists to state.
          */
         erasableFrom: toIsoDate(computeMotionPurgeDate(motion.closedAt)),
+      })),
+      eventSignups: eventSignups.map((signup) => ({
+        signupId: signup.id,
+        eventTitle: signup.occurrence.event.title,
+        startsAt: signup.occurrence.startsAt.toISOString(),
+        endsAt: signup.occurrence.endsAt.toISOString(),
+        /*
+         * The local date on the association's own clock, and not a slice of the
+         * instant. A midsummer party starting at half past midnight is on the
+         * 21st of June in Stockholm and on the 20th in UTC, and this document
+         * states the date the notice in the stairwell did.
+         */
+        on: formatLocalDay(localDayOf(signup.occurrence.startsAt)),
+        signedUpAt: signup.signedUpAt.toISOString(),
+        withdrawnOn: signup.withdrawnAt?.toISOString() ?? null,
+        calledOff: signup.occurrence.cancelledAt !== null,
+        // Derived here rather than stored, exactly as the booking's is, and
+        // anchored on the end of the date rather than on the withdrawal: the row
+        // is about a date, and it is the date that decides when the association
+        // has no further use for it.
+        erasableFrom: toIsoDate(
+          computeEventSignupPurgeDate(signup.occurrence.endsAt),
+        ),
       })),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,

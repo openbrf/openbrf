@@ -55,6 +55,8 @@ describe("board member", () => {
     "bookings:book",
     "bookings:manage",
     "bookings:configure",
+    "events:manage",
+    "events:attend",
   ])("can %s", (capability) => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
@@ -120,6 +122,12 @@ describe("property manager", () => {
     // contractor neither puts one nor reads the queue they arrive in.
     "motions:submit",
     "motions:handle",
+    // Nor the event calendar. Arranging what the association does is the
+    // board's, and putting a name down for the cleaning day is a resident's -
+    // a place taken by an external contractor is a place taken from a
+    // household.
+    "events:manage",
+    "events:attend",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -141,6 +149,10 @@ describe("resident and member", () => {
     "residentDirectory:read",
     // Booking the laundry room is part of living here, not a board activity.
     "bookings:book",
+    // Nor is putting your name down for the cleaning day. It is a capability of
+    // its own rather than self:manage, so an external person with an account and
+    // no residency cannot take a place at something arranged for the house.
+    "events:attend",
   ])("a resident can %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(true);
   });
@@ -159,6 +171,9 @@ describe("resident and member", () => {
     // booking, and deciding what the house offers, are the board's.
     "bookings:manage",
     "bookings:configure",
+    // A resident signs themselves up. Who else is coming, and arranging the
+    // date at all, are the board's.
+    "events:manage",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });
@@ -215,6 +230,15 @@ describe("external person with an account but no role", () => {
   it("can manage only their own record", () => {
     const granted = capabilitiesFor(NOBODY);
     expect([...granted]).toEqual(["self:manage"]);
+  });
+
+  it("cannot take a place at anything the association arranges", () => {
+    // The reason events:attend is a capability rather than part of self:manage.
+    // Somebody mid-onboarding holds their own record and nothing else, and a
+    // sign-up folded into self:manage would have let them put their name down
+    // for the general meeting.
+    expect(can({}, "events:attend")).toBe(false);
+    expect(can({}, "self:manage")).toBe(true);
   });
 });
 
