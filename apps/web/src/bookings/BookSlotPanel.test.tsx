@@ -133,6 +133,27 @@ const APARTMENT: BookingApartment = {
 };
 
 /**
+ * The booking the API answers a claim on the free slot with.
+ *
+ * Named here rather than only inside the setup below, because the test that
+ * holds a claim in flight resolves it with this same answer: the two have to be
+ * one booking for what the panel reads to be what it would read in life.
+ */
+const BOOKED = {
+  ok: true,
+  value: {
+    id: "booking-1",
+    resourceId: LAUNDRY.id,
+    resourceName: LAUNDRY.name,
+    mode: "TIME_SLOTS",
+    status: "BOOKED",
+    startsAt: FREE.startsAt,
+    endsAt: FREE.endsAt,
+    apartment: APARTMENT,
+  },
+};
+
+/**
  * Renders the panel and waits for the calendar to arrive.
  *
  * The marker is a slot's own control, whose name carries the hours as well as
@@ -178,19 +199,7 @@ beforeEach(() => {
   fetchBookableSlots
     .mockReset()
     .mockResolvedValue({ ok: true, value: [FREE, TAKEN] });
-  bookSlot.mockReset().mockResolvedValue({
-    ok: true,
-    value: {
-      id: "booking-1",
-      resourceId: LAUNDRY.id,
-      resourceName: LAUNDRY.name,
-      mode: "TIME_SLOTS",
-      status: "BOOKED",
-      startsAt: FREE.startsAt,
-      endsAt: FREE.endsAt,
-      apartment: APARTMENT,
-    },
-  });
+  bookSlot.mockReset().mockResolvedValue(BOOKED);
 });
 
 afterEach(() => {
@@ -254,7 +263,21 @@ describe("taking a free slot", () => {
      * booking that has finished - reading, to somebody who has the words rather
      * than the tones, as a claim still in flight on an hour that is already
      * theirs.
+     *
+     * The claim is held in flight so that the word is read on screen before it
+     * is read as gone. A wait for the absence alone is satisfied by a panel
+     * that never said it, and by a refusal as readily as by a booking, since
+     * the cell is cleared on either outcome; the confirmation is what makes
+     * this the hour after a booking that was made.
      */
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await claimed;
+      return BOOKED;
+    });
     const session = userEvent.setup();
     await open();
 
@@ -264,9 +287,23 @@ describe("taking a free slot", () => {
       }),
     );
 
+    // On the hour the click named and on no other, and in place of that hour's
+    // state rather than beside it, which is why the cell's whole text is read.
     await waitFor(() => {
-      expect(screen.queryByText("Bokar...")).toBeNull();
+      expect(screen.getAllByText("Bokar...")).toHaveLength(1);
     });
+    expect(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }).textContent,
+    ).toBe("07:00Bokar...");
+
+    release();
+
+    await waitFor(() => {
+      expect(screen.getByText("Bokningen är gjord.")).toBeTruthy();
+    });
+    expect(screen.queryByText("Bokar...")).toBeNull();
   });
 
   it("reads the calendar again, so the slot it took shows as taken", async () => {
