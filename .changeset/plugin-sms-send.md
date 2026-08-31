@@ -11,8 +11,9 @@ message as well as mail them.
 The permission set stopped at `mail:send` while the platform gained an SMS
 adapter, which left a plugin able to write to a member and not able to send one
 a text message. A plugin that declares `sms:send` receives `host.sms.send`,
-which takes a number and a body and hands them to the same service the SMS
-mailing uses: the sender name is the one on the housing cooperative's provider
+which takes the recipient number as `to` and the message as `text`, and hands
+them to the same service the SMS mailing uses: the sender name is the one on the
+housing cooperative's provider
 contract and is not a parameter, and the host adds nothing to the body, because
 a text message is billed by its length.
 
