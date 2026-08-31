@@ -66,9 +66,35 @@ const contractor = {
 };
 /** Somebody with no role at all, who the board elects to the board. */
 const electee = { personId: `roles-electee-${suffix}` };
+/** Their own person, so a seat a date is corrected on starts uncontested. */
+const amender = { personId: `roles-amender-${suffix}` };
 
 const actors = [admin, spareAdmin, board, resident, contractor];
-const personIds = [...actors.map((actor) => actor.personId), electee.personId];
+const personIds = [
+  ...actors.map((actor) => actor.personId),
+  electee.personId,
+  amender.personId,
+];
+
+/**
+ * A calendar date a number of days either side of today.
+ *
+ * How far ahead a term may be recorded as running is counted from today, so a
+ * suite that spelled these dates out as fixed years would start refusing what
+ * it asserts is allowed once enough of them had passed.
+ */
+function daysFromToday(days: number): string {
+  const today = new Date();
+  return new Date(
+    Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() + days,
+    ),
+  )
+    .toISOString()
+    .slice(0, 10);
+}
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -189,6 +215,7 @@ beforeAll(async () => {
         lastName: `Roll${suffix}`,
       },
       { id: electee.personId, firstName: "Elsa", lastName: `Roll${suffix}` },
+      { id: amender.personId, firstName: "Ines", lastName: `Roll${suffix}` },
     ],
   });
 
@@ -548,6 +575,132 @@ describe("ending a term", () => {
     expect(response.json()).toMatchObject({
       reason: "board-position-not-found",
     });
+  });
+
+  it("refuses a year typed with the wrong century, and leaves the seat open", async () => {
+    /*
+     * The typo this bound exists for. A seat goes on conferring what a board
+     * member holds until its end date arrives - the protected data reveal, the
+     * member register, the apartment register - so 2206 for 2026 is not a
+     * wrong date on a screen but a century and a half of access.
+     */
+    const seat = await elect(
+      adminCookie,
+      amender.personId,
+      "BOARD_MEMBER",
+      daysFromToday(-30),
+    );
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/${seat.boardPositionId}/end`,
+      payload: { endedOn: daysFromToday(365 * 20) },
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "ended-too-far-ahead" });
+
+    const stored = await prisma.boardPosition.findUniqueOrThrow({
+      where: { id: seat.boardPositionId },
+    });
+    expect(stored.endedOn).toBeNull();
+  });
+
+  it("writes a new date over an end date that has not arrived", async () => {
+    /*
+     * The correction path, and the reason the bound above is not enough on its
+     * own: a plausible wrong date - next spring's meeting instead of this
+     * one's - is inside every horizon, and a board that could not correct it
+     * from the application would be back to editing the database, which is the
+     * thing this feature exists to end.
+     */
+    const seat = await elect(
+      adminCookie,
+      amender.personId,
+      "CHAIR",
+      daysFromToday(-30),
+    );
+    const end = (endedOn: string) =>
+      inject({
+        method: "POST",
+        url: `/api/board-positions/${seat.boardPositionId}/end`,
+        payload: { endedOn },
+        headers: { cookie: adminCookie },
+      });
+
+    expect((await end(daysFromToday(400))).statusCode).toBe(200);
+    const corrected = await end(daysFromToday(35));
+
+    expect(corrected.statusCode).toBe(200);
+    expect(corrected.json()).toMatchObject({ endedOn: daysFromToday(35) });
+
+    const stored = await prisma.boardPosition.findUniqueOrThrow({
+      where: { id: seat.boardPositionId },
+    });
+    expect(stored.endedOn?.toISOString()).toBe(
+      `${daysFromToday(35)}T00:00:00.000Z`,
+    );
+
+    /*
+     * Both writes are on file, and the second says what it replaced. One
+     * action covers them because the act is the same one - saying when this
+     * term ends - and what a reader needs is the date the seat carried before,
+     * which is the fact rather than a second name for the act.
+     */
+    const contexts = (
+      await prisma.auditLogEntry.findMany({
+        where: {
+          action: "BOARD_POSITION_ENDED",
+          targetId: seat.boardPositionId,
+        },
+      })
+    ).map((entry) => entry.context);
+
+    expect(contexts).toHaveLength(2);
+    expect(contexts).toContainEqual(
+      expect.objectContaining({
+        endedOn: daysFromToday(400),
+        previousEndedOn: null,
+      }),
+    );
+    expect(contexts).toContainEqual(
+      expect.objectContaining({
+        endedOn: daysFromToday(35),
+        previousEndedOn: daysFromToday(400),
+      }),
+    );
+  });
+
+  it("refuses to move an end date that has already passed", async () => {
+    // Settled rather than amendable. The seat stopped conferring on that day,
+    // and the period it covered is the answer to who answered for the
+    // association while it ran.
+    const seat = await elect(
+      adminCookie,
+      amender.personId,
+      "DEPUTY_BOARD_MEMBER",
+      daysFromToday(-60),
+    );
+    const end = (endedOn: string) =>
+      inject({
+        method: "POST",
+        url: `/api/board-positions/${seat.boardPositionId}/end`,
+        payload: { endedOn },
+        headers: { cookie: adminCookie },
+      });
+
+    expect((await end(daysFromToday(-10))).statusCode).toBe(200);
+    const second = await end(daysFromToday(30));
+
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toMatchObject({ reason: "term-already-ended" });
+    const stored = await prisma.boardPosition.findUniqueOrThrow({
+      where: { id: seat.boardPositionId },
+    });
+    expect(stored.endedOn?.toISOString()).toBe(
+      `${daysFromToday(-10)}T00:00:00.000Z`,
+    );
   });
 });
 

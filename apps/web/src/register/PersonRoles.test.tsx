@@ -113,6 +113,29 @@ const FORMER_BOARD: PersonDetail = {
   ],
 };
 
+/** A date two years out, so the fixture below does not expire on a calendar. */
+const AHEAD = `${String(new Date().getUTCFullYear() + 2)}-04-14`;
+
+/**
+ * A term running until a date that has not arrived.
+ *
+ * The state a mistyped end date leaves behind. The seat is still conferring
+ * what a seat confers - the panel and the server agree on that - so it is
+ * still the seat's date that is being decided, and the panel has to offer the
+ * correction rather than a control the server would refuse.
+ */
+const STANDING_DOWN: PersonDetail = {
+  ...PERSON,
+  boardPositions: [
+    {
+      boardPositionId: "seat-chair",
+      position: "CHAIR",
+      electedOn: "2026-04-14",
+      endedOn: AHEAD,
+    },
+  ],
+};
+
 const AN_ADMINISTRATOR: PersonDetail = { ...PERSON, systemRoles: ["ADMIN"] };
 
 const noop = (): void => {
@@ -263,12 +286,12 @@ describe("ending a term", () => {
     renderPanel(ON_THE_BOARD, BOARD_POSITIONS);
     await screen.findByText("Elsa Nyman");
 
-    expect(screen.queryByLabelText("Uppdraget avslutades")).toBeNull();
+    expect(screen.queryByLabelText("Uppdraget avslutas")).toBeNull();
     await userEvent.click(
       screen.getByRole("button", { name: "Avsluta uppdraget som Ordförande" }),
     );
 
-    expect(screen.queryByLabelText("Uppdraget avslutades")).not.toBeNull();
+    expect(screen.queryByLabelText("Uppdraget avslutas")).not.toBeNull();
     expect(endBoardTerm).not.toHaveBeenCalled();
   });
 
@@ -287,7 +310,7 @@ describe("ending a term", () => {
       screen.getByRole("button", { name: "Avsluta uppdraget som Ordförande" }),
     );
     await userEvent.type(
-      screen.getByLabelText("Uppdraget avslutades"),
+      screen.getByLabelText("Uppdraget avslutas"),
       "2027-04-14",
     );
     await userEvent.click(
@@ -323,6 +346,85 @@ describe("ending a term", () => {
     expect(
       screen.queryByText(/Ett avslutat uppdrag ligger kvar/),
     ).not.toBeNull();
+  });
+
+  it("offers a term ending in the future a correction and not an end", async () => {
+    /*
+     * The seat is still held by the rule the server grants access with, so a
+     * button saying "End the term" would be asking for an act the term has
+     * already had - and the server would answer that it is already ended,
+     * which is a sentence about a term that has not ended.
+     */
+    renderPanel(STANDING_DOWN, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Ändra när uppdraget som Ordförande avslutas",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Avsluta uppdraget som/ }),
+    ).toBeNull();
+  });
+
+  it("sends the corrected date, starting from the one on file", async () => {
+    // A mistyped year is corrected rather than reached through the database,
+    // which is the whole point of the seat staying amendable while it runs.
+    endBoardTerm.mockResolvedValue({
+      boardPositionId: "seat-chair",
+      personId: PERSON.personId,
+      position: "CHAIR",
+      electedOn: "2026-04-14",
+      endedOn: "2026-06-30",
+    });
+    renderPanel(STANDING_DOWN, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Ändra när uppdraget som Ordförande avslutas",
+      }),
+    );
+
+    // The date on file, offered to be corrected rather than typed again.
+    const field = screen.getByLabelText<HTMLInputElement>("Uppdraget avslutas");
+    expect(field.value).toBe(AHEAD);
+
+    await userEvent.clear(field);
+    await userEvent.type(field, "2026-06-30");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ändra slutdatumet" }),
+    );
+
+    await waitFor(() => {
+      expect(endBoardTerm).toHaveBeenCalledWith("seat-chair", "2026-06-30");
+    });
+  });
+
+  it("says to check the year rather than that the change failed", async () => {
+    // The refusal that stops a term being recorded as running for a century.
+    // "Try again" would send the board round the same typo.
+    endBoardTerm.mockRejectedValue(
+      new RegisterRequestError(409, "ended-too-far-ahead"),
+    );
+    renderPanel(ON_THE_BOARD, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Avsluta uppdraget som Ordförande" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Uppdraget avslutas"),
+      "2206-04-14",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Avsluta uppdraget" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /Kontrollera årtalet/,
+    );
   });
 });
 

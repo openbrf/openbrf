@@ -80,6 +80,7 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
   "term-already-ended": "register.person.roles.errors.termAlreadyEnded",
   "ended-before-elected": "register.person.roles.errors.endedBeforeElected",
+  "ended-too-far-ahead": "register.person.roles.errors.endedTooFarAhead",
   "last-administrator": "register.person.roles.errors.lastAdministrator",
   "person-not-found": "register.person.roles.errors.notFound",
   "board-position-not-found": "register.person.roles.errors.notFound",
@@ -99,7 +100,19 @@ function roleErrorMessage(error: unknown): TranslationKey {
   return "register.person.roles.errors.failed";
 }
 
-/** Whether a term is running, by the rule the server derives access from. */
+/**
+ * Whether a term is running, by the rule the server derives access from.
+ *
+ * A seat carrying an end date that has not arrived counts as running, which is
+ * the same rule `isHeldOn` applies on the server and has to be: it is the rule
+ * the seat still confers the board's capabilities by, and it is the window the
+ * server lets the end date be written in. So the control this decides is
+ * offered on such a seat, and what it offers is a correction rather than an
+ * end - a date typed into the wrong year has to be reachable from here, or the
+ * only way back is the database.
+ *
+ * @see apps/api/src/roles/role-changes.ts
+ */
 function isHeld(seat: PersonBoardPosition, today: string): boolean {
   return seat.endedOn === null || seat.endedOn > today;
 }
@@ -499,7 +512,7 @@ export function PersonPanel({
   }, [personId, electPosition, electedOn, onChanged]);
 
   /*
-   * Ending a term.
+   * Saying when a term ends, and correcting that date while it is still ahead.
    *
    * Nothing is deleted: the row keeps its dates and stops granting anything
    * once the end date has passed. A failure must not look like success - a
@@ -864,83 +877,108 @@ export function PersonPanel({
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {person.boardPositions.map((position) => (
-                    <li
-                      key={position.boardPositionId}
-                      className="flex flex-col gap-1.5"
-                    >
-                      <span className="flex flex-wrap items-center gap-2">
-                        <SignChip sign={position.position} />
-                        <DatePair
-                          from={position.electedOn}
-                          to={position.endedOn}
-                          fromLabelKey="register.person.electedOn"
-                          toLabelKey="register.person.endedOn"
-                        />
-                      </span>
+                  {person.boardPositions.map((position) => {
+                    /*
+                     * A term still running that already carries an end date.
+                     * The press changes that date rather than ending anything,
+                     * so it says so: a button reading "End the term" on a seat
+                     * the board has already dated would be asking for the same
+                     * act twice, and the refusal it used to meet said the term
+                     * was over when it was not.
+                     */
+                    const dated =
+                      heldSeats.has(position.boardPositionId) &&
+                      position.endedOn !== null;
+                    return (
+                      <li
+                        key={position.boardPositionId}
+                        className="flex flex-col gap-1.5"
+                      >
+                        <span className="flex flex-wrap items-center gap-2">
+                          <SignChip sign={position.position} />
+                          <DatePair
+                            from={position.electedOn}
+                            to={position.endedOn}
+                            fromLabelKey="register.person.electedOn"
+                            toLabelKey="register.person.endedOn"
+                          />
+                        </span>
 
-                      {canManageBoardPositions &&
-                      heldSeats.has(position.boardPositionId) ? (
-                        endingSeat === position.boardPositionId ? (
-                          /*
-                           * The second press. Ending a term takes a date, and a
-                           * date field that appeared on every row would put
-                           * three of them on one panel with nothing saying
-                           * which was about to be used.
-                           */
-                          <span className="flex flex-wrap items-end gap-2">
-                            <label
-                              className={LABEL}
-                              htmlFor={`end-term-${position.boardPositionId}`}
-                            >
-                              {t("register.person.roles.endedOnLabel")}
-                              <input
-                                id={`end-term-${position.boardPositionId}`}
-                                type="date"
-                                value={endedOn}
-                                onChange={(event) => {
-                                  setEndedOn(event.target.value);
+                        {canManageBoardPositions &&
+                        heldSeats.has(position.boardPositionId) ? (
+                          endingSeat === position.boardPositionId ? (
+                            /*
+                             * The second press. Dating a term takes a date, and
+                             * a date field that appeared on every row would put
+                             * three of them on one panel with nothing saying
+                             * which was about to be used.
+                             */
+                            <span className="flex flex-wrap items-end gap-2">
+                              <label
+                                className={LABEL}
+                                htmlFor={`end-term-${position.boardPositionId}`}
+                              >
+                                {t("register.person.roles.endedOnLabel")}
+                                <input
+                                  id={`end-term-${position.boardPositionId}`}
+                                  type="date"
+                                  value={endedOn}
+                                  onChange={(event) => {
+                                    setEndedOn(event.target.value);
+                                  }}
+                                  className={`${FIELD_DATA} max-w-48`}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void endTerm(position.boardPositionId);
                                 }}
-                                className={`${FIELD_DATA} max-w-48`}
-                              />
-                            </label>
+                                disabled={roleSaving !== null}
+                                className={`${CAUTION_BUTTON} disabled:opacity-60`}
+                              >
+                                {roleSaving === position.boardPositionId
+                                  ? t("register.person.roles.endTermWorking")
+                                  : t(
+                                      dated
+                                        ? "register.person.roles.changeEndDate"
+                                        : "register.person.roles.endTerm",
+                                    )}
+                              </button>
+                            </span>
+                          ) : (
                             <button
                               type="button"
                               onClick={() => {
-                                void endTerm(position.boardPositionId);
+                                setBoardFailure(null);
+                                // The date on file, so a correction starts from
+                                // what is wrong with it rather than from empty.
+                                setEndedOn(position.endedOn ?? "");
+                                setEndingSeat(position.boardPositionId);
                               }}
-                              disabled={roleSaving !== null}
-                              className={`${CAUTION_BUTTON} disabled:opacity-60`}
+                              aria-label={t(
+                                dated
+                                  ? "register.person.roles.changeEndDateLabel"
+                                  : "register.person.roles.endTermLabel",
+                                {
+                                  position: t(
+                                    BOARD_POSITION_LABEL[position.position],
+                                  ),
+                                },
+                              )}
+                              className={`${SECONDARY_BUTTON} self-start`}
                             >
-                              {roleSaving === position.boardPositionId
-                                ? t("register.person.roles.endTermWorking")
-                                : t("register.person.roles.endTerm")}
+                              {t(
+                                dated
+                                  ? "register.person.roles.changeEndDate"
+                                  : "register.person.roles.endTerm",
+                              )}
                             </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBoardFailure(null);
-                              setEndedOn("");
-                              setEndingSeat(position.boardPositionId);
-                            }}
-                            aria-label={t(
-                              "register.person.roles.endTermLabel",
-                              {
-                                position: t(
-                                  BOARD_POSITION_LABEL[position.position],
-                                ),
-                              },
-                            )}
-                            className={`${SECONDARY_BUTTON} self-start`}
-                          >
-                            {t("register.person.roles.endTerm")}
-                          </button>
-                        )
-                      ) : null}
-                    </li>
-                  ))}
+                          )
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
 

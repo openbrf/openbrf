@@ -76,12 +76,16 @@ export class BoardPositionController {
   }
 
   /**
-   * Ends a term.
+   * Says when a term ends.
    *
    * A POST rather than a DELETE, because nothing is deleted: the row stays with
    * an end date on it. Who answered for the association between two dates is
-   * exactly the question a board seat exists to answer, and a register that
+   * exactly the question a board seat exists to answer, and a table that
    * removed the seat when the term ran out could no longer answer it.
+   *
+   * The same route writes the date of a term that already carries a future one,
+   * which is how a mistyped year is corrected before it takes effect. A term
+   * whose date has passed is settled and answers `term-already-ended`.
    */
   @Post(":boardPositionId/end")
   @HttpCode(200)

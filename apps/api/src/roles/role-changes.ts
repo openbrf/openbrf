@@ -9,7 +9,7 @@ import { DomainError } from "../http/domain-error";
 /**
  * The rules behind conferring and revoking a role, with no database in them.
  *
- * Kept apart from the services for the reason the board roster's are: the two
+ * Kept apart from the services for the reason the board roster's are: the
  * decisions that matter here are about combinations of dated facts and counted
  * rows, and a rule that needs a database to exercise is a rule nobody tests
  * exhaustively. What the services add is the transaction, the lock and the
@@ -22,6 +22,7 @@ export type RoleChangeReason =
   | "position-already-held"
   | "term-already-ended"
   | "ended-before-elected"
+  | "ended-too-far-ahead"
   | "last-administrator";
 
 /**
@@ -34,11 +35,13 @@ const ROLE_CHANGE_STATUS: Record<RoleChangeReason, number> = {
   "person-not-found": HttpStatus.NOT_FOUND,
   "board-position-not-found": HttpStatus.NOT_FOUND,
   // Conflicts rather than bad requests: each describes a well-formed request
-  // against a state the register is not in, which is what a second board member
-  // pressing the same button a moment later meets.
+  // the row it names cannot take - either a state the row is not in, which is
+  // what a second board member pressing the same button a moment later meets,
+  // or a date that is well formed and impossible against the row's own dates.
   "position-already-held": HttpStatus.CONFLICT,
   "term-already-ended": HttpStatus.CONFLICT,
   "ended-before-elected": HttpStatus.CONFLICT,
+  "ended-too-far-ahead": HttpStatus.CONFLICT,
   "last-administrator": HttpStatus.CONFLICT,
 };
 
@@ -83,6 +86,73 @@ export interface SystemRoleGrantsView {
  */
 export function isHeldOn(seat: { endedOn: Date | null }, now: Date): boolean {
   return seat.endedOn === null || seat.endedOn.getTime() > now.getTime();
+}
+
+/**
+ * How far past today a term may be recorded as running.
+ *
+ * A board is elected at the general meeting for the period the bylaws set,
+ * which in a housing cooperative is a year or two, so five is generous rather
+ * than tight. The number is not a rule about mandates and must not be read as
+ * one: it is the distance past which a date is a mistyped year far more often
+ * than a decision, and the reason it has to be bounded at all is that the seat
+ * keeps granting the board's capabilities until its end date arrives. A term
+ * typed as ending in 2206 rather than 2026 would confer them for the rest of
+ * the instance's life.
+ */
+const TERM_HORIZON_YEARS = 5;
+
+/** The last day a term may be recorded as ending on. */
+export function latestTermEnd(now: Date): Date {
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear() + TERM_HORIZON_YEARS,
+      now.getUTCMonth(),
+      now.getUTCDate(),
+    ),
+  );
+}
+
+/** What stops an end date being written onto a seat, if anything does. */
+export type TermEndRefusal =
+  "term-already-ended" | "ended-before-elected" | "ended-too-far-ahead";
+
+/**
+ * Whether this seat can be recorded as ending on this date.
+ *
+ * Three refusals, and the first is what makes a mistyped date correctable. A
+ * term is amendable for as long as it is still held - which is exactly the
+ * rule the principal grants access by, so the window in which the end date can
+ * be changed is the window in which it still confers anything. Once the date
+ * has passed, the row is the record of a period that has run and it stands:
+ * the seat stopped granting on that day, and nothing is gained by rewriting
+ * when it did.
+ *
+ * That is why the horizon and the amendment belong together. A bound alone
+ * would still leave a plausible-but-wrong date - next year instead of this one
+ * - uncorrectable through the API, and an amendment alone would leave the
+ * 180-year typo granting the board's capabilities until somebody edited the
+ * database by hand.
+ *
+ * @param currentEndedOn the end date the seat carries now: null while the term
+ * is open, a date once one has been written.
+ */
+export function refuseTermEnd(input: {
+  electedOn: Date;
+  currentEndedOn: Date | null;
+  endedOn: Date;
+  now: Date;
+}): TermEndRefusal | null {
+  if (!isHeldOn({ endedOn: input.currentEndedOn }, input.now)) {
+    return "term-already-ended";
+  }
+  if (input.endedOn.getTime() < input.electedOn.getTime()) {
+    return "ended-before-elected";
+  }
+  if (input.endedOn.getTime() > latestTermEnd(input.now).getTime()) {
+    return "ended-too-far-ahead";
+  }
+  return null;
 }
 
 /**

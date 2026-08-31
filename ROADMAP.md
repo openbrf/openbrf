@@ -20,10 +20,10 @@ administrator. Nothing about a role is entered by hand in the database any
 more. The association's own website is there as well - the site answers at the
 domain root, the application is served under `/app`, and a page is rendered as
 plain HTML with no JavaScript, no third-party requests and no cookie of its
-own. The
-board writes those pages from the application now, with the publication
-guardrails inside the write path, arranges the menu a visitor finds them
-through, and answers a broker from the facts it has recorded. A page can also
+own. The board writes those pages from the application now, with the
+publication guardrails inside the write path, arranges the menu a visitor finds
+them through, and answers a broker from the facts it has recorded. A page can
+also
 carry the blocks that draw on the instance's own data: the document list, the
 board roster, the association facts and a FAQ. The project is not ready to hold
 your housing cooperative's data.
@@ -224,12 +224,16 @@ locally the application runs from source beside the PostgreSQL that
       does not exist
 - [x] Conferring a role, from the person view in the register. The board
       records an election to a position of trust - the position and the date
-      the general meeting was held - and ends a term by writing the date it
-      ended, which leaves the row and the period it covered on file. An
-      administrator grants and revokes the administrator role and the external
-      property manager's access on the same panel, and nobody else is offered
-      those controls because nobody else holds the capability behind them. A
-      grant takes effect on the next request without an account being touched,
+      the general meeting was held - and says when a term ends by writing the
+      date, which leaves the row and the period it covered on file. That date
+      may be ahead of today, so a board can minute in April that a term runs to
+      the annual meeting; it is bounded to a plausible horizon, because a seat
+      goes on conferring what a seat confers until the date arrives, and it
+      stays correctable from the same screen until it passes. An administrator
+      grants and revokes the administrator role and the external property
+      manager's access on the same panel, and nobody else is offered those
+      controls because nobody else holds the capability behind them. A grant
+      takes effect on the next request without an account being touched,
       because roles are derived from the register rather than stored on the
       account. The one refusal that cannot be retried says so: the last
       administrator cannot be revoked, and the screen says to grant the role to
@@ -470,16 +474,20 @@ Free, open source, and never moved behind a paywall.
       carries is a subset of the board's own, because it is a standing grant
       to somebody who neither lives in the building nor was elected to
       anything, which is the same kind of decision as installing a plugin. A
-      board seat is a dated period and the register keeps it: ending a term
-      writes the date it ended and leaves the row where it was, an end date in
-      the future is an ordinary date so a board can minute in April that a
-      term runs to the annual meeting, and a re-election is two acts rather
-      than an edit so both periods stand with their own dates. Every election,
-      end of term, grant and revoke is written to the append-only audit log in
-      the same transaction as the change. And the instance cannot be shut from
-      the inside: the last administrator cannot be revoked, including by that
-      administrator revoking their own grant, and the refusal says to grant
-      the role to somebody else first rather than to try again
+      board seat is a dated period and the row keeps it: ending a term writes
+      the date it ended and leaves the row where it was, an end date in the
+      future is an ordinary date so a board can minute in April that a term
+      runs to the annual meeting, and a re-election is two acts rather than an
+      edit so both periods stand with their own dates. A future end date is
+      bounded and correctable, because the seat confers what it confers until
+      the date arrives: a term cannot be recorded as running for a century, and
+      one recorded for the wrong year is corrected from the screen for as long
+      as the date is still ahead. Every election, end of term, grant and revoke
+      is written to the append-only audit log in the same transaction as the
+      change. And the instance cannot be shut from the inside: the last
+      administrator cannot be revoked, including by that administrator revoking
+      their own grant, and the refusal says to grant the role to somebody else
+      first rather than to try again
 - [x] Swedish and English interface: both languages are complete and carry the
       same keys, each person chooses theirs in their own profile, and the
       public website answers a visitor with no account from the language their

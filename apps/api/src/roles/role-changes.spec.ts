@@ -2,20 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import {
   isHeldOn,
+  latestTermEnd,
   parseCalendarDate,
+  refuseTermEnd,
   RoleChangeError,
   revokingWouldLeaveNoAdministrator,
   toCalendarDate,
 } from "./role-changes";
 
 /**
- * The two rules that decide a role change, asserted without a database.
+ * The rules that decide a role change, asserted without a database.
  *
- * Both are about combinations rather than about a single row - which seats are
- * open at a moment, which people hold a grant when one of them is being taken
+ * Each is about a combination rather than about a single column - which seats
+ * are held at a moment, which date a seat can be given against the dates it
+ * carries already, which people hold a grant when one of them is being taken
  * away - and the cases that matter are exactly the ones a fixture would be
- * clumsy at reaching: a term that ends in the future, an administrator revoking
- * their own grant, a revoke aimed at somebody who never held the role.
+ * clumsy at reaching: a term that ends in the future, a year typed with the
+ * wrong century, an administrator revoking their own grant, a revoke aimed at
+ * somebody who never held the role.
  */
 
 const NOW = new Date("2026-06-01T12:00:00Z");
@@ -41,6 +45,91 @@ describe("whether a seat is held", () => {
      */
     expect(isHeldOn({ endedOn: new Date("2026-12-31T00:00:00Z") }, NOW)).toBe(
       true,
+    );
+  });
+});
+
+describe("the date a term is recorded as ending on", () => {
+  const ELECTED_ON = new Date("2026-04-14T00:00:00Z");
+
+  const refuse = (endedOn: string, currentEndedOn: Date | null = null) =>
+    refuseTermEnd({
+      electedOn: ELECTED_ON,
+      currentEndedOn,
+      endedOn: new Date(`${endedOn}T00:00:00Z`),
+      now: NOW,
+    });
+
+  it("takes the day of the election itself", () => {
+    // A term of one day is odd and not impossible: a person elected and
+    // standing down at the same meeting sat, and the register says so.
+    expect(refuse("2026-04-14")).toBeNull();
+  });
+
+  it("takes a date in the past, which closes the term at once", () => {
+    expect(refuse("2026-05-01")).toBeNull();
+  });
+
+  it("takes a date running to next year's annual meeting", () => {
+    expect(refuse("2027-04-14")).toBeNull();
+  });
+
+  it("refuses a term ending before the election that began it", () => {
+    expect(refuse("2026-04-13")).toBe("ended-before-elected");
+  });
+
+  it("refuses a year typed with the wrong century", () => {
+    /*
+     * The mistake this bound exists for. A seat goes on conferring what a
+     * board member holds - the protected data reveal, the member register,
+     * the apartment register - until its end date arrives, so 2206 for 2026
+     * is not a wrong date on a screen but 180 years of access.
+     */
+    expect(refuse("2206-04-14")).toBe("ended-too-far-ahead");
+  });
+
+  it("takes the last day inside the horizon and refuses the next one", () => {
+    const horizon = latestTermEnd(NOW);
+    expect(horizon.toISOString()).toBe("2031-06-01T00:00:00.000Z");
+    expect(refuse("2031-06-01")).toBeNull();
+    expect(refuse("2031-06-02")).toBe("ended-too-far-ahead");
+  });
+
+  it("lets a term still running be given a different end date", () => {
+    /*
+     * The correction path. A date mistyped into the future is refused by the
+     * bound above, but a plausible wrong one - next April instead of this one
+     * - is not, and it has to be correctable from the application: the seat is
+     * conferring the board's capabilities for as long as the date stands, and
+     * an uncorrectable date means a hand in the database.
+     */
+    expect(refuse("2026-06-30", new Date("2027-04-14T00:00:00Z"))).toBeNull();
+  });
+
+  it("still refuses an impossible date on a term still running", () => {
+    expect(refuse("2206-04-14", new Date("2027-04-14T00:00:00Z"))).toBe(
+      "ended-too-far-ahead",
+    );
+    expect(refuse("2026-04-13", new Date("2027-04-14T00:00:00Z"))).toBe(
+      "ended-before-elected",
+    );
+  });
+
+  it("refuses a term whose end date has passed", () => {
+    // Settled rather than amendable: the seat stopped conferring on that day,
+    // and the period it covered is the answer to who answered for the
+    // association while it ran.
+    expect(refuse("2026-06-30", new Date("2026-05-31T00:00:00Z"))).toBe(
+      "term-already-ended",
+    );
+  });
+
+  it("treats the day the term ends as past, like the principal does", () => {
+    // isHeldOn is strict: a seat ending today stopped granting at midnight.
+    // The two rules read the same row the same way, which is the point of
+    // deciding both here.
+    expect(refuse("2026-07-01", new Date("2026-06-01T00:00:00Z"))).toBe(
+      "term-already-ended",
     );
   });
 });
@@ -91,10 +180,15 @@ describe("the lockout guard", () => {
     ).toBe(false);
   });
 
-  it("refuses when the instance has no administrator to lose but the target holds it", () => {
-    // Unreachable through the service, which reads the holders of the role it
-    // is changing, but stated so the rule reads the same in isolation: the
-    // question is whether an administrator would be left.
+  it("allows a revoke when the instance holds no administrator at all", () => {
+    /*
+     * Unreachable through the service, which reads the holders of the role it
+     * is changing in the same transaction, but stated so the rule reads the
+     * same in isolation. Nobody holds the grant here, the target included, so
+     * the revoke takes nothing away and there is no last administrator to
+     * keep: the guard is about the way back in, and this instance has already
+     * lost it by some other route.
+     */
     expect(guard([], "anna")).toBe(false);
   });
 });
@@ -112,6 +206,7 @@ describe("a refused role change", () => {
       "position-already-held",
       "term-already-ended",
       "ended-before-elected",
+      "ended-too-far-ahead",
       "last-administrator",
     ] as const) {
       expect(new RoleChangeError("no", reason).status).toBe(409);
