@@ -347,19 +347,35 @@ test.describe("motions to the general meeting", () => {
       await panel.getByLabel("Månad").fill("1");
       await panel.getByLabel("Dag").fill("31");
       await panel.getByRole("button", { name: "Spara" }).click();
-      await expect(panel.getByText("Sparat")).toBeVisible();
+
+      /*
+       * Read back rather than waiting for the confirmation. "Sparat" is a
+       * state the panel leaves as soon as the settings it saved arrive again,
+       * so whether it is still on screen depends on how quickly that read
+       * answers - it was there after 700ms on one run and gone within 15s on
+       * the next, with the save having succeeded both times. Reloading and
+       * finding the clause on the fields is the durable form of the same
+       * question, and it is the one the member's side depends on.
+       */
+      await page.reload();
+      await expect(panel.getByLabel("Månad")).toHaveValue("1");
+      await expect(panel.getByLabel("Dag")).toHaveValue("31");
 
       // The member's side of the same clause.
       await browseAs(page, clientAddress, "member");
       await signInThroughTheScreen(page, MEMBER.email, MEMBER.password);
       await page.goto(appPath("/motions"));
 
-      // The resolved date rather than the month and day, which is the part that
-      // has to be computed rather than echoed back.
-      await expect(page.getByText(/senast \d{4}-01-31/)).toBeVisible();
-      // And that a later motion is still received, because the deadline decides
-      // which meeting an item reaches and not whether it is taken.
-      await expect(page.getByText(/tas ändå emot/)).toBeVisible();
+      /*
+       * Both facts on the one sentence rather than on the page. Two panels a
+       * member reads carry a deadline clause, so asking the page whether a
+       * later motion is still received finds either of them and says nothing
+       * about which. The resolved date is what has to be computed rather than
+       * echoed back, so the element carrying it is the one to ask.
+       */
+      const clause = page.getByText(/senast \d{4}-01-31/);
+      await expect(clause).toBeVisible();
+      await expect(clause).toContainText("tas ändå emot");
     } finally {
       await api.setMotionDeadline(request, stack.baseUrl, null);
     }
