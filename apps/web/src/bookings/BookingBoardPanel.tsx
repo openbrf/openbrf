@@ -90,6 +90,14 @@ export function BookingBoardPanel({
   const [from, setFrom] = useState(() => localDayNow());
   const [answer, setAnswer] = useState<Loaded | null>(null);
   /**
+   * Bumped to ask for the month again without changing which month is asked for.
+   *
+   * A cancellation needs a fresh read of the same request, which is one the
+   * reading effect cannot tell from the read it already made. This is how it is
+   * told, and it keeps that effect the only thing that reads.
+   */
+  const [refreshes, setRefreshes] = useState(0);
+  /**
    * Which row the cancellation in flight belongs to.
    *
    * One action serves the whole list, so without this every row reads the same
@@ -111,9 +119,16 @@ export function BookingBoardPanel({
   }, [key, resourceId, from, to]);
 
   useEffect(() => {
-    // The effect owns its own call and drops a response that arrives after the
-    // panel is gone. One about a month that has since been changed is dropped
-    // by the render below instead, on the key it carries.
+    /*
+     * Every read the panel makes is this one, including the one a cancellation
+     * asks for - which is what `refreshes` is for. A cancellation that read for
+     * itself would be reading whichever month and resource were on screen when
+     * it was sent, and applying that unguarded after the reader has moved on
+     * replaces the month being looked at with the one that was. The render
+     * below shows nothing while the answer describes another request, so the
+     * panel would sit loading with no read left in flight to end it. One owner
+     * means the cleanup here covers a late answer whatever asked for it.
+     */
     let active = true;
     void read().then((next) => {
       if (active) {
@@ -123,10 +138,12 @@ export function BookingBoardPanel({
     return () => {
       active = false;
     };
-  }, [read]);
+  }, [read, refreshes]);
 
   const cancel = useSaveAction(cancelBookingForBoard, () => {
-    void read().then(setAnswer);
+    // Asks the effect for a fresh read rather than taking one, so the answer
+    // belongs to whatever is on screen when it lands.
+    setRefreshes((count) => count + 1);
     onChanged();
   });
 
