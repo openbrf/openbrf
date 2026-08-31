@@ -153,7 +153,7 @@ const YEAR = new Date().getUTCFullYear() + 1;
 const PAST_YEAR = YEAR - 2;
 
 /**
- * A cleaning day on Sundays at ten in the morning, four hours long.
+ * A cleaning day every week at ten in the morning, four hours long.
  *
  * April is inside summer time, so ten in the morning in Stockholm is 08:00 UTC -
  * which is what every instant asserted below is written out from. The weekly
@@ -504,6 +504,171 @@ describe("the database's own rule", () => {
     expect(first.occurrences[0]?.startsAt).toBe(
       second.occurrences[0]?.startsAt,
     );
+  });
+});
+
+/**
+ * The row-level rules of a series, asserted against the table and not the API.
+ *
+ * Every one of these is refused by the write service too, so each write below
+ * goes round it - straight through the Prisma client, the way the seed, an
+ * import or a later module would reach the table. That is the whole point of the
+ * constraints: the service is not the only writer, and these four recurrence
+ * columns mean nothing except by agreeing with each other.
+ *
+ * A CHECK violation surfaces as PostgreSQL 23514, which Prisma reports as P2010
+ * with the constraint's own name in the message - so each assertion names the
+ * constraint it is about rather than just "some write failed", and a test would
+ * fail if the write were refused by a different rule than the one it means.
+ */
+describe("the database's own rules about a recurrence", () => {
+  /** A valid series row, as the columns hold it, with no rule at all. */
+  function row(overrides: Record<string, unknown>) {
+    return {
+      title: `Direkt ${suffix}`,
+      authorPersonId: board.personId,
+      firstOn: new Date(Date.UTC(YEAR, 3, 18)),
+      startsAtMinute: 600,
+      durationMinutes: 240,
+      ...overrides,
+    };
+  }
+
+  /** The constraint a direct write trips, or "" when it is allowed through. */
+  async function violation(
+    overrides: Record<string, unknown>,
+  ): Promise<string> {
+    try {
+      const created = await prisma.event.create({
+        data: row(overrides) as never,
+        select: { id: true },
+      });
+      createdEventIds.push(created.id);
+      return "";
+    } catch (error) {
+      return String((error as { message?: string }).message ?? error);
+    }
+  }
+
+  it("takes a series with no rule at all", async () => {
+    expect(await violation({})).toBe("");
+  });
+
+  it("takes a rule that states a count, and one that states a last date", async () => {
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 1,
+        recurrenceCount: 3,
+      }),
+    ).toBe("");
+    expect(
+      await violation({
+        recurrenceFrequency: "MONTHLY",
+        recurrenceInterval: 1,
+        recurrenceUntil: new Date(Date.UTC(YEAR, 9, 18)),
+      }),
+    ).toBe("");
+  });
+
+  it("refuses a frequency with no end", async () => {
+    // Exactly the row the API would answer as a rule whose end is absent.
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 1,
+      }),
+    ).toContain("event_recurrence_states_one_end");
+  });
+
+  it("refuses a frequency with both ends", async () => {
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 1,
+        recurrenceCount: 3,
+        recurrenceUntil: new Date(Date.UTC(YEAR, 9, 18)),
+      }),
+    ).toContain("event_recurrence_states_one_end");
+  });
+
+  it("refuses a frequency with no interval", async () => {
+    // The API reads this row as having no rule while the row says it has one.
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceCount: 3,
+      }),
+    ).toContain("event_recurrence_states_one_end");
+  });
+
+  it("refuses an end with no frequency", async () => {
+    expect(await violation({ recurrenceCount: 3 })).toContain(
+      "event_recurrence_states_one_end",
+    );
+  });
+
+  it("refuses an interval of nothing", async () => {
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 0,
+        recurrenceCount: 3,
+      }),
+    ).toContain("event_recurrence_interval_positive");
+  });
+
+  it("refuses a count of one, which repeats nothing", async () => {
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 1,
+        recurrenceCount: 1,
+      }),
+    ).toContain("event_recurrence_count_repeats");
+  });
+
+  it("refuses a time of day outside the day", async () => {
+    expect(await violation({ startsAtMinute: 1440 })).toContain(
+      "event_starts_at_minute_within_the_day",
+    );
+    expect(await violation({ startsAtMinute: -1 })).toContain(
+      "event_starts_at_minute_within_the_day",
+    );
+  });
+
+  it("refuses a duration of nothing and one longer than a day", async () => {
+    expect(await violation({ durationMinutes: 0 })).toContain(
+      "event_duration_within_a_day",
+    );
+    expect(await violation({ durationMinutes: 1441 })).toContain(
+      "event_duration_within_a_day",
+    );
+  });
+
+  it("refuses a capacity of no places, and takes no capacity at all", async () => {
+    expect(await violation({ capacity: 0 })).toContain(
+      "event_capacity_positive",
+    );
+    expect(await violation({ capacity: null })).toBe("");
+  });
+
+  it("refuses an occurrence that ends before it starts", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Baklanges ${suffix}`,
+      recurrence: null,
+    });
+
+    await expect(
+      prisma.eventOccurrence.create({
+        data: {
+          eventId: created.id,
+          startsAt: new Date(`${String(YEAR)}-05-09T08:00:00.000Z`),
+          endsAt: new Date(`${String(YEAR)}-05-09T07:00:00.000Z`),
+        },
+      }),
+    ).rejects.toThrow(/event_occurrence_ends_after_it_starts/);
   });
 });
 

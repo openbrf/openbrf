@@ -2159,16 +2159,28 @@ enum EventRecurrenceFrequency {
 /// Four nullable columns rather than a table of their own, on the precedent
 /// BookableResource sets with its slot mechanics: a rule has exactly one row
 /// per series and no identity of its own, and a second table would be a join
-/// for every read of the calendar. They are set together or not at all, which
-/// `checkRecurrenceSchedule` enforces, and the API presents them as one nested
-/// object so that "there is a rule" and "there is no rule" are one field
-/// rather than four.
+/// for every read of the calendar. They are set together or not at all, and the
+/// API presents them as one nested object so that "there is a rule" and "there
+/// is no rule" are one field rather than four.
 ///
 /// A rule states its end, and states exactly one: a number of occurrences or a
 /// last date. Neither is optional. The occurrences are written out when the
 /// series is saved and nothing extends them afterwards, so a rule with no end
 /// would not be an endless series - it would be one that stopped at the horizon
 /// below for a reason no screen could explain.
+///
+/// Both of those are CHECK constraints as well as service rules -
+/// `event_recurrence_states_one_end` in migration
+/// 20260903115000_event_recurrence_constraints, alongside range checks on the
+/// interval, the count, the time of day, the duration and the capacity. Prisma
+/// has no syntax for a CHECK constraint, so they are not represented here.
+/// They are in the database because the service is not the only writer that
+/// reaches this table, and because a frequency without an end would otherwise be
+/// answered by the API as a rule whose end is absent - which the wire contract
+/// says cannot happen. The horizon is deliberately not among them: deciding
+/// whether a rule reaches past it means generating the dates it names, which is
+/// a program rather than a predicate, so it stays in
+/// `checkRecurrenceSchedule`.
 ///
 /// ## The horizon
 ///
