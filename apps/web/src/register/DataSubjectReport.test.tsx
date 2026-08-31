@@ -163,6 +163,26 @@ function renderReport(report: Report) {
   );
 }
 
+/**
+ * The value the document states against one of its field labels.
+ *
+ * Read as a pair rather than searched for on its own, because the report
+ * answers three questions with the same two words: whether the person has
+ * protected personal data, whether their account carries a second factor, and
+ * whether a legal hold stands. An assertion on the word alone is satisfied by
+ * any of the three, so a wrong answer to one of them would pass unseen. This
+ * reads the label and its value together, the way somebody holding the printed
+ * page does.
+ */
+function fieldValue(label: string): string {
+  const term = screen.getByText(label);
+  const value = term.parentElement?.querySelector("dd");
+  if (!value) {
+    throw new Error(`The report states no value against "${label}".`);
+  }
+  return value.textContent ?? "";
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -289,8 +309,12 @@ describe("what the document prints", () => {
     expect(screen.getByText("2027-01-17")).not.toBeNull();
 
     // And the hold state that makes that wording load-bearing, stated on the
-    // same page, so the two are read together.
-    expect(screen.getByText("Rättsligt bevarandekrav")).not.toBeNull();
+    // same page, so the two are read together. Asserted as the answer and not
+    // as the presence of the question: the label renders either way, so a
+    // document that told this person nothing was being kept would satisfy a
+    // test that only looked for the heading - and that is the disclosure the
+    // column above is worded around.
+    expect(fieldValue("Rättsligt bevarandekrav")).toBe("Ja");
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {
