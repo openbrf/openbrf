@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   type BookableResourceSummary,
+  fetchBoardBookableResources,
   type BookingApartment,
   fetchBookableResources,
   fetchBookingApartments,
@@ -47,9 +48,12 @@ const EMPTY: Loaded = {
  * association's issues and do not live in the building, so a laundry hour is
  * not theirs to take or to give away.
  *
- * The booking half comes first, because for everybody who reaches this screen
- * it is the act: nobody holds bookings:manage without bookings:book, and a
- * board member reading their own laundry week is a resident doing so.
+ * The booking half comes first, because for every seat that reaches this screen
+ * today it is the act: no seat holds bookings:manage without bookings:book, and
+ * a board member reading their own laundry week is a resident doing so. The
+ * screen does not rely on that staying true - a viewer who held only
+ * bookings:manage gets the board's half alone, with its catalogue read from the
+ * board's own path.
  *
  * Hiding a panel is courtesy only. The API refuses every call either way, the
  * apartments a form offers are filtered by the server, and a slot the resident
@@ -59,7 +63,9 @@ const EMPTY: Loaded = {
  *
  * The screen owns the reads its panels share - the catalogue, the caller's own
  * apartments, and what the caller holds - so a booking made in one panel
- * refreshes the other. The two reads that are one panel's own stay there: the
+ * refreshes the other. The catalogue is one read whichever path answers it,
+ * because both panels are shown the same list and a second copy of it could
+ * disagree with the first. The two reads that are one panel's own stay there: the
  * slots for the resource and window it is showing, and the board's month with
  * its own filter, neither of which anything else on the screen needs.
  */
@@ -73,7 +79,20 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [resources, apartments, own] = await Promise.all([
-      canBook ? fetchBookableResources() : null,
+      /*
+       * The catalogue from whichever path this viewer is entitled to, and one
+       * read either way. Both answer the same summary; what differs is the
+       * capability in front of them. Whoever may book reads the resident path,
+       * which is every seat that holds bookings:manage today; a seat that held
+       * manage alone would otherwise be shown a board panel with no resource on
+       * its filter, and asking the resident path on its behalf would be asking
+       * for a refusal.
+       */
+      canBook
+        ? fetchBookableResources()
+        : canManage
+          ? fetchBoardBookableResources()
+          : null,
       canBook ? fetchBookingApartments() : null,
       canBook ? fetchOwnBookings() : null,
     ]);
@@ -88,7 +107,7 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
         apartments?.ok === false ||
         own?.ok === false,
     };
-  }, [canBook]);
+  }, [canBook, canManage]);
 
   useEffect(() => {
     // The effect owns its own call and drops a response that arrives after the

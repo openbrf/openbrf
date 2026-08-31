@@ -316,19 +316,50 @@ export class BookingController {
  * The board's view of the calendar: who has booked what, and cancelling it.
  *
  * Its own base path rather than routes under the controller above, because the
- * capability covers the whole class: one @RequireCapability("bookings:book")
- * and one @RequireCapability("bookings:manage") on the same controller would be
- * a route open to the wrong half of the house.
+ * capability covers the whole class. A route on that class carrying
+ * @RequireCapability("bookings:manage") of its own would demand bookings:book
+ * as well, since the two are read together; one added without it would be open
+ * to whoever may book. Neither is what "the board's view" means.
  *
  * Named for what it is rather than for a queue. A queue in this domain is a
  * waiting list for a garage or a parking space - households waiting in order
  * for a thing to become free - which is a different feature entirely, and using
  * the word here would leave the two sharing a name.
+ *
+ * ## Why the catalogue is read here as well
+ *
+ * The catalogue of what the house offers is read by three audiences and named
+ * by one of them, so it appears on this class and on the resident's, and is
+ * written only on the configuration class above.
+ *
+ * It is a second route rather than one route serving both because
+ * {@link RequireCapability} is an AND: the guard collects the capabilities
+ * declared on the handler and the class together and refuses the request for
+ * every one of them the principal lacks, so naming both halves of the house on
+ * one route would demand both of them and refuse each audience the other's
+ * capability. There is no any-of form, and giving the guard one would change
+ * how every route in the application is read in order to widen a single answer.
+ *
+ * What it serves is {@link BookableResourceService.listOffered} - the same
+ * summary the resident calendar is given, with no booking count and no
+ * withdrawn resource on it - so a principal holding bookings:manage alone
+ * reaches what the house offers and still reaches no part of the configuration
+ * surface. That stays true by there being no write route on this class rather
+ * than by a check inside one.
  */
 @Controller("api/booking-admin")
 @RequireCapability("bookings:manage")
 export class BookingAdminController {
-  constructor(private readonly bookings: BookingService) {}
+  constructor(
+    private readonly bookings: BookingService,
+    private readonly resources: BookableResourceService,
+  ) {}
+
+  /** What the house offers today. Withdrawn resources are not on it. */
+  @Get("resources")
+  async resourceList(): Promise<BookableResourceSummary[]> {
+    return this.resources.listOffered();
+  }
 
   @Get()
   async list(

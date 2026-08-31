@@ -15,9 +15,17 @@ import { BookingsScreen } from "./BookingsScreen";
  * and a screen that asked for it on a resident's behalf would be asking the
  * server for personal data on a page that has nowhere to put it. So this file
  * asserts the request as well as the panel.
+ *
+ * The catalogue is the other way round. Both halves are shown the same list of
+ * what the house offers, and the two paths serving it are gated differently, so
+ * which one a seat reads is decided here: the resident path for whoever may
+ * book, and the board's own for a seat that runs the calendar without holding a
+ * slot. Asking the resident path on that seat's behalf would be asking for a
+ * refusal, and the panel behind it would then have no resource to filter by.
  */
 
 const fetchBookableResources = vi.fn();
+const fetchBoardBookableResources = vi.fn();
 const fetchBookingApartments = vi.fn();
 const fetchOwnBookings = vi.fn();
 const fetchBookableSlots = vi.fn();
@@ -27,6 +35,7 @@ const cancelBookingForBoard = vi.fn();
 vi.mock("../api/bookings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/bookings")>()),
   fetchBookableResources: () => fetchBookableResources(),
+  fetchBoardBookableResources: () => fetchBoardBookableResources(),
   fetchBookingApartments: () => fetchBookingApartments(),
   fetchOwnBookings: () => fetchOwnBookings(),
   fetchBookableSlots: (input: unknown) => fetchBookableSlots(input),
@@ -45,23 +54,26 @@ function viewer(capabilities: readonly string[]): Viewer {
   };
 }
 
+/** The one resource both catalogue paths answer with. */
+const LAUNDRY = {
+  id: "resource-laundry",
+  name: "Tvättstugan i port 12",
+  description: null,
+  mode: "TIME_SLOTS",
+  slotMinutes: 180,
+  opensAtMinute: 420,
+  closesAtMinute: 1260,
+  maxConcurrentBookings: null,
+  maxBookingsPerWeek: null,
+} as const;
+
 beforeEach(() => {
-  fetchBookableResources.mockReset().mockResolvedValue({
-    ok: true,
-    value: [
-      {
-        id: "resource-laundry",
-        name: "Tvättstugan i port 12",
-        description: null,
-        mode: "TIME_SLOTS",
-        slotMinutes: 180,
-        opensAtMinute: 420,
-        closesAtMinute: 1260,
-        maxConcurrentBookings: null,
-        maxBookingsPerWeek: null,
-      },
-    ],
-  });
+  fetchBookableResources
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: [LAUNDRY] });
+  fetchBoardBookableResources
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: [LAUNDRY] });
   fetchBookingApartments.mockReset().mockResolvedValue({ ok: true, value: [] });
   fetchOwnBookings.mockReset().mockResolvedValue({ ok: true, value: [] });
   fetchBookableSlots.mockReset().mockResolvedValue({ ok: true, value: [] });
@@ -108,6 +120,15 @@ describe("a resident", () => {
       expect(screen.getByText("Boka")).toBeTruthy();
     });
     expect(fetchManagedBookings).not.toHaveBeenCalled();
+  });
+
+  it("reads the catalogue from the path their capability opens", async () => {
+    render(<BookingsScreen viewer={viewer(["bookings:book"])} />);
+
+    await waitFor(() => {
+      expect(fetchBookableResources).toHaveBeenCalled();
+    });
+    expect(fetchBoardBookableResources).not.toHaveBeenCalled();
   });
 });
 
@@ -174,6 +195,50 @@ describe("the board", () => {
   });
 });
 
+/**
+ * A seat that runs the calendar without holding a slot.
+ *
+ * No seat grants bookings:manage without bookings:book today, and this is what
+ * stops that being load-bearing: the half the capability is for has to work on
+ * its own, catalogue and all, the moment a seat does.
+ */
+describe("a viewer holding bookings:manage alone", () => {
+  it("is given the board's half and not the booking half", async () => {
+    render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Hela kalendern")).toBeTruthy();
+    });
+    expect(screen.queryByText("Boka")).toBeNull();
+    expect(screen.queryByText("Dina bokningar")).toBeNull();
+  });
+
+  it("reads the catalogue from the board's own path, never the resident's", async () => {
+    render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
+
+    await waitFor(() => {
+      expect(fetchBoardBookableResources).toHaveBeenCalled();
+    });
+    expect(fetchBookableResources).not.toHaveBeenCalled();
+    expect(fetchBookingApartments).not.toHaveBeenCalled();
+    expect(fetchOwnBookings).not.toHaveBeenCalled();
+  });
+
+  it("is offered the resource the catalogue named, to filter the month by", async () => {
+    render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
+
+    /*
+     * The filter is absent altogether when the list is empty, so the option is
+     * what says the catalogue reached the panel. Without the board's own path
+     * this viewer would be shown a working month with no resource on it and no
+     * failure either, which is the shape a refusal nobody surfaces takes.
+     */
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: LAUNDRY.name })).toBeTruthy();
+    });
+  });
+});
+
 describe("an account with neither capability", () => {
   it("is given no panel and makes no booking request", async () => {
     render(<BookingsScreen viewer={viewer(["self:manage"])} />);
@@ -184,6 +249,7 @@ describe("an account with neither capability", () => {
     expect(screen.queryByText("Boka")).toBeNull();
     expect(screen.queryByText("Hela kalendern")).toBeNull();
     expect(fetchBookableResources).not.toHaveBeenCalled();
+    expect(fetchBoardBookableResources).not.toHaveBeenCalled();
     expect(fetchOwnBookings).not.toHaveBeenCalled();
     expect(fetchManagedBookings).not.toHaveBeenCalled();
   });

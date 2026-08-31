@@ -10,10 +10,12 @@ import { apiRequest, type ApiResult } from "./client";
  * Three base paths, because the API splits them by audience and so does this
  * file. `/api/bookings` is what a resident may do - what the house offers, what
  * a resource offers on a date, taking a slot, and cancelling one's own.
- * `/api/booking-admin` is the board's view of who holds which hour and
- * cancelling on somebody's behalf. `/api/bookable-resources` is the catalogue
- * the board writes. A screen that gates a panel on the wrong one of those would
- * be showing somebody a control every call behind it refuses.
+ * `/api/booking-admin` is the board's view of who holds which hour, cancelling
+ * on somebody's behalf, and the same catalogue read the resident path offers,
+ * because whoever runs the calendar needs to name a resource without being
+ * required to hold a slot. `/api/bookable-resources` is the catalogue the board
+ * writes. A screen that gates a panel on the wrong one of those would be
+ * showing somebody a control every call behind it refuses.
  *
  * Two properties of the contract are load-bearing and invisible in the types.
  *
@@ -219,6 +221,26 @@ export function cancelOwnBooking(
 }
 
 // --- the board's view of the calendar ----------------------------------------
+
+/**
+ * What the house offers today, for whoever runs the calendar.
+ *
+ * The same answer `fetchBookableResources` gives, from the board's own base
+ * path, and it exists because the two are gated differently. The resident route
+ * is behind bookings:book, so a viewer holding bookings:manage without it -
+ * which no seat grants today and one may - would have no endpoint serving the
+ * catalogue at all, and the board's half would be left with no resource to
+ * filter its month by.
+ *
+ * It answers with the summary and not with the catalogue the board writes: no
+ * booking count, no withdrawn resource, and nothing on that path creates or
+ * edits one. Configuring the catalogue is bookings:configure and sits below.
+ */
+export function fetchBoardBookableResources(): Promise<
+  ApiResult<BookableResourceSummary[]>
+> {
+  return apiRequest("GET", "/api/booking-admin/resources");
+}
 
 export function fetchManagedBookings(input: {
   /** Every resource when absent, which is how the board reads the day. */
