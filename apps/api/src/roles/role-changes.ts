@@ -104,12 +104,17 @@ const TERM_HORIZON_YEARS = 5;
 
 /** The last day a term may be recorded as ending on. */
 export function latestTermEnd(now: Date): Date {
+  const year = now.getUTCFullYear() + TERM_HORIZON_YEARS;
+  const month = now.getUTCMonth();
+  /*
+   * Date.UTC rolls a day past the end of its month into the next one, so 29
+   * February plus five years would land on 1 March and admit a term a day
+   * beyond the horizon. Day 0 of the following month is the last day of this
+   * one, which is the day the horizon means on a date that has no anniversary.
+   */
+  const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   return new Date(
-    Date.UTC(
-      now.getUTCFullYear() + TERM_HORIZON_YEARS,
-      now.getUTCMonth(),
-      now.getUTCDate(),
-    ),
+    Date.UTC(year, month, Math.min(now.getUTCDate(), lastDayOfMonth)),
   );
 }
 

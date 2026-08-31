@@ -76,20 +76,27 @@ const personIds = [
   amender.personId,
 ];
 
+/*
+ * Read once, so every date in the suite is counted from the same day. Reading
+ * the clock per call would let UTC midnight fall between a request and the
+ * assertion about what it wrote, and the two would then disagree by a day for
+ * no reason the test is about.
+ */
+const SUITE_TODAY = new Date();
+
 /**
- * A calendar date a number of days either side of today.
+ * A calendar date a number of days either side of the day the suite started.
  *
  * How far ahead a term may be recorded as running is counted from today, so a
  * suite that spelled these dates out as fixed years would start refusing what
  * it asserts is allowed once enough of them had passed.
  */
 function daysFromToday(days: number): string {
-  const today = new Date();
   return new Date(
     Date.UTC(
-      today.getUTCFullYear(),
-      today.getUTCMonth(),
-      today.getUTCDate() + days,
+      SUITE_TODAY.getUTCFullYear(),
+      SUITE_TODAY.getUTCMonth(),
+      SUITE_TODAY.getUTCDate() + days,
     ),
   )
     .toISOString()

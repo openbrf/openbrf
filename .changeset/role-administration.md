@@ -10,9 +10,9 @@ grant and the external property manager grant.
 The authorization model was already enforced and had no write path. A residency
 and its member or resident role were written by the move-in, by the import and
 by an approved sign-up request, but a board seat and the two system roles had
-no screen and no endpoint, so a housing cooperative entered them as SQL. Which
-also meant a second administrator could not be created, and an instance that
-lost its only one had no way back in.
+no screen and no endpoint, so a housing cooperative entered them as SQL, which
+also meant a second administrator could not be created and an instance that
+lost its only administrator had no way back in.
 
 Who may confer what is a capability rather than a role check, like everything
 else in this codebase. Recording an election to a position of trust is the

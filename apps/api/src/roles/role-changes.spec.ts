@@ -95,6 +95,25 @@ describe("the date a term is recorded as ending on", () => {
     expect(refuse("2031-06-02")).toBe("ended-too-far-ahead");
   });
 
+  it("holds the horizon inside February on a leap day", () => {
+    /*
+     * 29 February has no anniversary in a common year. Adding five years by
+     * arithmetic alone gives 29 February 2033, which Date.UTC rolls forward to
+     * 1 March and which would admit a term a day past the horizon. The last
+     * day of the month is what the horizon means on such a date.
+     */
+    expect(latestTermEnd(new Date("2028-02-29T00:00:00Z")).toISOString()).toBe(
+      "2033-02-28T00:00:00.000Z",
+    );
+    expect(latestTermEnd(new Date("2028-02-28T00:00:00Z")).toISOString()).toBe(
+      "2033-02-28T00:00:00.000Z",
+    );
+    // A leap year five years on keeps the day it has.
+    expect(latestTermEnd(new Date("2027-02-28T00:00:00Z")).toISOString()).toBe(
+      "2032-02-28T00:00:00.000Z",
+    );
+  });
+
   it("lets a term still running be given a different end date", () => {
     /*
      * The correction path. A date mistyped into the future is refused by the
