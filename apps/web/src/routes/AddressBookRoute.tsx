@@ -19,6 +19,7 @@ import {
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
+import { useViewerCapabilities } from "../shell/use-viewer-capabilities";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import { SECONDARY_BUTTON } from "../ui/controls";
 
@@ -153,6 +154,17 @@ export function AddressBookRoute(): ReactElement {
       : null;
 
   const logo = useHousingCooperativeLogo();
+  /*
+   * What this account may do, for the person panel's role controls.
+   *
+   * The navigation below still reads the audience off the register's own
+   * answer rather than off this: which of the two boards was served is what
+   * that answer already proves, and it arrives with the rows rather than after
+   * a second request. Conferring a role is the narrower question - a board seat
+   * and a system role have different holders - and no register answer settles
+   * it, so this is asked for on its own.
+   */
+  const capabilities = useViewerCapabilities();
 
   return (
     <AppShell
@@ -363,6 +375,7 @@ export function AddressBookRoute(): ReactElement {
               <PersonPanel
                 key={panel.personId}
                 personId={panel.personId}
+                capabilities={capabilities}
                 onClose={closePanel}
                 onChanged={reload}
                 onMoveOut={(target) => {

@@ -63,6 +63,30 @@ describe("board member", () => {
     expect(can({ isBoardMember: true }, "association:read")).toBe(true);
     expect(can({ isBoardMember: true }, "association:manage")).toBe(false);
   });
+
+  it("records its own election", () => {
+    // A board is elected by the general meeting and the minute of that
+    // election is the board's own to write down. An instance whose board could
+    // only be recorded by an administrator would make the administrator the
+    // gatekeeper of the association's constitution.
+    expect(can({ isBoardMember: true }, "boardPosition:manage")).toBe(true);
+  });
+
+  it("cannot grant a system role, which is what stops a seat becoming admin", () => {
+    /*
+     * The load-bearing assertion of this file. A board member who could write
+     * a system_role row could write themselves an ADMIN one, and every promise
+     * above about settings, plugins and themes staying with an administrator
+     * would be a convention rather than a boundary.
+     *
+     * Both grants are behind the one capability. The property manager grant
+     * carries less than a board member already holds, so conferring it could
+     * not be an escalation; it is here because a standing grant to somebody who
+     * neither lives in the building nor was elected is the same kind of
+     * decision as installing a plugin.
+     */
+    expect(can({ isBoardMember: true }, "systemRole:manage")).toBe(false);
+  });
 });
 
 describe("property manager", () => {
@@ -79,6 +103,10 @@ describe("property manager", () => {
     "residentDirectory:read",
     "association:manage",
     "association:read",
+    // An external contractor confers nothing on anybody, in either direction:
+    // not a seat on the board that hired them, and not a grant of their own.
+    "boardPosition:manage",
+    "systemRole:manage",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -110,6 +138,8 @@ describe("resident and member", () => {
     "association:manage",
     "association:read",
     "invitation:send",
+    "boardPosition:manage",
+    "systemRole:manage",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });
@@ -137,6 +167,23 @@ describe("combined roles", () => {
     // which is why capabilities never depend on holding a residency.
     expect(can({ isAdmin: true }, "association:manage")).toBe(true);
     expect(can({ isAdmin: true }, "addressBook:read")).toBe(true);
+  });
+
+  it("leaves an administrator as the only one who may grant a system role", () => {
+    // Stated as the union rather than per role, because the hazard is a
+    // combination: somebody who is on the board and lives here and manages the
+    // property still cannot grant themselves the administrator's rights.
+    expect(
+      capabilitiesFor(
+        roles({
+          isBoardMember: true,
+          isPropertyManager: true,
+          isResident: true,
+          isMember: true,
+        }),
+      ).has("systemRole:manage"),
+    ).toBe(false);
+    expect(can({ isAdmin: true }, "systemRole:manage")).toBe(true);
   });
 
   it("unions capabilities rather than picking one role", () => {

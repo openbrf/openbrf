@@ -89,6 +89,29 @@ export const CAPABILITIES = [
    * a public website is - so this name only ever appears on a write.
    */
   "site:manage",
+  /**
+   * Record an election to a position of trust on the board, and end a term.
+   *
+   * The board's own, because who sits on it is not an administrator's decision
+   * to make: a board is elected by the general meeting (foreningsstamma), and
+   * what the application holds is the minute of that election written down by
+   * the people who were there. An instance whose board could only be recorded
+   * by whoever holds the ADMIN grant would make the administrator the gatekeeper
+   * of the association's own constitution.
+   *
+   * The seat this confers carries no more than the conferrer already holds -
+   * BOARD_CAPABILITIES is exactly what a board member has - so it cannot be
+   * used to climb.
+   */
+  "boardPosition:manage",
+  /**
+   * Grant and revoke a system role: the administrator grant and the external
+   * property manager grant.
+   *
+   * An administrator's, and see BOARD_CAPABILITIES below for why the board is
+   * not given it.
+   */
+  "systemRole:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -107,8 +130,40 @@ export interface PrincipalRoles {
 
 const ADMIN_CAPABILITIES: readonly Capability[] = CAPABILITIES;
 
+/**
+ * What a board seat grants - and the one thing it deliberately does not.
+ *
+ * `systemRole:manage` is absent, and the absence is the rule rather than an
+ * oversight: it is what stops a board seat from being a way to grant oneself
+ * administrator rights. A board member who could write a `system_role` row
+ * could write themselves an ADMIN one, and every line above about settings,
+ * plugins and themes staying with an administrator would then be a convention
+ * rather than a boundary.
+ *
+ * That decision is enforced by the board holding no capability that reaches the
+ * table, rather than by a service inspecting which role is being granted. There
+ * is no route on which a principal without `systemRole:manage` can write a
+ * system role at all, so the guarantee is the absence of a path and not the
+ * correctness of a branch inside one.
+ *
+ * The external property manager grant sits on the administrator's side of that
+ * line with the ADMIN grant, although the capabilities it carries are a subset
+ * of the board's own and conferring it could not be an escalation. It is there
+ * because of what it is rather than what it carries: a standing grant that lets
+ * somebody who neither lives in the building nor was elected to anything act on
+ * this instance. Who holds an account-level grant is the same question as who
+ * may install a plugin or change the retention policy, and it is answered by
+ * `association:manage`'s holder. Splitting the two grants across two
+ * capabilities would also put the board back in front of that table, which is
+ * what the paragraph above exists to prevent.
+ *
+ * Recording the board's own election is the board's (`boardPosition:manage`),
+ * because a board is elected by the general meeting and not appointed by an
+ * administrator.
+ */
 const BOARD_CAPABILITIES: readonly Capability[] = [
   "association:read",
+  "boardPosition:manage",
   "addressBook:read",
   "addressBook:write",
   "memberRegister:read",
