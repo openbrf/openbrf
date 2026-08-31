@@ -105,6 +105,43 @@ export const CAPABILITIES = [
    */
   "boardPosition:manage",
   /**
+   * Book a resource in the house, and cancel one's own booking.
+   *
+   * Residents and the board, because booking the laundry room is part of
+   * living here rather than a board activity, and a board member lives here
+   * too.
+   *
+   * Deliberately not granted to the property manager, on the issues:report
+   * precedent and for the same reason: they handle the association's issues,
+   * they do not live in the building. An external contractor holding a laundry
+   * hour would be an hour taken from a household.
+   */
+  "bookings:book",
+  /**
+   * See who has booked what, and cancel anyone's booking.
+   *
+   * The board's. A booking says which apartment holds which hour, which is
+   * personal data no other resident is shown, and cancelling on somebody's
+   * behalf is an act only the association can answer for: a guest apartment
+   * held by a household that has moved out, a laundry room closed for repair.
+   */
+  "bookings:manage",
+  /**
+   * Create and edit the catalogue of bookable resources: what exists, how it is
+   * booked, and how much of it one apartment may hold.
+   *
+   * A board decision rather than an administrator's, by the argument
+   * issues:configure makes: what the house offers, and how much of it one
+   * household may take, is the board's own policy for its building - the way
+   * the retention policy is the board's decision about its data.
+   *
+   * Separate from bookings:manage because the two answer different questions.
+   * Cancelling a resident's booking is running the calendar; deciding that the
+   * sauna exists at all and that nobody may hold more than two bookings a week
+   * is writing the rules the calendar runs by.
+   */
+  "bookings:configure",
+  /**
    * Grant and revoke a system role: the administrator grant and the external
    * property manager grant.
    *
@@ -178,6 +215,9 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "issues:configure",
   "documents:manage",
   "site:manage",
+  "bookings:book",
+  "bookings:manage",
+  "bookings:configure",
 ];
 
 /**
@@ -194,6 +234,7 @@ const RESIDENT_CAPABILITIES: readonly Capability[] = [
   "self:manage",
   "residentDirectory:read",
   "issues:report",
+  "bookings:book",
 ];
 
 /**

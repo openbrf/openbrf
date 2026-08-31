@@ -120,6 +120,32 @@ export interface ReportDocument {
 }
 
 /**
+ * A booking this person made.
+ *
+ * Unlike the issues and documents above, these are purged: a booking is erased
+ * a year after the booked period ended, on its own clock rather than on the
+ * residency one. So each row states the date it goes on, which is what makes
+ * the retention answer on this document true of the bookings as well as of the
+ * contact details.
+ *
+ * The apartment is the one the booking was made for, and may be absent - either
+ * because none was recorded or because the apartment has since been corrected
+ * out of the register, which a booking survives by design.
+ */
+export interface ReportBooking {
+  bookingId: string;
+  /** What the board calls the resource, read from the resource itself. */
+  resourceName: string;
+  status: "BOOKED" | "CANCELLED" | "RELEASED";
+  /** ISO instants: the booked period. */
+  startsAt: string;
+  endsAt: string;
+  apartment: string | null;
+  /** Derived from the booking retention window, never stored. */
+  purgeOn: string | null;
+}
+
+/**
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
@@ -181,6 +207,7 @@ export interface DataSubjectReport {
   }[];
   issues: ReportIssue[];
   documents: ReportDocument[];
+  bookings: ReportBooking[];
   auditEntries: ReportAuditEntry[];
   /** What the association keeps, and until when. */
   retention: {

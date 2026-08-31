@@ -27,8 +27,8 @@ import type { DataSubjectReport } from "./data-subject-report";
  * about me", and an answer that quietly omits a table is worse than no answer,
  * because nobody reading it can tell. So the fixture puts something in every
  * store the product has - both register tiers, an account, a consent, a hold,
- * an issue, an archived document and an audit trail - and each section is
- * asserted to have found it.
+ * an issue, an archived document, a booking and an audit trail - and each
+ * section is asserted to have found it.
  *
  * The gate. This is the one endpoint that decrypts a personal identity number,
  * so the capability that opens it is checked as four different callers rather
@@ -52,6 +52,20 @@ const addressId = `dsar-address-${suffix}`;
 const apartmentId = `dsar-apartment-${suffix}`;
 const issueTypeId = `dsar-issue-type-${suffix}`;
 const mediaFileId = `dsar-media-${suffix}`;
+const bookableResourceId = `dsar-resource-${suffix}`;
+
+/**
+ * When the fixture booking ended.
+ *
+ * Relative to now and only a week back, so no purge another suite drives can
+ * reach it: a booking is erased on its own clock a year after it ended, and a
+ * fixture dated a year ago would survive or vanish depending on which suite ran
+ * first.
+ */
+const bookingEndedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+const bookingStartedAt = new Date(
+  bookingEndedAt.getTime() - 2 * 60 * 60 * 1000,
+);
 
 const board = {
   personId: `dsar-board-${suffix}`,
@@ -356,6 +370,26 @@ beforeAll(async () => {
     },
   });
 
+  await prisma.bookableResource.create({
+    data: {
+      id: bookableResourceId,
+      name: `Tvattstuga ${suffix}`,
+      mode: "TIME_SLOTS",
+      slotMinutes: 120,
+      opensAtMinute: 7 * 60,
+      closesAtMinute: 21 * 60,
+    },
+  });
+  await prisma.booking.create({
+    data: {
+      resourceId: bookableResourceId,
+      apartmentId,
+      bookedByPersonId: subject.personId,
+      startsAt: bookingStartedAt,
+      endsAt: bookingEndedAt,
+    },
+  });
+
   // One entry each way round, so the report can be shown to carry both what
   // was done to this person and what they did.
   await prisma.auditLogEntry.createMany({
@@ -408,6 +442,14 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
+        () =>
+          prisma.booking.deleteMany({
+            where: { resourceId: bookableResourceId },
+          }),
+        () =>
+          prisma.bookableResource.deleteMany({
+            where: { id: bookableResourceId },
+          }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
         () => prisma.mediaFile.deleteMany({ where: { id: mediaFileId } }),
         () => prisma.issue.deleteMany({ where: { typeId: issueTypeId } }),
@@ -596,6 +638,29 @@ describe("what the report contains", () => {
     );
     expect(report.documents).toHaveLength(1);
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);
+  });
+
+  it("lists the bookings with the date each one is erased on", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.bookings).toHaveLength(1);
+    const booking = report.bookings[0];
+    expect(booking?.resourceName).toBe(`Tvattstuga ${suffix}`);
+    expect(booking?.status).toBe("BOOKED");
+    expect(booking?.endsAt).toBe(bookingEndedAt.toISOString());
+    expect(booking?.apartment).toContain("1001");
+
+    /*
+     * The booking's own erasure date, a year after it ended, and not the one at
+     * the foot of the document. The person this is handed to is entitled to be
+     * told when each thing goes, and a booking goes on its own clock whether or
+     * not they still live here - which is why this section states a date per row
+     * where the issues and the documents beside it state none.
+     */
+    const expected = new Date(
+      bookingEndedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
+    );
+    expect(booking?.purgeOn).toBe(expected.toISOString().slice(0, 10));
   });
 
   it("carries the audit trail both ways round", async () => {

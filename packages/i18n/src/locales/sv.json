@@ -306,6 +306,7 @@
           "legalHolds": "Rättsliga bevarandekrav",
           "issues": "Felanmälningar",
           "documents": "Inlagda dokument",
+          "bookings": "Bokningar",
           "audit": "Granskningsloggen",
           "retention": "Gallring"
         },
@@ -349,6 +350,9 @@
           "binder": "Pärm",
           "audience": "Målgrupp",
           "filed": "Inlagt",
+          "resource": "Resurs",
+          "starts": "Börjar",
+          "ends": "Slutar",
           "action": "Åtgärd",
           "at": "När",
           "about": "Avser",
@@ -402,7 +406,10 @@
           "LEGAL_HOLD_RELEASED": "Rättsligt bevarandekrav upphävdes",
           "SERVICE_DATA_PURGED": "Servicedata gallrades",
           "BOARD_POSITION_ELECTED": "Val till förtroendeuppdrag antecknades",
-          "BOARD_POSITION_ENDED": "Förtroendeuppdrag avslutades"
+          "BOARD_POSITION_ENDED": "Förtroendeuppdrag avslutades",
+          "BOOKING_RESOURCE_CREATED": "Bokningsbar resurs tillagd",
+          "BOOKING_RESOURCE_UPDATED": "Bokningsbar resurs ändrad",
+          "BOOKING_RESOURCE_DEACTIVATED": "Bokningsbar resurs stängd för bokning"
         },
         "auditRole": {
           "subject": "Om den här personen",
@@ -2138,6 +2145,13 @@
       "heading": "Senaste nytt",
       "allNews": "Alla nyheter",
       "empty": "Inget är skrivet än."
+    }
+  },
+  "bookings": {
+    "status": {
+      "BOOKED": "Bokad",
+      "CANCELLED": "Avbokad",
+      "RELEASED": "Frisläppt"
     }
   }
 }

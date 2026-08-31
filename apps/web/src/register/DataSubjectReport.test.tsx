@@ -54,6 +54,7 @@ const EMPTY_REPORT: Report = {
   legalHolds: [],
   issues: [],
   documents: [],
+  bookings: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -118,6 +119,19 @@ const FULL_REPORT: Report = {
       placedAt: "2026-02-10T09:00:00.000Z",
       releasedAt: null,
       releaseReason: null,
+    },
+  ],
+  bookings: [
+    {
+      bookingId: "booking-1",
+      resourceName: "Tvättstugan",
+      status: "BOOKED",
+      startsAt: "2026-01-17T07:00:00.000Z",
+      endsAt: "2026-01-17T09:00:00.000Z",
+      apartment: "Storgatan 12 1201",
+      // A year after the booking ended, and deliberately not the date the
+      // retention section below states: a booking is erased on its own clock.
+      purgeOn: "2027-01-17",
     },
   ],
   auditEntries: [
@@ -247,6 +261,22 @@ describe("what the document prints", () => {
     expect(screen.getByText("Pantnoteringar")).not.toBeNull();
     expect(screen.getByText("Exempelbanken")).not.toBeNull();
     expect(screen.getByText("Gäller fortfarande")).not.toBeNull();
+  });
+
+  it("prints a booking with the date it is erased on", async () => {
+    /*
+     * The one section that states an erasure date per row. A booking is erased
+     * a year after it ended, on its own clock, so printing the document's own
+     * purge date here would tell the person a date that is not going to happen
+     * to this row.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Bokningar")).not.toBeNull();
+    expect(screen.getByText("Tvättstugan")).not.toBeNull();
+    expect(screen.getByText("Bokad")).not.toBeNull();
+    expect(screen.getByText("2027-01-17")).not.toBeNull();
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

@@ -52,6 +52,9 @@ describe("board member", () => {
     "protectedData:reveal",
     "invitation:send",
     "signupRequest:decide",
+    "bookings:book",
+    "bookings:manage",
+    "bookings:configure",
   ])("can %s", (capability) => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
@@ -107,6 +110,12 @@ describe("property manager", () => {
     // not a seat on the board that hired them, and not a grant of their own.
     "boardPosition:manage",
     "systemRole:manage",
+    // They handle the association's issues; they do not live in the building.
+    // A laundry hour held by a contractor is an hour taken from a household,
+    // and who has booked what is resident data they have no business reading.
+    "bookings:book",
+    "bookings:manage",
+    "bookings:configure",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -123,12 +132,14 @@ describe("property manager", () => {
 });
 
 describe("resident and member", () => {
-  it.each<Capability>(["self:manage", "residentDirectory:read"])(
-    "a resident can %s",
-    (capability) => {
-      expect(can({ isResident: true }, capability)).toBe(true);
-    },
-  );
+  it.each<Capability>([
+    "self:manage",
+    "residentDirectory:read",
+    // Booking the laundry room is part of living here, not a board activity.
+    "bookings:book",
+  ])("a resident can %s", (capability) => {
+    expect(can({ isResident: true }, capability)).toBe(true);
+  });
 
   it.each<Capability>([
     "addressBook:read",
@@ -140,6 +151,10 @@ describe("resident and member", () => {
     "invitation:send",
     "boardPosition:manage",
     "systemRole:manage",
+    // A resident books for themselves. Seeing or cancelling a neighbour's
+    // booking, and deciding what the house offers, are the board's.
+    "bookings:manage",
+    "bookings:configure",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });
