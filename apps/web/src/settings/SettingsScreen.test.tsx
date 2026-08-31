@@ -95,6 +95,9 @@ const SETTINGS: InstanceSettings = {
   retention: { daysAfterMoveOut: 365 },
   selfSignup: { enabled: false },
   issueReporting: { publicFormEnabled: true },
+  // The clause a cooperative's own bylaws set. Null here, which is the ordinary
+  // state of an instance whose bylaws say nothing about motions.
+  motionDeadline: null,
 };
 
 function viewerWith(capabilities: string[]): Viewer {

@@ -173,6 +173,21 @@ pointer, because the site runs no script and focus is the only thing that opens
 it. It is the fourth spec allowed to navigate the instance root, for the same
 reason as the one above: the menu is chrome on the website itself.
 
+`30-motions.spec.ts` drives motions to the general meeting, and its subject is a
+statute about who a person is. The shared register fixture holds two people in
+one apartment - Astrid Lindqvist as a member and Nils Lindqvist as a resident -
+and EFL 6 kap. 15 §, applied to a housing cooperative by BRL 9 kap. 14 §, gives
+only the member the right to have an item taken up at a general meeting. So she
+submits one through the screen and takes it back, and he is offered neither the
+destination in the navigation nor a form on the screen when he asks for it by
+hand. The board then reads the item in its queue, records it as received, and is
+offered no way to reject it, because refusing to take up a member's item is not
+the board's decision to make. Last, the deadline: an administrator records the
+clause the association's own bylaws carry and the member reads the resolved date
+on the form she writes in, which is the only path by which that date can reach
+her - the platform holds no default. The spec restores the deadline to none over
+HTTP, so the shared instance is left as the specs after it expect.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on

@@ -541,24 +541,22 @@ change it.
 
 - [ ] General meetings: the notice (kallelse), the agenda, the voting register,
       proxies, real-time voting, and the link from a motion to the meeting it is
-      taken up at. Motion intake itself is the Forms item below rather than this
-      one. Postal voting is prohibited for a housing cooperative under
-      BRL 9 kap. 14 §, and will never be built.
+      taken up at - a motion deliberately carries no meeting reference until
+      there are meetings to reference. Motion intake itself is the Forms item
+      below rather than this one. Postal voting is prohibited for a housing
+      cooperative under BRL 9 kap. 14 §, and will never be built.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders
-  - [ ] Motions to the general meeting. Landed: the motion table and the two
-        capabilities, with the right to put an item to the meeting derived from
-        membership rather than from residency (EFL 6 kap. 15 § via BRL 9 kap.
-        14 §); the deadline the association's own bylaws set, held on the
-        instance settings with no default, because a cooperative whose bylaws are
-        silent has no recurring date of its own to hold - the statute's own
-        condition, that a request reach the board in time to be taken up in the
-        notice, stands either way and is stated rather than enforced while there
-        are no meetings to be in time for; the member's intake and the board's
-        queue behind a capability each; the data subject access report section
-        and the motion purge with its legal-hold check. Pending: the screens, the
-        navigation entry and the end-to-end suite
+  - [x] Motions to the general meeting: a member puts an item to the meeting and
+        the board works the queue it arrives in. The right is a member's, not a
+        resident's (EFL 6 kap. 15 § via BRL 9 kap. 14 §). The deadline is
+        whatever the association's own bylaws set: the platform holds no default,
+        a cooperative whose bylaws are silent has no recurring date of its own to
+        hold, and the statute's own condition - that a request reach the board in
+        time to be taken up in the notice - stands either way. It is stated
+        rather than enforced while there are no meetings to be in time for, so a
+        late motion is received and the board decides which meeting it reaches
   - [ ] Subletting applications
   - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a

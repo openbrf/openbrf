@@ -941,6 +941,17 @@
         "resourceInUse": "Resursen har bokningar som inte har passerat, så hur den bokas kan inte ändras än. Avboka dem, eller vänta tills de har passerat. Namnet, beskrivningen och gränserna går att ändra nu.",
         "unknown": "Resursen kunde inte sparas just nu. Försök igen."
       }
+    },
+    "motionDeadline": {
+      "title": "Sista dag för motioner",
+      "description": "Den dag era egna stadgar anger för att en motion ska vara styrelsen tillhanda före en föreningsstämma.",
+      "statutoryNotice": "Detta är hämtat ur era stadgar, inte bestämt här. En medlem har rätt att få ett ärende behandlat vid en föreningsstämma om styrelsen begärs det skriftligen i sådan tid att ärendet kan tas upp i kallelsen, och stadgarna får bestämma på vilket sätt och inom vilken tid (EFL 6 kap. 15 § via BRL 9 kap. 14 §). Lämna fälten tomma om era stadgar inte anger någon dag. Motioner tas emot efter den här dagen ändå; dagen säger vilken stämma en motion hinner till.",
+      "month": "Månad",
+      "day": "Dag",
+      "clearHint": "Töm båda fälten för att ange att era stadgar inte har någon sista dag.",
+      "errors": {
+        "notADate": "Det är inget datum som finns något år. Ange en månad från 1 till 12 och en dag som månaden kan ha."
+      }
     }
   },
   "plugins": {
@@ -2293,10 +2304,57 @@
     }
   },
   "motions": {
+    "navLabel": "Motioner",
+    "title": "Motioner till stämman",
+    "intro": "Lämna in ett ärende till föreningsstämman och följ vad som händer med det.",
+    "loading": "Läser in motionerna...",
+    "loadFailed": "Motionerna kunde inte läsas just nu. Ladda om sidan.",
     "status": {
       "SUBMITTED": "Hos styrelsen",
       "ACKNOWLEDGED": "Mottagen",
       "WITHDRAWN": "Återkallad"
+    },
+    "submit": {
+      "title": "Lämna in ett ärende till stämman",
+      "description": "En motion är ditt eget förslag till föreningsstämman. Styrelsen tar upp den i kallelsen; stämman beslutar om den.",
+      "titleField": "Vad du föreslår, på en rad",
+      "bodyField": "Förslaget",
+      "action": "Skicka motionen",
+      "sending": "Skickar...",
+      "sent": "Motionen har kommit in till styrelsen.",
+      "deadline": "Era stadgar säger att motioner ska vara styrelsen tillhanda senast {{date}}. En motion som kommer senare tas ändå emot, och styrelsen avgör vilken stämma den hinner till.",
+      "noDeadline": "Era stadgar anger ingen tid för motioner, så styrelsen avgör vad den hinner ta upp i kallelsen till en stämma."
+    },
+    "mine": {
+      "title": "Dina motioner",
+      "description": "Det du har lämnat in till stämman, de senaste först. Ingenting här tas bort när du återkallar det.",
+      "empty": "Du har inte lämnat in någon motion.",
+      "withdraw": "Återkalla",
+      "withdrawNamed": "Återkalla motionen {{title}}",
+      "withdrawing": "Återkallar...",
+      "acknowledgedOn": "Styrelsen tog emot den {{date}}.",
+      "withdrawnOn": "Du återkallade den {{date}}."
+    },
+    "queue": {
+      "title": "Motioner från medlemmarna",
+      "description": "Det medlemmarna har lämnat in till stämman, de som väntat längst först.",
+      "empty": "Inga motioner har lämnats in till stämman.",
+      "submittedBy": "Från",
+      "submitterProtected": "Skyddade personuppgifter: se registret.",
+      "submitterUnknown": "Finns inte längre i registret.",
+      "acknowledge": "Anteckna som mottagen",
+      "acknowledgeNamed": "Anteckna motionen {{title}} som mottagen",
+      "acknowledging": "Antecknar...",
+      "deadline": "Era stadgar anger {{date}} som sista dag för motioner. En motion som kommer senare tas ändå emot; om den hinner till den kommande stämman avgör ni.",
+      "noDeadline": "Era stadgar anger ingen tid för motioner. Ange en under Inställningar om de gör det."
+    },
+    "errors": {
+      "notAMember": "Att lämna in ett ärende till föreningsstämman är en medlems rätt, och det här kontot har ingen bostadsrätt i föreningen.",
+      "motionNotFound": "Motionen finns inte längre. Listan har lästs om.",
+      "alreadyClosed": "Motionen är inte längre öppen, så det finns inget att göra med den.",
+      "personalIdentityNumber": "Motionen innehåller ett personnummer och kan inte sparas. En motion läses upp på stämman och tas upp i kallelsen, så ta bort det ur:",
+      "invalidBody": "Motionen behöver en rubrik och ett förslag, och inget av dem får vara längre än formuläret tillåter.",
+      "unknown": "Det gick inte just nu. Försök igen."
     }
   }
 }

@@ -82,6 +82,28 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["bookings:book", "bookings:manage"],
   },
   {
+    to: "/motions",
+    // Under the motions namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "motions.navLabel",
+    // Either half of the module, and the two halves are held by different people
+    // for different reasons - which is what makes this an any-of rather than a
+    // single capability.
+    //
+    // motions:submit is a MEMBER's, and the only entry in this file gated on
+    // something derived from membership rather than from residency: EFL 6 kap.
+    // 15 §, applied to a housing cooperative by BRL 9 kap. 14 §, gives the right
+    // to put an item to a general meeting to a member. So a partner, an adult
+    // child or a tenant living here is offered nothing here, and that absence is
+    // the statute rather than a decision about screens.
+    //
+    // motions:handle is the board's, because a motion is addressed to it. A board
+    // member who holds no tenant-ownership reaches this destination to work the
+    // queue and finds no form on it, which is the same rule read from the other
+    // end. The external property manager holds neither.
+    capability: ["motions:submit", "motions:handle"],
+  },
+  {
     to: "/documents",
     // The archive's own word for itself, under its own namespace, so the label
     // moves with the feature.

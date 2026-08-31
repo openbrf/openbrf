@@ -15,6 +15,7 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
+import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { ProfilePanel } from "./ProfilePanel";
 import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
@@ -259,6 +260,18 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
                   why it sits with the issue catalogue rather than with the
                   administrator's settings above. */}
               {canConfigureBookings ? <BookableResourcesPanel /> : null}
+
+              {/* The deadline the association's own bylaws set for motions to
+                  the general meeting. Read by the board, who answer for the
+                  clause, and changed by an administrator - the split the
+                  retention policy follows. Transcribed from stadgarna rather
+                  than decided here, which is why it has no default. */}
+              <MotionDeadlinePanel
+                key={JSON.stringify(settings.motionDeadline)}
+                motionDeadline={settings.motionDeadline}
+                editable={canManage}
+                onSaved={reload}
+              />
 
               {/* Installing and switching themes is an administrator's job,
                   and the API refuses the calls for anyone else. */}
