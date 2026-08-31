@@ -13,6 +13,7 @@ import { ContactModule } from "./contact/contact.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
 import { DocumentsModule } from "./documents/documents.module";
+import { EventsModule } from "./events/events.module";
 import { DomainExceptionFilter } from "./http/domain-exception.filter";
 import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
@@ -72,6 +73,7 @@ import { ThemesModule } from "./themes/themes.module";
     NewsModule,
     BoardModule,
     BookingsModule,
+    EventsModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

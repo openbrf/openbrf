@@ -577,6 +577,18 @@ enum AuditAction {
   /// subject is whoever made it either way, so their access report shows a
   /// cancellation somebody else decided on.
   BOOKING_CANCELLED
+  /// An event series was entered in the association's calendar.
+  EVENT_SERIES_CREATED
+  /// An event series was edited: what it says, when it runs, or how it
+  /// repeats. The entry carries which fields moved and how many occurrences
+  /// were added, moved and dropped by the change.
+  EVENT_SERIES_UPDATED
+  /// An event series was published, or taken down. Its audience travels with
+  /// the entry, because publishing and deciding who it is for are one act.
+  EVENT_SERIES_PUBLISHED
+  /// One occurrence of a series was called off, leaving the rest of the series
+  /// standing.
+  EVENT_OCCURRENCE_CANCELLED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -2085,4 +2097,275 @@ model Booking {
   /// The purge scan: which bookings ended long enough ago.
   @@index([status, endsAt])
   @@map("booking")
+}
+
+// ---------------------------------------------------------------------------
+// Event calendar (evenemangskalender).
+// ---------------------------------------------------------------------------
+
+/// How often a series repeats.
+///
+/// Three frequencies, because three are what a housing cooperative's calendar
+/// is made of: a sauna evening every other week, a board meeting on the first
+/// Monday of the month, a general meeting (foreningsstamma) once a year. There
+/// is deliberately no DAILY - nothing an association arranges happens every day,
+/// and a daily rule over the two-year horizon would write out seven hundred
+/// rows for a mistake nobody meant to make.
+enum EventRecurrenceFrequency {
+  /// Every `recurrenceInterval` weeks, on the same weekday.
+  WEEKLY
+
+  /// Every `recurrenceInterval` months, on the same day of the month, clamped
+  /// to the last day of a month that is too short - see Event.
+  MONTHLY
+
+  /// Every `recurrenceInterval` years, on the same date, with the 29th of
+  /// February clamped to the 28th in a common year - see Event.
+  ANNUAL
+}
+
+/// Something the association arranges, as a series: a cleaning day (stadag), a
+/// board meeting, a sauna evening, the general meeting.
+///
+/// This row is the description of the series and never one date in it. The
+/// dates are rows of their own - see EventOccurrence - because a sign-up
+/// attaches to one of them and the capacity is counted per one of them, so an
+/// occurrence needs an identity a foreign key can point at.
+///
+/// A series with no recurrence rule is a single event: one row here and exactly
+/// one occurrence. There is no separate model, no flag and no second code path
+/// for "single" - a one-off is the degenerate series, which is what stops the
+/// two shapes drifting apart.
+///
+/// Service tier: the association's own account of what it is arranging. It
+/// carries `authorPersonId`, which is a person reference and not personal data
+/// held about that person, exactly as News.authorPersonId is - so this table is
+/// outside every purge scope and carries no purge date. The sign-ups are the
+/// personal data in this module and they live in their own table.
+///
+/// ## The time of day is a wall-clock fact
+///
+/// `firstOn`, `startsAtMinute` and `durationMinutes` state the series the way a
+/// notice in the stairwell states it: a date, a time, and how long it runs.
+/// Minutes past local midnight rather than an instant, for the reason
+/// BookableResource.opensAtMinute gives - a cleaning day at ten in the morning
+/// is at ten in the morning on the two Sundays a year that are 23 and 25 hours
+/// long, and an instant would pin it to the offset of whichever date it was
+/// stored on. Every occurrence's instants are derived from these three through
+/// `instantAt`, and nothing in this module does arithmetic on an instant.
+///
+/// ## The recurrence rule, and why the columns are flat
+///
+/// Four nullable columns rather than a table of their own, on the precedent
+/// BookableResource sets with its slot mechanics: a rule has exactly one row
+/// per series and no identity of its own, and a second table would be a join
+/// for every read of the calendar. They are set together or not at all, which
+/// `checkRecurrenceRule` enforces, and the API presents them as one nested
+/// object so that "there is a rule" and "there is no rule" are one field
+/// rather than four.
+///
+/// A rule states its end, and states exactly one: a number of occurrences or a
+/// last date. Neither is optional. The occurrences are written out when the
+/// series is saved and nothing extends them afterwards, so a rule with no end
+/// would not be an endless series - it would be one that stopped at the horizon
+/// below for a reason no screen could explain.
+///
+/// ## The horizon
+///
+/// A series reaches at most 731 days - two years - past its first occurrence,
+/// and a rule reaching further is refused rather than truncated. 731 rather
+/// than 730 so that a leap year inside the window does not shorten it: counting
+/// 730 would let an annual series hold three dates in some years and two in
+/// others, which is an asymmetry no board could predict.
+///
+/// Two years because the occurrences are rows: they cost storage, they are read
+/// by every calendar query, and a board that wants a fourth year of sauna
+/// evenings is a board that will still be here in two years to say so. It is
+/// also the point past which a materialised calendar stops being useful - a
+/// date five years out is a plan and not a booking, and the association's own
+/// rules about what it arranges will have changed by then. An annual series
+/// therefore holds three dates and a weekly one at most 105, which is the same
+/// bound stated two ways.
+///
+/// ## Month ends and the 29th of February
+///
+/// A MONTHLY series on the 31st, and an ANNUAL one on the 29th of February, name
+/// dates that do not exist in most months and most years. The rule is to clamp
+/// to the last day of the target month: the 31st of January repeating monthly
+/// falls on the 28th of February and then on the 31st of March, and the 29th of
+/// February repeating annually falls on the 28th in a common year and on the
+/// 29th again in the next leap year. Clamping is never cumulative - each
+/// occurrence is computed from `firstOn` rather than from the occurrence before
+/// it - which is what stops a series that touched February from spending the
+/// rest of the year on the 28th.
+model Event {
+  id String @id @default(cuid())
+
+  /// What the board calls it: "Stadag", "Styrelsemote", "Bastukvall". Stored as
+  /// the board wrote it and never translated - the association's own content is
+  /// monolingual (decision 59).
+  title String
+
+  /// What whoever is coming needs to know: what is being done, what to bring,
+  /// where to meet.
+  ///
+  /// Plain text and not the versioned block JSON a page and a news item carry.
+  /// An event's own description is a paragraph beside a date rather than a
+  /// document, and it is rendered in a calendar entry rather than as a page of
+  /// its own, so the block list would be a structure with nothing to put in it.
+  description String?
+
+  /// What the board sorts it under: "Stadag", "Motet", "Fest".
+  ///
+  /// Free text, on the precedent of the issue types and the archive's binders
+  /// (parm): what an association arranges differs between associations, and a
+  /// closed list would have been wrong on the day it shipped.
+  category String?
+
+  /// Where it happens: "Innergarden", "Foreningslokalen", "Zoom".
+  location String?
+
+  /// Members only unless the board says otherwise, exactly as a news item is.
+  /// A cleaning day is arranged for the people who live in the house, and
+  /// putting one on the street is a deliberate second answer rather than the
+  /// default a slip lands on.
+  visibility PageVisibility @default(MEMBER)
+
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+
+  /// Whether people may sign up (anmala sig) to the occurrences of this series.
+  ///
+  /// A series-level setting because it is a property of the thing being
+  /// arranged - a cleaning day is signed up for and a notice about the water
+  /// being off is not - while the sign-ups themselves attach to one occurrence.
+  signupOpen Boolean @default(false)
+
+  /// How many may sign up to ONE occurrence. Null is no limit.
+  ///
+  /// Per occurrence and not per series, which is the whole reason an occurrence
+  /// is a row: twenty places at each of a year's cleaning days is twenty places
+  /// twelve times over, not twenty for the year. Stated on the series because
+  /// it is one decision about the thing being arranged, and read against each
+  /// occurrence in turn.
+  capacity Int?
+
+  /// Who entered it.
+  ///
+  /// A plain column and not a relation, for the reason the audit log,
+  /// Issue.reporterPersonId and News.authorPersonId all give: every referential
+  /// action a foreign key can carry either rewrites this row when a person is
+  /// erased or vetoes the erasure outright.
+  authorPersonId String
+
+  /// The local calendar date the first occurrence falls on.
+  ///
+  /// A date column, so it carries no time and no zone. Read back as midnight
+  /// UTC by the client, which is why it is only ever compared with another
+  /// calendar date and never with an instant - see `dateColumnOf` in
+  /// `src/bookings/stockholm-calendar.ts`.
+  firstOn DateTime @db.Date
+
+  /// When it starts, as minutes past midnight on the Europe/Stockholm wall
+  /// clock, so 600 is 10:00.
+  startsAtMinute Int
+
+  /// How long it runs, in wall-clock minutes.
+  ///
+  /// A duration rather than a closing time, because an event may run past
+  /// midnight: a midsummer party from 20:00 for five hours ends at 01:00 the
+  /// next day, and `instantAt` takes a minute past 1439 and rolls it into the
+  /// following day for exactly this.
+  ///
+  /// Wall-clock minutes, so an event stated as 09:00 to 15:00 is 09:00 to 15:00
+  /// on the 23-hour Sunday in March as well - and is five real hours long that
+  /// day rather than six. That is what the notice says, so it is what this
+  /// means.
+  durationMinutes Int
+
+  /// The recurrence rule, or four nulls for a single event. See the model
+  /// comment: they are set together or not at all.
+  recurrenceFrequency EventRecurrenceFrequency?
+
+  /// Every how many weeks, months or years. At least one.
+  recurrenceInterval Int?
+
+  /// How many occurrences the series has in total, the first included. Set when
+  /// the rule ends on a count, null when it ends on a date.
+  recurrenceCount Int?
+
+  /// The last local date an occurrence may fall on. Set when the rule ends on a
+  /// date, null when it ends on a count.
+  recurrenceUntil DateTime? @db.Date
+
+  occurrences EventOccurrence[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The published calendar read: which series a visitor or a member may see.
+  @@index([published, visibility])
+  @@map("event")
+}
+
+/// One date in a series: the cleaning day on the 18th of April, not "cleaning
+/// days".
+///
+/// Materialised rather than generated on read, which is the difference between
+/// this module and the booking module's slots. A slot is offered and claimed in
+/// the same breath, so it can be computed from the resource's configuration
+/// every time it is asked for. An occurrence is signed up for, and a sign-up is
+/// a row pointing at the date it is for - so the date has to be a row with an
+/// id. It is also what lets one occurrence be called off without touching the
+/// rest of the series, which a computed calendar could not express.
+///
+/// The rows are rewritten when the series is edited, and only ahead of now:
+/// occurrences that have already started are the record of what was arranged
+/// and are left where they are. So a series whose time the board moved in June
+/// has spring occurrences at the old time and autumn ones at the new, which is
+/// what actually happened.
+///
+/// Instants, both of them, derived from the series' wall-clock fields through
+/// `instantAt`. Nothing here is a date column: this is the pair every calendar
+/// query compares against, and one comparison has to answer "has this happened"
+/// for every series at once.
+///
+/// One occurrence per series per start instant, and in practice one per series
+/// per local date - no rule this module offers can name the same date twice,
+/// because every step is at least a week and the month and year steps are
+/// computed from the first date rather than from each other. That invariant is
+/// what lets an edit match the occurrences it already has against the ones the
+/// new rule names by their local date.
+model EventOccurrence {
+  id String @id @default(cuid())
+
+  /// Cascade rather than Restrict: an occurrence is not a record of anything on
+  /// its own - it says nothing except through the series that names it - so a
+  /// series the board removes takes its dates with it. What stops a series
+  /// being removed at all is the refusal in the write service when somebody has
+  /// signed up to one of its dates.
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  /// When the board called this one off. Null while it is going ahead.
+  ///
+  /// A dated close and never a delete, on the precedent of a withdrawn resource
+  /// and a released legal hold: the occurrence was announced, people may have
+  /// signed up to it, and "the cleaning day on the 18th was called off" is a
+  /// different thing to say than "there was never one".
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One occurrence per series and start instant. Expressible as a constraint,
+  /// so it is one: an edit that wrote a date twice would give a resident two
+  /// identical entries to sign up to.
+  @@unique([eventId, startsAt])
+  /// The calendar read, which is by date across every series at once.
+  @@index([startsAt])
+  @@map("event_occurrence")
 }

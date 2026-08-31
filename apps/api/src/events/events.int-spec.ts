@@ -1,0 +1,879 @@
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { AppModule } from "../app.module";
+import { AuthService } from "../auth/auth.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { PrismaService } from "../database/prisma.service";
+import {
+  loadEnvForIntegrationTests,
+  runSuffix,
+} from "../testing/integration-env";
+import type { EventView } from "./event.service";
+
+/**
+ * The event calendar against a real database.
+ *
+ * What a unit test cannot show, and nothing else.
+ *
+ * The occurrences are rows. A series entered through the API leaves one row per
+ * date it falls on, they come back in order, and the database refuses a second
+ * row for the same series and start instant - which is what stops an edit
+ * offering a resident two identical dates to sign up to.
+ *
+ * The dates survive the round trip through their columns. `firstOn` is a
+ * `@db.Date` and the two instants are not, and reading a date column back as an
+ * instant is this codebase's recurring bug, so a series stated for the 18th of
+ * April at ten in the morning has to come back saying exactly that.
+ *
+ * The capability is the whole gate. A resident and the property manager reach
+ * none of it, and the board reaches all of it.
+ *
+ * Members only unless the board says otherwise: a series created without a word
+ * about who it is for is not on the street.
+ *
+ * Editing rewrites what is still to come and leaves what has happened alone -
+ * which needs occurrences on both sides of now, so this suite writes a past one
+ * directly.
+ *
+ * Calling off one date leaves the rest standing, removing a series takes its
+ * dates with it, and every act is in the audit log carrying facts and no free
+ * text.
+ *
+ * The refusals that only exist at the endpoint: a personal identity number in a
+ * published series, named by field and offset and never echoed, and a rule
+ * reaching past the two years a calendar is written out for.
+ */
+
+loadEnvForIntegrationTests();
+
+let app: NestFastifyApplication;
+let prisma: PrismaService;
+
+const suffix = runSuffix();
+const PASSWORD = "a-long-enough-password";
+
+const addressId = `ev-address-${suffix}`;
+const apartmentId = `ev-apartment-${suffix}`;
+
+const board = {
+  personId: `ev-board-${suffix}`,
+  email: `ev-board-${suffix}@exempel.se`,
+};
+const resident = {
+  personId: `ev-resident-${suffix}`,
+  email: `ev-resident-${suffix}@exempel.se`,
+};
+const manager = {
+  personId: `ev-manager-${suffix}`,
+  email: `ev-manager-${suffix}@exempel.se`,
+};
+const actors = [board, resident, manager];
+const personIds = actors.map((actor) => actor.personId);
+
+/**
+ * The series this suite creates through the API, whose ids are the server's.
+ *
+ * Collected so afterAll can delete them: an assertion failing before the end of
+ * a test would otherwise leave a series behind in a database other suites share.
+ */
+const createdEventIds: string[] = [];
+
+let ipCounter = 0;
+function inject(options: {
+  method: "GET" | "POST" | "PUT" | "DELETE";
+  url: string;
+  payload?: object;
+  headers?: Record<string, string>;
+}) {
+  ipCounter += 1;
+  const host = ipCounter % 254;
+  const subnet = Math.floor(ipCounter / 254) % 254;
+  return app
+    .getHttpAdapter()
+    .getInstance()
+    .inject({
+      ...options,
+      headers: {
+        // 10.30.0.0/16 is this suite's; the others each hold their own.
+        "x-forwarded-for": `10.30.${String(subnet)}.${String(host + 1)}`,
+        ...options.headers,
+      },
+    });
+}
+
+async function signIn(email: string): Promise<string> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/auth/sign-in/email",
+    payload: { email, password: PASSWORD },
+  });
+  const setCookie = response.headers["set-cookie"];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie === undefined
+      ? []
+      : [setCookie];
+  return cookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+/**
+ * A cleaning day on Sundays at ten in the morning, four hours long.
+ *
+ * The 18th of April 2027 is a Sunday, and April is inside summer time, so ten in
+ * the morning in Stockholm is 08:00 UTC - which is what every instant asserted
+ * below is written out from.
+ */
+const cleaningDay = {
+  title: `Stadag ${suffix}`,
+  description: "Ta med krattor och sacksaxar.",
+  category: "Stadag",
+  location: "Innergarden",
+  signupOpen: true,
+  capacity: 20,
+  firstOn: "2027-04-18",
+  startsAtMinute: 10 * 60,
+  durationMinutes: 4 * 60,
+  recurrence: { frequency: "WEEKLY", interval: 1, count: 3 },
+};
+
+/** Creates a series as the board, keeping its id for the cleanup. */
+async function createSeries(payload: object): Promise<EventView> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/events",
+    payload,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode).toBe(201);
+  const created = response.json<EventView>();
+  createdEventIds.push(created.id);
+  return created;
+}
+
+let boardCookie = "";
+let residentCookie = "";
+let managerCookie = "";
+let associationCreatedHere = false;
+
+beforeAll(async () => {
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  );
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+
+  prisma = app.get(PrismaService);
+  const encryption = app.get(FieldEncryptionService);
+
+  const existing = await prisma.association.findUnique({
+    where: { id: 1 },
+    select: { id: true },
+  });
+  associationCreatedHere = existing === null;
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: { id: 1, name: "Brf Eksemplet" },
+    update: {},
+  });
+
+  await prisma.address.create({
+    data: {
+      id: addressId,
+      street: "Kalendergatan",
+      number: suffix,
+      postalCode: "11122",
+      city: "Stockholm",
+    },
+  });
+  await prisma.apartment.create({
+    data: { id: apartmentId, addressId, number: "1201", floor: 4 },
+  });
+
+  for (const person of [
+    { ...board, firstName: "Bea", lastName: "Ordforande" },
+    { ...resident, firstName: "Rune", lastName: "Boende" },
+    { ...manager, firstName: "Frida", lastName: "Forvaltare" },
+  ]) {
+    const email = await encryption.encrypt("person.email", person.email);
+    await prisma.person.create({
+      data: {
+        id: person.personId,
+        firstName: person.firstName,
+        lastName: person.lastName,
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+      },
+    });
+    await app.get(AuthService).createAccountForPerson({
+      personId: person.personId,
+      email: person.email,
+      name: `${person.firstName} ${person.lastName}`,
+      password: PASSWORD,
+    });
+  }
+
+  await prisma.boardPosition.create({
+    data: {
+      personId: board.personId,
+      position: "CHAIR",
+      electedOn: new Date("2026-05-15"),
+    },
+  });
+  await prisma.residency.create({
+    data: {
+      personId: resident.personId,
+      apartmentId,
+      role: "MEMBER",
+      movedInOn: new Date("2025-01-01"),
+    },
+  });
+  await prisma.systemRole.create({
+    data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
+  });
+
+  boardCookie = await signIn(board.email);
+  residentCookie = await signIn(resident.email);
+  managerCookie = await signIn(manager.email);
+}, 180_000);
+
+afterAll(async () => {
+  if (prisma !== undefined) {
+    /*
+     * The series this run owns, resolved before anything is deleted.
+     *
+     * By title as well as by id: a test that failed an assertion before its own
+     * cleanup line would otherwise leave a series behind, and the occurrences
+     * cascade with it so both go together.
+     */
+    await prisma.event.deleteMany({
+      where: {
+        OR: [{ id: { in: createdEventIds } }, { title: { endsWith: suffix } }],
+      },
+    });
+    await prisma.session.deleteMany({
+      where: { user: { personId: { in: personIds } } },
+    });
+    await prisma.account.deleteMany({
+      where: { user: { personId: { in: personIds } } },
+    });
+    await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+    await prisma.systemRole.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.residency.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.boardPosition.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+    await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+    await prisma.address.deleteMany({ where: { id: addressId } });
+
+    // Audit entries stay: the table is append-only by trigger, and every
+    // assertion above selects on this run's target ids rather than on a count.
+    if (associationCreatedHere) {
+      await prisma.association.deleteMany({ where: { id: 1 } });
+    }
+  }
+
+  await app.close();
+});
+
+describe("entering a series", () => {
+  it("writes out one row per date, in order, on the association's clock", async () => {
+    const created = await createSeries(cleaningDay);
+
+    expect(
+      created.occurrences.map((occurrence) => occurrence.startsAt),
+    ).toEqual([
+      "2027-04-18T08:00:00.000Z",
+      "2027-04-25T08:00:00.000Z",
+      "2027-05-02T08:00:00.000Z",
+    ]);
+    expect(created.occurrences.map((occurrence) => occurrence.endsAt)).toEqual([
+      "2027-04-18T12:00:00.000Z",
+      "2027-04-25T12:00:00.000Z",
+      "2027-05-02T12:00:00.000Z",
+    ]);
+    // The local date each one is filed under, which is what a calendar reads.
+    expect(created.occurrences.map((occurrence) => occurrence.on)).toEqual([
+      "2027-04-18",
+      "2027-04-25",
+      "2027-05-02",
+    ]);
+
+    // They are rows, not a computed answer.
+    const rows = await prisma.eventOccurrence.count({
+      where: { eventId: created.id },
+    });
+    expect(rows).toBe(3);
+  });
+
+  it("keeps the first date and the time of day as stated", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Datumrundtur ${suffix}`,
+    });
+
+    // The date column round trip: stated as the 18th, stored as a date, read
+    // back as the 18th rather than as the evening before.
+    expect(created.firstOn).toBe("2027-04-18");
+    expect(created.startsAtMinute).toBe(600);
+    expect(created.durationMinutes).toBe(240);
+    expect(created.recurrence).toEqual({
+      frequency: "WEEKLY",
+      interval: 1,
+      count: 3,
+      until: null,
+    });
+  });
+
+  it("is for the members unless the board says otherwise", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Medlemsdefault ${suffix}`,
+    });
+
+    expect(created.visibility).toBe("MEMBER");
+    expect(created.published).toBe(false);
+    expect(created.publishedAt).toBeNull();
+  });
+
+  it("is one date when it carries no rule", async () => {
+    const created = await createSeries({
+      title: `Engangsmote ${suffix}`,
+      description: null,
+      category: null,
+      location: "Foreningslokalen",
+      signupOpen: false,
+      capacity: null,
+      firstOn: "2027-06-25",
+      startsAtMinute: 18 * 60,
+      durationMinutes: 120,
+      recurrence: null,
+    });
+
+    expect(created.recurrence).toBeNull();
+    expect(created.occurrences).toHaveLength(1);
+    expect(created.occurrences[0]?.startsAt).toBe("2027-06-25T16:00:00.000Z");
+  });
+
+  it("is in the audit log with the shape of the series and no free text", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Loggad ${suffix}`,
+    });
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_SERIES_CREATED",
+        targetKind: "event",
+        targetId: created.id,
+      },
+    });
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.context).toEqual({
+      frequency: "WEEKLY",
+      interval: 1,
+      occurrences: 3,
+      firstOn: "2027-04-18",
+      signupOpen: true,
+    });
+    // The title, the description, the category and the location are free text
+    // belonging to a row with a lifecycle. A copy here would outlive it.
+    expect(JSON.stringify(entry?.context)).not.toContain("Loggad");
+    expect(JSON.stringify(entry?.context)).not.toContain("Innergarden");
+  });
+
+  it("refuses a rule reaching past the two years a calendar is written out for", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/events",
+      payload: {
+        ...cleaningDay,
+        title: `For langt ${suffix}`,
+        recurrence: {
+          frequency: "WEEKLY",
+          interval: 1,
+          until: "2030-01-01",
+        },
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "recurrence-past-horizon",
+    );
+  });
+
+  it("refuses a rule that states no end", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/events",
+      payload: {
+        ...cleaningDay,
+        title: `Utan slut ${suffix}`,
+        recurrence: { frequency: "WEEKLY", interval: 1 },
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "recurrence-end-required",
+    );
+  });
+});
+
+describe("the database's own rule", () => {
+  it("refuses a second row for the same series and start instant", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Dubblett ${suffix}`,
+      recurrence: null,
+    });
+
+    await expect(
+      prisma.eventOccurrence.create({
+        data: {
+          eventId: created.id,
+          startsAt: new Date("2027-04-18T08:00:00.000Z"),
+          endsAt: new Date("2027-04-18T12:00:00.000Z"),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("allows the same instant in a different series", async () => {
+    const first = await createSeries({
+      ...cleaningDay,
+      title: `Parallell A ${suffix}`,
+      recurrence: null,
+    });
+    const second = await createSeries({
+      ...cleaningDay,
+      title: `Parallell B ${suffix}`,
+      recurrence: null,
+    });
+
+    expect(first.occurrences[0]?.startsAt).toBe(
+      second.occurrences[0]?.startsAt,
+    );
+  });
+});
+
+describe("who reaches the calendar", () => {
+  it("refuses a resident, who is not the board", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/events",
+      headers: { cookie: residentCookie },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("refuses the property manager, who does not arrange cleaning days", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/events",
+      headers: { cookie: managerCookie },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("refuses a visitor with no session", async () => {
+    const response = await inject({ method: "GET", url: "/api/events" });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("refuses a resident writing one", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/events",
+      payload: { ...cleaningDay, title: `Otillaten ${suffix}` },
+      headers: { cookie: residentCookie },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});
+
+describe("publishing a series", () => {
+  it("records the publication and its audience, and stamps the date once", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Publicerad ${suffix}`,
+    });
+
+    const first = await inject({
+      method: "POST",
+      url: `/api/events/${created.id}/publish`,
+      payload: { published: true, visibility: "PUBLIC" },
+      headers: { cookie: boardCookie },
+    });
+    expect(first.statusCode).toBe(201);
+    const published = first.json<EventView>();
+    expect(published.published).toBe(true);
+    expect(published.visibility).toBe("PUBLIC");
+    expect(published.publishedAt).not.toBeNull();
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_SERIES_PUBLISHED",
+        targetKind: "event",
+        targetId: created.id,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+    expect(entry?.context).toEqual({
+      published: true,
+      visibility: "PUBLIC",
+      occurrences: 3,
+    });
+
+    // Pressing it again changes nothing and writes nothing.
+    const before = await prisma.auditLogEntry.count({
+      where: { action: "EVENT_SERIES_PUBLISHED", targetId: created.id },
+    });
+    const again = await inject({
+      method: "POST",
+      url: `/api/events/${created.id}/publish`,
+      payload: { published: true, visibility: "PUBLIC" },
+      headers: { cookie: boardCookie },
+    });
+    expect(again.statusCode).toBe(201);
+    expect(again.json<EventView>().publishedAt).toBe(published.publishedAt);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "EVENT_SERIES_PUBLISHED", targetId: created.id },
+      }),
+    ).toBe(before);
+  });
+
+  it("refuses a personal identity number, by field and offset and never by value", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Personnummer ${suffix}`,
+      description: "Kontakta Anna, 811228-9874, om du undrar.",
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/${created.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(422);
+    const body = response.json<{
+      reason: string;
+      locations: { field: string; offset: number }[];
+    }>();
+    expect(body.reason).toBe("personal-identity-number");
+    expect(body.locations).toEqual([{ field: "description", offset: 15 }]);
+    expect(response.body).not.toContain("811228");
+
+    // Refused, so it is still a draft nobody can read.
+    const row = await prisma.event.findUnique({
+      where: { id: created.id },
+      select: { published: true },
+    });
+    expect(row?.published).toBe(false);
+  });
+});
+
+describe("editing a series", () => {
+  it("rewrites what is still to come and leaves what has happened alone", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Omplanerad ${suffix}`,
+      recurrence: null,
+    });
+
+    /*
+     * A date behind us, written directly: the series' own rule cannot name one
+     * without the first date being in the past too, and what is under test is
+     * the reconciliation rather than the rule.
+     */
+    const past = await prisma.eventOccurrence.create({
+      data: {
+        eventId: created.id,
+        startsAt: new Date("2026-05-10T08:00:00.000Z"),
+        endsAt: new Date("2026-05-10T12:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/events/${created.id}`,
+      payload: {
+        ...cleaningDay,
+        title: `Omplanerad ${suffix}`,
+        // Nine in the morning instead of ten, and two dates instead of one.
+        startsAtMinute: 9 * 60,
+        recurrence: { frequency: "WEEKLY", interval: 1, count: 2 },
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const updated = response.json<EventView>();
+    expect(
+      updated.occurrences.map((occurrence) => [
+        occurrence.on,
+        occurrence.startsAt,
+      ]),
+    ).toEqual([
+      // Untouched: it happened, at the time it happened.
+      ["2026-05-10", "2026-05-10T08:00:00.000Z"],
+      // Moved to nine, keeping its row.
+      ["2027-04-18", "2027-04-18T07:00:00.000Z"],
+      // New.
+      ["2027-04-25", "2027-04-25T07:00:00.000Z"],
+    ]);
+    expect(updated.occurrences[0]?.id).toBe(past.id);
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_SERIES_UPDATED",
+        targetKind: "event",
+        targetId: created.id,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+    expect(entry?.context).toEqual({
+      changed: [
+        "startsAtMinute",
+        "recurrenceFrequency",
+        "recurrenceInterval",
+        "recurrenceCount",
+      ],
+      frequency: "WEEKLY",
+      occurrencesMoved: 1,
+      occurrencesDropped: 0,
+      occurrencesAdded: 1,
+    });
+  });
+
+  it("keeps the row a date sits on when only the time of day changes", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Samma rad ${suffix}`,
+      recurrence: null,
+    });
+    const before = created.occurrences[0]?.id;
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/events/${created.id}`,
+      payload: {
+        ...cleaningDay,
+        title: `Samma rad ${suffix}`,
+        startsAtMinute: 11 * 60,
+        recurrence: null,
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const after = response.json<EventView>().occurrences[0];
+    // The same row, at a new time: a sign-up pointing at it survives the edit.
+    expect(after?.id).toBe(before);
+    expect(after?.startsAt).toBe("2027-04-18T09:00:00.000Z");
+  });
+});
+
+describe("calling off one date", () => {
+  it("leaves the rest of the series standing", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Avbrutet tillfalle ${suffix}`,
+    });
+    const second = created.occurrences[1];
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${second?.id ?? ""}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const after = response.json<EventView>();
+    expect(
+      after.occurrences.map((occurrence) => occurrence.cancelledAt === null),
+    ).toEqual([true, false, true]);
+    // The row is still there, on the date it was.
+    expect(after.occurrences[1]?.on).toBe("2027-04-25");
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_OCCURRENCE_CANCELLED",
+        targetKind: "eventOccurrence",
+        targetId: second?.id,
+      },
+    });
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.context).toEqual({
+      eventId: created.id,
+      on: "2027-04-25",
+    });
+  });
+
+  it("refuses a date already called off", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Dubbelt avbrutet ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+
+    const first = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+    expect(first.statusCode).toBe(201);
+
+    const again = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+    expect(again.statusCode).toBe(409);
+    expect(again.json<{ reason: string }>().reason).toBe(
+      "occurrence-already-cancelled",
+    );
+  });
+
+  it("keeps a called-off date called off when the series is edited around it", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Fortsatt avbrutet ${suffix}`,
+    });
+    const second = created.occurrences[1];
+
+    await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${second?.id ?? ""}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/events/${created.id}`,
+      payload: {
+        ...cleaningDay,
+        title: `Fortsatt avbrutet ${suffix}`,
+        startsAtMinute: 12 * 60,
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const after = response.json<EventView>().occurrences[1];
+    // Moved with the rest, and still called off: the board's decision about
+    // that date is not undone by a change to the series' time.
+    expect(after?.id).toBe(second?.id);
+    expect(after?.startsAt).toBe("2027-04-25T10:00:00.000Z");
+    expect(after?.cancelledAt).not.toBeNull();
+  });
+});
+
+describe("removing a series", () => {
+  it("takes its dates with it", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Borttagen ${suffix}`,
+    });
+
+    const response = await inject({
+      method: "DELETE",
+      url: `/api/events/${created.id}`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(
+      await prisma.eventOccurrence.count({ where: { eventId: created.id } }),
+    ).toBe(0);
+    expect(await prisma.event.count({ where: { id: created.id } })).toBe(0);
+  });
+
+  it("records taking a published series down, and says nothing about a draft", async () => {
+    const draft = await createSeries({
+      ...cleaningDay,
+      title: `Utkast bort ${suffix}`,
+      recurrence: null,
+    });
+    await inject({
+      method: "DELETE",
+      url: `/api/events/${draft.id}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(
+      await prisma.auditLogEntry.count({ where: { targetId: draft.id } }),
+    ).toBe(1);
+
+    const announced = await createSeries({
+      ...cleaningDay,
+      title: `Publicerad bort ${suffix}`,
+      recurrence: null,
+    });
+    await inject({
+      method: "POST",
+      url: `/api/events/${announced.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+    await inject({
+      method: "DELETE",
+      url: `/api/events/${announced.id}`,
+      headers: { cookie: boardCookie },
+    });
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "EVENT_SERIES_PUBLISHED",
+        targetId: announced.id,
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+    expect(entries).toHaveLength(2);
+    expect(entries[1]?.context).toEqual({
+      published: false,
+      deleted: true,
+      visibility: "MEMBER",
+      occurrences: 1,
+    });
+  });
+});
+
+describe("a date that is not a date", () => {
+  it("is refused as its own mistake and not as a complaint about the rule", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/events",
+      payload: {
+        ...cleaningDay,
+        title: `Omojligt datum ${suffix}`,
+        // The 30th of February, which Date.parse would silently read as March.
+        firstOn: "2027-02-30",
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe("invalid-date");
+  });
+});

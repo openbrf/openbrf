@@ -142,6 +142,27 @@ export const CAPABILITIES = [
    */
   "bookings:configure",
   /**
+   * Arrange what the association does, announce it, and call a date off.
+   *
+   * The board's, by the argument site:manage makes: putting a cleaning day or a
+   * general meeting in the calendar and telling the members about it is
+   * publishing in the cooperative's name, which is what a board does, while
+   * association:manage is the administrator's and covers how the instance is
+   * configured rather than what it says.
+   *
+   * One capability and not a pair, because arranging and announcing are one act
+   * here. A series is entered, its dates are written out, and it is published to
+   * the members or to the street - and there is no half of that a person could
+   * sensibly hold on its own. Whether the calendar may be read is a separate
+   * question with a separate answer: a published series needs no capability at
+   * all to reach the people it was published to, which is what publishing means.
+   *
+   * Deliberately not granted to the property manager, on the issues:report
+   * precedent: they handle the association's issues, they do not arrange its
+   * cleaning days.
+   */
+  "events:manage",
+  /**
    * Grant and revoke a system role: the administrator grant and the external
    * property manager grant.
    *
@@ -218,6 +239,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "bookings:book",
   "bookings:manage",
   "bookings:configure",
+  "events:manage",
 ];
 
 /**
