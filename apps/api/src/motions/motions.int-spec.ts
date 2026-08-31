@@ -919,6 +919,15 @@ describe("the bylaws' deadline", () => {
      * The constraint is named in each assertion, so a typo in the statement
      * below fails the test rather than passing it for the wrong reason.
      */
+    const before = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { motionDeadlineMonth: true, motionDeadlineDay: true },
+    });
+    // A clause is set at this point, and the restore at the end puts it back.
+    // Asserted rather than assumed: reordered so that it is not, the restore
+    // would write nulls and turn the clearing test after this one into a no-op.
+    expect(before.motionDeadlineMonth).not.toBeNull();
+
     await expect(
       prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 1, "motionDeadlineDay" = NULL WHERE "id" = 1`,
     ).rejects.toThrow(/association_motionDeadline_check/);
@@ -937,6 +946,10 @@ describe("the bylaws' deadline", () => {
     await expect(
       prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 29 WHERE "id" = 1`,
     ).resolves.toBe(1);
+
+    // The clause the suite arrived with, put back, so this test leaves the row
+    // as it found it and the clearing test after it still has one to clear.
+    await prisma.association.update({ where: { id: 1 }, data: before });
   });
 
   it("clears back to no deadline", async () => {
