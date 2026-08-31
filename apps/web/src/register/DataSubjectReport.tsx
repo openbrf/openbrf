@@ -158,6 +158,8 @@ const AUDIT_ACTION_LABEL = {
   NEWS_PUBLISHED: "register.person.report.action.NEWS_PUBLISHED",
   NEWS_EMAILED: "register.person.report.action.NEWS_EMAILED",
   NEWS_TEXTED: "register.person.report.action.NEWS_TEXTED",
+  NEWS_COMMENT_POSTED: "register.person.report.action.NEWS_COMMENT_POSTED",
+  NEWS_COMMENT_HIDDEN: "register.person.report.action.NEWS_COMMENT_HIDDEN",
   LEGAL_HOLD_PLACED: "register.person.report.action.LEGAL_HOLD_PLACED",
   LEGAL_HOLD_RELEASED: "register.person.report.action.LEGAL_HOLD_RELEASED",
   SERVICE_DATA_PURGED: "register.person.report.action.SERVICE_DATA_PURGED",
@@ -785,6 +787,42 @@ export function DataSubjectReport({
                   </td>
                   <td className={DATA_CELL}>
                     {signup.erasableFrom ?? nothing}
+                  </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          <Section titleKey="register.person.report.section.newsComments">
+            <Rows
+              empty={report.newsComments.length === 0}
+              headings={[
+                "register.person.report.field.newsItem",
+                "register.person.report.field.written",
+                "register.person.report.field.comment",
+                "register.person.report.field.hidden",
+                "register.person.report.field.erasableFrom",
+              ]}
+            >
+              {report.newsComments.map((comment) => (
+                <tr key={comment.commentId} className={ROW}>
+                  <td className={TEXT_CELL}>{comment.newsTitle}</td>
+                  <td className={DATA_CELL}>{day(comment.writtenAt)}</td>
+                  {/*
+                   * In full, and whether or not it was hidden. What somebody
+                   * wrote is the personal data this section is about, and a
+                   * moderated comment is still their words.
+                   */}
+                  <td className={TEXT_CELL}>{comment.body}</td>
+                  <td className={TEXT_CELL}>
+                    {t(
+                      comment.hidden
+                        ? "register.person.report.yes"
+                        : "register.person.report.no",
+                    )}
+                  </td>
+                  <td className={DATA_CELL}>
+                    {comment.erasableFrom ?? nothing}
                   </td>
                 </tr>
               ))}

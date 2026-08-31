@@ -28,8 +28,8 @@ import type { DataSubjectReport } from "./data-subject-report";
  * because nobody reading it can tell. So the fixture puts something in every
  * store the product has - both register tiers, an account, a consent, a hold,
  * an issue, an archived document, a booking, a sign-up to one of the
- * association's own dates and an audit trail - and each section is asserted to
- * have found it.
+ * association's own dates, a comment on a news item and an audit trail - and
+ * each section is asserted to have found it.
  *
  * The gate. This is the one endpoint that decrypts a personal identity number,
  * so the capability that opens it is checked as four different callers rather
@@ -56,6 +56,17 @@ const mediaFileId = `dsar-media-${suffix}`;
 const bookableResourceId = `dsar-resource-${suffix}`;
 const eventId = `dsar-event-${suffix}`;
 const occurrenceId = `dsar-occurrence-${suffix}`;
+const newsSlug = `dsar-nyhet-${suffix}`;
+
+/**
+ * When the fixture comment was written.
+ *
+ * Relative to now and only a week back, for the reason the booking below gives:
+ * a comment is erased on its own clock a year after it was written, and a
+ * fixture dated a year ago would survive or vanish depending on which suite ran
+ * first.
+ */
+const commentWrittenAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
 /**
  * When the fixture booking ended.
@@ -560,6 +571,39 @@ beforeAll(async () => {
     },
   });
 
+  /*
+   * A comment the subject wrote under one of the association's notices, and one
+   * the board struck through. Two rows because the report has to carry both -
+   * what somebody wrote is their own personal data whether or not it was
+   * moderated, and this document is the one place they can read the words the
+   * board took off the thread.
+   */
+  await prisma.news.create({
+    data: {
+      slug: newsSlug,
+      title: `Portkoden byts ${suffix}`,
+      content: { blocks: [] },
+      published: true,
+      publishedAt: commentWrittenAt,
+      comments: {
+        create: [
+          {
+            authorPersonId: subject.personId,
+            body: "Tack for beskedet om porten.",
+            createdAt: commentWrittenAt,
+          },
+          {
+            authorPersonId: subject.personId,
+            body: "Detta doldes av styrelsen.",
+            createdAt: commentWrittenAt,
+            hiddenAt: new Date(),
+            hiddenByPersonId: board.personId,
+          },
+        ],
+      },
+    },
+  });
+
   // One entry each way round, so the report can be shown to carry both what
   // was done to this person and what they did.
   await prisma.auditLogEntry.createMany({
@@ -612,6 +656,13 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
+        // The comments go with the item; deleting the item is enough, and the
+        // first step is belt and braces for a run that failed part-way through.
+        () =>
+          prisma.newsComment.deleteMany({
+            where: { news: { slug: newsSlug } },
+          }),
+        () => prisma.news.deleteMany({ where: { slug: newsSlug } }),
         () => prisma.eventSignup.deleteMany({ where: { occurrenceId } }),
         () => prisma.event.deleteMany({ where: { id: eventId } }),
         () =>
@@ -935,6 +986,43 @@ describe("what the report contains", () => {
       occurrenceEndedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
     );
     expect(signup?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+  });
+
+  it("carries every news comment in full, hidden ones included", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.newsComments).toHaveLength(2);
+
+    /*
+     * The body, whole, and for the hidden comment as much as the standing one.
+     * Art. 15 asks for the personal data, and what somebody wrote is the
+     * personal data here: a section naming the notice and the date and leaving
+     * the sentence out would tell its subject that they commented without
+     * telling them what they said. A moderated comment is still their words, and
+     * this document is the one place they can read the ones the board struck
+     * through.
+     */
+    const standing = report.newsComments.find((one) => !one.hidden);
+    const struck = report.newsComments.find((one) => one.hidden);
+    expect(standing?.body).toBe("Tack for beskedet om porten.");
+    expect(struck?.body).toBe("Detta doldes av styrelsen.");
+    expect(standing?.newsTitle).toBe(`Portkoden byts ${suffix}`);
+    expect(standing?.newsSlug).toBe(newsSlug);
+    expect(standing?.writtenAt).toBe(commentWrittenAt.toISOString());
+
+    /*
+     * The comment's own retention date, a year after it was written, and not the
+     * one at the foot of the document - a comment goes on its own clock whether
+     * or not whoever wrote it still lives here. Stated as the earliest date the
+     * purge can reach the row, because this fixture's subject is under a
+     * standing legal hold and nothing of theirs is being erased at all until the
+     * board releases it. `report.retention.onLegalHold` is asserted with the
+     * bookings above, in the same place this document answers it.
+     */
+    const expected = new Date(
+      commentWrittenAt.getTime() + 365 * 24 * 60 * 60 * 1000,
+    );
+    expect(standing?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
   });
 
   it("carries the audit trail both ways round", async () => {

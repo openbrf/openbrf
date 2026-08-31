@@ -90,6 +90,24 @@ export const CAPABILITIES = [
    */
   "site:manage",
   /**
+   * Write a comment on a news item, and read the thread on one.
+   *
+   * Residents and the board, because answering a notice about the house is part
+   * of living in it, and a board member lives here too.
+   *
+   * Deliberately not granted to the property manager, on the issues:report
+   * precedent and for the same reason: they handle the association's issues,
+   * they do not live in the building, and the conversation under a notice about
+   * the stairwell is the residents' own.
+   *
+   * There is no second capability for moderating a comment. Hiding one is
+   * `site:manage`, which is already what the board holds for publishing in the
+   * cooperative's name: a comment thread is part of what the association
+   * publishes, and a capability with an identical grant list would only be
+   * another name for the same job.
+   */
+  "news:comment",
+  /**
    * Record an election to a position of trust on the board, and end a term.
    *
    * The board's own, because who sits on it is not an administrator's decision
@@ -302,6 +320,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "issues:configure",
   "documents:manage",
   "site:manage",
+  "news:comment",
   "bookings:book",
   "bookings:manage",
   "bookings:configure",
@@ -347,6 +366,7 @@ const RESIDENT_CAPABILITIES: readonly Capability[] = [
   "self:manage",
   "residentDirectory:read",
   "issues:report",
+  "news:comment",
   "bookings:book",
   "events:attend",
 ];

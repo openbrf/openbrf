@@ -18,6 +18,10 @@ import type { DataSubjectReport as Report } from "./register-api";
 
 const IDENTITY_NUMBER = "19850101-0017";
 
+/** A comment that stands, and one the board struck through. */
+const STANDING_COMMENT = "Tack for beskedet om porten.";
+const STRUCK_COMMENT = "Detta togs bort av styrelsen.";
+
 const { fetchDataSubjectReport } = vi.hoisted(() => ({
   fetchDataSubjectReport: vi.fn(),
 }));
@@ -58,6 +62,7 @@ const EMPTY_REPORT: Report = {
   bookings: [],
   motions: [],
   eventSignups: [],
+  newsComments: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -203,6 +208,26 @@ const FULL_REPORT: Report = {
       erasableFrom: "2028-04-17",
     },
   ],
+  newsComments: [
+    {
+      commentId: "comment-1",
+      newsTitle: "Portkoden byts",
+      newsSlug: "portkoden-byts",
+      body: STANDING_COMMENT,
+      hidden: false,
+      writtenAt: "2026-01-20T18:00:00.000Z",
+      erasableFrom: "2027-01-20",
+    },
+    {
+      commentId: "comment-2",
+      newsTitle: "Stamning i tvattstugan",
+      newsSlug: "stamning-i-tvattstugan",
+      body: STRUCK_COMMENT,
+      hidden: true,
+      writtenAt: "2026-01-21T18:00:00.000Z",
+      erasableFrom: "2027-01-21",
+    },
+  ],
   auditEntries: [
     {
       entryId: "audit-1",
@@ -212,6 +237,18 @@ const FULL_REPORT: Report = {
       targetKind: null,
       targetId: null,
       context: { fields: ["phone"] },
+    },
+    // The moderation the news comment section states as a yes, seen from the
+    // log's side: the board hid this person's comment, and the document has to
+    // name that act in the reader's own language as well.
+    {
+      entryId: "audit-2",
+      role: "subject",
+      action: "NEWS_COMMENT_HIDDEN",
+      at: "2026-01-22T09:00:00.000Z",
+      targetKind: "newsComment",
+      targetId: "comment-2",
+      context: { newsId: "news-1" },
     },
   ],
   retention: {
@@ -255,8 +292,9 @@ function fieldValue(label: string): string {
 /**
  * One section of the document, found by the heading printed above it.
  *
- * Sections share column headings - bookings and event sign-ups both state the
- * earliest date the purge can reach a row - so an assertion on a heading alone
+ * Sections share column headings - bookings, event sign-ups and news comments
+ * all state the earliest date the purge can reach a row - so an assertion on a
+ * heading alone
  * is satisfied by whichever section happens to be found first, and would go on
  * passing if the section it was written about stopped printing the column
  * entirely.
@@ -268,6 +306,28 @@ function sectionOf(heading: string): HTMLElement {
     throw new Error(`The report prints no section headed "${heading}".`);
   }
   return section;
+}
+
+/**
+ * What the news comment section says about one comment being hidden.
+ *
+ * Found by its body and read across that row, because "Ja" and "Nej" appear
+ * against several unrelated questions on this document: a search for the word
+ * alone would be satisfied by the protected-data field or the legal hold, and a
+ * column that had stopped saying anything at all would pass unnoticed.
+ */
+function hiddenColumnOf(body: string): string {
+  const cells = screen.getByText(body).closest("tr")?.querySelectorAll("td");
+  if (cells === undefined) {
+    throw new Error(`The report prints no comment row for "${body}".`);
+  }
+  const hidden = [...cells].find(
+    (cell) => cell.textContent === "Ja" || cell.textContent === "Nej",
+  );
+  if (hidden === undefined) {
+    throw new Error(`The comment row for "${body}" says nothing about hiding.`);
+  }
+  return hidden.textContent ?? "";
 }
 
 beforeEach(() => {
@@ -357,6 +417,12 @@ describe("what the document prints", () => {
 
     expect(screen.getByText("Skyddade uppgifter visades")).not.toBeNull();
     expect(screen.queryByText("PROTECTED_DATA_REVEALED")).toBeNull();
+
+    // Asserted per action rather than only for one of them: the map from action
+    // to label is total, so a missing entry is a build failure, but an entry
+    // pointing at the wrong action still prints the wrong sentence.
+    expect(screen.getByText("Nyhetskommentar doldes")).not.toBeNull();
+    expect(screen.queryByText("NEWS_COMMENT_HIDDEN")).toBeNull();
   });
 
   it("prints a standing lien note, and says that it stands", async () => {
@@ -525,6 +591,33 @@ describe("what the document prints", () => {
     // above states its own.
     expect(signups.getByText("Gallras tidigast")).not.toBeNull();
     expect(signups.getByText("2028-04-17")).not.toBeNull();
+  });
+
+  it("prints a comment in full, including one the board struck through", async () => {
+    /*
+     * The body, whole, and for a hidden comment as much as a standing one. A
+     * moderated comment is still the person's own words, and this document is
+     * the one place they are entitled to read what the board took off the
+     * thread; a section that named the notice and the date and left the
+     * sentence out would tell them that they commented without telling them
+     * what they said.
+     *
+     * The hidden column is read as the row it belongs to rather than as a word
+     * somewhere on the page. This document answers several questions with "Ja"
+     * - protected personal data, a second factor, a standing legal hold - so a
+     * bare search for it is satisfied by any of them, and both answers are
+     * asserted so the column is an answer rather than decoration.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const comments = within(sectionOf("Nyhetskommentarer"));
+    expect(comments.getByText("Portkoden byts")).not.toBeNull();
+    expect(comments.getByText("Gallras tidigast")).not.toBeNull();
+    expect(comments.getByText("2027-01-20")).not.toBeNull();
+
+    expect(hiddenColumnOf(STRUCK_COMMENT)).toBe("Ja");
+    expect(hiddenColumnOf(STANDING_COMMENT)).toBe("Nej");
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {
