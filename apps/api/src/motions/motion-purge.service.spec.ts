@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";
@@ -34,6 +35,14 @@ import { MotionPurgeService } from "./motion-purge.service";
 
 const RETENTION_DAYS = 730;
 const NOW = new Date("2029-06-01T03:29:00.000Z");
+
+/**
+ * A motion body, as a database failure would quote it back.
+ *
+ * Stood in for a real one so the assertion that it does not reach the log has
+ * something to look for.
+ */
+const REVEALING_BODY = "Foreningen bor se over cykelrummet";
 
 /** How many people one run may take, mirrored from the service. */
 const MAX_PERSONS_PER_RUN = 500;
@@ -154,6 +163,10 @@ function build(options: { motions: Motion[]; heldPersonIds?: string[] }) {
     deleteMany,
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** A person with one motion closed long ago. */
 function expiredMotionFor(submittedByPersonId: string): Motion {
@@ -337,5 +350,46 @@ describe("erasing one person's motions", () => {
       motionsDeleted: 4,
       failed: 0,
     });
+  });
+
+  it("carries on past a person whose erasure fails, and names the failure only by its class", async () => {
+    /*
+     * Two properties of the same catch, and both are silent failures otherwise.
+     *
+     * One row the database refuses must not stop every person after it: the loop
+     * runs person by person, so an unhandled throw would end the run at the
+     * first one and everybody sorting later would keep their expired motions
+     * until somebody read a log. The summary is what says the run went on.
+     *
+     * And what reaches the log is the class of the failure, not its message. A
+     * constraint violation quotes the row it refused, and this row holds a title
+     * and a proposal in the member's own words - so an exception message written
+     * out here would put a motion into a container log, which is outside the
+     * masking and outside the audit trail that governs every other read of it.
+     */
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const { service, deleteMany } = build({
+      motions: [expiredMotionFor("aa"), expiredMotionFor("bb")],
+    });
+    deleteMany.mockRejectedValueOnce(
+      new Error(`duplicate key value violates ... (${REVEALING_BODY})`),
+    );
+
+    await expect(service.run(NOW, RETENTION_DAYS)).resolves.toEqual({
+      considered: 2,
+      purged: 1,
+      motionsDeleted: 2,
+      failed: 1,
+    });
+
+    expect(logged).toHaveBeenCalledOnce();
+    const written = JSON.stringify(logged.mock.calls[0]);
+    expect(written).not.toContain(REVEALING_BODY);
+    // The class and the person, so the row can still be found and the run
+    // repeated.
+    expect(written).toContain("Error");
+    expect(written).toContain("aa");
   });
 });

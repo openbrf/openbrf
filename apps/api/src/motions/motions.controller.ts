@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import type { MotionStatus } from "../generated/prisma/enums";
 import {
   type MotionIntakeView,
   type MotionQueueView,
@@ -21,7 +22,20 @@ import {
   type QueuedMotionView,
 } from "./motion.service";
 
-const STATUSES = ["SUBMITTED", "ACKNOWLEDGED", "WITHDRAWN"] as const;
+/**
+ * The statuses the queue filter accepts.
+ *
+ * Written out rather than derived from the generated enum, as every controller
+ * in this codebase writes its own: this is the wire contract, and a status added
+ * to the table is a decision about the API rather than an automatic widening of
+ * it. `satisfies` is what keeps the two from drifting apart silently in the other
+ * direction - a status renamed or removed in the schema stops compiling here.
+ */
+const STATUSES = [
+  "SUBMITTED",
+  "ACKNOWLEDGED",
+  "WITHDRAWN",
+] as const satisfies readonly MotionStatus[];
 
 const submitSchema = z.object({
   /**

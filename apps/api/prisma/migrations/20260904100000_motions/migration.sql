@@ -23,6 +23,42 @@ CREATE TYPE "MotionStatus" AS ENUM ('SUBMITTED', 'ACKNOWLEDGED', 'WITHDRAWN');
 ALTER TABLE "association" ADD COLUMN "motionDeadlineMonth" INTEGER;
 ALTER TABLE "association" ADD COLUMN "motionDeadlineDay" INTEGER;
 
+-- Both columns or neither, and a month and day a bylaws clause could name.
+--
+-- The two columns are one setting, and half of it is a rule nothing can resolve
+-- to a date: readMotionDeadline in src/motions/motion-deadline.ts answers "no
+-- deadline" for a half-written pair, which is the reading that cannot turn a
+-- member away for a clause nobody can see, but it should never have a row to
+-- answer for. The settings write is the only writer today, so without this the
+-- invariant lives in one function rather than in the table.
+--
+-- The day is bounded by the month rather than a flat 1 to 31, which is
+-- isWritableDeadline's rule in the same file: 31 February is not a date in any
+-- year, so a clause could not say it. February takes 29, which is a date in a
+-- leap year and what nextMotionDeadline's clamp exists for. A flat upper bound
+-- of 31 would look like the table validating the date while still accepting one
+-- that does not exist.
+--
+-- The API refuses all of this first and with a reason code, so a violation here
+-- is reachable only by a hand-written statement - which is exactly the case the
+-- constraint is for, and why losing the reason to SQLSTATE 23514 costs nothing.
+ALTER TABLE "association" ADD CONSTRAINT "association_motionDeadline_check"
+  CHECK (
+    ("motionDeadlineMonth" IS NULL) = ("motionDeadlineDay" IS NULL)
+    AND ("motionDeadlineMonth" IS NULL OR "motionDeadlineMonth" BETWEEN 1 AND 12)
+    AND (
+      "motionDeadlineDay" IS NULL
+      OR "motionDeadlineDay" BETWEEN 1 AND CASE "motionDeadlineMonth"
+        WHEN 2 THEN 29
+        WHEN 4 THEN 30
+        WHEN 6 THEN 30
+        WHEN 9 THEN 30
+        WHEN 11 THEN 30
+        ELSE 31
+      END
+    )
+  );
+
 -- CreateTable
 --
 -- submittedByPersonId and closedByPersonId are plain columns and not foreign

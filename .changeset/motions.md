@@ -38,10 +38,12 @@ plain reference the purge can erase around. It is received rather than approved:
 the board records that it has the item, whether the meeting adopts the proposal
 is minuted at the meeting, and there is no route that rejects one. A motion
 closes with a date and a status - acknowledged, or withdrawn by the member while
-it was still open - and is never deleted, because the record that a member put
-something to the meeting is theirs. It deliberately carries no meeting reference:
-linking a motion to the meeting it is taken up at arrives with the meetings
-module.
+it was still open - and closing it is not deleting it: no route removes a motion,
+because the record that a member put something to the meeting is theirs while the
+association holds it at all. What ends it is retention, two years after it
+closed, described in the last paragraph below. It deliberately carries no meeting
+reference: linking a motion to the meeting it is taken up at arrives with the
+meetings module.
 
 The title and the proposal are scanned for a personal identity number and refused
 if they carry one, with the field named and the value never echoed. Unlike an

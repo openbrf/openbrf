@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { MotionStatus } from "../generated/prisma/enums";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
@@ -225,7 +226,7 @@ async function seedMotion(input: {
   id: string;
   personId: string;
   closedAt: Date | null;
-  status: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
+  status: MotionStatus;
 }): Promise<void> {
   await prisma.motion.create({
     data: {
@@ -366,55 +367,76 @@ beforeAll(async () => {
   managerCookie = await signIn(manager.email);
 }, 180_000);
 
+/*
+ * Cleanup in a try, and the close in a finally.
+ *
+ * Every statement below is reachable with the setup half-done: a beforeAll that
+ * fails partway leaves rows this suite has to remove and rows it never wrote,
+ * and one throw here would take the rest of the cleanup with it and never reach
+ * app.close(). The Nest application, its Prisma pool and its Fastify server
+ * would then stay open for the rest of the worker, and the suites that follow in
+ * it would fail for a reason that has nothing to do with them - while the
+ * failure that caused it is reported as a teardown error rather than as the
+ * setup fault it is.
+ */
 afterAll(async () => {
-  if (prisma !== undefined) {
-    await prisma.motion.deleteMany({
-      where: {
-        OR: [
-          { id: { in: createdMotionIds } },
-          // Anything a test created and did not get to record, e.g. because an
-          // assertion failed before its own cleanup line.
-          { submittedByPersonId: { in: personIds } },
-        ],
-      },
-    });
-    await prisma.legalHold.deleteMany({
-      where: { personId: { in: personIds } },
-    });
-    await prisma.session.deleteMany({
-      where: { user: { personId: { in: personIds } } },
-    });
-    await prisma.account.deleteMany({
-      where: { user: { personId: { in: personIds } } },
-    });
-    await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-    await prisma.systemRole.deleteMany({
-      where: { personId: { in: personIds } },
-    });
-    await prisma.residency.deleteMany({
-      where: { personId: { in: personIds } },
-    });
-    await prisma.boardPosition.deleteMany({
-      where: { personId: { in: personIds } },
-    });
-    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
-    await prisma.apartment.deleteMany({ where: { id: apartmentId } });
-    await prisma.address.deleteMany({ where: { id: addressId } });
+  try {
+    if (prisma !== undefined) {
+      await prisma.motion.deleteMany({
+        where: {
+          OR: [
+            { id: { in: createdMotionIds } },
+            // Anything a test created and did not get to record, e.g. because an
+            // assertion failed before its own cleanup line.
+            { submittedByPersonId: { in: personIds } },
+          ],
+        },
+      });
+      await prisma.legalHold.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await prisma.session.deleteMany({
+        where: { user: { personId: { in: personIds } } },
+      });
+      await prisma.account.deleteMany({
+        where: { user: { personId: { in: personIds } } },
+      });
+      await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+      await prisma.systemRole.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await prisma.residency.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await prisma.boardPosition.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+      await prisma.address.deleteMany({ where: { id: addressId } });
 
-    // The deadline this suite may have written, back to no clause at all.
-    await prisma.association.update({
-      where: { id: 1 },
-      data: { motionDeadlineMonth: null, motionDeadlineDay: null },
-    });
+      // The deadline this suite may have written, back to no clause at all.
+      // updateMany, because the row is absent whenever the setup failed before
+      // it reached the association: update would throw P2025 and the throw
+      // would be this teardown's, not the setup's.
+      await prisma.association.updateMany({
+        where: { id: 1 },
+        data: { motionDeadlineMonth: null, motionDeadlineDay: null },
+      });
 
-    // Audit entries stay: the table is append-only by trigger, and every
-    // assertion below selects on this run's target ids rather than on a count.
-    if (associationCreatedHere) {
-      await prisma.association.deleteMany({ where: { id: 1 } });
+      // Audit entries stay: the table is append-only by trigger, and every
+      // assertion below selects on this run's target ids rather than on a count.
+      if (associationCreatedHere) {
+        await prisma.association.deleteMany({ where: { id: 1 } });
+      }
+    }
+  } finally {
+    // Unassigned when the module never built, which is a setup failure the
+    // runner reports on its own.
+    if (app !== undefined) {
+      await app.close();
     }
   }
-
-  await app.close();
 });
 
 describe("who may put an item to the general meeting", () => {
@@ -883,6 +905,38 @@ describe("the bylaws' deadline", () => {
     expect(response.json<{ reason: string }>().reason).toBe(
       "motion-deadline-not-a-date",
     );
+  });
+
+  it("is refused by the table when it is half a clause or not a date", async () => {
+    /*
+     * The two columns are one setting, and the settings write is the only code
+     * that keeps them together - so without the constraint the invariant lives
+     * in one function and a statement typed at a prompt can leave a month with
+     * no day. readMotionDeadline answers "no deadline" for such a row, which is
+     * the reading that cannot turn a member away for a clause nobody can see,
+     * but it should never have a row to answer for.
+     *
+     * The constraint is named in each assertion, so a typo in the statement
+     * below fails the test rather than passing it for the wrong reason.
+     */
+    await expect(
+      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 1, "motionDeadlineDay" = NULL WHERE "id" = 1`,
+    ).rejects.toThrow(/association_motionDeadline_check/);
+    await expect(
+      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = NULL, "motionDeadlineDay" = 31 WHERE "id" = 1`,
+    ).rejects.toThrow(/association_motionDeadline_check/);
+    // 31 February, which isWritableDeadline refuses at the boundary: the day is
+    // bounded by the month here too rather than by a flat 31.
+    await expect(
+      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 31 WHERE "id" = 1`,
+    ).rejects.toThrow(/association_motionDeadline_check/);
+
+    // And the clause the API writes is accepted, so the constraint is not
+    // refusing the pair as such. 29 February is a date in a leap year and is
+    // what nextMotionDeadline's clamp exists for.
+    await expect(
+      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 29 WHERE "id" = 1`,
+    ).resolves.toBe(1);
   });
 
   it("clears back to no deadline", async () => {

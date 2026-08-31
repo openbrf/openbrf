@@ -539,8 +539,10 @@ change it.
 
 **Later, still free and in the core**
 
-- [ ] General meetings: motions, agenda, voting register, proxies, real-time
-      voting. Postal voting is prohibited for a housing cooperative under
+- [ ] General meetings: the notice (kallelse), the agenda, the voting register,
+      proxies, real-time voting, and the link from a motion to the meeting it is
+      taken up at. Motion intake itself is the Forms item below rather than this
+      one. Postal voting is prohibited for a housing cooperative under
       BRL 9 kap. 14 §, and will never be built.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents

@@ -2408,14 +2408,17 @@ model Motion {
   id String @id @default(cuid())
 
   /// What the member is proposing, in one line. The association's own content:
-  /// stored as written and never translated (decision 59).
+  /// stored as written and never translated (decision 59). Scanned for a
+  /// personal identity number before it is stored, exactly as the body is and
+  /// for the same reason: this is the line that goes into a notice verbatim.
   title String
 
   /// The proposal itself, and what a general meeting would vote on. Free text
   /// scanned for a personal identity number before it is stored - the one
-  /// guardrail a member's own writing goes through here - because a motion is
-  /// read out at a meeting and copied into a notice, and a personnummer in it is
-  /// a disclosure the association cannot take back.
+  /// guardrail a member's own writing goes through here, applied to the title
+  /// and to this together by MotionService.submit - because a motion is read out
+  /// at a meeting and copied into a notice, and a personnummer in it is a
+  /// disclosure the association cannot take back.
   body String
 
   /// The member who submitted it.
