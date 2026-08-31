@@ -72,6 +72,16 @@ function rowField(label: RegExp): HTMLElement {
   return first;
 }
 
+/** The add form's field, which is always the last of its kind on the panel. */
+function addField(label: RegExp): HTMLElement {
+  const fields = screen.getAllByLabelText(label);
+  const last = fields[fields.length - 1];
+  if (last === undefined) {
+    throw new Error(`No field matched ${String(label)}`);
+  }
+  return last;
+}
+
 beforeEach(() => {
   fetchAllBookableResources
     .mockReset()
@@ -277,7 +287,15 @@ describe("when the mechanics can be changed", () => {
     ).toBeTruthy();
   });
 
-  it("says nothing about how many bookings a resource has taken", async () => {
+  it("states the rule with no number in it", async () => {
+    /*
+     * The row still prints how many bookings the resource has taken, because
+     * that is the right number for what withdrawing it would leave behind. What
+     * this asserts is that the rule's own sentence carries no number at all: the
+     * count on this screen is every booking ever made against the resource, and
+     * a rule driven off it would warn for ever about a laundry room booked once
+     * last winter while the change it warned about went through.
+     */
     fetchAllBookableResources.mockResolvedValue({
       ok: true,
       value: [laundry({ bookingCount: 3 })],
@@ -285,10 +303,42 @@ describe("when the mechanics can be changed", () => {
 
     await open();
 
-    expect(
-      screen.getByText(/Hur en resurs bokas kan bara ändras/),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Redan gjorda bokningar/)).toBeNull();
+    const rule = screen.getByText(/Hur en resurs bokas kan bara ändras/);
+    expect(rule.textContent).not.toMatch(/\d/);
+    expect(screen.getByText("Gjorda bokningar: 3")).toBeTruthy();
+  });
+});
+
+describe("the notice above three acts that share it", () => {
+  it("is the refusal the last act met and not one an earlier act met", async () => {
+    /*
+     * The board adds a resource, the add is refused, and they then save a row
+     * that saves perfectly. Three save states with a fixed precedence and
+     * nothing clearing them would leave the add's refusal on screen, so a
+     * success would read as a failure - and while it sat there it would answer
+     * every later refusal with the add's sentence rather than its own.
+     */
+    createBookableResource.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "slot-does-not-fit" },
+    });
+
+    const session = userEvent.setup();
+    await open();
+
+    await session.type(addField(/^Resursens namn/), "Bastun i port 14");
+    await session.click(
+      screen.getByRole("button", { name: "Lägg till resurs" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/^Passets längd delar inte/)).toBeTruthy();
+    });
+
+    await session.click(screen.getByRole("button", { name: /^Spara$/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/^Passets längd delar inte/)).toBeNull();
+    });
   });
 });
 

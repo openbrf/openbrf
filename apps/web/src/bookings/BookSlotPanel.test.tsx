@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import type {
@@ -28,7 +28,31 @@ import { BookSlotPanel } from "./BookSlotPanel";
  *
  * That a refusal reads as a sentence somebody can act on - and, for the one
  * refusal that is two situations behind one code, as the right one of the two.
+ *
+ * That a stay is unbroken, and that only a cell which can be chosen is
+ * announced as one that can.
  */
+
+/**
+ * The day the panel believes it is, for as long as these tests run.
+ *
+ * The panel names the window it is showing from the association's clock, and
+ * the name carries no year: on a real day whose window opens or closes on a
+ * Wednesday the 16th of September, the navigation reads exactly what the
+ * fixtures' day heading reads. A wait on that text is then satisfied by the
+ * chrome before the calendar has arrived - the marker stops standing for the
+ * data - so the queries after it race the response instead of following it.
+ *
+ * Two things answer that, and both are here: the waits below name something
+ * only a slot can produce, and the clock is pinned so the window is the same on
+ * every run. June is chosen for being nowhere near the fixtures, which are in
+ * September.
+ *
+ * Only `Date` is replaced. The timers stay real, so `userEvent` needs no
+ * `advanceTimers` and `waitFor` behaves as it does everywhere else in this
+ * suite.
+ */
+const TODAY = new Date("2026-06-15T09:00:00.000Z");
 
 const fetchBookableSlots = vi.fn();
 const bookSlot = vi.fn();
@@ -71,13 +95,50 @@ const LAUNDRY: BookableResourceSummary = {
   maxBookingsPerWeek: 2,
 };
 
+const GUEST_APARTMENT: BookableResourceSummary = {
+  id: "resource-guest-apartment",
+  name: "Gästlägenheten",
+  description: null,
+  mode: "DATE_RANGE",
+  slotMinutes: null,
+  opensAtMinute: null,
+  closesAtMinute: null,
+  maxConcurrentBookings: null,
+  maxBookingsPerWeek: null,
+};
+
+/**
+ * One night of a resource booked by the night.
+ *
+ * A night runs from local midnight to local midnight, so its end is the
+ * check-out date rather than a day before it. September is summer time in
+ * Stockholm, which is why midnight is 22:00 UTC the day before.
+ */
+function night(date: number, state: BookableSlot["state"]): BookableSlot {
+  const before = String(date - 1).padStart(2, "0");
+  return {
+    startsAt: `2026-09-${before}T22:00:00.000Z`,
+    endsAt: `2026-09-${String(date).padStart(2, "0")}T22:00:00.000Z`,
+    day: `2026-09-${String(date).padStart(2, "0")}`,
+    opensAtMinute: 0,
+    state,
+    bookingId: null,
+  };
+}
+
 const APARTMENT: BookingApartment = {
   id: "apartment-1201",
   number: "1201",
   address: "Storgatan 12",
 };
 
-/** Renders the panel and waits for the calendar to arrive. */
+/**
+ * Renders the panel and waits for the calendar to arrive.
+ *
+ * The marker is a slot's own control, whose name carries the hours as well as
+ * the date. Nothing but a slot can produce it, which is what makes the wait
+ * stand for the data rather than for the frame drawn around it.
+ */
 async function open(): Promise<void> {
   render(
     <BookSlotPanel
@@ -87,11 +148,33 @@ async function open(): Promise<void> {
     />,
   );
   await waitFor(() => {
-    expect(screen.getByText("onsdag 16 september")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    ).toBeTruthy();
+  });
+}
+
+/** Renders the guest apartment over the nights given, and waits for them. */
+async function openNights(nights: readonly BookableSlot[]): Promise<void> {
+  fetchBookableSlots.mockResolvedValue({ ok: true, value: [...nights] });
+  render(
+    <BookSlotPanel
+      resources={[GUEST_APARTMENT]}
+      apartments={[APARTMENT]}
+      onBooked={() => undefined}
+    />,
+  );
+  await waitFor(() => {
+    expect(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    ).toBeTruthy();
   });
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"], now: TODAY });
   fetchBookableSlots
     .mockReset()
     .mockResolvedValue({ ok: true, value: [FREE, TAKEN] });
@@ -108,6 +191,10 @@ beforeEach(() => {
       apartment: APARTMENT,
     },
   });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("a slot somebody else holds", () => {
@@ -249,6 +336,91 @@ describe("the rules the board set", () => {
   });
 });
 
+describe("a stay of several nights", () => {
+  it("is put together from a check-in and a check-out", async () => {
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+
+    // The check-out is the morning after the last night, which is the end the
+    // second night already carries. Nothing is added to it and nothing is
+    // subtracted from it.
+    expect(
+      screen.getByText("Ankomst 16 september 2026, avresa 18 september 2026."),
+    ).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledWith({
+        resourceId: "resource-guest-apartment",
+        apartmentId: "apartment-1201",
+        startsAt: "2026-09-15T22:00:00.000Z",
+        endsAt: "2026-09-17T22:00:00.000Z",
+      });
+    });
+  });
+
+  it("cannot be made to span a night somebody else holds", async () => {
+    /*
+     * The night between is held, so it cannot be clicked - but clicking past it
+     * would produce a range that covers it, and the server refuses such a range
+     * whole with a code that names no night. The click starts a new stay at the
+     * night that was clicked instead, which is what the sentence then says.
+     */
+    const session = userEvent.setup();
+    await openNights([
+      night(16, "FREE"),
+      night(17, "TAKEN"),
+      night(18, "FREE"),
+    ]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka fredag 18 september" }),
+    );
+
+    expect(
+      screen.getByText("Ankomst 18 september 2026. Välj vilken dag du reser."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Boka vistelsen" }),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("announces only the nights that can be chosen as ones that can", async () => {
+    // A held night is disabled, so announcing it as a toggle offers a screen
+    // reader a control that cannot be operated. A free night is a toggle
+    // whether or not a stay has been started, so the announced role does not
+    // change halfway through choosing one.
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "TAKEN")]);
+
+    const free = screen.getByRole("button", {
+      name: "Boka onsdag 16 september",
+    });
+    const held = screen.getByRole("button", {
+      name: "torsdag 17 september: Bokad",
+    });
+
+    expect(free.getAttribute("aria-pressed")).toBe("false");
+    expect(held.getAttribute("aria-pressed")).toBeNull();
+
+    await session.click(free);
+
+    expect(free.getAttribute("aria-pressed")).toBe("true");
+    expect(held.getAttribute("aria-pressed")).toBeNull();
+  });
+});
+
 describe("a household the register holds no apartment for", () => {
   it("is told why, rather than left with a grid that refuses", async () => {
     render(
@@ -260,7 +432,11 @@ describe("a household the register holds no apartment for", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("onsdag 16 september")).toBeTruthy();
+      expect(
+        screen.getByRole("button", {
+          name: "Boka onsdag 16 september 07:00-10:00",
+        }),
+      ).toBeTruthy();
     });
     expect(
       screen.getByText(

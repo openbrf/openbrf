@@ -47,6 +47,8 @@ the worst kind there is. Changing the mode clears them, which is what the API
 requires: it reads a cleared field and an omitted one as the same thing, so a
 form that left them out would ask the server to keep dead configuration. A slot
 length that does not divide the opening hours is refused with the two ways to fix
-it, and a resource that has already been booked says what changing its mechanics
-leaves standing. Withdrawing is offered and removing is not, because the bookings
-made against a resource say what they were for only through it.
+it. How a resource is booked can only be changed while no booking on it is still
+to come, which the panel states before a save meets it and words as a refusal
+when one does; the name, the description and the limits stay changeable
+throughout. Withdrawing is offered and removing is not, because the bookings made
+against a resource say what they were for only through it.

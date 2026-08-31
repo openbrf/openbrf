@@ -103,8 +103,9 @@ describe("how a date reads", () => {
   });
 
   it("names the day the association is in, not the day UTC is in", () => {
-    // Half past eleven at night on the 16th in Stockholm, which is the 16th
-    // there and the 16th here only because the offset is applied.
+    // Half past midnight on the 17th in Stockholm, which is still half past ten
+    // at night on the 16th in UTC. A date read off the instant's own UTC fields
+    // would answer the 16th.
     expect(formatBookingDate("2026-09-16T22:30:00.000Z", "sv")).toBe(
       "17 september 2026",
     );

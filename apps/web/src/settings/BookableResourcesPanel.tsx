@@ -167,6 +167,18 @@ export function BookableResourcesPanel(): ReactElement {
     void read();
   });
 
+  /**
+   * The refusal on screen, which is the one the last act met.
+   *
+   * Three acts share one notice, so the order below decides which of them is
+   * read - and each act clears the other two before it runs, because a
+   * precedence over states nothing resets would say two false things. A refused
+   * add would sit above a row that then saved perfectly, so a success would read
+   * as a failure; and while it sat there it would pin the notice to itself, so a
+   * row meeting `resource-in-use` would be answered with the sentence about a
+   * slot length. The clearing is what makes the order a tie-break between
+   * simultaneous acts rather than a ranking of stale ones.
+   */
   const failure =
     add.state.kind === "failed"
       ? add.state.failure
@@ -183,6 +195,8 @@ export function BookableResourcesPanel(): ReactElement {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+    change.reset();
+    withdraw.reset();
     void add.submit(inputOf(draft));
   };
 
@@ -235,9 +249,13 @@ export function BookableResourcesPanel(): ReactElement {
                 resource={resource}
                 busy={busy}
                 onSave={(values) => {
+                  add.reset();
+                  withdraw.reset();
                   void change.submit({ id: resource.id, values });
                 }}
                 onWithdraw={() => {
+                  add.reset();
+                  change.reset();
                   void withdraw.submit(resource.id);
                 }}
               />

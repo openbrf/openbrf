@@ -193,6 +193,9 @@ export function BookSlotPanel({
   const busy = claim.state.kind === "saving";
   const noApartment = apartments.length === 0;
 
+  // The answer to the request on screen, or nothing while it is in flight.
+  const calendar = answer?.key === key ? answer : null;
+
   const book = (startsAt: string, endsAt: string | null): void => {
     setClaiming(startsAt);
     void claim.submit({ resourceId, apartmentId, startsAt, endsAt });
@@ -206,17 +209,30 @@ export function BookSlotPanel({
    * stay that runs backwards - which the server would refuse, but refusing it
    * here leaves the length of the stay as the only thing the form can be wrong
    * about.
+   *
+   * A stay is also unbroken. Only a free night can be clicked, but the nights
+   * between two of them need not be free, and a range covering one somebody
+   * else holds is refused whole by a code that names no night - which would
+   * leave the reader to work out which night of a fortnight blocked it. Such a
+   * click becomes a new check-in instead: the same answer as clicking before
+   * the check-in, and said in the same sentence the panel was already showing.
    */
   const pickNight = (slot: BookableSlot): void => {
-    setStay((current) =>
-      current === null || slot.startsAt <= current.startsAt
-        ? { startsAt: slot.startsAt, endsAt: null }
-        : { startsAt: current.startsAt, endsAt: slot.endsAt },
-    );
+    setStay((current) => {
+      const fresh: StayDraft = { startsAt: slot.startsAt, endsAt: null };
+      if (current === null || slot.startsAt <= current.startsAt) {
+        return fresh;
+      }
+      const stay: StayDraft = {
+        startsAt: current.startsAt,
+        endsAt: slot.endsAt,
+      };
+      const held = (calendar?.slots ?? []).some(
+        (night) => night.state !== "FREE" && withinStay(night, stay),
+      );
+      return held ? fresh : stay;
+    });
   };
-
-  // The answer to the request on screen, or nothing while it is in flight.
-  const calendar = answer?.key === key ? answer : null;
   const days = groupByDay(calendar?.slots ?? []);
   const failure =
     claim.state.kind === "failed"
@@ -394,8 +410,8 @@ export function BookSlotPanel({
                   claiming={claiming === slot.startsAt}
                   unavailable={noApartment}
                   chosen={
-                    mode === "DATE_RANGE" && stay !== null
-                      ? withinStay(slot, stay)
+                    mode === "DATE_RANGE" && slot.state === "FREE"
+                      ? stay !== null && withinStay(slot, stay)
                       : undefined
                   }
                   onPick={() => {
@@ -471,8 +487,13 @@ function SlotButton({
   /**
    * Whether this night is inside the stay being assembled.
    *
-   * Undefined for the two modes where a click is the booking, so the control is
-   * not announced as a toggle on a screen where nothing toggles.
+   * Undefined wherever nothing toggles, so the control is not announced as a
+   * toggle on a screen where nothing does: the two modes where a click is the
+   * booking, and any night that cannot be part of a stay at all. A held or
+   * passed cell carrying `aria-pressed` would be announced as a toggle button
+   * that a screen-reader user then cannot operate, and a value that appeared
+   * only once a stay had started would change the announced role halfway
+   * through choosing one.
    */
   chosen?: boolean;
   onPick: () => void;
