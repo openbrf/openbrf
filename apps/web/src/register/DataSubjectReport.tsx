@@ -83,6 +83,12 @@ const DOCUMENT_AUDIENCE_LABEL = {
   PUBLIC: "documents.audience.public",
 } as const satisfies Record<string, TranslationKey>;
 
+const BOOKING_STATUS_LABEL = {
+  BOOKED: "bookings.status.BOOKED",
+  CANCELLED: "bookings.status.CANCELLED",
+  RELEASED: "bookings.status.RELEASED",
+} as const satisfies Record<string, TranslationKey>;
+
 /*
  * Every audit action, not the ones a resident is likely to have. The report
  * lists entries both about the person and of what they did, so a board
@@ -138,6 +144,12 @@ const AUDIT_ACTION_LABEL = {
   BOARD_POSITION_ELECTED:
     "register.person.report.action.BOARD_POSITION_ELECTED",
   BOARD_POSITION_ENDED: "register.person.report.action.BOARD_POSITION_ENDED",
+  BOOKING_RESOURCE_CREATED:
+    "register.person.report.action.BOOKING_RESOURCE_CREATED",
+  BOOKING_RESOURCE_UPDATED:
+    "register.person.report.action.BOOKING_RESOURCE_UPDATED",
+  BOOKING_RESOURCE_DEACTIVATED:
+    "register.person.report.action.BOOKING_RESOURCE_DEACTIVATED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
@@ -581,6 +593,46 @@ export function DataSubjectReport({
                     {t(DOCUMENT_AUDIENCE_LABEL[document.audience])}
                   </td>
                   <td className={DATA_CELL}>{day(document.filedAt)}</td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          <Section titleKey="register.person.report.section.bookings">
+            <Rows
+              empty={report.bookings.length === 0}
+              headings={[
+                "register.person.report.field.resource",
+                "register.person.report.field.status",
+                "register.person.report.field.apartment",
+                "register.person.report.field.starts",
+                "register.person.report.field.ends",
+                "register.person.report.field.erasableFrom",
+              ]}
+            >
+              {report.bookings.map((booking) => (
+                <tr key={booking.bookingId} className={ROW}>
+                  <td className={TEXT_CELL}>{booking.resourceName}</td>
+                  <td className={TEXT_CELL}>
+                    {t(BOOKING_STATUS_LABEL[booking.status])}
+                  </td>
+                  <td className={DATA_CELL}>{booking.apartment ?? nothing}</td>
+                  <td className={DATA_CELL}>{day(booking.startsAt)}</td>
+                  <td className={DATA_CELL}>{day(booking.endsAt)}</td>
+                  {/*
+                   * The row's own retention date and not the one at the foot of
+                   * the document: a booking is purged a year after it ended,
+                   * whether or not the person who made it still lives here.
+                   *
+                   * The earliest such date rather than the day it goes, because
+                   * the legal hold in the retention section below suspends every
+                   * purge for this person. A column promising an erasure while
+                   * one stands would be telling the person a date that is not
+                   * going to happen.
+                   */}
+                  <td className={DATA_CELL}>
+                    {booking.erasableFrom ?? nothing}
+                  </td>
                 </tr>
               ))}
             </Rows>

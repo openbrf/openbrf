@@ -243,7 +243,10 @@ export type ReportAuditAction =
   | "LEGAL_HOLD_RELEASED"
   | "SERVICE_DATA_PURGED"
   | "BOARD_POSITION_ELECTED"
-  | "BOARD_POSITION_ENDED";
+  | "BOARD_POSITION_ENDED"
+  | "BOOKING_RESOURCE_CREATED"
+  | "BOOKING_RESOURCE_UPDATED"
+  | "BOOKING_RESOURCE_DEACTIVATED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -352,6 +355,27 @@ export interface DataSubjectReport {
     category: string;
     audience: "BOARD" | "MEMBER" | "PUBLIC";
     filedAt: string;
+  }[];
+  /**
+   * Bookings this person made.
+   *
+   * The one section that states a retention date per row: a booking is purged a
+   * year after the booked period ended, on its own clock rather than the
+   * residency one, so the date at the foot of the document does not govern it.
+   *
+   * `erasableFrom` is the earliest date the purge can reach the row, not a
+   * promise that it will. A legal hold suspends every purge for the person it
+   * stands against, and whether one does is what `retention.onLegalHold`
+   * answers.
+   */
+  bookings: {
+    bookingId: string;
+    resourceName: string;
+    status: "BOOKED" | "CANCELLED" | "RELEASED";
+    startsAt: string;
+    endsAt: string;
+    apartment: string | null;
+    erasableFrom: string | null;
   }[];
   auditEntries: {
     entryId: string;

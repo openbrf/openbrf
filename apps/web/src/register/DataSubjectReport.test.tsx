@@ -54,6 +54,7 @@ const EMPTY_REPORT: Report = {
   legalHolds: [],
   issues: [],
   documents: [],
+  bookings: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -120,6 +121,19 @@ const FULL_REPORT: Report = {
       releaseReason: null,
     },
   ],
+  bookings: [
+    {
+      bookingId: "booking-1",
+      resourceName: "Tvättstugan",
+      status: "BOOKED",
+      startsAt: "2026-01-17T07:00:00.000Z",
+      endsAt: "2026-01-17T09:00:00.000Z",
+      apartment: "Storgatan 12 1201",
+      // A year after the booking ended, and deliberately not the date the
+      // retention section below states: a booking is erased on its own clock.
+      erasableFrom: "2027-01-17",
+    },
+  ],
   auditEntries: [
     {
       entryId: "audit-1",
@@ -147,6 +161,26 @@ function renderReport(report: Report) {
   return render(
     <DataSubjectReport personId={report.person.personId} onClose={noop} />,
   );
+}
+
+/**
+ * The value the document states against one of its field labels.
+ *
+ * Read as a pair rather than searched for on its own, because the report
+ * answers three questions with the same two words: whether the person has
+ * protected personal data, whether their account carries a second factor, and
+ * whether a legal hold stands. An assertion on the word alone is satisfied by
+ * any of the three, so a wrong answer to one of them would pass unseen. This
+ * reads the label and its value together, the way somebody holding the printed
+ * page does.
+ */
+function fieldValue(label: string): string {
+  const term = screen.getByText(label);
+  const value = term.parentElement?.querySelector("dd");
+  if (!value) {
+    throw new Error(`The report states no value against "${label}".`);
+  }
+  return value.textContent ?? "";
 }
 
 beforeEach(() => {
@@ -247,6 +281,40 @@ describe("what the document prints", () => {
     expect(screen.getByText("Pantnoteringar")).not.toBeNull();
     expect(screen.getByText("Exempelbanken")).not.toBeNull();
     expect(screen.getByText("Gäller fortfarande")).not.toBeNull();
+  });
+
+  it("prints a booking with the earliest date it can be erased on", async () => {
+    /*
+     * The one section that states a retention date per row. A booking is erased
+     * a year after it ended, on its own clock, so printing the document's own
+     * purge date here would tell the person a date that is not going to happen
+     * to this row.
+     *
+     * And the column says the earliest such date rather than the day it goes,
+     * which is the difference this fixture exists to hold: the person it
+     * describes is under a standing legal hold, so nothing of theirs is being
+     * erased at all until the board releases it. A column headed "Gallras" here
+     * would be a retention promise the association is not going to keep, made
+     * to the one person entitled to rely on it. The hold itself is stated in
+     * the retention section, which is where this document answers whether one
+     * stands.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Bokningar")).not.toBeNull();
+    expect(screen.getByText("Tvättstugan")).not.toBeNull();
+    expect(screen.getByText("Bokad")).not.toBeNull();
+    expect(screen.getByText("Gallras tidigast")).not.toBeNull();
+    expect(screen.getByText("2027-01-17")).not.toBeNull();
+
+    // And the hold state that makes that wording load-bearing, stated on the
+    // same page, so the two are read together. Asserted as the answer and not
+    // as the presence of the question: the label renders either way, so a
+    // document that told this person nothing was being kept would satisfy a
+    // test that only looked for the heading - and that is the disclosure the
+    // column above is worded around.
+    expect(fieldValue("Rättsligt bevarandekrav")).toBe("Ja");
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

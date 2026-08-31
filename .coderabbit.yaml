@@ -42,6 +42,10 @@ reviews:
     auto_incremental_review: true
     base_branches:
       - main
+      # Work branches are named wt/<topic>, and a stacked pull request has one
+      # of them as its base rather than main. The entries are regular
+      # expressions, so without this a stack is reviewed only at its foot.
+      - wt/.*
 
   pre_merge_checks:
     title:

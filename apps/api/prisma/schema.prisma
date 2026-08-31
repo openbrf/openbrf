@@ -172,6 +172,7 @@ model Apartment {
   memberRegisterEntries MemberRegisterEntry[]
   signupRequests        SignupRequest[]
   issues                Issue[]
+  bookings              Booking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -560,6 +561,15 @@ enum AuditAction {
   /// of trust is a dated fact about who answered for the association and when,
   /// so ending one adds a date rather than removing the period it covered.
   BOARD_POSITION_ENDED
+  /// A bookable resource was added to the association's catalogue.
+  BOOKING_RESOURCE_CREATED
+  /// A bookable resource was edited: its name, its description, its booking
+  /// mechanics or its quota.
+  BOOKING_RESOURCE_UPDATED
+  /// A bookable resource was withdrawn from booking. The row stays, and so do
+  /// the bookings made against it: they say what they were for only through
+  /// it.
+  BOOKING_RESOURCE_DEACTIVATED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -1861,4 +1871,211 @@ model AssociationFacts {
   updatedAt DateTime @updatedAt
 
   @@map("association_facts")
+}
+
+// ---------------------------------------------------------------------------
+// Resource booking (bokning).
+// ---------------------------------------------------------------------------
+
+/// How a resource is booked, which is what decides what one booking is.
+///
+/// Three mechanics rather than a list of resource kinds. What a resource IS
+/// says nothing the application needs: a sauna and a laundry room are booked
+/// identically, and a common room let by the day has nothing in common with
+/// either. What the application has to implement is the shape of a booking,
+/// and that is what this enum names.
+enum BookingResourceMode {
+  /// Fixed-length slots inside one day, between an opening and a closing time:
+  /// the laundry room (tvattstuga), the sauna (bastu). Carries slotMinutes,
+  /// opensAtMinute and closesAtMinute.
+  TIME_SLOTS
+
+  /// One booking is one whole day: the common room (foreningslokal).
+  WHOLE_DAY
+
+  /// A check-in and a check-out date spanning nights: the guest apartment
+  /// (gastlagenhet).
+  DATE_RANGE
+}
+
+/// Where one booking stands.
+enum BookingStatus {
+  /// The booking holds its time. Exactly one booking per resource and start
+  /// time may be in this state, which the database enforces - see Booking.
+  BOOKED
+
+  /// Withdrawn by whoever made it, or by the board on their behalf. The row
+  /// stays and its time is free again.
+  CANCELLED
+
+  /// Reserved schema room, written by nothing in the core. See the Booking
+  /// model comment.
+  RELEASED
+}
+
+/// Something in the house that residents book: a laundry room, the common
+/// room, the guest apartment, a sauna.
+///
+/// The board names its own, the way it names its issue types and the binders
+/// in its archive. There is deliberately no kind enum: the association this is
+/// built for books a laundry room, a common room, a guest apartment and a
+/// sauna, and wants to add its own besides - a roof terrace, a workshop, a
+/// trailer. A closed list would have been wrong on the day it shipped, and
+/// every entry on it would have been a synonym for one of the three modes
+/// below.
+///
+/// Service tier, and it holds no personal data at all. A booking does; this is
+/// the association's account of what it offers, so it is outside every purge
+/// scope and carries no purge date.
+///
+/// Deactivated, never deleted, for the reason IssueType gives: the bookings
+/// already made against it say what they were for only through this row, and a
+/// board tidying its catalogue must not make last winter's bookings
+/// unreadable.
+///
+/// ## The two quotas
+///
+/// Both are nullable and each is set on its own, so one may be set, or both,
+/// or neither. Null is unlimited.
+///
+/// `maxConcurrentBookings` bounds how many unstarted bookings one apartment
+/// may hold at a time - what stops one household reserving every Saturday
+/// until the spring. `maxBookingsPerWeek` bounds how many it may make within
+/// one calendar week, Europe/Stockholm, which is a different question: a
+/// household may hold one guest-apartment booking at a time and still do four
+/// loads of laundry in a week. A sauna is often capped per week and not at all
+/// concurrently, and a guest apartment the other way round, so neither limit
+/// implies the other and neither is a default for the other.
+model BookableResource {
+  id String @id @default(cuid())
+
+  /// What the board calls it: "Tvattstuga 1", "Foreningslokalen". Stored as
+  /// the board wrote it and never translated - the association's own content
+  /// is monolingual (decision 59).
+  name String
+
+  /// One sentence for whoever is booking: where it is, what is in it, what the
+  /// house rules say about it.
+  description String?
+
+  mode BookingResourceMode
+
+  /// TIME_SLOTS only, and required there: how long one slot is.
+  slotMinutes Int?
+
+  /// TIME_SLOTS only, and required there: when the day opens and when it
+  /// closes, as minutes past midnight on the Europe/Stockholm wall clock, so
+  /// 420 is 07:00 and 1260 is 21:00.
+  ///
+  /// Minutes rather than a DateTime because these are a time of day and not an
+  /// instant. A laundry room opens at seven every morning, including the two
+  /// mornings a year that are 23 and 25 hours long; an instant would pin the
+  /// opening to the offset of whichever date it was stored on and move it by an
+  /// hour on the far side of a daylight saving boundary.
+  opensAtMinute  Int?
+  closesAtMinute Int?
+
+  /// Unstarted bookings one apartment may hold at once. Null is unlimited.
+  maxConcurrentBookings Int?
+
+  /// Bookings one apartment may make within one calendar week, Europe/
+  /// Stockholm. Null is unlimited.
+  maxBookingsPerWeek Int?
+
+  /// When the board withdrew it from booking. Null while it is offered.
+  deactivatedAt DateTime?
+
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deactivatedAt, name])
+  @@map("bookable_resource")
+}
+
+/// One booking of one resource.
+///
+/// Service tier and person-linked: it says who booked what, and when. That is
+/// personal data held for a service purpose and for nothing else, so it is
+/// purged on a date derived from `endsAt` rather than from a move-out - the
+/// purpose of a laundry booking ends when the booking does, whether or not the
+/// person who made it still lives here. The arithmetic is in
+/// `src/bookings/booking-retention.ts` and the job that acts on it is
+/// `BookingPurgeService`.
+///
+/// ## The double booking is refused by the database
+///
+/// A partial unique index over (resourceId, startsAt) WHERE status = 'BOOKED'
+/// is what makes one slot one booking, and it is the whole of that guarantee:
+/// two residents claiming the same laundry hour in the same instant are sorted
+/// out by Postgres rather than by a read the application took a moment
+/// earlier.
+///
+/// It has to be partial. A plain unique index over the pair would let a
+/// cancelled booking keep its time for ever, so a period somebody changed their
+/// mind about could never be booked by anyone again. Prisma cannot express a
+/// WHERE clause on an index, so it is written by hand in
+/// `migrations/20260902090000_bookings/migration.sql`, and there is
+/// deliberately no `@@unique` here: the constraint Prisma is able to express is
+/// not the constraint this table needs, and declaring it would be worse than
+/// declaring nothing.
+///
+/// ## Reserved schema room
+///
+/// `RELEASED` and `startedAt` are columns, and columns are all they are.
+/// Nothing in the core writes either one: there is no auto-release, no
+/// check-in, no access-system webhook, no display mode and no job queue. They
+/// exist so that the day something needs them, this table does not have to be
+/// altered underneath live bookings.
+model Booking {
+  id String @id @default(cuid())
+
+  /// Restrict rather than Cascade: a resource is deactivated and never
+  /// deleted, and a delete that took its bookings with it would erase the
+  /// record of who had booked what before anybody's retention date arrived.
+  resourceId String
+  resource   BookableResource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+
+  /// The apartment the booking is for, and what the quotas are counted
+  /// against.
+  ///
+  /// SetNull rather than Restrict, exactly as Issue.apartmentId is: an
+  /// apartment corrected out of the register must not be held hostage by a
+  /// booking made against it last spring.
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
+
+  /// Who booked it.
+  ///
+  /// Deliberately a plain column and not a relation, for the reason the audit
+  /// log and Issue.reporterPersonId give: every referential action a foreign
+  /// key can carry either rewrites this row or vetoes erasure of the person it
+  /// names, and service-tier data has to be purgeable without the purge having
+  /// to negotiate with the booking calendar.
+  bookedByPersonId String
+
+  /// The booked period. Instants rather than dates even for the modes that are
+  /// counted in days, so one comparison answers "has this ended" for all three
+  /// - which is what the purge asks of the whole table at once.
+  startsAt DateTime
+  endsAt   DateTime
+
+  status BookingStatus @default(BOOKED)
+
+  /// Reserved schema room; see the model comment. Nothing writes it.
+  startedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The calendar read: every booking on a resource, cancelled ones included,
+  /// which the partial unique index above does not cover because it indexes
+  /// only the live ones.
+  @@index([resourceId, startsAt])
+  @@index([bookedByPersonId, startsAt])
+  @@index([apartmentId, startsAt])
+  /// The purge scan: which bookings ended long enough ago.
+  @@index([status, endsAt])
+  @@map("booking")
 }

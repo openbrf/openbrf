@@ -306,6 +306,7 @@
           "legalHolds": "Legal holds",
           "issues": "Issue reports",
           "documents": "Documents filed",
+          "bookings": "Bookings",
           "audit": "The audit log",
           "retention": "Retention"
         },
@@ -349,6 +350,10 @@
           "binder": "Binder",
           "audience": "Audience",
           "filed": "Filed",
+          "resource": "Resource",
+          "starts": "Starts",
+          "ends": "Ends",
+          "erasableFrom": "Erasable from",
           "action": "Action",
           "at": "When",
           "about": "Concerns",
@@ -402,7 +407,10 @@
           "LEGAL_HOLD_RELEASED": "Legal hold released",
           "SERVICE_DATA_PURGED": "Service data purged",
           "BOARD_POSITION_ELECTED": "Election to a position of trust recorded",
-          "BOARD_POSITION_ENDED": "Term in a position of trust ended"
+          "BOARD_POSITION_ENDED": "Term in a position of trust ended",
+          "BOOKING_RESOURCE_CREATED": "Bookable resource added",
+          "BOOKING_RESOURCE_UPDATED": "Bookable resource changed",
+          "BOOKING_RESOURCE_DEACTIVATED": "Bookable resource withdrawn from booking"
         },
         "auditRole": {
           "subject": "About this person",
@@ -2138,6 +2146,13 @@
       "heading": "Latest news",
       "allNews": "All news",
       "empty": "Nothing has been written yet."
+    }
+  },
+  "bookings": {
+    "status": {
+      "BOOKED": "Booked",
+      "CANCELLED": "Cancelled",
+      "RELEASED": "Released"
     }
   }
 }

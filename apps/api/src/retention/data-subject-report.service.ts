@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 
 import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
+import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -42,6 +43,7 @@ const SECTIONS = [
   "legalHolds",
   "issues",
   "documents",
+  "bookings",
   "auditEntries",
 ] as const;
 
@@ -86,6 +88,11 @@ const SECTIONS = [
  * though this train does not purge either. A report that omitted rows because
  * their retention story was unfinished would be an incomplete answer to an
  * access request, which is the one failure this document cannot have.
+ *
+ * The bookings section is the one that does state an erasure date per row. A
+ * booking is purged a year after the booked period ended, on its own clock
+ * rather than the residency one, so the date at the foot of the document is not
+ * the date that governs it and each booking says when it goes.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -313,6 +320,29 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Bookings this person made. `bookedByPersonId` is a plain column and not a
+     * relation - a purge must not have to negotiate with the booking calendar -
+     * so this is a query of its own rather than a nested read off the person.
+     */
+    const bookings = await tx.booking.findMany({
+      where: { bookedByPersonId: personId },
+      orderBy: [{ startsAt: "desc" }],
+      select: {
+        id: true,
+        status: true,
+        startsAt: true,
+        endsAt: true,
+        resource: { select: { name: true } },
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
+    });
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -463,6 +493,30 @@ export class DataSubjectReportService {
         category: document.category,
         audience: document.audience,
         filedAt: document.createdAt.toISOString(),
+      })),
+      bookings: bookings.map((booking) => ({
+        bookingId: booking.id,
+        resourceName: booking.resource.name,
+        status: booking.status,
+        startsAt: booking.startsAt.toISOString(),
+        endsAt: booking.endsAt.toISOString(),
+        apartment:
+          booking.apartment === null
+            ? null
+            : `${booking.apartment.address.street} ${booking.apartment.address.number} ${booking.apartment.number}`,
+        /*
+         * Derived here rather than stored, exactly as a residency's is: a
+         * shorter retention window moves every pending date by that act alone,
+         * and this document has to state the date that will actually apply.
+         *
+         * Stated as the earliest date the purge can reach the row rather than
+         * as the date it goes on, because a legal hold suspends the purge for
+         * the whole person and this document is read by the person a hold may
+         * be standing against. `retention.onLegalHold` below says whether one
+         * does; a hold defers this date and never advances it, so the earliest
+         * holds true whether or not one stands.
+         */
+        erasableFrom: toIsoDate(computeBookingPurgeDate(booking.endsAt)),
       })),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,

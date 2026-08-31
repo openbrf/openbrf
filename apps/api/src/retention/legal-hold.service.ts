@@ -3,6 +3,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
+import { lockLegalHold } from "./legal-hold-lock";
 
 /**
  * A legal hold could not be placed or released.
@@ -112,6 +113,15 @@ export class LegalHoldService {
    * can both read no open hold before either inserts. {@link release} is where
    * that is made harmless: it closes every open hold rather than the one it
    * read, so a duplicate can never survive a release.
+   *
+   * The lock is what makes a hold bind the purges rather than merely race
+   * them. A purge that erases this person's service data takes the same key
+   * before it reads whether they are held, so a placement either lands before
+   * that read and stops the run, or waits for it and takes effect from the
+   * moment it commits. Without it the two are ordered by chance, and a hold
+   * placed a moment too late is a promise nobody kept - the board member is
+   * told the person is held and the data has already gone. See
+   * `legal-hold-lock.ts`.
    */
   async place(input: {
     personId: string;
@@ -121,6 +131,8 @@ export class LegalHoldService {
     await this.requirePerson(input.personId);
 
     const view = await this.prisma.$transaction(async (tx) => {
+      await lockLegalHold(tx, input.personId);
+
       const open = await tx.legalHold.findFirst({
         where: { personId: input.personId, releasedAt: null },
         select: { id: true },
