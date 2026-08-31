@@ -150,6 +150,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.BOOKING_RESOURCE_UPDATED",
   BOOKING_RESOURCE_DEACTIVATED:
     "register.person.report.action.BOOKING_RESOURCE_DEACTIVATED",
+  BOOKING_MADE: "register.person.report.action.BOOKING_MADE",
+  BOOKING_CANCELLED: "register.person.report.action.BOOKING_CANCELLED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */

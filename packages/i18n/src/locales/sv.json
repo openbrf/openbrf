@@ -410,7 +410,9 @@
           "BOARD_POSITION_ENDED": "Förtroendeuppdrag avslutades",
           "BOOKING_RESOURCE_CREATED": "Bokningsbar resurs tillagd",
           "BOOKING_RESOURCE_UPDATED": "Bokningsbar resurs ändrad",
-          "BOOKING_RESOURCE_DEACTIVATED": "Bokningsbar resurs stängd för bokning"
+          "BOOKING_RESOURCE_DEACTIVATED": "Bokningsbar resurs stängd för bokning",
+          "BOOKING_MADE": "Bokning gjordes",
+          "BOOKING_CANCELLED": "Bokning avbokad"
         },
         "auditRole": {
           "subject": "Om den här personen",

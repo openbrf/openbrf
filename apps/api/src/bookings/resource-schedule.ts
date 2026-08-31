@@ -16,9 +16,7 @@
  */
 
 import type { BookingResourceMode } from "../generated/prisma/enums";
-
-/** Minutes in a day, which is the bound on a time of day and on a slot. */
-export const MINUTES_PER_DAY = 24 * 60;
+import { MINUTES_PER_DAY } from "./stockholm-calendar";
 
 /**
  * The booking mechanics as a board states them.
