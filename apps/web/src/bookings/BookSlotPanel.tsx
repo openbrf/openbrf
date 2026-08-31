@@ -138,6 +138,14 @@ export function BookSlotPanel({
   const [answer, setAnswer] = useState<Calendar | null>(null);
   const [stay, setStay] = useState<StayDraft | null>(null);
   /**
+   * Bumped to ask for the calendar again without changing what is asked for.
+   *
+   * A saved booking needs a fresh read of the same resource and week, which is
+   * a request the reading effect cannot tell from the one it already made. This
+   * is how it is told, and it keeps that effect the only thing that reads.
+   */
+  const [refreshes, setRefreshes] = useState(0);
+  /**
    * Which slot the booking in flight is for.
    *
    * One action serves the whole grid, so without this every cell reads the same
@@ -167,11 +175,15 @@ export function BookSlotPanel({
 
   useEffect(() => {
     /*
-     * The effect owns its own call and drops a response that arrives after the
-     * panel is gone rather than applying it to a component nobody is looking
-     * at. A response about a resource or a week that has since been changed is
-     * dropped by the render below instead, on the key it carries: two reads can
-     * be in flight and the older one can land last.
+     * Every read the panel makes is this one, including the one a saved booking
+     * asks for - which is what `refreshes` is for. A save used to read for
+     * itself, and that read belonged to whichever resource and week were on
+     * screen when the booking was sent: land it after the reader has moved on
+     * and it replaces the calendar being looked at with the one that was, and
+     * the render below shows nothing while the answer describes something other
+     * than the request on screen. The panel would sit loading with no read left
+     * in flight to end it. Asking the effect to run again instead keeps one
+     * owner, so the cleanup here covers a late answer whatever asked for it.
      */
     let active = true;
     void read().then((next) => {
@@ -182,11 +194,13 @@ export function BookSlotPanel({
     return () => {
       active = false;
     };
-  }, [read]);
+  }, [read, refreshes]);
 
   const claim = useSaveAction(bookSlot, () => {
     setStay(null);
-    void read().then(setAnswer);
+    // Asks the effect for a fresh read rather than taking one, so the answer
+    // belongs to whatever is on screen when it lands.
+    setRefreshes((count) => count + 1);
     onBooked();
   });
 

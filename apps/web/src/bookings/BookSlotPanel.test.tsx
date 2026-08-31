@@ -246,6 +246,32 @@ describe("taking a free slot", () => {
     });
   });
 
+  it("reads the calendar again, so the slot it took shows as taken", async () => {
+    /*
+     * The panel would otherwise go on drawing the grid it read before the
+     * booking, where the hour it has just taken is still free. The read has to
+     * come from the effect that owns every other read rather than from the save
+     * callback: a callback's read belongs to whichever resource and week were on
+     * screen when the booking was sent, and landing it after the reader has
+     * moved on replaces the calendar being looked at with the one that was.
+     */
+    const session = userEvent.setup();
+    await open();
+    const readsBeforeBooking = fetchBookableSlots.mock.calls.length;
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThan(
+        readsBeforeBooking,
+      );
+    });
+  });
+
   it("says so when somebody was quicker", async () => {
     bookSlot.mockResolvedValue({
       ok: false,
