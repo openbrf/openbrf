@@ -63,3 +63,7 @@ flight wins. An open motion is never purged: the association is still processing
 it, so the purpose it is held for has not ended.
 
 The screens, the navigation entry and the end-to-end suite follow separately.
+
+The deadline pair is refused by the database as well as by the API, with the
+day bounded by the month it names - a flat one-to-thirty-one would have
+admitted the 31st of February, which the API refuses.
