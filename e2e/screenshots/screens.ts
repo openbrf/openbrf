@@ -129,6 +129,24 @@ const SETTINGS_PANELS = [
 ] as const;
 
 /**
+ * The laundry room the booking screens are photographed against.
+ *
+ * Held here rather than inline because all three entries name it: the board adds
+ * it, a resident books it, and the board reads the hour that was taken. The
+ * hours divide into whole slots - 07:00 to 21:00 in seven-hour slots is two a
+ * day - because a length that leaves a remainder is refused at save time, and
+ * two slots a day is a calendar a reviewer can take in at a glance.
+ */
+const LAUNDRY = {
+  name: "Tvättstugan i port 12",
+  description:
+    "I källaren i port 12. Städa maskinerna efter dig och töm luddfiltret.",
+  slotMinutes: "420",
+  opensAt: "07:00",
+  closesAt: "21:00",
+} as const;
+
+/**
  * A token in the shape an invitation link carries.
  *
  * The activation screen renders its form from the link alone and sends the
@@ -654,5 +672,85 @@ export const SCREENS: readonly Screen[] = [
     as: "nobody",
     goto: "/",
     waitFor: { text: "Var finns tvättstugan?" },
+  },
+
+  // --- bookings ---------------------------------------------------------------
+  // Three screens in one order, because each photographs what the one above it
+  // did: the board names a laundry room, a resident takes an hour in it, and the
+  // board reads who has that hour. Nothing is bookable before the first of them
+  // - the wizard seeds no resource, and a board naming its own is where this
+  // module starts.
+  {
+    /*
+     * The catalogue, with a laundry room in it.
+     *
+     * The hours and the slot length divide evenly on purpose: 07:00 to 21:00 in
+     * seven-hour slots is two slots a day, and a length that left a remainder is
+     * refused at save time. A picture of a refused form is not what this card is
+     * about.
+     */
+    name: "settings-bookable-resources",
+    as: "administrator",
+    goto: appPath("/settings"),
+    prepare: [
+      { see: { panel: "Bokningsbara resurser" } },
+      { fill: { label: "Resursens namn" }, value: LAUNDRY.name },
+      {
+        fill: { label: "Vad de boende behöver veta" },
+        value: LAUNDRY.description,
+      },
+      {
+        fill: { label: "Passets längd i minuter" },
+        value: LAUNDRY.slotMinutes,
+      },
+      { fill: { label: "Öppnar" }, value: LAUNDRY.opensAt },
+      { fill: { label: "Stänger" }, value: LAUNDRY.closesAt },
+      { fill: { label: "Bokningar per vecka" }, value: "2" },
+      { click: { button: "Lägg till resurs" } },
+    ],
+    // The withdraw control on the row the save wrote. It exists only once the
+    // catalogue has been read back with the resource in it, which is what makes
+    // it a marker for the data rather than for the card.
+    waitFor: { button: `Ta ${LAUNDRY.name} ur bokning` },
+    capture: { panel: "Bokningsbara resurser" },
+  },
+  {
+    /*
+     * A resident taking an hour, and what they hold afterwards.
+     *
+     * The resident rather than the administrator, who holds every capability and
+     * no apartment: a booking is counted against an apartment the booker lives
+     * in, so the account that runs this instance cannot take a laundry hour and
+     * is told so. Somebody who lives here can.
+     *
+     * The first free slot of the week, whichever it is. A slot that has already
+     * begun is named as passed rather than as bookable, so the name matched here
+     * cannot land on one.
+     */
+    name: "bookings-resident",
+    as: "resident",
+    goto: appPath("/bookings"),
+    prepare: [{ click: { button: /^Boka /, first: true } }],
+    // The cancel control on the booking that was just made, which arrives with
+    // the re-read of what this account holds rather than with the click.
+    waitFor: { button: `Avboka ${LAUNDRY.name}` },
+    capture: "page",
+  },
+  {
+    /*
+     * The board's half: who holds which hour, and cancelling it on their behalf.
+     *
+     * The card on its own rather than the whole screen, because this is the half
+     * the capability exists for - and the administrator's own booking half above
+     * it says only that they hold no apartment, which is a true picture of a
+     * different thing.
+     */
+    name: "bookings-board",
+    as: "administrator",
+    goto: appPath("/bookings"),
+    // The cancel-on-behalf control, which exists only once the month has been
+    // read back with a live booking in it - the one the entry above made.
+    waitFor: { button: /åt den boende$/, first: true },
+    capture: { panel: "Hela kalendern" },
   },
 ];

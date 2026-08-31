@@ -884,6 +884,52 @@
         "notFound": "Meddelandet finns inte kvar. Listan är hämtad på nytt.",
         "unknown": "Meddelandet kunde inte uppdateras just nu. Försök igen."
       }
+    },
+    "bookableResources": {
+      "title": "Bokningsbara resurser",
+      "description": "Vad huset erbjuder, hur varje sak bokas och hur mycket av den en lägenhet får ha. Styrelsen namnger sina egna: en tvättstuga, föreningslokalen, gästlägenheten, en bastu, en takterrass.",
+      "loading": "Läser in resurserna...",
+      "loadFailed": "De bokningsbara resurserna kunde inte läsas just nu. Ladda om sidan.",
+      "empty": "Inget är bokningsbart. Så länge ingen resurs finns har en boende inget att boka.",
+      "name": "Resursens namn",
+      "namePlaceholder": "Tvättstugan i port 12, gästlägenheten...",
+      "modeLabel": "Så bokas den",
+      "mode": {
+        "TIME_SLOTS": "I tidpass inom en dag",
+        "WHOLE_DAY": "En hel dag i taget",
+        "DATE_RANGE": "En vistelse över en eller flera nätter"
+      },
+      "descriptionLabel": "Vad de boende behöver veta",
+      "descriptionHint": "Var den finns och vad ordningsreglerna säger om den. De boende läser det här ovanför kalendern.",
+      "slotMinutes": "Passets längd i minuter",
+      "opensAt": "Öppnar",
+      "closesAt": "Stänger",
+      "scheduleHint": "Passets längd måste dela öppettiderna i hela pass: 07:00 till 21:00 fungerar med pass på två eller sju timmar, men inte på tre. Stängningstiden 00:00 betyder midnatt när dagen är slut.",
+      "maxBookingsPerWeek": "Bokningar per vecka och lägenhet",
+      "maxConcurrentBookings": "Bokningar framåt samtidigt och lägenhet",
+      "quotaHint": "Lämna en gräns tom för ingen gräns. Båda räknas per lägenhet, så delägare delar en och samma tilldelning. En avbokning ger sin del tillbaka direkt.",
+      "bookingCount_one": "Gjorda bokningar: {{count}}",
+      "bookingCount_other": "Gjorda bokningar: {{count}}",
+      "standingBookings_one": "Redan gjorda bokningar: {{count}}. Att ändra hur den bokas flyttar dem inte, så en av dem kan hamna över de nya passgränserna. Kalendern visar de timmarna som bokade och inte som lediga.",
+      "standingBookings_other": "Redan gjorda bokningar: {{count}}. Att ändra hur den bokas flyttar dem inte, så en av dem kan hamna över de nya passgränserna. Kalendern visar de timmarna som bokade och inte som lediga.",
+      "addTitle": "Lägg till en resurs",
+      "add": "Lägg till resurs",
+      "adding": "Lägger till...",
+      "save": "Spara",
+      "withdraw": "Ta ur bokning",
+      "withdrawNamed": "Ta {{resource}} ur bokning",
+      "withdrawnTitle": "Ur bokning",
+      "withdrawnHint": "Inget tas bort, och bokningarna som gjorts på dem fortsätter att säga vad de gällde. Inget nytt kan bokas på dem, och en borttagning ur bokning ångras inte härifrån.",
+      "errors": {
+        "scheduleRequired": "En resurs som bokas i tidpass behöver en passlängd och både en öppnings- och en stängningstid.",
+        "scheduleNotApplicable": "Bara en resurs som bokas i tidpass har passlängd och öppettider. Töm fälten, eller boka den i tidpass.",
+        "closesBeforeOpens": "Stängningstiden måste komma efter öppningstiden. Stängningstiden 00:00 läses som midnatt när dagen är slut.",
+        "slotDoesNotFit": "Passets längd delar inte öppettiderna i hela pass, så dagen skulle sluta med ett kort pass. Ändra längden, eller flytta stängningstiden.",
+        "quotaNotPositive": "En gräns måste vara minst en bokning. Lämna den tom för ingen gräns; en resurs som ingen får boka är en resurs som är tagen ur bokning.",
+        "resourceNotFound": "Resursen finns inte längre. Listan har lästs om.",
+        "resourceWithdrawn": "Resursen är tagen ur bokning och kan därför inte ändras. Att erbjuda den igen är ett eget beslut.",
+        "unknown": "Resursen kunde inte sparas just nu. Försök igen."
+      }
     }
   },
   "plugins": {
@@ -2151,10 +2197,88 @@
     }
   },
   "bookings": {
+    "navLabel": "Bokningar",
+    "title": "Bokningar",
+    "intro": "Boka det huset erbjuder, och se vad du har bokat.",
+    "loading": "Läser in bokningarna...",
+    "loadFailed": "Bokningarna kunde inte läsas just nu. Ladda om sidan.",
+    "until": "till",
     "status": {
       "BOOKED": "Bokad",
       "CANCELLED": "Avbokad",
       "RELEASED": "Frisläppt"
+    },
+    "slot": {
+      "free": "Ledig",
+      "taken": "Bokad",
+      "mine": "Din",
+      "past": "Passerad",
+      "chosen": "Vald",
+      "action": "Boka {{period}}",
+      "name": "{{period}}: {{state}}"
+    },
+    "book": {
+      "title": "Boka",
+      "description": "Kalendern visar ledigt eller bokat. Vem som har en tid visas inte här.",
+      "resource": "Vad du vill boka",
+      "apartment": "Lägenhet",
+      "noResources": "Styrelsen har inte gjort något bokningsbart än. Be dem lägga till tvättstugan, föreningslokalen eller gästlägenheten under Inställningar.",
+      "noApartment": "En bokning räknas mot en lägenhet, och registret har ingen för dig. Be styrelsen registrera var du bor.",
+      "quotaWeek_one": "Bokningar per vecka och lägenhet: högst {{count}}.",
+      "quotaWeek_other": "Bokningar per vecka och lägenhet: högst {{count}}.",
+      "quotaConcurrent_one": "Bokningar framåt samtidigt och lägenhet: högst {{count}}.",
+      "quotaConcurrent_other": "Bokningar framåt samtidigt och lägenhet: högst {{count}}.",
+      "earlier": "Tidigare",
+      "later": "Senare",
+      "loadingSlots": "Läser kalendern...",
+      "noSlots": "Inget är bokningsbart de här dagarna.",
+      "booking": "Bokar...",
+      "booked": "Bokningen är gjord.",
+      "bookStay": "Boka vistelsen",
+      "stayNeedsCheckOut": "Ankomst {{from}}. Välj vilken dag du reser.",
+      "stayChosen": "Ankomst {{from}}, avresa {{to}}."
+    },
+    "mine": {
+      "title": "Dina bokningar",
+      "description": "Dina egna bokningar som inte har passerat, de närmaste först. En avbokning ger tiden tillbaka direkt.",
+      "empty": "Du har inga bokningar.",
+      "apartment": "Lägenhet",
+      "noApartment": "Bokningen är inte registrerad på någon lägenhet.",
+      "cancel": "Avboka",
+      "cancelNamed": "Avboka {{resource}}",
+      "cancelling": "Avbokar...",
+      "cancelled": "Bokningen är avbokad och tiden är ledig igen."
+    },
+    "board": {
+      "title": "Hela kalendern",
+      "description": "Alla bokningar de här dagarna, även avbokade, och vem som gjorde dem.",
+      "resource": "Resurs",
+      "allResources": "Allt",
+      "earlier": "Tidigare",
+      "later": "Senare",
+      "loading": "Läser kalendern...",
+      "empty": "Inget är bokat de här dagarna.",
+      "bookedBy": "Bokad av",
+      "bookerProtected": "Skyddade personuppgifter: fråga styrelsen.",
+      "bookerUnknown": "Finns inte längre i registret.",
+      "cancel": "Avboka åt den boende",
+      "cancelNamed": "Avboka {{resource}} åt den boende",
+      "cancelling": "Avbokar...",
+      "cancelled": "Bokningen är avbokad. Den boende kan se vem som avbokade."
+    },
+    "errors": {
+      "resourceNotFound": "Resursen finns inte längre. Listan har lästs om.",
+      "resourceWithdrawn": "Styrelsen har tagit bort resursen ur bokningen, så inget mer kan bokas på den.",
+      "slotTaken": "Någon hann före på den tiden. Kalendern har lästs om.",
+      "slotNotBookable": "Tiden går inte att boka. Antingen har den börjat, eller så har styrelsen ändrat öppettiderna sedan sidan lästes in.",
+      "quotaReached": "Lägenheten har redan så många bokningar av det här som den får ha.",
+      "quotaWeek": "Lägenheten har använt sina bokningar för den veckan. Gränsen räknas på veckan bokningen gäller, så en senare vecka är öppen.",
+      "quotaConcurrent": "Lägenheten har redan så många bokningar framåt som den får ha. Avboka en av dem för att boka en till.",
+      "apartmentNotFound": "Lägenheten är inte din under den period du bokar. Välj igen.",
+      "bookingNotFound": "Bokningen finns inte längre. Listan har lästs om.",
+      "alreadyCancelled": "Bokningen är redan avbokad, så det finns inget att avboka.",
+      "rangeInvalid": "De dagarna går inte att hämta en kalender för. Ladda om sidan.",
+      "unknown": "Det gick inte just nu. Försök igen."
     }
   }
 }

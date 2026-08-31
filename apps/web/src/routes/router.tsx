@@ -11,6 +11,7 @@ import { authClient } from "../auth/auth-client";
 import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
+import { BookingsRoute } from "./BookingsRoute";
 import { DocumentsRoute } from "./DocumentsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { IssuesRoute } from "./IssuesRoute";
@@ -263,6 +264,21 @@ const issuesRoute = createRoute({
 });
 
 /**
+ * Bookings. Signed in here, capabilities inside the screen.
+ *
+ * One route for both halves of the module, on the reasoning the issues route
+ * sets out: a resident books and reads what they hold, and whoever runs the
+ * calendar additionally sees who holds which hour. Two destinations for one
+ * subject would put the same word twice in the navigation.
+ */
+const bookingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/bookings",
+  beforeLoad: requireSession,
+  component: BookingsRoute,
+});
+
+/**
  * The document archive. A session, and the archive decides the rest.
  *
  * Deliberately no capability in the guard. What a person sees in the archive
@@ -347,6 +363,7 @@ const routeTree = rootRoute.addChildren([
   siteAdminRoute,
   siteMenuRoute,
   issuesRoute,
+  bookingsRoute,
   documentsRoute,
   newsAdminRoute,
   memberRegisterRoute,

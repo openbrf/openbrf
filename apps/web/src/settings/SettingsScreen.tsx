@@ -9,6 +9,7 @@ import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { AddressesPanel } from "./AddressesPanel";
 import { ApartmentsPanel } from "./ApartmentsPanel";
+import { BookableResourcesPanel } from "./BookableResourcesPanel";
 import { BrandingPanel } from "./BrandingPanel";
 import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
@@ -81,6 +82,8 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
   const canEditAddresses = viewer.capabilities.includes("addressBook:write");
   const canDecideSignup = viewer.capabilities.includes("signupRequest:decide");
   const canConfigureIssues = viewer.capabilities.includes("issues:configure");
+  const canConfigureBookings =
+    viewer.capabilities.includes("bookings:configure");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
 
@@ -250,6 +253,12 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
                   offers. The board configures the catalogue; an administrator
                   decides whether the public one exists. */}
               {canConfigureIssues ? <IssueTypesPanel /> : null}
+
+              {/* What the house offers and how much of it one household may
+                  take. The board's own policy for its own building, which is
+                  why it sits with the issue catalogue rather than with the
+                  administrator's settings above. */}
+              {canConfigureBookings ? <BookableResourcesPanel /> : null}
 
               {/* Installing and switching themes is an administrator's job,
                   and the API refuses the calls for anyone else. */}

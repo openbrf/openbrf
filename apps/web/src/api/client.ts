@@ -32,6 +32,16 @@ interface ErrorBody {
   findings?: unknown;
   issues?: unknown;
   locations?: unknown;
+  /**
+   * The limit a quota refusal reached, by field name.
+   *
+   * Named here because a refusal that publishes it is not actionable without
+   * it: a weekly allowance that has been spent is waited out, and a cap on how
+   * much of the future one household may hold at once is fixed by cancelling
+   * something. Which fields a refusal may publish is the endpoint's decision;
+   * this list is the client agreeing to carry them.
+   */
+  quota?: unknown;
 }
 
 /**
@@ -116,7 +126,8 @@ async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
       failure: {
         status: response.status,
         reason: typeof error.reason === "string" ? error.reason : "unexpected",
-        detail: error.findings ?? error.issues ?? error.locations,
+        detail:
+          error.findings ?? error.issues ?? error.locations ?? error.quota,
       },
     };
   }

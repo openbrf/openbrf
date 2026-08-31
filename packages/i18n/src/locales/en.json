@@ -884,6 +884,52 @@
         "notFound": "That message is gone. The list has been read again.",
         "unknown": "The message could not be updated just now. Please try again."
       }
+    },
+    "bookableResources": {
+      "title": "Bookable resources",
+      "description": "What the house offers, how each thing is booked, and how much of it one apartment may hold. The board names its own: a laundry room, the common room, the guest apartment, a sauna, a roof terrace.",
+      "loading": "Loading the resources...",
+      "loadFailed": "The bookable resources could not be read just now. Reload the page.",
+      "empty": "Nothing is bookable. Until a resource exists there is nothing for a resident to book.",
+      "name": "Resource name",
+      "namePlaceholder": "The laundry room in entrance 12, the guest apartment...",
+      "modeLabel": "How it is booked",
+      "mode": {
+        "TIME_SLOTS": "In time slots within a day",
+        "WHOLE_DAY": "One whole day at a time",
+        "DATE_RANGE": "A stay of one or more nights"
+      },
+      "descriptionLabel": "What residents should know",
+      "descriptionHint": "Where it is and what the house rules about it are. Residents read this above the calendar.",
+      "slotMinutes": "Slot length in minutes",
+      "opensAt": "Opens at",
+      "closesAt": "Closes at",
+      "scheduleHint": "The slot length has to divide the opening hours into whole slots: 07:00 to 21:00 works in slots of two or seven hours, and not of three. A closing time of 00:00 means midnight at the end of the day.",
+      "maxBookingsPerWeek": "Bookings per week and apartment",
+      "maxConcurrentBookings": "Bookings ahead at one time and apartment",
+      "quotaHint": "Leave a limit empty for no limit. Both are counted per apartment, so joint holders share one allowance. A cancelled booking gives its share back at once.",
+      "bookingCount_one": "Bookings made: {{count}}",
+      "bookingCount_other": "Bookings made: {{count}}",
+      "standingBookings_one": "Bookings already made: {{count}}. Changing how this is booked leaves them where they are, which can put one across the new slot boundaries. The calendar shows those hours as booked rather than free.",
+      "standingBookings_other": "Bookings already made: {{count}}. Changing how this is booked leaves them where they are, which can put one across the new slot boundaries. The calendar shows those hours as booked rather than free.",
+      "addTitle": "Add a resource",
+      "add": "Add resource",
+      "adding": "Adding...",
+      "save": "Save",
+      "withdraw": "Withdraw from booking",
+      "withdrawNamed": "Withdraw {{resource}} from booking",
+      "withdrawnTitle": "Withdrawn from booking",
+      "withdrawnHint": "Nothing is deleted, and the bookings made against these keep saying what they were for. Nothing new can be booked on them, and a withdrawal is not undone from here.",
+      "errors": {
+        "scheduleRequired": "A resource booked in time slots needs a slot length and both an opening and a closing time.",
+        "scheduleNotApplicable": "Only a resource booked in time slots carries a slot length and opening hours. Clear them, or book it in time slots.",
+        "closesBeforeOpens": "The closing time has to come after the opening time. A closing time of 00:00 is read as midnight at the end of the day.",
+        "slotDoesNotFit": "The slot length does not divide the opening hours into whole slots, so the day would end with a short one. Change the length, or move the closing time.",
+        "quotaNotPositive": "A limit must be at least one booking. Leave it empty for no limit; a resource nobody may book is one that has been withdrawn.",
+        "resourceNotFound": "That resource is gone. The list has been read again.",
+        "resourceWithdrawn": "That resource has been withdrawn from booking, so it cannot be edited. Offering it again is a decision of its own.",
+        "unknown": "The resource could not be saved just now. Please try again."
+      }
     }
   },
   "plugins": {
@@ -2151,10 +2197,88 @@
     }
   },
   "bookings": {
+    "navLabel": "Bookings",
+    "title": "Bookings",
+    "intro": "Book what the house offers, and see what you hold.",
+    "loading": "Loading the bookings...",
+    "loadFailed": "The bookings could not be read just now. Reload the page.",
+    "until": "to",
     "status": {
       "BOOKED": "Booked",
       "CANCELLED": "Cancelled",
       "RELEASED": "Released"
+    },
+    "slot": {
+      "free": "Free",
+      "taken": "Booked",
+      "mine": "Yours",
+      "past": "Gone",
+      "chosen": "Chosen",
+      "action": "Book {{period}}",
+      "name": "{{period}}: {{state}}"
+    },
+    "book": {
+      "title": "Book",
+      "description": "The calendar says free or booked. Who holds an hour is not shown here.",
+      "resource": "What to book",
+      "apartment": "Apartment",
+      "noResources": "The board has not made anything bookable yet. Ask them to add the laundry room, the common room or the guest apartment under Settings.",
+      "noApartment": "Booking is counted against an apartment, and the register holds none for you. Ask the board to record where you live.",
+      "quotaWeek_one": "Bookings per week and apartment: at most {{count}}.",
+      "quotaWeek_other": "Bookings per week and apartment: at most {{count}}.",
+      "quotaConcurrent_one": "Bookings ahead at one time and apartment: at most {{count}}.",
+      "quotaConcurrent_other": "Bookings ahead at one time and apartment: at most {{count}}.",
+      "earlier": "Earlier",
+      "later": "Later",
+      "loadingSlots": "Reading the calendar...",
+      "noSlots": "Nothing is bookable in these days.",
+      "booking": "Booking...",
+      "booked": "The booking is made.",
+      "bookStay": "Book the stay",
+      "stayNeedsCheckOut": "Check-in {{from}}. Choose the day you leave.",
+      "stayChosen": "Check-in {{from}}, check-out {{to}}."
+    },
+    "mine": {
+      "title": "What you hold",
+      "description": "Your own bookings that have not ended, soonest first. Cancelling gives the slot straight back.",
+      "empty": "You hold no bookings.",
+      "apartment": "Apartment",
+      "noApartment": "This booking is not recorded against an apartment.",
+      "cancel": "Cancel",
+      "cancelNamed": "Cancel the booking of {{resource}}",
+      "cancelling": "Cancelling...",
+      "cancelled": "The booking is cancelled and the slot is free again."
+    },
+    "board": {
+      "title": "The whole calendar",
+      "description": "Every booking in these days, cancelled ones included, and who made it.",
+      "resource": "Resource",
+      "allResources": "Everything",
+      "earlier": "Earlier",
+      "later": "Later",
+      "loading": "Reading the calendar...",
+      "empty": "Nothing is booked in these days.",
+      "bookedBy": "Booked by",
+      "bookerProtected": "Protected personal data: ask the board.",
+      "bookerUnknown": "No longer in the register.",
+      "cancel": "Cancel on their behalf",
+      "cancelNamed": "Cancel the booking of {{resource}} on their behalf",
+      "cancelling": "Cancelling...",
+      "cancelled": "The booking is cancelled. The resident can see who cancelled it."
+    },
+    "errors": {
+      "resourceNotFound": "That resource is gone. The list has been read again.",
+      "resourceWithdrawn": "The board has withdrawn that resource from booking, so nothing more can be booked on it.",
+      "slotTaken": "Somebody took that slot first. The calendar has been read again.",
+      "slotNotBookable": "That slot cannot be booked. It has either begun, or the board has changed the opening hours since this page was loaded.",
+      "quotaReached": "The apartment already holds as many bookings of this as it may.",
+      "quotaWeek": "The apartment has used its bookings for that week. The allowance is counted on the week the booking is for, so a later week is open.",
+      "quotaConcurrent": "The apartment already holds as many bookings ahead as it may. Cancel one of them to book another.",
+      "apartmentNotFound": "That apartment is not one you hold for the period you are booking. Choose again.",
+      "bookingNotFound": "That booking is gone. The list has been read again.",
+      "alreadyCancelled": "That booking is already cancelled, so there is nothing to cancel.",
+      "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
+      "unknown": "That could not be done just now. Please try again."
     }
   }
 }
