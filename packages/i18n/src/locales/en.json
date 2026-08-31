@@ -402,7 +402,7 @@
           "LEGAL_HOLD_RELEASED": "Legal hold released",
           "SERVICE_DATA_PURGED": "Service data purged",
           "BOARD_POSITION_ELECTED": "Election to a position of trust recorded",
-          "BOARD_POSITION_ENDED": "Term on the board ended"
+          "BOARD_POSITION_ENDED": "Term in a position of trust ended"
         },
         "auditRole": {
           "subject": "About this person",
