@@ -910,8 +910,7 @@
       "quotaHint": "Lämna en gräns tom för ingen gräns. Båda räknas per lägenhet, så delägare delar en och samma tilldelning. En avbokning ger sin del tillbaka direkt.",
       "bookingCount_one": "Gjorda bokningar: {{count}}",
       "bookingCount_other": "Gjorda bokningar: {{count}}",
-      "standingBookings_one": "Redan gjorda bokningar: {{count}}. Att ändra hur den bokas flyttar dem inte, så en av dem kan hamna över de nya passgränserna. Kalendern visar de timmarna som bokade och inte som lediga.",
-      "standingBookings_other": "Redan gjorda bokningar: {{count}}. Att ändra hur den bokas flyttar dem inte, så en av dem kan hamna över de nya passgränserna. Kalendern visar de timmarna som bokade och inte som lediga.",
+      "mechanicsLocked": "Hur en resurs bokas kan bara ändras när ingen bokning på den återstår. Avboka de bokningar som inte har passerat, eller vänta tills de har passerat. Namnet, beskrivningen och gränserna går alltid att ändra.",
       "addTitle": "Lägg till en resurs",
       "add": "Lägg till resurs",
       "adding": "Lägger till...",
@@ -928,6 +927,7 @@
         "quotaNotPositive": "En gräns måste vara minst en bokning. Lämna den tom för ingen gräns; en resurs som ingen får boka är en resurs som är tagen ur bokning.",
         "resourceNotFound": "Resursen finns inte längre. Listan har lästs om.",
         "resourceWithdrawn": "Resursen är tagen ur bokning och kan därför inte ändras. Att erbjuda den igen är ett eget beslut.",
+        "resourceInUse": "Resursen har bokningar som inte har passerat, så hur den bokas kan inte ändras än. Avboka dem, eller vänta tills de har passerat. Namnet, beskrivningen och gränserna går att ändra nu.",
         "unknown": "Resursen kunde inte sparas just nu. Försök igen."
       }
     }

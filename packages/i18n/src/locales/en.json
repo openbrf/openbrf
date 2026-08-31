@@ -910,8 +910,7 @@
       "quotaHint": "Leave a limit empty for no limit. Both are counted per apartment, so joint holders share one allowance. A cancelled booking gives its share back at once.",
       "bookingCount_one": "Bookings made: {{count}}",
       "bookingCount_other": "Bookings made: {{count}}",
-      "standingBookings_one": "Bookings already made: {{count}}. Changing how this is booked leaves them where they are, which can put one across the new slot boundaries. The calendar shows those hours as booked rather than free.",
-      "standingBookings_other": "Bookings already made: {{count}}. Changing how this is booked leaves them where they are, which can put one across the new slot boundaries. The calendar shows those hours as booked rather than free.",
+      "mechanicsLocked": "How a resource is booked can only be changed while nothing standing is booked on it. Cancel the bookings still to come, or wait until they have passed. The name, the description and the limits can be changed at any time.",
       "addTitle": "Add a resource",
       "add": "Add resource",
       "adding": "Adding...",
@@ -928,6 +927,7 @@
         "quotaNotPositive": "A limit must be at least one booking. Leave it empty for no limit; a resource nobody may book is one that has been withdrawn.",
         "resourceNotFound": "That resource is gone. The list has been read again.",
         "resourceWithdrawn": "That resource has been withdrawn from booking, so it cannot be edited. Offering it again is a decision of its own.",
+        "resourceInUse": "This resource has bookings still to come, so how it is booked cannot be changed yet. Cancel them, or wait until they have passed. The name, the description and the limits can be changed now.",
         "unknown": "The resource could not be saved just now. Please try again."
       }
     }

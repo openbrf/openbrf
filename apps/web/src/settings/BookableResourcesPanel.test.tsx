@@ -234,10 +234,50 @@ describe("the refusals a board meets", () => {
       ).toBeTruthy();
     });
   });
+
+  it("says which bookings are in the way when the mechanics cannot be changed yet", async () => {
+    // Somebody holds next Tuesday under the hours the board is rewriting. The
+    // refusal has to say what to do about it, and that the fields it does not
+    // cover can still be saved.
+    updateBookableResource.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "resource-in-use" },
+    });
+
+    const session = userEvent.setup();
+    await open();
+    await session.click(screen.getByRole("button", { name: /^Spara$/ }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Resursen har bokningar som inte har passerat, så hur den bokas kan inte ändras än. Avboka dem, eller vänta tills de har passerat. Namnet, beskrivningen och gränserna går att ändra nu.",
+        ),
+      ).toBeTruthy();
+    });
+  });
 });
 
-describe("what changing the mechanics leaves behind", () => {
-  it("is said on a resource that has been booked", async () => {
+describe("when the mechanics can be changed", () => {
+  /*
+   * Said without a count, and said on every resource. The server refuses a
+   * mechanics change while a booking against the resource is still to come, and
+   * the only number this screen has is every booking the resource has ever
+   * taken - the right number for what withdrawing it would leave behind and the
+   * wrong one for this. A resource booked once last winter would otherwise
+   * carry a warning for ever while the change it warned about went through.
+   */
+  it("is said on a resource nothing has ever been booked against", async () => {
+    await open();
+
+    expect(
+      screen.getByText(
+        "Hur en resurs bokas kan bara ändras när ingen bokning på den återstår. Avboka de bokningar som inte har passerat, eller vänta tills de har passerat. Namnet, beskrivningen och gränserna går alltid att ändra.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about how many bookings a resource has taken", async () => {
     fetchAllBookableResources.mockResolvedValue({
       ok: true,
       value: [laundry({ bookingCount: 3 })],
@@ -246,15 +286,8 @@ describe("what changing the mechanics leaves behind", () => {
     await open();
 
     expect(
-      screen.getByText(
-        "Redan gjorda bokningar: 3. Att ändra hur den bokas flyttar dem inte, så en av dem kan hamna över de nya passgränserna. Kalendern visar de timmarna som bokade och inte som lediga.",
-      ),
+      screen.getByText(/Hur en resurs bokas kan bara ändras/),
     ).toBeTruthy();
-  });
-
-  it("is not said on a resource nothing has been booked against", async () => {
-    await open();
-
     expect(screen.queryByText(/Redan gjorda bokningar/)).toBeNull();
   });
 });

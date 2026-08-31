@@ -58,6 +58,7 @@ const RESOURCE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "quota-not-positive": "settings.bookableResources.errors.quotaNotPositive",
   "resource-not-found": "settings.bookableResources.errors.resourceNotFound",
   "resource-deactivated": "settings.bookableResources.errors.resourceWithdrawn",
+  "resource-in-use": "settings.bookableResources.errors.resourceInUse",
   "invalid-body": "settings.bookableResources.errors.unknown",
 };
 
@@ -333,20 +334,16 @@ function ResourceRow({
       <ResourceFields draft={draft} onChange={setDraft} disabled={busy} />
 
       {/*
-       * What changing the mechanics leaves behind, stated where the mechanics
-       * are changed. Narrowing a laundry room's hours does not move the
-       * bookings already made: they stay where they are, which can leave one
-       * sitting across the new slot boundaries, and the calendar shows those
-       * hours as taken rather than pretending they are free. A board deciding
-       * this is entitled to know it before the save rather than after.
+       * How a resource is booked cannot be changed while a booking against it
+       * is still to come: the server refuses that with `resource-in-use`, so
+       * the board reads it here rather than meeting it as a refusal. Stated
+       * without a number on purpose. The count this screen has is every booking
+       * the resource has ever taken, which is the right number for what
+       * withdrawing it would leave behind and the wrong one for this: a laundry
+       * room booked once last winter would carry a warning for ever while the
+       * change it warns about would go through.
        */}
-      {resource.bookingCount === 0 ? null : (
-        <p className={HINT}>
-          {t("settings.bookableResources.standingBookings", {
-            count: resource.bookingCount,
-          })}
-        </p>
-      )}
+      <p className={HINT}>{t("settings.bookableResources.mechanicsLocked")}</p>
 
       <div className="flex flex-wrap items-center gap-3">
         <button
