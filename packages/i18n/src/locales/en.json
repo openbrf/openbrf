@@ -410,7 +410,9 @@
           "BOARD_POSITION_ENDED": "Term in a position of trust ended",
           "BOOKING_RESOURCE_CREATED": "Bookable resource added",
           "BOOKING_RESOURCE_UPDATED": "Bookable resource changed",
-          "BOOKING_RESOURCE_DEACTIVATED": "Bookable resource withdrawn from booking"
+          "BOOKING_RESOURCE_DEACTIVATED": "Bookable resource withdrawn from booking",
+          "BOOKING_MADE": "Resource booked",
+          "BOOKING_CANCELLED": "Booking cancelled"
         },
         "auditRole": {
           "subject": "About this person",

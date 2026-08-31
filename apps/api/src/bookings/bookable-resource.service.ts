@@ -33,6 +33,22 @@ export interface BookableResourceView {
 }
 
 /**
+ * A resource as somebody booking it is shown it.
+ *
+ * The catalogue view minus the booking count, which is configuration detail:
+ * how much has been booked against a resource is what a board weighs before
+ * withdrawing one, and has nothing to do with taking a laundry hour.
+ *
+ * The two limits are on it. They are the rules the person booking is subject
+ * to, so a screen can say why a slot was refused before it is - and they are
+ * the board's policy for its own building rather than anybody's data.
+ */
+export type BookableResourceSummary = Omit<
+  BookableResourceView,
+  "bookingCount" | "deactivatedAt"
+>;
+
+/**
  * A resource as the board states it.
  *
  * Every optional field is `null` rather than absent, so a value the board
@@ -138,6 +154,25 @@ export class BookableResourceService {
       ...toView(resource),
       bookingCount: resource._count.bookings,
     }));
+  }
+
+  /**
+   * The resources the house currently offers, by name.
+   *
+   * Withdrawn ones are absent rather than marked: this is the list somebody
+   * chooses from, and a choice that cannot be made is not a choice. The board's
+   * own screen reads {@link listAll}, which keeps them.
+   */
+  async listOffered(): Promise<BookableResourceSummary[]> {
+    const resources = await this.prisma.bookableResource.findMany({
+      where: { deactivatedAt: null },
+      orderBy: [{ name: "asc" }],
+    });
+
+    return resources.map((resource) => {
+      const { deactivatedAt: _withdrawn, ...offered } = toView(resource);
+      return offered;
+    });
   }
 
   async create(

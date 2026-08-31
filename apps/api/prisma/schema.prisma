@@ -570,6 +570,13 @@ enum AuditAction {
   /// the bookings made against it: they say what they were for only through
   /// it.
   BOOKING_RESOURCE_DEACTIVATED
+  /// A resource was booked. The entry names the person who booked it as both
+  /// the actor and the subject; the board never books on anybody's behalf.
+  BOOKING_MADE
+  /// A booking was cancelled, by the person who made it or by the board. The
+  /// subject is whoever made it either way, so their access report shows a
+  /// cancellation somebody else decided on.
+  BOOKING_CANCELLED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
