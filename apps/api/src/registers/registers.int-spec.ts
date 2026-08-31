@@ -10,6 +10,11 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
+  addLocalDays,
+  formatLocalDay,
+  localDayOf,
+} from "../bookings/stockholm-calendar";
+import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
   runSuffix,
@@ -1166,9 +1171,15 @@ describe("recording a termination", () => {
   it("refuses a date that has not arrived", async () => {
     // A tenant-ownership that has not ceased cannot be reported as having
     // ceased, and the row could not be corrected afterwards.
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
+    /*
+     * Tomorrow on the association's calendar, not on UTC's. Sliced off an
+     * instant, this reads yesterday's date for the first hour or two of every
+     * Stockholm day - so between local midnight and 02:00 the "future" date
+     * this sends is today, the guard rightly accepts it, and the test fails for
+     * a reason that has nothing to do with what it is about. Which is the very
+     * confusion the guard under test exists to prevent.
+     */
+    const tomorrow = formatLocalDay(addLocalDays(localDayOf(new Date()), 1));
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/terminations",
@@ -1370,9 +1381,15 @@ describe("recording the membership decision behind a transfer", () => {
   });
 
   it("refuses a date that has not arrived", async () => {
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
+    /*
+     * Tomorrow on the association's calendar, not on UTC's. Sliced off an
+     * instant, this reads yesterday's date for the first hour or two of every
+     * Stockholm day - so between local midnight and 02:00 the "future" date
+     * this sends is today, the guard rightly accepts it, and the test fails for
+     * a reason that has nothing to do with what it is about. Which is the very
+     * confusion the guard under test exists to prevent.
+     */
+    const tomorrow = formatLocalDay(addLocalDays(localDayOf(new Date()), 1));
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
