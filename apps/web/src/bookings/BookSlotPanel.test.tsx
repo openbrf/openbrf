@@ -246,6 +246,29 @@ describe("taking a free slot", () => {
     });
   });
 
+  it("stops saying it is booking once the booking has been made", async () => {
+    /*
+     * The word in the cell and the accessible name have to agree. The slot the
+     * click named is remembered so that one action does not put "booking" on
+     * every hour of the week, and left standing it says "booking" over a
+     * booking that has finished - reading, to somebody who has the words rather
+     * than the tones, as a claim still in flight on an hour that is already
+     * theirs.
+     */
+    const session = userEvent.setup();
+    await open();
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Bokar...")).toBeNull();
+    });
+  });
+
   it("reads the calendar again, so the slot it took shows as taken", async () => {
     /*
      * The panel would otherwise go on drawing the grid it read before the
