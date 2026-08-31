@@ -131,9 +131,13 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.PAGE_VISIBILITY_CHANGED",
   NEWS_PUBLISHED: "register.person.report.action.NEWS_PUBLISHED",
   NEWS_EMAILED: "register.person.report.action.NEWS_EMAILED",
+  NEWS_TEXTED: "register.person.report.action.NEWS_TEXTED",
   LEGAL_HOLD_PLACED: "register.person.report.action.LEGAL_HOLD_PLACED",
   LEGAL_HOLD_RELEASED: "register.person.report.action.LEGAL_HOLD_RELEASED",
   SERVICE_DATA_PURGED: "register.person.report.action.SERVICE_DATA_PURGED",
+  BOARD_POSITION_ELECTED:
+    "register.person.report.action.BOARD_POSITION_ELECTED",
+  BOARD_POSITION_ENDED: "register.person.report.action.BOARD_POSITION_ENDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */

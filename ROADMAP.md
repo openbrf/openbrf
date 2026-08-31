@@ -11,13 +11,19 @@ suite driving a browser against that image.
 
 The way in is there now: a board member invites a person from the register, the
 invitation arrives as an email, and the link in it opens a screen where the
-recipient chooses a password and is signed in as soon as it is set. The
-association's own website is there as well - the site answers at the domain
-root, the application is served under `/app`, and a page is rendered as plain
-HTML with no JavaScript, no third-party requests and no cookie of its own. The
-board writes those pages from the application now, with the publication
-guardrails inside the write path, arranges the menu a visitor finds them
-through, and answers a broker from the facts it has recorded. A page can also
+recipient chooses a password and is signed in as soon as it is set. Who that
+person then is on the instance is settled from the application as well: the
+board records an election to a position of trust with the date the meeting was
+held, an administrator grants a second administrator or an external property
+manager their access, and the instance refuses to let go of its last
+administrator. Nothing about a role is entered by hand in the database any
+more. The association's own website is there as well - the site answers at the
+domain root, the application is served under `/app`, and a page is rendered as
+plain HTML with no JavaScript, no third-party requests and no cookie of its
+own. The board writes those pages from the application now, with the
+publication guardrails inside the write path, arranges the menu a visitor finds
+them through, and answers a broker from the facts it has recorded. A page can
+also
 carry the blocks that draw on the instance's own data: the document list, the
 board roster, the association facts and a FAQ. The project is not ready to hold
 your housing cooperative's data.
@@ -38,6 +44,9 @@ book. Concretely, all of this has to be true at once:
 - a first-boot wizard creates the housing cooperative, its addresses and its
   apartments
 - the board can sign in, invite people, and see the register
+- a board seat, a second administrator and an external property manager's
+  access are conferred from the application rather than written into the
+  database by hand
 - the statutory member and apartment registers print correctly and separately
 - a resident with protected personal data is masked everywhere
 - a real member list imports from CSV or Excel
@@ -213,6 +222,22 @@ locally the application runs from source beside the PostgreSQL that
       is set, every request the page makes goes to the housing cooperative's
       own instance, and a member-only page is indistinguishable from one that
       does not exist
+- [x] Conferring a role, from the person view in the register. The board
+      records an election to a position of trust - the position and the date
+      the general meeting was held - and says when a term ends by writing the
+      date, which leaves the row and the period it covered on file. That date
+      may be ahead of today, so a board can minute in April that a term runs to
+      the annual meeting; it is bounded to a plausible horizon, because a seat
+      goes on conferring what a seat confers until the date arrives, and it
+      stays correctable from the same screen until it passes. An administrator
+      grants and revokes the administrator role and the external property
+      manager's access on the same panel, and nobody else is offered those
+      controls because nobody else holds the capability behind them. A grant
+      takes effect on the next request without an account being touched,
+      because roles are derived from the register rather than stored on the
+      account. The one refusal that cannot be retried says so: the last
+      administrator cannot be revoked, and the screen says to grant the role to
+      somebody else first
 - [x] Issue reporting: a resident reports a problem with the building from the
       application, with photographs, and follows what happens to it. The
       issue types are the board's own - each one set to non-member, member or
@@ -427,16 +452,42 @@ Free, open source, and never moved behind a paywall.
       board, for the members or for anyone, and the file behind it is served
       under the same decision
 - [x] Issue reporting with photos
-- [ ] Roles for board members, residents and external property managers. The
-      model is built and enforced: the code asks what a principal may do rather
-      than which role they hold, a board seat does not carry an
-      administrator's rights, and an external property manager reaches the
-      issue queue and never the address book - which the end-to-end suite
-      checks. What is missing is conferring a role from the application. A
+- [x] Roles for board members, residents and external property managers, and
+      conferring them from the application. The model is enforced as before:
+      the code asks what a principal may do rather than which role they hold,
+      a board seat does not carry an administrator's rights, and an external
+      property manager reaches the issue queue and never the address book -
+      which the end-to-end suite checks. Every role now has a write path. A
       residency and its member or resident role are written by the move-in, by
-      the import and by an approved sign-up request, but a board seat and the
-      property manager grant have no screen and no endpoint, so both are
-      entered directly in the database
+      the import and by an approved sign-up request; a board seat, the
+      administrator grant and the property manager grant are written from the
+      person view in the register. Who may confer what is itself a capability
+      rather than a role check: the board records its own election, because a
+      board is elected by the general meeting and the application holds the
+      minute of it, and the seat it confers carries nothing its writer does
+      not already hold. Granting a system role is an administrator's, and the
+      board holds no capability that reaches that table at all - so a board
+      seat cannot become a way to grant oneself administrator rights, because
+      no route exists on which a board member writes the grant rather than
+      because a check inside one refuses it. The external property manager
+      grant sits on that side with the administrator grant although what it
+      carries is a subset of the board's own, because it is a standing grant
+      to somebody who neither lives in the building nor was elected to
+      anything, which is the same kind of decision as installing a plugin. A
+      board seat is a dated period and the row keeps it: ending a term writes
+      the date it ended and leaves the row where it was, an end date in the
+      future is an ordinary date so a board can minute in April that a term
+      runs to the annual meeting, and a re-election is two acts rather than an
+      edit so both periods stand with their own dates. A future end date is
+      bounded and correctable, because the seat confers what it confers until
+      the date arrives: a term cannot be recorded as running for a century, and
+      one recorded for the wrong year is corrected from the screen for as long
+      as the date is still ahead. Every election, end of term, grant and revoke
+      is written to the append-only audit log in the same transaction as the
+      change. And the instance cannot be shut from the inside: the last
+      administrator cannot be revoked, including by that administrator revoking
+      their own grant, and the refusal says to grant the role to somebody else
+      first rather than to try again
 - [x] Swedish and English interface: both languages are complete and carry the
       same keys, each person chooses theirs in their own profile, and the
       public website answers a visitor with no account from the language their
@@ -447,8 +498,10 @@ Free, open source, and never moved behind a paywall.
       paths are so far proven against a catalog and packages built inside this
       repository
 
-One thing in this list is still open: conferring a board seat or the
-property manager grant from the application.
+Every box in this list is ticked. That is the feature set of Core v1, not a
+claim that the result has held a real housing cooperative's data: the opening
+paragraph of this page still says no, and the pilot is the thing that will
+change it.
 
 ## After v1
 

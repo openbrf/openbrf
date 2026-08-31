@@ -29,6 +29,7 @@ import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
 import { RegistersModule } from "./registers/registers.module";
 import { RetentionModule } from "./retention/retention.module";
+import { RolesModule } from "./roles/roles.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
@@ -57,6 +58,7 @@ import { ThemesModule } from "./themes/themes.module";
     AddressesModule,
     AddressBookModule,
     RegistersModule,
+    RolesModule,
     MovesModule,
     ImportModule,
     ThemesModule,

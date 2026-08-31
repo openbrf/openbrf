@@ -69,6 +69,14 @@ export interface PersonResidencyView {
 }
 
 export interface PersonBoardPositionView {
+  /**
+   * The seat itself, so a screen can end this term rather than a position.
+   *
+   * A person can hold the same position twice - elected, stood down, elected
+   * again - and the two rows differ only in their dates, so the position is not
+   * a name for one of them.
+   */
+  boardPositionId: string;
   position: BoardPositionType;
   electedOn: string | null;
   endedOn: string | null;
@@ -199,7 +207,12 @@ export class PersonService {
         systemRoles: { select: { role: true } },
         boardPositions: {
           orderBy: [{ electedOn: "desc" }],
-          select: { position: true, electedOn: true, endedOn: true },
+          select: {
+            id: true,
+            position: true,
+            electedOn: true,
+            endedOn: true,
+          },
         },
         residencies: {
           orderBy: [{ movedInOn: "desc" }],
@@ -322,6 +335,7 @@ export class PersonService {
         ),
       })),
       boardPositions: person.boardPositions.map((position) => ({
+        boardPositionId: position.id,
         position: position.position,
         electedOn: toIsoDate(position.electedOn),
         endedOn: toIsoDate(position.endedOn),

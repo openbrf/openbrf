@@ -222,6 +222,42 @@
       "consentWithdrawLabel": "Återkalla samtycke för {{scope}}",
       "consentWorking": "Sparar",
       "consentFailed": "Samtycket kunde inte ändras. Försök igen.",
+      "roles": {
+        "boardExplained": "Styrelsen väljs av föreningsstämman. Anteckna valet med det datum det hölls, och avsluta ett uppdrag i stället för att ta bort det: vem som svarade för föreningen mellan två datum är vad ett förtroendeuppdrag visar.",
+        "position": "Uppdrag",
+        "electedOnLabel": "Vald den",
+        "elect": "Anteckna valet",
+        "electWorking": "Sparar",
+        "endedOnLabel": "Uppdraget avslutas",
+        "endTerm": "Avsluta uppdraget",
+        "endTermLabel": "Avsluta uppdraget som {{position}}",
+        "endTermWorking": "Sparar",
+        "changeEndDate": "Ändra slutdatumet",
+        "changeEndDateLabel": "Ändra när uppdraget som {{position}} avslutas",
+        "noBoardPositions": "Inget förtroendeuppdrag i registret",
+        "historyNote": "Ett avslutat uppdrag ligger kvar. Ingenting här raderas. Ett slutdatum som ännu inte har passerat går att rätta; när det har passerat står uppdraget som det är antecknat.",
+        "electedOnRequired": "Skriv datumet för valet.",
+        "endedOnRequired": "Skriv datumet då uppdraget avslutas.",
+        "systemHeading": "Systemroller",
+        "systemExplained": "Administratörsrollen ger alla behörigheter som finns, inklusive inställningar, tillägg och teman. Förvaltarrollen ger felanmälningskön och ingenting annat, och aldrig adressboken.",
+        "held": "Innehas",
+        "notHeld": "Innehas inte",
+        "grant": "Tilldela",
+        "revoke": "Ta bort",
+        "grantLabel": "Tilldela {{role}}",
+        "revokeLabel": "Ta bort {{role}}",
+        "systemWorking": "Sparar",
+        "errors": {
+          "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
+          "termAlreadyEnded": "Uppdraget är redan avslutat. Datumen är beskrivningen av en period som har löpt och de står kvar.",
+          "endedBeforeElected": "Ett uppdrag kan inte avslutas före valet som påbörjade det.",
+          "endedTooFarAhead": "Ett uppdrag kan inte löpa så långt fram i tiden. Kontrollera årtalet.",
+          "lastAdministrator": "Det här är instansens sista administratör. Tilldela rollen till någon annan först, annars står instansen utan väg tillbaka in.",
+          "notFound": "Registret har inte kvar det här. Ladda om sidan.",
+          "forbidden": "Ditt konto får inte göra det här.",
+          "failed": "Ändringen kunde inte sparas. Försök igen."
+        }
+      },
       "legalHold": {
         "title": "Rättsligt bevarandekrav",
         "explained": "Ett rättsligt bevarandekrav pausar gallringen för den här personen, och inget annat gör det. Det är till för uppgifter föreningen fortfarande behöver för att fastställa eller försvara ett rättsligt anspråk: en tvist, ett försäkringsärende, en begäran från en myndighet.",
@@ -364,7 +400,9 @@
           "NEWS_TEXTED": "Nyhet skickades med sms",
           "LEGAL_HOLD_PLACED": "Rättsligt bevarandekrav infördes",
           "LEGAL_HOLD_RELEASED": "Rättsligt bevarandekrav upphävdes",
-          "SERVICE_DATA_PURGED": "Servicedata gallrades"
+          "SERVICE_DATA_PURGED": "Servicedata gallrades",
+          "BOARD_POSITION_ELECTED": "Val till förtroendeuppdrag antecknades",
+          "BOARD_POSITION_ENDED": "Förtroendeuppdrag avslutades"
         },
         "auditRole": {
           "subject": "Om den här personen",

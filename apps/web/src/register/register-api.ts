@@ -25,6 +25,48 @@ export type RegisterSign =
   | "PROTECTED"
   | "MOVED_OUT";
 
+/** The two grants that are not tied to a residency or a seat. */
+export type SystemRole = "ADMIN" | "PROPERTY_MANAGER";
+
+/** The positions of trust the register knows, in seniority order. */
+export type BoardPositionType =
+  "CHAIR" | "BOARD_MEMBER" | "DEPUTY_BOARD_MEMBER";
+
+export const BOARD_POSITION_TYPES: readonly BoardPositionType[] = [
+  "CHAIR",
+  "BOARD_MEMBER",
+  "DEPUTY_BOARD_MEMBER",
+];
+
+/**
+ * One term on the board, as the person payload carries it.
+ *
+ * The seat's own id travels because a person can hold the same position twice -
+ * elected, stood down, elected again - so the position is not a name for either
+ * row, and a screen ending a term has to say which one.
+ */
+export interface PersonBoardPosition {
+  boardPositionId: string;
+  position: BoardPositionType;
+  electedOn: string | null;
+  endedOn: string | null;
+}
+
+/** One term, as the endpoint that writes it answers. */
+export interface BoardPositionView {
+  boardPositionId: string;
+  personId: string;
+  position: BoardPositionType;
+  electedOn: string;
+  endedOn: string | null;
+}
+
+/** Every system role one person holds, after a grant or a revoke. */
+export interface SystemRoleGrants {
+  personId: string;
+  roles: SystemRole[];
+}
+
 export type RegisterFilter =
   "all" | "members" | "residents" | "board" | "movedOut";
 
@@ -196,9 +238,12 @@ export type ReportAuditAction =
   | "PAGE_VISIBILITY_CHANGED"
   | "NEWS_PUBLISHED"
   | "NEWS_EMAILED"
+  | "NEWS_TEXTED"
   | "LEGAL_HOLD_PLACED"
   | "LEGAL_HOLD_RELEASED"
-  | "SERVICE_DATA_PURGED";
+  | "SERVICE_DATA_PURGED"
+  | "BOARD_POSITION_ELECTED"
+  | "BOARD_POSITION_ENDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -336,12 +381,8 @@ export interface PersonDetail {
   preferredLocale: string;
   isMember: boolean;
   residencies: PersonResidency[];
-  boardPositions: {
-    position: "CHAIR" | "BOARD_MEMBER" | "DEPUTY_BOARD_MEMBER";
-    electedOn: string | null;
-    endedOn: string | null;
-  }[];
-  systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
+  boardPositions: PersonBoardPosition[];
+  systemRoles: SystemRole[];
   account: {
     state: "active" | "invited" | "none";
     twoFactorEnabled: boolean;
@@ -586,6 +627,63 @@ export function setPublicationConsent(
     )}/publication-consent`,
     { method: "PATCH", body: JSON.stringify({ scope, granted }) },
   );
+}
+
+/**
+ * Records an election to a position of trust.
+ *
+ * The date is the day the general meeting elected them, not today: the row is
+ * written afterwards from the minutes, and a register that stamped the day
+ * somebody got round to typing it in would record the typing.
+ *
+ * A person already holding the position is refused rather than merged. A
+ * re-election is two acts - end the term, then record the new election - so the
+ * register carries both periods with their own dates.
+ */
+export function electToBoardPosition(
+  personId: string,
+  position: BoardPositionType,
+  electedOn: string,
+): Promise<BoardPositionView> {
+  return request(
+    `/api/board-positions/persons/${encodeURIComponent(personId)}`,
+    { method: "POST", body: JSON.stringify({ position, electedOn }) },
+  );
+}
+
+/**
+ * Ends a term, by writing the date it ended onto the seat.
+ *
+ * Never a delete. Who answered for the association between two dates is the
+ * question a board seat exists to answer, and it survives the term.
+ */
+export function endBoardTerm(
+  boardPositionId: string,
+  endedOn: string,
+): Promise<BoardPositionView> {
+  return request(
+    `/api/board-positions/${encodeURIComponent(boardPositionId)}/end`,
+    { method: "POST", body: JSON.stringify({ endedOn }) },
+  );
+}
+
+/**
+ * Grants or revokes one system role.
+ *
+ * An administrator's endpoint, and only an administrator's: a board seat does
+ * not reach it, which is what stops a seat from becoming a way to grant oneself
+ * administrator rights. The last administrator cannot be revoked, including by
+ * themselves, and the API answers that with `last-administrator`.
+ */
+export function setSystemRole(
+  personId: string,
+  role: SystemRole,
+  granted: boolean,
+): Promise<SystemRoleGrants> {
+  return request(`/api/system-roles/persons/${encodeURIComponent(personId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role, granted }),
+  });
 }
 
 export function setProtectedPersonalData(

@@ -554,6 +554,12 @@ enum AuditAction {
   /// Service-tier data past its retention date was purged. The statutory tier
   /// is exempt and is never reached by a purge.
   SERVICE_DATA_PURGED
+  /// A person was recorded as elected to a position of trust on the board.
+  BOARD_POSITION_ELECTED
+  /// A board term was recorded as ended. The row stays where it is: a position
+  /// of trust is a dated fact about who answered for the association and when,
+  /// so ending one adds a date rather than removing the period it covered.
+  BOARD_POSITION_ENDED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.

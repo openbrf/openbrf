@@ -3,12 +3,18 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
+  BOARD_POSITION_TYPES,
+  type BoardPositionType,
   type ConsentScope,
+  electToBoardPosition,
+  endBoardTerm,
   fetchPerson,
   type MaskableField,
+  type PersonBoardPosition,
   type PersonDetail,
   placeLegalHold,
   type PublicationConsent,
@@ -19,6 +25,8 @@ import {
   sendInvitation,
   setProtectedPersonalData,
   setPublicationConsent,
+  setSystemRole,
+  type SystemRole,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
@@ -49,7 +57,65 @@ const ROLE_LABEL = {
 const SYSTEM_ROLE_LABEL = {
   ADMIN: "register.person.systemRole.admin",
   PROPERTY_MANAGER: "register.person.systemRole.propertyManager",
-} as const satisfies Record<string, TranslationKey>;
+} as const satisfies Record<SystemRole, TranslationKey>;
+
+/** The two grants, in the order the panel offers them. */
+const SYSTEM_ROLES: readonly SystemRole[] = ["ADMIN", "PROPERTY_MANAGER"];
+
+const BOARD_POSITION_LABEL = {
+  CHAIR: "register.sign.chair",
+  BOARD_MEMBER: "register.sign.boardMember",
+  DEPUTY_BOARD_MEMBER: "register.sign.deputyBoardMember",
+} as const satisfies Record<BoardPositionType, TranslationKey>;
+
+/**
+ * The sentence each refusal gets.
+ *
+ * A total map is not possible here - the API may answer with a reason this
+ * build has not heard of - so the fallback is the generic sentence rather than
+ * the code. What must never happen is the API's own English reaching a screen
+ * that is Swedish by default.
+ */
+const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
+  "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
+  "term-already-ended": "register.person.roles.errors.termAlreadyEnded",
+  "ended-before-elected": "register.person.roles.errors.endedBeforeElected",
+  "ended-too-far-ahead": "register.person.roles.errors.endedTooFarAhead",
+  "last-administrator": "register.person.roles.errors.lastAdministrator",
+  "person-not-found": "register.person.roles.errors.notFound",
+  "board-position-not-found": "register.person.roles.errors.notFound",
+};
+
+function roleErrorMessage(error: unknown): TranslationKey {
+  if (error instanceof RegisterRequestError) {
+    if (error.status === 403) {
+      return "register.person.roles.errors.forbidden";
+    }
+    const known =
+      error.reason === null ? undefined : ROLE_ERROR_MESSAGE[error.reason];
+    if (known !== undefined) {
+      return known;
+    }
+  }
+  return "register.person.roles.errors.failed";
+}
+
+/**
+ * Whether a term is running, by the rule the server derives access from.
+ *
+ * A seat carrying an end date that has not arrived counts as running, which is
+ * the same rule `isHeldOn` applies on the server and has to be: it is the rule
+ * the seat still confers the board's capabilities by, and it is the window the
+ * server lets the end date be written in. So the control this decides is
+ * offered on such a seat, and what it offers is a correction rather than an
+ * end - a date typed into the wrong year has to be reachable from here, or the
+ * only way back is the database.
+ *
+ * @see apps/api/src/roles/role-changes.ts
+ */
+function isHeld(seat: PersonBoardPosition, today: string): boolean {
+  return seat.endedOn === null || seat.endedOn > today;
+}
 
 const CONSENT_SCOPE_LABEL = {
   PHOTO: "register.person.consentScope.photo",
@@ -124,6 +190,18 @@ export interface PersonPanelProps {
     personName: string;
     apartmentNumber: string;
   }) => void;
+  /**
+   * What the viewer may do, from `/api/me`.
+   *
+   * Passed in rather than fetched here, like every other capability decision in
+   * this codebase: the route already knows who is signed in. Empty is the
+   * honest default for "not known yet", so the panel gains controls as the
+   * answer arrives and never offers one it then takes away.
+   *
+   * Hiding a control is courtesy and not enforcement. The server refuses the
+   * call whatever this list says.
+   */
+  capabilities?: readonly string[];
 }
 
 export function PersonPanel({
@@ -132,6 +210,7 @@ export function PersonPanel({
   onChanged,
   onMoveOut,
   onOpenReport,
+  capabilities = [],
 }: PersonPanelProps): ReactElement {
   const { t } = useTranslation();
   const heading = usePanelHeadingFocus();
@@ -151,7 +230,45 @@ export function PersonPanel({
   const [holdSaving, setHoldSaving] = useState(false);
   const [holdFailed, setHoldFailed] = useState(false);
   const [holdReasonMissing, setHoldReasonMissing] = useState(false);
+  const [electPosition, setElectPosition] =
+    useState<BoardPositionType>("BOARD_MEMBER");
+  const [electedOn, setElectedOn] = useState("");
+  /** The seat whose end date is being typed, by the two-press pattern. */
+  const [endingSeat, setEndingSeat] = useState<string | null>(null);
+  /**
+   * The seats running at the moment the register was read.
+   *
+   * Settled there rather than during a render, like the invitation's expiry
+   * above and for the same reason: a render may not depend on the time it
+   * happens to run at. Empty until the answer arrives, so a term whose state is
+   * not known yet is not offered an end date.
+   */
+  const [heldSeats, setHeldSeats] = useState<ReadonlySet<string>>(new Set());
+  const [endedOn, setEndedOn] = useState("");
+  const [roleSaving, setRoleSaving] = useState<string | null>(null);
+  /*
+   * One failure per half, not one for the panel.
+   *
+   * The two halves are far apart on a long panel, and a refusal rendered at the
+   * bottom of it is a sentence about a button somebody cannot see. Each is
+   * cleared by the act that follows it rather than by the other's.
+   */
+  const [boardFailure, setBoardFailure] = useState<TranslationKey | null>(null);
+  const [systemRoleFailure, setSystemRoleFailure] =
+    useState<TranslationKey | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  /*
+   * Which of the two halves of this panel the viewer may write.
+   *
+   * Two capabilities and not one, because the answers differ: the board records
+   * its own election, and only an administrator grants a system role. That
+   * split is enforced on the server - there is no route on which a board member
+   * can write a system role - and this is the interface following it, not the
+   * interface deciding it.
+   */
+  const canManageBoardPositions = capabilities.includes("boardPosition:manage");
+  const canManageSystemRoles = capabilities.includes("systemRole:manage");
 
   /*
    * No synchronous reset here: the route remounts this panel when the person
@@ -178,6 +295,14 @@ export function PersonPanel({
         setInvitationExpired(
           detail.account.invitationExpiresAt !== null &&
             new Date(detail.account.invitationExpiresAt).getTime() < Date.now(),
+        );
+        const today = new Date().toISOString().slice(0, 10);
+        setHeldSeats(
+          new Set(
+            detail.boardPositions
+              .filter((seat) => isHeld(seat, today))
+              .map((seat) => seat.boardPositionId),
+          ),
         );
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -350,6 +475,104 @@ export function PersonPanel({
       setReloadToken((token) => token + 1);
     },
     [personId, holdReason],
+  );
+
+  /*
+   * Recording an election to a position of trust.
+   *
+   * `onChanged` IS called here, unlike the consent and the hold above: the
+   * board's rows wear a sign for every seat somebody holds, so a new one is a
+   * change the list beside this panel shows. Reloading it is what keeps the two
+   * halves of the screen telling the same story.
+   *
+   * The date is required by the form as well as by the API. An election has a
+   * day it happened on - the general meeting - and a refusal arriving from the
+   * server after the button was clicked would read as a fault rather than as
+   * the missing date it is.
+   */
+  const elect = useCallback(async (): Promise<void> => {
+    if (electedOn === "") {
+      setBoardFailure("register.person.roles.electedOnRequired");
+      return;
+    }
+
+    setBoardFailure(null);
+    setRoleSaving("elect");
+    try {
+      await electToBoardPosition(personId, electPosition, electedOn);
+    } catch (error) {
+      setBoardFailure(roleErrorMessage(error));
+      return;
+    } finally {
+      setRoleSaving(null);
+    }
+    setElectedOn("");
+    setReloadToken((token) => token + 1);
+    onChanged();
+  }, [personId, electPosition, electedOn, onChanged]);
+
+  /*
+   * Saying when a term ends, and correcting that date while it is still ahead.
+   *
+   * Nothing is deleted: the row keeps its dates and stops granting anything
+   * once the end date has passed. A failure must not look like success - a
+   * board member who read a failed end as a successful one would leave somebody
+   * holding the board's access after they stood down, which is the exposure
+   * this control exists to close.
+   */
+  const endTerm = useCallback(
+    async (boardPositionId: string): Promise<void> => {
+      if (endedOn === "") {
+        setBoardFailure("register.person.roles.endedOnRequired");
+        return;
+      }
+
+      setBoardFailure(null);
+      setRoleSaving(boardPositionId);
+      try {
+        await endBoardTerm(boardPositionId, endedOn);
+      } catch (error) {
+        setBoardFailure(roleErrorMessage(error));
+        return;
+      } finally {
+        setRoleSaving(null);
+      }
+      setEndingSeat(null);
+      setEndedOn("");
+      setReloadToken((token) => token + 1);
+      onChanged();
+    },
+    [endedOn, onChanged],
+  );
+
+  /*
+   * Granting or revoking one system role.
+   *
+   * `onChanged` is deliberately not called: the board's rows carry no system
+   * role, so reloading them would shift the list under whoever is reading it
+   * and change nothing they can see. The panel refetches itself, which is what
+   * puts the new state on screen.
+   *
+   * The refusal that matters most here has its own sentence. An administrator
+   * revoking the last administrator grant - their own, usually - is answered
+   * with `last-administrator`, and the screen has to say what to do about it
+   * rather than "try again": there is nothing to try again.
+   */
+  const changeSystemRole = useCallback(
+    async (role: SystemRole, granted: boolean): Promise<void> => {
+      setSystemRoleFailure(null);
+      setRoleSaving(role);
+      try {
+        await setSystemRole(personId, role, granted);
+      } catch (error) {
+        setSystemRoleFailure(roleErrorMessage(error));
+        return;
+      } finally {
+        setRoleSaving(null);
+      }
+      setReloadToken((token) => token + 1);
+    },
+    [personId],
   );
 
   /*
@@ -636,38 +859,266 @@ export function PersonPanel({
             )}
           </section>
 
-          {person.boardPositions.length === 0 ? null : (
-            <section className="flex flex-col gap-2">
+          {person.boardPositions.length === 0 &&
+          !canManageBoardPositions ? null : (
+            <section className="flex flex-col gap-3">
               <h3 className="text-title">
                 {t("register.person.boardPositions")}
               </h3>
-              <ul className="flex flex-col gap-1">
-                {person.boardPositions.map((position) => (
-                  <li
-                    key={`${position.position}-${position.electedOn ?? ""}`}
-                    className="flex flex-wrap items-center gap-2"
-                  >
-                    <SignChip sign={position.position} />
-                    <DatePair
-                      from={position.electedOn}
-                      to={position.endedOn}
-                      fromLabelKey="register.person.electedOn"
-                      toLabelKey="register.person.endedOn"
-                    />
-                  </li>
-                ))}
-              </ul>
+              {canManageBoardPositions ? (
+                <p className="text-small text-ink-muted">
+                  {t("register.person.roles.boardExplained")}
+                </p>
+              ) : null}
+
+              {person.boardPositions.length === 0 ? (
+                <p className="text-small text-ink-muted">
+                  {t("register.person.roles.noBoardPositions")}
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {person.boardPositions.map((position) => {
+                    /*
+                     * A term still running that already carries an end date.
+                     * The press changes that date rather than ending anything,
+                     * so it says so: a button reading "End the term" on a seat
+                     * the board has already dated would be asking for the same
+                     * act twice, and the refusal it used to meet said the term
+                     * was over when it was not.
+                     */
+                    const dated =
+                      heldSeats.has(position.boardPositionId) &&
+                      position.endedOn !== null;
+                    return (
+                      <li
+                        key={position.boardPositionId}
+                        className="flex flex-col gap-1.5"
+                      >
+                        <span className="flex flex-wrap items-center gap-2">
+                          <SignChip sign={position.position} />
+                          <DatePair
+                            from={position.electedOn}
+                            to={position.endedOn}
+                            fromLabelKey="register.person.electedOn"
+                            toLabelKey="register.person.endedOn"
+                          />
+                        </span>
+
+                        {canManageBoardPositions &&
+                        heldSeats.has(position.boardPositionId) ? (
+                          endingSeat === position.boardPositionId ? (
+                            /*
+                             * The second press. Dating a term takes a date, and
+                             * a date field that appeared on every row would put
+                             * three of them on one panel with nothing saying
+                             * which was about to be used.
+                             */
+                            <span className="flex flex-wrap items-end gap-2">
+                              <label
+                                className={LABEL}
+                                htmlFor={`end-term-${position.boardPositionId}`}
+                              >
+                                {t("register.person.roles.endedOnLabel")}
+                                <input
+                                  id={`end-term-${position.boardPositionId}`}
+                                  type="date"
+                                  value={endedOn}
+                                  onChange={(event) => {
+                                    setEndedOn(event.target.value);
+                                  }}
+                                  className={`${FIELD_DATA} max-w-48`}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void endTerm(position.boardPositionId);
+                                }}
+                                disabled={roleSaving !== null}
+                                className={`${CAUTION_BUTTON} disabled:opacity-60`}
+                              >
+                                {roleSaving === position.boardPositionId
+                                  ? t("register.person.roles.endTermWorking")
+                                  : t(
+                                      dated
+                                        ? "register.person.roles.changeEndDate"
+                                        : "register.person.roles.endTerm",
+                                    )}
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBoardFailure(null);
+                                // The date on file, so a correction starts from
+                                // what is wrong with it rather than from empty.
+                                setEndedOn(position.endedOn ?? "");
+                                setEndingSeat(position.boardPositionId);
+                              }}
+                              aria-label={t(
+                                dated
+                                  ? "register.person.roles.changeEndDateLabel"
+                                  : "register.person.roles.endTermLabel",
+                                {
+                                  position: t(
+                                    BOARD_POSITION_LABEL[position.position],
+                                  ),
+                                },
+                              )}
+                              className={`${SECONDARY_BUTTON} self-start`}
+                            >
+                              {t(
+                                dated
+                                  ? "register.person.roles.changeEndDate"
+                                  : "register.person.roles.endTerm",
+                              )}
+                            </button>
+                          )
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {canManageBoardPositions ? (
+                <>
+                  <p className="text-small text-ink-muted">
+                    {t("register.person.roles.historyNote")}
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
+                    <label className={LABEL} htmlFor="elect-position">
+                      {t("register.person.roles.position")}
+                      <select
+                        id="elect-position"
+                        value={electPosition}
+                        onChange={(event) => {
+                          setElectPosition(
+                            event.target.value as BoardPositionType,
+                          );
+                        }}
+                        className={FIELD}
+                      >
+                        {BOARD_POSITION_TYPES.map((position) => (
+                          <option key={position} value={position}>
+                            {t(BOARD_POSITION_LABEL[position])}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className={LABEL} htmlFor="elect-date">
+                      {t("register.person.roles.electedOnLabel")}
+                      <input
+                        id="elect-date"
+                        type="date"
+                        value={electedOn}
+                        onChange={(event) => {
+                          setElectedOn(event.target.value);
+                        }}
+                        className={`${FIELD_DATA} max-w-48`}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void elect();
+                      }}
+                      disabled={roleSaving !== null}
+                      className={`${SECONDARY_BUTTON} disabled:opacity-60`}
+                    >
+                      {roleSaving === "elect"
+                        ? t("register.person.roles.electWorking")
+                        : t("register.person.roles.elect")}
+                    </button>
+                  </div>
+                </>
+              ) : null}
+
+              {boardFailure === null ? null : (
+                <p role="alert" className="text-small text-danger">
+                  {t(boardFailure)}
+                </p>
+              )}
             </section>
           )}
 
-          {person.systemRoles.length === 0 ? null : (
-            <Field labelKey="register.person.systemRoles">
-              <span className="flex flex-wrap gap-2">
-                {person.systemRoles.map((role) => (
-                  <SignChipRoom key={role} labelKey={SYSTEM_ROLE_LABEL[role]} />
-                ))}
-              </span>
-            </Field>
+          {person.systemRoles.length === 0 && !canManageSystemRoles ? null : (
+            <section className="flex flex-col gap-3">
+              <h3 className="text-title">
+                {t("register.person.roles.systemHeading")}
+              </h3>
+
+              {canManageSystemRoles ? (
+                <p className="text-small text-ink-muted">
+                  {t("register.person.roles.systemExplained")}
+                </p>
+              ) : (
+                <span className="flex flex-wrap gap-2">
+                  {person.systemRoles.map((role) => (
+                    <SignChipRoom
+                      key={role}
+                      labelKey={SYSTEM_ROLE_LABEL[role]}
+                    />
+                  ))}
+                </span>
+              )}
+
+              {canManageSystemRoles ? (
+                <ul className="flex flex-col gap-3">
+                  {SYSTEM_ROLES.map((role) => {
+                    const held = person.systemRoles.includes(role);
+                    return (
+                      <li
+                        key={role}
+                        className="flex flex-col gap-1.5 border-t border-line pt-2"
+                      >
+                        <span className="text-label text-ink-muted uppercase">
+                          {t(SYSTEM_ROLE_LABEL[role])}
+                        </span>
+                        <span className="text-body text-ink">
+                          {t(
+                            held
+                              ? "register.person.roles.held"
+                              : "register.person.roles.notHeld",
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void changeSystemRole(role, !held);
+                          }}
+                          disabled={roleSaving !== null}
+                          aria-label={t(
+                            held
+                              ? "register.person.roles.revokeLabel"
+                              : "register.person.roles.grantLabel",
+                            { role: t(SYSTEM_ROLE_LABEL[role]) },
+                          )}
+                          className={`${
+                            held ? CAUTION_BUTTON : SECONDARY_BUTTON
+                          } self-start disabled:opacity-60`}
+                        >
+                          {roleSaving === role
+                            ? t("register.person.roles.systemWorking")
+                            : t(
+                                held
+                                  ? "register.person.roles.revoke"
+                                  : "register.person.roles.grant",
+                              )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+
+              {systemRoleFailure === null ? null : (
+                <p role="alert" className="text-small text-danger">
+                  {t(systemRoleFailure)}
+                </p>
+              )}
+            </section>
           )}
 
           <Field labelKey="register.person.account">
