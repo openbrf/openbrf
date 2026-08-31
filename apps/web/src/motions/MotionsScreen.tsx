@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -68,6 +74,17 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
   const canHandle = viewer.capabilities.includes("motions:handle");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
+  /**
+   * Which read is the current one.
+   *
+   * Every act on this screen ends in a re-read, and two of them can be in flight
+   * at once - the board records one motion as received while the answer to the
+   * one before it is still coming back. Both answers are well formed, so the
+   * screen cannot tell them apart by content; what it can say is that only the
+   * newest read may be applied. Without that, whichever response happens to
+   * arrive last wins, and the older one puts a closed motion back as open.
+   */
+  const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [intake, queue] = await Promise.all([
@@ -94,24 +111,33 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     };
   }, [canSubmit, canHandle]);
 
-  useEffect(() => {
-    // The effect owns its own call and drops a response that arrives after the
-    // screen is gone, rather than applying it to a component nobody is looking
-    // at.
-    let active = true;
+  /**
+   * Reads, and applies the answer only while it is still the newest one.
+   *
+   * Held in one place so the first read and every re-read are governed by the
+   * same rule rather than each carrying its own version of it.
+   */
+  const reload = useCallback((): void => {
+    const version = ++currentRead.current;
     void read().then((next) => {
-      if (active) {
+      if (version === currentRead.current) {
         setLoaded(next);
       }
     });
-    return () => {
-      active = false;
-    };
   }, [read]);
 
-  const reload = (): void => {
-    void read().then(setLoaded);
-  };
+  useEffect(() => {
+    reload();
+    /*
+     * Leaving supersedes whatever is in flight, so a response that arrives after
+     * the screen is gone is dropped by the same check that drops a superseded
+     * one. One rule for both, rather than a mounted flag beside a version and
+     * two ways for a read to be ignored.
+     */
+    return () => {
+      currentRead.current += 1;
+    };
+  }, [reload]);
 
   const { ready, deadline, own, queue, loadFailed } = loaded;
 

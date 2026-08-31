@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import type { OwnMotion } from "../api/motions";
 import { MotionsScreen } from "./MotionsScreen";
 
 /**
@@ -192,6 +193,88 @@ describe("a member", () => {
     await waitFor(() => {
       expect(withdrawMotion).toHaveBeenCalledWith({ motionId: "motion-1" });
     });
+  });
+});
+
+describe("two acts whose answers cross", () => {
+  it("keeps the newer read and drops the one it overtook", async () => {
+    /*
+     * Every act on this screen ends in a re-read, so two of them can be in
+     * flight at once - a member withdraws one motion and then another before the
+     * first answer is back. Both answers are well formed and the screen cannot
+     * tell them apart by content, so the only rule available is that the newest
+     * read wins. Applying whichever response happens to arrive last puts a
+     * withdrawn motion back on the screen as open, with a control that would now
+     * be refused.
+     */
+    const SECOND: OwnMotion = {
+      ...OWN_MOTION,
+      id: "motion-2",
+      title: "Cykelställ på gaveln",
+    };
+    const withdrawn = (motion: OwnMotion): OwnMotion => ({
+      ...motion,
+      status: "WITHDRAWN",
+      closedAt: "2027-02-01T09:00:00.000Z",
+    });
+    const intake = (
+      motions: readonly OwnMotion[],
+    ): { ok: true; value: unknown } => ({
+      ok: true,
+      value: { deadline: DEADLINE, motions },
+    });
+
+    // The read behind the first withdrawal, held open so the second one's answer
+    // gets in front of it.
+    let overtaken = (): void => undefined;
+    const slow = new Promise((resolve) => {
+      overtaken = () => {
+        resolve(intake([withdrawn(OWN_MOTION), SECOND]));
+      };
+    });
+
+    fetchMotionIntake
+      .mockResolvedValueOnce(intake([OWN_MOTION, SECOND]))
+      .mockReturnValueOnce(slow)
+      .mockResolvedValueOnce(
+        intake([withdrawn(OWN_MOTION), withdrawn(SECOND)]),
+      );
+    withdrawMotion.mockResolvedValue({ ok: true, value: withdrawn(SECOND) });
+
+    render(<MotionsScreen viewer={viewer(["motions:submit"])} />);
+    await screen.findByText("Dina motioner");
+
+    const withdrawSecond = screen.getByRole("button", {
+      name: `Återkalla motionen ${SECOND.title}`,
+    });
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: `Återkalla motionen ${OWN_MOTION.title}`,
+      }),
+    );
+    await userEvent.click(withdrawSecond);
+
+    // Both reads have gone out and the second has been applied.
+    await waitFor(() => {
+      expect(fetchMotionIntake).toHaveBeenCalledTimes(3);
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /^Återkalla motionen/ }),
+      ).toBeNull();
+    });
+
+    // And now the read they overtook comes back.
+    await act(async () => {
+      overtaken();
+      await slow;
+    });
+
+    expect(
+      screen.queryByRole("button", {
+        name: `Återkalla motionen ${SECOND.title}`,
+      }),
+    ).toBeNull();
   });
 });
 

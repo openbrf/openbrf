@@ -23,6 +23,29 @@ const DEADLINE_FAILURES: Readonly<Record<string, TranslationKey>> = {
 };
 
 /**
+ * The whole number a field holds, or NaN when it holds no usable one.
+ *
+ * `Number` rather than `Number.parseInt`, because a number input accepts
+ * exponent notation and `Number.parseInt("1e1", 10)` is 1: a board that typed 10
+ * would have stored the first of the month, and the API would have accepted it
+ * as a perfectly valid date. Blank has to be answered before the conversion,
+ * since `Number("")` is 0 and 0 is not a month - the empty field is what says
+ * the bylaws set no deadline, and it must not become a date.
+ *
+ * A whole number, because the clause names a day of a month. A fractional entry
+ * is refused here rather than sent, so the reason arrives beside the field
+ * instead of as an answer from the API to a field the board cannot see.
+ */
+function wholeNumberIn(value: string): number {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return Number.NaN;
+  }
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) ? parsed : Number.NaN;
+}
+
+/**
  * The deadline the bylaws set for motions to the general meeting.
  *
  * Transcribed and never decided here. EFL 6 kap. 15 §, applied to a housing
@@ -61,8 +84,8 @@ export function MotionDeadlinePanel({
   const save = useSaveAction(saveMotionDeadline, onSaved);
 
   const bothEmpty = month.trim() === "" && day.trim() === "";
-  const parsedMonth = Number.parseInt(month, 10);
-  const parsedDay = Number.parseInt(day, 10);
+  const parsedMonth = wholeNumberIn(month);
+  const parsedDay = wholeNumberIn(day);
   /*
    * Both or neither, refused in the form as well as at the API.
    *

@@ -43,6 +43,17 @@ export function motionFailureKey(failure: ApiFailure): TranslationKey {
 }
 
 /**
+ * The parts of a motion a refusal can name.
+ *
+ * Mirrored from the API's own union rather than imported, like every other wire
+ * shape in this client. Narrower than `string` on purpose: see
+ * {@link scannedParts}.
+ */
+export type MotionPart = "title" | "body";
+
+const MOTION_PARTS: readonly string[] = ["title", "body"];
+
+/**
  * Which parts of a motion carried a personal identity number.
  *
  * Read off the refusal's `locations`, which carry a field name and an offset and
@@ -50,20 +61,26 @@ export function motionFailureKey(failure: ApiFailure): TranslationKey {
  * member "there is a personal identity number in the body" is actionable, and
  * quoting the number back at them on the screen would be the disclosure the scan
  * exists to prevent.
+ *
+ * A name this client does not know is dropped rather than carried through. The
+ * screen has one sentence per part and no honest way to render a third, so an
+ * unrecognised name would be folded into one of the two it does have - and
+ * pointing a member at the wrong field sends them editing text that holds
+ * nothing, which leaves the personal identity number where it is and the motion
+ * refused again. Saying less than the response did is the direction to fail in.
  */
-export function scannedParts(failure: ApiFailure): readonly string[] {
+export function scannedParts(failure: ApiFailure): readonly MotionPart[] {
   if (!Array.isArray(failure.detail)) {
     return [];
   }
-  const parts = new Set<string>();
+  const parts = new Set<MotionPart>();
   for (const location of failure.detail) {
-    if (
-      typeof location === "object" &&
-      location !== null &&
-      "part" in location &&
-      typeof (location as { part: unknown }).part === "string"
-    ) {
-      parts.add((location as { part: string }).part);
+    if (typeof location !== "object" || location === null) {
+      continue;
+    }
+    const part: unknown = (location as { part?: unknown }).part;
+    if (typeof part === "string" && MOTION_PARTS.includes(part)) {
+      parts.add(part as MotionPart);
     }
   }
   return [...parts];

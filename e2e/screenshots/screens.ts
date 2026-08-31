@@ -138,8 +138,8 @@ const SETTINGS_PANELS = [
 const MOTION = {
   title: "Laddstolpar i garaget",
   body:
-    "Foreningen bor utreda vad det skulle kosta att satta upp laddstolpar " +
-    "for elbilar i garaget, och ta med kostnaden i nasta budget.",
+    "Föreningen bör utreda vad det skulle kosta att sätta upp laddstolpar " +
+    "för elbilar i garaget, och ta med kostnaden i nästa budget.",
   /** The clause a cooperative's bylaws typically carry: the end of January. */
   deadlineMonth: "1",
   deadlineDay: "31",

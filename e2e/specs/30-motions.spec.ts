@@ -93,6 +93,15 @@ async function browseAs(
 /**
  * Signs in through the screen, and returns once the sign-in has landed.
  *
+ * Starts from a browser holding no session. The tests here act as up to three
+ * people on one page, and `browseAs` changes only the forwarded-for header, so a
+ * second call would arrive still carrying the first person's cookie - and
+ * /sign-in's route guard sends a visitor who already has a session to the
+ * address book, leaving this function filling in a form that is no longer on the
+ * screen. The screenshot walk closes its whole browser context between personas
+ * for the same reason; clearing the cookies is the same act on a page the tests
+ * share.
+ *
  * The wait belongs here rather than to the callers: clicking only starts the
  * sign-in, so a caller that navigates on the next line cancels the request in
  * flight and the route guard sends the browser back to the form.
@@ -102,6 +111,7 @@ async function signInThroughTheScreen(
   email: string,
   password: string,
 ): Promise<void> {
+  await page.context().clearCookies();
   await page.goto(appPath("/sign-in"));
   await page.getByLabel("E-postadress").fill(email);
   await page.getByLabel("Lösenord", { exact: true }).fill(password);
@@ -222,11 +232,16 @@ test.describe("motions to the general meeting", () => {
     await browseAs(page, clientAddress, "lodger");
     await signInThroughTheScreen(page, LODGER.email, LODGER.password);
 
-    // Somewhere he does belong, so the band is loaded and its links are the ones
-    // this account is offered.
+    /*
+     * Somewhere he does belong, so the band is loaded and its links are the ones
+     * this account is offered. The issues destination by the label the band
+     * actually carries - the module's own navLabel - and .first() because the
+     * shell renders the same links twice, once for the band and once for the
+     * bottom bar on a narrow screen.
+     */
     await page.goto(appPath("/issues"));
     await expect(
-      page.getByRole("link", { name: "Felanmälan" }).first(),
+      page.getByRole("link", { name: "Ärenden", exact: true }).first(),
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "Motioner" })).toHaveCount(0);
 
