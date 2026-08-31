@@ -412,7 +412,11 @@
           "BOOKING_RESOURCE_UPDATED": "Bookable resource changed",
           "BOOKING_RESOURCE_DEACTIVATED": "Bookable resource withdrawn from booking",
           "BOOKING_MADE": "Booking made",
-          "BOOKING_CANCELLED": "Booking cancelled"
+          "BOOKING_CANCELLED": "Booking cancelled",
+          "EVENT_SERIES_CREATED": "Event created",
+          "EVENT_SERIES_UPDATED": "Event changed",
+          "EVENT_SERIES_PUBLISHED": "Event published",
+          "EVENT_OCCURRENCE_CANCELLED": "Event date called off"
         },
         "auditRole": {
           "subject": "About this person",

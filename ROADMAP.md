@@ -524,6 +524,18 @@ change it.
       image, including the refusal a second household reads when it loses the
       hour and the allowance shared across one household
 - [ ] Event calendar with sign-ups
+  - Landed: the event series the board arranges, with its category, its
+    location and its sign-up settings; the recurrence rule - weekly,
+    monthly or annual, with an interval and an end it has to state - and
+    the occurrences written out from it as rows on the association's own
+    clock, across both daylight saving changes and over month ends and the
+    29th of February; the write path with the personal identity number
+    scan on publication, members-only unless the board publishes to the
+    street, the refusal to move a date people are standing on, one date
+    callable off on its own, the events capability and the audit entries
+  - Pending: sign-up per occurrence with its data subject access report
+    section and purge; the calendar screen; the public calendar page; the
+    end-to-end suite
 
 **Later, still free and in the core**
 

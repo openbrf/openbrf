@@ -412,7 +412,11 @@
           "BOOKING_RESOURCE_UPDATED": "Bokningsbar resurs ändrad",
           "BOOKING_RESOURCE_DEACTIVATED": "Bokningsbar resurs stängd för bokning",
           "BOOKING_MADE": "Bokning gjordes",
-          "BOOKING_CANCELLED": "Bokning avbokad"
+          "BOOKING_CANCELLED": "Bokning avbokad",
+          "EVENT_SERIES_CREATED": "Evenemang skapades",
+          "EVENT_SERIES_UPDATED": "Evenemang ändrades",
+          "EVENT_SERIES_PUBLISHED": "Evenemang publicerades",
+          "EVENT_OCCURRENCE_CANCELLED": "Evenemangstillfälle ställdes in"
         },
         "auditRole": {
           "subject": "Om den här personen",

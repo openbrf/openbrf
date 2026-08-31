@@ -248,7 +248,11 @@ export type ReportAuditAction =
   | "BOOKING_RESOURCE_UPDATED"
   | "BOOKING_RESOURCE_DEACTIVATED"
   | "BOOKING_MADE"
-  | "BOOKING_CANCELLED";
+  | "BOOKING_CANCELLED"
+  | "EVENT_SERIES_CREATED"
+  | "EVENT_SERIES_UPDATED"
+  | "EVENT_SERIES_PUBLISHED"
+  | "EVENT_OCCURRENCE_CANCELLED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

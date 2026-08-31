@@ -228,6 +228,25 @@ export function dateColumnOf(day: LocalDay): Date {
 }
 
 /**
+ * The calendar date a `@db.Date` column holds.
+ *
+ * The inverse of {@link dateColumnOf}, and here beside it because a conversion
+ * with only one direction is a conversion somebody will do the other way with
+ * {@link localDayOf}. That would be wrong for the reason dateColumnOf gives: a
+ * date column is read back as midnight UTC, which is a moment on the evening
+ * before in Stockholm for part of the year, so reading it in the association's
+ * zone asks a question the column has no answer to. The fields are read as UTC
+ * because that is what was written.
+ */
+export function localDayOfColumn(value: Date): LocalDay {
+  return {
+    year: value.getUTCFullYear(),
+    month: value.getUTCMonth() + 1,
+    day: value.getUTCDate(),
+  };
+}
+
+/**
  * A calendar date shifted by whole days.
  *
  * Calendar arithmetic and not instant arithmetic: adding a day to the 28th of
