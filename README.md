@@ -6,7 +6,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 **Föreningen äger sin data - the association owns its data.** Open BRF gives a BRF board one system for the statutory member and apartment registers, communication, documents, issue reporting, and the association's public website - with no lock-in, no binding period, and Swedish law built in. Self-hosting is free, forever.
 
-> **Status: pre-release, not yet usable.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. There is no user interface yet: the foundations are built and covered by tests, with the exceptions the roadmap names, but nothing here can run a housing cooperative today. APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
+> **Status: pre-release, not ready to hold an association's data.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. Most of v1 is built and covered by tests: one `docker compose` command gives a working instance, and the interface takes a board from first boot through the statutory registers to the association's own website. Nothing here has run a housing cooperative yet, and APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
 
 ## What it does (v1 scope)
 
