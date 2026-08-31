@@ -104,8 +104,8 @@ export interface PluginSmsMessage {
  *
  * An instance with no provider configured cannot send at all, and the send
  * fails rather than being dropped. Having no provider is the ordinary state of
- * an association that only ever mails its members, so a plugin whose work
- * depends on texting should read `permissions` and degrade, or treat the
+ * a housing cooperative that only ever mails its members, so a plugin whose
+ * work depends on SMS should read `permissions` and degrade, or treat the
  * failure as the answer. Requires the sms:send permission.
  */
 export interface PluginSms {

@@ -54,7 +54,7 @@ describe("routeCapabilityFloor", () => {
   });
 
   it("does not raise the floor for a permission that reads no register data", () => {
-    // Sending mail, texting and running jobs reach nothing the caller of a
+    // Sending mail, sending SMS and running jobs reach nothing the caller of a
     // route could read back, so gating those routes above self:manage would
     // lock residents out of plugins written for them.
     expect(routeCapabilityFloor(["mail:send"])).toBe("self:manage");
@@ -240,11 +240,11 @@ describe("the late-bound host object", () => {
   });
 
   /**
-   * Texting is its own permission, so consent to mail is not consent to text.
-   * The two are declared apart because they cost the association different
-   * things: a text message is billed per message against a provider contract
-   * the board signed, and a board that agreed to a plugin writing to its
-   * members has not thereby agreed to it spending that contract.
+   * SMS is its own permission, so consent to mail is not consent to send a
+   * text message. The two are declared apart because they cost the housing
+   * cooperative different things: a text message is billed per message against
+   * a provider contract the board signed, and a board that agreed to a plugin
+   * writing to its members has not thereby agreed to it spending that contract.
    */
   it("refuses a text message from a plugin that declared only mail", async () => {
     const { bound, sms } = services();
@@ -273,8 +273,8 @@ describe("the late-bound host object", () => {
     ).resolves.toBeUndefined();
 
     // The body as the plugin wrote it, and no sender: which name a message
-    // presents is the association's provider contract, applied by the SMS
-    // service, and never a plugin's to choose.
+    // presents is the housing cooperative's provider contract, applied by the
+    // SMS service, and never a plugin's to choose.
     expect(sms).toHaveBeenCalledWith({
       to: "+46701234567",
       body: "Portkoden byts imorgon.",

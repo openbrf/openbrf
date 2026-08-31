@@ -76,11 +76,13 @@ describe("the declaration", () => {
     expect(
       screen.getByText("Skicka e-post via föreningens egen server"),
     ).toBeTruthy();
-    // Texting is stated apart from mail, and stated with what it costs: a
-    // board weighing this one is agreeing to spend a provider contract.
+    // SMS is stated apart from mail, and stated with what it costs and who
+    // pays it: a board weighing this one is agreeing to spend a provider
+    // contract, so the sentence names the cooperative as the party billed
+    // rather than leaving the clause to attach to the provider.
     expect(
       screen.getByText(
-        "Skicka sms via föreningens sms-leverantör, som debiteras per meddelande",
+        "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       ),
     ).toBeTruthy();
 

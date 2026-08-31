@@ -246,10 +246,10 @@ function pluginMailService(
  *
  * No template and no footer, which is where this parts company with plugin
  * mail: an SMS carries no markup to escape and is billed by its length, so a
- * line the host added naming the plugin would cost the association a segment
- * on every message. What identifies the sender is the sender name on the
- * association's provider contract, which the SMS service applies and no caller
- * chooses.
+ * line the host added naming the plugin would cost the housing cooperative a
+ * segment on every message. What identifies the sender is the sender name on
+ * the housing cooperative's provider contract, which the SMS service applies
+ * and no caller chooses.
  *
  * The unconfigured instance is not handled here either. Whether a send without
  * a provider fails, is logged or is suppressed is the sending service's own
