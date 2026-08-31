@@ -923,33 +923,39 @@ describe("the bylaws' deadline", () => {
       where: { id: 1 },
       select: { motionDeadlineMonth: true, motionDeadlineDay: true },
     });
-    // A clause is set at this point, and the restore at the end puts it back.
-    // Asserted rather than assumed: reordered so that it is not, the restore
-    // would write nulls and turn the clearing test after this one into a no-op.
+    // A whole clause is set at this point, and the restore below puts it back.
+    // Asserted rather than assumed, on both columns: reordered so that no clause
+    // is set, the restore would write nulls and turn the clearing test after this
+    // one into a no-op, and a half-written pair would make the restore itself the
+    // statement the constraint refuses.
     expect(before.motionDeadlineMonth).not.toBeNull();
+    expect(before.motionDeadlineDay).not.toBeNull();
 
-    await expect(
-      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 1, "motionDeadlineDay" = NULL WHERE "id" = 1`,
-    ).rejects.toThrow(/association_motionDeadline_check/);
-    await expect(
-      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = NULL, "motionDeadlineDay" = 31 WHERE "id" = 1`,
-    ).rejects.toThrow(/association_motionDeadline_check/);
-    // 31 February, which isWritableDeadline refuses at the boundary: the day is
-    // bounded by the month here too rather than by a flat 31.
-    await expect(
-      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 31 WHERE "id" = 1`,
-    ).rejects.toThrow(/association_motionDeadline_check/);
+    try {
+      await expect(
+        prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 1, "motionDeadlineDay" = NULL WHERE "id" = 1`,
+      ).rejects.toThrow(/association_motionDeadline_check/);
+      await expect(
+        prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = NULL, "motionDeadlineDay" = 31 WHERE "id" = 1`,
+      ).rejects.toThrow(/association_motionDeadline_check/);
+      // 31 February, which isWritableDeadline refuses at the boundary: the day is
+      // bounded by the month here too rather than by a flat 31.
+      await expect(
+        prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 31 WHERE "id" = 1`,
+      ).rejects.toThrow(/association_motionDeadline_check/);
 
-    // And the clause the API writes is accepted, so the constraint is not
-    // refusing the pair as such. 29 February is a date in a leap year and is
-    // what nextMotionDeadline's clamp exists for.
-    await expect(
-      prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 29 WHERE "id" = 1`,
-    ).resolves.toBe(1);
-
-    // The clause the suite arrived with, put back, so this test leaves the row
-    // as it found it and the clearing test after it still has one to clear.
-    await prisma.association.update({ where: { id: 1 }, data: before });
+      // And the clause the API writes is accepted, so the constraint is not
+      // refusing the pair as such. 29 February is a date in a leap year and is
+      // what nextMotionDeadline's clamp exists for.
+      await expect(
+        prisma.$executeRaw`UPDATE "association" SET "motionDeadlineMonth" = 2, "motionDeadlineDay" = 29 WHERE "id" = 1`,
+      ).resolves.toBe(1);
+    } finally {
+      // The clause the suite arrived with, put back whether or not the
+      // assertions held - a cleanup that runs only on success leaves the row
+      // rewritten precisely when something has already gone wrong.
+      await prisma.association.update({ where: { id: 1 }, data: before });
+    }
   });
 
   it("clears back to no deadline", async () => {

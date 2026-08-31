@@ -21,10 +21,14 @@ import {
  * asserting a term of a document it has not read, and a member turned away by it
  * would be turned away for a rule the association never adopted.
  *
- * A cooperative whose bylaws are silent has no deadline, which is
- * {@link MotionDeadline} being null. Intake stays open and the board decides
- * what it can still get into the notice, which is what the first sentence of the
- * paragraph leaves to it anyway.
+ * A cooperative whose bylaws are silent has no clause for this setting to hold,
+ * which is {@link MotionDeadline} being null. That is not the same as no timing
+ * rule at all: the paragraph's first sentence conditions the right on the written
+ * request reaching the board in time for the item to be taken up in the notice,
+ * and it does so whether or not the bylaws add a date. What that condition needs
+ * is a notice date, and this data model has no meeting to give it one - so intake
+ * stays open and the board decides what it can still get into the notice, which
+ * is what the first sentence leaves to it anyway.
  *
  * ## Why a month and a day
  *

@@ -27,10 +27,13 @@ the check says so where it is made rather than pretending otherwise.
 The deadline is the association's own. The same paragraph leaves the manner and
 the time to the bylaws, so it is recorded on the instance settings as a recurring
 month and day - a standing clause rather than one year's date - with no default
-at all: an association whose bylaws are silent has no deadline, intake stays open
-and the board decides what it can still take up. Nothing refuses a late motion,
-because the deadline decides which meeting an item can reach rather than whether
-the association may receive it. The board reads the clause with the settings it
+at all: an association whose bylaws are silent has no date for the setting to
+hold, intake stays open and the board decides what it can still take up. The
+paragraph's own condition, that the request reach the board in time for the item
+to go into the notice, stands whatever the bylaws say - but it needs a notice
+date, and no meeting exists here to give it one. Nothing refuses a late motion
+either way, because that condition decides which meeting an item can reach rather
+than whether the association may receive it. The board reads the clause with the settings it
 answers for, and an administrator changes it.
 
 A motion carries a title, the proposal, and the member who submitted it as a
