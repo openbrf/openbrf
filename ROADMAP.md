@@ -507,17 +507,22 @@ change it.
 
 **v1.1**
 
-- [ ] Resource booking: laundry, common rooms, guest apartment, sauna
-  - Landed: the bookable resource catalogue the board keeps; the booking table
-    with the database refusing a double booking; slot generation on the
-    association's own clock, across both daylight saving changes; the booking
-    and cancellation API with the per-apartment quota derived at write time;
-    the board's view of who holds what; the three capabilities; the data
-    subject access report section and the booking purge with its legal-hold
-    check; the booking screen, whose resident calendar says free or booked and
-    never who holds an hour, with the board's half behind its own capability,
-    the navigation entry and the resource settings panel
-  - Pending: the end-to-end suite
+- [x] Resource booking: laundry, common rooms, guest apartment, sauna. The
+      board names what the house offers and how it is booked - by time slot, by
+      the whole day, or by the night - and how much of it one apartment may
+      hold. Slots are generated on the association's own clock rather than
+      stored, so a laundry room opens at seven on the two mornings a year that
+      are 23 and 25 hours long. The double booking is refused by the database
+      itself, through a partial unique index that a cancellation releases. The
+      allowance is counted at write time from the booker's own residencies, so
+      joint holders of one apartment share it and a move-out bites on the day it
+      says. A resident's calendar shows free, booked, their own or gone, and
+      never who holds an hour; seeing that, and cancelling on somebody's behalf,
+      is the board's own capability. Bookings are in the data subject access
+      report and are erased on the retention policy's clock, with a legal hold
+      stopping it. Driven end to end through a browser against the production
+      image, including the refusal a second household reads when it loses the
+      hour and the allowance shared across one household
 - [ ] Event calendar with sign-ups
 
 **Later, still free and in the core**

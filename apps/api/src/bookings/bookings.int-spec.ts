@@ -3,17 +3,32 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import type { Capability } from "../authorization/capabilities";
+import { PrincipalService } from "../authorization/principal.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import type { BookableResourceView } from "./bookable-resource.service";
+import type {
+  BookableResourceSummary,
+  BookableResourceView,
+} from "./bookable-resource.service";
 import { BookingPurgeService } from "./booking-purge.service";
 
 /**
@@ -546,6 +561,142 @@ describe("the catalogue capability", () => {
     expect(resources.map((resource) => resource.id)).toEqual(
       expect.arrayContaining([laundryId, commonRoomId]),
     );
+  });
+});
+
+/**
+ * Whoever runs the calendar without holding a slot.
+ *
+ * No seat grants bookings:manage without bookings:book - the board holds all
+ * three names - so the principal is narrowed here rather than derived from a
+ * role. That is the whole point: the board's half has to be reachable on its
+ * own capability, so that a seat granted manage alone finds an endpoint for
+ * every read its screen makes instead of a refusal nothing surfaces.
+ *
+ * Narrowed at {@link PrincipalService}, which is where a role becomes a
+ * capability set, so everything downstream of it is the real thing: the global
+ * guard reading the class's declared capability, the controller, the service and
+ * the database. Only the acting board member is narrowed, and only while these
+ * tests run.
+ */
+describe("a principal holding bookings:manage alone", () => {
+  let narrowed: MockInstance<PrincipalService["forPerson"]> | undefined;
+
+  beforeEach(() => {
+    const principals = app.get(PrincipalService);
+    // Bound before the spy is installed, so it is the real implementation and
+    // not the mock calling itself.
+    const derive = principals.forPerson.bind(principals);
+    narrowed = vi
+      .spyOn(principals, "forPerson")
+      .mockImplementation(async (personId: string) => {
+        const principal = await derive(personId);
+        if (principal === null || personId !== board.personId) {
+          return principal;
+        }
+        return {
+          ...principal,
+          capabilities: new Set<Capability>(["bookings:manage"]),
+        };
+      });
+  });
+
+  afterEach(() => {
+    narrowed?.mockRestore();
+    narrowed = undefined;
+  });
+
+  it("is served the catalogue of what the house offers", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/booking-admin/resources",
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const offered = response.json<BookableResourceSummary[]>();
+    expect(offered.map((resource) => resource.id)).toEqual(
+      expect.arrayContaining([laundryId, commonRoomId]),
+    );
+  });
+
+  it("is served no configuration detail with it", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/booking-admin/resources",
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    /*
+     * The summary and not the catalogue the board writes. `bookingCount` is
+     * how much has been booked against a resource, which is what a board weighs
+     * before withdrawing one, and `deactivatedAt` only means anything on a list
+     * that carries withdrawn resources - which this one does not.
+     */
+    for (const resource of response.json<Record<string, unknown>[]>()) {
+      expect(resource).not.toHaveProperty("bookingCount");
+      expect(resource).not.toHaveProperty("deactivatedAt");
+    }
+  });
+
+  it("still reads the board's own month", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/booking-admin",
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it.each([
+    ["the catalogue the board writes", "GET", "/api/bookable-resources"],
+    [
+      "the resident's view of what the house offers",
+      "GET",
+      "/api/bookings/resources",
+    ],
+  ] as const)("is refused %s", async (_what, method, url) => {
+    const response = await inject({
+      method,
+      url,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it.each([
+    ["a resource of its own", "POST", "/api/bookable-resources"],
+    ["an edit to one", "PUT", `/api/bookable-resources/${laundryId}`],
+    ["a withdrawal", "POST", `/api/bookable-resources/${laundryId}/deactivate`],
+  ] as const)("is refused %s", async (_what, method, url) => {
+    const response = await inject({
+      method,
+      url,
+      payload: { ...laundryPayload, name: `Narrowed ${suffix}` },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("leaves the configuration surface untouched by those refusals", async () => {
+    // The two writes above name a resource and a resource that exists. Neither
+    // may have landed: a refusal that got as far as the service would be the
+    // capability being a courtesy.
+    expect(
+      await prisma.bookableResource.findFirst({
+        where: { name: `Narrowed ${suffix}` },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.bookableResource.findUniqueOrThrow({
+        where: { id: laundryId },
+        select: { name: true, deactivatedAt: true },
+      }),
+    ).toEqual({ name: `Tvattstuga A ${suffix}`, deactivatedAt: null });
   });
 });
 

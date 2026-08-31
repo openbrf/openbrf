@@ -212,7 +212,13 @@ export function BookSlotPanel({
 
   const book = (startsAt: string, endsAt: string | null): void => {
     setClaiming(startsAt);
-    void claim.submit({ resourceId, apartmentId, startsAt, endsAt });
+    // Cleared when the claim settles, either way. Left standing, the slot it
+    // names goes on reading "booking" over a booking that has finished - the
+    // accessible name says what the slot has become while the words in it still
+    // say what is happening to it.
+    void claim
+      .submit({ resourceId, apartmentId, startsAt, endsAt })
+      .finally(() => setClaiming(null));
   };
 
   /**
@@ -399,7 +405,7 @@ export function BookSlotPanel({
                       label={formatTimeOfDay(slot.startsAt, i18n.language)}
                       period={periodLabel(slot, i18n.language)}
                       busy={busy}
-                      claiming={claiming === slot.startsAt}
+                      claiming={busy && claiming === slot.startsAt}
                       unavailable={noApartment}
                       onPick={() => {
                         book(slot.startsAt, null);
@@ -421,7 +427,7 @@ export function BookSlotPanel({
                   label={formatDayWithWeekday(day, i18n.language)}
                   period={formatDayWithWeekday(day, i18n.language)}
                   busy={busy}
-                  claiming={claiming === slot.startsAt}
+                  claiming={busy && claiming === slot.startsAt}
                   unavailable={noApartment}
                   chosen={
                     mode === "DATE_RANGE" && slot.state === "FREE"
