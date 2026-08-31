@@ -911,6 +911,7 @@
       "addressBookRead": "Läsa namn, lägenheter, vem som är boende och vem som är medlem, och inflyttnings- och utflyttningsdatum",
       "addressBookReadContact": "Läsa e-postadresser och telefonnummer",
       "mailSend": "Skicka e-post via föreningens egen server",
+      "smsSend": "Skicka sms via föreningens sms-leverantör, som debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },

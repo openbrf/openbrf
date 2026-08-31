@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 
 import { JobQueueService } from "../jobs/job-queue.service";
 import { MailService } from "../mail/mail.service";
+import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginHostBinding } from "./plugin-host";
 import { PluginRegistryService } from "./plugin-registry.service";
@@ -27,6 +28,7 @@ export class PluginHostBinder {
     private readonly registry: PluginRegistryService,
     private readonly jobs: JobQueueService,
     private readonly mail: MailService,
+    private readonly sms: SmsService,
     private readonly addressBook: PluginAddressBookService,
   ) {}
 
@@ -35,6 +37,7 @@ export class PluginHostBinder {
       registry: this.registry,
       jobs: this.jobs,
       mail: this.mail,
+      sms: this.sms,
       addressBook: this.addressBook,
     });
   }

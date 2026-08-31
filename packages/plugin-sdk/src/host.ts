@@ -79,6 +79,39 @@ export interface PluginMail {
   send(message: PluginMailMessage): Promise<void>;
 }
 
+export interface PluginSmsMessage {
+  /** The recipient's number in E.164 form. */
+  to: string;
+  /**
+   * The whole message, as text.
+   *
+   * SMS carries no markup, no subject and no alternative part, so what is
+   * written here is literally what the recipient reads. Its length is the
+   * plugin's own decision and is not bounded by the host: a text message is
+   * billed by length, and what a message may cost the association is the
+   * plugin's business to keep in hand rather than something a silent
+   * truncation can settle.
+   */
+  text: string;
+}
+
+/**
+ * Sends text messages through the instance's configured SMS provider.
+ *
+ * The sender the message presents is the instance's and is not a parameter,
+ * for the reason the mail from address is not one: a text message from a
+ * housing cooperative's system has to be attributable to the cooperative.
+ *
+ * An instance with no provider configured cannot send at all, and the send
+ * fails rather than being dropped. Having no provider is the ordinary state of
+ * an association that only ever mails its members, so a plugin whose work
+ * depends on texting should read `permissions` and degrade, or treat the
+ * failure as the answer. Requires the sms:send permission.
+ */
+export interface PluginSms {
+  send(message: PluginSmsMessage): Promise<void>;
+}
+
 /**
  * Background work. Queue names are namespaced with the plugin's id by the
  * host, so two plugins cannot collide on a name and no plugin can subscribe to
@@ -170,6 +203,7 @@ export interface PluginHost {
   logger: PluginLogger;
   settings: PluginSettings;
   mail: PluginMail;
+  sms: PluginSms;
   jobs: PluginJobs;
   addressBook: PluginAddressBook;
 }

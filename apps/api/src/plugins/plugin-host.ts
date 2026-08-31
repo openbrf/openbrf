@@ -13,11 +13,14 @@ import {
   PluginPermissionError,
   type PluginSettings,
   type PluginSettingsValues,
+  type PluginSms,
+  type PluginSmsMessage,
   settingsValidator,
 } from "@openbrf/plugin-sdk";
 
 import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
+import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
@@ -46,6 +49,7 @@ export interface PluginHostServices {
   registry: PluginRegistryService;
   jobs: JobQueueService;
   mail: MailService;
+  sms: SmsService;
   addressBook: PluginAddressBookService;
 }
 
@@ -129,7 +133,8 @@ export function createPluginHost(
       throw new PluginHostUnavailableError(
         pluginId,
         "after it stopped serving. A plugin the board switched off keeps no " +
-          "access to the register, the mail server or the job queue.",
+          "access to the register, the mail server, the SMS provider or the " +
+          "job queue.",
       );
     }
     if (
@@ -150,6 +155,7 @@ export function createPluginHost(
     logger: pluginLogger(pluginId),
     settings: pluginSettings(context, services),
     mail: pluginMailService(pluginId, services),
+    sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
   };
@@ -231,6 +237,33 @@ function pluginMailService(
           pluginId,
         },
       });
+    },
+  };
+}
+
+/**
+ * Text messages, through whichever provider the board configured.
+ *
+ * No template and no footer, which is where this parts company with plugin
+ * mail: an SMS carries no markup to escape and is billed by its length, so a
+ * line the host added naming the plugin would cost the association a segment
+ * on every message. What identifies the sender is the sender name on the
+ * association's provider contract, which the SMS service applies and no caller
+ * chooses.
+ *
+ * The unconfigured instance is not handled here either. Whether a send without
+ * a provider fails, is logged or is suppressed is the sending service's own
+ * decision, taken once for every caller in the application; a plugin is not a
+ * reason for a second answer to it, so this passes the failure through as the
+ * news mailing does.
+ */
+function pluginSmsService(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginSms {
+  return {
+    send: async (message: PluginSmsMessage): Promise<void> => {
+      const { sms } = services("sms:send");
+      await sms.send({ to: message.to, body: message.text });
     },
   };
 }

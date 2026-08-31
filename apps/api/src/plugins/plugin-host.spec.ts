@@ -54,14 +54,15 @@ describe("routeCapabilityFloor", () => {
   });
 
   it("does not raise the floor for a permission that reads no register data", () => {
-    // Sending mail and running jobs reach nothing the caller of a route could
-    // read back, so gating those routes above self:manage would lock residents
-    // out of plugins written for them.
+    // Sending mail, texting and running jobs reach nothing the caller of a
+    // route could read back, so gating those routes above self:manage would
+    // lock residents out of plugins written for them.
     expect(routeCapabilityFloor(["mail:send"])).toBe("self:manage");
+    expect(routeCapabilityFloor(["sms:send"])).toBe("self:manage");
     expect(routeCapabilityFloor(["jobs:schedule"])).toBe("self:manage");
-    expect(routeCapabilityFloor(["mail:send", "jobs:schedule"])).toBe(
-      "self:manage",
-    );
+    expect(
+      routeCapabilityFloor(["mail:send", "sms:send", "jobs:schedule"]),
+    ).toBe("self:manage");
   });
 
   it("raises the floor when a register permission sits among others", () => {
@@ -93,18 +94,25 @@ const MANIFEST: PluginManifest = {
   personalData: ["name"],
 };
 
-/** A double for each application service, with the address book spied on. */
+/**
+ * A double for each application service, with the address book and the SMS
+ * service spied on.
+ */
 function services(): {
   bound: PluginHostServices;
   residents: ReturnType<typeof vi.fn>;
+  sms: ReturnType<typeof vi.fn>;
 } {
   const residents = vi.fn(async () => []);
+  const sms = vi.fn(async () => undefined);
   return {
     residents,
+    sms,
     bound: {
       registry: { find: vi.fn(async () => null) },
       jobs: { send: vi.fn(async () => undefined) },
       mail: { send: vi.fn(async () => undefined) },
+      sms: { send: sms },
       addressBook: {
         summary: vi.fn(async () => ({
           apartments: 1,
@@ -228,6 +236,69 @@ describe("the late-bound host object", () => {
     ).rejects.toBeInstanceOf(PluginPermissionError);
     await expect(host.jobs.send("nightly", { at: 1 })).rejects.toBeInstanceOf(
       PluginPermissionError,
+    );
+  });
+
+  /**
+   * Texting is its own permission, so consent to mail is not consent to text.
+   * The two are declared apart because they cost the association different
+   * things: a text message is billed per message against a provider contract
+   * the board signed, and a board that agreed to a plugin writing to its
+   * members has not thereby agreed to it spending that contract.
+   */
+  it("refuses a text message from a plugin that declared only mail", async () => {
+    const { bound, sms } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["mail:send"],
+    });
+
+    await expect(
+      host.sms.send({ to: "+46701234567", text: "y" }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    expect(sms).not.toHaveBeenCalled();
+  });
+
+  it("sends a text message for a plugin that declared sms:send", async () => {
+    const { bound, sms } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["sms:send"],
+    });
+
+    await expect(
+      host.sms.send({ to: "+46701234567", text: "Portkoden byts imorgon." }),
+    ).resolves.toBeUndefined();
+
+    // The body as the plugin wrote it, and no sender: which name a message
+    // presents is the association's provider contract, applied by the SMS
+    // service, and never a plugin's to choose.
+    expect(sms).toHaveBeenCalledWith({
+      to: "+46701234567",
+      body: "Portkoden byts imorgon.",
+    });
+  });
+
+  /**
+   * An instance with no SMS provider cannot send, and the send fails rather
+   * than being dropped. That decision belongs to the SMS service and is taken
+   * once for every caller in the application, so the host passes the failure
+   * through instead of answering for it a second way.
+   */
+  it("passes on what the SMS service refuses", async () => {
+    const { bound, sms } = services();
+    const refusal = new Error("This instance has no SMS provider.");
+    sms.mockRejectedValueOnce(refusal);
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["sms:send"],
+    });
+
+    await expect(host.sms.send({ to: "+46701234567", text: "y" })).rejects.toBe(
+      refusal,
     );
   });
 

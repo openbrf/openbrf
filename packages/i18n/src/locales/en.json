@@ -911,6 +911,7 @@
       "addressBookRead": "Read names, apartments, who is a resident and who is a member, and move-in and move-out dates",
       "addressBookReadContact": "Read email addresses and telephone numbers",
       "mailSend": "Send email through the housing cooperative's own server",
+      "smsSend": "Send text messages through the housing cooperative's SMS provider, which are billed per message",
       "jobsSchedule": "Run scheduled work in the background",
       "unknown": "Something this version of Open BRF does not recognise"
     },

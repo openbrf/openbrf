@@ -474,6 +474,7 @@ describe("loading plugins at boot", () => {
         registry,
         jobs: {} as never,
         mail: {} as never,
+        sms: {} as never,
         addressBook: {
           summary: async () => ({ apartments: 0, residents: 0, members: 0 }),
           apartments: async () => [],
