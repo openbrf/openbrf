@@ -31,7 +31,12 @@ const ENTRY: CatalogPlugin = {
   homepage: null,
   deprecated: false,
   apiVersion: 1,
-  permissions: ["addressBook:read", "addressBook:readContact", "mail:send"],
+  permissions: [
+    "addressBook:read",
+    "addressBook:readContact",
+    "mail:send",
+    "sms:send",
+  ],
   personalData: ["name", "apartment", "email"],
   supported: true,
   installedVersion: null,
@@ -71,10 +76,20 @@ describe("the declaration", () => {
     expect(
       screen.getByText("Skicka e-post via föreningens egen server"),
     ).toBeTruthy();
+    // SMS is stated apart from mail, and stated with what it costs and who
+    // pays it: a board weighing this one is agreeing to spend a provider
+    // contract, so the sentence names the cooperative as the party billed
+    // rather than leaving the clause to attach to the provider.
+    expect(
+      screen.getByText(
+        "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
+      ),
+    ).toBeTruthy();
 
     expect(container.textContent).not.toContain("addressBook:read");
     expect(container.textContent).not.toContain("addressBook:readContact");
     expect(container.textContent).not.toContain("mail:send");
+    expect(container.textContent).not.toContain("sms:send");
   });
 
   it("states each personal data category as a sentence, never as its code", () => {

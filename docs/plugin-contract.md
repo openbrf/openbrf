@@ -83,7 +83,17 @@ Entry paths are relative and may not step outside the package.
 | `addressBook:read`        | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
 | `addressBook:readContact` | Additionally email addresses and telephone numbers.                                       |
 | `mail:send`               | Sending mail through the instance's configured SMTP server.                               |
+| `sms:send`                | Sending text messages through the instance's configured SMS provider.                     |
 | `jobs:schedule`           | Registering workers and enqueuing or scheduling jobs.                                     |
+
+An instance configures an SMS provider or does not, and one that has not cannot
+send at all: `host.sms.send` fails rather than dropping the message, the same
+way the core's own SMS mailing does. Having no provider is the ordinary state of
+a housing cooperative that only ever mails its members, so a plugin whose work
+depends on SMS should read `host.permissions` and degrade, or treat the failure
+as the answer. The message is sent as the plugin wrote it, under the sender name
+on the housing cooperative's provider contract; the host adds nothing to the
+body, because a text message is billed by its length.
 
 Three rules hold on every register read regardless of what a plugin asked for,
 because they are the product's own and a plugin is not a reason to relax them:

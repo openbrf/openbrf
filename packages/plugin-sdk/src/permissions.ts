@@ -33,6 +33,15 @@ export const PLUGIN_PERMISSIONS = [
   "addressBook:readContact",
   /** Send mail through the instance's configured SMTP server. */
   "mail:send",
+  /**
+   * Send text messages through the instance's configured SMS provider.
+   *
+   * Separate from mail:send because the two do not cost the association the
+   * same thing. Mail leaves through a server the instance is already set up
+   * for; a text message is billed per message against a provider contract the
+   * board signed, and an instance that has bought none cannot send one at all.
+   */
+  "sms:send",
   /** Register background workers and enqueue or schedule jobs. */
   "jobs:schedule",
 ] as const;

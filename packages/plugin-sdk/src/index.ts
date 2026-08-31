@@ -32,6 +32,8 @@ export {
   PluginPermissionError,
   type PluginResident,
   type PluginSettings,
+  type PluginSms,
+  type PluginSmsMessage,
 } from "./host.ts";
 export type { PluginModuleFactory } from "./module.ts";
 export {

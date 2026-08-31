@@ -27,6 +27,7 @@ export const PERMISSION_LABELS: Readonly<
   "addressBook:read": "plugins.permissions.addressBookRead",
   "addressBook:readContact": "plugins.permissions.addressBookReadContact",
   "mail:send": "plugins.permissions.mailSend",
+  "sms:send": "plugins.permissions.smsSend",
   "jobs:schedule": "plugins.permissions.jobsSchedule",
 };
 

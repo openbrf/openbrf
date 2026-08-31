@@ -147,6 +147,7 @@ beforeAll(async () => {
     registry,
     jobs: {} as never,
     mail: {} as never,
+    sms: {} as never,
     addressBook: {
       summary: async () => ({ apartments: 42, residents: 68, members: 51 }),
       apartments: async () =>
