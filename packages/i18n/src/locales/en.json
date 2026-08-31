@@ -945,7 +945,7 @@
     "motionDeadline": {
       "title": "Deadline for motions",
       "description": "The date your own bylaws set for motions to reach the board before a general meeting.",
-      "statutoryNotice": "This is transcribed from your bylaws, not decided here. A member has the right to have an item taken up at a general meeting if the board is asked in writing in time for the notice, and the bylaws may fix how and by when (EFL 6 kap. 15 § via BRL 9 kap. 14 §). Leave it empty if your bylaws set no date. Motions are received past this day either way; the date says which meeting a motion can reach.",
+      "statutoryNotice": "This is transcribed from your bylaws, not decided here. A member has the right to have an item taken up at a general meeting if the board is asked in writing in time for the notice, and where the bylaws contain provisions about it the request must be made in the manner and within the time they set (EFL 6 kap. 15 § via BRL 9 kap. 14 §). Leave it empty if your bylaws set no date. Motions are received past this day either way; the date says which meeting a motion can reach.",
       "month": "Month",
       "day": "Day",
       "clearHint": "Clear both fields to record that your bylaws set no deadline.",

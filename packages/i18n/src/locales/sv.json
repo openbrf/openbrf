@@ -945,7 +945,7 @@
     "motionDeadline": {
       "title": "Sista dag för motioner",
       "description": "Den dag era egna stadgar anger för att en motion ska vara styrelsen tillhanda före en föreningsstämma.",
-      "statutoryNotice": "Detta är hämtat ur era stadgar, inte bestämt här. En medlem har rätt att få ett ärende behandlat vid en föreningsstämma om det begärs skriftligen hos styrelsen i sådan tid att ärendet kan tas upp i kallelsen, och stadgarna får bestämma på vilket sätt och inom vilken tid (EFL 6 kap. 15 § via BRL 9 kap. 14 §). Lämna fälten tomma om era stadgar inte anger någon dag. Motioner tas emot efter den här dagen ändå; dagen säger vilken stämma en motion hinner till.",
+      "statutoryNotice": "Detta är hämtat ur era stadgar, inte bestämt här. En medlem har rätt att få ett ärende behandlat vid en föreningsstämma om det begärs skriftligen hos styrelsen i sådan tid att ärendet kan tas upp i kallelsen, och om stadgarna innehåller bestämmelser om saken ska begäran framställas på det sätt och inom den tid som anges där (EFL 6 kap. 15 § via BRL 9 kap. 14 §). Lämna fälten tomma om era stadgar inte anger någon dag. Motioner tas emot efter den här dagen ändå; dagen säger vilken stämma en motion hinner till.",
       "month": "Månad",
       "day": "Dag",
       "clearHint": "Töm båda fälten för att ange att era stadgar inte har någon sista dag.",
