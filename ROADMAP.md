@@ -545,6 +545,17 @@ change it.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders
+  - [ ] Motions to the general meeting. Landed: the motion table and the two
+        capabilities, with the right to put an item to the meeting derived from
+        membership rather than from residency (EFL 6 kap. 15 § via BRL 9 kap.
+        14 §); the deadline the association's own bylaws set, held on the
+        instance settings with no default, because a cooperative whose bylaws are
+        silent has none and intake stays open; the member's intake and the
+        board's queue behind a capability each; the data subject access report
+        section and the motion purge with its legal-hold check. Pending: the
+        screens, the navigation entry and the end-to-end suite
+  - [ ] Subletting applications
+  - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own
 - [ ] Charges to members: a one-off cost put on a named member or apartment -

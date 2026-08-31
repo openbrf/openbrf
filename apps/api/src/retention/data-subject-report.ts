@@ -158,6 +158,43 @@ export interface ReportBooking {
 }
 
 /**
+ * A motion this person put to the general meeting.
+ *
+ * Purged like the bookings above, and on a clock of its own: a motion is erased
+ * two years after it was closed, so each row states when that window runs out
+ * rather than leaving the date at the foot of the document to govern it.
+ *
+ * A motion still with the board states none. It has no closing date to count
+ * from, and it is not held indefinitely by oversight: the association is still
+ * processing it, so the purpose it is held for has not ended. Saying so per row is
+ * the only place this document can say it.
+ *
+ * The body is carried in full. It is the person's own words and the most complete
+ * answer art. 15 can give about them; a report that summarised what somebody
+ * proposed would be the association paraphrasing them back to themselves.
+ */
+export interface ReportMotion {
+  motionId: string;
+  title: string;
+  body: string;
+  status: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
+  /** ISO instant. */
+  submittedAt: string;
+  /** ISO instant, or null while the motion is with the board. */
+  closedAt: string | null;
+  /**
+   * The earliest date the purge can reach this motion, derived from the retention
+   * window and never stored. Null while it is open.
+   *
+   * The earliest, and deliberately not "the date it is erased on", for the reason
+   * {@link ReportBooking.erasableFrom} gives: a legal hold suspends every purge
+   * for the person it stands against, and `retention.onLegalHold` on this same
+   * report says whether one does.
+   */
+  erasableFrom: string | null;
+}
+
+/**
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
@@ -220,6 +257,7 @@ export interface DataSubjectReport {
   issues: ReportIssue[];
   documents: ReportDocument[];
   bookings: ReportBooking[];
+  motions: ReportMotion[];
   auditEntries: ReportAuditEntry[];
   /** What the association keeps, and until when. */
   retention: {

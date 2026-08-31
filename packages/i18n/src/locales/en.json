@@ -307,6 +307,7 @@
           "issues": "Issue reports",
           "documents": "Documents filed",
           "bookings": "Bookings",
+          "motions": "Motions",
           "audit": "The audit log",
           "retention": "Retention"
         },
@@ -363,7 +364,10 @@
           "onLegalHold": "Legal hold",
           "creditor": "Lienholder",
           "amount": "Amount",
-          "noted": "Noted"
+          "noted": "Noted",
+          "motionTitle": "Motion",
+          "submitted": "Submitted",
+          "closed": "Closed"
         },
         "event": {
           "ENTRY": "Membership granted",
@@ -416,7 +420,10 @@
           "EVENT_SERIES_CREATED": "Event created",
           "EVENT_SERIES_UPDATED": "Event changed",
           "EVENT_SERIES_PUBLISHED": "Event published",
-          "EVENT_OCCURRENCE_CANCELLED": "Event date called off"
+          "EVENT_OCCURRENCE_CANCELLED": "Event date called off",
+          "MOTION_SUBMITTED": "Motion submitted",
+          "MOTION_ACKNOWLEDGED": "Motion recorded as received",
+          "MOTION_WITHDRAWN": "Motion withdrawn"
         },
         "auditRole": {
           "subject": "About this person",
@@ -2283,6 +2290,13 @@
       "alreadyCancelled": "That booking is already cancelled, so there is nothing to cancel.",
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
+    }
+  },
+  "motions": {
+    "status": {
+      "SUBMITTED": "With the board",
+      "ACKNOWLEDGED": "Received",
+      "WITHDRAWN": "Withdrawn"
     }
   }
 }

@@ -55,6 +55,7 @@ const EMPTY_REPORT: Report = {
   issues: [],
   documents: [],
   bookings: [],
+  motions: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -132,6 +133,30 @@ const FULL_REPORT: Report = {
       // A year after the booking ended, and deliberately not the date the
       // retention section below states: a booking is erased on its own clock.
       erasableFrom: "2027-01-17",
+    },
+  ],
+  motions: [
+    {
+      motionId: "motion-1",
+      title: "Laddstolpar i garaget",
+      body: "Foreningen bor utreda vad laddstolpar skulle kosta.",
+      status: "ACKNOWLEDGED",
+      submittedAt: "2027-01-20T09:00:00.000Z",
+      closedAt: "2027-04-15T12:00:00.000Z",
+      // Two years after it was closed, and deliberately neither the date the
+      // retention section states nor the bookings' one: a motion is erased on a
+      // clock of its own.
+      erasableFrom: "2029-04-14",
+    },
+    {
+      motionId: "motion-2",
+      title: "Cykelstall pa gaveln",
+      body: "Fler platser behovs.",
+      status: "SUBMITTED",
+      submittedAt: "2027-01-25T09:00:00.000Z",
+      // Still with the board, so there is no closing date to count from.
+      closedAt: null,
+      erasableFrom: null,
     },
   ],
   auditEntries: [
@@ -305,7 +330,10 @@ describe("what the document prints", () => {
     expect(screen.getByText("Bokningar")).not.toBeNull();
     expect(screen.getByText("Tvättstugan")).not.toBeNull();
     expect(screen.getByText("Bokad")).not.toBeNull();
-    expect(screen.getByText("Gallras tidigast")).not.toBeNull();
+    // Two sections carry this column now - bookings and motions, each purged on
+    // a clock of its own - so it is asserted as a pair. The date below is the
+    // booking's own and unique to it.
+    expect(screen.getAllByText("Gallras tidigast")).toHaveLength(2);
     expect(screen.getByText("2027-01-17")).not.toBeNull();
 
     // And the hold state that makes that wording load-bearing, stated on the
@@ -315,6 +343,50 @@ describe("what the document prints", () => {
     // test that only looked for the heading - and that is the disclosure the
     // column above is worded around.
     expect(fieldValue("Rättsligt bevarandekrav")).toBe("Ja");
+  });
+
+  it("prints a motion in the member's own words, with its own erasure date", async () => {
+    /*
+     * The second section that states a retention date per row, and the one where
+     * the absence of a date is itself the answer.
+     *
+     * A closed motion is erased two years after it closed - not on the
+     * document's own purge date, and not on the bookings' one-year clock. An
+     * open motion states no date at all, because there is no closing date to
+     * count from and the association is still processing it. A dash there is a
+     * true statement; a date would promise an erasure nothing is going to
+     * perform, and the document's own purge date would promise the wrong one.
+     *
+     * The body is printed as written. It is the person's own proposal and the
+     * fullest answer art. 15 can give about it, so a summary would be the
+     * association paraphrasing them back to themselves.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Motioner")).not.toBeNull();
+    expect(screen.getByText("Laddstolpar i garaget")).not.toBeNull();
+    expect(
+      screen.getByText("Foreningen bor utreda vad laddstolpar skulle kosta."),
+    ).not.toBeNull();
+    expect(screen.getByText("Mottagen")).not.toBeNull();
+
+    // Two years after the closing date, and distinct from both the booking's
+    // date and the document's own - which is what makes this row's column
+    // meaningful rather than decorative.
+    expect(screen.getByText("2029-04-14")).not.toBeNull();
+    expect(screen.getByText("2027-04-15")).not.toBeNull();
+
+    // The open motion, whose erasure date is deliberately absent.
+    const openRow = screen.getByText("Cykelstall pa gaveln").closest("tr");
+    expect(openRow).not.toBeNull();
+    expect(openRow?.textContent).toContain("Hos styrelsen");
+    // Two dashes on that row: no closing date and no erasure date.
+    expect(
+      [...(openRow?.querySelectorAll("td") ?? [])].filter((cell) =>
+        cell.textContent?.includes("Inget registrerat"),
+      ).length,
+    ).toBe(2);
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

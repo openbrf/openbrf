@@ -89,6 +89,12 @@ const BOOKING_STATUS_LABEL = {
   RELEASED: "bookings.status.RELEASED",
 } as const satisfies Record<string, TranslationKey>;
 
+const MOTION_STATUS_LABEL = {
+  SUBMITTED: "motions.status.SUBMITTED",
+  ACKNOWLEDGED: "motions.status.ACKNOWLEDGED",
+  WITHDRAWN: "motions.status.WITHDRAWN",
+} as const satisfies Record<string, TranslationKey>;
+
 /*
  * Every audit action, not the ones a resident is likely to have. The report
  * lists entries both about the person and of what they did, so a board
@@ -158,6 +164,9 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.EVENT_SERIES_PUBLISHED",
   EVENT_OCCURRENCE_CANCELLED:
     "register.person.report.action.EVENT_OCCURRENCE_CANCELLED",
+  MOTION_SUBMITTED: "register.person.report.action.MOTION_SUBMITTED",
+  MOTION_ACKNOWLEDGED: "register.person.report.action.MOTION_ACKNOWLEDGED",
+  MOTION_WITHDRAWN: "register.person.report.action.MOTION_WITHDRAWN",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
@@ -640,6 +649,51 @@ export function DataSubjectReport({
                    */}
                   <td className={DATA_CELL}>
                     {booking.erasableFrom ?? nothing}
+                  </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          <Section titleKey="register.person.report.section.motions">
+            <Rows
+              empty={report.motions.length === 0}
+              headings={[
+                "register.person.report.field.motionTitle",
+                "register.person.report.field.status",
+                "register.person.report.field.submitted",
+                "register.person.report.field.closed",
+                "register.person.report.field.erasableFrom",
+              ]}
+            >
+              {report.motions.map((motion) => (
+                <tr key={motion.motionId} className={ROW}>
+                  {/* The title and the proposal both: this is the person's own
+                      writing, and the fullest answer art. 15 can give about it
+                      is the words they used. A summary would be the association
+                      paraphrasing them back to themselves. */}
+                  <td className={TEXT_CELL}>
+                    <span className="font-semibold">{motion.title}</span>
+                    <span className="block whitespace-pre-line">
+                      {motion.body}
+                    </span>
+                  </td>
+                  <td className={TEXT_CELL}>
+                    {t(MOTION_STATUS_LABEL[motion.status])}
+                  </td>
+                  <td className={DATA_CELL}>{day(motion.submittedAt)}</td>
+                  <td className={DATA_CELL}>
+                    {day(motion.closedAt) ?? nothing}
+                  </td>
+                  {/*
+                   * The row's own retention date, two years after the motion was
+                   * closed, on the same reasoning the bookings column above
+                   * carries - and absent while the motion is open, because there
+                   * is no closing date to count from and the association is still
+                   * processing it.
+                   */}
+                  <td className={DATA_CELL}>
+                    {motion.erasableFrom ?? nothing}
                   </td>
                 </tr>
               ))}

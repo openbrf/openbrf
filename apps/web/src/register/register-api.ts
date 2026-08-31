@@ -253,6 +253,9 @@ export type ReportAuditAction =
   | "EVENT_SERIES_UPDATED"
   | "EVENT_SERIES_PUBLISHED"
   | "EVENT_OCCURRENCE_CANCELLED";
+  | "MOTION_SUBMITTED"
+  | "MOTION_ACKNOWLEDGED"
+  | "MOTION_WITHDRAWN";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -381,6 +384,27 @@ export interface DataSubjectReport {
     startsAt: string;
     endsAt: string;
     apartment: string | null;
+    erasableFrom: string | null;
+  }[];
+
+  /**
+   * Motions this person put to the general meeting.
+   *
+   * The second section that states a retention date per row: a motion is purged
+   * two years after it was closed, on its own clock rather than the residency
+   * one.
+   *
+   * A motion still with the board states none, and that absence is information
+   * rather than a gap: it has no closing date to count from, and the association
+   * is still processing it, so the purpose it is held for has not ended.
+   */
+  motions: {
+    motionId: string;
+    title: string;
+    body: string;
+    status: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
+    submittedAt: string;
+    closedAt: string | null;
     erasableFrom: string | null;
   }[];
   auditEntries: {

@@ -110,6 +110,24 @@ const selfSignupSchema = z.object({ enabled: z.boolean() });
 const issueReportingSchema = z.object({ publicFormEnabled: z.boolean() });
 
 /**
+ * The bylaws' motion deadline, or nothing.
+ *
+ * Nullable as a whole rather than field by field, so "the bylaws set no
+ * deadline" is one value a form can send instead of two nulls that have to agree.
+ * The month bounds the day only loosely here; whether the pair is a date any year
+ * has is the service's rule, because it is a statement about a calendar rather
+ * than about what a request may carry.
+ */
+const motionDeadlineSchema = z.object({
+  motionDeadline: z
+    .object({
+      month: z.coerce.number().int().min(1).max(12),
+      day: z.coerce.number().int().min(1).max(31),
+    })
+    .nullable(),
+});
+
+/**
  * The acting person, or a fault.
  *
  * Not `?? ""`: an empty id would be used as a database key and the caller would
@@ -267,6 +285,24 @@ export class SettingsWriteController {
     @Body() body: unknown,
   ): Promise<{ publicFormEnabled: boolean }> {
     return this.settings.updateIssueReporting(issueReportingSchema.parse(body));
+  }
+
+  /**
+   * Records the deadline the bylaws set for motions to the general meeting.
+   *
+   * On the write controller with the rest of the instance settings, and readable
+   * from the read controller above with association:read, which is the split the
+   * retention policy and the self-signup toggle already follow: the board is
+   * answerable for the clause and has to be able to see it, and changing what the
+   * instance holds stays with an administrator.
+   */
+  @Put("motion-deadline")
+  async updateMotionDeadline(
+    @Body() body: unknown,
+  ): Promise<{ motionDeadline: { month: number; day: number } | null }> {
+    return this.settings.updateMotionDeadline(
+      motionDeadlineSchema.parse(body).motionDeadline,
+    );
   }
 }
 
