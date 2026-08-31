@@ -154,16 +154,44 @@ async function signIn(email: string): Promise<string> {
  * two halves of a bigint, which is what the shifting reassembles.
  */
 async function waitsForHoldLock(personId: string): Promise<boolean> {
+  return (await holdLockCount(personId, false)) > 0n;
+}
+
+/**
+ * Whether this person's legal-hold key is held by somebody.
+ *
+ * The counterpart to {@link waitsForHoldLock}, and the reason both exist: the
+ * lock orders the purge and a placement against each other, but it does not
+ * choose which of them goes first. A test that starts both and then asks
+ * whether the purge waited is asking about whichever won a race, and it passes
+ * or fails on scheduling rather than on the lock. Waiting until the placement
+ * has the key before the purge is started is what makes the interleaving under
+ * test the one that actually happens.
+ */
+async function holdsHoldLock(personId: string): Promise<boolean> {
+  return (await holdLockCount(personId, true)) > 0n;
+}
+
+/**
+ * How many transactions hold, or are queued behind, this person's hold key.
+ *
+ * `hashtext` gives a signed int4 and the advisory lock space addresses it as
+ * two halves of a bigint, which is what the shifting reassembles.
+ */
+async function holdLockCount(
+  personId: string,
+  granted: boolean,
+): Promise<bigint> {
   const key = `legal-hold:${personId}`;
-  const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-    SELECT count(*) AS waiting
+  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+    SELECT count(*) AS locks
     FROM pg_locks
     WHERE locktype = 'advisory'
-      AND NOT granted
+      AND granted = ${granted}
       AND objsubid = 1
       AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
       AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return (row?.waiting ?? 0n) > 0n;
+  return row?.locks ?? 0n;
 }
 
 /** Polls until the condition holds, or gives up so a failure is a failure. */
@@ -1024,6 +1052,16 @@ describe("the purge", () => {
       },
       { timeout: 60_000, maxWait: 20_000 },
     );
+
+    /*
+     * The placement has to hold the key before the purge asks for it. The lock
+     * orders the two and does not choose between them, so a purge started
+     * alongside the placement may perfectly correctly win the key, read a
+     * person nobody has placed a hold on yet, and erase - which is a decision
+     * somebody made and not the interleaving this test is about. Started after
+     * the key is held, the purge can only queue behind it.
+     */
+    await waitFor(() => holdsHoldLock(resident.personId));
 
     let purgeSettled = false;
     const purging = purge
