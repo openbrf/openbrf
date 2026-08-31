@@ -507,11 +507,12 @@ change it.
 
 **v1.1**
 
-- [ ] Resource booking: laundry, common rooms, guest apartment, sauna - Landed: the bookable resource catalogue the board keeps, the booking
-      table with the database refusing a double booking, the three
-      capabilities, the access-report section and the booking purge with its
-      legal-hold check - Pending: slot generation and the booking API, the booking screen and
-      the resource settings panel, the end-to-end suite
+- [ ] Resource booking: laundry, common rooms, guest apartment, sauna. Landed:
+      the bookable resource catalogue the board keeps, the booking table with
+      the database refusing a double booking, the three capabilities, the data
+      subject access report section, and the booking purge with its legal-hold
+      check. Pending: slot generation and the booking API, the booking screen
+      and the resource settings panel, the end-to-end suite
 - [ ] Event calendar with sign-ups
 
 **Later, still free and in the core**

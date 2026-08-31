@@ -65,6 +65,30 @@ const COMPARED_FIELDS = [
 ] as const satisfies readonly (keyof BookableResourceInput)[];
 
 /**
+ * The fields that decide what a booking on this resource can be.
+ *
+ * Changing any of them moves the grid the bookings already made were cut from.
+ * A laundry room switched from two-hour slots to whole days, or opened an hour
+ * later, leaves every standing booking with a start and an end that correspond
+ * to no period the resource now offers - a row nothing on the calendar can
+ * draw and no cancellation screen can explain. So these four are refused while
+ * such a booking stands; see {@link BookableResourceService.update}.
+ *
+ * The two quotas are deliberately not here. They bound what may be booked next
+ * and say nothing about what an existing booking is, so lowering a weekly limit
+ * bites from the following claim onwards and invalidates nothing already made.
+ * Neither is the name or the description: those are what the board calls the
+ * thing, and a house renaming its laundry room must not have to cancel a week
+ * of bookings first.
+ */
+const MECHANICS_FIELDS = [
+  "mode",
+  "slotMinutes",
+  "opensAtMinute",
+  "closesAtMinute",
+] as const satisfies readonly (keyof BookableResourceInput)[];
+
+/**
  * The catalogue of bookable resources, as the board keeps it.
  *
  * The board names its own, the way it names its issue types: an association
@@ -158,6 +182,18 @@ export class BookableResourceService {
    * would be configuring something the house does not offer, and the board's
    * next question after seeing the refusal is whether they meant to offer it
    * again - which is a decision rather than a side effect of saving a form.
+   *
+   * So is a change to the booking mechanics while bookings made under the old
+   * ones are still to come. A booking carries the instants it was cut from the
+   * grid at, not a reference to a slot, so moving the grid does not move them:
+   * the resident who holds Tuesday 19:00-21:00 would go on holding it after the
+   * board made the room whole-day, and neither the calendar nor the quota nor
+   * the double-booking index would agree any more about what they hold. The
+   * board's own next question is whether those bookings should be cancelled,
+   * which is a decision taken booking by booking rather than the silent effect
+   * of saving a settings form. Only what has not happened yet counts: a
+   * finished booking is a record of what was, and rewriting the slots does not
+   * make last March untrue.
    */
   async update(
     id: string,
@@ -187,6 +223,28 @@ export class BookableResourceService {
       const changed = COMPARED_FIELDS.filter(
         (field) => existing[field] !== data[field],
       );
+
+      if (MECHANICS_FIELDS.some((field) => changed.includes(field))) {
+        /*
+         * Counted here rather than taken from `_count.bookings` above, which is
+         * every booking the resource ever carried. What refuses this change is
+         * the ones still to come and not yet cancelled: a past booking is a
+         * record of what was, and a cancelled one claims nothing.
+         */
+        const standing = await tx.booking.count({
+          where: {
+            resourceId: id,
+            status: "BOOKED",
+            endsAt: { gt: new Date() },
+          },
+        });
+        if (standing > 0) {
+          throw new BookingError(
+            "This resource has bookings still to come. Cancel them, or wait until they have passed, before changing how it is booked.",
+            "resource-in-use",
+          );
+        }
+      }
 
       const resource = await tx.bookableResource.update({
         where: { id },

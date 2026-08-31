@@ -2,7 +2,7 @@
  * How long a booking is kept, and when the purge reaches it.
  *
  * A booking is service-tier personal data: it says which person, in which
- * apartment, held which hour of the laundry room. The purpose it is held for is
+ * apartment, held which period of which resource. The purpose it is held for is
  * running the calendar, and that purpose ends when the booking does. So the
  * retention clock is anchored on `endsAt` rather than on a move-out - somebody
  * who still lives here has no more use for last March's sauna hour than

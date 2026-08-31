@@ -504,10 +504,19 @@ export class DataSubjectReportService {
           booking.apartment === null
             ? null
             : `${booking.apartment.address.street} ${booking.apartment.address.number} ${booking.apartment.number}`,
-        // Derived here rather than stored, exactly as a residency's is: a
-        // shorter retention window moves every pending date by that act alone,
-        // and this document has to state the date that will actually apply.
-        purgeOn: toIsoDate(computeBookingPurgeDate(booking.endsAt)),
+        /*
+         * Derived here rather than stored, exactly as a residency's is: a
+         * shorter retention window moves every pending date by that act alone,
+         * and this document has to state the date that will actually apply.
+         *
+         * Stated as the earliest date the purge can reach the row rather than
+         * as the date it goes on, because a legal hold suspends the purge for
+         * the whole person and this document is read by the person a hold may
+         * be standing against. `retention.onLegalHold` below says whether one
+         * does; a hold defers this date and never advances it, so the earliest
+         * holds true whether or not one stands.
+         */
+        erasableFrom: toIsoDate(computeBookingPurgeDate(booking.endsAt)),
       })),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,

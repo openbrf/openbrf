@@ -607,7 +607,7 @@ export function DataSubjectReport({
                 "register.person.report.field.apartment",
                 "register.person.report.field.starts",
                 "register.person.report.field.ends",
-                "register.person.report.field.purgeOn",
+                "register.person.report.field.erasableFrom",
               ]}
             >
               {report.bookings.map((booking) => (
@@ -620,12 +620,19 @@ export function DataSubjectReport({
                   <td className={DATA_CELL}>{day(booking.startsAt)}</td>
                   <td className={DATA_CELL}>{day(booking.endsAt)}</td>
                   {/*
-                   * The date this row is erased on, which is the booking's own
-                   * and not the one at the foot of the document: a booking is
-                   * purged a year after it ended, whether or not the person who
-                   * made it still lives here.
+                   * The row's own retention date and not the one at the foot of
+                   * the document: a booking is purged a year after it ended,
+                   * whether or not the person who made it still lives here.
+                   *
+                   * The earliest such date rather than the day it goes, because
+                   * the legal hold in the retention section below suspends every
+                   * purge for this person. A column promising an erasure while
+                   * one stands would be telling the person a date that is not
+                   * going to happen.
                    */}
-                  <td className={DATA_CELL}>{booking.purgeOn ?? nothing}</td>
+                  <td className={DATA_CELL}>
+                    {booking.erasableFrom ?? nothing}
+                  </td>
                 </tr>
               ))}
             </Rows>

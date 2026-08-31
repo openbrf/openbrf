@@ -640,7 +640,7 @@ describe("what the report contains", () => {
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);
   });
 
-  it("lists the bookings with the date each one is erased on", async () => {
+  it("lists the bookings with the earliest date each can be erased on", async () => {
     const report = await reportFor(boardCookie);
 
     expect(report.bookings).toHaveLength(1);
@@ -651,16 +651,28 @@ describe("what the report contains", () => {
     expect(booking?.apartment).toContain("1001");
 
     /*
-     * The booking's own erasure date, a year after it ended, and not the one at
-     * the foot of the document. The person this is handed to is entitled to be
-     * told when each thing goes, and a booking goes on its own clock whether or
-     * not they still live here - which is why this section states a date per row
-     * where the issues and the documents beside it state none.
+     * The booking's own retention date, a year after it ended, and not the one
+     * at the foot of the document. The person this is handed to is entitled to
+     * be told when each thing goes, and a booking goes on its own clock whether
+     * or not they still live here - which is why this section states a date per
+     * row where the issues and the documents beside it state none.
      */
     const expected = new Date(
       bookingEndedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
     );
-    expect(booking?.purgeOn).toBe(expected.toISOString().slice(0, 10));
+    expect(booking?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+
+    /*
+     * And the fixture's subject is under a standing legal hold, which is what
+     * makes the field an eligibility date rather than a promise. A hold
+     * suspends every purge for the person it stands against, so nothing of
+     * theirs is erased on the date above until the board releases it. The
+     * report has to be readable as true by the person it is handed to: the date
+     * is the earliest the purge can reach the row, and whether anything is
+     * reaching it at all is what the retention section answers. A hold can only
+     * defer that date, never bring it forward.
+     */
+    expect(report.retention.onLegalHold).toBe(true);
   });
 
   it("carries the audit trail both ways round", async () => {

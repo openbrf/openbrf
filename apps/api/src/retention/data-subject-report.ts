@@ -124,9 +124,9 @@ export interface ReportDocument {
  *
  * Unlike the issues and documents above, these are purged: a booking is erased
  * a year after the booked period ended, on its own clock rather than on the
- * residency one. So each row states the date it goes on, which is what makes
- * the retention answer on this document true of the bookings as well as of the
- * contact details.
+ * residency one. So each row states when that window runs out, which is what
+ * makes the retention answer on this document true of the bookings as well as
+ * of the contact details.
  *
  * The apartment is the one the booking was made for, and may be absent - either
  * because none was recorded or because the apartment has since been corrected
@@ -141,8 +141,20 @@ export interface ReportBooking {
   startsAt: string;
   endsAt: string;
   apartment: string | null;
-  /** Derived from the booking retention window, never stored. */
-  purgeOn: string | null;
+  /**
+   * The earliest date the purge can reach this booking, derived from the
+   * retention window and never stored.
+   *
+   * The earliest, and deliberately not "the date it is erased on". A legal
+   * hold suspends every purge for the person it stands against, so while one
+   * stands this date passes and the booking is kept - and a document that had
+   * promised an erasure would be telling its subject something the association
+   * is not going to do. `retention.onLegalHold` on this same report says
+   * whether one stands, in the same place it says so for the contact details.
+   * A hold can only defer this date, never bring it forward, so the earliest
+   * is true either way.
+   */
+  erasableFrom: string | null;
 }
 
 /**

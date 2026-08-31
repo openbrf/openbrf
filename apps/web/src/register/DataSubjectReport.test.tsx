@@ -131,7 +131,7 @@ const FULL_REPORT: Report = {
       apartment: "Storgatan 12 1201",
       // A year after the booking ended, and deliberately not the date the
       // retention section below states: a booking is erased on its own clock.
-      purgeOn: "2027-01-17",
+      erasableFrom: "2027-01-17",
     },
   ],
   auditEntries: [
@@ -263,12 +263,21 @@ describe("what the document prints", () => {
     expect(screen.getByText("Gäller fortfarande")).not.toBeNull();
   });
 
-  it("prints a booking with the date it is erased on", async () => {
+  it("prints a booking with the earliest date it can be erased on", async () => {
     /*
-     * The one section that states an erasure date per row. A booking is erased
+     * The one section that states a retention date per row. A booking is erased
      * a year after it ended, on its own clock, so printing the document's own
      * purge date here would tell the person a date that is not going to happen
      * to this row.
+     *
+     * And the column says the earliest such date rather than the day it goes,
+     * which is the difference this fixture exists to hold: the person it
+     * describes is under a standing legal hold, so nothing of theirs is being
+     * erased at all until the board releases it. A column headed "Gallras" here
+     * would be a retention promise the association is not going to keep, made
+     * to the one person entitled to rely on it. The hold itself is stated in
+     * the retention section, which is where this document answers whether one
+     * stands.
      */
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
@@ -276,7 +285,12 @@ describe("what the document prints", () => {
     expect(screen.getByText("Bokningar")).not.toBeNull();
     expect(screen.getByText("Tvättstugan")).not.toBeNull();
     expect(screen.getByText("Bokad")).not.toBeNull();
+    expect(screen.getByText("Gallras tidigast")).not.toBeNull();
     expect(screen.getByText("2027-01-17")).not.toBeNull();
+
+    // And the hold state that makes that wording load-bearing, stated on the
+    // same page, so the two are read together.
+    expect(screen.getByText("Rättsligt bevarandekrav")).not.toBeNull();
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

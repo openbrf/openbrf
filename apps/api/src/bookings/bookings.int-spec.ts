@@ -19,24 +19,29 @@ import { BookingPurgeService } from "./booking-purge.service";
 /**
  * Resource booking against a real database.
  *
- * Four properties, none of which a unit test can show.
+ * Five properties, none of which a unit test can show.
  *
  * The double booking is refused by the database. The partial unique index is
  * the whole of that guarantee, and it is partial for a reason: a cancelled
- * booking must let go of its hour, or a time somebody changed their mind about
- * could never be booked by anyone again. Both halves are asserted, because an
- * index that was accidentally written without its WHERE clause would pass the
- * first assertion and fail the second.
+ * booking must let go of its period, or a time somebody changed their mind
+ * about could never be booked by anyone again. Both halves are asserted,
+ * because an index that was accidentally written without its WHERE clause would
+ * pass the first assertion and fail the second.
  *
  * The catalogue is the board's. A resident and the property manager are refused
  * at the controller, which is where the capability sits.
  *
- * A withdrawn resource keeps its bookings, and every act on the catalogue is in
- * the audit log with the mode and the field names and no free text.
+ * A withdrawn resource keeps its bookings, every act on the catalogue is in the
+ * audit log with the mode and the field names and no free text, and the grid a
+ * booking was cut from cannot be moved under it while it is still to come.
  *
- * And the purge, which is what makes the retention promise real: it erases
- * bookings past their window, leaves the ones inside it, and a legal hold stops
- * it for the person it stands against.
+ * The purge, which is what makes the retention promise real: it erases bookings
+ * past their window, leaves the ones inside it, and a legal hold stops it for
+ * the person it stands against.
+ *
+ * And that the hold stops it even when placed while the run is in flight, which
+ * is the one property here that needs two transactions interleaved rather than
+ * one sequence of calls.
  */
 
 loadEnvForIntegrationTests();
@@ -137,6 +142,43 @@ async function signIn(email: string): Promise<string> {
       ? []
       : [setCookie];
   return cookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+/**
+ * Whether anything is queued behind this person's legal-hold key.
+ *
+ * Read out of `pg_locks` rather than inferred from a delay, so a purge that
+ * blocks and a purge that finished without taking the key are told apart by
+ * what the database says instead of by how long a test was willing to wait.
+ * `hashtext` gives a signed int4 and the advisory lock space addresses it as
+ * two halves of a bigint, which is what the shifting reassembles.
+ */
+async function waitsForHoldLock(personId: string): Promise<boolean> {
+  const key = `legal-hold:${personId}`;
+  const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+    SELECT count(*) AS waiting
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND NOT granted
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return (row?.waiting ?? 0n) > 0n;
+}
+
+/** Polls until the condition holds, or gives up so a failure is a failure. */
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for the purge to block or finish.");
 }
 
 /** The whole catalogue as the board reads it. */
@@ -276,10 +318,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (prisma !== undefined) {
-    await prisma.booking.deleteMany({
-      where: { resourceId: { in: [laundryId, commonRoomId] } },
-    });
-    await prisma.bookableResource.deleteMany({
+    /*
+     * The resources this run owns, resolved before anything is deleted, and the
+     * bookings deleted by that same set.
+     *
+     * Booking.resource is Restrict, so a booking left standing against a
+     * resource vetoes deleting the resource - and a booking says which person
+     * booked what, which is service-tier personal data this suite would be
+     * leaving in a shared database for the rest of its life. Scoped to the two
+     * fixtures alone it would clear only those: a booking made against a
+     * resource one of the catalogue tests created, in a test that failed an
+     * assertion before its own cleanup line, would survive and take its
+     * resource with it. So the same condition selects both, and the bookings go
+     * first.
+     */
+    const ownResources = await prisma.bookableResource.findMany({
       where: {
         OR: [
           { id: { in: [laundryId, commonRoomId, ...createdResourceIds] } },
@@ -287,6 +340,15 @@ afterAll(async () => {
           { name: { endsWith: suffix } },
         ],
       },
+      select: { id: true },
+    });
+    const ownResourceIds = ownResources.map((resource) => resource.id);
+
+    await prisma.booking.deleteMany({
+      where: { resourceId: { in: ownResourceIds } },
+    });
+    await prisma.bookableResource.deleteMany({
+      where: { id: { in: ownResourceIds } },
     });
     await prisma.legalHold.deleteMany({
       where: { personId: { in: personIds } },
@@ -337,7 +399,14 @@ describe("the double booking", () => {
       },
     });
 
-    // The database refuses it, not a read the application took a moment ago.
+    /*
+     * The database refuses it, not a read the application took a moment ago -
+     * and the assertion says which refusal, because that is the property. Any
+     * failure satisfies `toThrow()`: a foreign key nobody meant to break, a
+     * column renamed out from under the fixture, a connection dropped. This
+     * test exists for the partial unique index, so it asserts the code Postgres
+     * raises when a unique index is what refused the write.
+     */
     await expect(
       prisma.booking.create({
         data: {
@@ -348,7 +417,7 @@ describe("the double booking", () => {
           endsAt: new Date(slot.getTime() + 2 * 60 * 60 * 1000),
         },
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ code: "P2002" });
 
     await prisma.booking.delete({ where: { id: first.id } });
   });
@@ -597,6 +666,130 @@ describe("configuring a resource", () => {
     );
   });
 
+  describe("with a booking still to come", () => {
+    /*
+     * The grid a booking was cut from cannot be moved under it.
+     *
+     * A booking carries the instants it was made for, not a reference to a
+     * slot, so changing the mode or the slot length or the opening hours does
+     * not move the bookings already made: they keep a start and an end that
+     * correspond to no period the resource offers any more. Nothing on the
+     * calendar can draw such a row, the quota cannot count it and the
+     * double-booking index cannot protect it, and the resident still believes
+     * they hold Tuesday evening.
+     *
+     * Renaming is the other half, and it has to keep working. A house that
+     * cannot correct a spelling mistake without cancelling a week of bookings
+     * would have a rule that costs more than it buys.
+     */
+    let bookingId = "";
+
+    /** The laundry fixture exactly as the suite created it. */
+    const asCreated = {
+      name: `Tvattstuga A ${suffix}`,
+      mode: "TIME_SLOTS",
+      slotMinutes: 120,
+      opensAtMinute: 7 * 60,
+      closesAtMinute: 21 * 60,
+      maxBookingsPerWeek: 3,
+    };
+
+    beforeAll(async () => {
+      const slot = daysAfter(21);
+      const booking = await prisma.booking.create({
+        data: {
+          resourceId: laundryId,
+          apartmentId,
+          bookedByPersonId: resident.personId,
+          startsAt: slot,
+          endsAt: new Date(slot.getTime() + 2 * 60 * 60 * 1000),
+        },
+      });
+      bookingId = booking.id;
+    });
+
+    afterAll(async () => {
+      await prisma.booking.deleteMany({ where: { id: bookingId } });
+    });
+
+    it("refuses a change to the booking mechanics", async () => {
+      const response = await inject({
+        method: "PUT",
+        url: `/api/bookable-resources/${laundryId}`,
+        payload: { name: asCreated.name, mode: "WHOLE_DAY" },
+        headers: { cookie: boardCookie },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "resource-in-use",
+      );
+
+      // Refused whole, so the row the resident holds still matches the grid.
+      const unchanged = await prisma.bookableResource.findUnique({
+        where: { id: laundryId },
+        select: { mode: true, slotMinutes: true },
+      });
+      expect(unchanged?.mode).toBe("TIME_SLOTS");
+      expect(unchanged?.slotMinutes).toBe(120);
+    });
+
+    it("allows a change to the name", async () => {
+      const renamed = `Tvattstuga A ommalad ${suffix}`;
+      const response = await inject({
+        method: "PUT",
+        url: `/api/bookable-resources/${laundryId}`,
+        payload: { ...asCreated, name: renamed },
+        headers: { cookie: boardCookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json<BookableResourceView>().name).toBe(renamed);
+
+      // Back to what the suite created, by the same route, so this rename does
+      // not leave the fixture depending on execution order.
+      const restored = await inject({
+        method: "PUT",
+        url: `/api/bookable-resources/${laundryId}`,
+        payload: asCreated,
+        headers: { cookie: boardCookie },
+      });
+      expect(restored.statusCode).toBe(200);
+    });
+
+    it("allows a change to the mechanics once the booking has passed", async () => {
+      // The bound is what is still to come. Rewriting the slots does not make
+      // last March untrue, so a resource nobody holds a future booking on is
+      // the board's to reconfigure.
+      const ended = daysBefore(2);
+      await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          startsAt: new Date(ended.getTime() - 2 * 60 * 60 * 1000),
+          endsAt: ended,
+        },
+      });
+
+      const response = await inject({
+        method: "PUT",
+        url: `/api/bookable-resources/${laundryId}`,
+        payload: { ...asCreated, slotMinutes: 60 },
+        headers: { cookie: boardCookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json<BookableResourceView>().slotMinutes).toBe(60);
+
+      const restored = await inject({
+        method: "PUT",
+        url: `/api/bookable-resources/${laundryId}`,
+        payload: asCreated,
+        headers: { cookie: boardCookie },
+      });
+      expect(restored.statusCode).toBe(200);
+    });
+  });
+
   it("withdraws a resource and keeps the bookings made against it", async () => {
     const created = await prisma.bookableResource.create({
       data: {
@@ -713,7 +906,15 @@ describe("the purge", () => {
       orderBy: [{ createdAt: "desc" }],
     });
     expect(entry?.actorPersonId).toBeNull();
-    expect(entry?.context).toMatchObject({
+    /*
+     * Equal and not merely matching. The count and the window are the whole of
+     * the evidence a purge entry owes, and this entry names the person and is
+     * written into a table that is exempt from every purge - so a field naming
+     * the resource, or when any of the erased bookings ran, would be a precise
+     * record of somebody's use of the house, kept for good, inside the entry
+     * that says it was erased. `toMatchObject` would pass through exactly that.
+     */
+    expect(entry?.context).toEqual({
       bookings: 1,
       retentionDaysAfterBooking: RETENTION_DAYS,
     });
@@ -730,12 +931,20 @@ describe("the purge", () => {
       },
     });
 
-    const summary = await purge.run(NOW, RETENTION_DAYS);
+    await purge.run(NOW, RETENTION_DAYS);
 
-    // Eligibility is computed from the data rather than marked on it, so a
-    // person already erased is not selected again - otherwise they would
-    // collect an entry a night for ever in a table nobody can tidy.
-    expect(summary.bookingsDeleted).toBe(0);
+    /*
+     * Eligibility is computed from the data rather than marked on it, so a
+     * person already erased is not selected again - otherwise they would
+     * collect an entry a night for ever in a table nobody can tidy.
+     *
+     * Read as this person's entry count and not as the run's total. The purge
+     * is a query over the whole table and this database is shared between
+     * suites, so `summary.bookingsDeleted` counts whatever any other suite left
+     * past its window too: a run that erased somebody else's expired booking
+     * would fail an assertion about this one while the property under test held
+     * perfectly.
+     */
     expect(
       await prisma.auditLogEntry.count({
         where: {
@@ -773,6 +982,79 @@ describe("the purge", () => {
     await purge.run(NOW, RETENTION_DAYS);
 
     expect(await prisma.booking.findUnique({ where: { id: held } })).toBeNull();
+  });
+
+  it("waits for a hold being placed rather than erasing under it", async () => {
+    /*
+     * The interleaving the two checks in the scan and the transaction cannot
+     * answer between them.
+     *
+     * Everything here runs at READ COMMITTED. A hold that commits after the
+     * purge has read "nobody is held" and before it deletes is invisible to
+     * both reads, and the bookings the hold was placed to preserve go anyway -
+     * while the board member who placed it is told the person is held. The
+     * transaction-scoped advisory lock is what turns that into an ordering:
+     * `LegalHoldService.place` and the purge take the same key, so one of them
+     * waits for the other and either outcome is a decision somebody made.
+     *
+     * Played out as the transaction a placement is, rather than through the
+     * service, because the case is about what the purge sees while that
+     * transaction is open: it holds the key, it has inserted the hold, and it
+     * does not commit until this test lets it. A purge that takes the same key
+     * cannot read until then. One that does not reads a person with no hold
+     * against them and erases their bookings.
+     */
+    const expired = await bookingEndedDaysAgo(resident.personId, 60, 5);
+
+    let release!: () => void;
+    const placed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const placing = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${resident.personId}`}))`;
+        await tx.legalHold.create({
+          data: {
+            personId: resident.personId,
+            reason: `Tvist ${suffix}`,
+            placedByPersonId: board.personId,
+          },
+        });
+        await placed;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    let purgeSettled = false;
+    const purging = purge
+      .purgePerson(resident.personId, NOW, RETENTION_DAYS)
+      .finally(() => (purgeSettled = true));
+
+    /*
+     * Released only once the purge can make no further progress on its own:
+     * either it is waiting for this person's key, which is the whole of the
+     * fix, or it has finished without taking one, which is the defect. Waiting
+     * on the state rather than on a duration keeps both outcomes deterministic.
+     */
+    await waitFor(
+      async () => purgeSettled || (await waitsForHoldLock(resident.personId)),
+    );
+    const settledBeforeTheHoldCommitted = purgeSettled;
+    release();
+
+    const [erased] = await Promise.all([purging, placing]);
+
+    // It waited, so it read the hold, so it erased nothing.
+    expect(settledBeforeTheHoldCommitted).toBe(false);
+    expect(erased).toBe(0);
+    expect(
+      await prisma.booking.findUnique({ where: { id: expired } }),
+    ).not.toBeNull();
+
+    await prisma.legalHold.deleteMany({
+      where: { personId: resident.personId, releasedAt: null },
+    });
+    await prisma.booking.deleteMany({ where: { id: expired } });
   });
 
   it("erases a cancelled booking on the same clock as a live one", async () => {

@@ -2013,7 +2013,7 @@ model BookableResource {
 /// earlier.
 ///
 /// It has to be partial. A plain unique index over the pair would let a
-/// cancelled booking keep its time for ever, so an hour somebody changed their
+/// cancelled booking keep its time for ever, so a period somebody changed their
 /// mind about could never be booked by anyone again. Prisma cannot express a
 /// WHERE clause on an index, so it is written by hand in
 /// `migrations/20260902090000_bookings/migration.sql`, and there is

@@ -353,6 +353,7 @@
           "resource": "Resurs",
           "starts": "Börjar",
           "ends": "Slutar",
+          "erasableFrom": "Gallras tidigast",
           "action": "Åtgärd",
           "at": "När",
           "about": "Avser",

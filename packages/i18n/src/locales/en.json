@@ -353,6 +353,7 @@
           "resource": "Resource",
           "starts": "Starts",
           "ends": "Ends",
+          "erasableFrom": "Erasable from",
           "action": "Action",
           "at": "When",
           "about": "Concerns",

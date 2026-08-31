@@ -6,6 +6,7 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   BOOKING_RETENTION_DAYS,
   bookingPurgeCutoff,
@@ -54,12 +55,12 @@ export interface BookingPurgeRunSummary {
  * The booking purge (gallring av bokningar).
  *
  * A booking is service-tier personal data - which person, in which apartment,
- * held which hour - and the purpose it is held for ends when the booked period
- * does. So it is erased on a date derived from `endsAt`, a year later, and not
- * on the residency purge's clock: somebody who still lives here has no more use
- * for last March's laundry hour than somebody who has left, and the residency
- * purge would never reach it at all while they stayed. The arithmetic and the
- * reasoning are in `booking-retention.ts`.
+ * held which period - and the purpose it is held for ends when the booked
+ * period does. So it is erased on a date derived from `endsAt`, a year later,
+ * and not on the residency purge's clock: somebody who still lives here has no
+ * more use for last March's laundry hour than somebody who has left, and the
+ * residency purge would never reach it at all while they stayed. The arithmetic
+ * and the reasoning are in `booking-retention.ts`.
  *
  * ## What it erases
  *
@@ -85,7 +86,15 @@ export interface BookingPurgeRunSummary {
  * The hold is checked twice: once in the scan, and again inside the transaction
  * that deletes. The second one is the one that counts, because a hold placed
  * while the run was in flight has to win, and the board member who clicked that
- * button is entitled to assume it did.
+ * button is entitled to assume it did. That second check is taken under the
+ * advisory lock in `retention/legal-hold-lock.ts`, which is what makes it a
+ * decision rather than a race: a placement takes the same key, so it either
+ * lands before the check and stops the run or waits for it and takes effect
+ * from the moment it commits.
+ *
+ * The scan's check is not a duplicate of it. Held people are excluded by the
+ * query rather than dropped from its answer, so they cannot spend a run's bound
+ * without anything being erased - see {@link BookingPurgeService.eligible}.
  *
  * ## How it runs
  *
@@ -194,28 +203,42 @@ export class BookingPurgeService implements OnModuleInit {
    * work is a person: one transaction, one audit entry, one answer to "what of
    * mine was erased and when".
    *
-   * A person under an open legal hold is left out here and refused again in the
-   * transaction. `bookedByPersonId` is a plain column and not a relation, so
-   * the hold is looked up separately rather than filtered through a join - the
-   * same trade the audit log makes, and the reason a purge can reach this table
-   * at all.
+   * A person under an open legal hold is excluded by the query itself rather
+   * than filtered out of its answer, and that ordering is the whole reason for
+   * the extra round trip. The per-run bound is applied by the database, so held
+   * people removed afterwards would still have spent it: five hundred held
+   * people sorting ahead of everybody else would fill every run for as long as
+   * their holds stood, and the bookings behind them would outlive their
+   * retention window with nothing reporting a fault. The residency purge states
+   * the same rule as `legalHolds: { none: { releasedAt: null } }` inside its own
+   * scan, for the same reason.
+   *
+   * `bookedByPersonId` is a plain column and not a relation, so the holds are
+   * read first and passed in rather than joined - the same trade the audit log
+   * makes, and the reason a purge can reach this table at all. The list is
+   * bounded by the register, since at most one hold stands per person, and a
+   * hold is a dispute rather than an ordinary state.
+   *
+   * The hold is checked again inside the transaction that deletes. That is the
+   * check that counts.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = bookingPurgeCutoff(now, retentionDays);
+    const held = await this.heldPersonIds();
 
     const groups = await this.prisma.booking.groupBy({
       by: ["bookedByPersonId"],
-      where: { endsAt: { lte: cutoff } },
+      where: {
+        endsAt: { lte: cutoff },
+        // Spelled conditionally rather than as an empty `notIn`, so what the
+        // query asks does not depend on how the client renders a list of none.
+        ...(held.length > 0 ? { bookedByPersonId: { notIn: held } } : {}),
+      },
       orderBy: [{ bookedByPersonId: "asc" }],
       take: MAX_PERSONS_PER_RUN,
     });
-    const personIds = groups.map((group) => group.bookedByPersonId);
-    if (personIds.length === 0) {
-      return [];
-    }
 
-    const held = await this.heldPersonIds(personIds);
-    return personIds.filter((personId) => !held.has(personId));
+    return groups.map((group) => group.bookedByPersonId);
   }
 
   /**
@@ -234,6 +257,16 @@ export class BookingPurgeService implements OnModuleInit {
     const cutoff = bookingPurgeCutoff(now, retentionDays);
 
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Before the hold is read, so that reading it settles the question.
+       * Everything below runs at READ COMMITTED, where a placement committing
+       * between the read and the delete would leave this transaction erasing
+       * the rows the hold was placed to preserve - and the board member would
+       * have been told the person was held. `LegalHoldService.place` takes the
+       * same key, which is what makes the two orderable at all.
+       */
+      await lockLegalHold(tx, personId);
+
       const held = await tx.legalHold.findFirst({
         where: { personId, releasedAt: null },
         select: { id: true },
@@ -248,21 +281,15 @@ export class BookingPurgeService implements OnModuleInit {
         return 0;
       }
 
-      const expiring = await tx.booking.findMany({
+      const { count } = await tx.booking.deleteMany({
         where: { bookedByPersonId: personId, endsAt: { lte: cutoff } },
-        orderBy: [{ endsAt: "desc" }],
-        select: { id: true, endsAt: true },
       });
-      if (expiring.length === 0) {
+      if (count === 0) {
         // The scan filters these out, so reaching here means the last of them
         // went while this ran. An entry for an erasure that erased nothing
         // would be a false record in a table that cannot be corrected.
         return 0;
       }
-
-      const { count } = await tx.booking.deleteMany({
-        where: { id: { in: expiring.map((booking) => booking.id) } },
-      });
 
       await this.audit.record(
         {
@@ -273,15 +300,16 @@ export class BookingPurgeService implements OnModuleInit {
           targetPersonId: personId,
           targetKind: "booking",
           /*
-           * How many and how far back, never which resource or when it was
-           * booked - the retention rule on AuditLogService. This entry outlives
-           * the rows it describes by design, so anything copied in here would
-           * be the one copy the purge did not reach.
+           * How many, and the window they fell out of. Not which resource, and
+           * not when any of them ran - the retention rule on AuditLogService.
+           * This entry names the person and outlives the rows it describes by
+           * design, and the log is exempt from every purge, so an end time
+           * copied in here would be a precise record of when somebody used the
+           * sauna, kept for good, in the entry that says it was erased.
            */
           context: {
             bookings: count,
             retentionDaysAfterBooking: retentionDays,
-            latestEndedAt: expiring[0]?.endsAt.toISOString() ?? null,
           },
         },
         tx,
@@ -291,14 +319,20 @@ export class BookingPurgeService implements OnModuleInit {
     });
   }
 
-  /** Which of these people have a legal hold standing against them. */
-  private async heldPersonIds(
-    personIds: readonly string[],
-  ): Promise<Set<string>> {
+  /**
+   * Everybody a legal hold currently stands against.
+   *
+   * Read whole rather than asked about a shortlist, because the scan needs them
+   * before it chooses its shortlist rather than after. One row per held person
+   * at most, and a hold is a dispute the board entered deliberately, so this is
+   * a handful of ids in a cooperative that has any at all.
+   */
+  private async heldPersonIds(): Promise<string[]> {
     const holds = await this.prisma.legalHold.findMany({
-      where: { personId: { in: [...personIds] }, releasedAt: null },
+      where: { releasedAt: null },
       select: { personId: true },
+      distinct: ["personId"],
     });
-    return new Set(holds.map((hold) => hold.personId));
+    return holds.map((hold) => hold.personId);
   }
 }
