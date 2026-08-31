@@ -63,6 +63,20 @@ ALTER TABLE "event"
   ADD CONSTRAINT "event_recurrence_count_repeats"
   CHECK ("recurrenceCount" IS NULL OR "recurrenceCount" >= 2);
 
+-- A last date is not before the first one.
+--
+-- The service refuses more than this: a rule whose until date falls before its
+-- SECOND occurrence names one date and repeats nothing, so it is refused too.
+-- That one is not here, and for the reason the horizon is not - deciding it
+-- means stepping the rule forward once, which needs the month-end clamp and so
+-- is arithmetic rather than a predicate. What is here is the half that is a
+-- plain comparison of two columns of one row, which is what a CHECK can state
+-- truthfully: an until date before firstOn describes a series with no dates at
+-- all.
+ALTER TABLE "event"
+  ADD CONSTRAINT "event_recurrence_until_not_before_first"
+  CHECK ("recurrenceUntil" IS NULL OR "recurrenceUntil" >= "firstOn");
+
 -- Minutes past local midnight, so inside one day. 1440 would be midnight the
 -- following morning, which is a different date than the one firstOn states.
 ALTER TABLE "event"

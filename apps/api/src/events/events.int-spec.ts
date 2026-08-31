@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -522,8 +523,16 @@ describe("the database's own rule", () => {
  * fail if the write were refused by a different rule than the one it means.
  */
 describe("the database's own rules about a recurrence", () => {
-  /** A valid series row, as the columns hold it, with no rule at all. */
-  function row(overrides: Record<string, unknown>) {
+  /**
+   * A valid series row, as the columns hold it, with no rule at all.
+   *
+   * Typed against the generated create input rather than as a bag of unknowns,
+   * so a column renamed in the schema breaks this suite at build time. Every
+   * row below is type-valid and refused on its meaning instead - an interval of
+   * zero and a capacity of none are perfectly good numbers - which is exactly
+   * why the constraints have to exist and why nothing here needs a cast.
+   */
+  function row(overrides: Partial<Prisma.EventUncheckedCreateInput>) {
     return {
       title: `Direkt ${suffix}`,
       authorPersonId: board.personId,
@@ -531,16 +540,16 @@ describe("the database's own rules about a recurrence", () => {
       startsAtMinute: 600,
       durationMinutes: 240,
       ...overrides,
-    };
+    } satisfies Prisma.EventUncheckedCreateInput;
   }
 
   /** The constraint a direct write trips, or "" when it is allowed through. */
   async function violation(
-    overrides: Record<string, unknown>,
+    overrides: Partial<Prisma.EventUncheckedCreateInput>,
   ): Promise<string> {
     try {
       const created = await prisma.event.create({
-        data: row(overrides) as never,
+        data: row(overrides),
         select: { id: true },
       });
       createdEventIds.push(created.id);
@@ -606,6 +615,35 @@ describe("the database's own rules about a recurrence", () => {
     expect(await violation({ recurrenceCount: 3 })).toContain(
       "event_recurrence_states_one_end",
     );
+  });
+
+  it("refuses a last date before the first one", async () => {
+    // A series with no dates at all: the rule stops before it starts.
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 1,
+        recurrenceUntil: new Date(Date.UTC(YEAR, 3, 11)),
+      }),
+    ).toContain("event_recurrence_until_not_before_first");
+  });
+
+  it("takes a last date on the first one, which the service refuses for its own reason", async () => {
+    /*
+     * The boundary, and the point where the constraint is deliberately weaker
+     * than the service. An until date equal to firstOn names exactly one date,
+     * which checkRecurrenceSchedule refuses as recurrence-end-invalid because
+     * the rule repeats nothing - but deciding that means stepping the rule
+     * forward once through the month-end clamp, which is arithmetic and not a
+     * predicate. The table states the half it can: not before the first date.
+     */
+    expect(
+      await violation({
+        recurrenceFrequency: "WEEKLY",
+        recurrenceInterval: 1,
+        recurrenceUntil: new Date(Date.UTC(YEAR, 3, 18)),
+      }),
+    ).toBe("");
   });
 
   it("refuses an interval of nothing", async () => {
