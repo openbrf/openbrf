@@ -81,8 +81,41 @@ export interface ReportTransfer {
   /** Whether this person acquired the tenant-ownership or gave it up. */
   direction: "acquired" | "relinquished";
   transferredOn: string;
+  /**
+   * The day the association decided on the acquirer's membership, or null.
+   *
+   * Personal data about the acquirer specifically - it is the day a decision
+   * was taken about them - and on the report for that reason as much as for
+   * completeness. Null where there was no such decision to date, which the
+   * statute provides for, and on transfers recorded before the field existed.
+   */
+  membershipDecidedOn: string | null;
   price: string | null;
   agreementReference: string | null;
+}
+
+/**
+ * A tenant-ownership this person held that has ceased to exist (upphorande).
+ *
+ * Statutory tier and exempt from the purge, like the member register entries
+ * and the transfers above: exemption from erasure is not exemption from access.
+ *
+ * The second section of this report that is not keyed on a person column. A
+ * termination names an apartment and a date, never a person - BRL 7 kap. 33 §
+ * makes every tenant-ownership in a disposed building cease at once, whoever
+ * holds them - so which of them are this person's is derived from the member
+ * register. `terminationsDuringHolding` in `holding-periods.ts` is the rule,
+ * and it closes both boundaries where the lien rule beside it leaves both open,
+ * for reasons argued there.
+ */
+export interface ReportTermination {
+  terminationId: string;
+  apartment: string;
+  /** Which ground in bostadsrattslagen the cessation rests on. */
+  kind: "GENERAL_MEETING_DECISION" | "BUILDING_TRANSFERRED";
+  tookEffectOn: string;
+  /** The minute, deed or enforcement decision the board recorded. */
+  reference: string;
 }
 
 export interface ReportPublicationConsent {
@@ -245,6 +278,7 @@ export interface DataSubjectReport {
   account: ReportAccount | null;
   memberRegisterEntries: ReportMemberRegisterEntry[];
   transfers: ReportTransfer[];
+  terminations: ReportTermination[];
   lienNotes: ReportLienNote[];
   publicationConsents: ReportPublicationConsent[];
   legalHolds: {

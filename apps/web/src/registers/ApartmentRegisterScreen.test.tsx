@@ -25,6 +25,9 @@ const revealApartmentRegister = vi.fn();
 const revealOwnApartmentRegister = vi.fn();
 const noteLien = vi.fn();
 const releaseLien = vi.fn();
+const recordTermination = vi.fn();
+const recordMembershipDecision = vi.fn();
+const recordPropertyDesignation = vi.fn();
 
 vi.mock("./registers-api", () => ({
   fetchApartmentRegister: () => fetchApartmentRegister(),
@@ -33,12 +36,17 @@ vi.mock("./registers-api", () => ({
   revealOwnApartmentRegister: () => revealOwnApartmentRegister(),
   noteLien: (input: unknown) => noteLien(input),
   releaseLien: (input: unknown) => releaseLien(input),
+  recordTermination: (input: unknown) => recordTermination(input),
+  recordMembershipDecision: (input: unknown) => recordMembershipDecision(input),
+  recordPropertyDesignation: (input: unknown) =>
+    recordPropertyDesignation(input),
 }));
 
 const MASKED: ApartmentRegisterExtract = {
   housingCooperative: {
     name: "Brf Eksemplet",
     organizationNumber: "769600-0000",
+    propertyDesignation: "Talgoxen 4",
   },
   generatedOn: "2026-08-28",
   identityNumbersIncluded: false,
@@ -74,6 +82,7 @@ const MASKED: ApartmentRegisterExtract = {
         {
           id: "transfer-1",
           transferredOn: "2019-06-01",
+          membershipDecidedOn: "2019-05-14",
           fromName: "Karin Ohman",
           toName: "Anna Lindqvist",
           price: "3450000.00",
@@ -82,15 +91,18 @@ const MASKED: ApartmentRegisterExtract = {
         {
           // Recorded before a reference was required of every transfer. There
           // is none to be found for it and the row cannot be deleted, so the
-          // extract has to say so.
+          // extract has to say so. Its membership decision date is absent for
+          // the same reason, which is what the screen offers to record.
           id: "transfer-0",
           transferredOn: "2014-03-02",
+          membershipDecidedOn: null,
           fromName: null,
           toName: "Karin Ohman",
           price: null,
           agreementReference: null,
         },
       ],
+      terminations: [],
     },
   ],
 };
@@ -126,6 +138,13 @@ beforeEach(() => {
   revealOwnApartmentRegister.mockReset();
   noteLien.mockReset().mockResolvedValue({ ok: true, value: {} });
   releaseLien.mockReset().mockResolvedValue({ ok: true, value: {} });
+  recordTermination.mockReset().mockResolvedValue({ ok: true, value: {} });
+  recordMembershipDecision
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: {} });
+  recordPropertyDesignation
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { propertyDesignation: null } });
 });
 
 describe("the board's copy", () => {
@@ -296,6 +315,24 @@ describe("a tenant-owner", () => {
     expect(screen.queryByRole("button", { name: /Notera pant/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Avnotera/ })).toBeNull();
   });
+
+  it("is offered none of the register-completeness controls either", async () => {
+    // Recording a cessation, a membership decision or the designation is the
+    // board's, exactly as noting a lien is. The server refuses a holder either
+    // way; this is what keeps the screen from offering an act that would be.
+    render(<ApartmentRegisterScreen />);
+
+    await screen.findByText("Storgatan 12 1103");
+    expect(
+      screen.queryByRole("button", { name: /Registrera upphörande/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Registrera beslutsdatumet/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /fastighetsbeteckning/i }),
+    ).toBeNull();
+  });
 });
 
 describe("noting a lien", () => {
@@ -315,6 +352,131 @@ describe("noting a lien", () => {
       creditor: "Handelsbanken",
       notedOn: "2026-03-14",
       amount: null,
+    });
+  });
+});
+
+/**
+ * What the register has to state for the cooperative housing register to be
+ * reportable from it.
+ *
+ * The dates here are the ones Lag (2026:484) 3 kap. runs its two-week windows
+ * from, on rows the database will not let anyone correct. A screen that showed
+ * them but could not record them, or recorded them without stating them, would
+ * leave the board with a register it cannot report from.
+ */
+describe("register completeness", () => {
+  it("states the property designation on the document", async () => {
+    // The association's own authoritative record of it, not the prose it
+    // publishes to a broker.
+    render(<ApartmentRegisterScreen />);
+
+    expect(await screen.findByText(/Talgoxen 4/)).toBeTruthy();
+  });
+
+  it("states a transfer's membership decision date where there is one", async () => {
+    render(<ApartmentRegisterScreen />);
+
+    expect(await screen.findByText(/2019-05-14/)).toBeTruthy();
+  });
+
+  it("offers to record the date on a transfer that carries none", async () => {
+    // Offered rather than called a gap: the statute has transfers with no
+    // membership decision at all, so a register must not describe one as
+    // missing.
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    const control = await screen.findByRole("button", {
+      name: /Registrera beslutsdatumet/,
+    });
+    // Disabled until a date is chosen, so an empty submission cannot reach a
+    // route that would refuse it.
+    expect(control.hasAttribute("disabled")).toBe(true);
+
+    const [input] = screen.getAllByLabelText(/Medlemskap beslutat/);
+    await session.type(input as HTMLElement, "2014-02-20");
+    await session.click(
+      screen.getByRole("button", { name: /Registrera beslutsdatumet/ }),
+    );
+
+    expect(recordMembershipDecision).toHaveBeenCalledWith({
+      // The transfer with no date, and not the one beside it that has one.
+      transferId: "transfer-0",
+      membershipDecidedOn: "2014-02-20",
+    });
+  });
+
+  it("offers exactly the two grounds a cessation can rest on", async () => {
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Registrera upphörande/ }),
+    );
+
+    const grounds = screen
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    // Two and no more: bostadsrättslagen distinguishes two grounds, and a
+    // third offered here would be a claim about the law.
+    expect(grounds).toHaveLength(2);
+    expect(grounds[0]).toMatch(/föreningsstämma/i);
+    expect(grounds[1]).toMatch(/exekutivt/i);
+  });
+
+  it("records the ground, the day it took effect and the reference", async () => {
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Registrera upphörande/ }),
+    );
+    await session.type(screen.getByLabelText(/Upphörde/), "2026-02-18");
+    await session.type(
+      screen.getByLabelText(/Hänvisning/),
+      "Stammoprotokoll 2026-1",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Registrera upphörandet/ }),
+    );
+
+    expect(recordTermination).toHaveBeenCalledWith({
+      apartmentId: "apartment-1103",
+      kind: "GENERAL_MEETING_DECISION",
+      tookEffectOn: "2026-02-18",
+      reference: "Stammoprotokoll 2026-1",
+    });
+  });
+
+  it("says the record cannot be changed afterwards, before it is made", async () => {
+    // The one warning that has to be on this form. The row is append-only in
+    // the database and beyond the application role's reach, so a mis-keyed
+    // date is answered by a note in the audit log and nothing else.
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Registrera upphörande/ }),
+    );
+
+    expect(screen.getByText(/kan inte ändras eller tas bort/i)).toBeTruthy();
+  });
+
+  it("clears the designation rather than storing an empty one", async () => {
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Ändra fastighetsbeteckning/ }),
+    );
+    await session.clear(screen.getByLabelText(/Fastighetsbeteckning/));
+    await session.click(screen.getByRole("button", { name: /^Registrera$/ }));
+
+    // Null and not "": the register states a designation or says none is
+    // recorded, and an empty string would print as a blank on a document.
+    expect(recordPropertyDesignation).toHaveBeenCalledWith({
+      propertyDesignation: null,
     });
   });
 });

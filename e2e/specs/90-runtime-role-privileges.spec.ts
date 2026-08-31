@@ -21,6 +21,10 @@ import { runInAppContainer, stack } from "../src/stack";
  * test is the exception and looks at the server process instead: constraining
  * one role proves nothing if the owner's credentials are still sitting in the
  * environment the server can read.
+ *
+ * Every statutory table belongs in this file. A table added to that tier
+ * without a test here is protected only by a trigger, which the table owner can
+ * switch off, and by nothing anybody can see.
  */
 
 const suffix = process.hrtime.bigint().toString(36);
@@ -60,6 +64,71 @@ const PERMISSION_DENIED = "42501";
  * before any row is looked at.
  */
 const TAMPER_STATEMENT = `UPDATE public.member_register_entry SET "recordedLastName" = 'Tampered' WHERE id = 'no-such-entry'`;
+
+/**
+ * The statutory writes the application must be refused, table by table.
+ *
+ * Written out rather than derived from the hardening script, because a test that
+ * read its list from the file it is testing would go green on a file that
+ * revoked nothing. Every WHERE matches nothing on purpose: the refusal is on
+ * the privilege, before any row is looked at.
+ *
+ * transfer and lien_note keep UPDATE deliberately - releasing a lien sets
+ * releasedOn, and a mis-keyed entry has to be correctable - so only their
+ * deletes are here. termination keeps neither: a tenant-ownership that has
+ * ceased has no later state to reach.
+ */
+const REFUSED_STATEMENTS: [string, string][] = [
+  ["the member register cannot be rewritten", TAMPER_STATEMENT],
+  [
+    "the member register cannot be erased",
+    `DELETE FROM public.member_register_entry WHERE id = 'no-such-entry'`,
+  ],
+  [
+    "the audit log cannot be rewritten",
+    `UPDATE public.audit_log_entry SET "action" = 'DATA_EXPORTED' WHERE id = 'no-such-entry'`,
+  ],
+  [
+    "the audit log cannot be erased",
+    `DELETE FROM public.audit_log_entry WHERE id = 'no-such-entry'`,
+  ],
+  [
+    "a transfer cannot be deleted",
+    `DELETE FROM public.transfer WHERE id = 'no-such-transfer'`,
+  ],
+  [
+    "a lien note cannot be deleted",
+    `DELETE FROM public.lien_note WHERE id = 'no-such-lien'`,
+  ],
+  [
+    "a termination cannot be rewritten",
+    `UPDATE public.termination SET "reference" = 'Tampered' WHERE id = 'no-such-termination'`,
+  ],
+  [
+    "a termination cannot be deleted",
+    `DELETE FROM public.termination WHERE id = 'no-such-termination'`,
+  ],
+];
+
+/**
+ * The statutory tables the application must still be able to read and append
+ * to, because a register it cannot print or record an event in is no use.
+ */
+const PERMITTED_READS: string[] = [
+  "SELECT count(*) FROM public.member_register_entry",
+  "SELECT count(*) FROM public.transfer",
+  "SELECT count(*) FROM public.lien_note",
+  "SELECT count(*) FROM public.termination",
+];
+
+/** TRUNCATE is its own privilege and is granted on no table at all. */
+const STATUTORY_TABLES = [
+  "member_register_entry",
+  "audit_log_entry",
+  "transfer",
+  "lien_note",
+  "termination",
+];
 
 test("the application's role creates a queue and enqueues a job", async () => {
   test.setTimeout(60_000);
@@ -124,17 +193,30 @@ test("the grant reaches into the job schema and no further", async () => {
 test("the application's role still cannot rewrite the statutory archive", async () => {
   // Refused on the privilege rather than by the append-only trigger. Both
   // exist, and this is the one an owner could not switch off.
-  expect(
-    await sqlStateOf(TAMPER_STATEMENT),
-    "the member register is insert and read only for the application",
-  ).toBe(PERMISSION_DENIED);
+  for (const [what, statement] of REFUSED_STATEMENTS) {
+    expect(await sqlStateOf(statement), what).toBe(PERMISSION_DENIED);
+  }
+});
 
-  expect(
-    await sqlStateOf(
-      `DELETE FROM public.audit_log_entry WHERE id = 'no-such-entry'`,
-    ),
-    "the audit log is evidence, and the application cannot erase it",
-  ).toBe(PERMISSION_DENIED);
+test("nor truncate any of it, which no row-level trigger would catch", async () => {
+  // A separate privilege in PostgreSQL, not implied by DELETE, so the blanket
+  // grant never conferred it - and one statement would empty a table without
+  // firing a single row trigger.
+  for (const table of STATUTORY_TABLES) {
+    expect(
+      await sqlStateOf(`TRUNCATE TABLE public.${table}`),
+      `${table} cannot be truncated by the application`,
+    ).toBe(PERMISSION_DENIED);
+  }
+});
+
+test("but still reads the statutory archive, because it has to be printable", async () => {
+  // The other half of the same rule. A revoke that reached SELECT would leave
+  // the association unable to produce a register the law requires it to be
+  // able to produce, and this is what says the revokes above are narrow.
+  for (const statement of PERMITTED_READS) {
+    expect(await sqlStateOf(statement), statement).toBeUndefined();
+  }
 });
 
 /**

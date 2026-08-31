@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { ResolvedRegisterEvent } from "../registers/membership-periods";
 import {
   type DatedLienNote,
+  type DatedTermination,
   holdingPeriods,
   lienNotesDuringHolding,
+  terminationsDuringHolding,
 } from "./holding-periods";
 
 /**
@@ -53,6 +55,16 @@ function note(input: {
     apartmentId: input.apartmentId ?? "apartment-1",
     notedOn: day(input.notedOn),
     releasedOn: input.releasedOn === undefined ? null : day(input.releasedOn),
+  };
+}
+
+function ceased(input: {
+  tookEffectOn: string;
+  apartmentId?: string;
+}): DatedTermination {
+  return {
+    apartmentId: input.apartmentId ?? "apartment-1",
+    tookEffectOn: day(input.tookEffectOn),
   };
 }
 
@@ -201,6 +213,81 @@ describe("lienNotesDuringHolding", () => {
   it("reports nothing when the person held nothing", () => {
     expect(
       lienNotesDuringHolding([note({ notedOn: "2016-05-01" })], []),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * The mirror rule, and it points the other way.
+ *
+ * A lien note is dropped on either boundary day because it would be a third
+ * party's financial position. A termination is kept on both, and the reason the
+ * closing boundary matters is that the cessation is normally what ended the
+ * holding: the half-open rule would drop the event from the report of exactly
+ * the person it happened to.
+ */
+describe("terminationsDuringHolding", () => {
+  const periods = holdingPeriods([
+    event({ eventType: "ENTRY", eventOn: "2015-03-01" }),
+    event({ eventType: "EXIT", eventOn: "2020-06-30" }),
+  ]);
+
+  const selected = (terminations: DatedTermination[]): string[] =>
+    terminationsDuringHolding(terminations, periods).map((found) =>
+      found.tookEffectOn.toISOString().slice(0, 10),
+    );
+
+  it("includes a cessation inside the holding", () => {
+    expect(selected([ceased({ tookEffectOn: "2018-09-01" })])).toEqual([
+      "2018-09-01",
+    ]);
+  });
+
+  it("includes a cessation on the day the holding ended, which is the usual case", () => {
+    // A tenant-ownership that has ceased cannot go on being held, so the exit
+    // and the cessation land on one day. This is the assertion the lien rule
+    // would have failed.
+    expect(selected([ceased({ tookEffectOn: "2020-06-30" })])).toEqual([
+      "2020-06-30",
+    ]);
+  });
+
+  it("includes a cessation on the day the holding began", () => {
+    // BRL 7 kap. 33 § ends every tenant-ownership in a disposed building at
+    // once, however recently somebody took the apartment.
+    expect(selected([ceased({ tookEffectOn: "2015-03-01" })])).toEqual([
+      "2015-03-01",
+    ]);
+  });
+
+  it("excludes a cessation before the holding began", () => {
+    expect(selected([ceased({ tookEffectOn: "2015-02-28" })])).toEqual([]);
+  });
+
+  it("excludes a cessation after the holding ended", () => {
+    expect(selected([ceased({ tookEffectOn: "2020-07-01" })])).toEqual([]);
+  });
+
+  it("excludes a cessation on an apartment this person never held", () => {
+    expect(
+      selected([
+        ceased({ tookEffectOn: "2018-09-01", apartmentId: "apartment-9" }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("includes a cessation on an open holding", () => {
+    const open = holdingPeriods([
+      event({ eventType: "ENTRY", eventOn: "2015-03-01" }),
+    ]);
+    expect(
+      terminationsDuringHolding([ceased({ tookEffectOn: "2026-01-15" })], open),
+    ).toHaveLength(1);
+  });
+
+  it("reports nothing when the person held nothing", () => {
+    expect(
+      terminationsDuringHolding([ceased({ tookEffectOn: "2018-09-01" })], []),
     ).toEqual([]);
   });
 });

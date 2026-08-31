@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -12,6 +15,16 @@ import { PrismaClient } from "../generated/prisma/client";
  * services (decision 21): a bug in an admin screen must be incapable of
  * destroying the member register, because EFL 5 kap. via BRL 9 kap. requires
  * it to be retained. A test that mocked the database would prove nothing here.
+ *
+ * Two mechanisms guard the statutory tier and neither is sufficient alone. The
+ * triggers, exercised as the schema owner in the suites below, stop every
+ * caller. The revoked privileges in prisma/sql/harden-runtime-role.sql stop the
+ * application role, which is the half that survives an
+ * ALTER TABLE ... DISABLE TRIGGER - and the owner can run that, which is why
+ * the application is deliberately not the owner. The last suite in this file
+ * covers that half, by running the REVOKE lines out of that file against a role
+ * of its own, so a statutory table added without its line is a failure here
+ * rather than a discovery in production.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -32,6 +45,17 @@ const AUDIT_ID = id("audit");
 const ERASED_AUDIT_ID = id("erased-audit");
 const TRANSFER_ID = id("transfer");
 const LIEN_ID = id("lien");
+const TERMINATION_ID = id("termination");
+
+/**
+ * A role for the privilege suite, made per run.
+ *
+ * Roles are cluster-wide while the test databases are per worker, so the name
+ * carries the run's suffix: two workers provisioned at the same moment must not
+ * be creating and dropping one role. Underscored because an identifier with a
+ * hyphen would have to be quoted in every statement that names it.
+ */
+const PROBE_ROLE = `openbrf_guard_${suffix.replace(/[^a-z0-9]/gi, "")}`;
 
 beforeAll(async () => {
   prisma = new PrismaClient({
@@ -97,7 +121,79 @@ beforeAll(async () => {
       notedOn: new Date("2020-01-01"),
     },
   });
+  await prisma.termination.create({
+    data: {
+      id: TERMINATION_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "GENERAL_MEETING_DECISION",
+      // Required by termination_reference_present: a cessation states what
+      // shows it, and a value of whitespace is not a reference.
+      reference: `Stammoprotokoll ${TERMINATION_ID}`,
+      tookEffectOn: new Date("2026-04-01"),
+    },
+  });
+
+  /*
+   * The role the privilege suite runs as, and the grants the hardening script
+   * hands out before it takes any back. NOLOGIN: the suite reaches it with SET
+   * ROLE on this connection rather than by connecting, so there is no password
+   * to invent and nothing that could be logged into afterwards.
+   *
+   * Granted to the session user because SET ROLE requires membership. This
+   * suite connects as the schema owner, which in the local container is a
+   * superuser - and a superuser bypasses every privilege check, which is
+   * exactly why the assertions below run under SET ROLE and not as the session
+   * user.
+   */
+  await prisma.$executeRawUnsafe(`CREATE ROLE ${PROBE_ROLE} NOLOGIN`);
+  await prisma.$executeRawUnsafe(`GRANT ${PROBE_ROLE} TO CURRENT_USER`);
+  await prisma.$executeRawUnsafe(
+    `GRANT USAGE ON SCHEMA public TO ${PROBE_ROLE}`,
+  );
+  await prisma.$executeRawUnsafe(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${PROBE_ROLE}`,
+  );
+  for (const statement of statutoryRevokes()) {
+    await prisma.$executeRawUnsafe(statement);
+  }
 });
+
+/**
+ * The REVOKE statements out of prisma/sql/harden-runtime-role.sql, retargeted
+ * at this suite's own role.
+ *
+ * Lifted from the file rather than restated here, which is the whole point: a
+ * statutory table added without its REVOKE line has no line to lift, so the
+ * assertions below find the role still able to rewrite it. Restating the list
+ * in this file would test the copy instead of the script.
+ *
+ * Only the single-table REVOKEs on public are taken. The script also revokes
+ * TRUNCATE across the whole schema and CREATE on it, which are not per-table
+ * statements and are covered by the runtime-role e2e suite against the role the
+ * deployment really creates.
+ */
+function statutoryRevokes(): string[] {
+  const script = readFileSync(
+    join(process.cwd(), "prisma", "sql", "harden-runtime-role.sql"),
+    "utf8",
+  );
+  const statements = [
+    ...script.matchAll(
+      /^REVOKE (UPDATE, DELETE|DELETE|UPDATE) ON public\."(\w+)" FROM openbrf_app;$/gm,
+    ),
+  ].map(
+    (match) => `REVOKE ${match[1]} ON public."${match[2]}" FROM ${PROBE_ROLE}`,
+  );
+
+  if (statements.length === 0) {
+    throw new Error(
+      "No per-table REVOKE statements were found in harden-runtime-role.sql. " +
+        "Either the script changed shape or the statutory tables lost their " +
+        "privilege guard; both need looking at rather than a green test.",
+    );
+  }
+  return statements;
+}
 
 afterAll(async () => {
   // Cleanup has to disable the very triggers under test, which is only
@@ -109,6 +205,7 @@ afterAll(async () => {
     ["audit_log_entry", "audit_log_entry_append_only"],
     ["transfer", "transfer_no_delete"],
     ["lien_note", "lien_note_no_delete"],
+    ["termination", "termination_append_only"],
   ] as const;
 
   for (const [table, trigger] of triggers) {
@@ -126,6 +223,9 @@ afterAll(async () => {
     });
     await prisma.lienNote.deleteMany({ where: { apartmentId: APARTMENT_ID } });
     await prisma.transfer.deleteMany({ where: { apartmentId: APARTMENT_ID } });
+    await prisma.termination.deleteMany({
+      where: { apartmentId: APARTMENT_ID },
+    });
     await prisma.apartment.deleteMany({ where: { id: APARTMENT_ID } });
     await prisma.address.deleteMany({ where: { id: ADDRESS_ID } });
     await prisma.person.deleteMany({
@@ -144,6 +244,12 @@ afterAll(async () => {
         `ALTER TABLE "${table}" ENABLE TRIGGER "${trigger}"`,
       );
     }
+    // DROP OWNED BY first: a role holding a privilege on any object cannot be
+    // dropped, and the suite below grants it privileges on every table in the
+    // schema. Left behind, the role would accumulate one per run in a cluster
+    // that is shared with every other worker.
+    await prisma.$executeRawUnsafe(`DROP OWNED BY ${PROBE_ROLE}`);
+    await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${PROBE_ROLE}`);
     await prisma.$disconnect();
   }
 });
@@ -250,6 +356,182 @@ describe("apartment register (lagenhetsforteckning)", () => {
     });
 
     expect(released.releasedOn).toEqual(new Date("2026-01-15"));
+  });
+});
+
+describe("termination (upphorande)", () => {
+  it("refuses an update, unlike a transfer or a lien note", async () => {
+    // Stricter than the two tables above it on purpose. A lien note is
+    // released and a mis-keyed transfer corrected, so both keep UPDATE; a
+    // tenant-ownership that has ceased has no later state to reach.
+    await expect(
+      prisma.termination.update({
+        where: { id: TERMINATION_ID },
+        data: { tookEffectOn: new Date("2020-01-01") },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a delete", async () => {
+    await expect(
+      prisma.termination.delete({ where: { id: TERMINATION_ID } }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a truncate, which row triggers alone would not catch", async () => {
+    await expect(
+      prisma.$executeRawUnsafe('TRUNCATE TABLE "termination"'),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses to lose the apartment it was about", async () => {
+    // Restrict rather than SetNull: a row saying a tenant-ownership ceased,
+    // with no apartment, is not a shorter record but a false one. SetNull would
+    // also be an UPDATE, which the trigger above rejects, so the delete would
+    // fail either way - but with a message about the archive rather than about
+    // the reference that is actually being broken.
+    await expect(
+      prisma.apartment.delete({ where: { id: APARTMENT_ID } }),
+    ).rejects.toThrow(/termination_apartmentId_fkey|foreign key/i);
+  });
+
+  it("refuses a reference that is only whitespace", async () => {
+    // The CHECK, not the service. This table has writers the service is not -
+    // the seed, a migration, an import - and a constraint weaker than the
+    // service is not the boundary it was added to be. U+3000 is in the class
+    // for the same reason it is in the transfer constraint: JavaScript's trim
+    // strips it, so the database has to as well.
+    await expect(
+      prisma.termination.create({
+        data: {
+          id: id("blank-reference"),
+          apartmentId: APARTMENT_ID,
+          kind: "BUILDING_TRANSFERRED",
+          reference: "\u3000",
+          tookEffectOn: new Date("2026-04-01"),
+        },
+      }),
+    ).rejects.toThrow(/termination_reference_present/);
+  });
+
+  it("still accepts a second cessation, which is an insert", async () => {
+    // Append-only is not read-only. Two apartments in one disposed building
+    // each get a row, and a correction is a new row beside the old one.
+    const second = await prisma.termination.create({
+      data: {
+        id: id("second-termination"),
+        apartmentId: APARTMENT_ID,
+        kind: "BUILDING_TRANSFERRED",
+        reference: `Kopeavtal ${suffix}`,
+        tookEffectOn: new Date("2026-05-01"),
+      },
+    });
+
+    expect(second.kind).toBe("BUILDING_TRANSFERRED");
+
+    const original = await prisma.termination.findUniqueOrThrow({
+      where: { id: TERMINATION_ID },
+    });
+    expect(original.kind).toBe("GENERAL_MEETING_DECISION");
+  });
+});
+
+/**
+ * The other half of the guard: the privileges, not the triggers.
+ *
+ * These run as {@link PROBE_ROLE} through SET ROLE, holding exactly what
+ * harden-runtime-role.sql leaves the application holding. A trigger is
+ * bypassable by the table owner, so this is the half that still stands after an
+ * ALTER TABLE ... DISABLE TRIGGER - and the reason the application connects as a
+ * role that owns nothing.
+ *
+ * PostgreSQL checks privileges before it executes, so the refusal is 42501 and
+ * the trigger never fires. That is what makes these assertions about the
+ * privilege rather than about the guard already proven above: with the REVOKE
+ * removed, the same statements would come back with the archive message
+ * instead, and every expectation here fails.
+ */
+describe("the application role's privileges on the statutory archive", () => {
+  /** PostgreSQL's insufficient_privilege. */
+  const PERMISSION_DENIED = "42501";
+
+  /** The SQLSTATE a statement failed with as the probe role, or undefined. */
+  async function sqlStateAsProbe(
+    statement: string,
+  ): Promise<string | undefined> {
+    await prisma.$executeRawUnsafe(`SET ROLE ${PROBE_ROLE}`);
+    try {
+      await prisma.$executeRawUnsafe(statement);
+      return undefined;
+    } catch (error) {
+      const code = (error as { meta?: { code?: string } }).meta?.code;
+      // The message is the fallback: the driver surfaces the SQLSTATE on the
+      // metadata for a raw query, and a shape change there must not turn this
+      // into a test that passes on any failure at all.
+      return (
+        code ??
+        (/permission denied/i.test(String((error as Error).message))
+          ? PERMISSION_DENIED
+          : `no-sqlstate: ${String((error as Error).message)}`)
+      );
+    } finally {
+      await prisma.$executeRawUnsafe("RESET ROLE");
+    }
+  }
+
+  it("refuses to rewrite a termination", async () => {
+    expect(
+      await sqlStateAsProbe(
+        `UPDATE public."termination" SET "reference" = 'Tampered' WHERE id = 'no-such-row'`,
+      ),
+    ).toBe(PERMISSION_DENIED);
+  });
+
+  it("refuses to delete a termination", async () => {
+    expect(
+      await sqlStateAsProbe(
+        `DELETE FROM public."termination" WHERE id = 'no-such-row'`,
+      ),
+    ).toBe(PERMISSION_DENIED);
+  });
+
+  it("refuses to truncate a termination", async () => {
+    // TRUNCATE was never granted - it is its own privilege and DELETE does not
+    // imply it - so this is refused before the statement-level trigger.
+    expect(await sqlStateAsProbe('TRUNCATE TABLE public."termination"')).toBe(
+      PERMISSION_DENIED,
+    );
+  });
+
+  it("still reads it, because the register has to be printable", async () => {
+    expect(
+      await sqlStateAsProbe('SELECT count(*) FROM public."termination"'),
+    ).toBeUndefined();
+  });
+
+  it("still appends to it, because a cessation has to be recordable", async () => {
+    expect(
+      await sqlStateAsProbe(
+        `INSERT INTO public."termination" ("id", "apartmentId", "kind", "tookEffectOn", "reference")
+         VALUES ('${id("probe-insert")}', '${APARTMENT_ID}', 'BUILDING_TRANSFERRED', '2026-06-01', 'Kopeavtal probe')`,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("refuses to rewrite the member register and the audit log too", async () => {
+    // The tables the script already covered, asserted here as well: this suite
+    // reads its statements out of the file, so these are what says the
+    // extraction found the existing lines and not only the new one.
+    expect(
+      await sqlStateAsProbe(
+        `UPDATE public."member_register_entry" SET "recordedLastName" = 'Tampered' WHERE id = 'no-such-row'`,
+      ),
+    ).toBe(PERMISSION_DENIED);
+    expect(
+      await sqlStateAsProbe(
+        `DELETE FROM public."audit_log_entry" WHERE id = 'no-such-row'`,
+      ),
+    ).toBe(PERMISSION_DENIED);
   });
 });
 

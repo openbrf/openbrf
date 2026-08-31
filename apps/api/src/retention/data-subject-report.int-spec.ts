@@ -273,9 +273,41 @@ beforeAll(async () => {
       apartmentId,
       toPersonId: subject.personId,
       transferredOn: new Date("2020-03-01"),
+      // Before the transfer, which is the ordinary order: the board approves
+      // membership when it meets, and the transfer completes on the
+      // tilltradesdag. This is the day the register's two-week window opened.
+      membershipDecidedOn: new Date("2020-02-12"),
       price: "1875000",
       agreementReference: `OVL-2020-${suffix}`,
     },
+  });
+
+  /*
+   * Two cessations on the one apartment, and the boundary case is the point.
+   * The subject held it from 2020-03-01 to 2026-02-01, so the one dated the day
+   * their holding ended is theirs - the cessation is normally what ended it -
+   * and the one after it belongs to whoever came next. This is the mirror of
+   * the pledge fixture below: there the boundary day excludes, here it
+   * includes, and a rule copied from one to the other fails on exactly these
+   * two rows.
+   */
+  await prisma.termination.createMany({
+    data: [
+      {
+        id: `dsar-termination-theirs-${suffix}`,
+        apartmentId,
+        kind: "GENERAL_MEETING_DECISION",
+        tookEffectOn: new Date("2026-02-01"),
+        reference: `Stammoprotokoll ${suffix}`,
+      },
+      {
+        id: `dsar-termination-after-${suffix}`,
+        apartmentId,
+        kind: "BUILDING_TRANSFERRED",
+        tookEffectOn: new Date("2026-08-01"),
+        reference: `Kopeavtal ${suffix}`,
+      },
+    ],
   });
 
   /*
@@ -602,6 +634,33 @@ describe("what the report contains", () => {
     expect(typeof report.transfers[0]?.price).toBe("string");
     expect(Number(report.transfers[0]?.price)).toBe(1_875_000);
     expect(report.transfers[0]?.agreementReference).toBe(`OVL-2020-${suffix}`);
+    // The day the cooperative housing register's two-week window opened for
+    // this transfer, which is a decision taken about this person and not the
+    // day the transfer completed.
+    expect(report.transfers[0]?.membershipDecidedOn).toBe("2020-02-12");
+  });
+
+  it("lists the cessation that ended this person's tenant-ownership", async () => {
+    const report = await reportFor(boardCookie);
+
+    // Dated the day their holding ended, which is the case a rule copied from
+    // the pledge bounding would drop: there the boundary day belongs to the
+    // other party, here it is the very event being reported.
+    expect(report.terminations).toHaveLength(1);
+    expect(report.terminations[0]?.tookEffectOn).toBe("2026-02-01");
+    expect(report.terminations[0]?.kind).toBe("GENERAL_MEETING_DECISION");
+    expect(report.terminations[0]?.reference).toBe(`Stammoprotokoll ${suffix}`);
+    // Statutory tier: on the report because exemption from erasure is not
+    // exemption from access, and with no erasure date because there is none.
+    expect(report.terminations[0]).not.toHaveProperty("erasableFrom");
+  });
+
+  it("keeps a later holder's cessation off this person's report", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(
+      report.terminations.map((termination) => termination.reference),
+    ).not.toContain(`Kopeavtal ${suffix}`);
   });
 
   it("lists the pledges on the apartment while this person held it", async () => {

@@ -6,8 +6,8 @@
 // The model is split across two tiers that must never be conflated
 // (decision 21, see docs/plans/phase-1.md section 4.2):
 //
-//   Statutory tier   MemberRegisterEntry, Transfer, LienNote and the
-//                    confidential apartment register fields. Append-only,
+//   Statutory tier   MemberRegisterEntry, Transfer, Termination, LienNote and
+//                    the confidential apartment register fields. Append-only,
 //                    exempt from purging, retained at least 7 years
 //                    (EFL 5 kap. via BRL 9 kap.).
 //   Service tier     Accounts, contact data and operational residency data.
@@ -41,6 +41,31 @@ model Association {
   name               String
   organizationNumber String?
   defaultLocale      String  @default("sv")
+
+  /// The property's designation with Lantmateriet (fastighetsbeteckning), e.g.
+  /// "Talgoxen 4", as the association's authoritative record of it.
+  ///
+  /// Here rather than on AssociationFacts, and the duplication is deliberate.
+  /// That model is published prose a board writes for a broker, and its own
+  /// doc comment forbids statutory data being derived from it; this column is
+  /// register content, recorded on the apartment register screen, gated on the
+  /// capability that gates that register and written to the audit log. The
+  /// cooperative housing register holds data about the bostadsrattslagenhet
+  /// (Lag (2026:484) 2 kap. 1 § forsta stycket 1) which the association has to
+  /// supply (Lag (2026:485) 3 §), and 6 § of that act drops the duty where the
+  /// data can instead be taken from fastighetsregistret or lagenhetsregistret
+  /// - both of which are keyed on this designation. The field list itself is
+  /// delegated to a forordning that has not been issued, so this records the
+  /// designation and claims nothing further about the format of a report.
+  ///
+  /// Nullable, like organizationNumber above: an instance is set up before the
+  /// board has every identifier to hand, and a blank is a truthful "not
+  /// recorded" where a placeholder would be a statement nobody made.
+  ///
+  /// Not append-only. A designation is the property's current name rather than
+  /// a dated event - a fastighetsbildning renames one - so it is corrected in
+  /// place, and the audit log carries what it was changed from and to.
+  propertyDesignation String?
 
   /// Branding available on the free tier (decision 40).
   ///
@@ -197,6 +222,7 @@ model Apartment {
   residencies           Residency[]
   lienNotes             LienNote[]
   transfers             Transfer[]
+  terminations          Termination[]
   memberRegisterEntries MemberRegisterEntry[]
   signupRequests        SignupRequest[]
   issues                Issue[]
@@ -475,6 +501,32 @@ model Transfer {
   /// Purchase price, when recorded.
   price         Decimal? @db.Decimal(14, 2)
 
+  /// The day the association decided on the acquirer's membership.
+  ///
+  /// The clock the cooperative housing register runs the transfer report on.
+  /// Lag (2026:484) 3 kap. 3 § andra stycket: the report "ska goras inom tva
+  /// veckor fran det att bostadsrattsforeningen beslutat om medlemskap i
+  /// foreningen" - so the two weeks run from this date and not from
+  /// transferredOn, which is a different day and usually the later one.
+  ///
+  /// Nullable for two separate reasons, and both of them outlive the migration.
+  ///
+  /// Rows written before this column existed have no such date. There is
+  /// nothing to derive one from - the membership decision is minuted by the
+  /// board and is not in this database - so backfilling would put a date into
+  /// a statutory register that nobody decided on, which is the reasoning the
+  /// agreementReference constraint above already records.
+  ///
+  /// And the statute itself has cases with no membership decision at all. The
+  /// same paragraph continues: "Vid overgang till nagon som redan ar medlem i
+  /// foreningen eller som inte omfattas av kravet pa medlemskap ska anmalan i
+  /// stallet goras inom tva veckor fran overgangen." A transfer to a sitting
+  /// member, or to an acquirer outside the membership requirement, has no
+  /// decision to date and runs on transferredOn instead. Null is therefore the
+  /// correct recorded value for those transfers rather than a gap, which is
+  /// why there is no CHECK requiring one.
+  membershipDecidedOn DateTime? @db.Date
+
   /// Uploaded transfer agreement, relative to the uploads volume.
   agreementDocumentPath String?
 
@@ -523,6 +575,112 @@ model LienNote {
   @@map("lien_note")
 }
 
+/// On what ground a tenant-ownership ceased to exist.
+///
+/// Two values, because bostadsrattslagen distinguishes two grounds and no more.
+/// As amended by Lag (2026:486) it says in exactly two places that a
+/// bostadsratt upphor and that the cessation "ska registreras i
+/// bostadsrattsregistret":
+///
+///   BRL 6 kap. 11 §, in the version marked "Trader i kraft": a
+///   tenant-ownership that has passed to the association is to be transferred
+///   on "om inte foreningen pa en foreningsstamma beslutar att bostadsratten
+///   ska upphora".
+///
+///   BRL 7 kap. 33 §, same: "Bostadsratten upphor om det hus som lagenheten
+///   finns i antingen overlats eller saljs exekutivt."
+///
+/// Lag (2026:484) 3 kap. 4 § imposes one duty over both, with no sub-kinds:
+/// the association reports that a bostadsratt has ceased, within two weeks of
+/// it ceasing. So the kind is what the association's own register records
+/// about the event, not a field the statute asks for, and it is modelled on
+/// the distinction the statute does draw rather than on any finer one.
+///
+/// What is deliberately NOT split: the "overlats eller saljs exekutivt"
+/// alternatives inside 7 kap. 33 §. They stand in one sentence, produce one
+/// consequence and carry one registration duty, so a voluntary disposal and an
+/// executive sale are one ground here. Which of the two happened is recorded
+/// in the reference, where the board names the document that shows it.
+enum TerminationKind {
+  /// A general meeting resolved that a tenant-ownership held by the
+  /// association itself should cease rather than be transferred on
+  /// (BRL 6 kap. 11 §). The board's reference is normally the minute of that
+  /// meeting. Where the tenant-ownership is pledged, the same section permits
+  /// the decision only with the lienholder's consent or where the
+  /// tenant-ownership is worthless to them - a condition on the decision, not
+  /// on recording that it was taken, so nothing here enforces it.
+  GENERAL_MEETING_DECISION
+  /// The building the apartment is in was transferred, or sold executively
+  /// (BRL 7 kap. 33 §). Every tenant-ownership in that building ceases, so
+  /// this is recorded per apartment: the register is per apartment, and one
+  /// row covering many would leave nothing to report for each.
+  BUILDING_TRANSFERRED
+}
+
+/// A tenant-ownership that has ceased to exist (upphorande). Statutory tier.
+///
+/// Strictly append-only, more strictly than Transfer and LienNote beside it.
+/// Those keep UPDATE because a lien is released and a mis-keyed entry has to be
+/// correctable; a cessation has no later state to reach - the tenant-ownership
+/// is gone - so 20260905100000 puts a BEFORE UPDATE OR DELETE trigger on this
+/// table, the shape MemberRegisterEntry carries, and a statement-level TRUNCATE
+/// trigger beside it. prisma/sql/harden-runtime-role.sql revokes UPDATE and
+/// DELETE from the runtime role as well, because a trigger is bypassable by the
+/// table owner and the application deliberately is not one.
+///
+/// Recorded here because Lag (2026:484) 3 kap. 4 § makes the association report
+/// it within two weeks of the day it took effect, and 3 kap. 10 § lets
+/// Lantmateriet order a late report in under penalty of a fine. The obligation
+/// ledger and the report itself are not in this model: this is the event the
+/// duty is computed from.
+///
+/// No person column, on purpose. A cessation is a fact about the
+/// tenant-ownership rather than about whoever held it - BRL 7 kap. 33 § makes
+/// every tenant-ownership in a disposed building cease at once, whoever holds
+/// them - and who held it on the day is already in the member register and the
+/// transfer history. The data subject access report reaches these rows through
+/// the same holding-period derivation that reaches lien notes, so the absence
+/// of a column is not an absence from the report.
+model Termination {
+  id          String    @id @default(cuid())
+  apartmentId String
+  /// Restrict and never SetNull. A statutory event may not lose what it was
+  /// about: a row saying a tenant-ownership ceased, with no apartment, is not
+  /// a shorter record but a false one. Restrict rather than Cascade for the
+  /// same reason - the row is undeletable, so a cascade could only ever fail.
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
+  kind TerminationKind
+
+  /// The day the tenant-ownership ceased, which is the day the statutory
+  /// two-week window opens (Lag (2026:484) 3 kap. 4 §).
+  ///
+  /// A calendar date and not an instant. The statute counts weeks from a day,
+  /// and a date column is the only type that cannot be an hour out: an instant
+  /// stored at local midnight is the previous day in UTC, which for a window
+  /// that closes on a date is a day of it.
+  tookEffectOn DateTime @db.Date
+
+  /// The board's own reference to what shows the cessation: the minute of the
+  /// general meeting that decided it, or the deed or enforcement decision that
+  /// disposed of the building.
+  ///
+  /// Required, unlike Transfer.agreementReference beside it, and the difference
+  /// is that this table is new. That column is nullable because rows predating
+  /// its constraint have no reference to be found; there are no such rows here,
+  /// so the requirement can be stated as NOT NULL from the start. A CHECK in
+  /// 20260905100000 additionally refuses a value made only of whitespace,
+  /// matching transfer_agreement_reference_present, because the service is not
+  /// the only writer this table has.
+  reference String
+
+  createdAt DateTime @default(now())
+
+  @@index([apartmentId, tookEffectOn])
+  @@index([tookEffectOn])
+  @@map("termination")
+}
+
 enum AuditAction {
   /// A masked field on a protected person was revealed.
   PROTECTED_DATA_REVEALED
@@ -534,6 +692,18 @@ enum AuditAction {
   APARTMENT_REGISTER_LIEN_NOTED
   /// A lien note was released. Its release date is a statutory date of record.
   APARTMENT_REGISTER_LIEN_RELEASED
+  /// A tenant-ownership was recorded as having ceased (upphorande). The event
+  /// the association reports to the cooperative housing register within two
+  /// weeks, so the entry carries the date it took effect and the ground.
+  APARTMENT_REGISTER_TERMINATION_RECORDED
+  /// The day the association decided on an acquirer's membership was recorded
+  /// against a transfer. The date the transfer report's two-week window runs
+  /// from, which is why recording it is an act of its own rather than part of
+  /// the move.
+  APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED
+  /// The association's authoritative property designation
+  /// (fastighetsbeteckning) was recorded or corrected.
+  ASSOCIATION_PROPERTY_DESIGNATION_RECORDED
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
@@ -736,10 +906,10 @@ model InstalledPlugin {
 /// Association.activeThemeId means the built-in theme is the active one.
 model InstalledTheme {
   /// The theme id from its manifest, e.g. "example-theme".
-  id      String @id
+  id          String  @id
   /// The name a board member sees, from the manifest's displayName.
-  name    String
-  version String
+  name        String
+  version     String
   /// One sentence from the manifest saying what the theme is.
   description String?
 
@@ -756,7 +926,7 @@ model InstalledTheme {
 
   /// sha512 of the package, hex encoded, as the catalog stated it and as the
   /// download was verified against before anything was written to disk.
-  checksum String
+  checksum  String
   /// Where the package was fetched from, so the audit entry can say what was
   /// installed and from where.
   sourceUrl String
@@ -1421,7 +1591,6 @@ model IssuePhoto {
   @@index([issueId, sortOrder])
   @@map("issue_photo")
 }
-
 
 // ---------------------------------------------------------------------------
 // The document archive.

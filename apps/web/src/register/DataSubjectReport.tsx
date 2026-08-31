@@ -26,6 +26,7 @@ import {
   type ConsentScope,
   type DataSubjectReport as Report,
   type ReportAuditAction,
+  type TerminationKind,
   fetchDataSubjectReport,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
@@ -83,6 +84,13 @@ const DOCUMENT_AUDIENCE_LABEL = {
   PUBLIC: "documents.audience.public",
 } as const satisfies Record<string, TranslationKey>;
 
+const TERMINATION_KIND_LABEL = {
+  GENERAL_MEETING_DECISION:
+    "registers.apartment.terminations.kind.GENERAL_MEETING_DECISION",
+  BUILDING_TRANSFERRED:
+    "registers.apartment.terminations.kind.BUILDING_TRANSFERRED",
+} as const satisfies Record<TerminationKind, TranslationKey>;
+
 const BOOKING_STATUS_LABEL = {
   BOOKED: "bookings.status.BOOKED",
   CANCELLED: "bookings.status.CANCELLED",
@@ -119,6 +127,12 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.APARTMENT_REGISTER_LIEN_NOTED",
   APARTMENT_REGISTER_LIEN_RELEASED:
     "register.person.report.action.APARTMENT_REGISTER_LIEN_RELEASED",
+  APARTMENT_REGISTER_TERMINATION_RECORDED:
+    "register.person.report.action.APARTMENT_REGISTER_TERMINATION_RECORDED",
+  APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED:
+    "register.person.report.action.APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED",
+  ASSOCIATION_PROPERTY_DESIGNATION_RECORDED:
+    "register.person.report.action.ASSOCIATION_PROPERTY_DESIGNATION_RECORDED",
   DATA_EXPORTED: "register.person.report.action.DATA_EXPORTED",
   SYSTEM_ROLE_GRANTED: "register.person.report.action.SYSTEM_ROLE_GRANTED",
   SYSTEM_ROLE_REVOKED: "register.person.report.action.SYSTEM_ROLE_REVOKED",
@@ -468,6 +482,7 @@ export function DataSubjectReport({
                 "register.person.report.field.apartment",
                 "register.person.report.field.direction",
                 "register.person.report.field.date",
+                "register.person.report.field.membershipDecidedOn",
                 "register.person.report.field.price",
                 "register.person.report.field.agreementReference",
               ]}
@@ -481,10 +496,36 @@ export function DataSubjectReport({
                     )}
                   </td>
                   <td className={DATA_CELL}>{transfer.transferredOn}</td>
+                  <td className={DATA_CELL}>
+                    {transfer.membershipDecidedOn ?? nothing}
+                  </td>
                   <td className={DATA_CELL}>{transfer.price ?? nothing}</td>
                   <td className={DATA_CELL}>
                     {transfer.agreementReference ?? nothing}
                   </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          <Section titleKey="register.person.report.section.terminations">
+            <Rows
+              empty={report.terminations.length === 0}
+              headings={[
+                "register.person.report.field.apartment",
+                "register.person.report.field.terminationKind",
+                "register.person.report.field.tookEffectOn",
+                "register.person.report.field.terminationReference",
+              ]}
+            >
+              {report.terminations.map((termination) => (
+                <tr key={termination.terminationId} className={ROW}>
+                  <td className={DATA_CELL}>{termination.apartment}</td>
+                  <td className={TEXT_CELL}>
+                    {t(TERMINATION_KIND_LABEL[termination.kind])}
+                  </td>
+                  <td className={DATA_CELL}>{termination.tookEffectOn}</td>
+                  <td className={TEXT_CELL}>{termination.reference}</td>
                 </tr>
               ))}
             </Rows>

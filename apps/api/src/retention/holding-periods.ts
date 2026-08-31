@@ -1,14 +1,17 @@
 import type { ResolvedRegisterEvent } from "../registers/membership-periods";
 
 /**
- * Which tenant-ownership a person held, when, and which lien notes were theirs.
+ * Which tenant-ownership a person held, when, and which apartment-keyed
+ * statutory rows were theirs.
  *
  * This exists for the data subject access report (registerutdrag, GDPR art.
  * 15). A lien note (pantnotering) is recorded against an apartment and carries
  * no person at all - only `apartmentId`, `notedOn` and `releasedOn` - so
  * answering "which of these is about the person asking" is an inference, and
  * the inference has to be made carefully or the report discloses somebody
- * else's finances.
+ * else's finances. A termination (upphorande) is keyed the same way and reaches
+ * the report through the same holdings, on a boundary rule of its own that
+ * {@link terminationsDuringHolding} argues.
  *
  * ## The asymmetry that decides every edge case
  *
@@ -51,6 +54,12 @@ export interface DatedLienNote {
   apartmentId: string;
   notedOn: Date;
   releasedOn: Date | null;
+}
+
+/** A termination, as much of it as the bounding needs. */
+export interface DatedTermination {
+  apartmentId: string;
+  tookEffectOn: Date;
 }
 
 /**
@@ -148,6 +157,59 @@ export function lienNotesDuringHolding<Note extends DatedLienNote>(
         note.releasedOn === null ||
         note.releasedOn.getTime() > period.from.getTime();
       return startedBeforeItEnded && endedAfterItStarted;
+    }),
+  );
+}
+
+/**
+ * The terminations that ended, or fell inside, a tenant-ownership this person
+ * held.
+ *
+ * A single date against a period, and both boundaries are closed - which is the
+ * opposite of the lien rule above and is the whole content of this function.
+ *
+ * A termination on the day a holding ended is the ordinary case, not an edge
+ * one: the cessation is usually what ended it, since a tenant-ownership that no
+ * longer exists cannot go on being held. The half-open rule the lien notes use
+ * would drop exactly that row, and the person whose right ceased would get a
+ * report that did not mention the event.
+ *
+ * The opening boundary is closed for the mirror reason. BRL 7 kap. 33 § makes
+ * every tenant-ownership in a building cease the day the building is disposed
+ * of, whoever holds them and however recently, so a cessation on the day
+ * somebody took the apartment is theirs.
+ *
+ * Where a transfer and a cessation are recorded on one day, both the outgoing
+ * and the incoming holder's report carries the row. That register is
+ * contradictory - a tenant-ownership that ceased cannot also have changed hands
+ * - and appearing on both reports is the reading that answers art. 15 for
+ * whichever of them it was really about. It is safe here in a way it would not
+ * be for a lien note: the disclosure is a general meeting's minute reference or
+ * the deed that disposed of the building, not a third party's financial
+ * position, so art. 15(4) has nothing to weigh against completeness.
+ *
+ * The date column comparison is by value and not by instant arithmetic. Both
+ * sides come from `@db.Date` columns - `eventOn` on the member register entry
+ * and `tookEffectOn` here - so both are read back at midnight UTC and are the
+ * same kind of thing. Nothing in this file may be handed a locally anchored
+ * instant instead; `dateColumnOf` in the booking module's stockholm-calendar is
+ * what produces the comparable value, and the register service writes through
+ * it.
+ */
+export function terminationsDuringHolding<Event extends DatedTermination>(
+  terminations: readonly Event[],
+  periods: readonly HoldingPeriod[],
+): Event[] {
+  return terminations.filter((termination) =>
+    periods.some((period) => {
+      if (period.apartmentId !== termination.apartmentId) {
+        return false;
+      }
+      const ceasedOn = termination.tookEffectOn.getTime();
+      return (
+        ceasedOn >= period.from.getTime() &&
+        (period.until === null || ceasedOn <= period.until.getTime())
+      );
     }),
   );
 }

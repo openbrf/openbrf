@@ -83,7 +83,8 @@ export interface PurgeRunSummary {
  * content (BRL 9 kap.) rather than service data, which is why it is masked from
  * every screen and reachable only through the audited reveal.
  *
- * MemberRegisterEntry, Transfer, LienNote and AuditLogEntry are never in scope.
+ * MemberRegisterEntry, Transfer, Termination, LienNote and AuditLogEntry are
+ * never in scope.
  * Not "excluded by the query" - not attempted at all. The database refuses
  * UPDATE and DELETE on them through triggers the runtime role cannot disable,
  * so an attempt would be an error rather than an erasure, and code that tried

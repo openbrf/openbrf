@@ -588,7 +588,20 @@ change it.
       they are deliberately outside this feature. The exact per-event trigger
       and actor rules belong with the implementation, not this page. A missed notification can affect
       registration and a third party's protection, which makes this a legal
-      duty rather than a convenience feature
+      duty rather than a convenience feature - Landed: the register now holds every date a report is computed from. A
+      termination (upphörande) is a statutory-tier record of its own, on the
+      two grounds bostadsrättslagen distinguishes, append-only in the
+      database and beyond the application role's reach. A transfer carries
+      the day the association decided on membership, which is the day its
+      window opens and a date derivable from nothing else the platform holds.
+      The association's authoritative property designation sits beside its
+      organisation number, separate from the prose the board publishes to a
+      broker. All three are recordable on the apartment register screen and
+      written to the audit log - Pending: the obligations ledger that turns each of those events into a
+      dated duty, the queue screen that shows what is outstanding, the
+      per-event notification, and the initial supply export (deadline 31
+      December 2027, Lag (2026:485) 3 §). Nothing in the platform computes a
+      deadline yet
 
 ## Paid modules
 

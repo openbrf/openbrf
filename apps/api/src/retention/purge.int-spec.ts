@@ -277,8 +277,8 @@ beforeAll(async () => {
   });
 
   // The statutory archive this suite must be able to show is untouched: an
-  // entry and an exit in the member register, and the transfer that granted
-  // the tenant-ownership.
+  // entry and an exit in the member register, the transfer that granted the
+  // tenant-ownership, and the cessation that ended it.
   await prisma.memberRegisterEntry.createMany({
     data: [
       {
@@ -311,6 +311,23 @@ beforeAll(async () => {
       toPersonId: people.archived,
       transferredOn: MOVED_IN,
       agreementReference: `OVL-2010-${suffix}`,
+    },
+  });
+  /*
+   * Statutory tier, and therefore never purged, which is a decision and not an
+   * omission. A cessation is what the association reports to the cooperative
+   * housing register (Lag (2026:484) 3 kap. 4 §), and the register it is
+   * reported from is retained under EFL 5 kap. via BRL 9 kap. like the rest of
+   * the archive. It also carries no personal data of its own - an apartment, a
+   * date, a ground and a board reference - so an erasure request has nothing
+   * here to reach.
+   */
+  await prisma.termination.create({
+    data: {
+      apartmentId: apartmentId(String(personIds.indexOf(people.archived))),
+      kind: "GENERAL_MEETING_DECISION",
+      tookEffectOn: MOVED_OUT,
+      reference: `Stammoprotokoll ${suffix}`,
     },
   });
 
@@ -532,7 +549,10 @@ describe("what the purge erases", () => {
 });
 
 describe("what the purge never touches", () => {
-  it("leaves the member register, the transfer and the audit log alone", async () => {
+  it("leaves the member register, the transfer, the cessation and the audit log alone", async () => {
+    const heldApartmentId = apartmentId(
+      String(personIds.indexOf(people.archived)),
+    );
     const before = {
       entries: await prisma.memberRegisterEntry.count({
         where: { personId: people.archived },
@@ -540,9 +560,13 @@ describe("what the purge never touches", () => {
       transfers: await prisma.transfer.count({
         where: { toPersonId: people.archived },
       }),
+      terminations: await prisma.termination.count({
+        where: { apartmentId: heldApartmentId },
+      }),
     };
     expect(before.entries).toBe(2);
     expect(before.transfers).toBe(1);
+    expect(before.terminations).toBe(1);
 
     const outcome = await purge.purgePerson(people.archived, dueAt);
     expect(outcome).not.toBeNull();
@@ -557,6 +581,13 @@ describe("what the purge never touches", () => {
     await expect(
       prisma.transfer.count({ where: { toPersonId: people.archived } }),
     ).resolves.toBe(1);
+    // The cessation with it, and with its reference intact: the purge clears
+    // service-tier fields as well as rows, and a statutory record blanked in
+    // place would be as lost as one deleted.
+    const termination = await prisma.termination.findFirstOrThrow({
+      where: { apartmentId: heldApartmentId },
+    });
+    expect(termination.reference).toBe(`Stammoprotokoll ${suffix}`);
 
     const entry = await prisma.memberRegisterEntry.findFirstOrThrow({
       where: { personId: people.archived, eventType: "EXIT" },

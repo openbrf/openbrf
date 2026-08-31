@@ -28,9 +28,13 @@ import {
 import {
   type ApartmentRegisterExtract,
   type ApartmentRegisterRow,
+  type TerminationKind,
   fetchApartmentRegister,
   fetchOwnApartmentRegister,
   noteLien,
+  recordMembershipDecision,
+  recordPropertyDesignation,
+  recordTermination,
   releaseLien,
   revealApartmentRegister,
   revealOwnApartmentRegister,
@@ -95,6 +99,33 @@ const EMPTY_DRAFT: LienDraft = {
   amount: "",
 };
 
+/** What the board is recording about a tenant-ownership that has ceased. */
+interface TerminationDraft {
+  apartmentId: string;
+  kind: TerminationKind;
+  tookEffectOn: string;
+  reference: string;
+}
+
+/*
+ * The general meeting's decision is the opening default because it is the
+ * ground a board reaches this form for: the building being disposed of ends
+ * every tenant-ownership in it at once and is not an entry a board makes
+ * apartment by apartment on an ordinary week.
+ */
+const EMPTY_TERMINATION: TerminationDraft = {
+  apartmentId: "",
+  kind: "GENERAL_MEETING_DECISION",
+  tookEffectOn: "",
+  reference: "",
+};
+
+/** The two grounds, in the order the form offers them. */
+const TERMINATION_KINDS: TerminationKind[] = [
+  "GENERAL_MEETING_DECISION",
+  "BUILDING_TRANSFERRED",
+];
+
 export function ApartmentRegisterScreen(): ReactElement {
   const { t } = useTranslation();
   const [extract, setExtract] = useState<ApartmentRegisterExtract | null>(null);
@@ -105,6 +136,10 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [revealFailed, setRevealFailed] = useState(false);
   const [draft, setDraft] = useState<LienDraft | null>(null);
   const [lienFailed, setLienFailed] = useState(false);
+  const [termination, setTermination] = useState<TerminationDraft | null>(null);
+  const [terminationFailed, setTerminationFailed] = useState(false);
+  const [designation, setDesignation] = useState<string | null>(null);
+  const [designationFailed, setDesignationFailed] = useState(false);
 
   /*
    * Nothing is written to state before an answer arrives, so a reload leaves
@@ -181,6 +216,60 @@ export function ApartmentRegisterScreen(): ReactElement {
         setLienFailed(true);
         return;
       }
+      await load();
+    },
+    [load],
+  );
+
+  const submitTermination = useCallback(
+    async (input: TerminationDraft): Promise<void> => {
+      setTerminationFailed(false);
+      const result = await recordTermination({
+        apartmentId: input.apartmentId,
+        kind: input.kind,
+        tookEffectOn: input.tookEffectOn,
+        reference: input.reference.trim(),
+      });
+      if (!result.ok) {
+        setTerminationFailed(true);
+        return;
+      }
+      setTermination(null);
+      await load();
+    },
+    [load],
+  );
+
+  const submitMembershipDecision = useCallback(
+    async (transferId: string, membershipDecidedOn: string): Promise<void> => {
+      setTerminationFailed(false);
+      const result = await recordMembershipDecision({
+        transferId,
+        membershipDecidedOn,
+      });
+      if (!result.ok) {
+        setTerminationFailed(true);
+        return;
+      }
+      await load();
+    },
+    [load],
+  );
+
+  const submitDesignation = useCallback(
+    async (value: string): Promise<void> => {
+      setDesignationFailed(false);
+      const trimmed = value.trim();
+      const result = await recordPropertyDesignation({
+        // Cleared rather than stored empty: the register states a designation or
+        // says none is recorded, and an empty string is neither.
+        propertyDesignation: trimmed === "" ? null : trimmed,
+      });
+      if (!result.ok) {
+        setDesignationFailed(true);
+        return;
+      }
+      setDesignation(null);
       await load();
     },
     [load],
@@ -265,6 +354,74 @@ export function ApartmentRegisterScreen(): ReactElement {
             {t("registers.apartment.liens.failed")}
           </Notice>
         ) : null}
+        {terminationFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.terminations.failed")}
+          </Notice>
+        ) : null}
+        {designationFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.designation.failed")}
+          </Notice>
+        ) : null}
+
+        {/*
+          The property designation, recorded here rather than in settings
+          because it is register content: it names the property the apartments
+          are in, and the cooperative housing register asks the association for
+          it. The prose the board publishes to a broker is a separate field,
+          and neither is derived from the other.
+        */}
+        {isBoard && extract !== null ? (
+          designation === null ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDesignation(
+                  extract.housingCooperative.propertyDesignation ?? "",
+                );
+              }}
+              className={QUIET_BUTTON}
+            >
+              {extract.housingCooperative.propertyDesignation === null
+                ? t("registers.apartment.designation.add")
+                : t("registers.apartment.designation.edit")}
+            </button>
+          ) : (
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitDesignation(designation);
+              }}
+            >
+              <label className={LABEL}>
+                {t("registers.apartment.designation.label")}
+                <input
+                  type="text"
+                  value={designation}
+                  maxLength={200}
+                  onChange={(event) => {
+                    setDesignation(event.target.value);
+                  }}
+                  className={FIELD}
+                />
+              </label>
+              <button type="submit" className={PRIMARY_BUTTON}>
+                {t("registers.apartment.designation.submit")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDesignation(null);
+                }}
+                className={SECONDARY_BUTTON}
+              >
+                {t("registers.apartment.designation.cancel")}
+              </button>
+            </form>
+          )
+        ) : null}
       </div>
 
       {failed ? (
@@ -286,6 +443,11 @@ export function ApartmentRegisterScreen(): ReactElement {
             {extract.housingCooperative.organizationNumber === null ? null : (
               <p className="font-data text-data text-ink-muted">
                 {`${t("registers.common.organizationNumber")} ${extract.housingCooperative.organizationNumber}`}
+              </p>
+            )}
+            {extract.housingCooperative.propertyDesignation === null ? null : (
+              <p className="font-data text-data text-ink-muted">
+                {`${t("registers.apartment.designation.label")} ${extract.housingCooperative.propertyDesignation}`}
               </p>
             )}
             <p className="text-title">{t("registers.apartment.heading")}</p>
@@ -323,6 +485,27 @@ export function ApartmentRegisterScreen(): ReactElement {
                   onRelease={(lienId, releasedOn) => {
                     void release(lienId, releasedOn);
                   }}
+                  termination={
+                    termination?.apartmentId === row.apartmentId
+                      ? termination
+                      : null
+                  }
+                  onStartTermination={() => {
+                    setTermination({
+                      ...EMPTY_TERMINATION,
+                      apartmentId: row.apartmentId,
+                    });
+                  }}
+                  onCancelTermination={() => {
+                    setTermination(null);
+                  }}
+                  onChangeTermination={setTermination}
+                  onSubmitTermination={(input) => {
+                    void submitTermination(input);
+                  }}
+                  onRecordMembershipDecision={(transferId, decidedOn) => {
+                    void submitMembershipDecision(transferId, decidedOn);
+                  }}
                 />
               ))}
             </div>
@@ -342,7 +525,10 @@ export function ApartmentRegisterScreen(): ReactElement {
   );
 }
 
-/** One apartment's entry: the designation, its holders, its liens, its transfers. */
+/**
+ * One apartment's entry: the designation, its holders, its liens, its transfers
+ * and any tenant-ownership that has ceased.
+ */
 function ApartmentEntry({
   row,
   canWrite,
@@ -352,6 +538,12 @@ function ApartmentEntry({
   onChangeLien,
   onSubmitLien,
   onRelease,
+  termination,
+  onStartTermination,
+  onCancelTermination,
+  onChangeTermination,
+  onSubmitTermination,
+  onRecordMembershipDecision,
 }: {
   row: ApartmentRegisterRow;
   canWrite: boolean;
@@ -361,6 +553,12 @@ function ApartmentEntry({
   onChangeLien: (draft: LienDraft) => void;
   onSubmitLien: (draft: LienDraft) => void;
   onRelease: (lienId: string, releasedOn: string) => void;
+  termination: TerminationDraft | null;
+  onStartTermination: () => void;
+  onCancelTermination: () => void;
+  onChangeTermination: (draft: TerminationDraft) => void;
+  onSubmitTermination: (draft: TerminationDraft) => void;
+  onRecordMembershipDecision: (transferId: string, decidedOn: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -611,12 +809,204 @@ function ApartmentEntry({
                     {`${t("registers.apartment.transfers.agreement")} ${transfer.agreementReference}`}
                   </span>
                 )}
+                {/*
+                  The membership decision date, which is the day the register's
+                  two-week reporting window opens for this transfer. Shown once
+                  recorded, and offered for recording while it is absent -
+                  never described as missing, because the statute has transfers
+                  with no such decision at all and a register must not call one
+                  of those a gap.
+                */}
+                {transfer.membershipDecidedOn === null ? (
+                  canWrite ? (
+                    <MembershipDecisionControl
+                      transferId={transfer.id}
+                      onRecord={onRecordMembershipDecision}
+                    />
+                  ) : null
+                ) : (
+                  <span className="font-data text-data text-ink-muted">
+                    {`${t("registers.apartment.transfers.membershipDecided")} ${transfer.membershipDecidedOn}`}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-label text-ink-muted uppercase">
+          {t("registers.apartment.terminations.heading")}
+        </h4>
+        {row.terminations.length === 0 ? (
+          <p className="text-body text-ink-muted">
+            {t("registers.apartment.terminations.none")}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {row.terminations.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2"
+              >
+                <span className="font-data text-data text-ink">
+                  {entry.tookEffectOn}
+                </span>
+                <span className="text-body text-ink">
+                  {t(`registers.apartment.terminations.kind.${entry.kind}`)}
+                </span>
+                <span className="font-data text-data text-ink-muted">
+                  {`${t("registers.apartment.terminations.reference")} ${entry.reference}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {!canWrite ? null : termination === null ? (
+          <button
+            type="button"
+            onClick={onStartTermination}
+            className={`${QUIET_BUTTON} self-start print:hidden`}
+          >
+            {t("registers.apartment.terminations.add")}
+          </button>
+        ) : (
+          <form
+            className="flex flex-col gap-3 print:hidden"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmitTermination(termination);
+            }}
+          >
+            <label className={LABEL}>
+              {t("registers.apartment.terminations.kindLabel")}
+              <select
+                value={termination.kind}
+                onChange={(event) => {
+                  onChangeTermination({
+                    ...termination,
+                    // The select offers exactly the two grounds, so its value
+                    // is one of them; the cast is what carries that from the
+                    // DOM's string back into the union.
+                    kind: event.target.value as TerminationKind,
+                  });
+                }}
+                className={FIELD}
+              >
+                {TERMINATION_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {t(`registers.apartment.terminations.kind.${kind}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={LABEL}>
+              {t("registers.apartment.terminations.tookEffectOn")}
+              <input
+                type="date"
+                required
+                value={termination.tookEffectOn}
+                max={today()}
+                onChange={(event) => {
+                  onChangeTermination({
+                    ...termination,
+                    tookEffectOn: event.target.value,
+                  });
+                }}
+                className={FIELD_DATA}
+              />
+            </label>
+            <label className={LABEL}>
+              {t("registers.apartment.terminations.reference")}
+              <input
+                type="text"
+                required
+                maxLength={500}
+                value={termination.reference}
+                onChange={(event) => {
+                  onChangeTermination({
+                    ...termination,
+                    reference: event.target.value,
+                  });
+                }}
+                className={FIELD}
+              />
+              <span className={HINT}>
+                {t("registers.apartment.terminations.referenceHint")}
+              </span>
+            </label>
+            <p className={HINT}>
+              {t("registers.apartment.terminations.appendOnly")}
+            </p>
+            <div className="flex gap-2">
+              <button type="submit" className={PRIMARY_BUTTON}>
+                {t("registers.apartment.terminations.submit")}
+              </button>
+              <button
+                type="button"
+                onClick={onCancelTermination}
+                className={SECONDARY_BUTTON}
+              >
+                {t("registers.apartment.terminations.cancel")}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
     </article>
+  );
+}
+
+/**
+ * Records the day the association decided on one transfer's membership.
+ *
+ * Its own component so the date it holds belongs to the transfer it is on. A
+ * single draft on the screen would put the value a board typed for one transfer
+ * into the input on the next one.
+ *
+ * Empty rather than defaulted to today, unlike the lien release beside it. A
+ * release is normally recorded the day it happens; a membership decision is
+ * normally minuted at a board meeting some days before anybody types it in, and
+ * a prefilled today would be the wrong answer offered as the easy one - on a
+ * date that starts a statutory window and cannot be corrected afterwards.
+ */
+function MembershipDecisionControl({
+  transferId,
+  onRecord,
+}: {
+  transferId: string;
+  onRecord: (transferId: string, decidedOn: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [decidedOn, setDecidedOn] = useState("");
+
+  return (
+    <span className="flex flex-wrap items-center gap-2 print:hidden">
+      <label className="flex items-center gap-2 text-small text-ink-muted">
+        {t("registers.apartment.transfers.membershipDecidedLabel")}
+        <input
+          type="date"
+          value={decidedOn}
+          max={today()}
+          onChange={(event) => {
+            setDecidedOn(event.target.value);
+          }}
+          className={FIELD_DATA}
+        />
+      </label>
+      <button
+        type="button"
+        disabled={decidedOn === ""}
+        onClick={() => {
+          onRecord(transferId, decidedOn);
+        }}
+        className={QUIET_BUTTON}
+      >
+        {t("registers.apartment.transfers.membershipDecidedSubmit")}
+      </button>
+    </span>
   );
 }
 

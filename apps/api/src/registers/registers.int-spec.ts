@@ -30,6 +30,11 @@ import type { MemberRegisterExtract } from "./member-register.service";
  *   must not reach it, a tenant-owner must reach their own entry and only
  *   theirs, and every copy carrying identity numbers must land in the audit
  *   log naming who took it.
+ *
+ *   The three dates the cooperative housing register reports run on - a
+ *   cessation, the membership decision behind a transfer, and the property
+ *   designation - are recordable, audited, and refused where the register could
+ *   only hold a date nobody decided on (Lag (2026:484) 3 kap.).
  */
 
 loadEnvForIntegrationTests();
@@ -87,6 +92,37 @@ const actors = {
 
 const personIds = Object.values(actors).map((actor) => actor.personId);
 
+/**
+ * The transfer this suite records a membership decision against.
+ *
+ * Its own id rather than the one the fixture writes, because the fixture's
+ * transfer is read by the extract assertions and a date recorded on it would
+ * change what those see. A transfer row cannot be deleted, so it stays behind
+ * with the archive like everything else this suite writes.
+ */
+const UNDECIDED_TRANSFER_ID = `reg-transfer-undecided-${suffix}`;
+
+/**
+ * A second one, for the refusals.
+ *
+ * The already-recorded conflict is checked before the date is, which is the
+ * right order - telling a board its date is wrong when the real answer is that
+ * the deadline is already set would be a misleading refusal. It also means a
+ * refusal test cannot reuse a transfer a successful test has completed.
+ */
+const REFUSED_TRANSFER_ID = `reg-transfer-refused-${suffix}`;
+
+/**
+ * Whether this suite created the association singleton, and what it held.
+ *
+ * The test template carries no association, but suites share one database per
+ * worker and the first-boot suite asserts on its absence. So this one puts it
+ * back the way it found it: removed if this suite made it, and with its
+ * designation restored if it did not.
+ */
+let createdAssociation = false;
+let previousDesignation: string | null = null;
+
 let ipCounter = 0;
 /**
  * Every shape the stored twelve digits can reach a page as.
@@ -127,7 +163,10 @@ function inject(options: {
     .inject({
       ...options,
       headers: {
-        "x-forwarded-for": `10.6.0.${String(ipCounter % 250)}`,
+        // 10.32.0.0/16 is this suite's; the others each hold their own second
+        // octet, so one suite's requests never count against another's
+        // rate-limit budget.
+        "x-forwarded-for": `10.32.0.${String(ipCounter % 250)}`,
         ...options.headers,
       },
     });
@@ -346,6 +385,30 @@ beforeAll(async () => {
     },
   });
 
+  await prisma.transfer.createMany({
+    data: [
+      {
+        id: UNDECIDED_TRANSFER_ID,
+        apartmentId: apartments.other,
+        fromPersonId: null,
+        toPersonId: actors.protectedMember.personId,
+        transferredOn: new Date("2021-02-01T00:00:00.000Z"),
+        // No membershipDecidedOn: the state every transfer recorded before
+        // that column existed is in, and the one the board is asked to
+        // complete.
+        agreementReference: `Upplatelseavtal ${suffix}`,
+      },
+      {
+        id: REFUSED_TRANSFER_ID,
+        apartmentId: apartments.other,
+        fromPersonId: actors.protectedMember.personId,
+        toPersonId: actors.resident.personId,
+        transferredOn: new Date("2022-05-01T00:00:00.000Z"),
+        agreementReference: `Overlatelseavtal ${suffix}`,
+      },
+    ],
+  });
+
   await prisma.lienNote.create({
     data: {
       apartmentId: apartments.held,
@@ -354,6 +417,19 @@ beforeAll(async () => {
       amount: "1500000.00",
     },
   });
+
+  const association = await prisma.association.findUnique({
+    where: { id: 1 },
+    select: { propertyDesignation: true },
+  });
+  if (association === null) {
+    await prisma.association.create({
+      data: { id: 1, name: `Brf Registret ${suffix}` },
+    });
+    createdAssociation = true;
+  } else {
+    previousDesignation = association.propertyDesignation;
+  }
 
   await prisma.boardPosition.create({
     data: {
@@ -390,10 +466,19 @@ afterAll(async () => {
   await prisma.boardPosition.deleteMany({
     where: { personId: { in: personIds } },
   });
-  // The statutory archive is append-only, so the register entries, transfers
-  // and lien notes this suite wrote stay. Their apartments and persons stay
-  // with them: a foreign key from an undeletable row is what keeps the archive
-  // readable, and deleting around it is exactly what the guards prevent.
+  if (createdAssociation) {
+    await prisma.association.deleteMany({ where: { id: 1 } });
+  } else {
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { propertyDesignation: previousDesignation },
+    });
+  }
+  // The statutory archive is append-only, so the register entries, transfers,
+  // terminations and lien notes this suite wrote stay. Their apartments and
+  // persons stay with them: a foreign key from an undeletable row is what keeps
+  // the archive readable, and deleting around it is exactly what the guards
+  // prevent.
   await app.close();
 });
 
@@ -993,6 +1078,442 @@ describe("recording a lien note", () => {
       select: { releasedOn: true },
     });
     expect(stored.releasedOn?.toISOString().slice(0, 10)).toBe("2026-05-03");
+  });
+});
+
+/**
+ * A tenant-ownership that has ceased (upphorande).
+ *
+ * The event Lag (2026:484) 3 kap. 4 § makes the association report to the
+ * cooperative housing register within two weeks. Nothing in this train computes
+ * that window; what these tests defend is that the day it starts from is
+ * recorded, audited, and impossible to state as a day nobody has reached.
+ */
+describe("recording a termination", () => {
+  it("is refused for a resident", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.held,
+        kind: "GENERAL_MEETING_DECISION",
+        tookEffectOn: "2026-01-01",
+        reference: "Nej",
+      },
+      headers: { cookie: await signIn(actors.resident.email) },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("records it, shows it in the extract and writes the audit entry", async () => {
+    const cookie = await signIn(actors.board.email);
+    const created = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.other,
+        kind: "GENERAL_MEETING_DECISION",
+        tookEffectOn: "2026-02-18",
+        reference: `Stammoprotokoll ${suffix}`,
+      },
+      headers: { cookie },
+    });
+
+    expect(created.statusCode).toBe(201);
+    const termination = JSON.parse(created.body) as {
+      id: string;
+      kind: string;
+      tookEffectOn: string;
+    };
+    expect(termination.tookEffectOn).toBe("2026-02-18");
+    expect(termination.kind).toBe("GENERAL_MEETING_DECISION");
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/apartment-register?apartmentId=${apartments.other}`,
+      headers: { cookie },
+    });
+    expect(read.statusCode).toBe(200);
+    const extract = JSON.parse(read.body) as ApartmentRegisterExtract;
+    // On the extract, not merely in the table: an entry listing holders and
+    // transfers with nothing saying the right itself ended reads as though the
+    // apartment were still held.
+    expect(extract.rows[0]?.terminations).toEqual([
+      {
+        id: termination.id,
+        kind: "GENERAL_MEETING_DECISION",
+        tookEffectOn: "2026-02-18",
+        reference: `Stammoprotokoll ${suffix}`,
+      },
+    ]);
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "APARTMENT_REGISTER_TERMINATION_RECORDED",
+        targetKind: "termination",
+        targetId: termination.id,
+      },
+    });
+    expect(entry.actorPersonId).toBe(actors.board.personId);
+    expect(entry.context).toMatchObject({
+      apartmentId: apartments.other,
+      kind: "GENERAL_MEETING_DECISION",
+      tookEffectOn: "2026-02-18",
+    });
+  });
+
+  it("refuses a date that has not arrived", async () => {
+    // A tenant-ownership that has not ceased cannot be reported as having
+    // ceased, and the row could not be corrected afterwards.
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.held,
+        kind: "BUILDING_TRANSFERRED",
+        tookEffectOn: tomorrow,
+        reference: "Imorgon",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "date-in-the-future",
+    );
+  });
+
+  it("refuses a day the calendar does not have", async () => {
+    // The route's pattern accepts the shape, so this is the service refusing
+    // the date rather than the schema refusing the string. Date.parse would
+    // have answered the 2nd of March.
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.held,
+        kind: "BUILDING_TRANSFERRED",
+        tookEffectOn: "2026-02-30",
+        reference: "Finns inte",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "date-not-a-calendar-date",
+    );
+  });
+
+  it("refuses a reference that is only whitespace", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.held,
+        kind: "GENERAL_MEETING_DECISION",
+        tookEffectOn: "2026-01-05",
+        reference: "   ",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("refuses a ground that is not one of the two the statute distinguishes", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.held,
+        kind: "BOARD_DECIDED",
+        tookEffectOn: "2026-01-05",
+        reference: "Hittepa",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("cannot be rewritten or removed once recorded", async () => {
+    const cookie = await signIn(actors.board.email);
+    const created = await inject({
+      method: "POST",
+      url: "/api/apartment-register/terminations",
+      payload: {
+        apartmentId: apartments.other,
+        kind: "BUILDING_TRANSFERRED",
+        tookEffectOn: "2026-03-02",
+        reference: `Kopeavtal ${suffix}`,
+      },
+      headers: { cookie },
+    });
+    const { id } = JSON.parse(created.body) as { id: string };
+
+    // Asked through the application's own client, which is how a bug in an
+    // admin screen would ask. The database refuses either way, and the runtime
+    // role holds no UPDATE or DELETE on this table at all.
+    await expect(
+      prisma.termination.update({
+        where: { id },
+        data: { tookEffectOn: new Date("2020-01-01T00:00:00.000Z") },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+    await expect(prisma.termination.delete({ where: { id } })).rejects.toThrow(
+      /OPENBRF_STATUTORY_ARCHIVE/,
+    );
+  });
+});
+
+/**
+ * The day the association decided on an acquirer's membership.
+ *
+ * Lag (2026:484) 3 kap. 3 § andra stycket runs the transfer report's two weeks
+ * from this date rather than from the transfer, and it is minuted by the board
+ * and nowhere else in this database. A transfer recorded without it cannot be
+ * repaired later, which is why it is recordable now and not with the reporting
+ * screen.
+ */
+describe("recording the membership decision behind a transfer", () => {
+  it("is refused for a resident", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: {
+        transferId: UNDECIDED_TRANSFER_ID,
+        membershipDecidedOn: "2021-01-14",
+      },
+      headers: { cookie: await signIn(actors.resident.email) },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("records it on the transfer and writes the audit entry", async () => {
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: {
+        transferId: UNDECIDED_TRANSFER_ID,
+        // Before the transfer, which is the ordinary order: the board approves
+        // membership when it meets and the transfer completes on the
+        // tilltradesdag. Nothing refuses that, because the statute does not.
+        membershipDecidedOn: "2021-01-14",
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      JSON.parse(response.body) as { membershipDecidedOn: string },
+    ).toMatchObject({ membershipDecidedOn: "2021-01-14" });
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/apartment-register?apartmentId=${apartments.other}`,
+      headers: { cookie },
+    });
+    const extract = JSON.parse(read.body) as ApartmentRegisterExtract;
+    const transfer = extract.rows[0]?.transfers.find(
+      (candidate) => candidate.id === UNDECIDED_TRANSFER_ID,
+    );
+    expect(transfer?.membershipDecidedOn).toBe("2021-01-14");
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED",
+        targetKind: "transfer",
+        targetId: UNDECIDED_TRANSFER_ID,
+      },
+    });
+    expect(entry.actorPersonId).toBe(actors.board.personId);
+    expect(entry.context).toMatchObject({
+      apartmentId: apartments.other,
+      membershipDecidedOn: "2021-01-14",
+      transferredOn: "2021-02-01",
+    });
+  });
+
+  it("refuses a second recording rather than moving the deadline", async () => {
+    // The transfer table keeps UPDATE, so the database would accept a second
+    // value. This date is the start of a statutory window, and overwriting it
+    // would move a deadline with nothing left saying where it had been.
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: {
+        transferId: UNDECIDED_TRANSFER_ID,
+        membershipDecidedOn: "2021-06-30",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "membership-decision-already-recorded",
+    );
+
+    const stored = await prisma.transfer.findUniqueOrThrow({
+      where: { id: UNDECIDED_TRANSFER_ID },
+      select: { membershipDecidedOn: true },
+    });
+    expect(stored.membershipDecidedOn?.toISOString().slice(0, 10)).toBe(
+      "2021-01-14",
+    );
+  });
+
+  it("refuses a date that has not arrived", async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: {
+        transferId: REFUSED_TRANSFER_ID,
+        membershipDecidedOn: tomorrow,
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "date-in-the-future",
+    );
+  });
+
+  it("answers a transfer it does not hold as if it did not exist", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: {
+        transferId: `no-such-transfer-${suffix}`,
+        membershipDecidedOn: "2021-01-14",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+});
+
+/**
+ * The association's authoritative property designation.
+ *
+ * The register the association reports into holds data about the
+ * bostadsrattslagenhet (Lag (2026:484) 2 kap. 1 § forsta stycket 1), which the
+ * association has to supply (Lag (2026:485) 3 §) except where it can be taken
+ * from fastighetsregistret or lagenhetsregistret instead (6 §) - registers keyed
+ * on this designation.
+ */
+describe("the association's property designation", () => {
+  it("is refused for a resident", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/property-designation",
+      payload: { propertyDesignation: "Nej 1" },
+      headers: { cookie: await signIn(actors.resident.email) },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("is recorded, appears on the extract, and is logged with what it replaced", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    const first = await inject({
+      method: "POST",
+      url: "/api/apartment-register/property-designation",
+      payload: { propertyDesignation: `Talgoxen ${suffix}` },
+      headers: { cookie },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const read = await inject({
+      method: "GET",
+      url: "/api/apartment-register",
+      headers: { cookie },
+    });
+    const extract = JSON.parse(read.body) as ApartmentRegisterExtract;
+    expect(extract.housingCooperative.propertyDesignation).toBe(
+      `Talgoxen ${suffix}`,
+    );
+
+    // Corrected in place, unlike everything else in this train: a
+    // fastighetsbildning renames a property, so the designation is the current
+    // name and not a dated event. Which is why the entry has to carry both
+    // values - "it was wrong for a year" is a question only the log can answer.
+    const second = await inject({
+      method: "POST",
+      url: "/api/apartment-register/property-designation",
+      payload: { propertyDesignation: `Notvackan ${suffix}` },
+      headers: { cookie },
+    });
+    expect(second.statusCode).toBe(200);
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ASSOCIATION_PROPERTY_DESIGNATION_RECORDED",
+        actorPersonId: actors.board.personId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+    expect(entries[0]?.context).toMatchObject({
+      from: `Talgoxen ${suffix}`,
+      to: `Notvackan ${suffix}`,
+    });
+  });
+
+  it("does not touch the prose the board publishes to a broker", async () => {
+    // Two fields with one name, on purpose. association_facts is published
+    // prose and its model comment forbids statutory data being derived from
+    // it; this one is the register's. Writing one must not write the other.
+    const facts = await prisma.associationFacts.upsert({
+      where: { id: 1 },
+      create: { id: 1, propertyDesignation: `Maklarprosan ${suffix}` },
+      update: { propertyDesignation: `Maklarprosan ${suffix}` },
+      select: { propertyDesignation: true },
+    });
+    expect(facts.propertyDesignation).toBe(`Maklarprosan ${suffix}`);
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/property-designation",
+      payload: { propertyDesignation: `Registret ${suffix}` },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const after = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { propertyDesignation: true },
+    });
+    expect(after.propertyDesignation).toBe(`Maklarprosan ${suffix}`);
+  });
+
+  it("clears rather than stores an empty designation", async () => {
+    // The register states a designation or says none is recorded. An empty
+    // string is neither, and would print as a blank on a statutory document.
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/property-designation",
+      payload: { propertyDesignation: "   " },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      JSON.parse(response.body) as { propertyDesignation: string | null },
+    ).toEqual({ propertyDesignation: null });
   });
 });
 
