@@ -19,6 +19,7 @@ import {
 import {
   addLocalDays,
   compareLocalDays,
+  dateColumnOf,
   formatLocalDay,
   instantAt,
   type LocalDay,
@@ -770,7 +771,7 @@ function activeResidencyOf(
 }
 
 /**
- * A residency covering every instant of a period, both ends included.
+ * A residency covering every day a period falls on, both ends included.
  *
  * The move-out date is the first day not held, which is how every other reader
  * of this table treats it, and the move-in date is the first day that is.
@@ -780,19 +781,31 @@ function activeResidencyOf(
  * booked as a stay: a household whose move-out date falls on the twelfth could
  * claim the tenth to the fifteenth on the strength of the tenth, and the nights
  * from the twelfth would then stand in a flat it no longer holds - taken from
- * whoever moved in. So the last instant the period covers is checked as well as
- * the first, and `endsAt` is exclusive, which is why it is the moment before it
- * that has to be held.
+ * whoever moved in. So the day the period's last instant falls on is checked as
+ * well as the day it opens on, and `endsAt` is exclusive, which is why it is
+ * the moment before it whose day has to be held.
+ *
+ * Both bounds are compared as calendar dates rather than as instants, because
+ * both residency columns are `@db.Date` and a date is not an instant. A whole
+ * day and a night open at local midnight, which is the evening before in UTC,
+ * so an instant comparison puts a residency beginning on the booked day after
+ * the period it covers - and answers the household that the apartment does not
+ * exist on the day it moves in. It gets the other end wrong the same way, for a
+ * time slot in the hour after midnight: read as instants, a residency ending
+ * that morning would still cover it. {@link dateColumnOf} is what puts the two
+ * sides in the same terms.
  */
 function residencyCoveringPeriod(
   personId: string,
   period: Period,
 ): Prisma.ResidencyWhereInput {
   const lastInstant = new Date(period.endsAt.getTime() - 1);
+  const opensOn = dateColumnOf(localDayOf(period.startsAt));
+  const closesOn = dateColumnOf(localDayOf(lastInstant));
   return {
     personId,
-    movedInOn: { lte: period.startsAt },
-    OR: [{ movedOutOn: null }, { movedOutOn: { gt: lastInstant } }],
+    movedInOn: { lte: opensOn },
+    OR: [{ movedOutOn: null }, { movedOutOn: { gt: closesOn } }],
   };
 }
 

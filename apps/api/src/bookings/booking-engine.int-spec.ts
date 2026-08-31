@@ -972,6 +972,86 @@ describe("the quota", () => {
     });
   });
 
+  it("lets a household book the day its residency begins", async () => {
+    /*
+     * The other end of the same arithmetic, and the case an instant comparison
+     * gets wrong in the opposite direction. Both residency dates are date
+     * columns, read back at midnight UTC, while a night and a whole day open at
+     * local midnight - the evening before in UTC. So a residency beginning on
+     * the booked day compares as starting after the period it covers, and the
+     * household that moves in on the Monday is told its apartment does not
+     * exist when it asks for the Monday.
+     *
+     * Alva's residency is restored whatever happens, because the tests after
+     * this one book against it: a move-in date left rewritten here would fail
+     * them for a reason that is not theirs.
+     */
+    const arrival = addLocalDays(WEEK, 35);
+    const dayAfter = addLocalDays(arrival, 1);
+    const claimed: string[] = [];
+
+    const moveAlvaIn = async (day: LocalDay): Promise<void> => {
+      await prisma.residency.updateMany({
+        where: { personId: alfa.personId, apartmentId: jointApartmentId },
+        data: { movedInOn: new Date(`${formatLocalDay(day)}T00:00:00.000Z`) },
+      });
+    };
+
+    try {
+      await moveAlvaIn(arrival);
+
+      // A night, which is where the two midnights are furthest apart.
+      const firstNight = await slotOn(alfaCookie, guestApartmentId, arrival);
+      const stayOnArrival = await claim(alfaCookie, {
+        resourceId: guestApartmentId,
+        apartmentId: jointApartmentId,
+        startsAt: firstNight.startsAt,
+        endsAt: firstNight.endsAt,
+      });
+      if (stayOnArrival.statusCode === 201) {
+        claimed.push(stayOnArrival.json<OwnBookingView>().id);
+      }
+      expect(stayOnArrival.statusCode).toBe(201);
+
+      // A whole day opens on the same boundary and answers the same way.
+      const wholeDay = await slotOn(alfaCookie, commonRoomId, arrival);
+      const roomOnArrival = await claim(alfaCookie, {
+        resourceId: commonRoomId,
+        apartmentId: jointApartmentId,
+        startsAt: wholeDay.startsAt,
+      });
+      if (roomOnArrival.statusCode === 201) {
+        claimed.push(roomOnArrival.json<OwnBookingView>().id);
+      }
+      expect(roomOnArrival.statusCode).toBe(201);
+
+      // A residency that begins later still holds nothing, which is the half
+      // of the rule the comparison must not give away.
+      await moveAlvaIn(addLocalDays(arrival, 2));
+
+      const nextNight = await slotOn(alfaCookie, guestApartmentId, dayAfter);
+      const beforeArrival = await claim(alfaCookie, {
+        resourceId: guestApartmentId,
+        apartmentId: jointApartmentId,
+        startsAt: nextNight.startsAt,
+        endsAt: nextNight.endsAt,
+      });
+      if (beforeArrival.statusCode === 201) {
+        claimed.push(beforeArrival.json<OwnBookingView>().id);
+      }
+      expect(beforeArrival.statusCode).toBe(404);
+      expect(beforeArrival.json<{ reason: string }>().reason).toBe(
+        "apartment-not-found",
+      );
+    } finally {
+      await prisma.residency.updateMany({
+        where: { personId: alfa.personId, apartmentId: jointApartmentId },
+        data: { movedInOn: new Date("2025-01-01") },
+      });
+      await prisma.booking.deleteMany({ where: { id: { in: claimed } } });
+    }
+  });
+
   it("counts unstarted bookings against the concurrent limit", async () => {
     const first = await slotOn(gammaCookie, commonRoomId, NEXT_WEEK);
     const second = await slotOn(

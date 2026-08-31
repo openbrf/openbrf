@@ -211,6 +211,23 @@ export function localMinuteOf(instant: Date): number {
 }
 
 /**
+ * The value a `@db.Date` column holds for a calendar date.
+ *
+ * A date column carries no time and no zone: Postgres stores the date, and the
+ * client reads it back as midnight UTC. So a date read from one and an instant
+ * from this module are not comparable as instants. A whole day and a night both
+ * open at local midnight, which is 22:00 or 23:00 UTC the evening before, so a
+ * residency beginning on the booked day compares as starting after the period
+ * it covers - and the household is told the apartment does not exist on the day
+ * it moves in. Both sides have to be the same kind of thing before they are
+ * compared, and for a rule about which days somebody holds an apartment, that
+ * kind is a calendar date.
+ */
+export function dateColumnOf(day: LocalDay): Date {
+  return new Date(Date.UTC(day.year, day.month - 1, day.day));
+}
+
+/**
  * A calendar date shifted by whole days.
  *
  * Calendar arithmetic and not instant arithmetic: adding a day to the 28th of

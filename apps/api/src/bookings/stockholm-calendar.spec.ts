@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   addLocalDays,
   compareLocalDays,
+  dateColumnOf,
   formatLocalDay,
   instantAt,
   type LocalDay,
@@ -169,6 +170,33 @@ describe("calendar arithmetic", () => {
     expect(compareLocalDays(MARCH_SATURDAY, MARCH_SUNDAY)).toBeLessThan(0);
     expect(compareLocalDays(MARCH_SUNDAY, MARCH_SUNDAY)).toBe(0);
     expect(compareLocalDays(MARCH_MONDAY, MARCH_SUNDAY)).toBeGreaterThan(0);
+  });
+});
+
+describe("a date column", () => {
+  it("holds midnight UTC and not the local midnight of the same date", () => {
+    const summerDay: LocalDay = { year: 2027, month: 7, day: 1 };
+
+    expect(dateColumnOf(summerDay).toISOString()).toBe(
+      "2027-07-01T00:00:00.000Z",
+    );
+    /*
+     * Two hours apart in summer, and the reason a residency date and a booked
+     * period cannot be compared as instants: local midnight on the 1st of July
+     * is the evening of the 30th of June in UTC, so a residency beginning on
+     * the 1st would read as starting after a whole day booked on the 1st.
+     */
+    expect(instantAt(summerDay, 0)?.toISOString()).toBe(
+      "2027-06-30T22:00:00.000Z",
+    );
+  });
+
+  it("agrees with the day an instant is read back as", () => {
+    const justAfterLocalMidnight = new Date("2027-06-30T22:30:00.000Z");
+
+    expect(dateColumnOf(localDayOf(justAfterLocalMidnight)).toISOString()).toBe(
+      "2027-07-01T00:00:00.000Z",
+    );
   });
 });
 
