@@ -514,9 +514,10 @@ change it.
     and cancellation API with the per-apartment quota derived at write time;
     the board's view of who holds what; the three capabilities; the data
     subject access report section and the booking purge with its legal-hold
-    check
-  - Pending: the booking screen and the resource settings panel, the
-    end-to-end suite
+    check; the booking screen, whose resident calendar says free or booked and
+    never who holds an hour, with the board's half behind its own capability,
+    the navigation entry and the resource settings panel
+  - Pending: the end-to-end suite
 - [ ] Event calendar with sign-ups
 
 **Later, still free and in the core**

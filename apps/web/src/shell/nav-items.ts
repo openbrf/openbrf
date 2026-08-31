@@ -67,6 +67,21 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["issues:report", "issues:handle"],
   },
   {
+    to: "/bookings",
+    // Under the bookings namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "bookings.navLabel",
+    // Either half of the module. A resident reaches it holding bookings:book
+    // and whoever runs the calendar holding bookings:manage - and although the
+    // board holds both today, an entry gated on one of them would tie the
+    // navigation to that grant rather than to what the screen offers.
+    //
+    // Deliberately not the external property manager, who holds neither: they
+    // handle the association's issues and do not live in the building, so a
+    // laundry hour is not theirs to take or to give away.
+    capability: ["bookings:book", "bookings:manage"],
+  },
+  {
     to: "/documents",
     // The archive's own word for itself, under its own namespace, so the label
     // moves with the feature.
