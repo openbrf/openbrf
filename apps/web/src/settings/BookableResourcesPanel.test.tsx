@@ -29,11 +29,11 @@ import { BookableResourcesPanel } from "./BookableResourcesPanel";
  * also carried. Read off the response - a screen that guessed would send
  * somebody to edit text that holds nothing.
  *
- * A read that could not be made is one of those halves. The notice saying so
- * arrives without a loading line under it, and it belongs to the read that
- * produced it: the next read says it is reading rather than wearing the last
- * one's failure, and a refresh that did not land leaves the rows the board is
- * typing in where they are.
+ * A read that could not be made is the screen's alone to get right. The notice
+ * saying so arrives without a loading line under it, and it belongs to the read
+ * that produced it: the next read says it is reading rather than wearing the
+ * last one's failure, and a refresh that did not land leaves the rows the board
+ * is typing in where they are.
  *
  * And a row re-seeds its fields from what is now stored, which turns on its key
  * being an encoding of the stored values rather than a join on a separator: two

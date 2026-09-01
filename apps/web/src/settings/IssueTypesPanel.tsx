@@ -46,7 +46,7 @@ interface Loaded {
   /** Which read this answers for. */
   readonly read: number;
   /**
-   * What the board can be reported, or null while no read has answered at all.
+   * Every type the catalogue holds, or null while no read has answered at all.
    *
    * Kept through a read that fails: the rows below are what the board acts on,
    * and a refresh that did not land is no reason to take the catalogue off the
