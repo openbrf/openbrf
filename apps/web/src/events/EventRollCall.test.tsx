@@ -138,13 +138,38 @@ describe("who is on the list", () => {
       expect(screen.getByText("Avanmäld")).toBeTruthy();
     });
     // Who was expected and who changed their mind are two answers rather than
-    // one absence, which is why the withdrawal is a date on the row.
+    // one absence, which is why the row stays instead of going.
     expect(screen.getByText("Elin Hammar")).toBeTruthy();
     expect(
       screen.queryByRole("button", {
         name: "Avanmäl deltagaren från den lördag 18 april 2026",
       }),
     ).toBeNull();
+  });
+
+  it("tells the rows apart for a reader who cannot see which one is which", async () => {
+    await open();
+
+    // One roll-call is one date, so the accessible name is the same on every
+    // row: it says which date and not which person, and the act is against one
+    // named person's record. The description is the row's own text, so it says
+    // who without this component holding a name it may not have - the protected
+    // row describes itself as protected and never as somebody.
+    const buttons = screen.getAllByRole("button", {
+      name: "Avanmäl deltagaren från den lördag 18 april 2026",
+    });
+    const described = buttons.map((button) => {
+      const id = button.getAttribute("aria-describedby");
+      return id === null
+        ? null
+        : (document.getElementById(id)?.textContent ?? null);
+    });
+
+    expect(described).toStrictEqual([
+      "Elin Hammar",
+      "Skyddade personuppgifter: se registret.",
+      "Finns inte längre i registret.",
+    ]);
   });
 });
 

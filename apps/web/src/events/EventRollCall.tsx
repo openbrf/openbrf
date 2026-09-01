@@ -34,9 +34,16 @@ import { eventFailureKey } from "./event-failures";
  * every roll-call of a weekly series would be reading a year of residents'
  * names to draw one screen.
  *
- * The ones who stood down stay on the list with the date they did. That is the
+ * The ones who stood down stay on the list, saying that they did. That is the
  * point of a withdrawal being a dated close rather than a deleted row: who was
  * expected and who changed their mind are two answers rather than one absence.
+ *
+ * The row says that they stood down and not when. The date is on the sign-up,
+ * and what reaches this screen is the instant it was written; which day of the
+ * association's own calendar that instant falls on is a question the server has
+ * answered for the occurrence and not for the withdrawal, so there is no local
+ * day here to print and nothing here derives one. What a board reading this list
+ * is deciding is who to expect, and for that the word is the whole answer.
  */
 export function EventRollCall({
   occurrenceId,
@@ -147,7 +154,9 @@ export function EventRollCall({
               key={entry.signupId}
               className="flex flex-wrap items-center gap-3 border-t border-line pt-2 text-small first:border-t-0 first:pt-0"
             >
-              <Attendee attendee={entry.attendee} />
+              <span id={`eventAttendee-${entry.signupId}`}>
+                <Attendee attendee={entry.attendee} />
+              </span>
 
               {entry.withdrawnAt === null ? (
                 <button
@@ -160,6 +169,15 @@ export function EventRollCall({
                   aria-label={t("events.rollCall.withdrawNamed", {
                     date: formatEventDay(rollCall.on, i18n.language),
                   })}
+                  // Which row it is, from the row's own text rather than from a
+                  // name this component may not have. One roll-call is one date,
+                  // so the name above is the same on every row and says which
+                  // date but not which person - and somebody moving through the
+                  // list with a screen reader is choosing between people. What
+                  // the row says is what the description says, so a protected row
+                  // describes itself as protected personal data and a purged one
+                  // as no longer in the register, and neither invents a name.
+                  aria-describedby={`eventAttendee-${entry.signupId}`}
                   onClick={() => {
                     withdraw(entry.signupId);
                   }}

@@ -296,4 +296,22 @@ describe("the key a row re-seeds its fields from", () => {
       signatureOf(STORED),
     );
   });
+
+  it("tells two series apart whatever the board typed in the free text", () => {
+    // Four of these fields are free text, so every character is one somebody may
+    // write. Two series that differ only in where a separator falls between two
+    // of them must not share a key: they would leave the row showing what was
+    // typed after a save had stored something else.
+    expect(
+      signatureOf({ ...STORED, title: "Cleaning day|", description: "" }),
+    ).not.toBe(
+      signatureOf({ ...STORED, title: "Cleaning day", description: "|" }),
+    );
+
+    expect(
+      signatureOf({ ...STORED, category: "Sauna|", location: "The courtyard" }),
+    ).not.toBe(
+      signatureOf({ ...STORED, category: "Sauna", location: "|The courtyard" }),
+    );
+  });
 });

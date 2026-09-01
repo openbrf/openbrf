@@ -110,7 +110,7 @@ interface Running {
  * has to be the current one rather than the one that produced the refusal.
  */
 export function EventAdminPanel(): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [series, setSeries] = useState<readonly EventSeries[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -228,7 +228,20 @@ export function EventAdminPanel(): ReactElement {
             {scanned.length === 0
               ? null
               : ` ${scanned.map((field) => t(FIELD_LABEL[field])).join(", ")}`}
-            {dates.length === 0 ? null : ` ${dates.join(", ")}`}
+            {/* The dates as the list below writes them, and in the same face:
+                the board's next act is to find one of them on that list, and a
+                notice saying 2026-04-18 above a row saying lordag 18 april 2026
+                would leave them mapping one form onto the other. */}
+            {dates.length === 0 ? null : (
+              <>
+                {" "}
+                <span className="font-data">
+                  {dates
+                    .map((day) => formatEventDay(day, i18n.language))
+                    .join(", ")}
+                </span>
+              </>
+            )}
           </Notice>
         ) : outcome !== null ? (
           <Notice tone="ok" live>
@@ -237,10 +250,19 @@ export function EventAdminPanel(): ReactElement {
         ) : null
       }
     >
+      {/*
+       * Nothing under a first read that failed, for the reason the attending
+       * panel says: the notice above has said the calendar could not be read, and
+       * "reading the calendar..." under it would go on saying something is still
+       * happening. A failed re-read keeps the list it has - the form below writes
+       * against those series, and taking them away would take the form with them.
+       */}
       {series === null ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("events.manage.loading")}
-        </p>
+        loadFailed ? null : (
+          <p role="status" className="text-body text-ink-muted">
+            {t("events.manage.loading")}
+          </p>
+        )
       ) : series.length === 0 ? (
         <p className="text-body text-ink-muted">{t("events.manage.empty")}</p>
       ) : (

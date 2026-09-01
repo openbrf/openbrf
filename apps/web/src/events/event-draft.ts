@@ -170,9 +170,16 @@ export function draftOf(series: EventSeries): EventDraft {
  * save rather than going on showing what was typed. Every field the form can
  * change is in it: one that was left out would leave a row showing a value the
  * server had refused.
+ *
+ * Encoded rather than joined on a separator, because four of these fields are
+ * free text a board types. Any separator is a character somebody may write, and
+ * a title of "Staddag|" beside an empty description reads the same joined as a
+ * title of "Staddag" beside a description of "|" - so two series that differ
+ * would share a key, the row would not re-seed after a save, and the fields
+ * would go on showing what was typed rather than what is stored.
  */
 export function signatureOf(series: EventSeries): string {
-  return [
+  return JSON.stringify([
     series.id,
     series.title,
     series.description ?? "",
@@ -187,7 +194,7 @@ export function signatureOf(series: EventSeries): string {
     series.recurrence?.interval ?? "",
     series.recurrence?.count ?? "",
     series.recurrence?.until ?? "",
-  ].join("|");
+  ]);
 }
 
 /**

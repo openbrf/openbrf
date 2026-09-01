@@ -459,5 +459,8 @@ describe("nothing to show", () => {
         screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
       ).toBeTruthy();
     });
+    // And stops saying it is reading. The read is over, so a loading line under
+    // the notice would say something is still happening when nothing is.
+    expect(screen.queryByText("Läser kalendern...")).toBeNull();
   });
 });

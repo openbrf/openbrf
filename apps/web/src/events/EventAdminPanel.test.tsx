@@ -268,7 +268,10 @@ describe("entering a series", () => {
   });
 
   it("clears the form once the series exists and not before", async () => {
-    createEventSeries.mockResolvedValue({
+    // Refused once and then taken, on one form, because both halves of the rule
+    // are about the same fields: what the board typed survives a refusal they
+    // have to act on, and goes once there is a series holding it.
+    createEventSeries.mockResolvedValueOnce({
       ok: false,
       failure: { status: 422, reason: "recurrence-past-horizon" },
     });
@@ -295,6 +298,20 @@ describe("entering a series", () => {
       "value",
       "2026-04-18",
     );
+
+    await user.click(
+      screen.getByRole("button", { name: "Lägg in evenemanget" }),
+    );
+
+    // And empty once the series exists, so the next thing the board enters is
+    // not the last one with a word changed.
+    await waitFor(() => {
+      expect(screen.getByLabelText("Vad det heter")).toHaveProperty(
+        "value",
+        "",
+      );
+    });
+    expect(screen.getByLabelText("Första datumet")).toHaveProperty("value", "");
   });
 });
 
@@ -469,8 +486,13 @@ describe("a refusal that publishes particulars", () => {
     });
     // Which dates, so the board can go and call one off. Never who signed up:
     // the refusal does not say, and there is nowhere here to put it.
+    //
+    // Written the way the list below writes them, because that is the list the
+    // board goes to next. The response states them as "2026-04-18", and a notice
+    // saying that above a row saying "lördag 18 april 2026" would leave the
+    // board mapping one form onto the other to find the date.
     expect(screen.getByRole("alert").textContent).toContain(
-      "avanmäl deltagarna, först: 2026-04-18, 2026-10-17",
+      "avanmäl deltagarna, först: lördag 18 april 2026, lördag 17 oktober 2026",
     );
   });
 
@@ -528,5 +550,30 @@ describe("who is coming", () => {
         name: "Vilka kommer den lördag 18 april 2026",
       }),
     ).toBeNull();
+  });
+});
+
+describe("a list that could not be read", () => {
+  it("says so, and stops saying it is reading", async () => {
+    fetchEventSeries.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    render(<EventAdminPanel />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+      ).toBeTruthy();
+    });
+    // The read is over, so a loading line under the notice would go on saying
+    // something is still happening when nothing is.
+    expect(screen.queryByText("Läser kalendern...")).toBeNull();
+    // The form to enter a series is still there: nothing about a list that could
+    // not be read stops a board writing the next thing down.
+    expect(
+      screen.getByRole("button", { name: "Lägg in evenemanget" }),
+    ).toBeTruthy();
   });
 });

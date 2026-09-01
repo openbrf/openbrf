@@ -178,10 +178,19 @@ export function EventAttendPanel(): ReactElement {
         ) : null
       }
     >
+      {/*
+       * Nothing under a first read that failed: the notice above has already
+       * said the calendar could not be read, and "reading the calendar..." under
+       * it would go on saying something is still happening when nothing is. A
+       * failed re-read is a different case and keeps the list it has, because the
+       * dates on screen are still the last thing the server said.
+       */}
       {occurrences === null ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("events.attend.loading")}
-        </p>
+        loadFailed ? null : (
+          <p role="status" className="text-body text-ink-muted">
+            {t("events.attend.loading")}
+          </p>
+        )
       ) : days.length === 0 ? (
         <p className="text-body text-ink-muted">{t("events.attend.empty")}</p>
       ) : (
