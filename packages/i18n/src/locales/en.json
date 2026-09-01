@@ -57,6 +57,23 @@
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} has published a news item.",
       "action": "Read the news item"
+    },
+    "booking": {
+      "periodSlot": "{{date}} {{from}} to {{to}}",
+      "periodStay": "Check-in {{from}}, check-out {{to}}"
+    },
+    "bookingConfirmation": {
+      "subject": "Your booking of {{resource}} is confirmed",
+      "heading": "The booking is made",
+      "body": "Your booking of {{resource}} is confirmed.",
+      "action": "Open the bookings"
+    },
+    "bookingCancellation": {
+      "subject": "Your booking of {{resource}} has been cancelled",
+      "heading": "The booking has been cancelled",
+      "body": "The association has cancelled your booking of {{resource}}.",
+      "freedNotice": "The period is free again, so anybody in the house can book it. You can make a new booking whenever you like.",
+      "action": "Open the bookings"
     }
   },
   "sms": {

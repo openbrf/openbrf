@@ -7,7 +7,9 @@ import type {
   BookingResourceMode,
   BookingStatus,
 } from "../generated/prisma/enums";
+import { failureName } from "../logging/failure";
 import { lockApartmentBookings, lockResourceBookings } from "./booking-lock";
+import { BookingMailerService } from "./booking-mailer.service";
 import { type BookingQuota, BookingError } from "./booking.error";
 import {
   daysIn,
@@ -156,6 +158,13 @@ export interface BookInput {
  * all. Counting against the apartment gives joint holders one shared allowance
  * either way, which is the property that has to hold.
  *
+ * ## Correspondence is outside the transaction
+ *
+ * Both write paths hand a message to {@link BookingMailerService} after their
+ * transaction has committed, and neither lets a failure to send travel out of
+ * the method. Who is written to is that service's decision; why the send sits
+ * after the commit is stated at the two call sites.
+ *
  * ## Reserved schema room stays reserved
  *
  * Nothing here writes `startedAt` or the `RELEASED` status. "Unstarted", which
@@ -170,6 +179,7 @@ export class BookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly mailer: BookingMailerService,
   ) {}
 
   /**
@@ -473,6 +483,36 @@ export class BookingService {
       return created;
     });
 
+    /*
+     * The confirmation, after the commit and best effort.
+     *
+     * The slot is held by now and the index will not let anybody else have it,
+     * so letting a mail outage reject the request would report a booking that
+     * was made as a failure - and here that costs more than an unsent message.
+     * The resident reads the refusal, presses the button again, and meets
+     * `slot-taken` raised by their own booking: an hour they hold, that they
+     * have been told twice they do not.
+     *
+     * The failure is named by the booking and by the class of what went wrong.
+     * A mail server's rejection quotes the envelope, and that envelope holds an
+     * address decrypted inside the call above.
+     */
+    try {
+      await this.mailer.sendConfirmation({
+        bookingId: booking.id,
+        bookedByPersonId: booking.bookedByPersonId,
+        resourceName: booking.resource.name,
+        mode: booking.resource.mode,
+        startsAt: booking.startsAt,
+        endsAt: booking.endsAt,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Booking confirmation failed for booking ${booking.id}: ` +
+          failureName(error),
+      );
+    }
+
     // The identifiers and the mode. Which household booked which hour is the
     // thing the capability gates, and a log line is not behind it.
     this.logger.log(
@@ -525,7 +565,7 @@ export class BookingService {
     actorPersonId: string,
     ownerPersonId: string | null,
   ): Promise<OwnBookingView> {
-    const view = await this.prisma.$transaction(async (tx) => {
+    const cancelled = await this.prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findFirst({
         where: {
           id: bookingId,
@@ -577,11 +617,40 @@ export class BookingService {
         tx,
       );
 
-      return toOwnView({ ...booking, status: "CANCELLED" });
+      return { booking, view: toOwnView({ ...booking, status: "CANCELLED" }) };
     });
 
+    /*
+     * The notice, after the commit and best effort, for the reason the
+     * confirmation gives: the slot has already gone back to the calendar and
+     * cancelling twice is refused, so a mail outage has nothing to offer but a
+     * refusal the caller cannot act on.
+     *
+     * Whether anybody is written to at all is BookingMailerService's decision,
+     * and stated there: the actor is passed rather than tested here, because the
+     * rule is about who cancelled whose booking and not about which of the two
+     * routes reached this method.
+     */
+    const { booking } = cancelled;
+    try {
+      await this.mailer.sendCancellation({
+        bookingId: booking.id,
+        bookedByPersonId: booking.bookedByPersonId,
+        cancelledByPersonId: actorPersonId,
+        resourceName: booking.resource.name,
+        mode: booking.resource.mode,
+        startsAt: booking.startsAt,
+        endsAt: booking.endsAt,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Cancellation notice failed for booking ${booking.id}: ` +
+          failureName(error),
+      );
+    }
+
     this.logger.log(`Cancelled booking ${bookingId}`);
-    return view;
+    return cancelled.view;
   }
 
   /** The resource, when it exists and is still offered for booking. */

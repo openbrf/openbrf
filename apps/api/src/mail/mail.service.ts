@@ -35,6 +35,26 @@ function defaultPortFor(secure: boolean): number {
   return secure ? IMPLICIT_TLS_PORT : STARTTLS_SUBMISSION_PORT;
 }
 
+/**
+ * How long a send may take before it is a failure.
+ *
+ * Stated rather than left to the transport, because every send in this
+ * application is awaited by whatever triggered it - a request handler, or a
+ * queue worker - and an unbounded one does not fail, it waits. That is the
+ * worse outcome of the two: a caller that has already committed its work
+ * catches a rejection and logs it, while a caller holding an open request holds
+ * it for as long as the far end stays silent. The defaults are two minutes to
+ * connect and ten on an idle socket, which is long enough for a stalled mail
+ * server to be indistinguishable from a hung application.
+ *
+ * The numbers are generous for a working submission server, where the whole
+ * exchange is a handshake and a few hundred bytes, and short enough that a
+ * board member pressing "send test message" gets an answer.
+ */
+const CONNECTION_TIMEOUT_MS = 10_000;
+const GREETING_TIMEOUT_MS = 10_000;
+const SOCKET_TIMEOUT_MS = 20_000;
+
 export class MailNotConfiguredError extends Error {
   constructor() {
     super(
@@ -180,6 +200,18 @@ export class MailService {
       day: "2-digit",
       timeZone: "Europe/Stockholm",
     });
+    /*
+     * The association's zone here too, and for the harder of the two reasons.
+     * A date is wrong by a day at the edges if the zone is wrong; a time of day
+     * is wrong by an hour for half the year, and a laundry hour stated an hour
+     * from where it was booked is a resident standing in front of a machine
+     * somebody else is using.
+     */
+    const timeFormatter = new Intl.DateTimeFormat(resolved, {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/Stockholm",
+    });
 
     return {
       t: this.i18n.translatorFor(resolved),
@@ -187,6 +219,7 @@ export class MailService {
       brand,
       appUrl: this.env.APP_URL,
       formatDate: (date) => dateFormatter.format(date),
+      formatTime: (date) => timeFormatter.format(date),
     };
   }
 
@@ -272,6 +305,9 @@ export class MailService {
       host: smtp.host,
       port: smtp.port,
       secure: smtp.secure,
+      connectionTimeout: CONNECTION_TIMEOUT_MS,
+      greetingTimeout: GREETING_TIMEOUT_MS,
+      socketTimeout: SOCKET_TIMEOUT_MS,
       auth:
         smtp.user === undefined
           ? undefined

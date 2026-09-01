@@ -57,6 +57,23 @@
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} har publicerat en nyhet.",
       "action": "Läs nyheten"
+    },
+    "booking": {
+      "periodSlot": "{{date}} kl. {{from}}-{{to}}",
+      "periodStay": "Ankomst {{from}}, avresa {{to}}"
+    },
+    "bookingConfirmation": {
+      "subject": "Din bokning av {{resource}} är bekräftad",
+      "heading": "Bokningen är gjord",
+      "body": "Din bokning av {{resource}} är bekräftad.",
+      "action": "Öppna bokningarna"
+    },
+    "bookingCancellation": {
+      "subject": "Din bokning av {{resource}} är avbokad",
+      "heading": "Bokningen är avbokad",
+      "body": "Föreningen har avbokat din bokning av {{resource}}.",
+      "freedNotice": "Tiden är ledig igen, så vem som helst i huset kan boka den. Du kan göra en ny bokning när du vill.",
+      "action": "Öppna bokningarna"
     }
   },
   "sms": {

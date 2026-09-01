@@ -27,6 +27,16 @@ export interface MailTemplateContext {
   appUrl: string;
   /** Formats a date in the recipient's locale. */
   formatDate: (date: Date) => string;
+  /**
+   * Formats a time of day in the recipient's locale, on the association's
+   * clock.
+   *
+   * Separate from {@link MailTemplateContext.formatDate} rather than one
+   * formatter carrying both, because the two are wanted apart: a laundry hour
+   * is one date and two times, and repeating the date beside each of them is
+   * how a reader loses which day it is.
+   */
+  formatTime: (date: Date) => string;
 }
 
 /**

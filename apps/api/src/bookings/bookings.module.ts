@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { BookableResourceService } from "./bookable-resource.service";
+import { BookingMailerService } from "./booking-mailer.service";
 import { BookingPurgeService } from "./booking-purge.service";
 import { BookingService } from "./booking.service";
 import {
@@ -24,8 +25,13 @@ import {
  * and configuring the catalogue is a third act again. One controller carrying
  * two of those capabilities would be a route open to the wrong half of them.
  *
- * The database, the audit log, the job queue and the principal the controllers
- * read all come from global modules, which is why nothing is imported here.
+ * The database, the audit log, correspondence, field encryption, the job queue
+ * and the principal the controllers read all come from global modules, which is
+ * why nothing is imported here.
+ *
+ * The mailer is a provider of this module and not an export. A booking mail is
+ * sent by the act that makes or cancels a booking and by nothing else, so
+ * nothing outside these walls has any business sending one.
  *
  * The services are exported for the screens and endpoints that read the
  * catalogue or the calendar without being the ones that write them.
@@ -36,7 +42,12 @@ import {
     BookingAdminController,
     BookableResourceAdminController,
   ],
-  providers: [BookableResourceService, BookingService, BookingPurgeService],
+  providers: [
+    BookableResourceService,
+    BookingService,
+    BookingMailerService,
+    BookingPurgeService,
+  ],
   exports: [BookableResourceService, BookingService],
 })
 export class BookingsModule {}
