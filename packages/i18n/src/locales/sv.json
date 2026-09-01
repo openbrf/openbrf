@@ -2614,6 +2614,8 @@
       "description": "En kommentar syns precis så mycket som nyheten den står under, och ingen kommentar visas någonsin på föreningens webbplats.",
       "loading": "Läser kommentarerna...",
       "empty": "Ingen har svarat på den här än.",
+      "earlier": "Visa tidigare kommentarer",
+      "earlierReading": "Läser tidigare kommentarer...",
       "field": "Din kommentar",
       "hint": "Skriv inget om någons hälsa eller en grannes förhållanden. Ett personnummer avvisas.",
       "submit": "Skicka kommentaren",

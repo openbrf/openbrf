@@ -5,16 +5,19 @@ import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
 import { NewsCommentError } from "./news-comment.error";
 import {
+  COMMENTS_PER_PAGE,
   COMMENTS_PER_WRITE_WINDOW,
   NewsCommentService,
   WRITE_WINDOW_MINUTES,
+  parseThreadCursor,
   refusePersonalIdentityNumbers,
+  threadCursor,
 } from "./news-comment.service";
 
 /**
  * The rules a comment thread lives under, decided before any row is written.
  *
- * Five of them, and every one is a rule a database cannot be asked about.
+ * Seven of them, and every one is a rule a database cannot be asked about.
  *
  * Visibility is inherited: a draft has no thread, and the refusal for a draft is
  * the refusal for an item that does not exist. Asserted as the reason code and
@@ -36,10 +39,22 @@ import {
  *
  * Who a comment is attributed to, including the two cases that are not a name.
  *
- * And that hiding withholds the text from readers, shows it to the board and to
- * the author, and never removes the comment from the thread. Both answers are
+ * That hiding withholds the text from readers, shows it to the board and to the
+ * author, and never removes the comment from the thread. Both answers are
  * asserted for each reader, so a service that had stopped withholding anything
  * at all would fail rather than pass half the cases.
+ *
+ * That the board can strike a comment through whether or not the notice above it
+ * is still published, and that the comment that is not there is answered as
+ * absent. Publication is what decides who may read a thread; it decides nothing
+ * about the one act the board has over one.
+ *
+ * And that a thread is read a page at a time from its newest end. Asserted by
+ * walking the whole of one backwards and insisting every comment came back
+ * exactly once - including the case where every comment shares an instant, which
+ * is the case a cursor on the instant alone gets wrong. A page size on its own
+ * would satisfy an assertion about how many comments came back and lose the rest
+ * of the thread.
  *
  * What the database itself does with these rows is `news-comments.int-spec.ts`.
  */
@@ -68,6 +83,64 @@ interface PersonFixture {
   firstName: string;
   lastName: string;
   protectedPersonalData: boolean;
+}
+
+/** How the service orders a thread: by instant, with the identifier as the tie. */
+type CommentOrderBy = { createdAt: "asc" | "desc" } | { id: "asc" | "desc" };
+
+/**
+ * The keyset the service compares a cursor with, as the query carries it.
+ *
+ * Two branches: everything written before the instant, and everything written in
+ * that instant whose identifier sorts before the cursor's. The second is the
+ * whole reason the type is written out here rather than left as unknown - a fake
+ * that dropped it would answer the tie either way and a test about the tie could
+ * not fail.
+ */
+type CommentKeyset = [
+  { createdAt: { lt: Date } },
+  { createdAt: Date; id: { lt: string } },
+];
+
+interface CommentQuery {
+  where: { newsId: string; OR?: CommentKeyset };
+  orderBy: readonly CommentOrderBy[];
+  take?: number;
+}
+
+/** Whether a row is on the older side of the cursor, or there is no cursor. */
+function isBefore(row: CommentFixture, keyset: CommentKeyset | undefined) {
+  if (keyset === undefined) {
+    return true;
+  }
+  const [byInstant, byIdentifier] = keyset;
+  return (
+    row.createdAt.getTime() < byInstant.createdAt.lt.getTime() ||
+    (row.createdAt.getTime() === byIdentifier.createdAt.getTime() &&
+      row.id < byIdentifier.id.lt)
+  );
+}
+
+/** The comparator the query asked for, term by term. */
+function byOrder(orderBy: readonly CommentOrderBy[]) {
+  return (a: CommentFixture, b: CommentFixture): number => {
+    for (const term of orderBy) {
+      const ascending =
+        ("createdAt" in term ? term.createdAt : term.id) === "asc";
+      const difference =
+        "createdAt" in term
+          ? a.createdAt.getTime() - b.createdAt.getTime()
+          : a.id < b.id
+            ? -1
+            : a.id > b.id
+              ? 1
+              : 0;
+      if (difference !== 0) {
+        return ascending ? difference : -difference;
+      }
+    }
+    return 0;
+  };
 }
 
 /**
@@ -160,17 +233,23 @@ function build(options: {
     },
   );
 
-  const update = vi.fn(
+  /*
+   * Conditional, exactly as the column is: only a row that is still standing
+   * matches. A fake that hid whatever identifier it was given would let a second
+   * press look like a first one, which is the race the real statement closes.
+   */
+  const updateMany = vi.fn(
     async (args: {
-      where: { id: string };
+      where: { id: string; hiddenAt: null };
       data: { hiddenAt: Date; hiddenByPersonId: string };
     }) => {
-      const row = comments.find((one) => one.id === args.where.id);
-      if (row === undefined) {
-        throw new Error(`no comment ${args.where.id}`);
+      const matched = comments.filter(
+        (one) => one.id === args.where.id && one.hiddenAt === null,
+      );
+      for (const row of matched) {
+        row.hiddenAt = args.data.hiddenAt;
       }
-      row.hiddenAt = args.data.hiddenAt;
-      return row;
+      return { count: matched.length };
     },
   );
 
@@ -209,22 +288,41 @@ function build(options: {
       ),
     },
     newsComment: {
-      findMany: vi.fn(async (args: { where: { newsId: string } }) =>
+      /*
+       * The cursor, the order and the limit are all applied, because all three
+       * are what a paged read is. A fake that ignored the limit would let a page
+       * size of fifty be a page size of everything; one that ignored the
+       * direction would answer the oldest end of the thread and let a test about
+       * which end a reader lands on pass either way; and one that ignored the
+       * cursor would answer the same page every time, which is a thread that
+       * cannot be read past its first fifty comments and a test that says it can.
+       */
+      findMany: vi.fn(async (args: CommentQuery) =>
         comments
-          .filter((one) => one.newsId === args.where.newsId)
-          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+          .filter(
+            (one) =>
+              one.newsId === args.where.newsId && isBefore(one, args.where.OR),
+          )
+          .sort(byOrder(args.orderBy))
+          .slice(0, args.take),
       ),
+      /*
+       * A copy rather than the row itself, because a read is a copy: what a
+       * caller gets back is what the table held when the statement ran, and it
+       * does not change under them because somebody else wrote afterwards.
+       *
+       * Load-bearing rather than tidy. Handing back the live row would let a
+       * read taken before a write see the write anyway, and the two-presses test
+       * below would pass over an implementation that read first and then wrote -
+       * which is the exact shape this one replaced.
+       */
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
         const row = comments.find((one) => one.id === args.where.id);
-        if (row === undefined) {
-          return null;
-        }
-        const item = news.find((one) => one.id === row.newsId);
-        return { ...row, news: { published: item?.published === true } };
+        return row === undefined ? null : { ...row };
       }),
       count,
       create,
-      update,
+      updateMany,
     },
     person: {
       findMany: vi.fn(async (args: { where: { id: { in: string[] } } }) =>
@@ -549,7 +647,7 @@ describe("who a comment is attributed to", () => {
       principal("person-other", ["news:comment"]),
     );
 
-    expect(thread[0]?.author).toEqual({
+    expect(thread.comments[0]?.author).toEqual({
       kind: "resident",
       personId: ASTRID.id,
       name: "Astrid Holm",
@@ -568,7 +666,7 @@ describe("who a comment is attributed to", () => {
     ]) {
       const thread = await service.list(NEWS_ID, reader);
 
-      expect(thread[0]?.author).toEqual({
+      expect(thread.comments[0]?.author).toEqual({
         kind: "protected",
         personId: PROTECTED.id,
       });
@@ -590,7 +688,173 @@ describe("who a comment is attributed to", () => {
       principal("person-other", ["news:comment"]),
     );
 
-    expect(thread[0]?.author).toEqual({ kind: "unknown" });
+    expect(thread.comments[0]?.author).toEqual({ kind: "unknown" });
+  });
+});
+
+describe("reading a thread a page at a time", () => {
+  /** A thread of `count` comments, one a minute, oldest first. */
+  function thread(count: number, sharedInstant?: Date): CommentFixture[] {
+    return Array.from({ length: count }, (_unused, index) =>
+      comment({
+        // Zero-padded, so the identifier order is the writing order here and a
+        // test about the tie is not a test about how a number sorts as text.
+        id: `comment-${String(index).padStart(3, "0")}`,
+        authorPersonId: ASTRID.id,
+        body: `Kommentar ${String(index)}.`,
+        createdAt:
+          sharedInstant ?? new Date(Date.UTC(2026, 7, 1, 12, index, 0)),
+      }),
+    );
+  }
+
+  const reader = principal("person-other", ["news:comment"]);
+
+  /** Every comment on the thread, from the newest page backwards. */
+  async function readBackwards(service: NewsCommentService): Promise<string[]> {
+    const bodies: string[] = [];
+    let before: string | null = null;
+    for (let page = 0; page <= 10; page += 1) {
+      let cursor = null;
+      if (before !== null) {
+        // Through the real parser, because that is the round trip a reader
+        // handing a cursor back makes.
+        cursor = parseThreadCursor(before);
+        expect(cursor, `${before} did not parse as a cursor`).not.toBeNull();
+      }
+      const answer = await service.list(NEWS_ID, reader, cursor);
+      bodies.unshift(...answer.comments.map((one) => one.body ?? ""));
+      if (answer.earlier === null) {
+        return bodies;
+      }
+      before = answer.earlier;
+    }
+    throw new Error("the thread did not end within ten pages");
+  }
+
+  it("answers the newest page, oldest first inside it", async () => {
+    const { service } = service_with_thread([ASTRID], thread(60));
+
+    const page = await service.list(NEWS_ID, reader);
+
+    /*
+     * The last fifty of sixty, and the newest of them last. A reader opening a
+     * long thread lands where the conversation is rather than where it started,
+     * and reads what is in front of them in the order it was written.
+     */
+    expect(page.comments).toHaveLength(COMMENTS_PER_PAGE);
+    expect(page.comments[0]?.body).toBe("Kommentar 10.");
+    expect(page.comments.at(-1)?.body).toBe("Kommentar 59.");
+    // And it says there is more, rather than leaving the reader to infer it
+    // from a page that came back full.
+    expect(page.earlier).not.toBeNull();
+  });
+
+  it("says there is nothing earlier when the whole thread is on the page", async () => {
+    const { service } = service_with_thread([ASTRID], thread(3));
+
+    const page = await service.list(NEWS_ID, reader);
+
+    expect(page.comments).toHaveLength(3);
+    expect(page.earlier).toBeNull();
+  });
+
+  it("walks the whole thread backwards without repeating or losing one", async () => {
+    /*
+     * The property a cursor exists for, and the one a page size alone cannot
+     * have: every comment exactly once, in the order they were written. A
+     * boundary off by one repeats a comment or drops it, and a dropped comment
+     * on a thread reads as a moderation nobody performed.
+     */
+    const { service } = service_with_thread([ASTRID], thread(120));
+
+    const bodies = await readBackwards(service);
+
+    expect(bodies).toHaveLength(120);
+    expect(bodies[0]).toBe("Kommentar 0.");
+    expect(bodies.at(-1)).toBe("Kommentar 119.");
+    expect(new Set(bodies).size).toBe(120);
+  });
+
+  it("walks it just the same when every comment shares one instant", async () => {
+    /*
+     * The tie. `createdAt` keeps milliseconds and defaults to the transaction's
+     * clock, so comments written together carry one instant exactly - and a
+     * cursor on the instant alone would put the page boundary wherever the
+     * database happened to answer from, repeating the tied rows or stepping over
+     * them. The identifier is what makes the ordering total.
+     */
+    const { service } = service_with_thread(
+      [ASTRID],
+      thread(120, new Date("2026-08-01T12:00:00.000Z")),
+    );
+
+    const bodies = await readBackwards(service);
+
+    expect(bodies).toHaveLength(120);
+    expect(new Set(bodies).size).toBe(120);
+    expect(bodies[0]).toBe("Kommentar 0.");
+    expect(bodies.at(-1)).toBe("Kommentar 119.");
+  });
+
+  it("bounds the read itself rather than the answer", async () => {
+    // The payload is bounded because the query is. A service that read the whole
+    // thread and sliced it afterwards would answer these tests identically and
+    // still hand the database an unbounded read.
+    const { service, prisma } = service_with_thread([ASTRID], thread(60));
+
+    await service.list(NEWS_ID, reader);
+
+    const asked = prisma.newsComment.findMany.mock.calls[0]?.[0];
+    expect(asked?.take).toBe(COMMENTS_PER_PAGE + 1);
+  });
+});
+
+describe("a cursor into a thread", () => {
+  it("round-trips the instant and the identifier it was made from", () => {
+    const row = {
+      id: "comment-042",
+      createdAt: new Date("2026-08-01T12:34:56.789Z"),
+    };
+
+    const parsed = parseThreadCursor(threadCursor(row));
+
+    expect(parsed?.id).toBe(row.id);
+    expect(parsed?.createdAt.getTime()).toBe(row.createdAt.getTime());
+  });
+
+  it("is refused rather than read leniently when it is not one", () => {
+    /*
+     * Refused, because the alternative is answering a different question: a
+     * reader pressing for the comments before the ones on their screen would be
+     * handed the ones already there and told the thread ends. A moment spelled
+     * some other way is refused with the rest, since a cursor is compared
+     * against a stored column and has to mean one instant.
+     */
+    for (const value of [
+      "",
+      "|",
+      "|comment-1",
+      "2026-08-01T12:00:00.000Z|",
+      "comment-1",
+      "igar|comment-1",
+      "2026-02-30T12:00:00.000Z|comment-1",
+      "2026-08-01|comment-1",
+      "2026-08-01T12:00:00Z|comment-1",
+    ]) {
+      expect(
+        parseThreadCursor(value),
+        `${value} was read as a cursor`,
+      ).toBeNull();
+    }
+  });
+
+  it("keeps an identifier that carries the separator out of the instant", () => {
+    // Split on the first separator, so the half that has to be a moment is a
+    // moment and everything after it is the identifier as it was written.
+    const parsed = parseThreadCursor("2026-08-01T12:00:00.000Z|a|b");
+
+    expect(parsed?.id).toBe("a|b");
   });
 });
 
@@ -611,9 +875,9 @@ describe("hiding a comment", () => {
 
     // Struck through, not gone: a board that could make a comment disappear
     // would leave nobody reading the thread able to tell which had happened.
-    expect(thread).toHaveLength(1);
-    expect(thread[0]?.hiddenAt).toBe("2026-08-02T12:00:00.000Z");
-    expect(thread[0]?.body).toBeNull();
+    expect(thread.comments).toHaveLength(1);
+    expect(thread.comments[0]?.hiddenAt).toBe("2026-08-02T12:00:00.000Z");
+    expect(thread.comments[0]?.body).toBeNull();
     expect(JSON.stringify(thread)).not.toContain("Detta doldes");
   });
 
@@ -635,8 +899,8 @@ describe("hiding a comment", () => {
       principal(ASTRID.id, ["news:comment"]),
     );
 
-    expect(forBoard[0]?.body).toBe("Detta doldes.");
-    expect(forAuthor[0]?.body).toBe("Detta doldes.");
+    expect(forBoard.comments[0]?.body).toBe("Detta doldes.");
+    expect(forAuthor.comments[0]?.body).toBe("Detta doldes.");
   });
 
   it("records the act against the person it was done to", async () => {
@@ -657,27 +921,49 @@ describe("hiding a comment", () => {
   });
 
   it("is not an event the second time", async () => {
-    // The precedent the publish path sets: a write that changes nothing writes
-    // nothing, and a second press does not belong in the audit log.
-    const { service, audit, prisma } = service_with_thread(
+    /*
+     * The precedent the publish path sets: a write that changes nothing writes
+     * nothing, and a second press does not belong in the audit log. Asserted on
+     * the date as well as on the log, because the conditional update is what
+     * makes the two the same fact - a statement that matched a struck comment
+     * would move the date the board is answerable for and leave the log saying
+     * the act happened once.
+     */
+    const struckOn = new Date("2026-08-02T12:00:00.000Z");
+    const { service, audit, comments } = service_with_thread(
       [ASTRID],
       [
         comment({
           id: "comment-1",
           authorPersonId: ASTRID.id,
-          hiddenAt: new Date("2026-08-02T12:00:00.000Z"),
+          hiddenAt: struckOn,
         }),
       ],
     );
 
-    await service.hide("comment-1", "person-board");
+    const answer = await service.hide("comment-1", "person-board");
 
-    expect(prisma.newsComment.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+    expect(comments[0]?.hiddenAt).toBe(struckOn);
+    // And answered exactly as the press that struck it answered, so a second
+    // press is not a refusal either.
+    expect(answer.hiddenAt).toBe(struckOn.toISOString());
   });
 
-  it("refuses a comment on a draft as it refuses one that does not exist", async () => {
-    const { service } = service_with_thread(
+  it("strikes one through on a notice the board has taken down", async () => {
+    /*
+     * The rule this module and the event sign-ups now share: publication decides
+     * who may read a thread and never who may act on one. A notice taken down
+     * keeps the thread it had, and the text a board most wants to strike through
+     * is often exactly the text it took the notice down over - so a refusal here
+     * would leave the board without the one act it has, in the state it reaches
+     * by trying to limit the damage.
+     *
+     * A draft rather than a published item that was later unpublished, because
+     * the column is the same either way and the draft is the case the old
+     * refusal was written for.
+     */
+    const { service, audit, comments } = service_with_thread(
       [ASTRID],
       [
         comment({
@@ -688,15 +974,51 @@ describe("hiding a comment", () => {
       ],
     );
 
-    const onDraft = await service
-      .hide("comment-1", "person-board")
-      .catch((cause: unknown) => cause);
-    const onNothing = await service
+    const struck = await service.hide("comment-1", "person-board");
+
+    expect(struck.hiddenAt).not.toBeNull();
+    expect(comments[0]?.hiddenAt).not.toBeNull();
+    // Recorded like any other, because it is one: the board is answerable for
+    // this act whatever the notice above it is doing.
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record.mock.calls[0]?.[0].action).toBe("NEWS_COMMENT_HIDDEN");
+  });
+
+  it("refuses a comment that is not there, and says no more than that", async () => {
+    const { service, audit } = service_with_thread([ASTRID], []);
+
+    const error = await service
       .hide("comment-nowhere", "person-board")
       .catch((cause: unknown) => cause);
 
-    expect((onDraft as NewsCommentError).reason).toBe("comment-not-found");
-    expect((onNothing as NewsCommentError).reason).toBe("comment-not-found");
+    expect(error).toBeInstanceOf(NewsCommentError);
+    expect((error as NewsCommentError).reason).toBe("comment-not-found");
+    expect((error as NewsCommentError).status).toBe(404);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("is one act when two presses arrive together", async () => {
+    /*
+     * The reason the update comes first and the reads after it. Both presses are
+     * made against a comment that is standing, and the condition on the statement
+     * is the only thing that makes one of them the act: a read taken first would
+     * have both find nothing hidden, both write the date, and the log carry two
+     * entries for one act.
+     */
+    const { service, audit, comments } = service_with_thread(
+      [ASTRID],
+      [comment({ id: "comment-1", authorPersonId: ASTRID.id })],
+    );
+
+    const [first, second] = await Promise.all([
+      service.hide("comment-1", "person-board"),
+      service.hide("comment-1", "person-chair"),
+    ]);
+
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    // One date, and both callers were told the same one.
+    expect(first.hiddenAt).toBe(comments[0]?.hiddenAt?.toISOString());
+    expect(second.hiddenAt).toBe(first.hiddenAt);
   });
 });
 

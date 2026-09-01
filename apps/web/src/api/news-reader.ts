@@ -110,18 +110,45 @@ export interface NewsComment {
   createdAt: string;
 }
 
+/**
+ * One page of a thread, and where the page before it starts.
+ *
+ * A thread is read a page at a time from its newest end, because a thread has no
+ * natural end and the API will not answer an unbounded read of one. `earlier` is
+ * the whole of the answer to "is there more": the cursor to hand back for the
+ * page before this one, or null at the start of the thread. So a screen never
+ * infers it from a page that came back full, and a thread never quietly stops -
+ * a comment missing from a discussion reads as a moderation somebody performed,
+ * and nobody performed that one.
+ */
+export interface NewsCommentPage {
+  /** The comments on this page, oldest first. */
+  comments: NewsComment[];
+  /** The cursor for the page before this one, or null at the start of the thread. */
+  earlier: string | null;
+}
+
 /** The published news, newest first. Drafts are absent, because they have no thread. */
 export function fetchReadableNews(): Promise<ApiResult<NewsArticle[]>> {
   return apiRequest("GET", "/api/news-reader");
 }
 
-/** The thread on one news item, oldest first: a thread is read as it was written. */
+/**
+ * One page of the thread on a news item, oldest first inside the page.
+ *
+ * `before` is a cursor this API handed out, or null for the newest page. It goes
+ * back exactly as it arrived: what a cursor holds is the API's business, and one
+ * this client composed for itself is answered with a refusal rather than a page.
+ */
 export function fetchNewsComments(input: {
   newsId: string;
-}): Promise<ApiResult<NewsComment[]>> {
+  before: string | null;
+}): Promise<ApiResult<NewsCommentPage>> {
+  const page =
+    input.before === null ? "" : `?before=${encodeURIComponent(input.before)}`;
   return apiRequest(
     "GET",
-    `/api/news-comments/${encodeURIComponent(input.newsId)}`,
+    `/api/news-comments/${encodeURIComponent(input.newsId)}${page}`,
   );
 }
 

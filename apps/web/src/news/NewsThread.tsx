@@ -33,7 +33,30 @@ import { newsCommentFailureKey } from "./news-comment-failures";
  */
 const COMMENT_MAX_LENGTH = 2000;
 
-/** Everything one read of a thread produces, applied to the panel in one step. */
+/** What the panel is asking the thread for. */
+interface Request {
+  /**
+   * Which notice this asks about.
+   *
+   * Carried for the reason {@link Thread.newsId} is carried: the panel does not
+   * rely on being given a new one when the notice changes. A cursor names a
+   * place in one thread, and one held across a change of notice would ask for a
+   * page of the new thread from a point in the old one.
+   */
+  newsId: string;
+  /** The cursor to read back from, or null for the newest page. */
+  before: string | null;
+  /**
+   * Bumped by every press.
+   *
+   * So asking twice for the same page is two reads: a page whose read failed is
+   * asked for again with the cursor unchanged, and without this the panel would
+   * be setting state to what it already holds and nothing would happen.
+   */
+  nonce: number;
+}
+
+/** The thread as the panel holds it, one or more pages deep. */
 interface Thread {
   /**
    * Which news item this answer belongs to.
@@ -44,7 +67,18 @@ interface Thread {
    * answer on the resource and the week for the same reason.
    */
   newsId: string;
+  /**
+   * The cursor of the oldest page on it, or null when only the newest page is.
+   *
+   * The panel's own record of what it has already put on the thread. An effect
+   * runs more than once for one request - the development double-render is the
+   * ordinary case - and a page prepended twice would be a thread showing every
+   * comment twice.
+   */
+  reaches: string | null;
   comments: readonly NewsComment[];
+  /** The cursor for the page before the oldest one here, or null at the start. */
+  earlier: string | null;
   failure: ApiFailure | null;
 }
 
@@ -80,11 +114,29 @@ export interface NewsThreadProps {
  * is the whole of it, so a list assembled from both is a list nothing on the
  * server ever said.
  *
- * The reading effect therefore owns every read, and `refreshes` is how a save
- * asks for one without changing what is asked for. A save that read for itself
- * would land its answer whenever it landed, and after a race between a post and
- * a strike-through the last response to arrive would win rather than the last
- * act to be recorded.
+ * The reading effect therefore owns every read, and the request's nonce is how a
+ * save asks for one without changing what is asked for. A save that read for
+ * itself would land its answer whenever it landed, and after a race between a
+ * post and a strike-through the last response to arrive would win rather than
+ * the last act to be recorded.
+ *
+ * ## The thread arrives a page at a time
+ *
+ * The API answers a bounded page from the newest end of a thread and the cursor
+ * for the page before it, so a long thread reaches this panel in pieces and the
+ * control that asks for the next piece is the reader's own. Pages are
+ * concatenated and never merged: each one is a window on the thread that no other
+ * page overlaps, which is what makes putting two of them end to end something
+ * other than arithmetic about a comment.
+ *
+ * A save reads the newest page and drops the earlier ones, and that is a decision
+ * rather than an oversight. The alternative is re-reading each page the reader
+ * has open, and comments written in between would fall into the gap that opens
+ * between two pages read at two moments - a comment silently missing from a
+ * thread, which is the whole failure paging is here to remove. So the panel
+ * carries one honest read at a time, and after a save the control that says there
+ * are earlier comments is back on screen rather than a thread quietly missing
+ * some.
  *
  * ## What it says about a struck comment
  *
@@ -106,13 +158,26 @@ export function NewsThread({
   const [answer, setAnswer] = useState<Thread | null>(null);
   const [draft, setDraft] = useState("");
   /**
-   * Bumped to ask for the thread again without changing what is asked for.
+   * Which page the reading effect is to fetch, and the press that asked for it.
    *
-   * A posted or struck comment needs a fresh read of the same thread, which is a
-   * request the reading effect cannot tell from the one it has already made. This
-   * is how it is told, and it keeps that effect the only thing that reads.
+   * A posted or struck comment needs a fresh read of the newest page, which is a
+   * request the reading effect cannot tell from the one it has already made; a
+   * press for the earlier comments needs the same read with a cursor. Both are
+   * this one piece of state, and it keeps that effect the only thing that reads.
    */
-  const [refreshes, setRefreshes] = useState(0);
+  const [request, setRequest] = useState<Request>({
+    newsId,
+    before: null,
+    nonce: 0,
+  });
+  /**
+   * Whether a press for the earlier comments is still in flight.
+   *
+   * Set by the press rather than by the reading effect, because it is a fact
+   * about the press: the effect also reads on arriving at a notice and after a
+   * save, and neither of those is the control below saying what it is doing.
+   */
+  const [reading, setReading] = useState(false);
   /**
    * Which comment the strike-through in flight is for.
    *
@@ -121,12 +186,36 @@ export function NewsThread({
    */
   const [striking, setStriking] = useState<string | null>(null);
 
-  const read = useCallback(async (): Promise<Thread> => {
-    const result = await fetchNewsComments({ newsId });
-    return result.ok
-      ? { newsId, comments: result.value, failure: null }
-      : { newsId, comments: [], failure: result.failure };
-  }, [newsId]);
+  /*
+   * A cursor from another notice's thread is no cursor at all, so opening a
+   * notice starts at its newest page whatever the panel was last asked for. The
+   * request is read this way rather than reset by a second effect, on the
+   * argument the answer above is read this way: a value derived during the render
+   * cannot be one render out of date.
+   */
+  const before = request.newsId === newsId ? request.before : null;
+
+  const read = useCallback(
+    async (cursor: string | null): Promise<Thread> => {
+      const result = await fetchNewsComments({ newsId, before: cursor });
+      return result.ok
+        ? {
+            newsId,
+            reaches: cursor,
+            comments: result.value.comments,
+            earlier: result.value.earlier,
+            failure: null,
+          }
+        : {
+            newsId,
+            reaches: null,
+            comments: [],
+            earlier: null,
+            failure: result.failure,
+          };
+    },
+    [newsId],
+  );
 
   useEffect(() => {
     /*
@@ -136,22 +225,37 @@ export function NewsThread({
      * in flight is concerned, and both mean it may no longer be applied.
      */
     let active = true;
-    void read().then((next) => {
+    void read(before).then((next) => {
       if (active) {
-        setAnswer(next);
+        setReading(false);
+        setAnswer((held) => applyPage(held, next, before));
       }
     });
     return () => {
       active = false;
     };
-  }, [read, refreshes]);
+  }, [read, before, request.nonce]);
+
+  /** Asks the reading effect for a page, and for this notice. */
+  const ask = useCallback(
+    (cursor: string | null) => {
+      setReading(cursor !== null);
+      setRequest((asked) => ({
+        newsId,
+        before: cursor,
+        nonce: asked.nonce + 1,
+      }));
+    },
+    [newsId],
+  );
 
   const post = useSaveAction(writeNewsComment, () => {
     setDraft("");
-    setRefreshes((count) => count + 1);
+    // The newest page, because that is where a comment somebody just wrote is.
+    ask(null);
   });
   const strike = useSaveAction(hideNewsComment, () => {
-    setRefreshes((count) => count + 1);
+    ask(null);
   });
 
   const posting = post.state.kind === "saving";
@@ -166,6 +270,14 @@ export function NewsThread({
       : strike.state.kind === "failed"
         ? strike.state.failure
         : (thread?.failure ?? null);
+
+  /*
+   * Where the page before this one starts, or nothing when the thread starts
+   * here. Read into a constant so the control below can close over the cursor
+   * itself: the answer is the only thing that knows there are earlier comments,
+   * and the panel is not entitled to guess from a full page.
+   */
+  const earlier = thread?.earlier ?? null;
 
   return (
     <Panel
@@ -204,69 +316,94 @@ export function NewsThread({
           {t("newsReader.thread.empty")}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {thread.comments.map((comment) => (
-            <li
-              key={comment.id}
-              className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-body font-semibold">
-                  <Author of={comment.author} />
-                </span>
-                {comment.hiddenAt === null ? null : (
-                  // The word as well as the tone: a reader who cannot tell the
-                  // tones apart still reads that this comment was struck
-                  // through.
-                  <span className="inline-flex items-center rounded-control border-l-4 border-warn bg-warn-soft px-2 py-1 text-chip text-ink uppercase">
-                    {t("newsReader.thread.struck")}
+        <>
+          {earlier === null ? null : (
+            /*
+             * Above the thread, because that is where the comments it fetches
+             * go. The reader is looking at the newest page and reaching
+             * backwards, so the control belongs at the end they are reaching
+             * from.
+             */
+            <div>
+              <button
+                type="button"
+                className={QUIET_BUTTON}
+                disabled={reading}
+                onClick={() => {
+                  ask(earlier);
+                }}
+              >
+                {reading
+                  ? t("newsReader.thread.earlierReading")
+                  : t("newsReader.thread.earlier")}
+              </button>
+            </div>
+          )}
+
+          <ul className="flex flex-col gap-3">
+            {thread.comments.map((comment) => (
+              <li
+                key={comment.id}
+                className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-body font-semibold">
+                    <Author of={comment.author} />
                   </span>
-                )}
-                <span className="ml-auto font-data text-data text-ink-muted">
-                  <time dateTime={comment.createdAt}>
-                    {comment.createdAt.slice(0, 10)}
-                  </time>
-                </span>
-              </div>
-
-              <CommentText comment={comment} />
-
-              {canModerate && comment.hiddenAt === null ? (
-                <div>
-                  <button
-                    type="button"
-                    className={QUIET_BUTTON}
-                    aria-label={t("newsReader.thread.hideNamed", {
-                      author: authorLabel(comment.author, t),
-                    })}
-                    // Every row while any strike-through is in flight: one
-                    // action serves them all, and a second press before the
-                    // first has settled would be a second act on a thread the
-                    // panel has not read back yet.
-                    disabled={strikingOne}
-                    onClick={() => {
-                      setStriking(comment.id);
-                      /*
-                       * Cleared when the act settles, either way. Left standing,
-                       * the row it names goes on reading "striking through" over
-                       * a comment that has already been struck - or over one
-                       * that was refused, which is worse: the sentence would say
-                       * something is happening while the notice says it did not.
-                       */
-                      void strike
-                        .submit({ commentId: comment.id })
-                        .finally(() => setStriking(null));
-                    }}
-                  >
-                    {strikingOne && striking === comment.id
-                      ? t("newsReader.thread.hiding")
-                      : t("newsReader.thread.hide")}
-                  </button>
+                  {comment.hiddenAt === null ? null : (
+                    // The word as well as the tone: a reader who cannot tell the
+                    // tones apart still reads that this comment was struck
+                    // through.
+                    <span className="inline-flex items-center rounded-control border-l-4 border-warn bg-warn-soft px-2 py-1 text-chip text-ink uppercase">
+                      {t("newsReader.thread.struck")}
+                    </span>
+                  )}
+                  <span className="ml-auto font-data text-data text-ink-muted">
+                    <time dateTime={comment.createdAt}>
+                      {comment.createdAt.slice(0, 10)}
+                    </time>
+                  </span>
                 </div>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+
+                <CommentText comment={comment} />
+
+                {canModerate && comment.hiddenAt === null ? (
+                  <div>
+                    <button
+                      type="button"
+                      className={QUIET_BUTTON}
+                      aria-label={t("newsReader.thread.hideNamed", {
+                        author: authorLabel(comment.author, t),
+                      })}
+                      // Every row while any strike-through is in flight: one
+                      // action serves them all, and a second press before the
+                      // first has settled would be a second act on a thread the
+                      // panel has not read back yet.
+                      disabled={strikingOne}
+                      onClick={() => {
+                        setStriking(comment.id);
+                        /*
+                         * Cleared when the act settles, either way. Left standing,
+                         * the row it names goes on reading "striking through" over
+                         * a comment that has already been struck - or over one
+                         * that was refused, which is worse: the sentence would say
+                         * something is happening while the notice says it did not.
+                         */
+                        void strike
+                          .submit({ commentId: comment.id })
+                          .finally(() => setStriking(null));
+                      }}
+                    >
+                      {strikingOne && striking === comment.id
+                        ? t("newsReader.thread.hiding")
+                        : t("newsReader.thread.hide")}
+                    </button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       {canModerate ? (
@@ -297,6 +434,54 @@ export function NewsThread({
       </form>
     </Panel>
   );
+}
+
+/**
+ * The thread after one page has arrived.
+ *
+ * Four cases, and a free function because each of them is a decision worth being
+ * able to assert on its own rather than through a rendered panel.
+ *
+ * A read that failed leaves the thread where it was and says what happened. A
+ * reader who pressed for the earlier comments and was refused has lost nothing
+ * they were reading, and the notice above the thread is where the refusal
+ * belongs; a panel that emptied the thread would answer a failed request by
+ * removing comments nobody moderated.
+ *
+ * The newest page replaces the thread whole. It is the answer to "what is on this
+ * thread now", and it is what a save asks for - see the panel's own comment for
+ * why the earlier pages are not re-read to go with it.
+ *
+ * A page already on the thread is not applied twice. One request can reach the
+ * reading effect more than once, and a page prepended again would show every one
+ * of its comments twice.
+ *
+ * Anything else is an earlier page, and it goes in front of what is already
+ * there. Older comments were written first, so they read first.
+ */
+function applyPage(
+  held: Thread | null,
+  next: Thread,
+  before: string | null,
+): Thread {
+  const standing = held !== null && held.newsId === next.newsId ? held : null;
+
+  if (next.failure !== null) {
+    return standing === null ? next : { ...standing, failure: next.failure };
+  }
+  if (before === null || standing === null) {
+    return next;
+  }
+  if (standing.reaches === before) {
+    return standing;
+  }
+  return {
+    ...standing,
+    reaches: before,
+    comments: [...next.comments, ...standing.comments],
+    earlier: next.earlier,
+    failure: null,
+  };
 }
 
 /**

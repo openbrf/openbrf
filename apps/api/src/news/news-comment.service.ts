@@ -68,6 +68,120 @@ export const COMMENTS_PER_WRITE_WINDOW = 20;
 export const WRITE_WINDOW_MINUTES = 10;
 
 /**
+ * How many comments one read of a thread answers with.
+ *
+ * The read has to be bounded, because nothing else bounds it: a comment holds
+ * up to {@link NEWS_COMMENT_MAX_LENGTH} characters and a thread has no cap on
+ * how many it holds, so an unbounded read hands every reader of a busy notice
+ * everything the house has written under it since the board published it.
+ *
+ * A bare cap would be worse than the unbounded read rather than a smaller
+ * version of it. A thread that stopped at fifty with nothing to say so is a
+ * thread with comments missing from it, and a comment missing from a discussion
+ * reads as a moderation act - which is exactly what this module has spent its
+ * design on making visible whenever it happens. So the cap comes with a cursor
+ * and a control that asks for the page before this one, and the reader is told
+ * where the page ends rather than left to assume there is nothing behind it.
+ *
+ * Fifty, which is more than a discussion under one notice reaches: the write
+ * budget is twenty per person in ten minutes and a notice about the bicycle room
+ * draws a handful of answers, so on almost every thread this number never shows.
+ * Small enough that one payload stays small on the day a thread does run long.
+ */
+export const COMMENTS_PER_PAGE = 50;
+
+/**
+ * Where a page of a thread ends, as one value a reader hands back.
+ *
+ * Two halves, because the ordering a thread is read in takes two columns to be
+ * total and a cursor on an ordering that is not total is a bug waiting for two
+ * comments to share an instant. `createdAt` alone is not total: two rows written
+ * in the same instant tie, and the page boundary then falls between them in
+ * whichever order the database happened to answer, so the same tie either
+ * repeats a comment on both pages or drops it from both. The tie is ordinary
+ * rather than theoretical: the column keeps milliseconds and its default is the
+ * transaction's own clock, so rows written by one transaction all carry the same
+ * instant exactly.
+ *
+ * The identifier breaks it. It is not a time and says nothing about one - a cuid
+ * is not ordered by when it was made - and it is not asked to be: all it has to
+ * do is make exactly one row the boundary and answer the same way twice.
+ *
+ * Both halves are values the reader was just shown, so there is nothing in a
+ * cursor to withhold and it travels legibly rather than encoded.
+ */
+export interface ThreadCursor {
+  /** The instant of the comment the page ended at. */
+  createdAt: Date;
+  /** That comment's identifier, which breaks a tie on the instant. */
+  id: string;
+}
+
+/**
+ * Separates the two halves of a cursor.
+ *
+ * A character neither half can contain: an ISO instant is digits and punctuation
+ * fixed by the format, and an identifier is a cuid.
+ */
+const CURSOR_SEPARATOR = "|";
+
+/** The cursor for the page ending at this comment. */
+export function threadCursor(row: { id: string; createdAt: Date }): string {
+  return `${row.createdAt.toISOString()}${CURSOR_SEPARATOR}${row.id}`;
+}
+
+/**
+ * The cursor a reader handed back, or null when it is not one.
+ *
+ * Null rather than a lenient reading, and the controller turns it into a
+ * refusal. A cursor this service cannot make sense of names a page nobody can
+ * name, and answering it with the newest page instead would answer a different
+ * question: a reader pressing for the comments before the ones on their screen
+ * would be handed the ones already there, and the thread would look like it had
+ * nothing behind it.
+ *
+ * Exported so the round trip can be asserted directly rather than only through
+ * a read.
+ */
+export function parseThreadCursor(value: string): ThreadCursor | null {
+  const separator = value.indexOf(CURSOR_SEPARATOR);
+  if (separator <= 0 || separator === value.length - 1) {
+    return null;
+  }
+
+  const instant = value.slice(0, separator);
+  const createdAt = new Date(instant);
+  /*
+   * Round-tripped rather than merely parsed. `new Date` accepts more than one
+   * spelling of a moment and reads some strings that are not one at all, so an
+   * instant that does not come back out exactly as it went in is refused - a
+   * cursor is compared against a stored column and has to mean one moment.
+   */
+  if (
+    Number.isNaN(createdAt.getTime()) ||
+    createdAt.toISOString() !== instant
+  ) {
+    return null;
+  }
+
+  return { createdAt, id: value.slice(separator + 1) };
+}
+
+/** One page of a thread, and where the page before it starts. */
+export interface NewsCommentPage {
+  /** The comments on this page, oldest first. */
+  comments: NewsCommentView[];
+  /**
+   * The cursor for the page before this one, or null at the start of the thread.
+   *
+   * Handed straight back as `before` to read it. Null is the whole of the answer
+   * to "is there more", so a reader is never left inferring it from a page that
+   * came back short.
+   */
+  earlier: string | null;
+}
+
+/**
  * Who wrote a comment, as the thread may say.
  *
  * Three cases, and the two that are not a plain name are the point of the type,
@@ -150,7 +264,7 @@ const COMMENT_COLUMNS = {
  * Comments on the association's news (kommentarer), and the board's power over
  * them.
  *
- * Four rules live here and nowhere else.
+ * Five rules live here and nowhere else.
  *
  * **Visibility is inherited, never independent.** A comment is exactly as
  * visible as the news item it sits on. There is no audience field on a comment
@@ -162,6 +276,11 @@ const COMMENT_COLUMNS = {
  * anyone signed in"; every caller who reaches this service has a session,
  * because the authorization guard rejects the ones who do not. So what is left
  * of the rule here is `published`, and a draft has no thread at all.
+ *
+ * That rule is about who may read a thread and who may write into one. It is not
+ * about what the board may do to a comment that is already on one: see
+ * {@link NewsCommentService.hide}, which is where publication stops being a
+ * condition and why.
  *
  * **No comment is ever rendered on the public website.** A comment on a public
  * news item is still not public. The website takes no authenticated writes and
@@ -183,7 +302,17 @@ const COMMENT_COLUMNS = {
  * cleared, the comment stays in every read with its author still named, and only
  * its text is withheld. A board that could erase a comment silently would be
  * worse than one that can only strike it through, because nobody reading the
- * thread afterwards could tell which had happened.
+ * thread afterwards could tell which had happened. And it can do it for as long
+ * as the comment is there, whether or not the notice above it is still
+ * published - the one act the board has over a thread does not end when it takes
+ * the thread down.
+ *
+ * **A thread is read a page at a time.** Every read of a thread answers with at
+ * most {@link COMMENTS_PER_PAGE} comments and the cursor for the page before it,
+ * because a thread has no natural end and an unbounded read of one is an
+ * unbounded payload. It pages from the newest end, which is where a reader
+ * arriving at a long thread wants to be and where their own comment lands the
+ * moment they write one.
  *
  * The news items themselves are read here as well, which is worth an argument
  * rather than a filing note. They are read here because of the first rule: which
@@ -257,7 +386,7 @@ export class NewsCommentService {
   }
 
   /**
-   * The thread on one news item, oldest first.
+   * One page of the thread on a news item, oldest first within the page.
    *
    * Oldest first because a thread is read in the order it was written, unlike
    * the board's own list of items, which is newest first because that is the
@@ -266,17 +395,64 @@ export class NewsCommentService {
    * Hidden comments are in the list. Their text is withheld unless the reader
    * moderates the website or wrote the comment themselves - see the class
    * comment for why the strike-through is visible to everybody.
+   *
+   * ## Which page, when nobody asks for one
+   *
+   * The newest, and then backwards. A page is cut from the end the thread has
+   * reached and turned round inside itself, so the order a comment is read in
+   * never changes while the reader still lands where the conversation is. Cutting
+   * from the other end would hand somebody opening a long thread the fifty
+   * comments written when the notice went up and put the answer they came for
+   * behind however many presses the thread is long - and, worse, it would hide a
+   * reader's own comment the moment they wrote one, because a comment is written
+   * at the newest end and the newest end would be the page nobody had opened
+   * yet. It is the argument `commentableNews` makes for newest first, applied
+   * inside one notice.
+   *
+   * ## Why a cursor and not the address book's page numbers
+   *
+   * That register is paged by offset because it is a register: the rows are
+   * there before the reader arrives and the same query answers the same page
+   * twice. A thread is written into while it is being read, and an offset from
+   * the end shifts by one for every comment somebody adds - so page two by
+   * offset would repeat what page one had shown, or step over it, entirely
+   * depending on how busy the notice was. A cursor names a place in the thread
+   * rather than a distance from its end, so the page before this one is the same
+   * page however much has been written since.
    */
-  async list(newsId: string, reader: Principal): Promise<NewsCommentView[]> {
+  async list(
+    newsId: string,
+    reader: Principal,
+    before: ThreadCursor | null = null,
+  ): Promise<NewsCommentPage> {
     await this.requireCommentableNews(newsId);
 
+    /*
+     * One more row than the page holds, which is how "there is a page before
+     * this one" is answered. A separate count would be a second statement about
+     * a second moment, and could say there was more when the extra comment had
+     * been purged between the two - a page offered and then answered empty.
+     */
     const rows = await this.prisma.newsComment.findMany({
-      where: { newsId },
-      orderBy: [{ createdAt: "asc" }],
+      where: { newsId, ...(before === null ? {} : olderThan(before)) },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: COMMENTS_PER_PAGE + 1,
       select: COMMENT_COLUMNS,
     });
 
-    return this.toViews(rows, reader);
+    const page = rows.slice(0, COMMENTS_PER_PAGE);
+    const oldest = page.at(-1);
+    /*
+     * The cursor is the oldest comment kept rather than the extra row read, so
+     * the next page starts exactly where this one stopped. `oldest` is only
+     * undefined on an empty page, which cannot also have read a row past it.
+     */
+    const earlier =
+      oldest !== undefined && rows.length > page.length
+        ? threadCursor(oldest)
+        : null;
+
+    return { comments: await this.toViews(page.reverse(), reader), earlier };
   }
 
   /**
@@ -343,6 +519,50 @@ export class NewsCommentService {
   /**
    * Strikes a comment through.
    *
+   * ## Publication decides who may read a thread, never who may act on one
+   *
+   * A notice the board has taken down keeps the thread it had while it was up,
+   * and the board can still strike a comment through on it. The reading of
+   * "unpublished" that would refuse here treats an unpublished thing as an
+   * absent thing, and that reading is right in exactly one place: deciding
+   * whether somebody new may read something or take part in it. It is wrong for
+   * an act whose authority comes from somewhere else, and wrong in the direction
+   * that costs the most - it leaves the board unable to act on the text it has
+   * most reason to act on, in the state it reaches by trying to limit the damage.
+   *
+   * `EventSignupService.withdrawOwn` is the same decision seen from the other
+   * side: a date whose series the board has taken down is answered as absent to
+   * somebody claiming a place and not to somebody giving one back, because the
+   * alternative held residents to a date they could neither see nor leave. So the
+   * rule is one rule and this is its general form. Publication governs the paths
+   * that read and the paths that let somebody new take part. It governs no act
+   * whose authority is the caller's own - the board's `site:manage` over what the
+   * association publishes, or a person's own row - and a module reaching for the
+   * question a third time should take this answer rather than write a third one.
+   *
+   * ## What the not-found answer still protects
+   *
+   * That nobody learns from this route whether a comment exists. The answer for a
+   * comment that is not there is unchanged and stays exactly as uninformative.
+   *
+   * What has gone from the test is publication, not the guard. Publication
+   * narrows nothing for the caller of this route: hiding is `site:manage`, which
+   * is the capability that decides what is published in the first place, and the
+   * board's own list of items answers every item it holds, drafts included. A
+   * publication test here therefore withheld an item from the one caller entitled
+   * to see it. Where the caller holds `news:comment` instead - reading a thread,
+   * writing into one - the whole rule stands, because there a draft has to stay
+   * invisible: see {@link NewsCommentService.requireCommentableNews}.
+   *
+   * ## The act first, and the reads after it
+   *
+   * The conditional update is the whole of the decision, so two presses in the
+   * same instant cannot both be a first press. A read taken first is the stale
+   * thing: both would find nothing hidden, both would write the date, and the
+   * audit log would carry two entries for one act. This way one press matches the
+   * row and the other matches nothing, and the read that follows is asked about a
+   * fact that has settled.
+   *
    * Hiding one that is already hidden changes nothing and writes nothing, on the
    * precedent the publish path sets: a second press is not a second event and
    * does not belong in the audit log.
@@ -351,32 +571,31 @@ export class NewsCommentService {
     commentId: string,
     actorPersonId: string,
   ): Promise<NewsCommentView> {
-    const comment = await this.prisma.newsComment.findUnique({
-      where: { id: commentId },
-      select: { ...COMMENT_COLUMNS, news: { select: { published: true } } },
-    });
-    if (comment === null || !comment.news.published) {
-      // The same answer for a comment that does not exist and one on an item
-      // with no thread, so neither can be used to find out about the other.
-      throw new NewsCommentError(
-        "There is no such comment.",
-        "comment-not-found",
-      );
-    }
-
-    if (comment.hiddenAt !== null) {
-      return toView(comment, {
-        author: await this.authorOf(comment.authorPersonId),
-        canReadHiddenBody: true,
-      });
-    }
-
-    const hidden = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.newsComment.update({
-        where: { id: commentId },
+    const { comment, struck } = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.newsComment.updateMany({
+        where: { id: commentId, hiddenAt: null },
         data: { hiddenAt: new Date(), hiddenByPersonId: actorPersonId },
+      });
+
+      const comment = await tx.newsComment.findUnique({
+        where: { id: commentId },
         select: COMMENT_COLUMNS,
       });
+      if (comment === null) {
+        // Nothing matched and there is no row, which is the genuinely absent
+        // case and the only one this answer covers.
+        throw new NewsCommentError(
+          "There is no such comment.",
+          "comment-not-found",
+        );
+      }
+
+      if (count === 0) {
+        // The row is there and was already struck through, so this press is not
+        // an event. Nothing written, nothing recorded, and the comment answered
+        // exactly as the press that struck it answered.
+        return { comment, struck: false };
+      }
 
       await this.audit.record(
         {
@@ -385,21 +604,23 @@ export class NewsCommentService {
           // The subject is whoever wrote it: this is something done to them, and
           // their access report has to show a moderation somebody else decided
           // on.
-          targetPersonId: updated.authorPersonId,
+          targetPersonId: comment.authorPersonId,
           targetKind: "newsComment",
-          targetId: updated.id,
-          context: { newsId: updated.newsId },
+          targetId: comment.id,
+          context: { newsId: comment.newsId },
         },
         tx,
       );
 
-      return updated;
+      return { comment, struck: true };
     });
 
-    this.logger.log(`A comment on news ${hidden.newsId} was hidden`);
+    if (struck) {
+      this.logger.log(`A comment on news ${comment.newsId} was hidden`);
+    }
 
-    return toView(hidden, {
-      author: await this.authorOf(hidden.authorPersonId),
+    return toView(comment, {
+      author: await this.authorOf(comment.authorPersonId),
       canReadHiddenBody: true,
     });
   }
@@ -501,6 +722,31 @@ interface CommentRow {
   body: string;
   hiddenAt: Date | null;
   createdAt: Date;
+}
+
+/**
+ * Everything in a thread strictly before one point in it.
+ *
+ * The comparison the ordering implies, written out rather than handed to the
+ * query builder's own cursor option. That one names a row: it reads the boundary
+ * values back out of the comment the cursor points at, and a comment can be
+ * purged out from under a reader between one page and the next, because a thread
+ * is erased on its own clock a year at a time. A cursor whose row has gone
+ * matches nothing at all - a page silently empty, which is the failure paging
+ * this thread exists to remove rather than to introduce somewhere new. These
+ * comparisons are against the two values the reader was handed, so the row they
+ * were read from no longer has to be there.
+ *
+ * The index on `(newsId, createdAt)` answers the first branch. The second only
+ * ever sorts rows sharing one instant, which is a handful at most.
+ */
+function olderThan(cursor: ThreadCursor) {
+  return {
+    OR: [
+      { createdAt: { lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+    ],
+  };
 }
 
 /**
