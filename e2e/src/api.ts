@@ -222,6 +222,30 @@ export async function setSelfSignup(
   await expectOk(response, "PUT /api/settings/self-signup");
 }
 
+/**
+ * Records the deadline the bylaws set for motions, or clears it.
+ *
+ * Over HTTP rather than through the settings panel, for the reason
+ * setSelfSignup is: the panel that records the clause has its own coverage, and
+ * a spec restoring the instance afterwards needs the value changed rather than
+ * changed in front of it. Null is what an instance whose bylaws set no deadline
+ * holds, which is where a fresh one starts. The caller's context has to be
+ * signed in as somebody holding association:manage.
+ */
+export async function setMotionDeadline(
+  request: APIRequestContext,
+  baseUrl: string,
+  motionDeadline: { month: number; day: number } | null,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/settings/motion-deadline`,
+    {
+      data: { motionDeadline },
+    },
+  );
+  await expectOk(response, "PUT /api/settings/motion-deadline");
+}
+
 export async function completeSetup(
   request: APIRequestContext,
   baseUrl: string,

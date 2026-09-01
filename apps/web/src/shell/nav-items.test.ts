@@ -41,6 +41,15 @@ describe("the external property manager", () => {
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/bookings");
   });
 
+  it("is not offered motions, which are the members' own business", () => {
+    // The capability model grants them neither half of the module: a motion is a
+    // member exercising a right under EFL 6 kap. 15 §, and the queue it arrives
+    // in is the board's. An external contractor is on neither side of that.
+    expect(PROPERTY_MANAGER).not.toContain("motions:submit");
+    expect(PROPERTY_MANAGER).not.toContain("motions:handle");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/motions");
+  });
+
   it("reaches issues without holding the reporting capability", () => {
     // They handle the association's issues; they do not live in the building,
     // so they never hold issues:report. An entry gated on that alone would hide
@@ -51,7 +60,14 @@ describe("the external property manager", () => {
 });
 
 describe("the other seats", () => {
-  it("offers a resident the address book, settings, issues and bookings", () => {
+  it("offers a resident who is not a member everything but motions", () => {
+    /*
+     * The capabilities a resident actually holds, and motions:submit is not among
+     * them: it is derived from membership rather than from residency, because EFL
+     * 6 kap. 15 § gives the right to put an item to a general meeting to a member
+     * and BRL 9 kap. 14 § applies that chapter unchanged. A partner, an adult
+     * child or a tenant lives here and has no such right.
+     */
     expect(
       destinations([
         "self:manage",
@@ -60,6 +76,27 @@ describe("the other seats", () => {
         "bookings:book",
       ]),
     ).toEqual(["/", "/settings", "/issues", "/bookings", "/documents"]);
+  });
+
+  it("offers a member the motions destination as well", () => {
+    // The same seat with the tenant-ownership: one more capability, one more
+    // destination, and the difference is the statute.
+    expect(
+      destinations([
+        "self:manage",
+        "residentDirectory:read",
+        "issues:report",
+        "bookings:book",
+        "motions:submit",
+      ]),
+    ).toEqual([
+      "/",
+      "/settings",
+      "/issues",
+      "/bookings",
+      "/motions",
+      "/documents",
+    ]);
   });
 
   it("offers the board everything its capabilities reach", () => {
@@ -74,6 +111,7 @@ describe("the other seats", () => {
         "bookings:book",
         "bookings:manage",
         "bookings:configure",
+        "motions:handle",
       ]),
     ).toEqual([
       "/",
@@ -81,8 +119,18 @@ describe("the other seats", () => {
       "/settings",
       "/issues",
       "/bookings",
+      "/motions",
       "/documents",
     ]);
+  });
+
+  it("offers motions to a board member who holds no tenant-ownership", () => {
+    // Any of the two, not all of them. A board seat carries motions:handle and
+    // never motions:submit - the right to put an item belongs to the membership
+    // and not to the office - so an entry gated on submit alone would hide the
+    // queue from the seat that exists to work it.
+    expect(destinations(["motions:handle"])).toContain("/motions");
+    expect(destinations(["motions:submit"])).toContain("/motions");
   });
 
   it("offers bookings to whoever runs the calendar without holding a slot", () => {

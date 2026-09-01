@@ -16,6 +16,7 @@ import { DocumentsRoute } from "./DocumentsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
+import { MotionsRoute } from "./MotionsRoute";
 import { NewsRoute } from "./NewsRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
@@ -279,6 +280,22 @@ const bookingsRoute = createRoute({
 });
 
 /**
+ * Motions to the general meeting. Signed in here, capabilities inside the
+ * screen.
+ *
+ * One route for both halves of the module, on the reasoning the issues route
+ * sets out: a member submits a motion and reads their own, and the board
+ * additionally works the queue those arrive in. Two destinations for one
+ * subject would put the same word twice in the navigation.
+ */
+const motionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/motions",
+  beforeLoad: requireSession,
+  component: MotionsRoute,
+});
+
+/**
  * The document archive. A session, and the archive decides the rest.
  *
  * Deliberately no capability in the guard. What a person sees in the archive
@@ -364,6 +381,7 @@ const routeTree = rootRoute.addChildren([
   siteMenuRoute,
   issuesRoute,
   bookingsRoute,
+  motionsRoute,
   documentsRoute,
   newsAdminRoute,
   memberRegisterRoute,

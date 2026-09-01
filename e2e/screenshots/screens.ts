@@ -129,6 +129,23 @@ const SETTINGS_PANELS = [
 ] as const;
 
 /**
+ * The motion the general-meeting screens are photographed against.
+ *
+ * Held here rather than inline because all three entries name it: an
+ * administrator records the deadline the bylaws set, a member puts this item to
+ * the meeting, and the board reads the same item in its queue.
+ */
+const MOTION = {
+  title: "Laddstolpar i garaget",
+  body:
+    "Föreningen bör utreda vad det skulle kosta att sätta upp laddstolpar " +
+    "för elbilar i garaget, och ta med kostnaden i nästa budget.",
+  /** The clause a cooperative's bylaws typically carry: the end of January. */
+  deadlineMonth: "1",
+  deadlineDay: "31",
+} as const;
+
+/**
  * The laundry room the booking screens are photographed against.
  *
  * Held here rather than inline because all three entries name it: the board adds
@@ -752,5 +769,82 @@ export const SCREENS: readonly Screen[] = [
     // read back with a live booking in it - the one the entry above made.
     waitFor: { button: /åt den boende$/, first: true },
     capture: { panel: "Hela kalendern" },
+  },
+
+  // --- motions ---------------------------------------------------------------
+  // Three screens in one order, because each photographs what the one above it
+  // did: an administrator records the deadline the association's bylaws set, a
+  // member puts an item to the meeting inside it, and the board reads that item
+  // in its queue. Nothing is on the queue before the second of them.
+  //
+  // The member rather than the resident, and that is the statute rather than a
+  // convenience: EFL 6 kap. 15 §, applied to a housing cooperative by BRL
+  // 9 kap. 14 §, gives the right to put an item to a general meeting to a
+  // member. The resident persona holds no tenant-ownership and is offered no
+  // form at all, which is why the middle entry cannot be theirs.
+  {
+    /*
+     * The bylaws clause, recorded rather than defaulted.
+     *
+     * The platform holds no default here, so an empty card is what an instance
+     * starts with and says nothing about how the setting works. Filled in, the
+     * card shows the clause and the sentence that says intake stays open past
+     * it - which is the part a board misreads if it is not on the picture.
+     */
+    name: "settings-motion-deadline",
+    as: "administrator",
+    goto: appPath("/settings"),
+    prepare: [
+      { see: { panel: "Sista dag för motioner" } },
+      { fill: { label: "Månad" }, value: MOTION.deadlineMonth },
+      { fill: { label: "Dag" }, value: MOTION.deadlineDay },
+      { click: { button: "Spara" } },
+    ],
+    // The outcome of the save, which arrives with the response rather than with
+    // the click - so the card is photographed holding what is now stored.
+    waitFor: { text: "Sparat" },
+    capture: { panel: "Sista dag för motioner" },
+  },
+  {
+    /*
+     * A member putting an item to the meeting, and what she holds afterwards.
+     *
+     * The member persona rather than the administrator, who holds every
+     * capability and no tenant-ownership: the right in EFL 6 kap. 15 § belongs
+     * to a member, so the account that runs this instance is refused and would
+     * be photographed being refused.
+     */
+    name: "motions-member",
+    as: "member",
+    goto: appPath("/motions"),
+    prepare: [
+      { fill: { label: "Vad du föreslår, på en rad" }, value: MOTION.title },
+      { fill: { label: "Förslaget" }, value: MOTION.body },
+      { click: { button: "Skicka motionen" } },
+    ],
+    // The withdraw control on the motion that was just submitted, which arrives
+    // with the re-read of what this account has put in rather than with the
+    // click.
+    waitFor: { button: `Återkalla motionen ${MOTION.title}` },
+    capture: "page",
+  },
+  {
+    /*
+     * The board's half: what the members have put to the meeting, and recording
+     * one as received.
+     *
+     * The card on its own rather than the whole screen, because this is the half
+     * the capability exists for - the administrator's own intake half above it
+     * would only show an account that may not submit.
+     */
+    name: "motions-board",
+    as: "administrator",
+    goto: appPath("/motions"),
+    // The record-as-received control on the item the entry above put in, which
+    // exists only once the queue has been read back with it.
+    waitFor: {
+      button: `Anteckna motionen ${MOTION.title} som mottagen`,
+    },
+    capture: { panel: "Motioner från medlemmarna" },
   },
 ];

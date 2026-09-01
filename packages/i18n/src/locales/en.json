@@ -941,6 +941,17 @@
         "resourceInUse": "This resource has bookings still to come, so how it is booked cannot be changed yet. Cancel them, or wait until they have passed. The name, the description and the limits can be changed now.",
         "unknown": "The resource could not be saved just now. Please try again."
       }
+    },
+    "motionDeadline": {
+      "title": "Deadline for motions",
+      "description": "The date your own bylaws set for motions to reach the board before a general meeting.",
+      "statutoryNotice": "This is transcribed from your bylaws, not decided here. A member has the right to have an item taken up at a general meeting if the board is asked in writing in time for the notice, and where the bylaws contain provisions about it the request must be made in the manner and within the time they set (EFL 6 kap. 15 § via BRL 9 kap. 14 §). Leave it empty if your bylaws set no date. Motions are received past this day either way; the date says which meeting a motion can reach.",
+      "month": "Month",
+      "day": "Day",
+      "clearHint": "Clear both fields to record that your bylaws set no deadline.",
+      "errors": {
+        "notADate": "That is not a date any year has. Give a month from 1 to 12 and a day that month can have."
+      }
     }
   },
   "plugins": {
@@ -2293,10 +2304,57 @@
     }
   },
   "motions": {
+    "navLabel": "Motions",
+    "title": "Motions to the general meeting",
+    "intro": "Put an item to the general meeting, and follow what happens to it.",
+    "loading": "Loading the motions...",
+    "loadFailed": "The motions could not be read just now. Reload the page.",
     "status": {
       "SUBMITTED": "With the board",
       "ACKNOWLEDGED": "Received",
       "WITHDRAWN": "Withdrawn"
+    },
+    "submit": {
+      "title": "Put an item to the meeting",
+      "description": "A motion is your own proposal to the general meeting. The board puts it into the notice; the meeting decides on it.",
+      "titleField": "What you are proposing, in one line",
+      "bodyField": "The proposal",
+      "action": "Send the motion",
+      "sending": "Sending...",
+      "sent": "The motion has reached the board.",
+      "deadline": "Your bylaws say motions must reach the board by {{date}}. One sent later is still received - the date is about being in time for a meeting's notice, not about whether the board receives your motion.",
+      "noDeadline": "Your bylaws set no deadline for motions, so the board decides what it can still get into the notice for a meeting."
+    },
+    "mine": {
+      "title": "Your motions",
+      "description": "What you have put to the meeting, newest first. Nothing here is deleted when you withdraw it.",
+      "empty": "You have put nothing to the meeting.",
+      "withdraw": "Withdraw",
+      "withdrawNamed": "Withdraw the motion {{title}}",
+      "withdrawing": "Withdrawing...",
+      "acknowledgedOn": "The board received this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}."
+    },
+    "queue": {
+      "title": "Motions from the members",
+      "description": "What the members have put to the meeting, the ones waiting longest first.",
+      "empty": "No motions have been put to the meeting.",
+      "submittedBy": "From",
+      "submitterProtected": "Protected personal data: ask the register.",
+      "submitterUnknown": "No longer in the register.",
+      "acknowledge": "Record as received",
+      "acknowledgeNamed": "Record the motion {{title}} as received",
+      "acknowledging": "Recording...",
+      "deadline": "Your bylaws set {{date}} as the deadline for motions. A motion arriving later is still received; the date says whether it was in time for a notice, and nothing here records which meeting takes one up.",
+      "noDeadline": "Your bylaws set no deadline for motions. Record one under Settings if they do."
+    },
+    "errors": {
+      "notAMember": "Putting an item to the general meeting is a member's right, and this account holds no tenant-ownership in the association.",
+      "motionNotFound": "That motion is gone. The list has been read again.",
+      "alreadyClosed": "That motion is no longer open, so there is nothing to do to it.",
+      "personalIdentityNumber": "The motion carries a personal identity number and cannot be stored. A motion is read out at the meeting and goes into the notice, so remove it from:",
+      "invalidBody": "The motion needs a heading and a proposal, and neither may be longer than the form allows.",
+      "unknown": "That could not be done just now. Please try again."
     }
   }
 }

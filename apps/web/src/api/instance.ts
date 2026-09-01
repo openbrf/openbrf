@@ -70,6 +70,16 @@ export interface InstanceSettings {
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
   issueReporting: { publicFormEnabled: boolean };
+  /**
+   * The deadline the bylaws set for motions to the general meeting, or null when
+   * they set none.
+   *
+   * Null is the ordinary state of a fresh instance rather than a setting waiting
+   * to be filled in: EFL 6 kap. 15 § makes the deadline the association's own
+   * clause, so a cooperative whose bylaws are silent has none and intake stays
+   * open.
+   */
+  motionDeadline: { month: number; day: number } | null;
 }
 
 export interface Viewer {
