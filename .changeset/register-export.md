@@ -6,7 +6,7 @@
 
 Show the board which reports to the cooperative housing register
 (bostadsrättsregistret) are owed, tell it when a window opens, and produce the
-first supply of the existing apartments.
+initial supply of the existing apartments.
 
 The obligation ledger records a deadline per reportable event. Nothing read it
 back, nothing said a deadline existed, and nothing assembled the data Lag
@@ -50,14 +50,21 @@ log exists to record.
 Every seat on the board is emailed in its own language, with the apartment, the
 day the window opened and the day the report is due, and with nobody's name and
 no personal identity number: a name in a mailbox is a name in every mail system
-the message passes through. It goes after the register write has committed and
-inside a try/catch, because by then neither the event nor its deadline can be
-taken back - so letting a mail outage reject the request would report a written
-register as a failure, invite a retry that cannot succeed, and leave the deadline
-running with the board believing nothing was recorded. The address is decrypted
-per send and lives in one local for the length of the call; the log names a
-failure by person id, obligation id and the class of what went wrong, never by
-address.
+the message passes through.
+
+The sending is queued rather than done on the register request, which is where
+every board fan-out in this application already lives. A board has as many seats
+as it has, each send is a separate SMTP conversation, and the register write has
+already committed - so an unreachable mail server would hold the response open
+for the sum of those attempts, and the retry that follows writes a second
+termination, because a termination carries no uniqueness constraint. The job is
+enqueued after the commit and inside a try/catch, which is the opposite of the
+move-out reminder's ordering and for the opposite reason: that reminder cannot be
+reconstructed, while this notice can, because the queue screen lists every duty
+whether or not anybody was written to. Its payload is one identifier and the
+handler reads the dates back from the ledger. The address is decrypted per send
+and lives in one local for the length of the call; the log names a failure by
+person id, obligation id and the class of what went wrong, never by address.
 
 ## The initial supply
 
@@ -69,7 +76,18 @@ as that rather than as a download: nothing is produced until somebody presses th
 button, the entry names every person whose number the file carried, every column
 it has and how many rows of each kind, and a `PROTECTED_DATA_REVEALED` entry goes
 in beside it so that "who has seen these identity numbers" stays answerable from
-one action across the whole product.
+one action across the whole product. The supply is refused outright where the
+association has not been set up: a file that identifies nobody is not a smaller
+supply but one that cannot discharge the duty.
+
+An audit entry naming everybody an act covered is what makes the act
+accountable, and the data subject access report prints an entry's context to the
+person it is about - including the entries where they were the actor. So the
+report now shows a reader their own membership of such a list and a count of the
+rest, rather than every other holder's identifier, which is what GDPR art. 15(4)
+is about. That narrows only what leaves the building on one document; the log
+keeps every identifier it was written with, and the change covers the acts that
+already carried these lists before this one.
 
 **The file's shape is Open BRF's own and not Lantmäteriet's**, and it says so on
 the screen. The föreskrifter that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2
@@ -84,8 +102,8 @@ against a stable contract rather than a second reading of the statute.
 
 Two things about the content are worth naming. **Pantsättningar are in the supply
 although they open no obligation in the ledger**: the standing duty to report a
-pledge is the panthavare's (Lag (2026:484) 3 kap. 5 §), while Lag (2026:485) 3 §
-puts the first supply of the ones already noted on the association, and 13 § of
+lien is the panthavare's (Lag (2026:484) 3 kap. 5 §), while Lag (2026:485) 3 §
+puts the initial supply of the ones already noted on the association, and 13 § of
 that act makes a panträtt predating the register keep its sakrättsliga skydd only
 if it was supplied. And **a holder with skyddade personuppgifter has their address
 withheld**, with a column beside it saying so: a supply duty is not an exception

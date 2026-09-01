@@ -785,7 +785,7 @@ export class DataSubjectReportService {
         at: entry.createdAt.toISOString(),
         targetKind: entry.targetKind,
         targetId: entry.targetId,
-        context: asContext(entry.context),
+        context: subjectScopedContext(asContext(entry.context), personId),
       })),
       retention: {
         daysAfterMoveOut: retentionDays,
@@ -837,4 +837,53 @@ function asContext(
     return null;
   }
   return value as Record<string, unknown>;
+}
+
+/**
+ * The context keys that carry other people's identifiers.
+ *
+ * An audit entry names everybody an act covered, because that is what makes the
+ * act accountable: "who has seen these identity numbers" is answered by reading
+ * `personIds` off a PROTECTED_DATA_REVEALED entry. Several acts cover more than
+ * one person at a time - the apartment register's full extract, the initial
+ * supply to the cooperative housing register - and the entry lists all of them.
+ */
+const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
+
+/**
+ * The same context, with other data subjects taken out of it.
+ *
+ * The report prints an entry's context to the person it is about, and it carries
+ * the entries where they were the actor as well as the ones where they were the
+ * subject. So a board member who produced an act covering the whole house would
+ * otherwise read every other holder's identifier off their own access report -
+ * which GDPR art. 15(4) is precisely about: the right to a copy shall not
+ * adversely affect the rights and freedoms of others.
+ *
+ * The lists are replaced by this person's own membership of them and by a count,
+ * rather than removed. Removing them would leave the reader unable to tell an act
+ * that covered them from one that did not, and the count is the part of the fact
+ * that is about the act rather than about anybody else.
+ *
+ * The audit log itself is untouched. The entry keeps every identifier it was
+ * written with; this narrows only what leaves the building on one document.
+ */
+function subjectScopedContext(
+  context: Record<string, unknown> | null,
+  personId: string,
+): Record<string, unknown> | null {
+  if (context === null) {
+    return null;
+  }
+
+  const scoped: Record<string, unknown> = { ...context };
+  for (const key of CONTEXT_PERSON_LISTS) {
+    const value = context[key];
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    scoped[key] = value.includes(personId) ? [personId] : [];
+    scoped[`${key}Count`] = value.length;
+  }
+  return scoped;
 }

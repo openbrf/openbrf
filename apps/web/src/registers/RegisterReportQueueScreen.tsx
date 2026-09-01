@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -105,6 +105,26 @@ export function RegisterReportQueueScreen(): ReactElement {
   const [recording, setRecording] = useState(false);
   const [recordFailed, setRecordFailed] = useState(false);
   const [recorded, setRecorded] = useState(false);
+  const reportedOnField = useRef<HTMLInputElement | null>(null);
+
+  /*
+   * Focus follows the form, because the form does not follow the button.
+   *
+   * The trigger sits in a table row and the form renders above the table, so
+   * opening it moves nothing: a keyboard user tabs forward and never reaches the
+   * date input, and a screen reader announces nothing at all. Focusing the input
+   * is enough here - the form is short and the input is its first control - and it
+   * is the same treatment the address book's panels get.
+   *
+   * Keyed on the obligation rather than on the draft, so re-opening the form for
+   * a different duty focuses it again while typing a date does not.
+   */
+  const openFor = draft?.obligationId ?? null;
+  useEffect(() => {
+    if (openFor !== null) {
+      reportedOnField.current?.focus();
+    }
+  }, [openFor]);
 
   /**
    * How long a duty has left, or how long it is late, in words.
@@ -262,6 +282,7 @@ export function RegisterReportQueueScreen(): ReactElement {
               <input
                 type="date"
                 required
+                ref={reportedOnField}
                 value={draft.reportedOn}
                 onChange={(event) => {
                   setDraft({ ...draft, reportedOn: event.target.value });

@@ -30,13 +30,13 @@ import { writeCsv } from "../import/csv";
  *
  * The duty covers five kinds of thing at once, and they do not have one shape.
  * An apartment has one holder or several, each with a personal identity number
- * of their own; a pledge belongs to an apartment and not to a holder; the
+ * of their own; a lien note belongs to an apartment and not to a holder; the
  * association's own fields are stated once for the whole file. A single flat row
  * per apartment would have to either repeat a holder's columns a fixed number of
- * times - which silently drops the third co-holder - or leave the pledges out.
+ * times - which silently drops the third co-holder - or leave the lien notes out.
  *
  * So every row names its own kind in the first column and fills the columns
- * belonging to that kind. HOLDER and PLEDGE rows point at their apartment
+ * belonging to that kind. HOLDER and LIEN rows point at their apartment
  * through `apartmentKey`, which is this file's own key and not a field the
  * forordning asks for.
  *
@@ -58,10 +58,9 @@ import { writeCsv } from "../import/csv";
  *
  * ASSOCIATION appears once. APARTMENT appears once per bostadsratt. HOLDER
  * appears once per current bostadsrattshavare of each, so two co-holders are two
- * rows. PLEDGE appears once per pantsattning the association still has noted.
+ * rows. LIEN appears once per pantsattning the association still has noted.
  */
-export type SupplyRecordType =
-  "ASSOCIATION" | "APARTMENT" | "HOLDER" | "PLEDGE";
+export type SupplyRecordType = "ASSOCIATION" | "APARTMENT" | "HOLDER" | "LIEN";
 
 /**
  * The columns, in file order.
@@ -87,7 +86,7 @@ export const SUPPLY_COLUMNS = [
    * The apartment a row belongs to, as `<street> <number> <apartment number>`.
    *
    * This file's own key rather than a field the forordning asks for, and named
-   * so it cannot be mistaken for one. It exists because HOLDER and PLEDGE rows
+   * so it cannot be mistaken for one. It exists because HOLDER and LIEN rows
    * have to point at their APARTMENT row, and it is composed the way the
    * apartment register extract composes a designation - address unique on street
    * and number, apartment unique on address and number - so it is unique within
@@ -124,9 +123,9 @@ export const SUPPLY_COLUMNS = [
   "holderProtectedPersonalData",
   "holderHeldFrom",
   "holderMembershipDecidedOn",
-  // Pantsattningar (2 kap. 6 §), on a PLEDGE row.
-  "pledgeCreditor",
-  "pledgeNotedOn",
+  // Pantsattningar (2 kap. 6 §), on a LIEN row.
+  "lienCreditor",
+  "lienNotedOn",
 ] as const;
 
 export type SupplyColumn = (typeof SUPPLY_COLUMNS)[number];

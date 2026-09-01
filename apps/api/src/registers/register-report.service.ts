@@ -4,6 +4,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma, RegisterReportKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import {
   compareByDeadline,
   daysUntilDue,
@@ -204,6 +205,14 @@ export class RegisterReportService {
       obligations.map((obligation) => obligation.id),
     );
 
+    /*
+     * Ordered twice, and both are load-bearing. The database orders by dueOn so
+     * the read walks the index the ledger carries for exactly this question;
+     * the sort adds the tie-break, so two duties falling due on one day - a
+     * transfer and a termination recorded in one board meeting - come back in
+     * the same order on every read rather than in whichever order the scan
+     * happened to produce.
+     */
     const duties = obligations
       .slice()
       .sort(compareByDeadline)
@@ -229,7 +238,14 @@ export class RegisterReportService {
       });
 
     return {
-      generatedOn: isoDate(now) ?? "",
+      /*
+       * The association's own calendar day, not the UTC one. Every state on this
+       * queue was computed against that day, and slicing the instant would put a
+       * stamp one day behind on the document for the two hours after midnight in
+       * summer - a document about deadlines, dated a day before the deadlines it
+       * states were measured.
+       */
+      generatedOn: formatLocalDay(localDayOf(now)),
       counts: {
         overdue: duties.filter((duty) => duty.state === "overdue").length,
         due: duties.filter((duty) => duty.state === "due").length,

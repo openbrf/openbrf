@@ -312,8 +312,7 @@ export function recordRegisterReportMade(input: {
 }
 
 /** Which kind of thing one row of the initial supply is about. */
-export type SupplyRecordType =
-  "ASSOCIATION" | "APARTMENT" | "HOLDER" | "PLEDGE";
+export type SupplyRecordType = "ASSOCIATION" | "APARTMENT" | "HOLDER" | "LIEN";
 
 /**
  * One row of the initial supply, as the columns it fills.

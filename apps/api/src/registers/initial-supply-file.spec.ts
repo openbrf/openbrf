@@ -51,10 +51,10 @@ const ROWS: readonly SupplyRow[] = [
     holderMembershipDecidedOn: "2019-05-20",
   },
   {
-    recordType: "PLEDGE",
+    recordType: "LIEN",
     apartmentKey: "Bokgatan 3 1101",
-    pledgeCreditor: "Bokbanken",
-    pledgeNotedOn: "2019-06-15",
+    lienCreditor: "Bokbanken",
+    lienNotedOn: "2019-06-15",
   },
 ];
 
@@ -97,9 +97,9 @@ describe("writeSupplyFile", () => {
     expect(cell("holderName")).toBe("Mira Berg");
     expect(cell("holderPersonalIdentityNumber")).toBe("199001011234");
     expect(cell("holderMembershipDecidedOn")).toBe("2019-05-20");
-    // A holder row fills none of the association's or the pledge's columns.
+    // A holder row fills none of the association's or the lien note's columns.
     expect(cell("associationName")).toBe("");
-    expect(cell("pledgeCreditor")).toBe("");
+    expect(cell("lienCreditor")).toBe("");
   });
 
   it("starts with the byte order mark that makes a spreadsheet read UTF-8", () => {
@@ -113,7 +113,7 @@ describe("writeSupplyFile", () => {
     // line break is not: an address typed with a return in it reaches the
     // register and would otherwise end the row early.
     const file = writeSupplyFile([
-      { recordType: "PLEDGE", pledgeCreditor: 'Bank; & "Co"' },
+      { recordType: "LIEN", lienCreditor: 'Bank; & "Co"' },
     ]);
 
     expect(file).toContain('"Bank; & ""Co"""');
@@ -148,7 +148,7 @@ describe("the documented contract", () => {
      * own, which is what this matches, allowing for the padding the formatter
      * puts inside an aligned cell. The pattern requires a lower-case first
      * letter, so the record-type table beside it - whose leading cells are
-     * ASSOCIATION, APARTMENT, HOLDER and PLEDGE - is not read as a column list,
+     * ASSOCIATION, APARTMENT, HOLDER and LIEN - is not read as a column list,
      * and prose mentioning a column elsewhere in the file is not a row at all.
      */
     const document = readFileSync(

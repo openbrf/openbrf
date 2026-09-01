@@ -55,7 +55,7 @@ const SUPPLY: InitialSupply = {
     "holderName",
     "holderPersonalIdentityNumber",
     "holderProtectedPersonalData",
-    "pledgeCreditor",
+    "lienCreditor",
   ],
   rows: [
     {
@@ -71,12 +71,12 @@ const SUPPLY: InitialSupply = {
       holderProtectedPersonalData: "no",
     },
     {
-      recordType: "PLEDGE",
+      recordType: "LIEN",
       apartmentKey: "Bokgatan 3 1101",
-      pledgeCreditor: "Bokbanken",
+      lienCreditor: "Bokbanken",
     },
   ],
-  counts: { ASSOCIATION: 1, APARTMENT: 1, HOLDER: 1, PLEDGE: 1 },
+  counts: { ASSOCIATION: 1, APARTMENT: 1, HOLDER: 1, LIEN: 1 },
   csv: CSV,
 };
 
@@ -166,7 +166,7 @@ describe("the produced document", () => {
     await screen.findByRole("heading", { name: "Pantnotering" });
 
     expect(
-      screen.queryAllByRole("columnheader", { name: "pledgeCreditor" }),
+      screen.queryAllByRole("columnheader", { name: "lienCreditor" }),
     ).toHaveLength(1);
   });
 

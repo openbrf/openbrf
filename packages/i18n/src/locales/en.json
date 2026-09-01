@@ -78,8 +78,8 @@
     "registerReportObligation": {
       "subject": "Report to the cooperative housing register: {{apartment}}",
       "heading": "A reporting window has opened",
-      "body": "{{event}} was recorded for {{apartment}}. The window opened on {{triggeredOn}} and the report to Lantmateriet is due on {{dueOn}}.",
-      "lateNotice": "Lantmateriet may order a late report in under penalty of a fine, so the date is the deadline and not a target. The reporting queue lists this duty and every other one still outstanding.",
+      "body": "{{event}} was recorded for {{apartment}}. The window opened on {{triggeredOn}} and the report to Lantmäteriet is due on {{dueOn}}.",
+      "lateNotice": "Lantmäteriet may order a late report in under penalty of a fine, so the date is the deadline and not a target. The reporting queue lists this duty and every other one still outstanding.",
       "action": "Open the reporting queue",
       "event": {
         "TRANSFER": "A transfer",
@@ -1482,20 +1482,22 @@
     },
     "reports": {
       "heading": "Reporting to the cooperative housing register",
-      "description": "Every register event the association has to report to Lantmateriet, and the day each report falls due. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names.",
+      "description": "Every register event the association has to report to Lantmäteriet, and the day each report falls due. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names.",
       "stamp": "Reporting duties - {{date}}",
       "loading": "Loading the reporting duties",
       "error": "The reporting duties could not be read just now.",
       "openSupply": "The initial supply",
       "backToQueue": "Back to the reporting queue",
-      "overdueNotice": "{{count}} report is past its statutory deadline. Lantmateriet may order a late report in under penalty of a fine.",
+      "overdueNotice_one": "{{count}} report is past its statutory deadline. Lantmäteriet may order a late report in under penalty of a fine.",
+      "overdueNotice_other": "{{count}} reports are past their statutory deadline. Lantmäteriet may order a late report in under penalty of a fine.",
       "noneOverdue": "No report is past its deadline.",
       "group": {
         "overdue": "Past the deadline",
         "due": "Still to report",
         "reported": "Reported"
       },
-      "groupCount": "{{count}} duties",
+      "groupCount_one": "{{count}} duty",
+      "groupCount_other": "{{count}} duties",
       "column": {
         "apartment": "Apartment",
         "event": "Event",
@@ -1513,10 +1515,13 @@
         "due": "Still to report",
         "reported": "Reported"
       },
-      "daysLeft": "{{count}} days left",
-      "daysOverdue": "{{count}} days past the deadline",
+      "daysLeft_one": "{{count}} day left",
+      "daysLeft_other": "{{count}} days left",
+      "daysOverdue_one": "{{count}} day past the deadline",
+      "daysOverdue_other": "{{count}} days past the deadline",
       "dueToday": "Due today",
-      "reportedLate": "Reported {{count}} days after the deadline",
+      "reportedLate_one": "Reported {{count}} day after the deadline",
+      "reportedLate_other": "Reported {{count}} days after the deadline",
       "empty": {
         "title": "Nothing to report",
         "description": "A duty appears here when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
@@ -1525,7 +1530,7 @@
         "open": "Record the report",
         "openLabel": "Record the report for {{apartment}}",
         "heading": "Record that the report for {{apartment}} was made",
-        "hint": "The day a complete anmalan reached Lantmateriet. That is the day the registration counts from, not the day the board prepared it.",
+        "hint": "The day a complete anmälan reached Lantmäteriet. That is the day the registration counts from, not the day the board prepared it.",
         "appendOnly": "This is written to the audit log with your name and cannot be edited or removed afterwards. Check the date before you record it.",
         "reportedOn": "Reported on",
         "submit": "Record it",
@@ -1536,21 +1541,21 @@
       },
       "supply": {
         "heading": "The initial supply to the cooperative housing register",
-        "description": "What the association supplies to Lantmateriet once, by 31 December 2027 (Lag (2026:485) 3 §): its apartments, their holders and the pledges it has noted.",
+        "description": "What the association supplies to Lantmäteriet once, by 31 December 2027 (Lag (2026:485) 3 §): its apartments, their holders and the lien notes it has recorded.",
         "stamp": "Initial supply - {{date}}",
-        "ownShapeNotice": "Lantmateriet has not published a technical interface, so this file has Open BRF's own columns and is not a Lantmateriet format. Its content follows the field list in Forordning (2026:898) 2 kap., and docs/register-supply-contract.md states what each column means and which fields the platform does not hold.",
+        "ownShapeNotice": "Lantmäteriet has not published a technical interface, so this file has Open BRF's own columns and is not a Lantmäteriet format. Its content follows the field list in Förordning (2026:898) 2 kap., and docs/register-supply-contract.md states what each column means and which fields the platform does not hold.",
         "disclosureNotice": "The file contains every current holder's personal identity number. Producing it is written to the audit log with your name, and the log records which people's numbers it carried.",
         "produce": "Produce the initial supply",
         "producing": "Producing",
         "produced": "The file was produced. Producing it was written to the audit log.",
         "failed": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
         "download": "Save the file",
-        "counts": "{{apartments}} apartments, {{holders}} holders, {{pledges}} pledges",
+        "counts": "{{apartments}} apartments, {{holders}} holders, {{liens}} lien notes",
         "recordType": {
           "ASSOCIATION": "The association",
           "APARTMENT": "Apartment",
           "HOLDER": "Holder",
-          "PLEDGE": "Pledge"
+          "LIEN": "Lien note"
         },
         "notHeld": "A column left empty is one this row's kind does not fill, or one the register holds no value for."
       }

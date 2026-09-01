@@ -45,6 +45,14 @@ import {
  * supply it gets a 403, and the message says that rather than reporting a
  * failure.
  *
+ * ## Not on the screenshot walk
+ *
+ * Deliberately, and it must stay off it. The end-to-end screenshot suite
+ * photographs screens into images that go into public pull requests, and it
+ * scans each one for anything shaped like a personal identity number first; a
+ * document whose whole content is those numbers is the one screen that should
+ * never be pointed at a camera, however good the scanner is.
+ *
  * ## The document is the file
  *
  * What prints is the rows the file contains, column by column, rather than a
@@ -58,7 +66,7 @@ const RECORD_TYPES: readonly SupplyRecordType[] = [
   "ASSOCIATION",
   "APARTMENT",
   "HOLDER",
-  "PLEDGE",
+  "LIEN",
 ];
 
 /**
@@ -180,7 +188,7 @@ export function InitialSupplyScreen(): ReactElement {
               {t("registers.reports.supply.counts", {
                 apartments: supply.counts.APARTMENT,
                 holders: supply.counts.HOLDER,
-                pledges: supply.counts.PLEDGE,
+                liens: supply.counts.LIEN,
               })}
             </p>
           </header>

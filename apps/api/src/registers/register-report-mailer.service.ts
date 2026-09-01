@@ -1,10 +1,22 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { registerReportObligationMail } from "../mail/templates";
+
+/** Payload of the board's reporting-obligation notice. */
+export interface RegisterReportNoticeJob {
+  obligationId: string;
+  [key: string]: unknown;
+}
+
+/** Queue the board's reporting-obligation notice runs on. */
+export const REGISTER_REPORT_NOTICE_QUEUE = "register-report-notice";
 
 /**
  * Telling the board that a reporting window has opened.
@@ -14,24 +26,38 @@ import { registerReportObligationMail } from "../mail/templates";
  * order a late report in under penalty of a fine, so the message goes out when
  * the window opens rather than being left for whoever next opens the queue.
  *
- * ## A failed send never leaves this method
+ * ## Queued, and not sent on the request path
+ *
+ * Every board fan-out in this application is queued, and the reason is the
+ * request rather than the mail. A board has as many seats as it has, each send
+ * is a separate SMTP conversation, and MailService bounds a stage of one
+ * conversation rather than the sum of them - so a mail server that is merely
+ * unreachable would hold an already-committed register write open for as long as
+ * every seat takes to time out. What the caller does then is retry, and a
+ * termination carries no uniqueness constraint: the retry writes a second
+ * statutory row that the database will not let anybody delete. Taking the sends
+ * off the request path is what removes that, not a shorter timeout.
+ *
+ * The job is enqueued AFTER the register transaction has committed and inside a
+ * try/catch, which is the opposite of the move-out reminder's ordering and for
+ * the opposite reason. That reminder cannot be reconstructed - the EXIT row
+ * refuses a second move-out, so a lost reminder has no path back - so it is
+ * enqueued by the transaction that decides to send it. This notice is
+ * reconstructable: the queue screen lists every duty whether or not anybody was
+ * written to. So a job queue that is down must not be able to fail a statutory
+ * register write, and the notice is the half worth losing.
+ *
+ * The payload is one identifier. The handler reads the dates and the apartment
+ * back from the ledger rather than trusting a payload, for the reason the
+ * move-out reminder gives about its own figures: a message stating a deadline
+ * that no longer matches the row would be worse than no message.
+ *
+ * ## A failed send never leaves the handler
  *
  * The loop catches per board member, so one unreachable address does not abandon
  * the seats after it: a rejection that escaped would leave the board members
  * before the failure notified and the ones after it not, with nothing saying
- * which. That catch is also what keeps a mail outage away from the register
- * write, since the caller sends after its transaction has committed and a
- * rejection reaching it would report a written register as a failure.
- *
- * It is not the only thing standing there. Resolving the recipients at all is a
- * database read, and a failure before the loop would escape this method; the
- * caller therefore wraps the call as well, and both layers are covered by tests
- * of their own. The argument for the ordering is at the call site, in
- * `apartment-register.service.ts`, which is where it belongs.
- *
- * The method returns how many board members were written to, the way the move
- * flows do, so a caller can report "recorded, nobody notified" rather than
- * reporting a written register as a failure.
+ * which.
  *
  * ## The address is decrypted per send and never held
  *
@@ -51,29 +77,82 @@ import { registerReportObligationMail } from "../mail/templates";
  * whole sentence follows the recipient.
  */
 @Injectable()
-export class RegisterReportMailerService {
+export class RegisterReportMailerService implements OnModuleInit {
   private readonly logger = new Logger(RegisterReportMailerService.name);
 
   constructor(
+    @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly mail: MailService,
+    private readonly jobs: JobQueueService,
   ) {}
 
+  async onModuleInit(): Promise<void> {
+    if (this.env.NODE_ENV === "test") {
+      // Integration tests drive the handler themselves, so a job under test is
+      // not raced by a worker that came up with the module.
+      return;
+    }
+    await this.startNoticeWorker();
+  }
+
+  /** Registers the worker. Public so an integration test can drive the job. */
+  async startNoticeWorker(): Promise<void> {
+    await this.jobs.work<RegisterReportNoticeJob>(
+      REGISTER_REPORT_NOTICE_QUEUE,
+      async (data) => {
+        await this.notifyBoard(data.obligationId);
+      },
+    );
+  }
+
   /**
-   * Tells the board that one duty now exists.
+   * Puts one notice on the queue.
+   *
+   * Called after the register transaction has committed, by a caller that
+   * swallows a failure here. Nothing in this method reaches a mail server.
+   */
+  async enqueueNotice(obligationId: string): Promise<void> {
+    await this.jobs.send<RegisterReportNoticeJob>(
+      REGISTER_REPORT_NOTICE_QUEUE,
+      { obligationId },
+    );
+  }
+
+  /**
+   * Tells the board that one duty exists.
    *
    * @returns How many board members the message reached.
    */
-  async sendObligationNotice(input: {
-    obligationId: string;
-    kind: "TRANSFER" | "TERMINATION";
-    designation: string;
-    triggeredOn: Date;
-    dueOn: Date;
-    now?: Date;
-  }): Promise<number> {
-    const now = input.now ?? new Date();
+  async notifyBoard(
+    obligationId: string,
+    now: Date = new Date(),
+  ): Promise<number> {
+    const obligation = await this.prisma.registerReportObligation.findUnique({
+      where: { id: obligationId },
+      select: {
+        id: true,
+        kind: true,
+        triggeredOn: true,
+        dueOn: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
+    });
+    if (obligation === null) {
+      // The ledger refuses DELETE, so this is a job for a row that never
+      // existed - a payload from an older build, or a queue drained against
+      // another database. Nothing to say, and nothing to retry.
+      this.logger.warn(
+        `No reporting obligation ${obligationId} to notify the board about`,
+      );
+      return 0;
+    }
 
     const board = await this.prisma.person.findMany({
       where: {
@@ -94,6 +173,8 @@ export class RegisterReportMailerService {
       },
     });
 
+    const designation = `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`;
+
     let sent = 0;
     for (const member of board) {
       if (member.emailCipher === null) {
@@ -110,10 +191,10 @@ export class RegisterReportMailerService {
           template: registerReportObligationMail,
           props: {
             recipientName: `${member.firstName} ${member.lastName}`.trim(),
-            kind: input.kind,
-            designation: input.designation,
-            triggeredOn: input.triggeredOn,
-            dueOn: input.dueOn,
+            kind: obligation.kind,
+            designation,
+            triggeredOn: obligation.triggeredOn,
+            dueOn: obligation.dueOn,
           },
         });
         sent += 1;
@@ -123,14 +204,14 @@ export class RegisterReportMailerService {
         // an address and hands it to a mail server, which quotes it back.
         this.logger.error(
           `Reporting obligation notice failed for board member ${member.id} ` +
-            `on obligation ${input.obligationId}: ` +
+            `on obligation ${obligation.id}: ` +
             failureName(error),
         );
       }
     }
 
     this.logger.log(
-      `Reporting obligation ${input.obligationId} notified to ${String(sent)} board members`,
+      `Reporting obligation ${obligation.id} notified to ${String(sent)} board members`,
     );
     return sent;
   }

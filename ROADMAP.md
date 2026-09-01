@@ -682,12 +682,12 @@ change it.
     the register events already on it. The board reads those duties on a screen
     of its own that groups them by what is owed, what has passed its statutory
     deadline and what has been reported, and every seat on the board is emailed
-    in its own language when a window opens - best effort after the register
-    write has committed, so a mail server that is down never costs the
-    association a deadline. Recording that an anmälan reached Lantmäteriet is an
+    in its own language when a window opens - queued after the register write has
+    committed and best effort, so neither a mail server nor a job queue that is
+    down can cost the association a deadline. Recording that an anmälan reached Lantmäteriet is an
     act with its own audit entry and no register row: the ledger is append-only
     and a discharged duty has no later state to reach there, so the log carries
-    the day stated and the queue reads it back. The first supply of the existing
+    the day stated and the queue reads it back. The initial supply of the existing
     apartments is produced as a documented file plus a printable extract of the
     same rows, and it is the only place the platform writes a personnummer into a
     file - behind a capability of its own, with an audit entry naming every

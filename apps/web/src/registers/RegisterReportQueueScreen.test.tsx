@@ -118,13 +118,43 @@ describe("an overdue duty", () => {
 
     // The notice is the signal above the document, and it names the consequence
     // rather than only the count: a deadline nobody explains is a deadline
-    // somebody deprioritises.
+    // somebody deprioritises. The singular form, because the fixture has one -
+    // a count sentence written in one form only reads as broken Swedish on
+    // whichever side of one it was not written for.
     expect(
       await screen.findByText(
         /1 anmälan har passerat sin lagstadgade sista dag/,
       ),
     ).toBeTruthy();
     expect(screen.getByText(/vite/)).toBeTruthy();
+  });
+
+  it("counts a second one in the plural", async () => {
+    fetchRegisterReportQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        ...QUEUE,
+        counts: { overdue: 2, due: 0, reported: 0 },
+        duties: [
+          QUEUE.duties[0],
+          {
+            ...QUEUE.duties[1],
+            id: "duty-second",
+            state: "overdue" as const,
+            daysUntilDue: -1,
+          },
+        ],
+      },
+    });
+    render(<RegisterReportQueueScreen />);
+
+    expect(
+      await screen.findByText(
+        /2 anmälningar har passerat sin lagstadgade sista dag/,
+      ),
+    ).toBeTruthy();
+    // And the day count follows the same rule: one day, not "1 dagar".
+    expect(screen.getByText("1 dag över sista dagen")).toBeTruthy();
   });
 
   it("states how far past the deadline it is, as a positive number of days", async () => {
@@ -235,6 +265,27 @@ describe("recording that a report was made", () => {
     // server's answer, and a screen that moved the row itself would compute them
     // a second time.
     expect(fetchRegisterReportQueue).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves focus into the form, which renders above the row it was opened from", async () => {
+    /*
+     * The button sits in a table row and the form renders above the table, so
+     * opening it moves nothing on its own: a keyboard user would tab forward and
+     * never reach the date input, and would have to shift-tab back past the whole
+     * table to find it.
+     */
+    const session = userEvent.setup();
+    render(<RegisterReportQueueScreen />);
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Registrera anmälan för Bokgatan 3 1101",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText("Anmäld den"));
+    });
   });
 
   it("says the statement cannot be taken back before it is made", async () => {

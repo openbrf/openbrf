@@ -498,7 +498,7 @@ export class ApartmentRegisterService {
       return { view: toTermination(termination), obligation };
     });
 
-    await this.notifyBoard(recorded.obligation, designationOf(apartment));
+    await this.enqueueBoardNotice(recorded.obligation.id);
     return recorded.view;
   }
 
@@ -622,55 +622,43 @@ export class ApartmentRegisterService {
       return { view: toTransfer(transfer), obligation };
     });
 
-    await this.notifyBoard(
-      recorded.obligation,
-      designationOf(existing.apartment),
-    );
+    await this.enqueueBoardNotice(recorded.obligation.id);
     return recorded.view;
   }
 
   /**
-   * Tells the board that a reporting window has opened, after the commit and
-   * best effort.
+   * Puts the board's notice on the queue, after the commit and best effort.
    *
    * After, because by now the register event and its deadline have both been
    * written and neither can be taken back: the obligation ledger refuses UPDATE
    * and DELETE, a termination is as strictly append-only, and a transfer that
-   * carries a membership decision date refuses a second one. Letting a mail
+   * carries a membership decision date refuses a second one. Letting a queue
    * outage reject the request would report a written register as a failure and
-   * invite a retry that cannot succeed - and the deadline would still be
-   * running, now with nobody told and the board believing nothing was recorded.
+   * invite a retry that writes a second statutory row, since a termination
+   * carries no uniqueness constraint - and the deadline would still be running,
+   * now with nobody told and the board believing nothing was recorded.
    *
-   * Best effort, and not a queued job. The part that cannot be reconstructed is
-   * the deadline, and that is written by the same transaction as the event it is
-   * computed from; a notice that never went out is recoverable from the queue
-   * screen, which lists every duty whether or not anybody was written to. So
-   * this is the one half worth losing.
+   * Best effort for the same reason it is after: the part that cannot be
+   * reconstructed is the deadline, and that is written by the same transaction
+   * as the event it is computed from. A notice that never went out is
+   * recoverable from the queue screen, which lists every duty whether or not
+   * anybody was written to. So this is the one half worth losing, and the
+   * move-out reminder's opposite ordering - enqueued by the transaction itself -
+   * is right there for the opposite reason.
    *
-   * The failure is named by the obligation and by the class of what went wrong.
-   * A mail server's rejection quotes the envelope, and that envelope holds an
-   * address decrypted inside the call.
+   * A queue and not a send, because a board has as many seats as it has and
+   * every one of them is a separate SMTP conversation. The reasoning is in
+   * `register-report-mailer.service.ts`, which is where the sending lives.
+   *
+   * The failure is named by the obligation and by the class of what went wrong,
+   * never by its payload.
    */
-  private async notifyBoard(
-    obligation: {
-      id: string;
-      kind: "TRANSFER" | "TERMINATION";
-      triggeredOn: Date;
-      dueOn: Date;
-    },
-    designation: string,
-  ): Promise<void> {
+  private async enqueueBoardNotice(obligationId: string): Promise<void> {
     try {
-      await this.notices.sendObligationNotice({
-        obligationId: obligation.id,
-        kind: obligation.kind,
-        designation,
-        triggeredOn: obligation.triggeredOn,
-        dueOn: obligation.dueOn,
-      });
+      await this.notices.enqueueNotice(obligationId);
     } catch (error) {
       this.logger.error(
-        `Reporting obligation notice failed for obligation ${obligation.id}: ` +
+        `Reporting obligation notice could not be queued for obligation ${obligationId}: ` +
           failureName(error),
       );
     }
@@ -1112,20 +1100,6 @@ function statutoryDateColumn(text: string, now: Date): Date {
       : "That date has not arrived yet.",
     parsed.problem,
   );
-}
-
-/**
- * The apartment as the register designates it: address and apartment number.
- *
- * The same composition the extract uses, and stated once so the notice and the
- * queue name an apartment the same way a board member sees it named on the
- * register itself.
- */
-function designationOf(apartment: {
-  number: string;
-  address: { street: string; number: string };
-}): string {
-  return `${apartment.address.street} ${apartment.address.number} ${apartment.number}`;
 }
 
 function isoDate(value: Date | null): string | null {

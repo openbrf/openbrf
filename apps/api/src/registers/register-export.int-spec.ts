@@ -23,15 +23,26 @@ import {
 } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { RegisterReportMailerService } from "./register-report-mailer.service";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { MailService, type SendMailInput } from "../mail/mail.service";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
   runSuffix,
 } from "../testing/integration-env";
-import type { InitialSupply } from "./initial-supply.service";
-import type { RegisterReportQueue } from "./register-report.service";
+import { DataSubjectReportService } from "../retention/data-subject-report.service";
+import {
+  type InitialSupply,
+  InitialSupplyService,
+} from "./initial-supply.service";
+import {
+  REGISTER_REPORT_NOTICE_QUEUE,
+  RegisterReportMailerService,
+} from "./register-report-mailer.service";
+import {
+  type RegisterReportQueue,
+  RegisterReportService,
+} from "./register-report.service";
 
 /**
  * Reporting to the cooperative housing register, over HTTP against a real
@@ -76,6 +87,8 @@ const apartments = {
   terminated: `rep-apartment-a-${suffix}`,
   transferred: `rep-apartment-b-${suffix}`,
   protected: `rep-apartment-c-${suffix}`,
+  /** Held by somebody whose move-out is dated but has not arrived. */
+  leaving: `rep-apartment-d-${suffix}`,
 };
 
 const actors = {
@@ -108,6 +121,20 @@ const actors = {
     email: `rep-protected-${suffix}@exempel.se`,
     locale: "sv",
     personalIdentityNumber: runIdentityNumber(`${suffix}-protected`),
+  },
+  /**
+   * Holds a bostadsratt with a move-out date in the future.
+   *
+   * Still the holder today, so the supply has to carry them. A residency filter
+   * written as `movedOutOn: null` leaves them out, and the file would then be a
+   * statutory supply missing a current holder on the strength of a date nobody
+   * has reached.
+   */
+  leavingHolder: {
+    personId: `rep-leaving-${suffix}`,
+    email: `rep-leaving-${suffix}@exempel.se`,
+    locale: "sv",
+    personalIdentityNumber: runIdentityNumber(`${suffix}-leaving`),
   },
   /** Holds no register capability at all. */
   resident: {
@@ -268,6 +295,7 @@ beforeAll(async () => {
       { id: apartments.terminated, addressId, number: "1101", floor: 1 },
       { id: apartments.transferred, addressId, number: "1102", floor: 1 },
       { id: apartments.protected, addressId, number: "1103", floor: 1 },
+      { id: apartments.leaving, addressId, number: "1104", floor: 1 },
     ],
   });
 
@@ -276,6 +304,7 @@ beforeAll(async () => {
     { ...actors.treasurer, firstName: "Tom" },
     { ...actors.holder, firstName: "Mira" },
     { ...actors.protectedHolder, firstName: "Petra" },
+    { ...actors.leavingHolder, firstName: "Lars" },
     { ...actors.resident, firstName: "Rita" },
   ]) {
     await createPerson({
@@ -310,6 +339,14 @@ beforeAll(async () => {
         apartmentId: apartments.protected,
         role: "RESIDENT",
         movedInOn: new Date("2024-04-01T00:00:00.000Z"),
+      },
+      {
+        personId: actors.leavingHolder.personId,
+        apartmentId: apartments.leaving,
+        role: "MEMBER",
+        movedInOn: new Date("2024-06-01T00:00:00.000Z"),
+        // Dated, and not yet reached.
+        movedOutOn: new Date(`${day(30)}T00:00:00.000Z`),
       },
     ],
   });
@@ -668,9 +705,29 @@ describe("recording that a report was made", () => {
 });
 
 describe("the notice that a window has opened", () => {
-  it("reaches every board member in their own language", async () => {
+  /** The obligation the register write just entered, for this apartment. */
+  async function latestObligation(apartmentId: string): Promise<string> {
+    const obligation = await prisma.registerReportObligation.findFirst({
+      where: { apartmentId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    expect(obligation).not.toBeNull();
+    return obligation?.id ?? "";
+  }
+
+  it("is queued by the register write rather than sent on its request", async () => {
+    /*
+     * The property the queue exists for. A board has as many seats as it has,
+     * each send is a separate SMTP conversation, and the register write has
+     * already committed - so a mail server that is merely unreachable would hold
+     * the response open for the sum of those attempts, and the retry that
+     * follows writes a second termination that nothing can delete.
+     */
     const cookie = await signIn(actors.chair.email);
-    const captured = captureSends();
+    const jobs = app.get(JobQueueService);
+    const send = vi.spyOn(jobs, "send");
+    const mailed = vi.spyOn(mail, "send");
 
     const recorded = await inject({
       method: "POST",
@@ -685,6 +742,28 @@ describe("the notice that a window has opened", () => {
     });
     expect(recorded.statusCode).toBe(201);
 
+    // Nothing reached a mail server on the request path.
+    expect(mailed).not.toHaveBeenCalled();
+
+    const queued = send.mock.calls.find(
+      (call) => call[0] === REGISTER_REPORT_NOTICE_QUEUE,
+    );
+    expect(queued).toBeDefined();
+    // One identifier, and nothing else. The handler reads the dates and the
+    // apartment back from the ledger rather than trusting a payload.
+    expect(queued?.[1]).toEqual({
+      obligationId: await latestObligation(apartments.protected),
+    });
+  });
+
+  it("reaches every board member in their own language", async () => {
+    const captured = captureSends();
+    const mailer = app.get(RegisterReportMailerService);
+
+    const sent = await mailer.notifyBoard(
+      await latestObligation(apartments.protected),
+    );
+
     // Counted relatively: the worker's database carries other suites' board
     // members, and this suite must not depend on how many.
     const board: readonly string[] = [
@@ -693,6 +772,7 @@ describe("the notice that a window has opened", () => {
     ];
     const mine = captured.filter((message) => board.includes(message.to));
     expect(mine).toHaveLength(2);
+    expect(sent).toBeGreaterThanOrEqual(2);
     for (const message of mine) {
       expect(message.template.id).toBe("register-report-obligation");
     }
@@ -707,8 +787,6 @@ describe("the notice that a window has opened", () => {
 
   it("states the deadline the ledger entered and nobody's name", async () => {
     const cookie = await signIn(actors.chair.email);
-    const captured = captureSends();
-
     await inject({
       method: "POST",
       url: "/api/apartment-register/terminations",
@@ -720,6 +798,11 @@ describe("the notice that a window has opened", () => {
       },
       headers: { cookie },
     });
+
+    const captured = captureSends();
+    await app
+      .get(RegisterReportMailerService)
+      .notifyBoard(await latestObligation(apartments.transferred));
 
     const message = captured.find(
       (candidate) => candidate.to === actors.chair.email,
@@ -759,54 +842,14 @@ describe("the notice that a window has opened", () => {
     );
   });
 
-  it("does not roll back the register write when the mail server refuses", async () => {
-    /*
-     * Both writes have committed by the time a message is sent and neither can be
-     * taken back: the obligation ledger refuses UPDATE and DELETE and a
-     * termination is as strictly append-only. So a mail failure must not reject
-     * the request - the deadline would still be running, with nobody told and the
-     * board believing nothing was recorded.
-     */
-    const cookie = await signIn(actors.chair.email);
-    const send = vi
-      .spyOn(mail, "send")
-      .mockRejectedValue(new EnvelopeRefused(actors.chair.email));
-
-    const response = await inject({
-      method: "POST",
-      url: "/api/apartment-register/terminations",
-      payload: {
-        apartmentId: apartments.terminated,
-        kind: "BUILDING_TRANSFERRED",
-        tookEffectOn: day(-4),
-        reference: `Utmatning ${suffix}`,
-      },
-      headers: { cookie },
-    });
-
-    expect(send).toHaveBeenCalled();
-    expect(response.statusCode).toBe(201);
-
-    const termination = await prisma.termination.findFirst({
-      where: { reference: `Utmatning ${suffix}` },
-      select: { id: true, reportObligation: { select: { dueOn: true } } },
-    });
-    expect(termination).not.toBeNull();
-    // And its deadline, which is the half that cannot be reconstructed.
-    expect(
-      termination?.reportObligation?.dueOn.toISOString().slice(0, 10),
-    ).toBe(day(10));
-  });
-
   it("writes to the rest of the board past a recipient the server refuses", async () => {
     /*
-     * What the per-recipient catch is for, and it is a different property from
-     * the one above. A rejection that escaped the loop would leave the seats
-     * before the failure notified and the ones after it not, with nothing saying
-     * which - and the call site would swallow it, so the whole thing would look
-     * like a send that simply reached fewer people.
+     * What the per-recipient catch is for. A rejection that escaped the loop
+     * would leave the seats before the failure notified and the ones after it
+     * not, with nothing saying which - and the job would be retried from the
+     * first seat again, so the ones before the failure would be written to
+     * twice and the ones after it never.
      */
-    const cookie = await signIn(actors.chair.email);
     const reached: string[] = [];
     vi.spyOn(mail, "send").mockImplementation(async (input) => {
       if (input.to === actors.chair.email) {
@@ -815,17 +858,9 @@ describe("the notice that a window has opened", () => {
       reached.push(input.to);
     });
 
-    await inject({
-      method: "POST",
-      url: "/api/apartment-register/terminations",
-      payload: {
-        apartmentId: apartments.transferred,
-        kind: "GENERAL_MEETING_DECISION",
-        tookEffectOn: day(-7),
-        reference: `Protokoll III ${suffix}`,
-      },
-      headers: { cookie },
-    });
+    await app
+      .get(RegisterReportMailerService)
+      .notifyBoard(await latestObligation(apartments.transferred));
 
     // The chair is first by id in this fixture, so the refusal happens before
     // the treasurer's send rather than after it.
@@ -833,17 +868,18 @@ describe("the notice that a window has opened", () => {
     expect(reached).not.toContain(actors.chair.email);
   });
 
-  it("keeps the register write when the recipients cannot be resolved at all", async () => {
+  it("keeps the register write when the notice cannot even be queued", async () => {
     /*
-     * The second layer, and the one the per-recipient catch does not reach.
-     * Resolving the board is a database read before the loop starts, so a
-     * failure there escapes the mailer; the call site wraps it for the same
-     * reason it sends after the commit, and this is what says so.
+     * The deadline and the event are written by now and neither can be taken
+     * back, so a job queue that is down must not reject the request: the caller
+     * would retry, and a termination carries no uniqueness constraint. The
+     * notice is the half worth losing, because the queue screen lists every duty
+     * whether or not anybody was written to.
      */
     const cookie = await signIn(actors.chair.email);
-    const mailer = app.get(RegisterReportMailerService);
-    const notice = vi
-      .spyOn(mailer, "sendObligationNotice")
+    const jobs = app.get(JobQueueService);
+    const send = vi
+      .spyOn(jobs, "send")
       .mockRejectedValue(new Error("the connection pool is exhausted"));
 
     const response = await inject({
@@ -858,7 +894,7 @@ describe("the notice that a window has opened", () => {
       headers: { cookie },
     });
 
-    expect(notice).toHaveBeenCalled();
+    expect(send).toHaveBeenCalled();
     expect(response.statusCode).toBe(201);
     const termination = await prisma.termination.findFirst({
       where: { reference: `Forvar ${suffix}` },
@@ -870,23 +906,14 @@ describe("the notice that a window has opened", () => {
   });
 
   it("names a failure by obligation and never by address", async () => {
-    const cookie = await signIn(actors.chair.email);
     const logged = vi.spyOn(Logger.prototype, "error");
     vi.spyOn(mail, "send").mockRejectedValue(
       new EnvelopeRefused(actors.chair.email),
     );
 
-    await inject({
-      method: "POST",
-      url: "/api/apartment-register/terminations",
-      payload: {
-        apartmentId: apartments.protected,
-        kind: "BUILDING_TRANSFERRED",
-        tookEffectOn: day(-5),
-        reference: `Kvarstad ${suffix}`,
-      },
-      headers: { cookie },
-    });
+    await app
+      .get(RegisterReportMailerService)
+      .notifyBoard(await latestObligation(apartments.transferred));
 
     const lines = logged.mock.calls.map((call) => String(call[0]));
     const line = lines.find((text) => text.includes("obligation"));
@@ -899,6 +926,20 @@ describe("the notice that a window has opened", () => {
       expect(text).not.toContain(actors.chair.email);
       expect(text).not.toContain(actors.treasurer.email);
     }
+  });
+
+  it("says so and sends nothing when the job names no obligation", async () => {
+    // The ledger refuses DELETE, so a payload naming no row is one from an
+    // older build or another database. A handler that threw would retry that
+    // job forever.
+    const captured = captureSends();
+
+    const sent = await app
+      .get(RegisterReportMailerService)
+      .notifyBoard(`missing-${suffix}`);
+
+    expect(sent).toBe(0);
+    expect(captured).toHaveLength(0);
   });
 });
 
@@ -998,12 +1039,31 @@ describe("the initial supply", () => {
     );
   });
 
-  it("carries the pledges that still apply and leaves out a released one", async () => {
+  it("carries a holder whose move-out is dated but has not arrived", async () => {
+    /*
+     * The regression this case exists for. A residency filter written as
+     * `movedOutOn: null` reads a dated future move-out as a holding that has
+     * ended, and the file would go to Lantmateriet missing a current
+     * bostadsrattshavare - with an APARTMENT row and no HOLDER row beneath it,
+     * which reads as an apartment nobody holds.
+     */
+    const supply = await produce();
+    const holder = rowsOf(supply, "HOLDER").find(
+      (row) => row.apartmentKey?.endsWith("1104") === true,
+    );
+
+    expect(holder?.holderName).toBe(`Lars ${surname}`);
+    expect(holder?.holderPersonalIdentityNumber).toBe(
+      actors.leavingHolder.personalIdentityNumber,
+    );
+  });
+
+  it("carries the lien notes that still stand and leaves out a released one", async () => {
     // Pantsattningar are in the initial supply although they open no obligation:
     // the standing duty is the panthavare's (Lag (2026:484) 3 kap. 5 §) while
-    // Lag (2026:485) 3 § puts the first supply of them on the association.
+    // Lag (2026:485) 3 § puts the initial supply of them on the association.
     const supply = await produce();
-    const creditors = rowsOf(supply, "PLEDGE").map((row) => row.pledgeCreditor);
+    const creditors = rowsOf(supply, "LIEN").map((row) => row.lienCreditor);
 
     expect(creditors).toContain(`Aspbanken ${suffix}`);
     expect(creditors).not.toContain(`Slutbanken ${suffix}`);
@@ -1042,9 +1102,17 @@ describe("the initial supply", () => {
      * PROTECTED_DATA_REVEALED entry beside it is what keeps "who has seen these
      * identity numbers" answerable from one action across the whole product.
      */
-    const before = await prisma.auditLogEntry.count({
-      where: { action: "REGISTER_INITIAL_SUPPLY_EXPORTED" },
-    });
+    /*
+     * Scoped to this run's actor, and both counts the same way. audit_log_entry
+     * is append-only, so every earlier run and every other suite on this worker
+     * leaves its entries behind; an unscoped pair of counts measures them too
+     * and fails whenever another suite produces a supply between the two.
+     */
+    const mine = {
+      action: "REGISTER_INITIAL_SUPPLY_EXPORTED",
+      actorPersonId: actors.chair.personId,
+    } as const;
+    const before = await prisma.auditLogEntry.count({ where: mine });
     const supply = await produce();
 
     const exported = await prisma.auditLogEntry.findFirst({
@@ -1054,11 +1122,7 @@ describe("the initial supply", () => {
       },
       orderBy: { createdAt: "desc" },
     });
-    expect(
-      await prisma.auditLogEntry.count({
-        where: { action: "REGISTER_INITIAL_SUPPLY_EXPORTED" },
-      }),
-    ).toBe(before + 1);
+    expect(await prisma.auditLogEntry.count({ where: mine })).toBe(before + 1);
 
     const context = exported?.context as {
       recipient: string;
@@ -1112,5 +1176,133 @@ describe("the initial supply", () => {
       expect(text).not.toContain(actors.protectedHolder.personalIdentityNumber);
       expect(text).not.toContain(actors.chair.email);
     }
+  });
+});
+
+describe("the association's own record", () => {
+  it("refuses the supply outright when the instance has none", async () => {
+    /*
+     * Lag (2026:485) 3 § is a duty on a named bostadsrattsforening, and
+     * Forordning (2026:898) 2 kap. 4 § 1 and 2 make its name and
+     * organisationsnummer the first two things the register holds. A file that
+     * identifies nobody is not a smaller supply but one that cannot discharge
+     * the duty - and produced anyway, it leaves the association an audit entry
+     * and a download to mistake for a completed export.
+     */
+    const cookie = await signIn(actors.chair.email);
+    const association = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+    });
+    const before = await prisma.auditLogEntry.count({
+      where: {
+        action: "REGISTER_INITIAL_SUPPLY_EXPORTED",
+        actorPersonId: actors.chair.personId,
+      },
+    });
+
+    // Removed and put back in a finally: every other suite on this worker reads
+    // the singleton, and the first-boot suite asserts on its absence.
+    await prisma.association.delete({ where: { id: 1 } });
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/register-reports/initial-supply",
+        payload: {},
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "association-not-set-up",
+      );
+      // And no entry, so the refusal cannot be read afterwards as a disclosure
+      // that happened.
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            action: "REGISTER_INITIAL_SUPPLY_EXPORTED",
+            actorPersonId: actors.chair.personId,
+          },
+        }),
+      ).toBe(before);
+    } finally {
+      await prisma.association.create({ data: association });
+    }
+  });
+});
+
+describe("the day a document is stamped with", () => {
+  it("is the association's own, not the UTC one", async () => {
+    /*
+     * 22:30 UTC on a summer evening is half past midnight the next day in
+     * Stockholm. Every state on the queue is computed against the association's
+     * calendar day, so a stamp sliced out of the instant would date a document
+     * about deadlines one day before the deadlines it states were measured -
+     * and the supply's file name would carry the wrong day for two hours every
+     * summer night.
+     */
+    const lateEvening = new Date("2027-06-30T22:30:00.000Z");
+
+    const queue = await app.get(RegisterReportService).queue(lateEvening);
+    expect(queue.generatedOn).toBe("2027-07-01");
+
+    const supply = await app.get(InitialSupplyService).produce({
+      actorPersonId: actors.chair.personId,
+      now: lateEvening,
+    });
+    expect(supply.generatedOn).toBe("2027-07-01");
+    expect(supply.fileName).toBe(
+      "bostadsrattsregister-uppgifter-2027-07-01.csv",
+    );
+  });
+});
+
+describe("the export's audit entry on somebody's access report", () => {
+  it("names the reader and counts the rest, rather than listing them", async () => {
+    /*
+     * The board member who produced a supply is often a holder themselves, so
+     * the entry appears on their own access report - as an act they took. Its
+     * context names every person whose number the file carried, which is what
+     * makes the disclosure accountable in the log, and printing that list onto a
+     * document handed to one of them would disclose the others: GDPR art. 15(4)
+     * is exactly that the right to a copy shall not adversely affect the rights
+     * and freedoms of others.
+     *
+     * The count stays, because how much was disclosed is a fact about the act
+     * rather than about anybody else.
+     */
+    await inject({
+      method: "POST",
+      url: "/api/register-reports/initial-supply",
+      payload: {},
+      headers: { cookie: await signIn(actors.chair.email) },
+    });
+
+    const report = await app.get(DataSubjectReportService).generate({
+      personId: actors.chair.personId,
+      actorPersonId: actors.chair.personId,
+    });
+    const entry = report.auditEntries.find(
+      (candidate) => candidate.action === "REGISTER_INITIAL_SUPPLY_EXPORTED",
+    );
+
+    expect(entry).toBeDefined();
+    const context = entry?.context as {
+      personIds: string[];
+      personIdsCount: number;
+      protectedPersonIds: string[];
+      protectedPersonIdsCount: number;
+    };
+    // The chair holds no bostadsratt in this fixture, so the file carried none
+    // of their data and the list they are shown is empty.
+    expect(context.personIds).toEqual([]);
+    expect(context.personIdsCount).toBeGreaterThanOrEqual(2);
+    expect(context.protectedPersonIds).toEqual([]);
+    expect(context.protectedPersonIdsCount).toBeGreaterThanOrEqual(1);
+
+    // And no other holder's identifier reaches the document.
+    const printed = JSON.stringify(report.auditEntries);
+    expect(printed).not.toContain(actors.holder.personId);
+    expect(printed).not.toContain(actors.protectedHolder.personId);
   });
 });

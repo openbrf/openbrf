@@ -1,9 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { DomainError } from "../http/domain-error";
 import {
   SUPPLY_COLUMNS,
   type SupplyRecordType,
@@ -72,6 +74,18 @@ import {
  * made.
  */
 
+/**
+ * The supply was asked for before the association was set up.
+ *
+ * A conflict rather than a bad request, on the reading the apartment register's
+ * property designation takes of the same absence: nothing about the request is
+ * wrong, the instance is not in a state where a supply exists to produce.
+ */
+export class InitialSupplyError extends DomainError {
+  readonly status = 409;
+  readonly reason = "association-not-set-up";
+}
+
 export interface InitialSupply {
   /** The association's calendar day the file was produced on. */
   generatedOn: string;
@@ -112,7 +126,10 @@ export class InitialSupplyService {
     now?: Date;
   }): Promise<InitialSupply> {
     const now = input.now ?? new Date();
-    const generatedOn = isoDate(now) ?? "";
+    // The association's own calendar day, not the UTC one: the file is named for
+    // the day it was produced, and an instant sliced in UTC names the previous
+    // day for the two hours after midnight in summer.
+    const generatedOn = formatLocalDay(localDayOf(now));
 
     /*
      * The read and both of its entries in one transaction, so a copy of the
@@ -125,7 +142,7 @@ export class InitialSupplyService {
      * result would answer none of that.
      */
     const supply = await this.prisma.$transaction(async (tx) => {
-      const built = await this.build(tx, generatedOn);
+      const built = await this.build(tx, generatedOn, now);
 
       await this.audit.record(
         {
@@ -183,7 +200,7 @@ export class InitialSupplyService {
       `Initial supply to the cooperative housing register produced by ${input.actorPersonId}: ` +
         `${String(supply.counts.APARTMENT)} apartments, ` +
         `${String(supply.counts.HOLDER)} holders, ` +
-        `${String(supply.counts.PLEDGE)} pledges`,
+        `${String(supply.counts.LIEN)} lien notes`,
     );
     return supply;
   }
@@ -199,6 +216,7 @@ export class InitialSupplyService {
   private async build(
     tx: Prisma.TransactionClient,
     generatedOn: string,
+    now: Date,
   ): Promise<{
     supply: InitialSupply;
     /** Every person whose personal identity number the file carries. */
@@ -214,6 +232,19 @@ export class InitialSupplyService {
         propertyDesignation: true,
       },
     });
+    if (association === null) {
+      /*
+       * Refused rather than supplied with an empty ASSOCIATION row. Lag
+       * (2026:485) 3 § is a duty on a named bostadsrattsforening, and Forordning
+       * (2026:898) 2 kap. 4 § 1 and 2 make its name and organisationsnummer the
+       * first two things the register holds - so a file that identifies nobody
+       * is not a smaller supply but one that cannot discharge the duty at all.
+       * Before the rows and before the audit entries, because the entry would
+       * otherwise record a disclosure that produced an unusable file and the
+       * association would have a completed export to point at.
+       */
+      throw new InitialSupplyError("The association has not been set up yet.");
+    }
 
     const apartments = await tx.apartment.findMany({
       orderBy: [{ address: { sortOrder: "asc" } }, { number: "asc" }],
@@ -233,7 +264,15 @@ export class InitialSupplyService {
         // earlier holders the register's own, built from the reports it
         // receives, and this file is the first of those rather than a history.
         residencies: {
-          where: { role: "MEMBER", movedOutOn: null },
+          where: {
+            role: "MEMBER",
+            // A move-out dated in the future has not happened: that person still
+            // holds the bostadsratt today and belongs in the supply. The same
+            // predicate the apartment register decides a holder's own scope by,
+            // and a plain `movedOutOn: null` would leave a current holder out of
+            // a statutory supply on the strength of a date nobody has reached.
+            OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+          },
           orderBy: [{ movedInOn: "asc" }],
           select: {
             movedInOn: true,
@@ -251,7 +290,7 @@ export class InitialSupplyService {
             },
           },
         },
-        // A pledge that has been released no longer applies, and Lag (2026:485)
+        // A lien that has been released no longer applies, and Lag (2026:485)
         // 11 § registers a noterad pant for a panträtt that had sakrattsligt
         // skydd before the act came into force. A released note has none.
         lienNotes: {
@@ -273,9 +312,9 @@ export class InitialSupplyService {
     const rows: SupplyRow[] = [
       {
         recordType: "ASSOCIATION",
-        associationName: association?.name ?? "",
-        associationOrganizationNumber: association?.organizationNumber ?? "",
-        associationPropertyDesignation: association?.propertyDesignation ?? "",
+        associationName: association.name,
+        associationOrganizationNumber: association.organizationNumber ?? "",
+        associationPropertyDesignation: association.propertyDesignation ?? "",
       },
     ];
 
@@ -346,10 +385,10 @@ export class InitialSupplyService {
 
       for (const lien of apartment.lienNotes) {
         rows.push({
-          recordType: "PLEDGE",
+          recordType: "LIEN",
           apartmentKey,
-          pledgeCreditor: lien.creditor,
-          pledgeNotedOn: isoDate(lien.notedOn) ?? "",
+          lienCreditor: lien.creditor,
+          lienNotedOn: isoDate(lien.notedOn) ?? "",
         });
       }
     }
@@ -359,7 +398,7 @@ export class InitialSupplyService {
         .length,
       APARTMENT: rows.filter((row) => row.recordType === "APARTMENT").length,
       HOLDER: rows.filter((row) => row.recordType === "HOLDER").length,
-      PLEDGE: rows.filter((row) => row.recordType === "PLEDGE").length,
+      LIEN: rows.filter((row) => row.recordType === "LIEN").length,
     } satisfies Record<SupplyRecordType, number>;
 
     return {

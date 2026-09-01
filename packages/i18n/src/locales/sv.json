@@ -1488,14 +1488,16 @@
       "error": "Anmälningsskyldigheterna kunde inte läsas just nu.",
       "openSupply": "Det inledande uppgiftslämnandet",
       "backToQueue": "Tillbaka till anmälningskön",
-      "overdueNotice": "{{count}} anmälan har passerat sin lagstadgade sista dag. Lantmäteriet kan förelägga föreningen att göra en försenad anmälan vid vite.",
+      "overdueNotice_one": "{{count}} anmälan har passerat sin lagstadgade sista dag. Lantmäteriet kan förelägga föreningen att göra en försenad anmälan vid vite.",
+      "overdueNotice_other": "{{count}} anmälningar har passerat sin lagstadgade sista dag. Lantmäteriet kan förelägga föreningen att göra försenade anmälningar vid vite.",
       "noneOverdue": "Ingen anmälan har passerat sin sista dag.",
       "group": {
         "overdue": "Försenade",
         "due": "Kvar att anmäla",
         "reported": "Anmälda"
       },
-      "groupCount": "{{count}} skyldigheter",
+      "groupCount_one": "{{count}} skyldighet",
+      "groupCount_other": "{{count}} skyldigheter",
       "column": {
         "apartment": "Lägenhet",
         "event": "Händelse",
@@ -1513,10 +1515,13 @@
         "due": "Kvar att anmäla",
         "reported": "Anmäld"
       },
-      "daysLeft": "{{count}} dagar kvar",
-      "daysOverdue": "{{count}} dagar över sista dagen",
+      "daysLeft_one": "{{count}} dag kvar",
+      "daysLeft_other": "{{count}} dagar kvar",
+      "daysOverdue_one": "{{count}} dag över sista dagen",
+      "daysOverdue_other": "{{count}} dagar över sista dagen",
       "dueToday": "Sista dagen är i dag",
-      "reportedLate": "Anmäld {{count}} dagar efter sista dagen",
+      "reportedLate_one": "Anmäld {{count}} dag efter sista dagen",
+      "reportedLate_other": "Anmäld {{count}} dagar efter sista dagen",
       "empty": {
         "title": "Inget att anmäla",
         "description": "En skyldighet dyker upp här när ett upphörande registreras, eller när den dag då föreningen beslutade om förvärvarens medlemskap registreras på en övergång."
@@ -1545,12 +1550,12 @@
         "produced": "Filen togs fram. Att den togs fram skrevs till granskningsloggen.",
         "failed": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
         "download": "Spara filen",
-        "counts": "{{apartments}} lägenheter, {{holders}} innehavare, {{pledges}} pantnoteringar",
+        "counts": "{{apartments}} lägenheter, {{holders}} innehavare, {{liens}} pantnoteringar",
         "recordType": {
           "ASSOCIATION": "Föreningen",
           "APARTMENT": "Lägenhet",
           "HOLDER": "Innehavare",
-          "PLEDGE": "Pantnotering"
+          "LIEN": "Pantnotering"
         },
         "notHeld": "En tom kolumn är antingen en som radens typ inte fyller i, eller en som förteckningen saknar värde för."
       }
