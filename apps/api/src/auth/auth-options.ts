@@ -10,9 +10,70 @@ import type { PrismaService } from "../database/prisma.service";
 /** How long a magic link stays valid, in seconds. */
 const MAGIC_LINK_TTL_SECONDS = 15 * 60;
 
-/** Sign-in attempts allowed per window, per IP. */
-const RATE_LIMIT_MAX = 20;
+/**
+ * The default budget on an auth endpoint: what one client address may spend on
+ * one path, and how long it then has to be quiet.
+ *
+ * Better Auth counts per address and per path, and the count only clears after
+ * a whole window in which that address asked nothing on that path - every
+ * request it allows moves the window forward. So the window is not a rate
+ * window; it is how long a caller has to stop before the budget comes back.
+ *
+ * This is the floor rather than the credential defence. Better Auth applies
+ * tighter rules of its own ahead of it, and every path where guessing is the
+ * attack is covered by one: three attempts per ten seconds on /sign-in,
+ * /sign-up, /change-password and /change-email, three per ten on /two-factor/*
+ * from the plugin below, and five per minute on the magic link's two paths from
+ * the plugin below that. Nothing here may loosen those.
+ *
+ * Exported, like deliverMagicLink below, so a suite can state a budget as the
+ * relation it is - wider on one path, tighter on another - rather than
+ * repeating a number that would then be free to drift away from this one.
+ */
+export const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
+
+/**
+ * The session read's path, relative to `basePath` below.
+ *
+ * Spelled exactly, with no wildcard: a custom rule is matched after the tighter
+ * rules above and replaces the one it matches, so a pattern reaching a
+ * credential path would widen that path's defence. This one matches the session
+ * read and nothing else. Better Auth compares the pathname alone, so the
+ * client's query string does not have to be accounted for here.
+ */
+export const SESSION_READ_PATH = "/get-session";
+
+/**
+ * The session read's own budget, and why it is not the default above.
+ *
+ * This is the path the interface asks most and the one the application chooses
+ * least about: a route guard reads the session before every guarded screen
+ * renders, the client's session store reads it again when a page loads, and it
+ * reads it once more each time the window regains focus. An interface in use
+ * therefore produces a stream of them, a person with two tabs open produces two
+ * streams, and none of that is a rate the application sets. Under the default
+ * budget, about a dozen guarded navigations spend all twenty, and the
+ * twenty-first read is answered 429 - which the client cannot tell apart from
+ * having no session, so the screen returns to the sign-in form mid-session.
+ *
+ * Its own budget, because the two paths ask different questions. A sign-in is a
+ * guess at a credential and worth counting tightly. A session read presents the
+ * cookie the browser already holds and answers with the session or with null:
+ * there is nothing in it to guess, and a budget on it changes what an attacker
+ * gains by nothing at all. What it does bound is the cost of the read, which is
+ * two indexed lookups - the same reasoning public-rate-limit.decorator.ts
+ * states for why a signed-in GET is not what a submission budget is for.
+ *
+ * Ten seconds rather than sixty follows from the counting rule above: a person
+ * who leaves a screen alone for ten seconds hands the budget back, where a
+ * minute-long window means an interface in continuous use never gets one back.
+ * Two hundred is what one address may spend inside a stretch with no such
+ * pause, and one address is a household, an office or a whole building behind
+ * one connection.
+ */
+export const SESSION_READ_MAX = 200;
+export const SESSION_READ_WINDOW_SECONDS = 10;
 
 export interface AccountState {
   /** Whether the register holds an account for this address at all. */
@@ -172,6 +233,19 @@ export function buildAuthOptions(
       enabled: true,
       window: RATE_LIMIT_WINDOW_SECONDS,
       max: RATE_LIMIT_MAX,
+
+      // One entry, for the one path whose caller is the interface rather than
+      // somebody trying credentials. Everything else keeps the default above,
+      // and the credential paths keep the tighter rules Better Auth applies to
+      // them - a custom rule replaces whichever rule it matches, so this map is
+      // the one place from which the brute-force defence could be widened by
+      // accident, and it names a single path so that it cannot be.
+      customRules: {
+        [SESSION_READ_PATH]: {
+          window: SESSION_READ_WINDOW_SECONDS,
+          max: SESSION_READ_MAX,
+        },
+      },
     },
 
     plugins: [

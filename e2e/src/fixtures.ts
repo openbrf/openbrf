@@ -13,11 +13,13 @@ import { stack } from "./stack";
 /**
  * Shared fixtures.
  *
- * The one that needs explaining is `clientAddress`. Better Auth rate-limits its
- * endpoints to twenty requests a minute per client, and identifies the client
- * by the X-Forwarded-For header, because a deployed instance sits behind a
- * reverse proxy that sets it. Every request in a suite run comes from one host,
- * so without this the suite would throttle itself and read as flaky.
+ * The one that needs explaining is `clientAddress`. Better Auth counts its
+ * endpoints per client and per path, and identifies the client by the
+ * X-Forwarded-For header, because a deployed instance sits behind a reverse
+ * proxy that sets it. A sign-in attempt is counted tightly, guessing a password
+ * being what that budget is for, and every request in a suite run comes from
+ * one host - so without this the suite would spend one test's attempts on
+ * another's and read as flaky.
  *
  * Giving each test its own address is not a way around the limit: the limit is
  * per client, and each test is a different member of the housing cooperative
@@ -39,8 +41,8 @@ function addressFor(seed: string): string {
  * One test is usually one person, and the address above is theirs. A test about
  * two people - somebody who has no account yet and the board member deciding
  * their request - is two clients, and giving them one address between them
- * spends one person's twenty requests on the other's sign-ins until the
- * instance refuses one the test is asserting on.
+ * spends one person's sign-in attempts on the other's until the instance
+ * refuses one the test is asserting on.
  *
  * The same argument as the address above, not a way around it: the limit is per
  * client, and an applicant activating their account really is somewhere else

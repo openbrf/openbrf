@@ -6,6 +6,11 @@ import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
+import {
+  RATE_LIMIT_MAX,
+  SESSION_READ_MAX,
+  SESSION_READ_PATH,
+} from "./auth-options";
 import { AuthService } from "./auth.service";
 import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../database/prisma.service";
@@ -293,12 +298,12 @@ describe("magic link and the second-factor policy", () => {
 });
 
 describe("rate limiting", () => {
-  it("throttles repeated attempts from one address", async () => {
+  it("throttles repeated attempts from one address, inside the general budget", async () => {
     const attacker = { "x-forwarded-for": "203.0.113.7" };
-    let sawThrottling = false;
+    let attemptsBeforeRefusal: number | undefined;
 
-    // Deliberately share one bucket. The limit is 20 per minute.
-    for (let attempt = 0; attempt < 30; attempt++) {
+    // Deliberately share one bucket.
+    for (let attempt = 1; attempt <= 30; attempt++) {
       const response = await inject({
         method: "POST",
         url: "/api/auth/sign-in/email",
@@ -306,12 +311,19 @@ describe("rate limiting", () => {
         headers: attacker,
       });
       if (response.statusCode === 429) {
-        sawThrottling = true;
+        attemptsBeforeRefusal = attempt;
         break;
       }
     }
 
-    expect(sawThrottling).toBe(true);
+    // A refusal has to arrive, and inside fewer attempts than the general
+    // budget every other auth path falls back to: guessing a password is what
+    // this limit is for, and the way it would be lost is a wider rule reaching
+    // this path. Stated as the relation rather than as a number, with an
+    // infinity standing for "never refused" so one comparison catches both.
+    expect(
+      attemptsBeforeRefusal ?? Number.POSITIVE_INFINITY,
+    ).toBeLessThanOrEqual(RATE_LIMIT_MAX);
   }, 60_000);
 
   it("does not let one throttled address lock out everyone else", async () => {
@@ -326,6 +338,77 @@ describe("rate limiting", () => {
 
     expect(response.statusCode).toBe(200);
   }, 30_000);
+
+  it("lets one client keep reading its session past the general budget", async () => {
+    /*
+     * The session read is on its own budget because the interface, not a
+     * caller trying credentials, is what asks for it: a route guard reads the
+     * session before every guarded screen renders, the client's own store
+     * reads it again on each page load, and it reads it once more whenever the
+     * window regains focus. Sharing the general budget meant about a dozen
+     * guarded navigations spent it, after which the reads were answered 429 -
+     * indistinguishable to the client from having no session, so the screen
+     * returned to the sign-in form while the session was still valid.
+     *
+     * Three times the general budget, from one address and inside one window,
+     * which is a stretch of ordinary board work and well short of the session
+     * read's own budget. Every one of them has to be answered.
+     */
+    const client = { "x-forwarded-for": "203.0.113.11" };
+
+    const signIn = await inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: plain.email, password: PASSWORD },
+      headers: client,
+    });
+    expect(signIn.statusCode).toBe(200);
+    const cookie = extractCookie(signIn.headers["set-cookie"]);
+
+    const reads = RATE_LIMIT_MAX * 3;
+    expect(reads).toBeLessThan(SESSION_READ_MAX);
+
+    const statuses = new Set<number>();
+    for (let read = 0; read < reads; read++) {
+      const response = await inject({
+        method: "GET",
+        url: `/api/auth${SESSION_READ_PATH}`,
+        headers: { ...client, cookie },
+      });
+      statuses.add(response.statusCode);
+    }
+
+    expect([...statuses]).toEqual([200]);
+  }, 60_000);
+
+  it("still bounds the session read", async () => {
+    /*
+     * A budget, not an exemption. Spent without a cookie: the limiter decides
+     * before the handler runs, so an anonymous read counts exactly as a
+     * signed-in one does, and two hundred of those cost nothing to make - which
+     * is what keeps the whole burst inside the window it has to be inside to
+     * prove anything.
+     */
+    const flood = { "x-forwarded-for": "203.0.113.12" };
+    let allowed = 0;
+    let refused = false;
+
+    for (let read = 0; read < SESSION_READ_MAX + 1; read++) {
+      const response = await inject({
+        method: "GET",
+        url: `/api/auth${SESSION_READ_PATH}`,
+        headers: flood,
+      });
+      if (response.statusCode === 429) {
+        refused = true;
+        break;
+      }
+      allowed += 1;
+    }
+
+    expect(refused).toBe(true);
+    expect(allowed).toBe(SESSION_READ_MAX);
+  }, 60_000);
 });
 
 describe("account creation invariants", () => {
