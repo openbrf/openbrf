@@ -1,0 +1,35 @@
+-- Two acts the obligation ledger did not have: discharging one duty, and
+-- supplying the register for the first time.
+--
+-- 20260910100000 records a deadline and nothing else. Neither of the acts below
+-- writes a row in that table, and neither could: it is append-only on both
+-- mechanisms, so a duty that has been reported has no later state to reach
+-- there. The log is where both facts live instead.
+--
+-- REGISTER_REPORT_MADE is a board member stating that the anmalan for one
+-- obligation reached Lantmateriet, and on which day. That is the day the
+-- statute makes operative - Lag (2026:484) 3 kap. 2 and 3 §§ treat a
+-- registration as made "vid den tidpunkt da en fullstandig anmalan kom in till
+-- Lantmateriet" - and it is a statement by a person rather than something this
+-- database can observe, because the anmalan is made outside the platform. An
+-- entry says who stated it, about which duty, and for which day; the entry is
+-- as append-only as the deadline it discharges, on the same two mechanisms,
+-- because audit_log_entry carries the same triggers and the same REVOKE line.
+--
+-- REGISTER_INITIAL_SUPPLY_EXPORTED is the initial supply under Lag (2026:485)
+-- 3 §, due 31 December 2027. It is the second operation in the product that
+-- decrypts a personal identity number - the data subject access report is the
+-- first - so it is audited on the same reading: the entry names every person
+-- whose number the file carried and every column it carried, because a count
+-- would not answer the question a supervisory authority asks afterwards. A
+-- PROTECTED_DATA_REVEALED entry is written beside it by the service, so that
+-- "who has seen these identity numbers" stays answerable from one action across
+-- the whole product rather than from a list of the operations that disclose
+-- one.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+-- Both values are added here rather than in two migrations: the restriction is
+-- on using a new value, not on adding a second one beside it.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'REGISTER_REPORT_MADE';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'REGISTER_INITIAL_SUPPLY_EXPORTED';

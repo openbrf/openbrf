@@ -15,6 +15,7 @@ import { BookingsRoute } from "./BookingsRoute";
 import { DocumentsRoute } from "./DocumentsRoute";
 import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
+import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { MotionsRoute } from "./MotionsRoute";
@@ -22,6 +23,7 @@ import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
+import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
 import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
@@ -396,6 +398,31 @@ const apartmentRegisterRoute = createRoute({
   component: ApartmentRegisterRoute,
 });
 
+/**
+ * What the association owes the cooperative housing register, on two more
+ * routes.
+ *
+ * Two rather than one, because the queue and the initial supply are two
+ * documents with two different rules about who may hold them: the queue carries
+ * no personal data at all and the supply carries a personal identity number for
+ * every current holder. Neither guard checks a capability - the endpoints behind
+ * them refuse what the viewer is not entitled to, and the supply produces nothing
+ * until somebody presses a button.
+ */
+const registerReportQueueRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/registers/reports",
+  beforeLoad: requireSession,
+  component: RegisterReportQueueRoute,
+});
+
+const initialSupplyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/registers/reports/supply",
+  beforeLoad: requireSession,
+  component: InitialSupplyRoute,
+});
+
 const importRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/import",
@@ -424,6 +451,8 @@ const routeTree = rootRoute.addChildren([
   newsAdminRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,
+  registerReportQueueRoute,
+  initialSupplyRoute,
   importRoute,
   addressBookRoute,
 ]);

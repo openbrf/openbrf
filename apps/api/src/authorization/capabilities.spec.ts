@@ -50,6 +50,11 @@ describe("board member", () => {
     "memberRegister:read",
     "apartmentRegister:read",
     "protectedData:reveal",
+    // Supplying the register onward to Lantmateriet. The board is the anmalare
+    // the statute names (Lag (2026:485) 3 §, and Forordning (2026:898) 5 kap. 9
+    // § lets a styrelseledamot make the association's anmalan), so if the seat
+    // did not hold this nobody an association actually has would.
+    "registerReport:export",
     "invitation:send",
     "signupRequest:decide",
     "bookings:book",
@@ -110,6 +115,10 @@ describe("property manager", () => {
     "memberRegister:read",
     "apartmentRegister:read",
     "protectedData:reveal",
+    // And never the supply to Lantmateriet. It carries every holder's personal
+    // identity number, and an external contractor is not the anmalare for any
+    // of it.
+    "registerReport:export",
     "residentDirectory:read",
     "association:manage",
     "association:read",
@@ -173,6 +182,7 @@ describe("resident and member", () => {
     "memberRegister:read",
     "apartmentRegister:read",
     "protectedData:reveal",
+    "registerReport:export",
     "association:manage",
     "association:read",
     "invitation:send",

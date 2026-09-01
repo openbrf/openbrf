@@ -1,0 +1,96 @@
+---
+"@openbrf/api": minor
+"@openbrf/web": minor
+"@openbrf/i18n": minor
+---
+
+Show the board which reports to the cooperative housing register
+(bostadsrättsregistret) are owed, tell it when a window opens, and produce the
+first supply of the existing apartments.
+
+The obligation ledger records a deadline per reportable event. Nothing read it
+back, nothing said a deadline existed, and nothing assembled the data Lag
+(2026:485) 3 § makes an association give Lantmäteriet by 31 December 2027. All
+three now exist.
+
+## The queue, and where "reported" lives
+
+A screen of its own, grouping the duties by what is still owed, what has passed
+its statutory deadline and what has been reported. A passed deadline is a state
+rather than a row further down a list: Lag (2026:484) 3 kap. 10 § lets
+Lantmäteriet order a late report in under penalty of a fine, so it is marked five
+times over - its own group, that group first, the state named in words, a count
+in a notice above the document, and the colour last and never alone.
+
+Recording that an anmälan reached Lantmäteriet writes **no register row**.
+`register_report_obligation` is append-only on both of the statutory tier's
+mechanisms, and the model's own comment already draws the line: the event a row
+reports cannot change and neither can the day the statute counts the window from,
+so discharging the duty is a separate later fact rather than an edit to the row. A
+`reportedOn` column would have meant relaxing both guarantees for one field. The
+audit log carries it instead, and it is not the weaker home: it has the same
+append-only trigger and its own `REVOKE` line, so the discharge is exactly as
+tamper-evident as the deadline it discharges, and it already records who stated
+it, about which duty, and when. What it adds is the day stated, which is the day
+Lag (2026:484) 3 kap. 2 and 3 §§ make operative - a registration is made "vid den
+tidpunkt då en fullständig anmälan kom in till Lantmäteriet". It also records the
+act as what it is: the anmälan is made outside the platform, so a column would
+read as a fact the system knows where an entry reads as a statement a named board
+member made. Two statements about one anmälan are therefore two entries rather
+than a conflict, and the queue reads the earliest.
+
+Reading the queue is deliberately not audited, and the writes are. A duty carries
+an apartment designation and two statutory dates and no personal data at all; the
+acts it is about each have an entry of their own; and it is the screen a board
+opens every time it meets, so an entry per read would bury the disclosures the
+log exists to record.
+
+## The notice, when a window opens
+
+Every seat on the board is emailed in its own language, with the apartment, the
+day the window opened and the day the report is due, and with nobody's name and
+no personal identity number: a name in a mailbox is a name in every mail system
+the message passes through. It goes after the register write has committed and
+inside a try/catch, because by then neither the event nor its deadline can be
+taken back - so letting a mail outage reject the request would report a written
+register as a failure, invite a retry that cannot succeed, and leave the deadline
+running with the board believing nothing was recorded. The address is decrypted
+per send and lives in one local for the length of the call; the log names a
+failure by person id, obligation id and the class of what went wrong, never by
+address.
+
+## The initial supply
+
+A documented file and a printable extract of the same rows, behind a capability
+of its own - `registerReport:export` - alongside `apartmentRegister:read` and
+`protectedData:reveal`. It is the second operation in the product that decrypts a
+personal identity number, after the data subject access report, and it is treated
+as that rather than as a download: nothing is produced until somebody presses the
+button, the entry names every person whose number the file carried, every column
+it has and how many rows of each kind, and a `PROTECTED_DATA_REVEALED` entry goes
+in beside it so that "who has seen these identity numbers" stays answerable from
+one action across the whole product.
+
+**The file's shape is Open BRF's own and not Lantmäteriet's**, and it says so on
+the screen. The föreskrifter that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2
+§§ leave the technical interface to have not been issued, and the register is
+still being built. What is not invented is the content: the columns are the fields
+Förordning (2026:898) 2 kap. 3-7 §§ enumerates, as narrowed to the initial duty by
+that förordning's second övergångsbestämmelse.
+`docs/register-supply-contract.md` states each column, its statutory field, and
+every enumerated field an instance does not hold with the reason - so
+transforming this into the prescribed form, when there is one, is a mapping
+against a stable contract rather than a second reading of the statute.
+
+Two things about the content are worth naming. **Pantsättningar are in the supply
+although they open no obligation in the ledger**: the standing duty to report a
+pledge is the panthavare's (Lag (2026:484) 3 kap. 5 §), while Lag (2026:485) 3 §
+puts the first supply of the ones already noted on the association, and 13 § of
+that act makes a panträtt predating the register keep its sakrättsliga skydd only
+if it was supplied. And **a holder with skyddade personuppgifter has their address
+withheld**, with a column beside it saying so: a supply duty is not an exception
+to the protection, the name and the personal identity number are what identify a
+holder in a register keyed on those, and the receiving authority holds an address
+through Skatteverket. The alternative address the register keeps is not put in its
+place, because supplying it as the postadress a state register is to hold would be
+a statement nobody made.

@@ -34,6 +34,37 @@ export const CAPABILITIES = [
   "apartmentRegister:read",
   /** Reveal masked fields on a person with protected personal data. */
   "protectedData:reveal",
+  /**
+   * Supply the register onward to Lantmateriet: produce the initial supply to
+   * the cooperative housing register (Lag (2026:485) 3 §).
+   *
+   * Its own capability rather than a route under `apartmentRegister:read`,
+   * because it is a different act on the same data. Reading the register is
+   * something the board does on a Tuesday; handing every holder's name and
+   * personal identity number to a state authority is a disclosure with a
+   * recipient outside the association, and the only other operation in the
+   * product that decrypts one - the data subject access report - is gated on a
+   * capability of its own for exactly that reason.
+   *
+   * It does not stand alone. The routes that carry it also require
+   * `apartmentRegister:read`, because the content is that register's, and
+   * `protectedData:reveal`, because the file carries a number the product
+   * otherwise masks: without it the export would be a second, weaker path to a
+   * disclosure the register's own reveal route refuses. Both are board and
+   * administrator today, so no live request tells the three apart - which is why
+   * the pairing is asserted in register-report.controller.spec.ts rather than
+   * left to a request test that would pass without it. It matters the first time
+   * a seat reads the register without being entitled to supply it, or is
+   * entitled to supply it without being entitled to read a number: an economic
+   * manager, a broker seat, an auditor.
+   *
+   * Deliberately NOT what gates the queue of outstanding duties. That screen
+   * carries apartment designations and statutory dates and no personal data at
+   * all, and a board that had to hold the disclosure capability to see which
+   * deadlines are running would either see them too rarely or hold the
+   * disclosure too widely.
+   */
+  "registerReport:export",
   /** Invite a person to activate an account. */
   "invitation:send",
   /** Approve or reject a self-signup request. */
@@ -311,6 +342,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "memberRegister:read",
   "apartmentRegister:read",
   "protectedData:reveal",
+  "registerReport:export",
   "invitation:send",
   "signupRequest:decide",
   "self:manage",

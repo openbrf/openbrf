@@ -1,10 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma, TerminationKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { failureName } from "../logging/failure";
+import { RegisterReportMailerService } from "./register-report-mailer.service";
 import { reportDueOn } from "./report-deadline";
 import { statutoryDate } from "./statutory-date";
 
@@ -200,10 +202,13 @@ export interface ApartmentRegisterQuery {
 
 @Injectable()
 export class ApartmentRegisterService {
+  private readonly logger = new Logger(ApartmentRegisterService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    private readonly notices: RegisterReportMailerService,
   ) {}
 
   /**
@@ -436,7 +441,14 @@ export class ApartmentRegisterService {
   }): Promise<ApartmentRegisterTermination> {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id: input.apartmentId },
-      select: { id: true },
+      // The designation as well as the id: the notice below names the apartment
+      // the deadline is about, and reading it after the commit would be a second
+      // read of a row this one already has.
+      select: {
+        id: true,
+        number: true,
+        address: { select: { street: true, number: true } },
+      },
     });
     if (apartment === null) {
       throw new ApartmentRegisterError(
@@ -450,7 +462,7 @@ export class ApartmentRegisterService {
       input.now ?? new Date(),
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const recorded = await this.prisma.$transaction(async (tx) => {
       const termination = await tx.termination.create({
         data: {
           apartmentId: input.apartmentId,
@@ -475,7 +487,7 @@ export class ApartmentRegisterService {
         tx,
       );
 
-      await this.enterObligation(tx, {
+      const obligation = await this.enterObligation(tx, {
         actorPersonId: input.actorPersonId,
         kind: "TERMINATION",
         apartmentId: input.apartmentId,
@@ -483,8 +495,11 @@ export class ApartmentRegisterService {
         triggeredOn: termination.tookEffectOn,
       });
 
-      return toTermination(termination);
+      return { view: toTermination(termination), obligation };
     });
+
+    await this.notifyBoard(recorded.obligation, designationOf(apartment));
+    return recorded.view;
   }
 
   /**
@@ -518,7 +533,19 @@ export class ApartmentRegisterService {
   }): Promise<ApartmentRegisterTransfer> {
     const existing = await this.prisma.transfer.findUnique({
       where: { id: input.transferId },
-      select: { id: true, apartmentId: true, membershipDecidedOn: true },
+      select: {
+        id: true,
+        apartmentId: true,
+        membershipDecidedOn: true,
+        // The designation, for the notice below, on the reading recordTermination
+        // gives: the row is already being read here.
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
     });
     if (existing === null) {
       throw new ApartmentRegisterError(
@@ -538,7 +565,7 @@ export class ApartmentRegisterService {
       input.now ?? new Date(),
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const recorded = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.transfer.updateMany({
         where: { id: input.transferId, membershipDecidedOn: null },
         data: { membershipDecidedOn: decidedOn },
@@ -579,7 +606,7 @@ export class ApartmentRegisterService {
         tx,
       );
 
-      await this.enterObligation(tx, {
+      const obligation = await this.enterObligation(tx, {
         actorPersonId: input.actorPersonId,
         kind: "TRANSFER",
         apartmentId: existing.apartmentId,
@@ -592,8 +619,61 @@ export class ApartmentRegisterService {
         triggeredOn: decidedOn,
       });
 
-      return toTransfer(transfer);
+      return { view: toTransfer(transfer), obligation };
     });
+
+    await this.notifyBoard(
+      recorded.obligation,
+      designationOf(existing.apartment),
+    );
+    return recorded.view;
+  }
+
+  /**
+   * Tells the board that a reporting window has opened, after the commit and
+   * best effort.
+   *
+   * After, because by now the register event and its deadline have both been
+   * written and neither can be taken back: the obligation ledger refuses UPDATE
+   * and DELETE, a termination is as strictly append-only, and a transfer that
+   * carries a membership decision date refuses a second one. Letting a mail
+   * outage reject the request would report a written register as a failure and
+   * invite a retry that cannot succeed - and the deadline would still be
+   * running, now with nobody told and the board believing nothing was recorded.
+   *
+   * Best effort, and not a queued job. The part that cannot be reconstructed is
+   * the deadline, and that is written by the same transaction as the event it is
+   * computed from; a notice that never went out is recoverable from the queue
+   * screen, which lists every duty whether or not anybody was written to. So
+   * this is the one half worth losing.
+   *
+   * The failure is named by the obligation and by the class of what went wrong.
+   * A mail server's rejection quotes the envelope, and that envelope holds an
+   * address decrypted inside the call.
+   */
+  private async notifyBoard(
+    obligation: {
+      id: string;
+      kind: "TRANSFER" | "TERMINATION";
+      triggeredOn: Date;
+      dueOn: Date;
+    },
+    designation: string,
+  ): Promise<void> {
+    try {
+      await this.notices.sendObligationNotice({
+        obligationId: obligation.id,
+        kind: obligation.kind,
+        designation,
+        triggeredOn: obligation.triggeredOn,
+        dueOn: obligation.dueOn,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Reporting obligation notice failed for obligation ${obligation.id}: ` +
+          failureName(error),
+      );
+    }
   }
 
   /**
@@ -626,7 +706,12 @@ export class ApartmentRegisterService {
       | { kind: "TRANSFER"; transferId: string }
       | { kind: "TERMINATION"; terminationId: string }
     ),
-  ): Promise<void> {
+  ): Promise<{
+    id: string;
+    kind: "TRANSFER" | "TERMINATION";
+    triggeredOn: Date;
+    dueOn: Date;
+  }> {
     const obligation = await tx.registerReportObligation.create({
       data: {
         kind: input.kind,
@@ -656,6 +741,17 @@ export class ApartmentRegisterService {
       },
       tx,
     );
+
+    // The row as written, for the notice the caller sends once this transaction
+    // has committed. Returned rather than recomposed out there: the dates the
+    // message states are the ones the database accepted, and the CHECK on the
+    // table is what makes that a meaningful difference.
+    return {
+      id: obligation.id,
+      kind: input.kind,
+      triggeredOn: obligation.triggeredOn,
+      dueOn: obligation.dueOn,
+    };
   }
 
   /**
@@ -1016,6 +1112,20 @@ function statutoryDateColumn(text: string, now: Date): Date {
       : "That date has not arrived yet.",
     parsed.problem,
   );
+}
+
+/**
+ * The apartment as the register designates it: address and apartment number.
+ *
+ * The same composition the extract uses, and stated once so the notice and the
+ * queue name an apartment the same way a board member sees it named on the
+ * register itself.
+ */
+function designationOf(apartment: {
+  number: string;
+  address: { street: string; number: string };
+}): string {
+  return `${apartment.address.street} ${apartment.address.number} ${apartment.number}`;
 }
 
 function isoDate(value: Date | null): string | null {

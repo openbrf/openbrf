@@ -292,6 +292,14 @@ export function AddressBookRoute(): ReactElement {
                   <Link to="/registers/members" className={SECONDARY_BUTTON}>
                     {t("registers.nav.memberRegister")}
                   </Link>
+                  {/*
+                   * In the board's branch, like the member register above it: a
+                   * duty to report a register event is the board's to meet, and
+                   * a resident has nothing to do on that screen.
+                   */}
+                  <Link to="/registers/reports" className={SECONDARY_BUTTON}>
+                    {t("registers.nav.reportQueue")}
+                  </Link>
                 </>
               ) : null}
               <Link to="/registers/apartments" className={SECONDARY_BUTTON}>

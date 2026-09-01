@@ -74,6 +74,17 @@
       "body": "Föreningen har avbokat din bokning av {{resource}}.",
       "freedNotice": "Tiden är ledig igen, så vem som helst i huset kan boka den. Du kan göra en ny bokning när du vill.",
       "action": "Öppna bokningarna"
+    },
+    "registerReportObligation": {
+      "subject": "Anmälan till bostadsrättsregistret: {{apartment}}",
+      "heading": "En anmälningstid har börjat löpa",
+      "body": "{{event}} registrerades för {{apartment}}. Tiden började löpa den {{triggeredOn}} och anmälan till Lantmäteriet ska göras senast den {{dueOn}}.",
+      "lateNotice": "Lantmäteriet kan förelägga föreningen att göra en försenad anmälan vid vite, så datumet är en sista dag och inte ett mål. Anmälningskön visar den här skyldigheten och alla andra som återstår.",
+      "action": "Öppna anmälningskön",
+      "event": {
+        "TRANSFER": "En övergång",
+        "TERMINATION": "Ett upphörande"
+      }
     }
   },
   "sms": {
@@ -466,7 +477,9 @@
           "MOTION_WITHDRAWN": "Motion återkallad",
           "EVENT_SIGNUP_MADE": "Anmälan till evenemang gjordes",
           "EVENT_SIGNUP_WITHDRAWN": "Anmälan till evenemang återkallades",
-          "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades"
+          "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades",
+          "REGISTER_REPORT_MADE": "En anmälan till bostadsrättsregistret registrerades som gjord",
+          "REGISTER_INITIAL_SUPPLY_EXPORTED": "Det inledande uppgiftslämnandet till bostadsrättsregistret togs fram"
         },
         "reportKind": {
           "TRANSFER": "Överlåtelse",
@@ -1324,7 +1337,8 @@
     "nav": {
       "memberRegister": "Medlemsförteckning",
       "apartmentRegister": "Lägenhetsförteckning",
-      "ownApartmentRegister": "Min lägenhetsförteckning"
+      "ownApartmentRegister": "Min lägenhetsförteckning",
+      "reportQueue": "Anmälningskö"
     },
     "common": {
       "print": "Skriv ut",
@@ -1464,6 +1478,81 @@
       "ownEmpty": "Du innehar ingen bostadsrätt, så lägenhetsförteckningen har ingen post för dig. Fråga styrelsen om du tror att det är fel.",
       "noValue": {
         "heldUntil": "Innehas fortfarande"
+      }
+    },
+    "reports": {
+      "heading": "Anmälningar till bostadsrättsregistret",
+      "description": "Varje registerhändelse som föreningen ska anmäla till Lantmäteriet, och den dag varje anmälan ska vara gjord. Lag (2026:484) 3 kap. ger två veckor från den dag som paragrafen i fråga anger.",
+      "stamp": "Anmälningsskyldigheter - {{date}}",
+      "loading": "Hämtar anmälningsskyldigheterna",
+      "error": "Anmälningsskyldigheterna kunde inte läsas just nu.",
+      "openSupply": "Det inledande uppgiftslämnandet",
+      "backToQueue": "Tillbaka till anmälningskön",
+      "overdueNotice": "{{count}} anmälan har passerat sin lagstadgade sista dag. Lantmäteriet kan förelägga föreningen att göra en försenad anmälan vid vite.",
+      "noneOverdue": "Ingen anmälan har passerat sin sista dag.",
+      "group": {
+        "overdue": "Försenade",
+        "due": "Kvar att anmäla",
+        "reported": "Anmälda"
+      },
+      "groupCount": "{{count}} skyldigheter",
+      "column": {
+        "apartment": "Lägenhet",
+        "event": "Händelse",
+        "triggeredOn": "Tiden började löpa",
+        "dueOn": "Senast",
+        "state": "Status",
+        "reportedOn": "Anmäld"
+      },
+      "event": {
+        "TRANSFER": "Övergång",
+        "TERMINATION": "Upphörande"
+      },
+      "state": {
+        "overdue": "Försenad",
+        "due": "Kvar att anmäla",
+        "reported": "Anmäld"
+      },
+      "daysLeft": "{{count}} dagar kvar",
+      "daysOverdue": "{{count}} dagar över sista dagen",
+      "dueToday": "Sista dagen är i dag",
+      "reportedLate": "Anmäld {{count}} dagar efter sista dagen",
+      "empty": {
+        "title": "Inget att anmäla",
+        "description": "En skyldighet dyker upp här när ett upphörande registreras, eller när den dag då föreningen beslutade om förvärvarens medlemskap registreras på en övergång."
+      },
+      "record": {
+        "open": "Registrera anmälan",
+        "openLabel": "Registrera anmälan för {{apartment}}",
+        "heading": "Registrera att anmälan för {{apartment}} är gjord",
+        "hint": "Den dag då en fullständig anmälan kom in till Lantmäteriet. Det är den dag registreringen räknas från, inte den dag styrelsen förberedde den.",
+        "appendOnly": "Detta skrivs till granskningsloggen med ditt namn och kan inte ändras eller tas bort efteråt. Kontrollera datumet innan du registrerar det.",
+        "reportedOn": "Anmäld den",
+        "submit": "Registrera",
+        "submitting": "Registrerar",
+        "cancel": "Avbryt",
+        "done": "Anmälan registrerades.",
+        "failed": "Anmälan kunde inte registreras. Datumet får inte ligga i framtiden eller tidigare än den dag tiden började löpa, och en skyldighet som redan har ett datum skrivs inte över."
+      },
+      "supply": {
+        "heading": "Inledande uppgiftslämnande till bostadsrättsregistret",
+        "description": "Det föreningen lämnar till Lantmäteriet en gång, senast den 31 december 2027 (lagen (2026:485) 3 §): sina lägenheter, deras innehavare och de pantnoteringar den har.",
+        "stamp": "Inledande uppgiftslämnande - {{date}}",
+        "ownShapeNotice": "Lantmäteriet har inte publicerat något tekniskt gränssnitt, så filen har Open BRF:s egna kolumner och är inte ett format från Lantmäteriet. Innehållet följer uppgiftslistan i förordningen (2026:898) 2 kap., och docs/register-supply-contract.md anger vad varje kolumn betyder och vilka uppgifter plattformen inte har.",
+        "disclosureNotice": "Filen innehåller personnummer för varje nuvarande innehavare. Att den tas fram skrivs till granskningsloggen med ditt namn, och loggen anger vilka personers nummer den innehöll.",
+        "produce": "Ta fram det inledande uppgiftslämnandet",
+        "producing": "Tar fram",
+        "produced": "Filen togs fram. Att den togs fram skrevs till granskningsloggen.",
+        "failed": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
+        "download": "Spara filen",
+        "counts": "{{apartments}} lägenheter, {{holders}} innehavare, {{pledges}} pantnoteringar",
+        "recordType": {
+          "ASSOCIATION": "Föreningen",
+          "APARTMENT": "Lägenhet",
+          "HOLDER": "Innehavare",
+          "PLEDGE": "Pantnotering"
+        },
+        "notHeld": "En tom kolumn är antingen en som radens typ inte fyller i, eller en som förteckningen saknar värde för."
       }
     }
   },
