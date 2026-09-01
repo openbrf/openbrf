@@ -485,11 +485,11 @@ describe("what the document prints", () => {
     await screen.findByText("Brf Eksemplet");
 
     /*
-     * Read out of the bookings section rather than off the page. Three
-     * sections carry this column now - bookings, motions and event sign-ups,
-     * each purged on a clock of its own - so a count would have to be revised
-     * every time a fourth module purges, and a bare query would pass while
-     * pointing at the wrong table.
+     * Read out of the bookings section rather than off the page. Four sections
+     * carry this column now - bookings, motions, event sign-ups and news
+     * comments, each purged on a clock of its own - so a count has to be
+     * revised every time another module purges, and a bare query would pass
+     * while pointing at the wrong table.
      */
     const bookings = within(sectionOf("Bokningar"));
     expect(bookings.getByText("Tvättstugan")).not.toBeNull();

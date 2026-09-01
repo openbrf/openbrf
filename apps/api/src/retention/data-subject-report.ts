@@ -106,13 +106,13 @@ export interface ReportTransfer {
  * Statutory tier and exempt from the purge, like the member register entries
  * and the transfers above: exemption from erasure is not exemption from access.
  *
- * The second section of this report that is not keyed on a person column. A
- * termination names an apartment and a date, never a person - BRL 7 kap. 33 §
- * makes every tenant-ownership in a disposed building cease at once, whoever
- * holds them - so which of them are this person's is derived from the member
- * register. `terminationsDuringHolding` in `holding-periods.ts` is the rule,
- * and it closes both boundaries where the lien rule beside it leaves both open,
- * for reasons argued there.
+ * One of the two sections of this report that are not keyed on a person column;
+ * `ReportLienNote` below is the other. A termination names an apartment and a
+ * date, never a person - BRL 7 kap. 33 § makes every tenant-ownership in a
+ * disposed building cease at once, whoever holds them - so which of them are
+ * this person's is derived from the member register. `terminationsDuringHolding`
+ * in `holding-periods.ts` is the rule, and it closes both boundaries where the
+ * lien rule beside it leaves both open, for reasons argued there.
  */
 export interface ReportTermination {
   terminationId: string;
@@ -327,11 +327,11 @@ export interface ReportNewsComment {
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
- * The first of the two sections of this report that are not keyed on a person
- * column; `ReportTermination` above is the other. A lien note names an apartment
- * and a creditor, never a person, so which of them are this person's is derived
- * from the member register - see `holding-periods.ts` for the rule and for why
- * it errs towards leaving a note out.
+ * One of the two sections of this report that are not keyed on a person column;
+ * `ReportTermination` above is the other. A lien note names an apartment and a
+ * creditor, never a person, so which of them are this person's is derived from
+ * the member register - see `holding-periods.ts` for the rule and for why it
+ * errs towards leaving a note out.
  */
 export interface ReportLienNote {
   lienNoteId: string;
