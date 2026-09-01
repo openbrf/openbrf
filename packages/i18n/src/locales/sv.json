@@ -1387,6 +1387,7 @@
         "membershipDecided": "Medlemskap beslutat",
         "membershipDecidedLabel": "Medlemskap beslutat",
         "membershipDecidedSubmit": "Registrera beslutsdatumet",
+        "membershipFailed": "Beslutsdatumet för medlemskapet kunde inte registreras. Datumet kan inte ligga i framtiden, och en överlåtelse som redan har ett datum skrivs inte över.",
         "noAgreement": "Ingen avtalshänvisning registrerad",
         "firstGrant": "Upplåtelse",
         "none": "Inga överlåtelser registrerade"

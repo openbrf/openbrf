@@ -32,8 +32,8 @@ import {
  *
  * Concretely: Stockholm runs one or two hours ahead of UTC, so between local
  * midnight and 01:00 or 02:00 the UTC date is still yesterday's. A board
- * recording, at half past midnight, a cessation that happened that day would be
- * told the day is in the future - and a board recording one at half past
+ * recording, at half past midnight, a termination that happened that day would
+ * be told the day is in the future - and a board recording one at half past
  * midnight on the day after would be allowed to date it tomorrow. Both are
  * wrong, and both are invisible to a test written at midday.
  *

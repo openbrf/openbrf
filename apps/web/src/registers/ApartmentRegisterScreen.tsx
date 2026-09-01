@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { localDayNow } from "../bookings/booking-calendar";
 import { SignChip } from "../register/SignChip";
 import {
   FIELD,
@@ -138,6 +139,12 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [lienFailed, setLienFailed] = useState(false);
   const [termination, setTermination] = useState<TerminationDraft | null>(null);
   const [terminationFailed, setTerminationFailed] = useState(false);
+  // Its own state, not the termination one. Both acts are recorded from this
+  // screen and they are different register events with different consequences,
+  // so a board told a termination was refused after a membership decision was
+  // refused would go looking for the wrong record - and might record the
+  // termination again to fix it.
+  const [membershipFailed, setMembershipFailed] = useState(false);
   const [designation, setDesignation] = useState<string | null>(null);
   const [designationFailed, setDesignationFailed] = useState(false);
 
@@ -242,13 +249,13 @@ export function ApartmentRegisterScreen(): ReactElement {
 
   const submitMembershipDecision = useCallback(
     async (transferId: string, membershipDecidedOn: string): Promise<void> => {
-      setTerminationFailed(false);
+      setMembershipFailed(false);
       const result = await recordMembershipDecision({
         transferId,
         membershipDecidedOn,
       });
       if (!result.ok) {
-        setTerminationFailed(true);
+        setMembershipFailed(true);
         return;
       }
       await load();
@@ -357,6 +364,11 @@ export function ApartmentRegisterScreen(): ReactElement {
         {terminationFailed ? (
           <Notice tone="danger" live>
             {t("registers.apartment.terminations.failed")}
+          </Notice>
+        ) : null}
+        {membershipFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.transfers.membershipFailed")}
           </Notice>
         ) : null}
         {designationFailed ? (
@@ -1030,19 +1042,24 @@ function Pair({
 }
 
 /**
- * Today as an ISO calendar date, which is what a release date defaults to.
+ * Today on the association's calendar, which every date on this screen is a
+ * date on.
  *
- * Built from the local year, month and day rather than sliced off the UTC
- * instant. Sweden runs an hour or two ahead of UTC, so a release recorded
- * between local midnight and 02:00 would otherwise be stored a day early - and
- * that value is the statutory release date on a row the database will not let
- * anyone delete.
+ * {@link localDayNow} and not the device's own year, month and day. The three
+ * dates here are a lien release, the day a tenant-ownership ceased and the day
+ * the association decided on a membership, and the server checks the last two
+ * against the Stockholm calendar - `statutoryDate` refuses a day after
+ * `localDayOf(now)`. A device in another zone disagrees with that for part of
+ * every day, in both directions: west of Stockholm after local midnight there
+ * the input would refuse the very day a termination took effect, and east of it
+ * before midnight the input would offer tomorrow and the API would refuse it.
+ * Either way a board is stopped from recording the legally correct date on a
+ * row nobody can correct afterwards, at the start of a statutory two-week
+ * window under Lag (2026:484) 3 kap.
+ *
+ * The zone itself is named once in the client, in the booking module's
+ * calendar, so that no screen can quietly fall back to the viewer's own.
  */
 function today(): string {
-  const now = new Date();
-  return [
-    String(now.getFullYear()),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("-");
+  return localDayNow();
 }

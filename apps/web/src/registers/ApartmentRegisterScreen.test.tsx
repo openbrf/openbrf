@@ -42,6 +42,21 @@ vi.mock("./registers-api", () => ({
     recordPropertyDesignation(input),
 }));
 
+/**
+ * The association's calendar, stubbed so the assertion about it can discriminate.
+ *
+ * The day this returns is one no clock in the test process would read, which is
+ * the point: a maximum built from the device's own year, month and day cannot
+ * produce it, however the runner's zone happens to be set. Asserting against a
+ * real instant instead would pass on a machine already running Stockholm time,
+ * which is most of them here, and would prove nothing.
+ */
+const localDayNow = vi.fn(() => "2026-09-01");
+vi.mock("../bookings/booking-calendar", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../bookings/booking-calendar")>()),
+  localDayNow: () => localDayNow(),
+}));
+
 const MASKED: ApartmentRegisterExtract = {
   housingCooperative: {
     name: "Brf Eksemplet",
@@ -145,6 +160,7 @@ beforeEach(() => {
   recordPropertyDesignation
     .mockReset()
     .mockResolvedValue({ ok: true, value: { propertyDesignation: null } });
+  localDayNow.mockReturnValue("2026-09-01");
 });
 
 describe("the board's copy", () => {
@@ -317,7 +333,7 @@ describe("a tenant-owner", () => {
   });
 
   it("is offered none of the register-completeness controls either", async () => {
-    // Recording a cessation, a membership decision or the designation is the
+    // Recording a termination, a membership decision or the designation is the
     // board's, exactly as noting a lien is. The server refuses a holder either
     // way; this is what keeps the screen from offering an act that would be.
     render(<ApartmentRegisterScreen />);
@@ -407,7 +423,35 @@ describe("register completeness", () => {
     });
   });
 
-  it("offers exactly the two grounds a cessation can rest on", async () => {
+  it("says the membership decision was refused, and not the termination", async () => {
+    // Two different register acts are recorded from this screen. A board told
+    // that a termination failed would go looking for a termination that was
+    // never attempted, and the repair for a termination it thought had gone
+    // wrong is to record it again.
+    recordMembershipDecision.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "membership-decision-already-recorded" },
+    });
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    const [input] = await screen.findAllByLabelText(/Medlemskap beslutat/);
+    await session.type(input as HTMLElement, "2014-02-20");
+    await session.click(
+      screen.getByRole("button", { name: /Registrera beslutsdatumet/ }),
+    );
+
+    expect(
+      await screen.findByText(
+        /Beslutsdatumet för medlemskapet kunde inte registreras/,
+      ),
+    ).toBeTruthy();
+    // The assertion the state was wrong on: this is the notice the screen used
+    // to show for this failure.
+    expect(screen.queryByText(/Upphörandet kunde inte registreras/)).toBeNull();
+  });
+
+  it("offers exactly the two grounds a termination can rest on", async () => {
     const session = userEvent.setup();
     render(<ApartmentRegisterScreen />);
 
@@ -447,6 +491,31 @@ describe("register completeness", () => {
       tookEffectOn: "2026-02-18",
       reference: "Stammoprotokoll 2026-1",
     });
+  });
+
+  it("bounds both statutory dates by the association's calendar", async () => {
+    // The server refuses a date after the Stockholm calendar day
+    // (statutoryDate), so an input bounded by the device's day disagrees with it
+    // for part of every day, in both directions: west of Stockholm the form
+    // would refuse the very day a termination took effect, and east of it the
+    // form would offer tomorrow for the API to refuse. Either way a board is
+    // stopped from recording the legally correct date on a row that cannot be
+    // corrected afterwards, at the start of a statutory two-week window.
+    localDayNow.mockReturnValue("2026-07-04");
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    // The membership decision, which is on the register document itself.
+    const [decided] = await screen.findAllByLabelText(/Medlemskap beslutat/);
+    expect((decided as HTMLInputElement).max).toBe("2026-07-04");
+
+    // And the termination, on the form the board opens.
+    await session.click(
+      screen.getByRole("button", { name: /Registrera upphörande/ }),
+    );
+    expect((screen.getByLabelText(/Upphörde/) as HTMLInputElement).max).toBe(
+      "2026-07-04",
+    );
   });
 
   it("says the record cannot be changed afterwards, before it is made", async () => {

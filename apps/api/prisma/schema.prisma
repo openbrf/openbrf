@@ -54,9 +54,16 @@ model Association {
   /// (Lag (2026:484) 2 kap. 1 § forsta stycket 1) which the association has to
   /// supply (Lag (2026:485) 3 §), and 6 § of that act drops the duty where the
   /// data can instead be taken from fastighetsregistret or lagenhetsregistret
-  /// - both of which are keyed on this designation. The field list itself is
-  /// delegated to a forordning that has not been issued, so this records the
-  /// designation and claims nothing further about the format of a report.
+  /// - both of which are keyed on this designation. The field list is issued,
+  /// and it makes this field conditional rather than general: Forordning
+  /// (2026:898) 2 kap. 4 § forsta stycket registers the association's lagfarts-
+  /// och tomtrattsinnehav, and andra stycket - the last of that section's two
+  /// paragraphs - reports fastighetsbeteckning, taxeringsenhetsnummer and
+  /// fastighetstyp instead, where the buildings stand on land the association
+  /// neither owns nor holds with tomtratt. AssociationFacts already records
+  /// which of those it is, so the condition is answerable from what an instance
+  /// holds. The other two fields are deliberately absent: they are needed only
+  /// to render a report, and nothing here renders one.
   ///
   /// Nullable, like organizationNumber above: an instance is set up before the
   /// board has every identifier to hand, and a blank is a truthful "not
@@ -579,7 +586,7 @@ model LienNote {
 ///
 /// Two values, because bostadsrattslagen distinguishes two grounds and no more.
 /// As amended by Lag (2026:486) it says in exactly two places that a
-/// bostadsratt upphor and that the cessation "ska registreras i
+/// bostadsratt upphor and that the termination "ska registreras i
 /// bostadsrattsregistret":
 ///
 ///   BRL 6 kap. 11 §, in the version marked "Trader i kraft": a
@@ -621,8 +628,8 @@ enum TerminationKind {
 ///
 /// Strictly append-only, more strictly than Transfer and LienNote beside it.
 /// Those keep UPDATE because a lien is released and a mis-keyed entry has to be
-/// correctable; a cessation has no later state to reach - the tenant-ownership
-/// is gone - so 20260905100000 puts a BEFORE UPDATE OR DELETE trigger on this
+/// correctable; a termination has no later state to reach - the
+/// tenant-ownership is gone - so 20260905100000 puts a BEFORE UPDATE OR DELETE trigger on this
 /// table, the shape MemberRegisterEntry carries, and a statement-level TRUNCATE
 /// trigger beside it. prisma/sql/harden-runtime-role.sql revokes UPDATE and
 /// DELETE from the runtime role as well, because a trigger is bypassable by the
@@ -634,7 +641,7 @@ enum TerminationKind {
 /// ledger and the report itself are not in this model: this is the event the
 /// duty is computed from.
 ///
-/// No person column, on purpose. A cessation is a fact about the
+/// No person column, on purpose. A termination is a fact about the
 /// tenant-ownership rather than about whoever held it - BRL 7 kap. 33 § makes
 /// every tenant-ownership in a disposed building cease at once, whoever holds
 /// them - and who held it on the day is already in the member register and the
@@ -661,7 +668,7 @@ model Termination {
   /// that closes on a date is a day of it.
   tookEffectOn DateTime @db.Date
 
-  /// The board's own reference to what shows the cessation: the minute of the
+  /// The board's own reference to what shows the termination: the minute of the
   /// general meeting that decided it, or the deed or enforcement decision that
   /// disposed of the building.
   ///

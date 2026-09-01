@@ -60,8 +60,8 @@ CREATE INDEX "termination_apartmentId_tookEffectOn_idx" ON "termination"("apartm
 -- CreateIndex
 --
 -- Without the apartment: the reporting duty is asked by date across the whole
--- register - which cessations opened a window and when - and that query has no
--- apartment to lead with.
+-- register - which terminations opened a window and when - and that query
+-- has no apartment to lead with.
 CREATE INDEX "termination_tookEffectOn_idx" ON "termination"("tookEffectOn");
 
 -- AddForeignKey
@@ -104,7 +104,7 @@ ALTER TABLE "termination"
 -- BEFORE UPDATE OR DELETE and not DELETE alone, which is where this table is
 -- stricter than transfer and lien_note beside it. Those keep UPDATE because
 -- releasing a lien sets releasedOn and a mis-keyed entry has to be correctable.
--- A cessation has no later state to reach - the tenant-ownership is gone - so
+-- A termination has no later state to reach - the tenant-ownership is gone - so
 -- this table takes the member register's shape instead: a mistake is answered
 -- by the record of the correcting act in the audit log, not by rewriting the
 -- event.

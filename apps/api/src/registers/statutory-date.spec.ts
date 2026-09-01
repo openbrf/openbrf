@@ -36,7 +36,7 @@ describe("statutoryDate", () => {
 
   it("accepts today when local midnight has passed but the UTC date has not", () => {
     // 00:30 in Stockholm on the 2nd of July, which is 22:30 UTC on the 1st.
-    // A board recording that morning's cessation gets it accepted; a
+    // A board recording that morning's termination gets it accepted; a
     // comparison against the instant's UTC date would call the 2nd of July a
     // future date and refuse the only correct answer.
     const parsed = statutoryDate(
@@ -119,7 +119,7 @@ describe("statutoryDate", () => {
 
   it("accepts a date well in the past, which is what a late report is", () => {
     // Lag (2026:484) 3 kap. 10 § lets Lantmateriet order a late report in, so
-    // an old cessation has to be recordable rather than refused for being old.
+    // an old termination has to be recordable rather than refused for age.
     const parsed = statutoryDate(
       "2019-06-01",
       new Date("2027-06-01T12:00:00Z"),

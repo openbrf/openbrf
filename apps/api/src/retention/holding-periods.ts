@@ -169,17 +169,17 @@ export function lienNotesDuringHolding<Note extends DatedLienNote>(
  * opposite of the lien rule above and is the whole content of this function.
  *
  * A termination on the day a holding ended is the ordinary case, not an edge
- * one: the cessation is usually what ended it, since a tenant-ownership that no
+ * one: it is usually what ended the holding, since a tenant-ownership that no
  * longer exists cannot go on being held. The half-open rule the lien notes use
  * would drop exactly that row, and the person whose right ceased would get a
  * report that did not mention the event.
  *
  * The opening boundary is closed for the mirror reason. BRL 7 kap. 33 § makes
  * every tenant-ownership in a building cease the day the building is disposed
- * of, whoever holds them and however recently, so a cessation on the day
+ * of, whoever holds them and however recently, so a termination on the day
  * somebody took the apartment is theirs.
  *
- * Where a transfer and a cessation are recorded on one day, both the outgoing
+ * Where a transfer and a termination are recorded on one day, both the outgoing
  * and the incoming holder's report carries the row. That register is
  * contradictory - a tenant-ownership that ceased cannot also have changed hands
  * - and appearing on both reports is the reading that answers art. 15 for

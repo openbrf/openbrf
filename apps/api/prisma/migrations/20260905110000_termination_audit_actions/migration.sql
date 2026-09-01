@@ -1,6 +1,6 @@
 -- What this train writes, and who wrote it.
 --
--- All three are statutory register acts. A cessation is the event the
+-- All three are statutory register acts. A termination is the event the
 -- association reports to the cooperative housing register; the membership
 -- decision is the date that report's two-week window runs from; the property
 -- designation identifies the property the register's apartments are in. None of

@@ -88,6 +88,12 @@ export interface ReportTransfer {
    * was taken about them - and on the report for that reason as much as for
    * completeness. Null where there was no such decision to date, which the
    * statute provides for, and on transfers recorded before the field existed.
+   *
+   * Null as well on a `relinquished` transfer, whoever asked. This section
+   * carries both directions, so the seller's own report lists the transfer they
+   * sold on; the decision on that transfer was about the person taking over,
+   * and stating it would answer one person's art. 15 request with another's
+   * personal data. The value is on the acquirer's own report, where it belongs.
    */
   membershipDecidedOn: string | null;
   price: string | null;
@@ -111,7 +117,7 @@ export interface ReportTransfer {
 export interface ReportTermination {
   terminationId: string;
   apartment: string;
-  /** Which ground in bostadsrattslagen the cessation rests on. */
+  /** Which ground in bostadsrattslagen the termination rests on. */
   kind: "GENERAL_MEETING_DECISION" | "BUILDING_TRANSFERRED";
   tookEffectOn: string;
   /** The minute, deed or enforcement decision the board recorded. */

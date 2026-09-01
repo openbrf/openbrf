@@ -84,6 +84,16 @@ const subject = {
   personId: `dsar-subject-${suffix}`,
   email: `dsar-subject-${suffix}@exempel.se`,
 };
+/**
+ * Whoever took the apartment over from the subject.
+ *
+ * Not one of the actors below: it signs nothing in and only has to exist,
+ * because a transfer names an acquirer. Left behind at the end like the subject
+ * and the apartment, and for the same reason - the transfer that references it
+ * is append-only, so the row cannot be deleted without the guard being turned
+ * off for every connection.
+ */
+const ACQUIRER_PERSON_ID = `dsar-acquirer-${suffix}`;
 
 const actors = [board, manager, resident, subject];
 const personIds = actors.map((actor) => actor.personId);
@@ -175,6 +185,11 @@ beforeAll(async () => {
       { id: board.personId, firstName: "Bo", lastName: `Utdrag${suffix}` },
       { id: manager.personId, firstName: "Mia", lastName: `Utdrag${suffix}` },
       { id: resident.personId, firstName: "Rut", lastName: `Utdrag${suffix}` },
+      {
+        id: ACQUIRER_PERSON_ID,
+        firstName: "Kim",
+        lastName: `Utdrag${suffix}`,
+      },
     ],
   });
 
@@ -283,9 +298,27 @@ beforeAll(async () => {
   });
 
   /*
-   * Two cessations on the one apartment, and the boundary case is the point.
+   * The transfer the subject sold on, and the reason it is here: it carries a
+   * membership decision that is about the acquirer and not about the subject.
+   * The report covers both directions, so this row reaches the subject's own
+   * document - and the decision date on it must not.
+   */
+  await prisma.transfer.create({
+    data: {
+      apartmentId,
+      fromPersonId: subject.personId,
+      toPersonId: ACQUIRER_PERSON_ID,
+      transferredOn: new Date("2026-02-01"),
+      membershipDecidedOn: new Date("2026-01-14"),
+      price: "2450000",
+      agreementReference: `OVL-2026-${suffix}`,
+    },
+  });
+
+  /*
+   * Two terminations on the one apartment, and the boundary case is the point.
    * The subject held it from 2020-03-01 to 2026-02-01, so the one dated the day
-   * their holding ended is theirs - the cessation is normally what ended it -
+   * their holding ended is theirs - the termination is normally what ended it -
    * and the one after it belongs to whoever came next. This is the mirror of
    * the pledge fixture below: there the boundary day excludes, here it
    * includes, and a rule copied from one to the other fails on exactly these
@@ -625,8 +658,13 @@ describe("what the report contains", () => {
     ).toEqual(["ENTRY", "EXIT"]);
     expect(report.memberRegisterEntries[1]?.note).toBe("Overlatelse");
 
-    expect(report.transfers).toHaveLength(1);
-    expect(report.transfers[0]?.direction).toBe("acquired");
+    // Both directions, oldest first: the one they took the apartment on and
+    // the one they sold it on.
+    expect(report.transfers).toHaveLength(2);
+    expect(report.transfers.map((transfer) => transfer.direction)).toEqual([
+      "acquired",
+      "relinquished",
+    ]);
     // A string read off the Decimal rather than a number: a price an apartment
     // sold for must not travel through a float. Compared by value, because
     // whether the scale survives serialisation is the driver's business and
@@ -640,7 +678,23 @@ describe("what the report contains", () => {
     expect(report.transfers[0]?.membershipDecidedOn).toBe("2020-02-12");
   });
 
-  it("lists the cessation that ended this person's tenant-ownership", async () => {
+  it("keeps the acquirer's membership decision off the seller's report", async () => {
+    const report = await reportFor(boardCookie);
+
+    const relinquished = report.transfers.find(
+      (transfer) => transfer.direction === "relinquished",
+    );
+    // The transfer is on the report - it is an event about this person, and
+    // art. 15 asks for the personal data the cooperative holds on them.
+    expect(relinquished?.agreementReference).toBe(`OVL-2026-${suffix}`);
+    // The membership decision on it is not. The association decided whether to
+    // admit the person taking over, so 2026-01-14 is that person's data, and
+    // handing it to the seller would answer one access request with another
+    // party's personal data. It is on the acquirer's own report instead.
+    expect(relinquished?.membershipDecidedOn).toBeNull();
+  });
+
+  it("lists the termination that ended this person's tenant-ownership", async () => {
     const report = await reportFor(boardCookie);
 
     // Dated the day their holding ended, which is the case a rule copied from
@@ -655,7 +709,7 @@ describe("what the report contains", () => {
     expect(report.terminations[0]).not.toHaveProperty("erasableFrom");
   });
 
-  it("keeps a later holder's cessation off this person's report", async () => {
+  it("keeps a later holder's termination off this person's report", async () => {
     const report = await reportFor(boardCookie);
 
     expect(

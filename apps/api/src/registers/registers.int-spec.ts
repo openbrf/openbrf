@@ -37,7 +37,7 @@ import type { MemberRegisterExtract } from "./member-register.service";
  *   log naming who took it.
  *
  *   The three dates the cooperative housing register reports run on - a
- *   cessation, the membership decision behind a transfer, and the property
+ *   termination, the membership decision behind a transfer, and the property
  *   designation - are recordable, audited, and refused where the register could
  *   only hold a date nobody decided on (Lag (2026:484) 3 kap.).
  */
@@ -127,6 +127,19 @@ const REFUSED_TRANSFER_ID = `reg-transfer-refused-${suffix}`;
  */
 let createdAssociation = false;
 let previousDesignation: string | null = null;
+
+/**
+ * The same, for the association facts row this suite writes prose into.
+ *
+ * association_facts is service tier and purgeable, not the append-only archive,
+ * so a row left behind here is a leftover rather than the exception the law
+ * requires. Its id is fixed at 1 like the singleton above, and the value this
+ * suite writes carries the run's suffix, so without this every run would
+ * overwrite the last and any suite reading association facts would see a value
+ * no fixture of its own wrote.
+ */
+let createdAssociationFacts = false;
+let previousFactsDesignation: string | null = null;
 
 let ipCounter = 0;
 /**
@@ -436,6 +449,16 @@ beforeAll(async () => {
     previousDesignation = association.propertyDesignation;
   }
 
+  const facts = await prisma.associationFacts.findUnique({
+    where: { id: 1 },
+    select: { propertyDesignation: true },
+  });
+  if (facts === null) {
+    createdAssociationFacts = true;
+  } else {
+    previousFactsDesignation = facts.propertyDesignation;
+  }
+
   await prisma.boardPosition.create({
     data: {
       personId: actors.board.personId,
@@ -477,6 +500,14 @@ afterAll(async () => {
     await prisma.association.update({
       where: { id: 1 },
       data: { propertyDesignation: previousDesignation },
+    });
+  }
+  if (createdAssociationFacts) {
+    await prisma.associationFacts.deleteMany({ where: { id: 1 } });
+  } else {
+    await prisma.associationFacts.updateMany({
+      where: { id: 1 },
+      data: { propertyDesignation: previousFactsDesignation },
     });
   }
   // The statutory archive is append-only, so the register entries, transfers,

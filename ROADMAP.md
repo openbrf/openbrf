@@ -586,22 +586,29 @@ change it.
       assigns the report to a juridical person in defined cases. Liens
       (pantsättning) are registered by the lienholder, not the cooperative, so
       they are deliberately outside this feature. The exact per-event trigger
-      and actor rules belong with the implementation, not this page. A missed notification can affect
-      registration and a third party's protection, which makes this a legal
-      duty rather than a convenience feature - Landed: the register now holds every date a report is computed from. A
-      termination (upphörande) is a statutory-tier record of its own, on the
-      two grounds bostadsrättslagen distinguishes, append-only in the
-      database and beyond the application role's reach. A transfer carries
-      the day the association decided on membership, which is the day its
-      window opens and a date derivable from nothing else the platform holds.
-      The association's authoritative property designation sits beside its
-      organisation number, separate from the prose the board publishes to a
-      broker. All three are recordable on the apartment register screen and
-      written to the audit log - Pending: the obligations ledger that turns each of those events into a
-      dated duty, the queue screen that shows what is outstanding, the
-      per-event notification, and the initial supply export (deadline 31
-      December 2027, Lag (2026:485) 3 §). Nothing in the platform computes a
-      deadline yet
+      and actor rules belong with the implementation, not this page. A missed
+      notification can affect registration and a third party's protection,
+      which makes this a legal duty rather than a convenience feature
+  - Landed: the register now holds every date a report is computed from. A
+    termination (upphörande) is a statutory-tier record of its own, on the two
+    grounds bostadsrättslagen distinguishes, append-only in the database and
+    beyond the application role's reach. A transfer carries the day the
+    association decided on membership, which is the day its window opens and a
+    date derivable from nothing else the platform holds. The association's
+    authoritative property designation sits beside its organisation number,
+    separate from the prose the board publishes to a broker. All three are
+    recordable on the apartment register screen and written to the audit log
+  - Pending: turning each recorded event into a dated duty, a screen showing
+    which of those are still outstanding, telling the board when one falls due,
+    and the first submission of the existing apartments (due 31 December 2027,
+    Lag (2026:485) 3 §). Nothing in the platform computes a deadline yet
+  - Not modelled, and needed before a report can be rendered: Förordning
+    (2026:898) 2 kap. 4 § andra stycket reports fastighetsbeteckning together
+    with taxeringsenhetsnummer and fastighetstyp, in place of the association's
+    lagfarts- och tomträttsinnehav, where its buildings stand on land it neither
+    owns nor holds with tomträtt. The designation has a field; the other two do
+    not. Whether the condition is met is answerable from the association facts,
+    which record whether the land is owned or held on a site leasehold
 
 ## Paid modules
 

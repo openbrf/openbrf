@@ -1387,6 +1387,7 @@
         "membershipDecided": "Membership decided",
         "membershipDecidedLabel": "Membership decided",
         "membershipDecidedSubmit": "Record the decision date",
+        "membershipFailed": "The membership decision date could not be recorded. The date cannot be in the future, and a transfer that already carries one is not overwritten.",
         "noAgreement": "No agreement reference recorded",
         "firstGrant": "First grant",
         "none": "No transfers recorded"

@@ -126,7 +126,7 @@ beforeAll(async () => {
       id: TERMINATION_ID,
       apartmentId: APARTMENT_ID,
       kind: "GENERAL_MEETING_DECISION",
-      // Required by termination_reference_present: a cessation states what
+      // Required by termination_reference_present: a termination states what
       // shows it, and a value of whitespace is not a reference.
       reference: `Stammoprotokoll ${TERMINATION_ID}`,
       tookEffectOn: new Date("2026-04-01"),
@@ -414,7 +414,7 @@ describe("termination (upphorande)", () => {
     ).rejects.toThrow(/termination_reference_present/);
   });
 
-  it("still accepts a second cessation, which is an insert", async () => {
+  it("still accepts a second termination, which is an insert", async () => {
     // Append-only is not read-only. Two apartments in one disposed building
     // each get a row, and a correction is a new row beside the old one.
     const second = await prisma.termination.create({
@@ -439,7 +439,7 @@ describe("termination (upphorande)", () => {
 /**
  * The other half of the guard: the privileges, not the triggers.
  *
- * These run as {@link PROBE_ROLE} through SET ROLE, holding exactly what
+ * These run as {@link PROBE_ROLE}, holding exactly what
  * harden-runtime-role.sql leaves the application holding. A trigger is
  * bypassable by the table owner, so this is the half that still stands after an
  * ALTER TABLE ... DISABLE TRIGGER - and the reason the application connects as a
@@ -450,18 +450,38 @@ describe("termination (upphorande)", () => {
  * privilege rather than about the guard already proven above: with the REVOKE
  * removed, the same statements would come back with the archive message
  * instead, and every expectation here fails.
+ *
+ * The role and the statement it governs travel down one connection, which is
+ * the condition that makes any of the above true. See {@link sqlStateAsProbe}.
  */
 describe("the application role's privileges on the statutory archive", () => {
   /** PostgreSQL's insufficient_privilege. */
   const PERMISSION_DENIED = "42501";
 
-  /** The SQLSTATE a statement failed with as the probe role, or undefined. */
+  /**
+   * The SQLSTATE a statement failed with as the probe role, or undefined.
+   *
+   * One transaction, and SET LOCAL ROLE on the transaction's own client, so
+   * that the role and the statement it is supposed to govern are guaranteed to
+   * be the same connection. Issued as three separate calls on the pool -
+   * SET ROLE, the statement, RESET ROLE - they need not be: the pool is free to
+   * hand the statement a different connection, on which the session user is
+   * still the owner, and then every refusal asserted below would be asserted
+   * against a role that was never revoked anything. This suite is the only
+   * thing standing behind the REVOKE lines in harden-runtime-role.sql, so a
+   * pass for that reason would be worse than no suite at all.
+   *
+   * LOCAL also means the role ends with the transaction rather than being reset
+   * by a later call, so no connection goes back to the pool still wearing it.
+   */
   async function sqlStateAsProbe(
     statement: string,
   ): Promise<string | undefined> {
-    await prisma.$executeRawUnsafe(`SET ROLE ${PROBE_ROLE}`);
     try {
-      await prisma.$executeRawUnsafe(statement);
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE ${PROBE_ROLE}`);
+        await tx.$executeRawUnsafe(statement);
+      });
       return undefined;
     } catch (error) {
       const code = (error as { meta?: { code?: string } }).meta?.code;
@@ -474,10 +494,29 @@ describe("the application role's privileges on the statutory archive", () => {
           ? PERMISSION_DENIED
           : `no-sqlstate: ${String((error as Error).message)}`)
       );
-    } finally {
-      await prisma.$executeRawUnsafe("RESET ROLE");
     }
   }
+
+  it("runs a probe as the application role, which every case below rests on", async () => {
+    // Asserted through the helper rather than through a second copy of it, so
+    // what is pinned is the guarantee the other cases actually use. The two
+    // permissive cases at the end are why this matters: run as the owner they
+    // come back clean as well, and would report that the application may read
+    // and append when nothing had been established about the application at
+    // all. The refusals would not be silent - as the owner they would trip the
+    // table's trigger and come back with the archive message - but a suite
+    // whose positive half can pass for the wrong reason is not proof of a
+    // privilege.
+    expect(
+      await sqlStateAsProbe(
+        `DO $$ BEGIN
+           IF current_user <> '${PROBE_ROLE}' THEN
+             RAISE EXCEPTION 'the probe ran as %', current_user;
+           END IF;
+         END $$`,
+      ),
+    ).toBeUndefined();
+  });
 
   it("refuses to rewrite a termination", async () => {
     expect(
@@ -509,7 +548,7 @@ describe("the application role's privileges on the statutory archive", () => {
     ).toBeUndefined();
   });
 
-  it("still appends to it, because a cessation has to be recordable", async () => {
+  it("still appends to it, because a termination has to be recordable", async () => {
     expect(
       await sqlStateAsProbe(
         `INSERT INTO public."termination" ("id", "apartmentId", "kind", "tookEffectOn", "reference")

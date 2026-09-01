@@ -288,7 +288,7 @@ export class DataSubjectReportService {
     ];
     /*
      * Terminations reach a person the same way and are bounded by the same
-     * holdings, on their own boundary rule: a cessation on the day a holding
+     * holdings, on their own boundary rule: a termination on the day a holding
      * ended is normally what ended it, so both boundaries are closed where the
      * lien rule leaves both open. Argued in holding-periods.ts and covered in
      * holding-periods.spec.ts.
@@ -521,7 +521,17 @@ export class DataSubjectReportService {
         // would round in a document that states what an apartment sold for.
         price: transfer.price === null ? null : transfer.price.toString(),
         agreementReference: transfer.agreementReference,
-        membershipDecidedOn: toIsoDate(transfer.membershipDecidedOn),
+        // The acquirer's date, and only theirs. This section carries both
+        // directions - a person's own report lists the transfer they sold on as
+        // well as the one they bought - and the membership decision is the day
+        // the association decided whether to admit the person taking over. On a
+        // relinquished transfer that is a personal-data event about somebody
+        // else, so a report that stated it would answer this person's art. 15
+        // request with a fact about the other party.
+        membershipDecidedOn:
+          transfer.toPersonId === personId
+            ? toIsoDate(transfer.membershipDecidedOn)
+            : null,
       })),
       terminations: terminations.map((termination) => ({
         terminationId: termination.id,

@@ -222,7 +222,7 @@ describe("lienNotesDuringHolding", () => {
  *
  * A lien note is dropped on either boundary day because it would be a third
  * party's financial position. A termination is kept on both, and the reason the
- * closing boundary matters is that the cessation is normally what ended the
+ * closing boundary matters is that the termination is normally what ended the
  * holding: the half-open rule would drop the event from the report of exactly
  * the person it happened to.
  */
@@ -237,22 +237,22 @@ describe("terminationsDuringHolding", () => {
       found.tookEffectOn.toISOString().slice(0, 10),
     );
 
-  it("includes a cessation inside the holding", () => {
+  it("includes a termination inside the holding", () => {
     expect(selected([ceased({ tookEffectOn: "2018-09-01" })])).toEqual([
       "2018-09-01",
     ]);
   });
 
-  it("includes a cessation on the day the holding ended, which is the usual case", () => {
+  it("includes a termination on the day the holding ended, which is the usual case", () => {
     // A tenant-ownership that has ceased cannot go on being held, so the exit
-    // and the cessation land on one day. This is the assertion the lien rule
+    // and the termination land on one day. This is the assertion the lien rule
     // would have failed.
     expect(selected([ceased({ tookEffectOn: "2020-06-30" })])).toEqual([
       "2020-06-30",
     ]);
   });
 
-  it("includes a cessation on the day the holding began", () => {
+  it("includes a termination on the day the holding began", () => {
     // BRL 7 kap. 33 § ends every tenant-ownership in a disposed building at
     // once, however recently somebody took the apartment.
     expect(selected([ceased({ tookEffectOn: "2015-03-01" })])).toEqual([
@@ -260,15 +260,15 @@ describe("terminationsDuringHolding", () => {
     ]);
   });
 
-  it("excludes a cessation before the holding began", () => {
+  it("excludes a termination before the holding began", () => {
     expect(selected([ceased({ tookEffectOn: "2015-02-28" })])).toEqual([]);
   });
 
-  it("excludes a cessation after the holding ended", () => {
+  it("excludes a termination after the holding ended", () => {
     expect(selected([ceased({ tookEffectOn: "2020-07-01" })])).toEqual([]);
   });
 
-  it("excludes a cessation on an apartment this person never held", () => {
+  it("excludes a termination on an apartment this person never held", () => {
     expect(
       selected([
         ceased({ tookEffectOn: "2018-09-01", apartmentId: "apartment-9" }),
@@ -276,7 +276,7 @@ describe("terminationsDuringHolding", () => {
     ).toEqual([]);
   });
 
-  it("includes a cessation on an open holding", () => {
+  it("includes a termination on an open holding", () => {
     const open = holdingPeriods([
       event({ eventType: "ENTRY", eventOn: "2015-03-01" }),
     ]);

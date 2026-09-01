@@ -412,7 +412,7 @@ describe("what the document prints", () => {
     ).toBe(2);
   });
 
-  it("prints the cessation of a tenant-ownership, on its statutory ground", async () => {
+  it("prints the termination of a tenant-ownership, on its statutory ground", async () => {
     /*
      * Statutory tier, so no erasure date and no promise of one - the document
      * says instead that the register is kept for as long as the law requires.
@@ -430,12 +430,12 @@ describe("what the document prints", () => {
     expect(screen.getByText("Stammoprotokoll 2026-1")).not.toBeNull();
     // The day it took effect, read out of its own row: the same date is the
     // move-out and the register exit as well, so searching the page for it
-    // would pass with the cessation section printing nothing at all.
+    // would pass with the termination section printing nothing at all.
     const ceased = screen
       .getByText("Stammoprotokoll 2026-1")
       .closest("tr")?.textContent;
     expect(ceased).toContain("2026-02-01");
-    // And the retention sentence that covers it, naming the cessations among
+    // And the retention sentence that covers it, naming the terminations among
     // what no setting and no administrator reaches.
     expect(screen.getByText(/upphörandena/)).not.toBeNull();
   });
