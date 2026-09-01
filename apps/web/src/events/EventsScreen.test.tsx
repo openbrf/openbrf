@@ -25,6 +25,17 @@ vi.mock("../api/events", async (importOriginal) => ({
   fetchEventSeries: () => fetchEventSeries(),
 }));
 
+/**
+ * What the board's half says once its read has landed and found nothing.
+ *
+ * Waited on rather than the panel's own title, which is rendered before the read
+ * comes back: a marker that is already on screen would let a test pass while
+ * nothing had been asked for at all.
+ */
+const BOARD_HALF_IS_EMPTY =
+  "Inget evenemang har ett tillfälle i den här perioden. " +
+  "Använd tidigare och senare för att titta på en annan.";
+
 function viewer(capabilities: readonly string[]): Viewer {
   return {
     personId: "person-elin",
@@ -83,7 +94,7 @@ describe("the board", () => {
     render(<EventsScreen viewer={viewer(BOARD)} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Inget är inlagt än.")).toBeTruthy();
+      expect(screen.getByText(BOARD_HALF_IS_EMPTY)).toBeTruthy();
     });
     expect(screen.getByText("På gång")).toBeTruthy();
     expect(screen.getByText("Styrelsens kalender")).toBeTruthy();
@@ -109,7 +120,7 @@ describe("a seat that arranges the calendar without attending it", () => {
     render(<EventsScreen viewer={viewer(["events:manage"])} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Inget är inlagt än.")).toBeTruthy();
+      expect(screen.getByText(BOARD_HALF_IS_EMPTY)).toBeTruthy();
     });
     expect(screen.queryByText("På gång")).toBeNull();
     expect(fetchUpcomingOccurrences).not.toHaveBeenCalled();

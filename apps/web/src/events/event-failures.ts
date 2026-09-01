@@ -43,6 +43,9 @@ export type EventReason =
   | "capacity-not-positive"
   | "occurrence-in-use"
   | "occurrence-already-cancelled"
+  | "occurrence-not-cancelled"
+  | "occurrence-already-begun"
+  | "range-invalid"
   | "signup-not-offered"
   | "occurrence-cancelled"
   | "occurrence-started"
@@ -83,7 +86,9 @@ const EVENT_TEXT_FIELDS: readonly string[] = [
  * `occurrence-cancelled` and `occurrence-already-cancelled` are likewise not one
  * refusal: one refuses signing up to a date the board has called off, the other
  * refuses calling off a date that is already off, and they are met by different
- * people on different halves of the screen.
+ * people on different halves of the screen. `occurrence-started` and
+ * `occurrence-already-begun` divide the same way - one date having begun, said
+ * to a resident who tried to sign up and to a board that tried to reinstate it.
  */
 const EVENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The two reads that can go stale under either half of the screen.
@@ -114,7 +119,24 @@ const EVENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
    * what {@link refusedDates} reads off it.
    */
   "occurrence-in-use": "events.errors.occurrenceInUse",
+
+  /*
+   * Calling a date off, and putting it back. Four sentences for two acts, which
+   * is what the two rows on the card need: each act is refused by the state the
+   * other one leaves, and a date the clock has passed can no longer be
+   * reinstated at all - which is not the sentence a resident meets about
+   * signing up to a date that has begun.
+   */
   "occurrence-already-cancelled": "events.errors.occurrenceAlreadyCancelled",
+  "occurrence-not-cancelled": "events.errors.occurrenceNotCancelled",
+  "occurrence-already-begun": "events.errors.occurrenceAlreadyBegun",
+
+  /*
+   * The board calendar's own window. A period that runs backwards or reaches
+   * further than one read answers for, which the panel's own controls cannot
+   * produce - so this is what the board reads if an address was edited by hand.
+   */
+  "range-invalid": "events.errors.rangeInvalid",
 
   /*
    * Signing up, and standing down. `occurrence-full` is the race the lock

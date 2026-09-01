@@ -800,6 +800,12 @@ enum AuditAction {
   /// One occurrence of a series was called off, leaving the rest of the series
   /// standing.
   EVENT_OCCURRENCE_CANCELLED
+  /// A date that had been called off was reinstated. Its own action and not the
+  /// call-off written backwards: the board is announcing that the date is going
+  /// ahead after all, and the log has to be able to say which of the two acts
+  /// each entry was. Nothing about the sign-ups travels with it - somebody who
+  /// stood down while the date was off is still stood down.
+  EVENT_OCCURRENCE_REINSTATED
   /// A member submitted a motion to the general meeting. The member is both the
   /// actor and the subject: the right in EFL 6 kap. 15 § is theirs to exercise,
   /// and nobody submits on anybody's behalf.
@@ -2662,6 +2668,20 @@ model EventOccurrence {
   /// and a released legal hold: the occurrence was announced, people may have
   /// signed up to it, and "the cleaning day on the 18th was called off" is a
   /// different thing to say than "there was never one".
+  ///
+  /// Cleared again when the board reinstates the date, so the column moves in
+  /// both directions rather than being a one-way flag. Removing the series is
+  /// refused the moment anybody has signed up to one of its dates, so a board
+  /// that called off the wrong date and could not clear this would have no way
+  /// back at all.
+  ///
+  /// Nothing else travels with the clearing, and the sign-ups are the case that
+  /// matters. Somebody who stood down because the date was off has stood down:
+  /// their withdrawal is a date on their own row, decided by them or by the
+  /// board on their behalf, and the reinstatement neither reads it nor writes
+  /// it. The place they gave back is free the moment they gave it, and it is
+  /// takeable again by anybody including them - at the back of the queue, which
+  /// is what a withdrawal means everywhere else in this module.
   cancelledAt DateTime?
 
   signups EventSignup[]

@@ -45,6 +45,15 @@ import type { EventView } from "./event.service";
  * dates with it, and every act is in the audit log carrying facts and no free
  * text.
  *
+ * The board's list is a period. A series whose dates all fall outside the window
+ * is absent from it, the dates a series in it carries are the ones inside the
+ * window, and the count beside them is the whole series - which is the half only
+ * a database can show, because the window is applied to a relation.
+ *
+ * A called-off date can be put back, and the sign-ups do not come back with it.
+ * That last one crosses into the sign-up module and is in
+ * `event-signups.int-spec.ts`, which has the resident who can stand down.
+ *
  * The refusals that only exist at the endpoint: a personal identity number in a
  * published series, named by field and offset and never echoed, and a rule
  * reaching past the two years a calendar is written out for.
@@ -186,6 +195,39 @@ async function createSeries(payload: object): Promise<EventView> {
   const created = response.json<EventView>();
   createdEventIds.push(created.id);
   return created;
+}
+
+/** The board's own list over one period, as the endpoint answers it. */
+async function listBetween(from: string, to: string) {
+  return inject({
+    method: "GET",
+    url: `/api/events?from=${from}&to=${to}`,
+    headers: { cookie: boardCookie },
+  });
+}
+
+/** The series in that period, or nothing when it is not in the answer. */
+async function seriesInPeriod(
+  id: string,
+  from: string,
+  to: string,
+): Promise<EventView | undefined> {
+  const response = await listBetween(from, to);
+  expect(response.statusCode).toBe(200);
+  return response.json<EventView[]>().find((series) => series.id === id);
+}
+
+/**
+ * A "YYYY-MM-DD" a whole number of days ahead of today.
+ *
+ * Plain UTC arithmetic, so the window tests share nothing with the calendar
+ * module they are asked about: a helper that used it could agree with a bug in
+ * it. Derived rather than written out, because a window is measured from today.
+ */
+function dayAhead(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 }
 
 let boardCookie = "";
@@ -1027,6 +1069,341 @@ describe("calling off one date", () => {
     expect(after?.id).toBe(second?.id);
     expect(after?.startsAt).toBe(`${String(YEAR)}-04-25T10:00:00.000Z`);
     expect(after?.cancelledAt).not.toBeNull();
+  });
+});
+
+describe("the board's list over a period", () => {
+  it("carries the dates inside the window and counts the whole series", async () => {
+    /*
+     * A weekly series over ten weeks, asked for over the first fortnight. Two of
+     * its dates fall in that window and ten exist, so an answer carrying ten
+     * rows would be the unbounded read this window replaced - and a count of two
+     * would be the screen lying about the series its form edits.
+     */
+    const firstOn = dayAhead(3);
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Period ${suffix}`,
+      firstOn,
+      recurrence: { frequency: "WEEKLY", interval: 1, count: 10 },
+    });
+    expect(created.occurrenceCount).toBe(10);
+
+    const inPeriod = await seriesInPeriod(created.id, firstOn, dayAhead(13));
+
+    expect(inPeriod?.occurrences.map((occurrence) => occurrence.on)).toEqual([
+      firstOn,
+      dayAhead(10),
+    ]);
+    expect(inPeriod?.occurrenceCount).toBe(10);
+  });
+
+  it("leaves out a series with no date in the window at all", async () => {
+    // Including a draft entered today for a date further out. The period asked
+    // for is the period answered, which is what bounds the read.
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Utanfor perioden ${suffix}`,
+      firstOn: dayAhead(120),
+      recurrence: null,
+    });
+
+    await expect(
+      seriesInPeriod(created.id, dayAhead(0), dayAhead(30)),
+    ).resolves.toBeUndefined();
+    // And present the moment the window covers it, so the absence above is the
+    // window and not the series.
+    await expect(
+      seriesInPeriod(created.id, dayAhead(119), dayAhead(121)),
+    ).resolves.not.toBeUndefined();
+  });
+
+  it("keeps a date that is running when the window opens", async () => {
+    /*
+     * Matched by overlap and not by a start inside the window. A date that began
+     * the evening before the first day and has not ended is on the calendar the
+     * board asked about, and one matched on `startsAt` alone would have taken
+     * today's event off today's screen.
+     */
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Pagaende ${suffix}`,
+      recurrence: null,
+    });
+    const occurrenceId = created.occurrences[0]?.id ?? "";
+    const now = new Date();
+    await prisma.eventOccurrence.update({
+      where: { id: occurrenceId },
+      data: {
+        startsAt: new Date(now.getTime() - 60 * 60 * 1000),
+        endsAt: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+    });
+
+    // A window that opens today, after the date started.
+    const inPeriod = await seriesInPeriod(created.id, dayAhead(0), dayAhead(1));
+
+    expect(inPeriod?.occurrences).toHaveLength(1);
+    expect(inPeriod?.occurrences[0]?.begun).toBe(true);
+  });
+
+  it("answers a bare request with the two months from today", async () => {
+    // The default is the widest window a single read answers for, so a board
+    // that has stated nothing is given as much as it can be given.
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Standardperiod ${suffix}`,
+      firstOn: dayAhead(60),
+      recurrence: null,
+    });
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/events",
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<EventView[]>().some((series) => series.id === created.id),
+    ).toBe(true);
+  });
+
+  it("refuses a period that runs backwards or reaches too far", async () => {
+    const backwards = await listBetween(dayAhead(30), dayAhead(1));
+    expect(backwards.statusCode).toBe(422);
+    expect(backwards.json<{ reason: string }>().reason).toBe("range-invalid");
+
+    // 62 days is the bound, so the 62nd day past the first is one too many.
+    const tooLong = await listBetween(dayAhead(0), dayAhead(62));
+    expect(tooLong.statusCode).toBe(422);
+    expect(tooLong.json<{ reason: string }>().reason).toBe("range-invalid");
+
+    const widest = await listBetween(dayAhead(0), dayAhead(61));
+    expect(widest.statusCode).toBe(200);
+  });
+
+  it("refuses a date that is not one as a range mistake", async () => {
+    // The period as a whole is what a caller got wrong, and one code for the
+    // whole of it is what the screen has a sentence for.
+    const response = await listBetween("den 18 april", dayAhead(30));
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe("range-invalid");
+  });
+});
+
+describe("putting a called-off date back", () => {
+  it("clears the date, leaves the rest alone, and records an act of its own", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Aterupptaget tillfalle ${suffix}`,
+    });
+    const second = created.occurrences[1];
+
+    const calledOff = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${second?.id ?? ""}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+    expect(calledOff.statusCode).toBe(201);
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${second?.id ?? ""}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const after = response.json<EventView>();
+    // The same row, on the same date, going ahead again.
+    expect(after.occurrences[1]?.id).toBe(second?.id);
+    expect(
+      after.occurrences.map((occurrence) => occurrence.cancelledAt),
+    ).toEqual([null, null, null]);
+    expect(after.occurrences[1]?.on).toBe(`${String(YEAR)}-04-25`);
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_OCCURRENCE_REINSTATED",
+        targetKind: "eventOccurrence",
+        targetId: second?.id,
+      },
+    });
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.context).toEqual({
+      eventId: created.id,
+      on: `${String(YEAR)}-04-25`,
+    });
+    // Its own action beside the call-off rather than in place of it: the log has
+    // to be able to say the date was called off and then put back.
+    const calledOffEntry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "EVENT_OCCURRENCE_CANCELLED",
+        targetId: second?.id,
+      },
+    });
+    expect(calledOffEntry).not.toBeNull();
+  });
+
+  it("refuses a date that was never called off", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Aldrig instalt ${suffix}`,
+      recurrence: null,
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${created.occurrences[0]?.id ?? ""}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-cancelled",
+    );
+  });
+
+  it("refuses the second of two reinstatements of one date", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Dubbelt aterupptaget ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+    await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+
+    const first = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+    expect(first.statusCode).toBe(201);
+
+    const again = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+    expect(again.statusCode).toBe(409);
+    expect(again.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-cancelled",
+    );
+  });
+
+  it("refuses a date the clock has passed", async () => {
+    // It did not go ahead, and the calendar cannot say afterwards that it did.
+    // The occurrence is moved into the past directly: a series' own rule cannot
+    // name a past date without its first one being past too.
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Forbi ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+    const now = new Date();
+    await prisma.eventOccurrence.update({
+      where: { id: only },
+      data: {
+        startsAt: new Date(now.getTime() - 3 * 60 * 60 * 1000),
+        endsAt: new Date(now.getTime() - 60 * 60 * 1000),
+        cancelledAt: new Date(now.getTime() - 5 * 60 * 60 * 1000),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "occurrence-already-begun",
+    );
+    // And still called off, so the refusal wrote nothing.
+    const row = await prisma.eventOccurrence.findUniqueOrThrow({
+      where: { id: only },
+      select: { cancelledAt: true },
+    });
+    expect(row.cancelledAt).not.toBeNull();
+  });
+
+  it("refuses a date whose series has been removed since", async () => {
+    /*
+     * The occurrences cascade with the series, so there is no row left to put
+     * back and the answer is the one a date that never existed gets. Removing
+     * the series is only possible because nobody has signed up to it - which is
+     * the whole reason the reinstatement exists for the case where somebody has.
+     */
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Borttagen serie ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+    await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+    const removed = await inject({
+      method: "DELETE",
+      url: `/api/events/${created.id}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(removed.statusCode).toBe(204);
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-found",
+    );
+  });
+
+  it("is behind events:manage like every other act on this controller", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Behorighet aterupptag ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+    await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+
+    for (const cookie of [residentCookie, managerCookie]) {
+      const response = await inject({
+        method: "POST",
+        url: `/api/events/occurrences/${only}/reinstate`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(403);
+    }
+
+    const visitor = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/reinstate`,
+    });
+    expect(visitor.statusCode).toBe(401);
+
+    // Nothing wrote: the date is still off.
+    const row = await prisma.eventOccurrence.findUniqueOrThrow({
+      where: { id: only },
+      select: { cancelledAt: true },
+    });
+    expect(row.cancelledAt).not.toBeNull();
   });
 });
 

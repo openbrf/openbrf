@@ -32,6 +32,9 @@ export type EventReason =
   | "capacity-not-positive"
   | "occurrence-in-use"
   | "occurrence-already-cancelled"
+  | "occurrence-not-cancelled"
+  | "occurrence-already-begun"
+  | "range-invalid"
   | "signup-not-offered"
   | "occurrence-cancelled"
   | "occurrence-started"
@@ -61,6 +64,28 @@ export type EventReason =
  * board's answer is to leave those dates where they are, or to deal with the
  * sign-ups first - which is a decision taken date by date rather than the
  * silent effect of saving a form.
+ *
+ * ## The three reasons calling a date off and reinstating it do not share
+ *
+ * `occurrence-already-cancelled` refuses calling off a date that is already off,
+ * and `occurrence-not-cancelled` refuses reinstating one that was never called
+ * off. Two codes rather than one about "the date is not in the state you think",
+ * because the two acts are met by two clicks on the same row and each of them
+ * has one sentence to say.
+ *
+ * `occurrence-already-begun` refuses reinstating a date the clock has passed.
+ * It is not `occurrence-started`, which refuses a sign-up to such a date: the
+ * two are the same fact refusing two acts, exactly as the pair above is one act
+ * refused by two states, and folding them together would put the resident's
+ * sentence about sign-ups on the board's screen. What the board can still do
+ * with a date that ran while it was called off is nothing - it did not happen,
+ * and saying afterwards that it went ahead would make the calendar say something
+ * the house can contradict from memory.
+ *
+ * `range-invalid` is the board calendar's window: a range that runs backwards,
+ * or one covering more days than a single read answers for. One code for the
+ * whole of it, on the booking calendar's precedent, because the range as a whole
+ * is what can be wrong and a screen has one sentence for it.
  *
  * ## The sign-up reasons, and the two that are deliberately vague
  *
@@ -134,6 +159,8 @@ function statusFor(reason: EventReason): number {
 
     case "occurrence-in-use":
     case "occurrence-already-cancelled":
+    case "occurrence-not-cancelled":
+    case "occurrence-already-begun":
     case "signup-not-offered":
     case "occurrence-cancelled":
     case "occurrence-started":
@@ -144,12 +171,18 @@ function statusFor(reason: EventReason): number {
        * A conflict rather than an unprocessable entity: the request is well
        * formed, the caller may see what it names, and it describes a state the
        * thing is already in, or one it cannot be moved to while other rows
-       * stand. Neither stays true for ever, and neither is fixed by sending a
-       * different request - a place refused because the date is full is there
-       * again the moment somebody stands down.
+       * stand. Mostly a state that does not stay true - a place refused because
+       * the date is full is there again the moment somebody stands down - and
+       * none of them is fixed by sending a different request.
+       *
+       * The two about a date having begun are here for the first half of that
+       * and not the second: the clock will not give the date back. They are
+       * still the thing's own state rather than a fault in what was stated,
+       * which is what separates this bucket from the one below.
        */
       return HttpStatus.CONFLICT;
 
+    case "range-invalid":
     case "personal-identity-number":
     case "invalid-date":
     case "recurrence-interval-invalid":

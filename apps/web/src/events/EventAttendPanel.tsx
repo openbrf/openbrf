@@ -12,7 +12,7 @@ import { HINT, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
-import { formatEventDay, hasBegun } from "./event-calendar";
+import { formatEventDay } from "./event-calendar";
 import { eventFailureKey } from "./event-failures";
 
 /**
@@ -50,10 +50,19 @@ import { eventFailureKey } from "./event-failures";
  * A date that takes no sign-ups, one the board has called off, one that has
  * begun and one whose places are gone are all rendered as a statement rather
  * than as a control. Each of them is refused by the server, and a button that
- * always refused would be a worse way to say so. Every one of those facts comes
- * from the answer except "has begun", which is a comparison of instants and
- * needs no calendar: being a second out at the boundary costs a refusal and
- * never a wrong place.
+ * always refused would be a worse way to say so. All four facts come from the
+ * answer, "has begun" included: the calendar decides and the screen renders,
+ * which is the rule every other fact on the row already follows. A comparison
+ * made here would be a second clock, on a machine whose time nobody here sets.
+ *
+ * ## Whether the same words are on the street
+ *
+ * A row published to everyone says so. Somebody reading a notice about the sauna
+ * is entitled to see the members' events and the public ones both, and cannot
+ * otherwise tell which of the two they have in front of them - and a board that
+ * published one to the street by mistake should find out from a screen rather
+ * than from a neighbour. The audience is on this answer and on no payload the
+ * website itself is given.
  */
 export function EventAttendPanel(): ReactElement {
   const { t, i18n } = useTranslation();
@@ -254,7 +263,7 @@ function OccurrenceRow({
   const standing =
     occurrence.own !== null && occurrence.own.withdrawnAt === null;
   const calledOff = occurrence.cancelledAt !== null;
-  const begun = hasBegun(occurrence.startsAt);
+  const begun = occurrence.begun;
   const full = occurrence.placesLeft === 0;
 
   return (
@@ -283,6 +292,18 @@ function OccurrenceRow({
         {standing ? (
           <span className="rounded-control bg-info-soft px-2 py-0.5 text-chip uppercase">
             {t("events.attend.yours")}
+          </span>
+        ) : null}
+        {/* Said only for the audience that is not the default. A members' event
+            is what the calendar is, so marking those would mark almost every
+            row and say nothing; the one worth a word is the one that is also on
+            the street. */}
+        {occurrence.visibility === "PUBLIC" ? (
+          <span
+            title={t("events.attend.alsoPublicTitle")}
+            className="text-chip text-ink-muted uppercase"
+          >
+            {t("events.attend.alsoPublic")}
           </span>
         ) : null}
       </div>

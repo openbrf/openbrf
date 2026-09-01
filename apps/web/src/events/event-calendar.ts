@@ -2,10 +2,10 @@
  * Reading an event's dates in the browser.
  *
  * The server owns every calendar decision this module rests on: which dates a
- * series falls on, which local day each of them belongs to, and how far ahead
- * the calendar reaches. An occurrence arrives with its instants and with the
- * association's own date already worked out, so nothing here decides anything
- * about an event.
+ * series falls on, which local day each of them belongs to, whether one has
+ * begun, and how far ahead the calendar reaches. An occurrence arrives with its
+ * instants, with the association's own date already worked out and with that
+ * comparison already made, so nothing here decides anything about an event.
  *
  * What is left is the part a browser has to do, and there is one piece of it the
  * booking calendar does not already cover: naming a bare date with its year. A
@@ -47,24 +47,6 @@ export function formatEventDay(day: string, locale: string): string {
         // date as an instant in Stockholm is what puts it on the day before.
         timeZone: "UTC",
       }).format(value);
-}
-
-/**
- * Whether an instant has passed.
- *
- * An instant comparison and deliberately not a calendar one, which is why no
- * zone appears here at all: "has ten this morning happened yet" has the same
- * answer in every zone, and the two Sundays a year that the wall clock moves on
- * do not change it. The association's clock decides which day a date belongs to
- * and the server has already said so; this decides only whether it is behind us.
- *
- * Used to say that a date has begun rather than to decide whether a sign-up is
- * allowed. The server refuses one to a date that has started, so being a second
- * out at the boundary costs a refusal and never a wrong place.
- */
-export function hasBegun(instant: string, now: Date = new Date()): boolean {
-  const value = new Date(instant);
-  return !Number.isNaN(value.getTime()) && value.getTime() <= now.getTime();
 }
 
 /**
