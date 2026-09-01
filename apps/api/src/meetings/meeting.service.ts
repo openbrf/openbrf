@@ -9,6 +9,7 @@ import {
 } from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+
 import type {
   AttendanceCapacity,
   AttendanceMode,
@@ -134,6 +135,15 @@ export interface RecordDecisionInput {
   votesAbstaining: number;
   closedBallot: boolean;
 }
+
+/**
+ * A read that runs either on the pool or inside a transaction.
+ *
+ * The alias the audit log and the event module already declare for the same
+ * reason: several private reads here are called from both, and repeating the
+ * union at each of them invites the two to drift.
+ */
+type MeetingDbClient = PrismaService | Prisma.TransactionClient;
 
 /** The columns every meeting read selects. */
 const MEETING_COLUMNS = {
@@ -411,10 +421,20 @@ export class MeetingService {
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
 
-      const onBehalfOfPersonId =
-        input.capacity === "ASSISTANT"
-          ? (input.onBehalfOfPersonId ?? null)
-          : null;
+      const onBehalfOfPersonId = input.onBehalfOfPersonId ?? null;
+      /*
+       * Only a bitrade came with anybody, which the table also states as a check
+       * constraint. Refused rather than dropped: a member is nobody's stand-in
+       * and an ombud's principals are the authorities they hold, so a request
+       * naming one on either line has misunderstood the payload - and a field the
+       * server silently ignored is a defect nothing surfaces.
+       */
+      if (input.capacity !== "ASSISTANT" && onBehalfOfPersonId !== null) {
+        throw new MeetingError(
+          "Only a bitrade is recorded with the person who brought them.",
+          "attendance-principal-not-applicable",
+        );
+      }
 
       if (input.capacity === "MEMBER") {
         await this.requireMemberOn(tx, input.personId, meeting.heldOn, {
@@ -911,9 +931,7 @@ export class MeetingService {
   }
 
   /** The four bylaws clauses, or the statute where no association is recorded. */
-  private async readBylaws(
-    client: Prisma.TransactionClient | PrismaService,
-  ): Promise<MeetingBylaws> {
+  private async readBylaws(client: MeetingDbClient): Promise<MeetingBylaws> {
     const association = await client.association.findUnique({
       where: { id: 1 },
       select: {
@@ -931,7 +949,7 @@ export class MeetingService {
   }
 
   private async readAgenda(
-    client: Prisma.TransactionClient | PrismaService,
+    client: MeetingDbClient,
     meetingId: string,
     agendaItemId?: string,
   ): Promise<AgendaItemView[]> {
@@ -981,7 +999,7 @@ export class MeetingService {
   }
 
   private async requireMeeting(
-    client: Prisma.TransactionClient | PrismaService,
+    client: MeetingDbClient,
     meetingId: string,
   ): Promise<{ id: string; heldOn: Date; concludedAt: Date | null }> {
     const meeting = await client.meeting.findUnique({
@@ -1042,7 +1060,7 @@ export class MeetingService {
    * raw rows would count one as a third kind of event.
    */
   private async requireMemberOn(
-    client: Prisma.TransactionClient | PrismaService,
+    client: MeetingDbClient,
     personId: string,
     meetingDay: Date,
     failure: {
@@ -1066,7 +1084,7 @@ export class MeetingService {
    * the door and the roll cannot disagree.
    */
   private async isMemberOn(
-    client: Prisma.TransactionClient | PrismaService,
+    client: MeetingDbClient,
     personId: string,
     meetingDay: Date,
   ): Promise<boolean> {

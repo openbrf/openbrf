@@ -46,6 +46,7 @@ export class MeetingError extends DomainError {
       | "proxy-authority-expired"
       | "proxy-appointment-not-found"
       | "attendance-not-found"
+      | "attendance-principal-not-applicable"
       | "assistant-principal-not-present"
       | "proxy-holder-holds-no-authority",
   ) {
@@ -107,13 +108,17 @@ function statusFor(reason: MeetingError["reason"]): number {
       return HttpStatus.UNPROCESSABLE_ENTITY;
 
     case "date-not-a-calendar-date":
+    case "attendance-principal-not-applicable":
     case "assistant-principal-not-present":
       /*
        * The request describes something that is not a date, or not a bitrade.
        * "2027-02-30" is refused rather than read as the 2nd of March, which is
-       * what `Date.parse` would make of it; and EFL 6 kap. 7 § has a bitrade
-       * brought by a member or an ombud, so a bitrade with nobody on the list to
-       * have brought them is a request that has not said who they came with.
+       * what `Date.parse` would make of it; EFL 6 kap. 7 § has a bitrade brought
+       * by a member or an ombud, so a bitrade with nobody on the list to have
+       * brought them is a request that has not said who they came with; and only
+       * a bitrade came with anybody, so naming somebody on a member's or an
+       * ombud's line is refused rather than dropped - a field a request set and
+       * the server silently ignored is a defect nobody can see.
        */
       return HttpStatus.UNPROCESSABLE_ENTITY;
   }

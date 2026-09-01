@@ -95,10 +95,12 @@ const attendanceSchema = z.object({
   capacity: z.enum(CAPACITIES),
   mode: z.enum(MODES),
   /**
-   * The member or ombud a bitrade came with. The service refuses it on any other
-   * capacity and requires it on that one, and the table states the same rule, so
-   * a request that sets it on a member's line is refused rather than silently
-   * ignored.
+   * The member or ombud a bitrade came with.
+   *
+   * Required on that capacity and refused on the other two, which the service
+   * decides and the table states as a check constraint. Refused rather than
+   * dropped: a field a request set and the server silently ignored is a defect
+   * nothing surfaces.
    */
   onBehalfOfPersonId: z.string().min(1).nullish(),
 });

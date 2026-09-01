@@ -795,6 +795,26 @@ describe("checking people in", () => {
     expect(lineOf(meeting, soloMember.personId)?.votePresent).toBe(false);
   });
 
+  it("refuses a member's line that names somebody who brought them", async () => {
+    /*
+     * A member is nobody's stand-in and an ombud's principals are the
+     * authorities they hold, so only a bitrade came with anybody - which the
+     * table also states as a check constraint. Refused rather than dropped,
+     * because a field the server silently ignored is a defect nothing surfaces.
+     */
+    const meetingId = await arrangeMeeting();
+    const response = await checkIn(meetingId, {
+      personId: twoHoldings.personId,
+      capacity: "MEMBER",
+      onBehalfOfPersonId: soloMember.personId,
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "attendance-principal-not-applicable",
+    );
+  });
+
   it("refuses a bitrade nobody on the list brought", async () => {
     const meetingId = await arrangeMeeting();
     const response = await checkIn(meetingId, {
