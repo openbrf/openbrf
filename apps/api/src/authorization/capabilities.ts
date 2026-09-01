@@ -285,6 +285,34 @@ export const CAPABILITIES = [
    * contractor has nothing to do with it.
    */
   "motions:handle",
+  /**
+   * Arrange a general meeting (foreningsstamma) and run it: write its agenda
+   * (dagordning), register a member's written authority for an ombud, record who
+   * is present, read the voting roll (rostlangd) and minute what the meeting
+   * decided.
+   *
+   * The board's, because every one of those acts is the board's side of the
+   * meeting. EFL 6 kap. 16 § has the board call the meeting; 6 kap. 26 § has the
+   * board's chair, or whoever it appointed, open it; 6 kap. 27 § has the roll
+   * drawn up by whoever opened it or by the chair the meeting elected; and
+   * 6 kap. 39 § has the chair see that a protokoll is kept. So this is one
+   * capability and not one per act: a second would suggest an audience that does
+   * not exist.
+   *
+   * Deliberately not derived from membership, which makes it the opposite of
+   * `motions:submit` above. What a member holds at a stamma is the right to
+   * attend, speak and vote (EFL 6 kap. 2-3 §§), and none of that is something
+   * this platform does - the meeting happens in a room or on a call. What the
+   * platform does is the record-keeping, and the record is the board's to keep. A
+   * member who is also on the board holds this as a board member, which is the
+   * ordinary case.
+   *
+   * Not the external property manager's either, on the `motions:handle`
+   * precedent: the members' decisions about their own association are no part of
+   * a contractor's work, and the list of who was in the room is resident data
+   * they have no business reading.
+   */
+  "meetings:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -358,6 +386,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "bookings:configure",
   "events:manage",
   "motions:handle",
+  "meetings:manage",
   "events:attend",
 ];
 

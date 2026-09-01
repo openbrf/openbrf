@@ -340,6 +340,8 @@
           "motions": "Motions",
           "eventSignups": "Event sign-ups",
           "newsComments": "News comments",
+          "meetingAttendances": "Attendance at general meetings",
+          "proxyAppointments": "Proxy appointments",
           "audit": "The audit log",
           "retention": "Retention"
         },
@@ -412,7 +414,14 @@
           "noted": "Noted",
           "motionTitle": "Motion",
           "submitted": "Submitted",
-          "closed": "Closed"
+          "closed": "Closed",
+          "meeting": "Meeting",
+          "capacity": "Capacity",
+          "attendanceMode": "Attendance",
+          "broughtBy": "Brought by",
+          "counterpart": "Other person",
+          "proxyGround": "Ground",
+          "authorised": "Authority dated"
         },
         "event": {
           "ENTRY": "Membership granted",
@@ -479,7 +488,15 @@
           "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn",
           "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded",
           "REGISTER_REPORT_MADE": "A report to the cooperative housing register was recorded as made",
-          "REGISTER_INITIAL_SUPPLY_EXPORTED": "The initial supply to the cooperative housing register was produced"
+          "REGISTER_INITIAL_SUPPLY_EXPORTED": "The initial supply to the cooperative housing register was produced",
+          "MEETING_ARRANGED": "General meeting arranged",
+          "MEETING_HELD": "General meeting recorded as held",
+          "MEETING_AGENDA_SET": "Agenda set",
+          "MEETING_ATTENDANCE_RECORDED": "Recorded as present at the general meeting",
+          "MEETING_ATTENDANCE_WITHDRAWN": "Struck off the list of those present",
+          "MEETING_PROXY_REGISTERED": "Proxy appointment registered",
+          "MEETING_PROXY_WITHDRAWN": "Proxy appointment withdrawn",
+          "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded"
         },
         "reportKind": {
           "TRANSFER": "Transfer",
@@ -488,6 +505,10 @@
         "auditRole": {
           "subject": "About this person",
           "actor": "This person acted"
+        },
+        "proxyRole": {
+          "member": "Gave the authority",
+          "proxyHolder": "Held the authority"
         },
         "yes": "Yes",
         "no": "No"
@@ -2760,6 +2781,26 @@
       "tooManyComments": "You have written several comments in a short while. Wait a few minutes and post this one again.",
       "invalidBody": "A comment needs some text, and no more than the form allows.",
       "unknown": "That could not be done just now. Please try again."
+    }
+  },
+  "meetings": {
+    "kind": {
+      "ORDINARY": "Ordinary general meeting",
+      "EXTRAORDINARY": "Extraordinary general meeting"
+    },
+    "capacity": {
+      "MEMBER": "Member",
+      "PROXY_HOLDER": "Proxy holder",
+      "ASSISTANT": "Assistant"
+    },
+    "mode": {
+      "IN_PERSON": "In person",
+      "REMOTE": "Remotely"
+    },
+    "ground": {
+      "MEMBER": "Another member",
+      "SPOUSE_OR_COHABITANT": "Spouse or cohabitant",
+      "BYLAWS": "Permitted by the bylaws"
     }
   }
 }

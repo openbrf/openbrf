@@ -129,8 +129,9 @@ model Association {
   /// season after the first - which is the worst shape for this failure to take,
   /// since it surfaces in the one month of the year the clause matters. Not a
   /// number of days before the meeting either, which is the other shape a clause
-  /// takes: no meeting exists in this data model yet, so a window measured
-  /// backwards from one would be a setting nothing could evaluate.
+  /// takes: this setting holds the calendar shape, and a clause written as a
+  /// window before the meeting would be a second setting rather than a value
+  /// this pair could carry.
   ///
   /// Both columns are set or neither is, which SettingsService enforces. The day
   /// is taken as the clause writes it and clamped to the length of the month in
@@ -138,6 +139,87 @@ model Association {
   /// 28th in a year that has no 29th.
   motionDeadlineMonth Int?
   motionDeadlineDay   Int?
+
+  /// What the bylaws (stadgar) say about the general meeting, in the four
+  /// places BRL 9 kap. 14 § leaves the rule to them.
+  ///
+  /// Each of the four defaults to the statutory position rather than to a
+  /// blank, which is the difference between these and the motion deadline
+  /// above. EFL 6 kap. 15 § supplies no rule of its own where the bylaws are
+  /// silent, so an absent deadline is genuinely absent and that setting is
+  /// nullable. Every clause below has a rule that applies unless the bylaws
+  /// displace it, so an association that has recorded nothing here is not
+  /// unconfigured - it is under the statute, and the defaults are what the
+  /// statute says.
+  ///
+  /// Two of the four are checked when a proxy is registered and two are stated
+  /// and never enforced, and the line between them is not a matter of effort.
+  /// The platform enforces a clause exactly when it holds the facts the clause
+  /// turns on. It knows who is a member, so it can decide whether an ombud is
+  /// one and count how many members one ombud is carrying. It holds no record
+  /// of who is anybody's spouse or cohabitant, and none of what a space in the
+  /// building is used for, so the two clauses that turn on those are recorded
+  /// for the board to read and applied in the room.
+  ///
+  /// Whether the bylaws let somebody other than the member's spouse or
+  /// cohabitant or another member act as ombud.
+  ///
+  /// BRL 9 kap. 14 § 4 limits the ombud to those, unless something else has
+  /// been determined in the bylaws. False is the statute; true is an
+  /// association whose bylaws widened it. It decides whether an appointment
+  /// resting on the bylaws is accepted and nothing else: the other two grounds
+  /// an appointment can rest on are the statute's own and stand whatever this
+  /// says.
+  bylawsWidenProxyHolderEligibility Boolean @default(false)
+
+  /// How many members one ombud may represent at one general meeting.
+  ///
+  /// One, and deliberately not the three EFL 6 kap. 5 § allows an economic
+  /// association generally: BRL 9 kap. 14 § 4 has nobody represent more than
+  /// one member as ombud unless the bylaws determine otherwise, and that
+  /// exception is the whole reason this column does not carry the general rule.
+  /// An instance defaulted to three would let one person arrive holding a block
+  /// of votes the statute keeps out of a housing cooperative, and it would do
+  /// so silently.
+  ///
+  /// A number rather than a flag, because a bylaws clause names one - two,
+  /// three, ten - while a boolean could only say "the statute" or "something
+  /// else". Bounded at one and above by a check constraint: a limit of zero
+  /// would refuse every proxy the statute permits.
+  bylawsMaxMembersPerProxyHolder Int @default(1)
+
+  /// Whether the bylaws limit the vote of a member who holds nothing but a
+  /// garage, a store or another space used primarily for storage.
+  ///
+  /// The single deviation from one member one vote that BRL 9 kap. 14 § 1
+  /// permits, and it permits nothing else: no second vote for a second
+  /// apartment, no weighting by participation share, no limitation on anybody
+  /// else. So this is one flag for one case and never a rule engine, and the
+  /// absence of any other voting setting on this model is the statute rather
+  /// than an unfinished feature.
+  ///
+  /// Recorded and stated, never applied by the platform. The clause turns on
+  /// what a space is used for, and nothing here records that: an apartment
+  /// carries a number, a floor, a participation share and an initial share
+  /// capital, none of which distinguishes a garage from a flat. Deriving it
+  /// from the share would be an invention, and an invented answer would take
+  /// somebody's vote away. So the voting roll reports that the clause stands
+  /// and the meeting applies it, which is where EFL 6 kap. 27 § puts the
+  /// decision in any case: the roll is approved by the meeting and stands until
+  /// the meeting resolves to change it.
+  bylawsLimitStorageOnlyVote Boolean @default(false)
+
+  /// Whether the bylaws let somebody other than the member's spouse or
+  /// cohabitant or another member be a bitrade.
+  ///
+  /// BRL 9 kap. 14 § 5, in the same terms as the ombud clause. Recorded and
+  /// stated, never enforced, and for a reason about the statute rather than
+  /// about this platform's reach: a bitrade needs no written authority at all -
+  /// EFL 6 kap. 7 § simply lets a member or an ombud bring one, who may speak
+  /// at the meeting - so there is no document for the board to attest and
+  /// nothing for a check to key itself to. A proxy appointment has one, which
+  /// is why the ombud clause is the half that is checked.
+  bylawsWidenAssistantEligibility Boolean @default(false)
 
   smtpHost           String?
   smtpPort           Int?
@@ -1016,6 +1098,41 @@ enum AuditAction {
   /// so the product keeps one action that answers "who has seen these identity
   /// numbers" across every operation that discloses one.
   REGISTER_INITIAL_SUPPLY_EXPORTED
+  /// The board arranged a general meeting, or changed its kind or its day. No
+  /// subject: a stamma is the association's own act and is about nobody in
+  /// particular.
+  MEETING_ARRANGED
+  /// The board recorded that a general meeting had been held. Its own action
+  /// and not a second MEETING_ARRANGED entry, because it is what turns the
+  /// agenda from a plan into a record of what the meeting dealt with.
+  MEETING_HELD
+  /// A meeting's agenda (dagordning) was set or reordered. The items travel as
+  /// a count and their order, never as their text: the log is append-only and
+  /// exempt from every purge, and an agenda is the association's writing with a
+  /// home of its own.
+  MEETING_AGENDA_SET
+  /// Somebody was recorded as present at a general meeting, in a stated
+  /// capacity. The subject is the person present, so their own access report
+  /// shows that the association recorded them in the room.
+  MEETING_ATTENDANCE_RECORDED
+  /// A person recorded as present was struck off again, which is a correction
+  /// of the list rather than somebody leaving. The subject stays the person
+  /// struck off.
+  MEETING_ATTENDANCE_WITHDRAWN
+  /// A member's written authority for an ombud (fullmakt) was registered
+  /// against a meeting. The subject is the member who gave it: it is their
+  /// voting right that somebody else will exercise, and their own access report
+  /// is where that has to be visible. Who they gave it to is on the appointment
+  /// the entry points at, which is also how the ombud's own report reaches it.
+  MEETING_PROXY_REGISTERED
+  /// A proxy appointment was withdrawn, by the member or by the board. The
+  /// subject stays the member who gave the authority.
+  MEETING_PROXY_WITHDRAWN
+  /// The chair recorded what the meeting decided on one agenda item, as the
+  /// counts and the outcome. No subject: a decision of the meeting is about the
+  /// association's business and not about a person, even where the item was
+  /// somebody's motion.
+  MEETING_DECISION_RECORDED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -3069,4 +3186,535 @@ model EventSignup {
   /// This person's sign-ups: the access report section and the purge's scan.
   @@index([personId])
   @@map("event_signup")
+}
+
+/// Which general meeting this is.
+///
+/// Two kinds and no more, because EFL 6 kap. distinguishes two and BRL 9 kap.
+/// 14 § applies that chapter to a housing cooperative. The arsstamma is not a
+/// third: it is the ordinary meeting at which the board lays the annual report
+/// and the audit report (EFL 6 kap. 9 §) and at which the decisions 6 kap. 10 §
+/// lists are taken, so which meeting that is is answered by the agenda rather
+/// than by a column. Bylaws may require further ordinary meetings in one year
+/// (6 kap. 11 §), which is the other reason ORDINARY does not mean "the annual
+/// one".
+enum MeetingKind {
+  /// Ordinarie foreningsstamma.
+  ORDINARY
+
+  /// Extra foreningsstamma. Called by the board when it sees reason to hold one
+  /// before the next ordinary meeting, and to be called when an auditor or at
+  /// least a tenth of those entitled to vote asks for one in writing (EFL
+  /// 6 kap. 12 §). Which of those prompted it is minuted, not stored: the
+  /// statute attaches a deadline for issuing the notice to the second case, and
+  /// the notice is what carries that.
+  EXTRAORDINARY
+}
+
+/// In what capacity somebody was present at a general meeting.
+///
+/// The three the statute names, in one column rather than three tables, because
+/// EFL 6 kap. 27 § makes them one list: the rostlangd is a "forteckning over
+/// narvarande medlemmar, ombud och bitraden", so who was in the room is one
+/// list with a capacity on each line.
+///
+/// One person can hold two of these at one meeting, and that is the ordinary
+/// case rather than an edge one: a member who arrives with a neighbour's
+/// fullmakt is present as a member and as an ombud, with two votes and one
+/// body. So the capacity belongs to the line and not to the person, and a
+/// person has as many lines as they have capacities.
+enum AttendanceCapacity {
+  /// The member, present themselves. EFL 6 kap. 2 § gives a member the right to
+  /// attend, speak and vote at the meeting.
+  MEMBER
+
+  /// An ombud, exercising an absent member's right under EFL 6 kap. 4 §. Which
+  /// members they are exercising it for is the proxy appointments they hold at
+  /// this meeting, never this row: one ombud may carry several members where the
+  /// bylaws allow it, and a capacity that named one of them could not say so.
+  PROXY_HOLDER
+
+  /// A bitrade a member or an ombud brought with them (EFL 6 kap. 7 §), and the
+  /// one capacity here that carries no vote: that section gives the bitrade the
+  /// right to speak at the meeting and nothing further. Which is why the voting
+  /// roll counts votes from capacities rather than from bodies in the room.
+  ASSISTANT
+}
+
+/// How somebody attended.
+///
+/// A fact about the person and never a licence for the meeting. Whether a
+/// general meeting may be held digitally at all is EFL 6 kap. 14 §'s question -
+/// it takes a clause in the bylaws, or extraordinary circumstances that require
+/// it - and 6 kap. 22 § then has the notice state how to take part and how to
+/// vote. This column records how one person did, which is what a list of those
+/// present has to be able to say.
+enum AttendanceMode {
+  IN_PERSON
+  REMOTE
+}
+
+/// What made somebody eligible to stand in for a member as their ombud.
+///
+/// BRL 9 kap. 14 § 4 limits the ombud to the member's spouse or cohabitant or
+/// another member, unless something else has been determined in the bylaws. Two
+/// of those limbs are decidable here and one is not: the member register says
+/// who is a member, and nothing in this platform records who is anybody's
+/// spouse or cohabitant. So the ground the board relied on is recorded, and the
+/// check is made against the ground.
+///
+/// Without this column the platform would have to choose between refusing an
+/// appointment the statute permits outright - a member represented by her
+/// husband - and enforcing nothing at all. Recording which limb was relied on
+/// is what lets it refuse only what it can actually decide.
+///
+/// The fourth case in that paragraph has no value here. A member that is a
+/// juridical person may be represented by an ombud who is not a member, and
+/// this platform's Person is a natural person by definition, so it holds no
+/// juridical-person membership for the case to arise on.
+enum RepresentativeGround {
+  /// Another member of the association, which the register answers as of the
+  /// meeting day.
+  MEMBER
+
+  /// The member's spouse or cohabitant, as the board read it off the fullmakt.
+  /// The board's own statement and never a derivation: this platform holds no
+  /// record of who is married to whom or who lives with whom, and one inferred
+  /// from a shared residency would be wrong about siblings and lodgers alike.
+  SPOUSE_OR_COHABITANT
+
+  /// Somebody the bylaws allow. Accepted only where the association has
+  /// recorded that its bylaws widen the rule, which is the one thing
+  /// `bylawsWidenProxyHolderEligibility` decides.
+  BYLAWS
+}
+
+/// What the meeting resolved on one agenda item.
+///
+/// Two values, because a resolution either carried or did not. An item the
+/// meeting deferred to a continued meeting (EFL 6 kap. 13 §) records no
+/// decision at all rather than a third outcome: the deferral is a decision to
+/// hold another meeting, and what that meeting resolves is that meeting's
+/// record.
+enum MeetingDecisionOutcome {
+  /// Bifall: the meeting resolved in favour of what was put to it.
+  CARRIED
+
+  /// Avslag: the meeting resolved against it.
+  REJECTED
+}
+
+/// One way of voting on an agenda item.
+enum VoteChoice {
+  FOR
+  AGAINST
+
+  /// Present and not voting. EFL 6 kap. 33 § measures an ordinary majority
+  /// against "de avgivna rosterna" - the votes cast - and somebody who abstains
+  /// has cast none, so an abstention counts towards no majority. It is a value
+  /// here because the protokoll states how the vote fell, and "twelve for, one
+  /// against, nine abstaining" is a different meeting from "twelve for, one
+  /// against".
+  ABSTENTION
+}
+
+/// One general meeting (foreningsstamma) of the members.
+///
+/// EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
+/// exceptions. This model carries the meeting and the day it is held. The
+/// notice (kallelse) that convenes it is its own record, and the signed minutes
+/// (protokoll) are filed in the document archive as association records, which
+/// is where the statute leaves them: EFL 6 kap. 39 § has the chair see that a
+/// protokoll is kept and the rostlangd taken into it or appended to it, and
+/// 40 § has it held available to the members within three weeks and kept
+/// safely. So this platform records the decisions; the document is the
+/// association's.
+///
+/// ## The meeting day, and why it is a date
+///
+/// A general meeting decides who may vote at it as of the day it is held: only
+/// a person who is a member on the meeting day has a vote, and the member
+/// register (medlemsforteckning) is the basis for saying so. The question is
+/// which calendar day, so this is a `@db.Date` and not an instant - comparing
+/// an instant against a date column asks a question about hours, which is the
+/// recurring defect `statutory-date.ts` exists to keep out of dates like this
+/// one.
+///
+/// The time and the place EFL 6 kap. 22 § has the notice state are deliberately
+/// absent. They belong to the notice, which is the document that states them,
+/// and a second copy here would be a second answer to one question.
+///
+/// ## Arranged, and held
+///
+/// `concludedAt` is null while the meeting is being arranged and carries the
+/// instant the board recorded that it had been held. The difference is not
+/// cosmetic: beforehand the agenda is a plan and the voting roll is a
+/// projection of the register as it stands, and afterwards the agenda is what
+/// the meeting dealt with and the roll is a fact about a day that has passed.
+/// A date and not a status, on the precedent of a released legal hold, a
+/// withdrawn resource and a called-off occurrence - "when" answers "whether",
+/// and a flag cannot answer "when".
+///
+/// Nothing here calls a stamma off. Withdrawing a summons is an act on the
+/// notice rather than on the meeting, and EFL 6 kap. 25 § is about a notice
+/// that went wrong rather than one taken back.
+///
+/// The association's own act rather than personal data, so it carries no
+/// retention window and appears in no data subject access report. Who attended
+/// it does, and that is MeetingAttendance.
+model Meeting {
+  id String @id @default(cuid())
+
+  kind MeetingKind
+
+  /// The day the meeting is held, which is the day that decides who has a vote.
+  heldOn DateTime @db.Date
+
+  /// When the board recorded that the meeting had been held. Null while it is
+  /// being arranged. See the model comment.
+  concludedAt DateTime?
+
+  agendaItems       AgendaItem[]
+  attendances       MeetingAttendance[]
+  proxyAppointments ProxyAppointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The board's list, and the lookup for "the meeting on that day".
+  @@index([heldOn])
+  @@map("meeting")
+}
+
+/// One item on a meeting's agenda (dagordning).
+///
+/// Ordered, because an agenda is a running order and not a set: EFL 6 kap. 22 §
+/// has the notice state clearly the matters to be dealt with, and the meeting
+/// works down them. The position is the association's own numbering rather than
+/// an index into an array, and it is unique per meeting so two items cannot
+/// claim one place.
+///
+/// The board's own writing, stored as written and never translated, like every
+/// other piece of the association's content (decision 59).
+///
+/// Cascades from the meeting, because an item says what it is only through the
+/// meeting it is on - the argument an occurrence makes about its series. What
+/// stops a meeting the members have dealt with from taking its agenda anywhere
+/// is that nothing deletes a meeting.
+model AgendaItem {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// The running order, one-based, as a board writes an agenda.
+  position Int
+
+  /// The item as the notice states it.
+  title String
+
+  decision MeetingDecision?
+  votes    MeetingVote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([meetingId, position])
+  @@map("agenda_item")
+}
+
+/// What the meeting decided on one agenda item, as the chair recorded it.
+///
+/// EFL 6 kap. 39 §: the protokoll notes the decisions the meeting took, and
+/// where a decision was taken by omrostning it notes how the vote fell. This
+/// row is that note inside the platform; the protokoll is a document in the
+/// archive.
+///
+/// ## The outcome is recorded and not derived
+///
+/// A statement about the statute rather than a shortcut. The majority a
+/// decision needs is not uniform. EFL 6 kap. 33 § carries an ordinary question
+/// on more than half of the votes cast and gives the chair a casting vote on a
+/// tie; 34 § elects whoever received the most votes and settles a tie by lot
+/// unless the meeting decided otherwise before the election; and BRL 9 kap.
+/// 14 § 6 puts BRL 9 kap. 23 § and 24 § forsta stycket in place of EFL 6 kap.
+/// 35 and 36 §§ where the bylaws are being changed. Which rule an item falls
+/// under is a question about the item, and nothing this platform holds answers
+/// it. An outcome computed from the counts would therefore be right for
+/// ordinary questions and quietly wrong for exactly the decisions that matter
+/// most.
+///
+/// Abstentions are counted and belong to no majority, for the reason
+/// {@link VoteChoice.ABSTENTION} gives.
+///
+/// ## What an election records here
+///
+/// That the item was decided, and nothing about who was elected. A position of
+/// trust is already a record of its own carrying the day the meeting was held,
+/// so repeating the result here would give the association two answers to "who
+/// is on the board" and no rule for which of them is right.
+///
+/// ## Corrected in place
+///
+/// One decision per item, which is what the unique constraint states, and
+/// correctable rather than append-only: a chair who mis-keys a count has to be
+/// able to fix it, the audit log carries what it was changed from and to, and
+/// the record that stands is the signed protokoll rather than this row. That is
+/// the property designation's reasoning and not the member register's, and the
+/// difference is that this table is not a statutory register.
+model MeetingDecision {
+  id           String     @id @default(cuid())
+  agendaItemId String     @unique
+  agendaItem   AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+
+  outcome MeetingDecisionOutcome
+
+  /// The counts as the chair read them out. Non-negative, which the table
+  /// checks: a negative tally is not a mis-typed number but a nonsense one.
+  votesFor        Int
+  votesAgainst    Int
+  votesAbstaining Int
+
+  /// Whether the vote was taken by closed ballot (sluten omrostning). A fact
+  /// about how the meeting voted, which the protokoll states, and the fact that
+  /// decides whether a vote record could name a voter at all.
+  closedBallot Boolean @default(false)
+
+  /// The chair, or whoever the meeting had keep the minutes. A plain column and
+  /// not a relation, for the reason every person reference outside the
+  /// registers is one: service-tier data has to be erasable without the purge
+  /// negotiating with the association's own records.
+  recordedByPersonId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("meeting_decision")
+}
+
+/// One person present at one general meeting, in one capacity.
+///
+/// EFL 6 kap. 27 § has a list drawn up at the meeting of the members, ombud and
+/// bitraden present - the rostlangd - stating the number of votes the members
+/// have where they do not all have the same number. This table is the record
+/// those lines are read from.
+///
+/// ## The roll is derived and never stored
+///
+/// There is no vote count and no eligibility flag on this row, and there is not
+/// going to be one. Membership on the meeting day, the one vote a membership
+/// carries, and the merging of joint holders into it are all read out of the
+/// member register when the roll is asked for - `voting-roll.ts` - exactly as
+/// the booking allowance is counted out of the residencies at write time. A
+/// stored count would go stale the moment somebody moved or a transfer
+/// completed, and it would go stale silently: nothing about the row would look
+/// wrong.
+///
+/// ## The capacity carries the vote, not the row
+///
+/// A MEMBER line is a member present themselves. A PROXY_HOLDER line is
+/// somebody exercising absent members' rights, and which members is the proxy
+/// appointments they hold at this meeting. An ASSISTANT line carries no vote at
+/// all: EFL 6 kap. 7 § gives a bitrade the right to speak and no more.
+///
+/// ## Struck off with a date
+///
+/// A person checked in by mistake is struck off with `withdrawnAt` rather than
+/// deleted, and checking them in again clears the date on the same row - the
+/// sign-up's own pattern, and for the sign-up's own reason: who was recorded as
+/// present and who was struck off again are two different answers, and a
+/// deleted row can only give the first by omission. One line per person,
+/// meeting and capacity for as long as it is kept, which is what the unique
+/// constraint says.
+///
+/// ## Personal data, kept as part of the meeting's record
+///
+/// Who was at the general meeting is personal data about them and has a section
+/// of its own in the data subject access report. That section states no erasure
+/// date, unlike a booking or a motion, and the absence is a reason rather than
+/// an omission: the rostlangd is taken into or appended to the protokoll (EFL
+/// 6 kap. 39 §), which 40 § has kept safely, so a line erased on a clock of its
+/// own would take part of the association's minutes with it.
+model MeetingAttendance {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// Who was there. A plain column and not a relation, for the reason
+  /// MeetingDecision.recordedByPersonId is one.
+  personId String
+
+  capacity AttendanceCapacity
+  mode     AttendanceMode
+
+  /// The member or ombud a bitrade came with, and null on every other line.
+  ///
+  /// Only a bitrade has one, which the table checks, and that is what makes the
+  /// unique constraint below express EFL 6 kap. 7 §'s "hogst ett bitrade" in
+  /// the database: a null repeats freely in a PostgreSQL unique index, so the
+  /// constraint binds the bitrade lines and leaves the others alone.
+  ///
+  /// An ombud's line carries none. Which members an ombud is here for is the
+  /// appointments they hold, because the statute lets one ombud carry several
+  /// members where the bylaws allow and a single column could not say so.
+  onBehalfOfPersonId String?
+
+  /// When the board struck this line off the list. Null while the person stands
+  /// on it.
+  withdrawnAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One line per person, meeting and capacity. Two would be one person counted
+  /// twice on the list the votes are read from.
+  @@unique([meetingId, personId, capacity])
+  /// At most one bitrade per member or ombud (EFL 6 kap. 7 §). See
+  /// onBehalfOfPersonId for why a plain unique constraint states a rule that
+  /// applies to one capacity only.
+  @@unique([meetingId, onBehalfOfPersonId])
+  /// The list drawn up at the meeting, and the roll the votes are counted from.
+  @@index([meetingId, capacity])
+  /// This person's own attendance: the access report section.
+  @@index([personId])
+  @@map("meeting_attendance")
+}
+
+/// A member's written authority for somebody else to exercise their right at
+/// one general meeting (fullmakt), and who they gave it to (ombud).
+///
+/// EFL 6 kap. 4 § as BRL 9 kap. 14 § 4 restricts it. Four rules, and the
+/// platform's relation to each is different:
+///
+///   A member who is not personally present may exercise their right through an
+///   ombud, and may not be represented by more than one. Absolute, and stated
+///   as the unique constraint below.
+///
+///   The fullmakt is to be written, dated and signed by the member, and holds
+///   for at most one year from the day it was issued. Absolute, and the reason
+///   `authorisedOn` is on this row.
+///
+///   Only the member's spouse or cohabitant or another member may be the ombud,
+///   unless the bylaws determine otherwise. Partly decidable, which is what
+///   `ground` is for.
+///
+///   Nobody may represent more than one member unless the bylaws determine
+///   otherwise. A count against a setting, so it is checked where the setting is
+///   read and not here.
+///
+/// ## The signature is on paper
+///
+/// This row records that the board saw a fullmakt. It never records that the
+/// platform produced one, and nothing about it should be read as a signature. A
+/// document that has to be signed under the Economic Associations Act may be
+/// signed with an advanced electronic signature (EFL 1 kap. 15 §), which is a
+/// trust service this platform does not provide, so `authorisedOn` is the date
+/// the member wrote on the paper as the board read it off, and the paper is what
+/// stands behind the appointment.
+///
+/// ## Withdrawn with a date
+///
+/// A member who takes the authority back has done something, and a deleted row
+/// can only say so by absence - the argument a called-off occurrence, a released
+/// legal hold and a withdrawn sign-up all make. One row per member and meeting
+/// for as long as it is kept, which is what the unique constraint says;
+/// appointing somebody else clears the withdrawal date and rewrites the holder
+/// on that row rather than adding a second one, exactly as a sign-up taken up
+/// again does.
+///
+/// ## Two people, and a report that answers for both
+///
+/// The appointment names the member and the ombud, so both of them have a
+/// personal interest in it and the data subject access report answers for
+/// either role - the pattern the audit log's own two person columns set, rather
+/// than a new one. Which role a row reached the report through is stated on it,
+/// because "I gave somebody my vote" and "somebody gave me theirs" are
+/// different facts about different people.
+model ProxyAppointment {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// The member who gave the authority. A plain column, like every person
+  /// reference outside the registers.
+  memberPersonId String
+
+  /// The person they gave it to.
+  proxyHolderPersonId String
+
+  /// What made that person eligible. See RepresentativeGround.
+  ground RepresentativeGround
+
+  /// The day the member signed the fullmakt. A date and not an instant: EFL
+  /// 6 kap. 4 § runs one year from the day it was issued, and a year is counted
+  /// in days.
+  authorisedOn DateTime @db.Date
+
+  /// When the authority was taken back, by the member or by the board. Null
+  /// while it stands.
+  withdrawnAt DateTime?
+
+  /// The board member who checked the fullmakt. The board's attestation that it
+  /// saw the paper, which is the whole basis of the row.
+  recordedByPersonId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// A member may not be represented by more than one ombud (EFL 6 kap. 4 §
+  /// forsta stycket), which makes this the statute and not a convenience.
+  @@unique([meetingId, memberPersonId])
+  /// How many members one ombud is carrying at this meeting, which is the count
+  /// BRL 9 kap. 14 § 4 limits.
+  @@index([meetingId, proxyHolderPersonId])
+  /// Either role, for the access report section that answers for both.
+  @@index([memberPersonId])
+  @@index([proxyHolderPersonId])
+  @@map("proxy_appointment")
+}
+
+/// One vote cast on one agenda item.
+///
+/// ## Nothing in this module casts one
+///
+/// Reserved schema room, deliberately, and the nullable voter is why it is
+/// reserved now rather than added when something needs it. A meeting may resolve
+/// to vote by closed ballot (sluten omrostning), which is lawful on request and
+/// is the ordinary way an election is held, and a closed ballot is a vote with
+/// no voter to record. Adding that column later would mean migrating a table the
+/// association's minutes are built from, so the shape that has to survive is the
+/// shape the table starts with. The null is the lawful case and not an
+/// unfinished one.
+///
+/// What this module records instead is the outcome the chair read out, as
+/// MeetingDecision: EFL 6 kap. 39 § has the protokoll state how an omrostning
+/// fell, and counts are how a chair states it. Real-time voting is what fills
+/// this table, and it is separate work.
+///
+/// It follows that no section of the data subject access report reads this
+/// table. A table nothing writes holds nothing to report, and the section
+/// arrives with the module that casts a vote - which is also when the report
+/// will have to say what a closed ballot means for an access request.
+///
+/// ## Against the item, and not against the decision
+///
+/// The ballot happens before the outcome is recorded, so a vote cannot hang off
+/// a row that does not exist yet. The decision is the minute of the ballot,
+/// which is why both reference the agenda item and neither references the other.
+model MeetingVote {
+  id           String     @id @default(cuid())
+  agendaItemId String
+  agendaItem   AgendaItem @relation(fields: [agendaItemId], references: [id], onDelete: Cascade)
+
+  /// Who cast it, or null for a closed ballot. See the model comment.
+  voterPersonId String?
+
+  choice VoteChoice
+
+  castAt DateTime @default(now())
+
+  /// The tally on one item.
+  @@index([agendaItemId])
+  /// This person's own votes, for the day something casts one.
+  @@index([voterPersonId])
+  @@map("meeting_vote")
 }

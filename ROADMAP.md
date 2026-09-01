@@ -586,6 +586,26 @@ change it.
       there are meetings to reference. Motion intake itself is the Forms item
       below rather than this one. Postal voting is prohibited for a housing
       cooperative under BRL 9 kap. 14 §, and will never be built.
+  - Landed: the meeting itself, its agenda, who was present and in what
+    capacity, the written authorities somebody else's vote is exercised under,
+    and each item's outcome as the counts the chair read out. The voting
+    register (röstlängd) is derived when it is read and never stored: every
+    member has one vote, so two apartments are one vote and joint holders of one
+    bostadsrätt have one between them, a biträde is on the list and carries
+    none, and an ombud's authority is measured against the meeting day rather
+    than against the day it was registered. The four bylaws clauses BRL 9 kap.
+    14 § leaves to the association sit with the instance settings, each
+    defaulted to the statutory position - one member per ombud for a housing
+    cooperative, not the three the general Act allows. Both new stores of
+    personal data have a section in the data subject access report, and the
+    proxy section answers for the member who gave the authority and for the
+    ombud who held it
+  - Pending: the board's screens for arranging a meeting, checking people in and
+    reading the register; the notice on a delivery ledger; the link from a
+    motion to the meeting it is taken up at; and real-time voting, for which the
+    vote record exists with no voter recorded so a closed ballot
+    (sluten omröstning) is representable without migrating the table the minutes
+    are built from. Nothing casts a vote yet
 - [ ] Comments on news items, then group and board chat. Comments first and a
       full discussion forum never: a forum is a product of its own, and a
       cooperative that wants one is better served by an integration with

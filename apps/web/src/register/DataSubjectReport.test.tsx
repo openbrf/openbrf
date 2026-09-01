@@ -83,6 +83,8 @@ const EMPTY_REPORT: Report = {
   motions: [],
   eventSignups: [],
   newsComments: [],
+  meetingAttendances: [],
+  proxyAppointments: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -275,6 +277,61 @@ const FULL_REPORT: Report = {
       hidden: true,
       writtenAt: "2026-01-21T18:00:00.000Z",
       erasableFrom: "2027-01-21",
+    },
+  ],
+  /*
+   * Two lines at one meeting, which is the ordinary case rather than an edge
+   * one: somebody who arrives holding a neighbour's fullmakt is on the list as a
+   * member and as an ombud, with two votes and one body. The second line is also
+   * what makes the struck-off column readable - it carries a date where the
+   * first carries none.
+   */
+  meetingAttendances: [
+    {
+      attendanceId: "attendance-1",
+      meetingHeldOn: "2027-05-12",
+      meetingKind: "ORDINARY",
+      capacity: "MEMBER",
+      mode: "IN_PERSON",
+      onBehalfOfPersonId: null,
+      withdrawnAt: null,
+    },
+    {
+      attendanceId: "attendance-2",
+      meetingHeldOn: "2027-05-12",
+      meetingKind: "ORDINARY",
+      capacity: "PROXY_HOLDER",
+      mode: "IN_PERSON",
+      onBehalfOfPersonId: null,
+      withdrawnAt: "2027-05-12T18:20:00.000Z",
+    },
+  ],
+  /*
+   * One appointment on each side of the person, which is what this section
+   * exists to be able to print: they gave their own vote away at one meeting and
+   * carried a neighbour's at another. A section answering for one role only
+   * would show one of these two rows.
+   */
+  proxyAppointments: [
+    {
+      appointmentId: "proxy-1",
+      meetingHeldOn: "2026-05-20",
+      meetingKind: "ORDINARY",
+      role: "member",
+      counterpartPersonId: "person-erik",
+      ground: "SPOUSE_OR_COHABITANT",
+      authorisedOn: "2026-05-02",
+      withdrawnAt: null,
+    },
+    {
+      appointmentId: "proxy-2",
+      meetingHeldOn: "2027-05-12",
+      meetingKind: "ORDINARY",
+      role: "proxyHolder",
+      counterpartPersonId: "person-nils",
+      ground: "MEMBER",
+      authorisedOn: "2027-04-30",
+      withdrawnAt: "2027-05-11T08:00:00.000Z",
     },
   ],
   auditEntries: [
@@ -745,6 +802,71 @@ describe("what the document prints", () => {
       const printed = screen.getByText(written, { normalizer: asWritten });
       expect(printed.className).toContain("whitespace-pre-line");
     }
+  });
+
+  it("names the capacity somebody was present at a general meeting in", async () => {
+    /*
+     * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §
+     * has the list cover the members, ombud and bitraden present, and the three
+     * are different facts about a person - own vote, somebody else's vote, or a
+     * seat with the right to speak and no vote at all. A section that printed
+     * only the meeting and the date would leave its subject unable to see which
+     * of those the association wrote down.
+     *
+     * Read inside the section, because "Medlem" is a word this document prints
+     * in the residencies as well.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const meetings = within(sectionOf("Närvaro vid föreningsstämma"));
+    // Both lines, which is what the count asserts: one body in the room is two
+    // lines on the list when one of them carries somebody else's vote.
+    expect(meetings.getAllByText("Ordinarie föreningsstämma")).toHaveLength(2);
+    expect(meetings.getByText("Medlem")).not.toBeNull();
+    expect(meetings.getByText("Ombud")).not.toBeNull();
+    /*
+     * The struck-off column, asserted as a heading the section prints. A line
+     * the board took off the list is kept and dated rather than left out,
+     * because "was recorded as present and struck off again" is a different fact
+     * about somebody from never having been recorded - and it is the fact they
+     * would be asking about.
+     */
+    expect(meetings.getByText("Återkallat")).not.toBeNull();
+
+    /*
+     * No erasure column, and asserted as an absence rather than left untested.
+     * Nothing purges a line of the meeting's record, so a heading promising a
+     * date would promise something the association is not going to do - which is
+     * exactly the failure the four sections that do carry the column guard
+     * against from the other side.
+     */
+    expect(meetings.queryByText("Gallras tidigast")).toBeNull();
+  });
+
+  it("answers for both sides of a proxy appointment", async () => {
+    /*
+     * A fullmakt names two people and both of them have an art. 15 interest in
+     * it: the member gave their vote away and the ombud carried somebody else's.
+     * The fixture puts this person on one side of one appointment and the other
+     * side of another, so a section that answered for one role would print one
+     * row and look complete.
+     *
+     * The counterpart is asserted as the identifier it is. Naming them would put
+     * a third party's name on a document the association hands over, which is
+     * the reading art. 15(4) forces and the same one the audit log's two person
+     * columns are printed under.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const proxies = within(sectionOf("Fullmakter till ombud"));
+    expect(proxies.getByText("Lämnade fullmakt")).not.toBeNull();
+    expect(proxies.getByText("Hade fullmakt")).not.toBeNull();
+    expect(proxies.getByText("person-erik")).not.toBeNull();
+    expect(proxies.getByText("person-nils")).not.toBeNull();
+    expect(proxies.getByText("Make, maka eller sambo")).not.toBeNull();
+    expect(proxies.getByText("2026-05-02")).not.toBeNull();
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

@@ -14,6 +14,11 @@ import { mediaUrl, MediaService } from "../media/media.service";
 import { normalizePhone } from "../crypto/personal-data";
 import { I18nService } from "../i18n/i18n.service";
 import {
+  isWritableProxyLimit,
+  type MeetingBylaws,
+  readMeetingBylaws,
+} from "../meetings/meeting-bylaws";
+import {
   isWritableDeadline,
   type MotionDeadline,
   readMotionDeadline,
@@ -48,7 +53,8 @@ export class SettingsError extends DomainError {
       | "person-not-found"
       | "no-email"
       | "no-phone"
-      | "motion-deadline-not-a-date",
+      | "motion-deadline-not-a-date"
+      | "proxy-limit-out-of-range",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
@@ -171,6 +177,22 @@ export interface InstanceSettings {
    * and a cooperative whose bylaws are silent has none.
    */
   motionDeadline: MotionDeadline | null;
+  /**
+   * What the bylaws say about the general meeting, in the four places BRL 9 kap.
+   * 14 § leaves the rule to them.
+   *
+   * Never null, unlike the deadline above, and the difference is the statute
+   * rather than a modelling choice: each of these four clauses has a rule that
+   * applies unless the bylaws displace it, so an association that has recorded
+   * nothing is under the statute rather than half-configured. See
+   * `meetings/meeting-bylaws.ts`, which also says why two of the four are checked
+   * when a proxy is registered while two are stated for the board to apply in the
+   * room.
+   *
+   * Read with association:read, like the deadline, because the board answers for
+   * its own bylaws and has to be able to see what the instance believes they say.
+   */
+  meetingBylaws: MeetingBylaws;
 }
 
 export interface HousingCooperativeInput {
@@ -280,6 +302,7 @@ export class SettingsService {
         publicFormEnabled: association.issueReportingPublic,
       },
       motionDeadline: readMotionDeadline(association),
+      meetingBylaws: readMeetingBylaws(association),
     };
   }
 
@@ -785,6 +808,57 @@ export class SettingsService {
         : `Motion deadline set to ${String(stored.month)}-${String(stored.day)}`,
     );
     return { motionDeadline: stored };
+  }
+
+  /**
+   * Records what the bylaws say about the general meeting.
+   *
+   * Transcribed rather than decided, like the motion deadline above, and with one
+   * difference that matters: there is nothing to clear. Every one of these four
+   * clauses has a statutory rule that applies unless the bylaws displace it, so
+   * an association undoing a clause is recording the statute rather than removing
+   * a value - which is why the input is total and carries no nulls.
+   *
+   * The proxy limit is refused outside the range a clause could name. Zero would
+   * refuse every proxy EFL 6 kap. 4 § permits, and a figure in the thousands is a
+   * mis-key rather than a limit anybody is applying. The database checks the same
+   * range; the reason for checking it here as well is that this can say which
+   * setting was wrong and SQLSTATE 23514 cannot.
+   *
+   * Two of the four are enforced by the meetings module and two are not, and this
+   * write makes no distinction between them: what the association's bylaws say is
+   * the same kind of fact either way, and which of them the platform can act on
+   * is `meetings/meeting-bylaws.ts`'s business rather than this one's.
+   */
+  async updateMeetingBylaws(
+    input: MeetingBylaws,
+  ): Promise<{ meetingBylaws: MeetingBylaws }> {
+    await this.requireAssociation();
+
+    if (!isWritableProxyLimit(input.maxMembersPerProxyHolder)) {
+      throw new SettingsError(
+        "That is not a number of members a bylaws clause could name.",
+        "proxy-limit-out-of-range",
+      );
+    }
+
+    const association = await this.prisma.association.update({
+      where: { id: 1 },
+      data: {
+        bylawsWidenProxyHolderEligibility: input.proxyHolderEligibilityWidened,
+        bylawsMaxMembersPerProxyHolder: input.maxMembersPerProxyHolder,
+        bylawsLimitStorageOnlyVote: input.storageOnlyVoteLimited,
+        bylawsWidenAssistantEligibility: input.assistantEligibilityWidened,
+      },
+    });
+
+    const stored = readMeetingBylaws(association);
+    // The clause that is a number, because it is the one whose effect a board
+    // reads back. The three flags are in the response.
+    this.logger.log(
+      `Meeting bylaws recorded; one ombud may represent ${String(stored.maxMembersPerProxyHolder)} members`,
+    );
+    return { meetingBylaws: stored };
   }
 
   /** The signed-in person's own preferences. Reached with self:manage. */

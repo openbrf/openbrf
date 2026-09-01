@@ -286,7 +286,15 @@ export type ReportAuditAction =
   | "EVENT_SIGNUP_WITHDRAWN"
   | "REGISTER_REPORT_OBLIGATION_RECORDED"
   | "REGISTER_REPORT_MADE"
-  | "REGISTER_INITIAL_SUPPLY_EXPORTED";
+  | "REGISTER_INITIAL_SUPPLY_EXPORTED"
+  | "MEETING_ARRANGED"
+  | "MEETING_HELD"
+  | "MEETING_AGENDA_SET"
+  | "MEETING_ATTENDANCE_RECORDED"
+  | "MEETING_ATTENDANCE_WITHDRAWN"
+  | "MEETING_PROXY_REGISTERED"
+  | "MEETING_PROXY_WITHDRAWN"
+  | "MEETING_DECISION_RECORDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -517,6 +525,58 @@ export interface DataSubjectReport {
     hidden: boolean;
     writtenAt: string;
     erasableFrom: string | null;
+  }[];
+  /**
+   * Lines on which this person was recorded as present at a general meeting.
+   *
+   * Not one of the four sections above: this one states no erasure date, and the
+   * absence is an answer rather than a missing column. Nothing purges a line of
+   * the meeting's record - the voting roll (rostlangd) is taken into or appended
+   * to the protokoll under EFL 6 kap. 39 §, which 40 § has kept safely - so it
+   * belongs with the statutory register sections, kept because the law requires
+   * the record and printed because exemption from erasure is not exemption from
+   * access.
+   *
+   * One row per capacity and not per meeting: a member arriving with a
+   * neighbour's fullmakt is on one list as a member and as an ombud, with two
+   * votes and one body.
+   *
+   * `withdrawnAt` says the board struck the line off again, which is a different
+   * fact from never having been recorded.
+   */
+  meetingAttendances: {
+    attendanceId: string;
+    meetingHeldOn: string;
+    meetingKind: "ORDINARY" | "EXTRAORDINARY";
+    capacity: "MEMBER" | "PROXY_HOLDER" | "ASSISTANT";
+    mode: "IN_PERSON" | "REMOTE";
+    /** An identifier and never a name: a third party on a handed-over document. */
+    onBehalfOfPersonId: string | null;
+    withdrawnAt: string | null;
+  }[];
+  /**
+   * Written authorities for an ombud (fullmakt) naming this person, on either
+   * side of them.
+   *
+   * `role` says which side, exactly as it does on the audit entries below and for
+   * the same reason: an appointment names the member who gave their vote away and
+   * the ombud who held it, and those are two different facts about two different
+   * people. A report answering for only one of the roles would leave an ombud
+   * unable to see that the association holds a record of them carrying a
+   * neighbour's vote.
+   *
+   * States no erasure date, for the reason the attendance section above gives.
+   */
+  proxyAppointments: {
+    appointmentId: string;
+    meetingHeldOn: string;
+    meetingKind: "ORDINARY" | "EXTRAORDINARY";
+    role: "member" | "proxyHolder";
+    /** An identifier and never a name, like the attendance section above. */
+    counterpartPersonId: string;
+    ground: "MEMBER" | "SPOUSE_OR_COHABITANT" | "BYLAWS";
+    authorisedOn: string;
+    withdrawnAt: string | null;
   }[];
   auditEntries: {
     entryId: string;

@@ -62,6 +62,12 @@ describe("board member", () => {
     "bookings:configure",
     "events:manage",
     "events:attend",
+    // Arranging the general meeting and keeping its record. The board calls the
+    // meeting (EFL 6 kap. 16 §), the board's chair or whoever it appointed opens
+    // it (26 §), the voting roll is drawn up by whoever opened it or by the chair
+    // the meeting elected (27 §), and the chair sees that a protokoll is kept
+    // (39 §).
+    "meetings:manage",
     // Answering a notice about the house is part of living in it, and a board
     // member lives here too. Moderating one of those answers is site:manage,
     // which the board already holds for publishing in the cooperative's name.
@@ -136,6 +142,10 @@ describe("property manager", () => {
     // contractor neither puts one nor reads the queue they arrive in.
     "motions:submit",
     "motions:handle",
+    // Nor the general meeting those motions go to. The members' decisions about
+    // their own association are no part of a contractor's work, and the list of
+    // who was in the room is resident data they have no business reading.
+    "meetings:manage",
     // Nor the event calendar. Arranging what the association does is the
     // board's, and putting a name down for the cleaning day is a resident's -
     // a place taken by an external contractor is a place taken from a
