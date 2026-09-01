@@ -302,17 +302,20 @@ non-goal: page titles, and no sitemap or metadata machinery.
       it opens page editing today; the menu and news editors below are the
       later work it will also cover. Site-wide settings stay with an admin
 - [x] The remaining insertable data blocks: document list, board roster,
-      association facts and FAQ. The news teaser and the two form blocks arrive
-      with the features below; these four are the ones that need no feature of
-      their own, only the block and its rendering. A document list follows the
+      association facts and FAQ. These four are the ones that need no feature
+      of their own, only the block and its rendering. The news teaser and the
+      two form blocks render and are validated but no screen offers them yet:
+      placing one belongs to the screen that owns the feature rather than to
+      the page editor, and that half has not been built, so today only a direct
+      call to the API can put one on a page. A document list follows the
       archive's own audience for whoever is reading, per document and per
       reader: a visitor with no account is shown the public shelf, somebody
       signed in is shown what their own account may open as well, and the
-      board's shelf is on no page at all. A board roster names the people who have given a publication
-      consent for exactly that, and never anybody carrying protected personal
-      data. The facts are the ones the broker information page is generated
-      from, rendered by the same code, and the FAQ is the board's own writing
-      carried in the block itself
+      board's shelf is on no page at all. A board roster names the people who
+      have given a publication consent for exactly that, and never anybody
+      carrying protected personal data. The facts are the ones the broker
+      information page is generated from, rendered by the same code, and the
+      FAQ is the board's own writing carried in the block itself
 - [x] Menu editor: top level plus one dropdown level; pages, generated pages
       and external links. The menu is also the ordering of the site - its
       first page entry is the front page, so there is no separate home-page
