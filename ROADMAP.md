@@ -518,15 +518,15 @@ change it.
       joint holders of one apartment share it and a move-out bites on the day it
       says. A resident's calendar shows free, booked, their own or gone, and
       never who holds an hour; seeing that, and cancelling on somebody's behalf,
-      is the board's own capability. A booking is confirmed by email, and a
-      household is told when somebody else cancelled one - each in the
-      recipient's own language, and sent after the booking has committed, so a
-      mail server that is down cannot refuse a booking that was made. Bookings
-      are in the data subject access report and are erased on the retention
-      policy's clock, with a legal hold stopping it. Driven end to end through a
-      browser against the production image, including the refusal a second
-      household reads when it loses the hour and the allowance shared across one
-      household
+      is the board's own capability. A booking is confirmed by email to the
+      resident who made it, and that resident is told when somebody else
+      cancelled it - each in their own language, and sent after the booking has
+      committed, so a mail server that is down cannot refuse a booking that was
+      made. Bookings are in the data subject access report and are erased on the
+      retention policy's clock, with a legal hold stopping it. Driven end to end
+      through a browser against the production image, including the refusal a
+      second household reads when it loses the hour and the allowance shared
+      across one household
 - [ ] Event calendar with sign-ups
   - Landed: the event series the board arranges, with its category, its
     location and its sign-up settings; the recurrence rule - weekly,

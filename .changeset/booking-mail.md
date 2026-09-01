@@ -3,19 +3,19 @@
 "@openbrf/i18n": minor
 ---
 
-Confirm a booking by email, and tell a household when somebody else cancelled
-one.
+Confirm a booking by email, and tell the resident who made one when somebody
+else cancelled it.
 
-Two templates, in the recipient's own language. The confirmation goes to whoever
-made the booking, which the pilot wants weekly for the guest apartment and the
-common room, where a claim is made days ahead and the message is what the
-household keeps. The cancellation goes out only when the cancellation was not
-the recipient's own act: a resident who pressed cancel is telling themselves,
-while a household whose guest apartment the board took away has no other way to
-find out before they open the calendar - which may be after the visitors have
-arrived. The test is the actor against the person who booked, not which of the
-two routes was used, so a board member cancelling their own booking through the
-board's half writes to nobody.
+Two templates, both addressed to the resident who made the booking and to nobody
+else, in that resident's own language. The confirmation is what the pilot wants
+weekly for the guest apartment and the common room, where a claim is made days
+ahead and the message is what the resident keeps. The cancellation goes out only
+when the cancellation was not their own act: a resident who pressed cancel is
+telling themselves, while a resident whose guest apartment the board withdrew
+has no other way to find out before they open the calendar - which may be after
+the visitors have arrived. The test is the actor against the person who booked,
+not which of the two routes was used, so a board member cancelling their own
+booking through the board's half writes to nobody.
 
 Each message states the period in the terms its resource is booked in: a laundry
 hour as a date and two times, a common room as a date, a guest apartment as a
