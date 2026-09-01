@@ -126,9 +126,10 @@ function nextForwardedFor(): string {
   ipCounter += 1;
   const host = ipCounter % 254;
   const subnet = Math.floor(ipCounter / 254) % 254;
-  // 10.32.0.0/16 is this suite's; the others each hold their own second octet,
-  // and 10.30 and 10.31 are the event and motion suites'.
-  return `10.32.${String(subnet)}.${String(host + 1)}`;
+  // 10.34.0.0/16 is this suite's; the others each hold their own second octet,
+  // with 10.30 the event series suite, 10.31 motions, 10.32 the registers
+  // and 10.33 event sign-ups.
+  return `10.34.${String(subnet)}.${String(host + 1)}`;
 }
 
 function inject(options: {
