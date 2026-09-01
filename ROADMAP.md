@@ -527,7 +527,7 @@ change it.
       through a browser against the production image, including the refusal a
       second household reads when it loses the hour and the allowance shared
       across one household
-- [ ] Event calendar with sign-ups
+- [x] Event calendar with sign-ups
   - Landed: the event series the board arranges, with its category, its
     location and its sign-up settings; the recurrence rule - weekly,
     monthly or annual, with an interval and an end it has to state - and
@@ -556,8 +556,17 @@ change it.
     on the calendar for nobody, an event kept for the members answered
     signed-out with the website's own not-found document byte for byte, how
     many places are gone beside a date and never who has them, and a
-    calendar block the board can put on a page it writes
-  - Pending: the end-to-end suite
+    calendar block the board can put on a page it writes; and the end-to-end
+    suite that drives all of it through a browser against the production
+    image - the board publishing one event to the street and one to the
+    members from one field whose default is the members, a place taken and
+    given up again with the row read again from the instance between the two
+    acts, the last place going while somebody is looking at it and the count
+    they are looking at catching up in the same breath, the roll-call naming
+    who is coming and never the person carrying protected personal data, and
+    the street reading the public date on a page that runs no script, sets no
+    cookie and asks no other company for a byte, while the members' event at
+    its own address is answered as nothing at all
 
 **Later, still free and in the core**
 
