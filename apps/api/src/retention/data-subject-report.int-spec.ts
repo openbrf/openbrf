@@ -27,9 +27,9 @@ import type { DataSubjectReport } from "./data-subject-report";
  * about me", and an answer that quietly omits a table is worse than no answer,
  * because nobody reading it can tell. So the fixture puts something in every
  * store the product has - both register tiers, an account, a consent, a hold,
- * an issue, an archived document, a booking, a sign-up to one of the
- * association's own dates, a comment on a news item and an audit trail - and
- * each section is asserted to have found it.
+ * an issue, an archived document, a booking, a motion to the general meeting, a
+ * sign-up to one of the association's own dates, a comment on a news item and
+ * an audit trail - and each section is asserted to have found it.
  *
  * The gate. This is the one endpoint that decrypts a personal identity number,
  * so the capability that opens it is checked as four different callers rather
@@ -80,6 +80,19 @@ const bookingEndedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 const bookingStartedAt = new Date(
   bookingEndedAt.getTime() - 2 * 60 * 60 * 1000,
 );
+
+/**
+ * When the fixture's two motions were put to the board, and when the board
+ * closed the first of them.
+ *
+ * A week back rather than two years, for the reason the booking's own dates are
+ * a week back: a motion is erased on its own clock two years after it was
+ * closed, and a fixture dated from the far side of that window would survive or
+ * vanish depending on which suite ran first.
+ */
+const motionSubmittedAt = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+const motionClosedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+const openMotionSubmittedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
 
 /**
  * When the fixture cleaning day ran, and when the subject stood down from it.
@@ -536,6 +549,34 @@ beforeAll(async () => {
     },
   });
 
+  /*
+   * A motion the board has received and one still with it. Two rows because
+   * this section states a date per row and the open one has none to state: a
+   * motion the association is still working on has no closing date to count
+   * from, and a report that gave it one would name a day nothing is going to
+   * happen on.
+   */
+  await prisma.motion.createMany({
+    data: [
+      {
+        title: `Laddstolpar i garaget ${suffix}`,
+        body: "Foreningen bor utreda vad laddstolpar skulle kosta.",
+        submittedByPersonId: subject.personId,
+        submittedAt: motionSubmittedAt,
+        status: "ACKNOWLEDGED",
+        closedAt: motionClosedAt,
+        closedByPersonId: board.personId,
+      },
+      {
+        title: `Cykelstall pa innergarden ${suffix}`,
+        body: "Foreningen bor satta upp fler cykelstall.",
+        submittedByPersonId: subject.personId,
+        submittedAt: openMotionSubmittedAt,
+        status: "SUBMITTED",
+      },
+    ],
+  });
+
   await prisma.event.create({
     data: {
       id: eventId,
@@ -672,6 +713,10 @@ afterAll(async () => {
         () =>
           prisma.bookableResource.deleteMany({
             where: { id: bookableResourceId },
+          }),
+        () =>
+          prisma.motion.deleteMany({
+            where: { submittedByPersonId: { in: personIds } },
           }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
         () => prisma.mediaFile.deleteMany({ where: { id: mediaFileId } }),
@@ -944,6 +989,52 @@ describe("what the report contains", () => {
      * defer that date, never bring it forward.
      */
     expect(report.retention.onLegalHold).toBe(true);
+  });
+
+  it("lists the motions, and states an erasure date only for the closed one", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.motions).toHaveLength(2);
+    const closed = report.motions.find((motion) => motion.closedAt !== null);
+    const open = report.motions.find((motion) => motion.closedAt === null);
+
+    expect(closed?.title).toBe(`Laddstolpar i garaget ${suffix}`);
+    /*
+     * The body, whole, as the news comments below carry theirs: a motion is what
+     * a member proposed in their own words, and a section that summarised it
+     * would be the association paraphrasing somebody back to themselves.
+     */
+    expect(closed?.body).toBe(
+      "Foreningen bor utreda vad laddstolpar skulle kosta.",
+    );
+    expect(closed?.status).toBe("ACKNOWLEDGED");
+    expect(closed?.submittedAt).toBe(motionSubmittedAt.toISOString());
+    expect(closed?.closedAt).toBe(motionClosedAt.toISOString());
+
+    /*
+     * The motion's own retention date, two years after it was closed, and not
+     * the one at the foot of the document - a motion goes on its own clock
+     * whether or not whoever submitted it still lives here. Stated as the
+     * earliest date the purge can reach the row, because this fixture's subject
+     * is under a standing legal hold and nothing of theirs is being erased at
+     * all until the board releases it. `report.retention.onLegalHold` is
+     * asserted with the bookings above, in the same place this document answers
+     * it.
+     */
+    const expected = new Date(
+      motionClosedAt.getTime() + 730 * 24 * 60 * 60 * 1000,
+    );
+    expect(closed?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+
+    /*
+     * And no date at all for the one the board still holds. There is no closing
+     * date to count from, and the association is still processing it, so the
+     * purpose the row is held for has not ended: a date here would tell its
+     * subject that something is due to be erased when nothing is.
+     */
+    expect(open?.title).toBe(`Cykelstall pa innergarden ${suffix}`);
+    expect(open?.status).toBe("SUBMITTED");
+    expect(open?.erasableFrom).toBeNull();
   });
 
   it("lists the event sign-ups with the withdrawal and the association's own day", async () => {

@@ -59,6 +59,17 @@ export type Target = Where & {
    * one at the top" rather than leaving the entry to fail on the ambiguity.
    */
   readonly first?: true;
+  /**
+   * Look only inside the settings card whose level-2 heading reads exactly this.
+   *
+   * The settings screen carries every card on one route, so a name that belongs
+   * to a card is not a name that belongs to the screen: seven cards offer a
+   * "Spara" and two hold a field whose label begins "Dag". Naming the card is
+   * what a person does when they read the screen, and it is the difference
+   * between an entry that fills its own field and one that fills a setting in
+   * somebody else's card.
+   */
+  readonly within?: string;
 };
 
 /**
@@ -144,6 +155,15 @@ const MOTION = {
   deadlineMonth: "1",
   deadlineDay: "31",
 } as const;
+
+/**
+ * The settings card the deadline is recorded in, named once.
+ *
+ * Its own name because the entry below states it four times: the card is what
+ * the two fields and the save are looked for inside, since every other card on
+ * that route offers a save of its own.
+ */
+const MOTION_DEADLINE_CARD = "Sista dag för motioner";
 
 /**
  * The laundry room the booking screens are photographed against.
@@ -930,15 +950,31 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/settings"),
     prepare: [
-      { see: { panel: "Sista dag för motioner" } },
-      { fill: { label: "Månad" }, value: MOTION.deadlineMonth },
-      { fill: { label: "Dag" }, value: MOTION.deadlineDay },
-      { click: { button: "Spara" } },
+      { see: { panel: MOTION_DEADLINE_CARD } },
+      {
+        fill: { label: "Månad", within: MOTION_DEADLINE_CARD },
+        value: MOTION.deadlineMonth,
+      },
+      {
+        fill: { label: "Dag", within: MOTION_DEADLINE_CARD },
+        value: MOTION.deadlineDay,
+      },
+      { click: { button: "Spara", within: MOTION_DEADLINE_CARD } },
     ],
-    // The outcome of the save, which arrives with the response rather than with
-    // the click - so the card is photographed holding what is now stored.
-    waitFor: { text: "Sparat" },
-    capture: { panel: "Sista dag för motioner" },
+    /*
+     * The card, which this route renders only once the stored settings have
+     * arrived - and the fills above have already proved that they did.
+     *
+     * Not the confirmation beside it. That is a state the card leaves the moment
+     * the settings it saved arrive again, so whether it is still up is a race
+     * with a read that answers in a few hundred milliseconds; the settling wait
+     * puts the picture after that read either way, which is what makes the two
+     * images of this card the same on a rerun. Whether the clause was really
+     * stored is asserted on the member's own screen below, where a date computed
+     * from it is the first thing the entry looks for.
+     */
+    waitFor: { panel: MOTION_DEADLINE_CARD },
+    capture: { panel: MOTION_DEADLINE_CARD },
   },
   {
     /*
@@ -953,6 +989,13 @@ export const SCREENS: readonly Screen[] = [
     as: "member",
     goto: appPath("/motions"),
     prepare: [
+      /*
+       * The clause the entry above recorded, read from the side that depends on
+       * it. The date in this sentence is computed from the deadline rather than
+       * echoed back, so a save that did not land shows up here - one screen
+       * after the card that made it, and before anything is put to the meeting.
+       */
+      { see: { text: /senast \d{4}-01-31/ } },
       { fill: { label: "Vad du föreslår, på en rad" }, value: MOTION.title },
       { fill: { label: "Förslaget" }, value: MOTION.body },
       { click: { button: "Skicka motionen" } },

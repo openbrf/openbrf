@@ -4,6 +4,7 @@ import { relative, resolve } from "node:path";
 import type {
   APIRequestContext,
   BrowserContext,
+  Cookie,
   Locator,
   Page,
 } from "@playwright/test";
@@ -98,10 +99,14 @@ const PERSONAS: Readonly<
  * Better Auth rate-limits its endpoints to twenty requests a minute per client
  * and identifies the client by X-Forwarded-For, because a deployed instance
  * sits behind a reverse proxy that sets it. One walk visits every screen and
- * signs in as two different people, which is more than one client's allowance,
- * and the refusal arrives as an ordinary failed sign-in. Separating them is not
- * a way around the limit: these are different members of the housing
- * cooperative, each at home, which is what the instance would really see.
+ * signs in as three different people, so one address between them would spend
+ * one person's allowance on another's sign-ins, and the refusal arrives as an
+ * ordinary failed sign-in. Separating them is not a way around the limit: these
+ * are different members of the housing cooperative, each at home, which is what
+ * the instance would really see.
+ *
+ * Keeping each of them inside their own allowance is a separate matter, and it
+ * is what the sessions and the pacing below are for.
  */
 const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
   nobody: "10.40.0.1",
@@ -109,6 +114,38 @@ const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
   resident: "10.40.0.3",
   member: "10.40.0.4",
 };
+
+/**
+ * What one client may spend on the instance's own auth endpoints, and how long
+ * it has to be quiet before it may spend again.
+ *
+ * `auth-options.ts` sets both. Every request to one of those endpoints counts
+ * against them - a sign-in, and the session check the client makes each time a
+ * page loads, which is what every screen here pays - and the request past the
+ * allowance is answered with a refusal the client reads as "no session": the
+ * screen goes to the sign-in form, and the entry then fails on a control that is
+ * not on it. The administrator alone spends about twenty on a walk this long.
+ *
+ * A walk photographs sixty screens in well under a minute, which is more of the
+ * application than a board member opens in a minute, so it spends one person's
+ * allowance at a pace no person keeps and has to wait for it where a person
+ * never would. The two alternatives - a higher limit on every instance, or
+ * several addresses for one member - both change what a real association gets so
+ * that a capture can pass.
+ *
+ * Written out here rather than read from the API's configuration: the capture
+ * addresses the deployed image over HTTP and shares no code with it.
+ */
+const AUTH_ALLOWANCE = { requests: 20, quietSeconds: 60 } as const;
+
+/**
+ * How much of the allowance the screen about to be reached may still need, and
+ * therefore how far short of the limit the walk stops.
+ *
+ * A page load costs a session check or two, and the first screen an actor
+ * appears on costs a sign-in and the checks around it as well.
+ */
+const ALLOWANCE_FOR_ONE_SCREEN = 6;
 
 // --- the register the walk photographs ---------------------------------------
 
@@ -205,31 +242,43 @@ function startsWith(value: string | RegExp): RegExp {
     : value;
 }
 
-function matching(page: Page, target: Target): Locator {
+/**
+ * A settings card, found through its heading and then walked up to the section
+ * that holds it: the card carries no accessible name of its own.
+ */
+function panelOf(where: Page | Locator, title: string): Locator {
+  return where
+    .getByRole("heading", { name: title, exact: true, level: 2 })
+    .locator("xpath=ancestor::section[1]");
+}
+
+/**
+ * Where a target is looked for: the page, or one card on it.
+ *
+ * A page and a locator are asked in the same words, which is what lets an entry
+ * name a card and change nothing else about how it is written.
+ */
+function matching(where: Page | Locator, target: Target): Locator {
   if ("heading" in target) {
-    return page.getByRole("heading", nameOf(target.heading));
+    return where.getByRole("heading", nameOf(target.heading));
   }
   if ("button" in target) {
-    return page.getByRole("button", nameOf(target.button));
+    return where.getByRole("button", nameOf(target.button));
   }
   if ("combobox" in target) {
     // Named through its label like any other field, and a label that wraps a
     // select carries every option's text as well.
-    return page.getByRole("combobox", { name: startsWith(target.combobox) });
+    return where.getByRole("combobox", { name: startsWith(target.combobox) });
   }
   if ("label" in target) {
-    return page.getByLabel(startsWith(target.label));
+    return where.getByLabel(startsWith(target.label));
   }
   if ("text" in target) {
-    return page.getByText(target.text, {
+    return where.getByText(target.text, {
       exact: typeof target.text === "string",
     });
   }
-  // A settings card carries no accessible name of its own, so it is found
-  // through its heading and then walked up to the section that holds it.
-  return page
-    .getByRole("heading", { name: target.panel, exact: true, level: 2 })
-    .locator("xpath=ancestor::section[1]");
+  return panelOf(where, target.panel);
 }
 
 /**
@@ -238,7 +287,10 @@ function matching(page: Page, target: Target): Locator {
  * fails rather than photographing whichever one came first.
  */
 function locate(page: Page, target: Target): Locator {
-  const found = matching(page, target);
+  const found = matching(
+    target.within === undefined ? page : panelOf(page, target.within),
+    target,
+  );
   return target.first === true ? found.first() : found;
 }
 
@@ -343,19 +395,103 @@ test("captures every declared screen in light and dark", async ({
   await mkdir(OUTPUT_DIR, { recursive: true });
 
   /**
+   * The session cookies of everyone who has signed in, kept for the whole walk.
+   *
+   * One sign-in per person, not one per screen they appear on. The walk returns
+   * to the administrator a dozen times, and signing in again each time spends
+   * that client's allowance on credentials the instance has already accepted -
+   * every request to an auth endpoint counts against the same twenty, and each
+   * screen already spends one of them checking who is signed in. Handing the
+   * cookie back costs none.
+   *
+   * The cookies alone, and deliberately not the whole storage state: a restored
+   * local storage would carry a theme preference from the screen before it, and
+   * every screen here is photographed as a viewer whose computer chooses the
+   * mode.
+   */
+  const sessions = new Map<Actor, Cookie[]>();
+
+  /**
+   * What each person's client has spent of its auth allowance, and when it last
+   * spent something.
+   *
+   * Kept per person rather than per browser, because the instance counts per
+   * client: a context that is closed and opened again is the same member at the
+   * same address, and the allowance it comes back to is the one it left. Counted
+   * across the auth endpoints together where the instance counts each of them
+   * on its own, which makes the walk wait a little sooner than it strictly has
+   * to - the error the other way round is a walk that stops on a refusal.
+   */
+  const spent = new Map<Actor, { requests: number; at: number }>();
+
+  /**
    * A browser for one person.
    *
    * Built here rather than taken from the suite's `page` fixture, which makes
    * its context by hand and would drop everything in BROWSER. One per person as
-   * well as one per set of options: a new context arrives with no cookies, so
-   * the session that came before it is gone by construction.
+   * well as one per set of options, and it arrives with that person's session
+   * and nothing else - "nobody" has none stored, so a visitor is a visitor by
+   * construction.
    */
-  const openContextFor = async (actor: Actor): Promise<BrowserContext> =>
-    browser.newContext({
+  const openContextFor = async (actor: Actor): Promise<BrowserContext> => {
+    const opened = await browser.newContext({
       ...BROWSER,
       baseURL: stack.baseUrl,
       extraHTTPHeaders: { "x-forwarded-for": CLIENT_ADDRESS[actor] },
+      storageState: { cookies: sessions.get(actor) ?? [], origins: [] },
     });
+    // Counted from what the instance answered rather than from what the walk
+    // meant to ask for: the session checks are the client's own, and nothing
+    // here would otherwise know how many it had made.
+    opened.on("response", (response) => {
+      if (!new URL(response.url()).pathname.startsWith("/api/auth/")) {
+        return;
+      }
+      const before = spent.get(actor);
+      spent.set(actor, {
+        requests: (before?.requests ?? 0) + 1,
+        at: Date.now(),
+      });
+    });
+    return opened;
+  };
+
+  /**
+   * Waits until a person's client may spend again, and only when it must.
+   *
+   * Asked before every screen rather than only before the ones that navigate: a
+   * `prepare` step that opens a person or a card reaches a guarded route too, so
+   * a screen with no `goto` of its own can still spend.
+   *
+   * The window rolls forward from the last request rather than from the first,
+   * so the wait is measured from the last one seen and taken again if anything
+   * arrives while it runs: a page left open can still ask.
+   */
+  const waitForAllowance = async (actor: Actor): Promise<void> => {
+    for (;;) {
+      const used = spent.get(actor);
+      if (
+        used === undefined ||
+        used.requests <= AUTH_ALLOWANCE.requests - ALLOWANCE_FOR_ONE_SCREEN
+      ) {
+        return;
+      }
+
+      const quietFor = Date.now() - used.at;
+      const windowMs = AUTH_ALLOWANCE.quietSeconds * 1000;
+      if (quietFor >= windowMs) {
+        // The instance has forgotten what this client spent, so the walk may.
+        spent.set(actor, { requests: 0, at: used.at });
+        return;
+      }
+
+      const remaining = windowMs - quietFor;
+      console.log(
+        `  ${actor} waits ${String(Math.ceil(remaining / 1000))}s for its auth allowance`,
+      );
+      await new Promise((done) => setTimeout(done, remaining));
+    }
+  };
 
   let context = await openContextFor("nobody");
   let page = await context.newPage();
@@ -396,25 +532,32 @@ test("captures every declared screen in light and dark", async ({
     context = await openContextFor(wanted);
     page = await context.newPage();
 
-    if (wanted === "administrator") {
-      await signIn(page, ADMINISTRATOR);
-    } else if (wanted !== "nobody") {
-      const persona = PERSONAS[wanted];
-      const personId = ids?.get(persona.name);
-      expect(personId, `${persona.name} is in the register`).toBeDefined();
-      await ensureAccountFor(request, {
-        personId: personId!,
-        email: persona.email,
-        password: persona.password,
-        clientAddress: CLIENT_ADDRESS[wanted],
-      });
-      await signIn(page, persona);
+    // Only the first time each of them appears. Every screen naming an actor
+    // navigates for itself, so a returning one needs nothing beyond the session
+    // the context above was opened with.
+    if (wanted !== "nobody" && !sessions.has(wanted)) {
+      if (wanted === "administrator") {
+        await signIn(page, ADMINISTRATOR);
+      } else {
+        const persona = PERSONAS[wanted];
+        const personId = ids?.get(persona.name);
+        expect(personId, `${persona.name} is in the register`).toBeDefined();
+        await ensureAccountFor(request, {
+          personId: personId!,
+          email: persona.email,
+          password: persona.password,
+          clientAddress: CLIENT_ADDRESS[wanted],
+        });
+        await signIn(page, persona);
+      }
+      sessions.set(wanted, (await context.storageState()).cookies);
     }
     signedInAs = wanted;
   };
 
   try {
     for (const screen of SCREENS) {
+      await waitForAllowance(screen.as ?? signedInAs);
       await establish(screen.as);
       if (screen.goto !== undefined) {
         await page.goto(screen.goto);
