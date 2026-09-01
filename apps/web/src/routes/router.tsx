@@ -18,6 +18,7 @@ import { ImportRoute } from "./ImportRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { MotionsRoute } from "./MotionsRoute";
+import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
@@ -313,6 +314,24 @@ const motionsRoute = createRoute({
 });
 
 /**
+ * The association's news as the house reads it. Signed in here, capabilities
+ * inside the screen.
+ *
+ * Its own path rather than a screen under the website's administration, because
+ * it is a different audience for a different act: /admin/site/news is the board
+ * writing in the cooperative's name, and this is whoever lives here reading what
+ * was written and answering it. The guard asks only for a session; whether this
+ * account may open a thread is `news:comment`, decided by the API and mirrored
+ * by the screen.
+ */
+const newsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/news",
+  beforeLoad: requireSession,
+  component: NewsReaderRoute,
+});
+
+/**
  * The document archive. A session, and the archive decides the rest.
  *
  * Deliberately no capability in the guard. What a person sees in the archive
@@ -400,6 +419,7 @@ const routeTree = rootRoute.addChildren([
   bookingsRoute,
   eventsRoute,
   motionsRoute,
+  newsRoute,
   documentsRoute,
   newsAdminRoute,
   memberRegisterRoute,

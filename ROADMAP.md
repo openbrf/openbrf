@@ -569,10 +569,20 @@ change it.
       so a thread there would be either anonymous or a login wall on a page
       that promises neither. The board can strike a comment through and cannot
       erase one, because what somebody wrote is a record of what was said.
-      Landed: the schema, the write and read endpoints with the personal
-      identity number guardrail on a resident's own text, moderation, the data
-      subject access report section and the nightly purge with its legal hold.
-      Pending: the reading screen that renders a thread.
+  - [x] Comments on news items: the schema, the endpoints with the personal
+        identity number guardrail on a resident's own text, moderation, the
+        data subject access report section and the nightly purge with its legal
+        hold, and the screen the house reads a notice and its thread on. The
+        capability is a resident's rather than a member's, because answering a
+        notice about the building one lives in is not the statutory right that
+        membership carries. Moderation is the board's own site:manage, because a
+        thread under a notice is part of what the association publishes. A
+        struck comment stays on the thread attributed exactly as before - a
+        person with protected personal data is named to nobody either way - its
+        text withheld from other readers and readable to the board and to
+        whoever wrote it, and the screen renders that answer as the server gives
+        it per reader rather than deciding it in the browser
+  - [ ] Group and board chat
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders

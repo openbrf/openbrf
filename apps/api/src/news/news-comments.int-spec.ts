@@ -25,7 +25,9 @@ import { NewsCommentPurgeService } from "./news-comment-purge.service";
  *
  * That the capability really gates the routes as the class decorators claim -
  * a resident writes and reads, somebody holding neither capability is refused,
- * and nobody at all is refused without a session.
+ * and nobody at all is refused without a session. The list of notices the
+ * application's own reader is offered is one of those routes, and it carries the
+ * identifiers a thread is addressed by, so it is held to the same three answers.
  *
  * That no comment reaches the public website. That is a property of the whole
  * application rather than of one service: the website renders in the same
@@ -109,6 +111,8 @@ const slugs = {
   scanned: `comment-scanned-${suffix}`,
   purged: `comment-purged-${suffix}`,
   held: `comment-held-item-${suffix}`,
+  read: `comment-read-${suffix}`,
+  readDraft: `comment-read-draft-${suffix}`,
 };
 
 /** The name nobody is ever shown. Distinctive, so a leak is unmistakable. */
@@ -666,6 +670,63 @@ describe("a comment is exactly as visible as its news item", () => {
     expect(await prisma.newsComment.count({ where: { newsId: draftId } })).toBe(
       0,
     );
+  });
+
+  it("offers the reader the items whose threads open to them, and no draft", async () => {
+    const newsId = await publishedNews(
+      slugs.read,
+      "MEMBER",
+      "Vi byter porttelefon i mars.",
+    );
+    const draftId = await draftNews(slugs.readDraft, "Inte beslutat an.");
+
+    const read = await inject({
+      method: "GET",
+      url: "/api/news-reader",
+      headers: { cookie: memberCookie },
+    });
+    expect(read.statusCode, read.body).toBe(200);
+    const offered = read.json() as {
+      id: string;
+      title: string;
+      publishedAt: string;
+      content: { blocks: { type: string }[] };
+    }[];
+
+    /*
+     * By identifier rather than by position or by length. The suites in this
+     * directory share one database, so what else is published in it is not this
+     * test's to know - and an assertion on the whole list would fail for the
+     * reason that another suite wrote a notice.
+     */
+    const item = offered.find((one) => one.id === newsId);
+    expect(item?.title).toBe(`Nyhet ${slugs.read}`);
+    expect(item?.publishedAt).not.toBeUndefined();
+    expect(item?.content.blocks).toHaveLength(1);
+
+    /*
+     * The draft is the assertion this test exists for. A comment is exactly as
+     * visible as the item it sits on, so a draft has no thread - and an
+     * identifier on this list is an identifier a reader can ask for a thread on.
+     * Listing one would hand out what the refusal for a draft is written to keep
+     * back: which items the board is working on.
+     */
+    expect(offered.some((one) => one.id === draftId)).toBe(false);
+  });
+
+  it("offers the reader's list to nobody without news:comment, and to nobody at all without a session", async () => {
+    const refused = await inject({
+      method: "GET",
+      url: "/api/news-reader",
+      headers: { cookie: managerCookie },
+    });
+    const anonymous = await inject({ method: "GET", url: "/api/news-reader" });
+
+    // The external property manager holds neither news:comment nor site:manage:
+    // the notices addressed to the house are not theirs to read here, on the
+    // same footing as the thread underneath them.
+    expect(refused.statusCode).toBe(403);
+    expect(anonymous.statusCode).toBe(401);
   });
 });
 

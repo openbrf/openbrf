@@ -20,7 +20,9 @@ import {
  * the refusal for an item that does not exist. Asserted as the reason code and
  * as the write never reaching the table, because a service that refused with the
  * right code after having inserted the row would satisfy a test that only read
- * the error.
+ * the error. The same rule read from the other end is which items a reader is
+ * offered at all, so the reader's list is asserted beside the refusals rather
+ * than on its own: the two answers have to be the same answer.
  *
  * The personal identity number scan, which here protects a member from
  * themselves rather than the association from its board. Asserted on the
@@ -68,6 +70,40 @@ interface PersonFixture {
   protectedPersonalData: boolean;
 }
 
+/**
+ * A news item as the column holds it.
+ *
+ * `content` is unknown rather than a parsed body, because unknown is what the
+ * column is: the reader parses whatever is in there, and a fixture typed as the
+ * parsed shape could not express the case the parser exists for.
+ */
+interface NewsFixture {
+  id: string;
+  slug: string;
+  published: boolean;
+  title: string;
+  content: unknown;
+  publishedAt: Date | null;
+  createdAt: Date;
+}
+
+/** A news item: published, with one paragraph, unless told otherwise. */
+function newsItem(overrides: Partial<NewsFixture> = {}): NewsFixture {
+  return {
+    id: NEWS_ID,
+    slug: "portkoden-byts",
+    published: true,
+    title: "Portkoden byts",
+    content: {
+      version: 1,
+      blocks: [{ type: "paragraph", runs: [{ text: "Vi byter portkod." }] }],
+    },
+    publishedAt: new Date("2026-08-01T08:00:00.000Z"),
+    createdAt: new Date("2026-08-01T07:00:00.000Z"),
+    ...overrides,
+  };
+}
+
 function principal(personId: string, capabilities: Capability[]): Principal {
   return {
     personId,
@@ -90,13 +126,19 @@ function principal(personId: string, capabilities: Capability[]): Principal {
  * item's comments and still look right.
  */
 function build(options: {
-  news?: { id: string; slug: string; published: boolean }[];
+  news?: NewsFixture[];
   comments?: CommentFixture[];
   persons?: PersonFixture[];
 }) {
   const news = options.news ?? [
-    { id: NEWS_ID, slug: "portkoden-byts", published: true },
-    { id: DRAFT_ID, slug: "utkast", published: false },
+    newsItem(),
+    newsItem({
+      id: DRAFT_ID,
+      slug: "utkast",
+      published: false,
+      title: "Utkast",
+      publishedAt: null,
+    }),
   ];
   const comments = [...(options.comments ?? [])];
   const persons = options.persons ?? [];
@@ -148,6 +190,22 @@ function build(options: {
       findUnique: vi.fn(
         async (args: { where: { id: string } }) =>
           news.find((one) => one.id === args.where.id) ?? null,
+      ),
+      /*
+       * The filter and the order are applied rather than assumed, for the reason
+       * the note above gives: a findMany that ignored its `where` would let a
+       * reader's list carry the board's drafts and still pass a test that only
+       * counted the published ones, and one that ignored its `orderBy` would let
+       * the newest-first rule be whatever order the fixture happens to be in.
+       */
+      findMany: vi.fn(async (args: { where: { published: boolean } }) =>
+        news
+          .filter((one) => one.published === args.where.published)
+          .sort(
+            (a, b) =>
+              (b.publishedAt ?? b.createdAt).getTime() -
+              (a.publishedAt ?? a.createdAt).getTime(),
+          ),
       ),
     },
     newsComment: {
@@ -268,6 +326,89 @@ describe("a comment is exactly as visible as its news item", () => {
     // inserted the row and then threw would pass an assertion on the error.
     expect(prisma.newsComment.create).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("offers the reader the published items, newest first, and no draft", async () => {
+    const { service } = build({
+      news: [
+        newsItem({ id: "news-old", slug: "gammal", title: "Gammal nyhet" }),
+        newsItem({
+          id: "news-new",
+          slug: "ny",
+          title: "Ny nyhet",
+          publishedAt: new Date("2026-08-20T08:00:00.000Z"),
+        }),
+        newsItem({
+          id: DRAFT_ID,
+          slug: "utkast",
+          published: false,
+          title: "Utkast",
+          publishedAt: null,
+        }),
+      ],
+    });
+
+    const offered = await service.commentableNews();
+
+    /*
+     * The list and the threads are one rule read twice. Whatever is on this list
+     * has a thread that opens, and the draft that is absent from it is refused as
+     * an item that was never written - so a screen cannot show a notice it cannot
+     * open, and the identifiers of the board's drafts are not on the wire.
+     */
+    expect(offered.map((item) => item.id)).toEqual(["news-new", "news-old"]);
+    expect(offered.map((item) => item.title)).toEqual([
+      "Ny nyhet",
+      "Gammal nyhet",
+    ]);
+  });
+
+  it("hands the reader the prose and never a block a renderer cannot vouch for", async () => {
+    const { service } = build({
+      news: [
+        newsItem({
+          content: {
+            version: 1,
+            blocks: [
+              { type: "heading", level: 2, runs: [{ text: "Ta med" }] },
+              {
+                type: "paragraph",
+                runs: [
+                  { text: "Handskar" },
+                  { text: "och en hink", link: "javascript:alert(1)" },
+                ],
+              },
+              { type: "image", mediaFileId: "file-1", alt: "" },
+            ],
+          },
+        }),
+      ],
+    });
+
+    const [item] = await service.commentableNews();
+
+    /*
+     * The narrowing the website does, done here as well. A news item is an
+     * announcement: a block that reads a picture or a list of other items out of
+     * the database would make one notice a second place where what is disclosed
+     * is decided, and this list is read by a browser that would happily render
+     * whatever href it is handed. The runs are asserted whole rather than their
+     * links alone: a body that kept its link would pass an assertion on the
+     * block types, and one whose prose was emptied on the way out would pass an
+     * assertion on the links.
+     */
+    expect(item?.content.blocks.map((block) => block.type)).toEqual([
+      "heading",
+      "paragraph",
+    ]);
+    const heading = item?.content.blocks[0];
+    expect(heading?.type === "heading" ? heading.runs : undefined).toEqual([
+      { text: "Ta med" },
+    ]);
+    const paragraph = item?.content.blocks[1];
+    expect(
+      paragraph?.type === "paragraph" ? paragraph.runs : undefined,
+    ).toEqual([{ text: "Handskar" }, { text: "och en hink" }]);
   });
 });
 

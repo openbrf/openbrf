@@ -5,6 +5,11 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import {
+  type PageContent,
+  readPageContent,
+  textBlocksOnly,
+} from "../site/page-content";
+import {
   NewsCommentError,
   type NewsCommentTextLocation,
 } from "./news-comment.error";
@@ -102,6 +107,30 @@ export interface NewsCommentView {
   createdAt: string;
 }
 
+/**
+ * One news item, as the application's own reader is shown it.
+ *
+ * The identifier is on it, which the website's own answer deliberately has not
+ * got: a page under /nyheter is addressed by its slug and has nothing to do with
+ * an identifier, while a thread is addressed by the item's id. So this is a
+ * second shape rather than the website's with a field added, and the two stay
+ * apart for the reason the two services do.
+ *
+ * The body travels with the item rather than being fetched per item. A reader
+ * moving down the notices would otherwise pay a request for every one they open,
+ * and the board's own list already answers with every item's body - what a
+ * cooperative writes is bounded by how often a board writes to the house.
+ */
+export interface NewsArticleView {
+  id: string;
+  slug: string;
+  title: string;
+  /** The prose the board wrote, narrowed to what a renderer can vouch for. */
+  content: PageContent;
+  /** ISO instant it was published. */
+  publishedAt: string;
+}
+
 export interface WriteNewsCommentInput {
   newsId: string;
   authorPersonId: string;
@@ -155,6 +184,14 @@ const COMMENT_COLUMNS = {
  * its text is withheld. A board that could erase a comment silently would be
  * worse than one that can only strike it through, because nobody reading the
  * thread afterwards could tell which had happened.
+ *
+ * The news items themselves are read here as well, which is worth an argument
+ * rather than a filing note. They are read here because of the first rule: which
+ * items a reader is offered and which threads open to them are the same question,
+ * and answering it in two services would be two places for one rule to live and
+ * one place for them to disagree. What the screen would then show is a notice it
+ * cannot open a thread on, or a thread on a notice it did not list. So the list
+ * is `commentableNews` rather than "the news", and the name is the argument.
  */
 @Injectable()
 export class NewsCommentService {
@@ -164,6 +201,60 @@ export class NewsCommentService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
   ) {}
+
+  /**
+   * Every news item this reader may open a thread on, newest first.
+   *
+   * Newest first because a reader arriving at the notices is looking for the
+   * latest one, which is the same order the website's index uses and the
+   * opposite of the order inside a thread.
+   *
+   * It takes no principal, and that absence is the visibility rule rather than an
+   * oversight. A comment is exactly as visible as the item it sits on; inside the
+   * application every caller has a session, because the guard rejects the ones
+   * who do not; so what is left of the website's rule here is `published`, and
+   * the answer is therefore the same for every reader who gets this far. A
+   * parameter nothing reads would suggest there is a second case.
+   *
+   * Draft items are absent for that same reason and not as a courtesy: a draft
+   * has no thread at all, and listing one would offer a reader a notice whose
+   * thread is answered exactly as an item that was never written.
+   */
+  async commentableNews(): Promise<NewsArticleView[]> {
+    const rows = await this.prisma.news.findMany({
+      where: { published: true },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        content: true,
+        publishedAt: true,
+        createdAt: true,
+      },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      title: row.title,
+      /*
+       * Narrowed on the way out, exactly as the website narrows it. A body that
+       * reached the column carrying a picture or a block that reads something
+       * else out of the database - written by a newer editor, or by hand - shows
+       * its text and nothing else, and a link whose scheme this platform does not
+       * publish is dropped by the parser rather than by the browser.
+       */
+      content: textBlocksOnly(readPageContent(row.content)),
+      /*
+       * A published item always carries the date. The fallback keeps the type
+       * honest rather than describing a state this query can return: the column
+       * is nullable because an item that has never been published has no date,
+       * and those are filtered out above.
+       */
+      publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
+    }));
+  }
 
   /**
    * The thread on one news item, oldest first.

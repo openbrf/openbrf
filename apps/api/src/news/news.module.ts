@@ -8,12 +8,14 @@ import {
 } from "./news-comment.controller";
 import { NewsCommentService } from "./news-comment.service";
 import { NewsMailerService } from "./news-mailer.service";
+import { NewsReaderController } from "./news-reader.controller";
 import { NewsSmsService } from "./news-sms.service";
 import { NewsWriteService } from "./news-write.service";
 
 /**
  * The association's news: writing it, publishing it, sending it to the members
- * by email and by text message, and the comments the members write back.
+ * by email and by text message, reading it inside the application, and the
+ * comments the members write back.
  *
  * Deliberately not inside src/site, and that placement is the point rather than
  * a filing decision. Reaching the members means decrypting their addresses and
@@ -39,6 +41,7 @@ import { NewsWriteService } from "./news-write.service";
 @Module({
   controllers: [
     NewsAdminController,
+    NewsReaderController,
     NewsCommentController,
     NewsCommentModerationController,
   ],
