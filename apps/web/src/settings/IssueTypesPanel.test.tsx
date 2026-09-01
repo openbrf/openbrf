@@ -14,6 +14,11 @@ import { IssueTypesPanel } from "./IssueTypesPanel";
  * board is the association's own note to itself. So it is on the row, in words,
  * where a board member changing a name cannot move a category between those two
  * without seeing it happen.
+ *
+ * And a read that could not be made says so without a loading line under it. The
+ * notice belongs to the read that produced it: the next read says it is reading
+ * rather than wearing the last one's failure, and a refresh that did not land
+ * leaves the catalogue on screen.
  */
 
 const fetchIssueTypes = vi.fn();
@@ -152,8 +157,13 @@ describe("adding a type", () => {
       });
     });
   });
+});
 
-  it("says so when the catalogue cannot be read", async () => {
+describe("a catalogue that could not be read", () => {
+  const LOAD_FAILED = "Ärendetyperna kunde inte läsas just nu. Ladda om sidan.";
+  const LOADING = "Hämtar typerna...";
+
+  it("says so, and stops saying it is reading", async () => {
     fetchIssueTypes.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
@@ -162,7 +172,94 @@ describe("adding a type", () => {
     render(<IssueTypesPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText(/kunde inte läsas/i)).toBeTruthy();
+      expect(screen.getByText(LOAD_FAILED)).toBeTruthy();
     });
+    // The read is over, so a loading line under the notice would go on saying
+    // something is still happening when nothing is.
+    expect(screen.queryByText(LOADING)).toBeNull();
+    // The form to enter an issue type is still there: nothing about a
+    // catalogue that could not be read stops a board entering the next one.
+    expect(screen.getByRole("button", { name: /lägg till typ/i })).toBeTruthy();
+  });
+
+  it("does not carry the notice into the read an act asks for", async () => {
+    /*
+     * The failure belongs to the read that produced it, and the assertion is
+     * about the moment the next read is in flight - which is the only moment the
+     * two behaviours differ, because a read that lands clears the notice either
+     * way.
+     *
+     * Carried over, the sentence about a catalogue that could not be read would
+     * sit above the read that is happening, and with no list yet the panel would
+     * draw it with no loading line under it and no read left in flight to end
+     * it: a panel that reads as broken rather than as loading.
+     *
+     * So the second read is held open here rather than resolved, and both halves
+     * are asserted while it is: the notice gone, and the panel saying it is
+     * reading.
+     */
+    fetchIssueTypes.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    let answer: (result: unknown) => void = () => undefined;
+    fetchIssueTypes.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+
+    const session = userEvent.setup();
+    render(<IssueTypesPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText(LOAD_FAILED)).toBeTruthy();
+    });
+
+    await session.type(screen.getByLabelText(/^namn$/i), "Tvättstugan");
+    await session.click(screen.getByRole("button", { name: /lägg till typ/i }));
+
+    // The read the add asked for is still open at this point.
+    await waitFor(() => {
+      expect(screen.getByText(LOADING)).toBeTruthy();
+    });
+    expect(screen.queryByText(LOAD_FAILED)).toBeNull();
+
+    // Answered, so the test leaves no read in flight and the catalogue it was
+    // waiting for is what lands.
+    answer({ ok: true, value: [type()] });
+    await waitFor(() => {
+      expect(screen.getByText("Vatten")).toBeTruthy();
+    });
+  });
+
+  it("keeps the catalogue it already has when a re-read of it fails", async () => {
+    // The other half of the same rule, and the reason the outcome is held on the
+    // read rather than as one flag: the rows are still the last thing the server
+    // said, and a refresh that did not land is no reason to take the board's own
+    // catalogue off the screen.
+    const session = userEvent.setup();
+    render(<IssueTypesPanel />);
+    await waitFor(() => {
+      expect(screen.getByText("Vatten")).toBeTruthy();
+    });
+    fetchIssueTypes.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    // The change succeeds; the read it asks for afterwards is what fails.
+    await session.selectOptions(
+      screen.getAllByLabelText(/^erbjuds$/i)[0]!,
+      "NON_MEMBER",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(LOAD_FAILED)).toBeTruthy();
+    });
+    expect(screen.getByText("Vatten")).toBeTruthy();
+    // And no loading line: the read is over, and one under the notice would go
+    // on saying something is still happening.
+    expect(screen.queryByText(LOADING)).toBeNull();
   });
 });

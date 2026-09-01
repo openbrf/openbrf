@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactElement,
-} from "react";
+import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -160,6 +154,33 @@ const EMPTY: Draft = {
 };
 
 /**
+ * One finished read of the catalogue, and which read it answers for.
+ *
+ * The outcome travels here rather than in a flag beside the list. A flag would
+ * have to be cleared as the next read starts, which is a write the reading
+ * effect cannot make, and a notice about a read that is over would otherwise
+ * sit above the read that is happening - with no list for it yet and so no
+ * loading line under it either: a panel that reads as broken rather than as
+ * loading. Held on the record, "did this read fail" is answered by the same
+ * comparison that answers "is this the read the panel is on", and cannot fall
+ * out of step with it.
+ */
+interface Loaded {
+  /** Which read this answers for. */
+  readonly read: number;
+  /**
+   * What the house offers, or null while no read has answered at all.
+   *
+   * Kept through a read that fails: the rows below are forms the board types
+   * in, and taking them away over a refresh that did not land would take what
+   * was typed with them. There is one catalogue, so the last answer about it is
+   * the best there is, whichever read produced it.
+   */
+  readonly resources: readonly BookableResource[] | null;
+  readonly failed: boolean;
+}
+
+/**
  * The catalogue of bookable resources, as the board keeps it.
  *
  * The board names its own, the way it names its issue types: an association
@@ -183,51 +204,63 @@ const EMPTY: Draft = {
  */
 export function BookableResourcesPanel(): ReactElement {
   const { t } = useTranslation();
-  const [resources, setResources] = useState<
-    readonly BookableResource[] | null
-  >(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  /**
+   * Which read the panel is on.
+   *
+   * Every write ends in a read of the catalogue, which is a request the effect
+   * below cannot tell from the read it has already made. This is how it is
+   * told, and it keeps that effect the only thing that reads - so every answer
+   * is dropped once the panel is gone or a later read has superseded it.
+   */
+  const [reads, setReads] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY);
 
-  const read = useCallback(async (): Promise<void> => {
-    const result = await fetchAllBookableResources();
-    if (result.ok) {
-      setResources(result.value);
-      setLoadFailed(false);
-      return;
-    }
-    setLoadFailed(true);
-  }, []);
+  const reread = (): void => {
+    setReads((count) => count + 1);
+  };
 
   useEffect(() => {
     // The effect owns its own call and drops a response that arrives after the
-    // panel is gone. Later reads go through `read`, which the writes below call.
+    // panel is gone, or after a later read superseded it.
     let active = true;
     void fetchAllBookableResources().then((result) => {
       if (!active) {
         return;
       }
-      if (result.ok) {
-        setResources(result.value);
-        setLoadFailed(false);
-      } else {
-        setLoadFailed(true);
-      }
+      setLoaded((previous) => ({
+        read: reads,
+        // A read that failed keeps the list already on screen. Read off the
+        // state rather than off a variable this closure captured, because a
+        // write's re-read settles against whatever is there when it lands.
+        resources: result.ok ? result.value : (previous?.resources ?? null),
+        failed: !result.ok,
+      }));
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [reads]);
+
+  /*
+   * What the panel shows: the last list that landed, and the outcome of the
+   * read it is on. The list outlives the read that produced it, for the reason
+   * {@link Loaded} gives; the outcome does not, because a notice about a read
+   * that is over would sit above one that is happening.
+   */
+  const resources = loaded?.resources ?? null;
+  const settled = loaded !== null && loaded.read === reads ? loaded : null;
+  const loadFailed = settled?.failed ?? false;
 
   const add = useSaveAction(createBookableResource, () => {
     setDraft(EMPTY);
-    void read();
+    reread();
   });
   const change = useSaveAction(updateBookableResource, () => {
-    void read();
+    reread();
   });
   const withdraw = useSaveAction(deactivateBookableResource, () => {
-    void read();
+    reread();
   });
 
   /**
@@ -302,10 +335,19 @@ export function BookableResourcesPanel(): ReactElement {
         )
       }
     >
+      {/*
+       * Nothing under a read that failed: the notice above has said the
+       * catalogue could not be read, and a loading line under it would go on
+       * saying something is still happening when nothing is. Which list a
+       * failure keeps, and which read wears the notice at all, are both decided
+       * on {@link Loaded} rather than here.
+       */}
       {resources === null ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("settings.bookableResources.loading")}
-        </p>
+        loadFailed ? null : (
+          <p role="status" className="text-body text-ink-muted">
+            {t("settings.bookableResources.loading")}
+          </p>
+        )
       ) : offered.length === 0 ? (
         <p className="text-body text-ink-muted">
           {t("settings.bookableResources.empty")}
@@ -730,9 +772,18 @@ function timeValueOf(minute: number | null): string {
   );
 }
 
-/** The stored values a row's fields are seeded from, as one string. */
+/**
+ * The stored values a row's fields are seeded from, as one string.
+ *
+ * Encoded rather than joined on a separator, because two of these fields are
+ * free text a board types. Any separator is a character somebody may write, and
+ * a resource named "Tvattstugan|" with nothing said about it joins to the same
+ * string as one named "Tvattstugan" described as "|" - so two resources that
+ * differ would share a key, the row would not re-seed after a save, and its
+ * fields would go on showing what was typed rather than what is stored.
+ */
 function signatureOf(resource: BookableResource): string {
-  return [
+  return JSON.stringify([
     resource.id,
     resource.name,
     resource.description ?? "",
@@ -742,5 +793,5 @@ function signatureOf(resource: BookableResource): string {
     resource.closesAtMinute ?? "",
     resource.maxConcurrentBookings ?? "",
     resource.maxBookingsPerWeek ?? "",
-  ].join("|");
+  ]);
 }
