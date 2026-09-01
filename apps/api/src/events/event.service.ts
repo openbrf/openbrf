@@ -3,11 +3,16 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import {
+  addLocalDays,
+  compareLocalDays,
   dateColumnOf,
   formatLocalDay,
+  instantAt,
   type LocalDay,
   localDayOf,
+  localDaysBetween,
   localDayOfColumn,
+  type Period,
 } from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -40,6 +45,39 @@ const EVENT_TARGET_KIND = "event";
 /** The kind an audit entry names one date in a series by. */
 const OCCURRENCE_TARGET_KIND = "eventOccurrence";
 
+/**
+ * The days one read of the board's calendar may cover.
+ *
+ * Two months, deliberately the number the booking calendar answers for. The
+ * reason is the same on both screens - a board reads a period, not an archive -
+ * and one habit for both is worth more than a number tuned per module.
+ *
+ * It is what makes this read bounded at all. A series is written out to at most
+ * 105 dates, but the number of series is not bounded by anything: a house with a
+ * few dozen weekly series would otherwise hand one screen every date of two
+ * years in one payload. Inside a window the two months hold at most nine dates
+ * of any weekly series, so the answer is a few hundred rows in the worst case
+ * this module can produce - which is the order the booking calendar's own
+ * two-month read settles on.
+ *
+ * Stated as a bound rather than as a `take` on the series. Truncating a list of
+ * series would drop whole events with nothing on the screen to say which, while
+ * a window is a period the board asked for and can ask past.
+ */
+export const MAX_CALENDAR_DAYS = 62;
+
+/**
+ * The period one read of the board's calendar covers, both ends included.
+ *
+ * Local days rather than instants, for the reason {@link LocalDay} gives: which
+ * day a date belongs to is a question about the association's clock, and a
+ * window stated as instants would be a window whose edges moved twice a year.
+ */
+export interface EventCalendarWindow {
+  from: LocalDay;
+  to: LocalDay;
+}
+
 /** The recurrence rule as a request states it and a response answers with it. */
 export interface EventRecurrenceView {
   frequency: EventRecurrenceFrequency;
@@ -67,6 +105,16 @@ export interface EventOccurrenceView {
   on: string;
   /** ISO instant the board called it off, or null while it is going ahead. */
   cancelledAt: string | null;
+  /**
+   * Whether the date has already begun, as the server read the clock.
+   *
+   * The same fact the resident's calendar carries and decided the same way, so
+   * the board's screen can offer what a date still allows without comparing
+   * instants of its own. What it decides here is whether a called-off date can
+   * still be put back: one the clock has passed cannot, because it did not
+   * happen.
+   */
+  begun: boolean;
 }
 
 /** A series as the board's own screen shows it: drafts included. */
@@ -90,7 +138,24 @@ export interface EventView {
   durationMinutes: number;
   /** The rule, or null for a single event. */
   recurrence: EventRecurrenceView | null;
-  /** Every date in the series, earliest first, called-off ones included. */
+  /**
+   * How many dates the series has in total, called-off ones included.
+   *
+   * Counted by the database rather than taken from the length of the array
+   * below, because the two are not the same number once a read is windowed. It
+   * is the fact about the series - "the cleaning day runs twelve times" - and it
+   * has to stay that fact on a screen showing two months of it.
+   */
+  occurrenceCount: number;
+  /**
+   * The dates this read covers, earliest first, called-off ones included.
+   *
+   * Every date of the series when one series was asked for, and the ones falling
+   * inside the window when the board's list was: see {@link EventService.list}
+   * for why that list is bounded and how the rest is reached.
+   * {@link EventView.occurrenceCount} is what says how many there are
+   * altogether, so a windowed answer never has to be read as the whole of one.
+   */
   occurrences: EventOccurrenceView[];
 }
 
@@ -180,13 +245,61 @@ const OCCURRENCE_COLUMNS = {
   cancelledAt: true,
 } as const satisfies Prisma.EventOccurrenceSelect;
 
+/**
+ * How many dates a series has, whatever a read carries of them.
+ *
+ * A filtered count would be a second window to keep in step with the first, so
+ * this one is over the whole relation: the array a read answers with says which
+ * dates it covers, and this says how many the series has.
+ */
+const OCCURRENCE_TOTAL = {
+  _count: { select: { occurrences: true } },
+} as const satisfies Prisma.EventSelect;
+
 const WITH_OCCURRENCES = {
   ...EVENT_COLUMNS,
+  ...OCCURRENCE_TOTAL,
   occurrences: {
     select: OCCURRENCE_COLUMNS,
     orderBy: { startsAt: "asc" },
   },
 } as const satisfies Prisma.EventSelect;
+
+/**
+ * The same series, carrying only the dates that fall inside a window.
+ *
+ * The window is applied to the relation as well as to which series come back,
+ * because a series matching on one date would otherwise still carry every other
+ * date it has - which is most of what made this read unbounded.
+ */
+function withOccurrencesIn(period: Period) {
+  return {
+    ...EVENT_COLUMNS,
+    ...OCCURRENCE_TOTAL,
+    occurrences: {
+      where: occurrencesOverlapping(period),
+      select: OCCURRENCE_COLUMNS,
+      orderBy: { startsAt: "asc" },
+    },
+  } as const satisfies Prisma.EventSelect;
+}
+
+/**
+ * The dates a window covers: the ones running at any point inside it.
+ *
+ * An overlap rather than a start inside the window, which is how the booking
+ * calendar matches a period against its own. A midsummer party that begins at
+ * eleven at night on the last day of the window is in it, and so is one that
+ * began the evening before the first day and has not ended.
+ */
+function occurrencesOverlapping(
+  period: Period,
+): Prisma.EventOccurrenceWhereInput {
+  return {
+    startsAt: { lt: period.endsAt },
+    endsAt: { gt: period.startsAt },
+  };
+}
 
 /**
  * The association's event calendar (evenemangskalender), as the board keeps it.
@@ -230,6 +343,19 @@ const WITH_OCCURRENCES = {
  * than being deleted: "the cleaning day on the 18th was called off" is a
  * different thing to say than "there was never one".
  *
+ * A date called off can be put back. That is a second act with a second entry in
+ * the log rather than the first one undone, and it carries nothing about the
+ * sign-ups: a place given back while the date was off stays given back. See
+ * {@link EventService.reinstateOccurrence}.
+ *
+ * ## The board's list is a period, not the calendar
+ *
+ * {@link EventService.list} answers for a window of days and nothing outside it.
+ * The recurrence rule bounds one series to 105 dates but nothing bounds how many
+ * series a house enters, so the whole calendar in one payload is a read that
+ * grows without limit as the module is used. Reading one series by its
+ * identifier is unwindowed and stays bounded by that 105.
+ *
  * ## What the audit entries carry
  *
  * The visibility, the counts, the field names that changed, and the frequency.
@@ -247,19 +373,51 @@ export class EventService {
   ) {}
 
   /**
-   * Every series, drafts included, most recently arranged first.
+   * The series with a date inside a window, drafts included.
    *
-   * The board's own screen. Ordered by the series' first date rather than by
-   * what is coming next, because a series is one thing on this screen and the
-   * dates it holds travel with it - the next one is somewhere in the list a
-   * screen already has.
+   * The board's own screen, and bounded by a period rather than answering with
+   * the whole calendar. What a board reads this for is a stretch of weeks - the
+   * cleaning days this spring, the sauna evenings it is about to publish - and
+   * the read has to stay bounded whatever the house has entered: the recurrence
+   * rule caps one series at 105 dates, but nothing caps how many series there
+   * are, so the unwindowed answer grew without limit as a board used the module
+   * as intended.
+   *
+   * ## What a board sees, and how it reaches the rest
+   *
+   * The window is stated by the caller and defaults to the {@link
+   * MAX_CALENDAR_DAYS} days from today - two months from now, forwards. That is
+   * the widest a single read answers for, so the default is also the most one
+   * request can be given, and a board reaches any other period by stating one:
+   * earlier for the spring that has been, later for the autumn being planned.
+   * The board's screen states a window on every read and moves it a period at a
+   * time, which is how the booking calendar's own board view is read.
+   *
+   * A series with no date in the window is not in the answer at all, drafts
+   * included. A series entered today for a date in October is therefore not on
+   * a screen showing August and September, which is the same answer the booking
+   * calendar gives about a booking made for next year - the period asked for is
+   * the period answered.
+   *
+   * Ordered by the series' first date rather than by what is coming next,
+   * because a series is one thing on this screen and the dates it holds travel
+   * with it.
    */
-  async list(): Promise<EventView[]> {
+  async list(window: EventCalendarWindow): Promise<EventView[]> {
+    const period = boundedPeriodOf(window);
+    // One instant for the whole answer, so two series with a date at the same
+    // moment cannot disagree about whether it has begun.
+    const now = new Date();
+
     const rows = await this.prisma.event.findMany({
+      // The same overlap the relation below is filtered by, so a series in the
+      // answer always carries at least one date and a card is never drawn with
+      // an empty list under it.
+      where: { occurrences: { some: occurrencesOverlapping(period) } },
       orderBy: [{ firstOn: "desc" }, { title: "asc" }],
-      select: WITH_OCCURRENCES,
+      select: withOccurrencesIn(period),
     });
-    return rows.map(toView);
+    return rows.map((row) => toView(row, now));
   }
 
   async byId(id: string): Promise<EventView> {
@@ -600,6 +758,120 @@ export class EventService {
   }
 
   /**
+   * Puts one called-off date back, leaving everything else alone.
+   *
+   * The way back from a mistake, and the reason the column is nullable in both
+   * directions. Removing the series is refused the moment anybody has signed up
+   * to one of its dates, so without this a board that called off the wrong date
+   * had nothing it could do about it: not clear it, not delete the series, not
+   * re-enter the date, because the unique index on the series and the start
+   * instant is exactly the row already sitting there.
+   *
+   * ## Not the call-off run backwards
+   *
+   * Its own act with its own entry in the audit log. Calling a date off takes an
+   * announcement back and reinstating it makes one, and a reader of the log has
+   * to be able to tell which an entry was - the row itself says only what the
+   * date is now.
+   *
+   * ## The places do not come back with it
+   *
+   * Nothing about the sign-ups is read or written here. Somebody who stood down
+   * because the date was off has stood down: their withdrawal is a date on their
+   * own row, taken by them or by the board on their behalf, and reinstating the
+   * date is not a decision about anybody's evening. The place they gave back was
+   * free from the moment they gave it and is takeable again by anybody including
+   * them, at the back of the queue - which is what a withdrawal means everywhere
+   * else in this module. A board that wants those people back asks them; the
+   * calendar does not answer on their behalf.
+   *
+   * ## Two refusals
+   *
+   * A date that was never called off has nothing to reinstate, and a date the
+   * clock has passed cannot be made to have gone ahead - the house was not
+   * there. Both are the date's own state rather than a fault in the request,
+   * which is why both are a conflict and neither is silently accepted.
+   */
+  async reinstateOccurrence(
+    occurrenceId: string,
+    actorPersonId: string,
+    now: Date = new Date(),
+  ): Promise<EventView> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const occurrence = await tx.eventOccurrence.findUnique({
+        where: { id: occurrenceId },
+        select: { id: true, eventId: true, startsAt: true, cancelledAt: true },
+      });
+      /*
+       * Absent covers the date that never existed and the date whose series has
+       * been removed since, because the occurrences cascade with it - so there
+       * is no row left to reinstate and nothing here has to ask separately.
+       */
+      if (occurrence === null) {
+        throw new EventError(
+          "There is no such date in any event.",
+          "occurrence-not-found",
+        );
+      }
+      if (occurrence.cancelledAt === null) {
+        throw new EventError(
+          "That date was not called off, so there is nothing to reinstate.",
+          "occurrence-not-cancelled",
+        );
+      }
+      if (occurrence.startsAt.getTime() <= now.getTime()) {
+        throw new EventError(
+          "That date has already begun, so it cannot be reinstated.",
+          "occurrence-already-begun",
+        );
+      }
+
+      /*
+       * Conditional on the date still being off, and taken after the reads that
+       * produced the two sentences above.
+       *
+       * Two board members reinstating the same date in the same instant produce
+       * one clearing and one refusal rather than two entries in the log saying
+       * the date was reinstated twice. The reads are what make the refusal say
+       * which of the two states it met; this is what makes the write decisive.
+       */
+      const { count } = await tx.eventOccurrence.updateMany({
+        where: { id: occurrenceId, cancelledAt: { not: null } },
+        data: { cancelledAt: null },
+      });
+      /* c8 ignore next 6 -- the losing side of a race between two board members */
+      if (count === 0) {
+        throw new EventError(
+          "That date was not called off, so there is nothing to reinstate.",
+          "occurrence-not-cancelled",
+        );
+      }
+
+      await this.audit.record(
+        {
+          action: "EVENT_OCCURRENCE_REINSTATED",
+          actorPersonId,
+          targetKind: OCCURRENCE_TARGET_KIND,
+          targetId: occurrenceId,
+          // The series it belongs to and the date it is, exactly as the call-off
+          // entry carries them, so the two read as one history of one date
+          // without either of them carrying what the series is called.
+          context: {
+            eventId: occurrence.eventId,
+            on: formatLocalDay(localDayOf(occurrence.startsAt)),
+          },
+        },
+        tx,
+      );
+
+      return this.readInTransaction(tx, occurrence.eventId);
+    });
+
+    this.logger.log(`Reinstated event occurrence ${occurrenceId}`);
+    return toView(row);
+  }
+
+  /**
    * Removes a series and every date in it.
    *
    * Refused while anybody has signed up to one of those dates, by the same rule
@@ -770,6 +1042,40 @@ export class EventService {
   }
 }
 
+/**
+ * The instants a stated window covers, or a refusal.
+ *
+ * Both halves together because both are about the window as a whole: a range
+ * that runs backwards and one covering more days than a read answers for are the
+ * same mistake to a screen, which is why the booking calendar answers them with
+ * one code as well.
+ *
+ * Local midnight to the local midnight after the last day, through the calendar
+ * module rather than by multiplying by 24, so a window over the October Sunday
+ * is the 25 hours long that day actually is.
+ */
+function boundedPeriodOf(window: EventCalendarWindow): Period {
+  if (
+    compareLocalDays(window.from, window.to) > 0 ||
+    localDaysBetween(window.from, window.to) >= MAX_CALENDAR_DAYS
+  ) {
+    throw new EventError(
+      `A calendar may be asked for at most ${String(MAX_CALENDAR_DAYS)} days, ending on or after it begins.`,
+      "range-invalid",
+    );
+  }
+
+  const startsAt = instantAt(window.from, 0);
+  const endsAt = instantAt(addLocalDays(window.to, 1), 0);
+  /* c8 ignore next 6 -- unreachable: Sweden's clock has never skipped midnight */
+  if (startsAt === null || endsAt === null) {
+    throw new Error(
+      `No local midnight bounds ${formatLocalDay(window.from)} to ${formatLocalDay(window.to)}.`,
+    );
+  }
+  return { startsAt, endsAt };
+}
+
 /** The refusal in words, for the server log and for a developer reading it. */
 function scheduleMessage(problem: EventReason): string {
   switch (problem) {
@@ -820,27 +1126,38 @@ function columnsOf(input: EventInput) {
   } satisfies Prisma.EventUncheckedUpdateInput;
 }
 
-/** A stored series as a screen reads it. */
-function toView(row: {
-  id: string;
-  title: string;
-  description: string | null;
-  category: string | null;
-  location: string | null;
-  visibility: PageVisibility;
-  published: boolean;
-  publishedAt: Date | null;
-  signupOpen: boolean;
-  capacity: number | null;
-  firstOn: Date;
-  startsAtMinute: number;
-  durationMinutes: number;
-  recurrenceFrequency: EventRecurrenceFrequency | null;
-  recurrenceInterval: number | null;
-  recurrenceCount: number | null;
-  recurrenceUntil: Date | null;
-  occurrences: StoredOccurrence[];
-}): EventView {
+/**
+ * A stored series as a screen reads it.
+ *
+ * `now` is taken once per series rather than per date, so every row of one answer
+ * is measured against one instant. A read that moved between two dates of the
+ * same series could otherwise say a later one had begun and an earlier one had
+ * not.
+ */
+function toView(
+  row: {
+    id: string;
+    title: string;
+    description: string | null;
+    category: string | null;
+    location: string | null;
+    visibility: PageVisibility;
+    published: boolean;
+    publishedAt: Date | null;
+    signupOpen: boolean;
+    capacity: number | null;
+    firstOn: Date;
+    startsAtMinute: number;
+    durationMinutes: number;
+    recurrenceFrequency: EventRecurrenceFrequency | null;
+    recurrenceInterval: number | null;
+    recurrenceCount: number | null;
+    recurrenceUntil: Date | null;
+    _count: { occurrences: number };
+    occurrences: StoredOccurrence[];
+  },
+  now: Date = new Date(),
+): EventView {
   return {
     id: row.id,
     title: row.title,
@@ -867,16 +1184,24 @@ function toView(row: {
                 ? null
                 : formatLocalDay(localDayOfColumn(row.recurrenceUntil)),
           },
-    occurrences: row.occurrences.map(occurrenceView),
+    occurrenceCount: row._count.occurrences,
+    occurrences: row.occurrences.map((occurrence) =>
+      occurrenceView(occurrence, now),
+    ),
   };
 }
 
-function occurrenceView(occurrence: StoredOccurrence): EventOccurrenceView {
+function occurrenceView(
+  occurrence: StoredOccurrence,
+  now: Date,
+): EventOccurrenceView {
   return {
     id: occurrence.id,
     startsAt: occurrence.startsAt.toISOString(),
     endsAt: occurrence.endsAt.toISOString(),
     on: formatLocalDay(localDayOf(occurrence.startsAt)),
     cancelledAt: occurrence.cancelledAt?.toISOString() ?? null,
+    // The same comparison the reinstatement refuses on, from the same clock.
+    begun: occurrence.startsAt.getTime() <= now.getTime(),
   };
 }

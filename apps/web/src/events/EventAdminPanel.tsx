@@ -11,16 +11,22 @@ import type { ApiFailure, ApiResult } from "../api/client";
 import {
   cancelEventOccurrence,
   createEventSeries,
+  EVENT_CALENDAR_WINDOW_DAYS,
   type EventOccurrence,
   type EventSeries,
   type EventSeriesInput,
   type EventVisibility,
   fetchEventSeries,
   publishEventSeries,
+  reinstateEventOccurrence,
   removeEventSeries,
   updateEventSeries,
 } from "../api/events";
-import { formatTimeOfDay } from "../bookings/booking-calendar";
+import {
+  formatTimeOfDay,
+  localDayNow,
+  shiftLocalDay,
+} from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -66,8 +72,22 @@ const FIELD_LABEL: Readonly<Record<EventTextField, TranslationKey>> = {
 
 /** Which act is in flight, and on which series or date. */
 interface Running {
-  readonly kind: "add" | "save" | "publish" | "callOff" | "remove";
+  readonly kind:
+    "add" | "save" | "publish" | "callOff" | "reinstate" | "remove";
   readonly target: string;
+}
+
+/**
+ * One read of the calendar, and which period it answers for.
+ *
+ * The period is carried with the list so the panel can tell an answer about what
+ * is on screen from one about the period that was on screen a moment ago. The
+ * board's calendar reads a window at a time, and applying a late answer
+ * unguarded would replace the months being looked at with the ones that were.
+ */
+interface Loaded {
+  readonly key: string;
+  readonly series: readonly EventSeries[];
 }
 
 /**
@@ -87,9 +107,22 @@ interface Running {
  * second way for the record to be missed. Members unless the board says
  * otherwise, so a slip never puts a cleaning day on the street.
  *
+ * ## A period at a time
+ *
+ * The endpoint answers for a window of days, because the whole calendar in one
+ * payload is a read that grows with every series a house enters. So this panel
+ * asks for a period and says which one it is showing, and earlier and later move
+ * it by exactly the window the API answers for - no gap between one period and
+ * the next, and never a request wide enough to be refused.
+ *
+ * A series with no date in the period is not on the screen, and that includes a
+ * series entered a moment ago for a date further out. The card header states how
+ * many dates the series has altogether, from the server's own count, so a period
+ * showing three of twelve never reads as a series of three.
+ *
  * ## One notice, cleared before every act
  *
- * Five acts share one notice, so each of them clears it before it runs. Without
+ * Six acts share one notice, so each of them clears it before it runs. Without
  * that the refusal of a save would sit above a publication that then succeeded,
  * and the sentence about a personal identity number in the description would
  * still be on screen while the board was reading a date it had just called off.
@@ -112,7 +145,9 @@ interface Running {
 export function EventAdminPanel(): ReactElement {
   const { t, i18n } = useTranslation();
 
-  const [series, setSeries] = useState<readonly EventSeries[] | null>(null);
+  /** The first day of the period on screen. The last is derived from it. */
+  const [from, setFrom] = useState(() => localDayNow());
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   /**
    * Bumped to ask for the list again without changing what is asked for.
@@ -127,16 +162,19 @@ export function EventAdminPanel(): ReactElement {
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [outcome, setOutcome] = useState<TranslationKey | null>(null);
 
+  const to = shiftLocalDay(from, EVENT_CALENDAR_WINDOW_DAYS - 1);
+  const key = `${from}|${to}`;
+
   useEffect(() => {
     // The effect owns its own call and drops an answer that arrives after the
     // panel is gone, or after a later read superseded it.
     let active = true;
-    void fetchEventSeries().then((result) => {
+    void fetchEventSeries({ from, to }).then((result) => {
       if (!active) {
         return;
       }
       if (result.ok) {
-        setSeries(result.value);
+        setLoaded({ key, series: result.value });
         setLoadFailed(false);
       } else {
         setLoadFailed(true);
@@ -145,15 +183,23 @@ export function EventAdminPanel(): ReactElement {
     return () => {
       active = false;
     };
-  }, [refreshes]);
+  }, [key, from, to, refreshes]);
+
+  /*
+   * The list on screen, or nothing while the answer describes another period.
+   * A re-read of the same period that failed keeps the list it has - see the
+   * render below for why - and one for a period nothing has answered for yet
+   * has no list to keep.
+   */
+  const series = loaded?.key === key ? loaded.series : null;
 
   /**
    * Runs one act, reads the list again, and answers whether it was taken.
    *
-   * One runner rather than one save hook per act, because the five of them share
+   * One runner rather than one save hook per act, because the six of them share
    * a notice and the order that notice is read in has to be "the last act",
    * never "whichever act failed most recently". Clearing here is what makes that
-   * true for all five at once.
+   * true for all six at once.
    *
    * The answer is the outcome and not the value, because only one caller needs
    * to know: the form that adds a series clears its fields once the series
@@ -251,11 +297,51 @@ export function EventAdminPanel(): ReactElement {
       }
     >
       {/*
+       * The period, and the two ways out of it. Named with its years, because
+       * this calendar reaches into the next one and a period read as "18 april
+       * to 19 juni" would be ambiguous exactly when a board is planning.
+       */}
+      <nav
+        aria-label={t("events.manage.period")}
+        className="flex flex-wrap items-center gap-3"
+      >
+        <button
+          type="button"
+          className={QUIET_BUTTON}
+          onClick={() => {
+            setFrom((current) =>
+              shiftLocalDay(current, -EVENT_CALENDAR_WINDOW_DAYS),
+            );
+          }}
+        >
+          {t("events.manage.earlier")}
+        </button>
+        <span className="text-small text-ink-muted">
+          <time dateTime={from}>{formatEventDay(from, i18n.language)}</time>{" "}
+          {t("events.until")}{" "}
+          <time dateTime={to}>{formatEventDay(to, i18n.language)}</time>
+        </span>
+        <button
+          type="button"
+          className={`${QUIET_BUTTON} ml-auto`}
+          onClick={() => {
+            setFrom((current) =>
+              shiftLocalDay(current, EVENT_CALENDAR_WINDOW_DAYS),
+            );
+          }}
+        >
+          {t("events.manage.later")}
+        </button>
+      </nav>
+
+      {/*
        * Nothing under a first read that failed, for the reason the attending
        * panel says: the notice above has said the calendar could not be read, and
        * "reading the calendar..." under it would go on saying something is still
-       * happening. A failed re-read keeps the list it has - the form below writes
-       * against those series, and taking them away would take the form with them.
+       * happening. A failed re-read of the period on screen keeps the list it
+       * has - the form below writes against those series, and taking them away
+       * would take the form with them. A read for a period nothing has answered
+       * for yet has no list to keep, so that one waits.
        */}
       {series === null ? (
         loadFailed ? null : (
@@ -307,6 +393,13 @@ export function EventAdminPanel(): ReactElement {
                     { kind: "callOff", target: occurrenceId },
                     () => cancelEventOccurrence(occurrenceId),
                     "events.manage.calledOff",
+                  );
+                }}
+                onReinstate={(occurrenceId) => {
+                  void run(
+                    { kind: "reinstate", target: occurrenceId },
+                    () => reinstateEventOccurrence(occurrenceId),
+                    "events.manage.reinstated",
                   );
                 }}
                 onRemove={() => {
@@ -372,6 +465,7 @@ function SeriesCard({
   onSave,
   onPublish,
   onCallOff,
+  onReinstate,
   onRemove,
 }: {
   series: EventSeries;
@@ -382,6 +476,7 @@ function SeriesCard({
   onSave: (values: EventSeriesInput) => void;
   onPublish: (published: boolean, visibility: EventVisibility) => void;
   onCallOff: (occurrenceId: string) => void;
+  onReinstate: (occurrenceId: string) => void;
   onRemove: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -408,9 +503,13 @@ function SeriesCard({
               )
             : t("events.manage.draft")}
         </span>
+        {/* The whole series, from the server's own count. The list below shows
+            the period on screen, and a card saying "3 dates" over three of a
+            year's twelve cleaning days would be a card that lied about the
+            series the form beside it edits. */}
         <span className="font-data text-data text-ink-muted">
           {t("events.manage.occurrenceCount", {
-            count: series.occurrences.length,
+            count: series.occurrenceCount,
           })}
         </span>
       </header>
@@ -541,19 +640,30 @@ function SeriesCard({
         signupOpen={series.signupOpen}
         busy={busy}
         callingOff={running?.kind === "callOff" ? running.target : null}
+        reinstating={running?.kind === "reinstate" ? running.target : null}
         onCallOff={onCallOff}
+        onReinstate={onReinstate}
       />
     </article>
   );
 }
 
 /**
- * The dates one series falls on, with the two acts each of them offers.
+ * The dates of one series that fall in the period, and the acts each offers.
  *
  * Called-off dates stay on the list, drawn dashed and with their own word: the
  * row is the record that the date was arranged and then called off, and hiding it
  * would say there had never been one. It carries no call-off control, because
- * there is nothing left to call off.
+ * there is nothing left to call off - and it carries the way back instead, since
+ * a board that called off the wrong date has nothing else to reach for. Removing
+ * the series is refused while anybody has signed up to one of its dates.
+ *
+ * Reinstating is offered on a called-off date that is still ahead. Once the date
+ * has passed there is nothing to put back: it did not happen, and the server
+ * refuses saying afterwards that it did.
+ *
+ * These are the dates in the period the panel is showing, which is why the
+ * heading says so. The card above states how many the series has altogether.
  *
  * Who is coming is read only when it is opened. One series can hold a hundred
  * dates, and reading every roll-call to draw this list would be reading a year
@@ -564,7 +674,9 @@ function OccurrenceList({
   signupOpen,
   busy,
   callingOff,
+  reinstating,
   onCallOff,
+  onReinstate,
 }: {
   occurrences: readonly EventOccurrence[];
   /** Whether the series takes sign-ups, and so has a roll-call at all. */
@@ -572,7 +684,10 @@ function OccurrenceList({
   busy: boolean;
   /** The date the call-off in flight is for, or null. */
   callingOff: string | null;
+  /** The date the reinstatement in flight is for, or null. */
+  reinstating: string | null;
   onCallOff: (occurrenceId: string) => void;
+  onReinstate: (occurrenceId: string) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [openRollCall, setOpenRollCall] = useState<string | null>(null);
@@ -582,6 +697,8 @@ function OccurrenceList({
       <h5 className="text-label text-ink-muted uppercase">
         {t("events.manage.datesHeading")}
       </h5>
+
+      <p className={HINT}>{t("events.manage.datesHint")}</p>
 
       <ul className="flex flex-col gap-2">
         {occurrences.map((occurrence) => {
@@ -629,7 +746,28 @@ function OccurrenceList({
                   </button>
                 ) : null}
 
-                {calledOff ? null : (
+                {calledOff ? (
+                  /* Offered only while the date is still ahead. A called-off
+                     date the clock has passed did not happen, and the server
+                     refuses reinstating it, so a control here would be one that
+                     only ever produced a refusal. The comparison is the
+                     server's: the row says whether the date has begun. */
+                  occurrence.begun ? null : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={t("events.manage.reinstateNamed", { date })}
+                      onClick={() => {
+                        onReinstate(occurrence.id);
+                      }}
+                      className={`${QUIET_BUTTON} ml-auto`}
+                    >
+                      {reinstating === occurrence.id
+                        ? t("events.manage.reinstating")
+                        : t("events.manage.reinstate")}
+                    </button>
+                  )
+                ) : (
                   <button
                     type="button"
                     disabled={busy}

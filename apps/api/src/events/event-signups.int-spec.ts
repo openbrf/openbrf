@@ -44,6 +44,12 @@ import type {
  * and the same edit goes through - which is the only way to show the two halves
  * are connected.
  *
+ * **A place freed while a date was called off does not come back with the date.**
+ * The board calls a date off, somebody stands down because of it, the board puts
+ * the date back - and that person is still stood down, their place still free and
+ * their withdrawal still on the roll-call with its date. Reinstating a date is a
+ * decision about the calendar and never about anybody's evening.
+ *
  * **Names are behind the managing capability.** The list a resident reads carries
  * counts and never a neighbour's name or identifier; the roll-call carries names
  * and a person with protected personal data is on it as a place and not as a name.
@@ -644,10 +650,49 @@ describe("the places", () => {
       "occurrence-started",
     );
     // Still on the calendar, which is the half a filter on `startsAt` would have
-    // silently taken away.
-    await expect(
-      ownViewOf(alfaCookie, occurrenceId),
-    ).resolves.not.toBeUndefined();
+    // silently taken away - and saying so on the row, so the screen states it
+    // rather than comparing instants of its own against a clock nobody here
+    // sets. The same instant the claim was refused on.
+    const own = await ownViewOf(alfaCookie, occurrenceId);
+    expect(own).not.toBeUndefined();
+    expect(own?.begun).toBe(true);
+  });
+
+  it("says a date still ahead has not begun", async () => {
+    // The other side of the same flag, so a field hardcoded to true would fail
+    // here rather than reading as a working screen.
+    const series = await publishedSeries({ firstOn: dayAhead(56) });
+    const occurrenceId = onlyOccurrence(series);
+
+    const own = await ownViewOf(alfaCookie, occurrenceId);
+
+    expect(own?.begun).toBe(false);
+  });
+
+  it("says which audience the series was published to", async () => {
+    /*
+     * On this list and on no payload the website is given. A resident may read
+     * the members' events and the public ones both, so without this they cannot
+     * tell whether the notice in front of them is also on the street - and a
+     * board that published the wrong one there finds out from a neighbour.
+     */
+    const series = await publishedSeries({ firstOn: dayAhead(57) });
+    const occurrenceId = onlyOccurrence(series);
+    expect((await ownViewOf(alfaCookie, occurrenceId))?.visibility).toBe(
+      "MEMBER",
+    );
+
+    const toTheStreet = await inject({
+      method: "POST",
+      url: `/api/events/${series.id}/publish`,
+      payload: { published: true, visibility: "PUBLIC" },
+      headers: { cookie: boardCookie },
+    });
+    expect(toTheStreet.statusCode).toBe(201);
+
+    expect((await ownViewOf(alfaCookie, occurrenceId))?.visibility).toBe(
+      "PUBLIC",
+    );
   });
 });
 
@@ -832,6 +877,98 @@ describe("standing down", () => {
     expect(entries).toEqual([
       { actorPersonId: board.personId, targetPersonId: alfa.personId },
     ]);
+  });
+});
+
+describe("a date put back after being called off", () => {
+  it("leaves everybody who stood down stood down", async () => {
+    /*
+     * The one thing a board could reasonably assume and that the calendar does
+     * not do. Somebody who withdrew because the date was off has withdrawn: the
+     * date on their row is their own decision, and putting the occurrence back
+     * neither reads it nor writes it. The place they gave back is free, and free
+     * for anybody - which is what the neighbour taking it below shows.
+     */
+    const series = await publishedSeries({
+      firstOn: dayAhead(54),
+      capacity: 1,
+    });
+    const occurrenceId = onlyOccurrence(series);
+    expect((await claim(alfaCookie, occurrenceId)).statusCode).toBe(200);
+
+    const calledOff = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${occurrenceId}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+    expect(calledOff.statusCode).toBe(201);
+
+    // Stood down because the date was off, which is the case this is about.
+    const stoodDown = await withdraw(alfaCookie, occurrenceId);
+    expect(stoodDown.statusCode).toBe(200);
+    const withdrawnAt =
+      stoodDown.json<AttendableOccurrenceView>().own?.withdrawnAt;
+    expect(withdrawnAt).not.toBeNull();
+
+    const reinstated = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${occurrenceId}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+    expect(reinstated.statusCode).toBe(201);
+
+    // The date is going ahead again.
+    const own = await ownViewOf(alfaCookie, occurrenceId);
+    expect(own?.cancelledAt).toBeNull();
+    // And they are not expected at it. The same withdrawal, with the same date
+    // on it: nothing reopened the row and nothing wrote a second one.
+    expect(own?.own?.withdrawnAt).toBe(withdrawnAt);
+    expect(own?.placesTaken).toBe(0);
+    expect(own?.placesLeft).toBe(1);
+
+    // The board's own reading agrees, and still says who had been expected.
+    const roll = await rollCall(occurrenceId);
+    expect(roll.placesTaken).toBe(0);
+    expect(roll.entries).toHaveLength(1);
+    expect(roll.entries[0]?.withdrawnAt).toBe(withdrawnAt);
+
+    // The one place is genuinely free, and free for anybody: the neighbour takes
+    // it rather than finding it held in reserve for whoever gave it up.
+    const neighbour = await claim(betaCookie, occurrenceId);
+    expect(neighbour.statusCode).toBe(200);
+    expect(neighbour.json<AttendableOccurrenceView>().placesTaken).toBe(1);
+  });
+
+  it("holds nobody who never stood down, and takes sign-ups again", async () => {
+    /*
+     * The other half. Calling a date off withdraws nobody - the row stays with
+     * the date on it precisely because people may have signed up - so somebody
+     * who sat tight is expected at the date the moment it is back, without
+     * anything having been written about them either way.
+     */
+    const series = await publishedSeries({ firstOn: dayAhead(55) });
+    const occurrenceId = onlyOccurrence(series);
+    expect((await claim(alfaCookie, occurrenceId)).statusCode).toBe(200);
+
+    await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${occurrenceId}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+    // Refused while the date is off, which is why the board's way back matters.
+    expect((await claim(betaCookie, occurrenceId)).statusCode).toBe(409);
+
+    await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${occurrenceId}/reinstate`,
+      headers: { cookie: boardCookie },
+    });
+
+    const own = await ownViewOf(alfaCookie, occurrenceId);
+    expect(own?.own?.withdrawnAt).toBeNull();
+    expect(own?.placesTaken).toBe(1);
+    // And the date takes names again.
+    expect((await claim(betaCookie, occurrenceId)).statusCode).toBe(200);
   });
 });
 

@@ -68,6 +68,23 @@ export const EVENT_MAX_OCCURRENCES = 105;
 export const EVENT_MAX_DURATION_MINUTES = 24 * 60;
 export const EVENT_MAX_INTERVAL = 52;
 
+/**
+ * The days one read of the board's calendar covers.
+ *
+ * Two months, and the same number on both sides of the wire: it is the widest
+ * window the API answers for and therefore the widest a screen may ask for, so a
+ * panel moving by exactly this much never lands on the refusal and never leaves
+ * a gap between one period and the next. Mirrored rather than imported, like
+ * every other wire constant here.
+ */
+export const EVENT_CALENDAR_WINDOW_DAYS = 62;
+
+/** The window a calendar request covers, as inclusive "YYYY-MM-DD" dates. */
+export interface EventCalendarWindow {
+  from: string;
+  to: string;
+}
+
 /** The recurrence rule as a request states it and a response answers with it. */
 export interface EventRecurrence {
   frequency: EventRecurrenceFrequency;
@@ -88,6 +105,14 @@ export interface EventOccurrence {
   on: string;
   /** ISO instant the board called it off, or null while it is going ahead. */
   cancelledAt: string | null;
+  /**
+   * Whether the date has already begun, as the server read the clock.
+   *
+   * The server's answer and not a comparison made here, which is what decides
+   * whether a called-off date can still be put back: one the clock has passed
+   * cannot, because it did not happen.
+   */
+  begun: boolean;
 }
 
 /** A series as the board reads it: drafts included. */
@@ -111,7 +136,22 @@ export interface EventSeries {
   durationMinutes: number;
   /** The rule, or null for a series of one date. */
   recurrence: EventRecurrence | null;
-  /** Every date in the series, earliest first, called-off ones included. */
+  /**
+   * How many dates the series has altogether, called-off ones included.
+   *
+   * The server's count over the whole series, which is not the length of the
+   * array below once a read is windowed. It is the fact about the series - "the
+   * cleaning day runs twelve times" - and stays that fact on a screen showing
+   * two months of it.
+   */
+  occurrenceCount: number;
+  /**
+   * The dates this read covers, earliest first, called-off ones included.
+   *
+   * The board's list answers for a window and carries the dates inside it; a
+   * read of one series carries every date it has. Which is why the count above
+   * is a field and not `occurrences.length`.
+   */
   occurrences: EventOccurrence[];
 }
 
@@ -180,6 +220,25 @@ export interface AttendableOccurrence {
   on: string;
   /** ISO instant the board called it off, or null while it is going ahead. */
   cancelledAt: string | null;
+  /**
+   * Whether the date has already begun, as the server read the clock.
+   *
+   * The server's answer and not a comparison made here. Every other fact on this
+   * row is decided there, and a browser comparing instants would be a second
+   * clock - on a machine whose time nobody here sets - with its own idea of when
+   * a date stopped taking names.
+   */
+  begun: boolean;
+  /**
+   * Who the series was published to.
+   *
+   * On this list because a reader entitled to see both wants to know which they
+   * are looking at: whether the same words are also on the association's public
+   * calendar. The website's own payload carries no field describing an audience
+   * at all, and gains none - who may read an event there is decided from whether
+   * the request carries a session and nothing else.
+   */
+  visibility: EventVisibility;
   /** Whether the series takes sign-ups at all. */
   signupOpen: boolean;
   /** Places at this date. Null is no limit. */
@@ -274,9 +333,24 @@ export function withdrawFromOccurrence(
 
 // --- the series the board arranges ------------------------------------------
 
-/** Every series, drafts included, the most recently arranged first. */
-export function fetchEventSeries(): Promise<ApiResult<EventSeries[]>> {
-  return apiRequest("GET", "/api/events");
+/**
+ * The series with a date inside a window, drafts included, newest first.
+ *
+ * The window is required here even though the endpoint defaults it, because a
+ * screen that showed a period without knowing which one could not say what it
+ * is showing and could not offer to move it. A series with no date in the window
+ * is not in the answer at all: the read is bounded by the period, which is what
+ * stops a house with a few dozen weekly series being answered with every date of
+ * two years at once.
+ */
+export function fetchEventSeries(
+  window: EventCalendarWindow,
+): Promise<ApiResult<EventSeries[]>> {
+  return apiRequest(
+    "GET",
+    `/api/events?from=${encodeURIComponent(window.from)}` +
+      `&to=${encodeURIComponent(window.to)}`,
+  );
 }
 
 export function createEventSeries(
@@ -328,6 +402,29 @@ export function cancelEventOccurrence(
   return apiRequest(
     "POST",
     `/api/events/occurrences/${encodeURIComponent(occurrenceId)}/cancel`,
+  );
+}
+
+/**
+ * Puts one called-off date back, leaving the rest of the series alone.
+ *
+ * The way back from a mistake, and its own act rather than the call-off undone:
+ * it has its own entry in the audit log, because taking an announcement back and
+ * making one again are two decisions.
+ *
+ * Nothing about the sign-ups travels with it. Somebody who stood down because
+ * the date was off is still stood down, and the place they gave back is free for
+ * anybody - including them, at the back of the queue.
+ *
+ * Refused for a date that was never called off, and for one the clock has passed:
+ * a date that has already begun cannot be made to have gone ahead.
+ */
+export function reinstateEventOccurrence(
+  occurrenceId: string,
+): Promise<ApiResult<EventSeries>> {
+  return apiRequest(
+    "POST",
+    `/api/events/occurrences/${encodeURIComponent(occurrenceId)}/reinstate`,
   );
 }
 

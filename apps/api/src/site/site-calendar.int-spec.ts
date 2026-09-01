@@ -21,6 +21,7 @@ import {
   calendarMonthOf,
   formatCalendarMonth,
   shiftCalendarMonth,
+  SiteEventsService,
 } from "./site-events.service";
 
 /**
@@ -45,6 +46,13 @@ import {
  *   holds, so an assertion that it is absent is an assertion about this page.
  *
  *   The page runs no script, sets no cookie and names no host but this one.
+ *
+ *   Nothing on the payload says who an event was published to. Who may read one
+ *   is decided from whether the request carried a session and from nothing else,
+ *   which is what keeps that rule in one place; a field describing audiences
+ *   would be a second answer for the two to disagree on. The application's own
+ *   calendar carries it, for a reader already entitled to both, and this one
+ *   does not.
  *
  * The month arithmetic is the other half, and the assertion worth breaking the
  * implementation for is the one about the first of the month: an event at half
@@ -593,6 +601,42 @@ describe("what the calendar says about who is coming", () => {
     expect(response.body).toContain("1 av 2 platser tagna");
     expect(response.body.includes(ATTENDEE_SURNAME)).toBe(false);
     expect(response.body.includes(WITHDRAWN_SURNAME)).toBe(false);
+  });
+});
+
+describe("what the payload the website is built from carries", () => {
+  it("says nothing about who an event was published to", async () => {
+    /*
+     * Asserted on the whole key set rather than on the absence of one name, so a
+     * field called `visibility`, `audience` or anything else fails here. The
+     * audience is a fact about the association's own decision and the website's
+     * answer is built from one question - whether the request carried a session -
+     * which is what keeps that rule in a single line of a single query.
+     *
+     * The application's own calendar does carry it: a resident who may read the
+     * members' events and the public ones both cannot otherwise tell which is in
+     * front of them. That is a different answer to a different audience, and
+     * `AttendableOccurrenceView` is where it lives.
+     */
+    const page = await app
+      .get(SiteEventsService)
+      .month(true, formatCalendarMonth(fixtureMonth));
+
+    expect(page.dates.length).toBeGreaterThan(0);
+    for (const date of page.dates) {
+      expect(Object.keys(date).sort()).toEqual([
+        "cancelled",
+        "capacity",
+        "category",
+        "endsAt",
+        "eventId",
+        "location",
+        "placesTaken",
+        "signupOpen",
+        "startsAt",
+        "title",
+      ]);
+    }
   });
 });
 

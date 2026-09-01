@@ -57,6 +57,7 @@ const STORED: EventSeries = {
     count: null,
     until: "2027-10-17",
   },
+  occurrenceCount: 0,
   occurrences: [],
 };
 

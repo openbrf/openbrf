@@ -1,0 +1,21 @@
+-- Reinstating a date the board had called off.
+--
+-- Its own action rather than a second EVENT_OCCURRENCE_CANCELLED entry carrying
+-- a flag, because it is a different decision: calling a date off withdraws an
+-- announcement, and reinstating it makes one. A reader of the log has to be
+-- able to say which of the two an entry was without reading the row it points
+-- at, which by then says only what the date is now.
+--
+-- Nothing about the sign-ups travels with it. A place freed by a withdrawal
+-- taken while the date was off stays free: the withdrawal is a dated close on
+-- somebody's own row, and the reinstatement neither reads it nor writes it.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+-- The table this action is written about is created by 20260903100000_events,
+-- which uses none of these values.
+--
+-- No column changes with it. The date the call-off wrote is cleared back to
+-- null on the column that already holds it, which is nullable because a date
+-- going ahead has never had one.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'EVENT_OCCURRENCE_REINSTATED';

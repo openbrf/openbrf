@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
 } from "@nestjs/common";
 import { z } from "zod";
@@ -14,9 +15,21 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
-import { MINUTES_PER_DAY, parseLocalDay } from "../bookings/stockholm-calendar";
+import {
+  addLocalDays,
+  type LocalDay,
+  localDayOf,
+  MINUTES_PER_DAY,
+  parseLocalDay,
+} from "../bookings/stockholm-calendar";
 import { EventError } from "./event.error";
-import { type EventInput, EventService, type EventView } from "./event.service";
+import {
+  type EventCalendarWindow,
+  type EventInput,
+  EventService,
+  type EventView,
+  MAX_CALENDAR_DAYS,
+} from "./event.service";
 import { MAX_DURATION_MINUTES, MAX_OCCURRENCES } from "./recurrence";
 
 const FREQUENCIES = ["WEEKLY", "MONTHLY", "ANNUAL"] as const;
@@ -107,6 +120,48 @@ function localDay(value: string) {
   return day;
 }
 
+/**
+ * A "YYYY-MM-DD" bound of the calendar window, or the day to fall back on.
+ *
+ * Absent and empty are both "not stated", because a screen that clears a date
+ * field sends the empty string and means the same thing as one that never had a
+ * value. A malformed date is refused as `range-invalid` rather than as
+ * `invalid-date`: what a caller asked for is a period, the period as a whole is
+ * what can be wrong, and one code for it is what the screen has a sentence for.
+ * This is the booking calendar's own reading of the same parameters.
+ */
+function windowDay(value: unknown, fallback: LocalDay): LocalDay {
+  const text = z.string().optional().parse(value);
+  if (text === undefined || text === "") {
+    return fallback;
+  }
+  const day = parseLocalDay(text);
+  if (day === null) {
+    throw new EventError(
+      "A date is written YYYY-MM-DD and has to be a real one.",
+      "range-invalid",
+    );
+  }
+  return day;
+}
+
+/**
+ * The period a calendar read covers, defaulting to as far ahead as one may.
+ *
+ * From today unless the caller says otherwise, and to the last day a single read
+ * answers for. The default is deliberately the widest window rather than a
+ * narrower one, so there is a single number in the module for "how much of the
+ * calendar is one read" instead of a cap and a default that could drift apart -
+ * and a board that has stated nothing is given as much as it can be given.
+ */
+function calendarWindow(from: unknown, to: unknown): EventCalendarWindow {
+  const start = windowDay(from, localDayOf(new Date()));
+  return {
+    from: start,
+    to: windowDay(to, addLocalDays(start, MAX_CALENDAR_DAYS - 1)),
+  };
+}
+
 /** The parsed body, with every optional field settled to null. */
 function eventInput(body: unknown): EventInput {
   const parsed = eventSchema.parse(body);
@@ -140,7 +195,7 @@ function eventInput(body: unknown): EventInput {
  * One capability, declared on the class so a route added here later inherits it
  * rather than being open by omission. events:manage is the whole of this
  * controller: arranging what the association does, announcing it, and calling a
- * date off are one job held by one audience.
+ * date off or putting it back are one job held by one audience.
  *
  * Reading the calendar as a resident, and signing up to a date, are not here.
  * They are a different audience with a capability of their own and will have a
@@ -158,9 +213,19 @@ function eventInput(body: unknown): EventInput {
 export class EventAdminController {
   constructor(private readonly events: EventService) {}
 
+  /**
+   * The series with a date inside a window, drafts included.
+   *
+   * The window is two query parameters and both are optional; see
+   * {@link calendarWindow} for what a bare request is given and
+   * {@link EventService.list} for why the read is bounded at all.
+   */
   @Get()
-  async list(): Promise<EventView[]> {
-    return this.events.list();
+  async list(
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ): Promise<EventView[]> {
+    return this.events.list(calendarWindow(from, to));
   }
 
   @Post()
@@ -188,6 +253,27 @@ export class EventAdminController {
     @Req() request: RequestWithPrincipal,
   ): Promise<EventView> {
     return this.events.cancelOccurrence(
+      occurrenceId,
+      requirePrincipal(request).personId,
+    );
+  }
+
+  /**
+   * Puts one called-off date back.
+   *
+   * A route of its own beside the call-off rather than a body flag on it, on the
+   * reading the publish route already applies to this controller: these are two
+   * decisions with two entries in the audit log, and one route taking either
+   * would be one route whose record depended on what a form happened to send.
+   * events:manage covers it through the class, which is what stops a route added
+   * here being open by omission.
+   */
+  @Post("occurrences/:occurrenceId/reinstate")
+  async reinstateOccurrence(
+    @Param("occurrenceId") occurrenceId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<EventView> {
+    return this.events.reinstateOccurrence(
       occurrenceId,
       requirePrincipal(request).personId,
     );

@@ -23,10 +23,9 @@ plain HTML with no JavaScript, no third-party requests and no cookie of its
 own. The board writes those pages from the application now, with the
 publication guardrails inside the write path, arranges the menu a visitor finds
 them through, and answers a broker from the facts it has recorded. A page can
-also
-carry the blocks that draw on the instance's own data: the document list, the
-board roster, the association facts, a FAQ and the association's calendar. The
-project is not ready to hold your housing cooperative's data.
+also carry the blocks that draw on the instance's own data: the document list,
+the board roster, the association facts, a FAQ and the association's calendar.
+The project is not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -535,35 +534,40 @@ change it.
       month ends and the 29th of February; the write path with the personal
       identity number scan on publication, members-only unless the board
       publishes to the street, the refusal to move a date people are standing
-      on, one date called off on its own, the `events:manage` capability and
-      the audit entries; sign-up per occurrence with the places counted per
-      date and a claim the database and a lock decide, withdrawal as a dated
-      close that frees the place again, the roll-call behind the managing
-      capability with a person with protected personal data counted and never
-      named, `events:attend` as a capability of its own, the data subject
-      access report section and the sign-up purge with its legal-hold check;
-      the calendar screen in two halves - what is coming up with the places
-      gone per date and never who has them, a sign-up and a withdrawal whose
-      count and control are read from one server answer so the two cannot
-      disagree after a race, and the board's own half entering a series,
-      publishing it to the members or to the street, calling one date off and
-      reading the roll-call, with the personal identity number refusal naming
-      the fields it was found in; and the public calendar page at /kalender
-      with one address per event, a month at a time with plain previous and
-      next links and no script at all, the dates a reader may see decided among
-      the published ones by whether they carry a session and nothing else, a
-      draft on the calendar for nobody, an event kept for the members answered
-      signed-out with the website's own not-found document byte for byte, how
-      many places are gone beside a date and never who has them, and a calendar
-      block the board can put on a page it writes; and the end-to-end suite
-      that drives all of it through a browser against the production image -
-      the board publishing one event to the street and one to the members from
-      one field whose default is the members, a place taken and given up again
-      with the row read again from the instance between the two acts, the last
-      place going while somebody is looking at it and the count they are
-      looking at catching up in the same breath, the roll-call naming who is
-      coming and never the person carrying protected personal data, and the
-      street reading the public date on a page that runs no script, sets no
+      on, one date called off on its own and put back again as an act with its
+      own record which signs nobody up who stood down while it was off, the
+      board's list answering for a period of days rather than for the whole
+      calendar, the `events:manage` capability and the audit entries; sign-up
+      per occurrence with the places counted per date and a claim the database
+      and a lock decide, withdrawal as a dated close that frees the place
+      again, the roll-call behind the managing capability with a person with
+      protected personal data counted and never named, `events:attend` as a
+      capability of its own, the data subject access report section and the
+      sign-up purge with its legal-hold check; the calendar screen in two
+      halves - what is coming up with the places gone per date and never who
+      has them, whether a date has begun and which audience it was published to
+      both decided by the server, a sign-up and a withdrawal whose count and
+      control are read from one server answer so the two cannot disagree after
+      a race, and the board's own half entering a series, publishing it to the
+      members or to the street, moving the period it shows, calling one date
+      off, putting one back and reading the roll-call, with the personal
+      identity number refusal naming the fields it was found in; and the public
+      calendar page at /kalender with one address per event, a month at a time
+      with plain previous and next links and no script at all, the dates a
+      reader may see decided among the published ones by whether they carry a
+      session and nothing else and no field on that page describing an audience
+      at all, a draft on the calendar for nobody, an event kept for the members
+      answered signed-out with the website's own not-found document byte for
+      byte, how many places are gone beside a date and never who has them, and
+      a calendar block the board can put on a page it writes; and the end-to-end
+      suite that drives all of it through a browser against the production
+      image - the board publishing one event to the street and one to the
+      members from one field whose default is the members, a place taken and
+      given up again with the row read again from the instance between the two
+      acts, the last place going while somebody is looking at it and the count
+      they are looking at catching up in the same breath, the roll-call naming
+      who is coming and never the person carrying protected personal data, and
+      the street reading the public date on a page that runs no script, sets no
       cookie and asks no other company for a byte, while the members' event at
       its own address is answered as nothing at all
 
