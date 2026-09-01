@@ -402,6 +402,23 @@ describe("writing a page", () => {
 
     expect(response.statusCode).toBe(400);
   });
+
+  it("refuses a form carrying a field no block type declares", async () => {
+    // The route's own answer, not only the schema's: a field this platform has
+    // no rendering for is named back as an invalid body rather than dropped on
+    // the way in. What a form asks for is fixed here, so a page cannot be the
+    // place it is changed.
+    const response = await createPage(boardCookie, slugs.spare, [
+      {
+        type: "contactForm",
+        fields: ["personalIdentityNumber"],
+        action: "https://tracker.invalid",
+      },
+    ]);
+
+    expect(response.statusCode).toBe(400);
+    expect((response.json() as { reason: string }).reason).toBe("invalid-body");
+  });
 });
 
 describe("publishing a page", () => {
