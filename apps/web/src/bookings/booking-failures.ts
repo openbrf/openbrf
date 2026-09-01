@@ -15,11 +15,12 @@ import { failureMessageKey } from "../ui/save-state";
  * board's view all cancel or book against the same rules, and three copies of
  * the map would drift into three different sentences for one fact.
  *
- * The five refusals a resource write can meet - a slot length that does not fit
- * the opening hours, opening hours on a resource that has none, and so on - are
- * deliberately absent. They are not reachable from these screens, and the
- * settings panel that can reach them words them for the board member who is
- * configuring the thing rather than for the resident meeting the result.
+ * The refusals only a resource write can meet - a slot length that does not fit
+ * the opening hours, opening hours on a resource that has none, a personal
+ * identity number in the name or the description, and so on - are deliberately
+ * absent. They are not reachable from these screens, and the settings panel
+ * that can reach them words them for the board member who is configuring the
+ * thing rather than for the resident meeting the result.
  *
  * A refusal none of these keys covers falls through to the fallback below, and
  * a 403 is answered before the map is consulted at all. See
