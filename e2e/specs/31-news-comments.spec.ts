@@ -338,9 +338,7 @@ test.describe("comments on the association's news", () => {
     const neighbourRows = await openTheNotice(page);
     const withheld = neighbourRows.filter({ hasText: AUTHOR.name }).first();
     await expect(withheld).toContainText("Struken");
-    await expect(withheld).toContainText(
-      "Styrelsen har tagit bort texten från tråden",
-    );
+    await expect(withheld).toContainText("Styrelsen har dolt texten");
     /*
      * The text itself is nowhere on his screen - not struck through, not dimmed,
      * absent. The server did not send it, and there is no rule in the browser

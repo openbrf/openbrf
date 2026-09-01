@@ -577,10 +577,11 @@ change it.
         notice about the building one lives in is not the statutory right that
         membership carries. Moderation is the board's own site:manage, because a
         thread under a notice is part of what the association publishes. A
-        struck comment stays on the thread with its author still named, its text
-        withheld from other readers and readable to the board and to whoever
-        wrote it, and the screen renders that answer as the server gives it per
-        reader rather than deciding it in the browser
+        struck comment stays on the thread attributed exactly as before - a
+        person with protected personal data is named to nobody either way - its
+        text withheld from other readers and readable to the board and to
+        whoever wrote it, and the screen renders that answer as the server gives
+        it per reader rather than deciding it in the browser
   - [ ] Group and board chat
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents

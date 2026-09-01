@@ -2599,12 +2599,12 @@
       "authorProtected": "Protected personal data: not named here.",
       "authorUnknown": "No longer in the register.",
       "struck": "Struck through",
-      "struckWithheld": "The board has taken the text off the thread.",
+      "struckWithheld": "The board has withheld the text.",
       "struckReadable": "Struck through. The text is shown to the board and to whoever wrote it.",
       "hide": "Strike it through",
       "hideNamed": "Strike the comment from {{author}} through",
       "hiding": "Striking through...",
-      "hideHint": "Striking a comment through withholds its text and cannot be undone. Nothing is deleted, and its author stays named."
+      "hideHint": "Striking a comment through withholds its text and cannot be undone. Nothing is deleted, and who the comment is from does not change."
     },
     "errors": {
       "newsNotFound": "That news item is gone, so there is no thread under it.",

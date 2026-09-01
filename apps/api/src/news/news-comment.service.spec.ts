@@ -392,20 +392,23 @@ describe("a comment is exactly as visible as its news item", () => {
      * announcement: a block that reads a picture or a list of other items out of
      * the database would make one notice a second place where what is disclosed
      * is decided, and this list is read by a browser that would happily render
-     * whatever href it is handed. Both halves are asserted, because a body that
-     * kept its text and its link would pass an assertion on the block types
-     * alone.
+     * whatever href it is handed. The runs are asserted whole rather than their
+     * links alone: a body that kept its link would pass an assertion on the
+     * block types, and one whose prose was emptied on the way out would pass an
+     * assertion on the links.
      */
     expect(item?.content.blocks.map((block) => block.type)).toEqual([
       "heading",
       "paragraph",
     ]);
+    const heading = item?.content.blocks[0];
+    expect(heading?.type === "heading" ? heading.runs : undefined).toEqual([
+      { text: "Ta med" },
+    ]);
     const paragraph = item?.content.blocks[1];
     expect(
-      paragraph?.type === "paragraph"
-        ? paragraph.runs.map((run) => run.link)
-        : undefined,
-    ).toEqual([undefined, undefined]);
+      paragraph?.type === "paragraph" ? paragraph.runs : undefined,
+    ).toEqual([{ text: "Handskar" }, { text: "och en hink" }]);
   });
 });
 

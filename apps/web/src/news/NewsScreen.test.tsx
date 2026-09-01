@@ -165,9 +165,7 @@ describe("a comment the board has struck through", () => {
     // grown a notice somewhere else.
     const struckRow = screen.getByText("Nils Holm").closest("li");
     expect(struckRow?.textContent).toContain("Struken");
-    expect(struckRow?.textContent).toContain(
-      "Styrelsen har tagit bort texten från tråden.",
-    );
+    expect(struckRow?.textContent).toContain("Styrelsen har dolt texten.");
   });
 
   it("shows the text to a reader the server sent it to, whatever this account holds", async () => {

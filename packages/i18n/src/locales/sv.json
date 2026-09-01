@@ -2599,12 +2599,12 @@
       "authorProtected": "Skyddade personuppgifter: namnges inte här.",
       "authorUnknown": "Finns inte längre i registret.",
       "struck": "Struken",
-      "struckWithheld": "Styrelsen har tagit bort texten från tråden.",
+      "struckWithheld": "Styrelsen har dolt texten.",
       "struckReadable": "Struken. Texten visas för styrelsen och för den som skrev den.",
       "hide": "Stryk kommentaren",
       "hideNamed": "Stryk kommentaren från {{author}}",
       "hiding": "Stryker...",
-      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och den som skrev den står kvar med namn."
+      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och vem kommentaren är från ändras inte."
     },
     "errors": {
       "newsNotFound": "Nyheten finns inte längre, så det finns ingen tråd under den.",

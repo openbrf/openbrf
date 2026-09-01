@@ -198,14 +198,13 @@ then strikes it through and is offered no way to take that back; afterwards the
 same comment reads three ways, and all three are asserted through the interface:
 struck through with its text to the board, struck through with its text to its
 author, and struck through with the text absent to the neighbour the server never
-sent it to. That third reader is Karl Berg rather than the author's own household
-
-- `27-site-data-blocks` puts Astrid Lindqvist on the board to photograph the
-  roster block, and a board seat reads a struck comment by design, so she cannot
-  stand for the reader it is kept from. Last, a comment carrying a personal
-  identity number is refused, the refusal reaches the screen as a sentence, and the
-  sentence does not carry the number. The spec publishes a notice of its own and
-  asks for no mailing, so it leaves the mailbox alone.
+sent it to. That third reader is Karl Berg rather than the author's own
+household, because `27-site-data-blocks` puts Astrid Lindqvist on the board to
+photograph the roster block, and a board seat reads a struck comment by design,
+so she cannot stand for the reader it is kept from. Last, a comment carrying a
+personal identity number is refused, the refusal reaches the screen as a
+sentence, and the sentence does not carry the number. The spec publishes a notice
+of its own and asks for no mailing, so it leaves the mailbox alone.
 
 ## Still to be written
 

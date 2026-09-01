@@ -28,10 +28,12 @@ not publish is dropped by the parser rather than by the browser.
 
 A struck-through comment is rendered as the server answers it, per reader, and
 the screen holds no rule of its own about who may read one. The comment keeps its
-place in the thread and its author's name in every case: with its text struck
+place in the thread and its attribution in every case: with its text struck
 through for the board and for whoever wrote it, and with a sentence saying the
-board has taken the text off the thread for everybody else. There is no control
-that clears a strike-through, because there is no endpoint for one.
+board has withheld the text for everybody else. Striking one through changes
+nothing about who it is from, and a person with protected personal data is named
+to nobody either way. There is no control that clears a strike-through, because
+there is no endpoint for one.
 
 Nothing on the screen is optimistic. A posted comment and a struck one both ask
 for a fresh read of the thread rather than editing the list in place, one reading
