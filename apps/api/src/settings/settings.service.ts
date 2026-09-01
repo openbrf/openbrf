@@ -13,6 +13,11 @@ import { smtpTestMail } from "../mail/templates";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { normalizePhone } from "../crypto/personal-data";
 import { I18nService } from "../i18n/i18n.service";
+import {
+  isWritableDeadline,
+  type MotionDeadline,
+  readMotionDeadline,
+} from "../motions/motion-deadline";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
 import { selectedDriverKind, SmsService } from "../sms/sms.service";
 
@@ -42,7 +47,8 @@ export class SettingsError extends DomainError {
       | "colour-fails-contrast"
       | "person-not-found"
       | "no-email"
-      | "no-phone",
+      | "no-phone"
+      | "motion-deadline-not-a-date",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
@@ -154,6 +160,17 @@ export interface InstanceSettings {
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
   issueReporting: { publicFormEnabled: boolean };
+  /**
+   * The deadline the bylaws set for motions to the general meeting, or null when
+   * they set none.
+   *
+   * Read with association:read so the board can see the clause it is answerable
+   * for, and changed with association:manage like every other instance setting.
+   * Null is the ordinary state of a fresh instance and is not "unset pending
+   * configuration": EFL 6 kap. 15 § makes the deadline the association's own,
+   * and a cooperative whose bylaws are silent has none.
+   */
+  motionDeadline: MotionDeadline | null;
 }
 
 export interface HousingCooperativeInput {
@@ -262,6 +279,7 @@ export class SettingsService {
       issueReporting: {
         publicFormEnabled: association.issueReportingPublic,
       },
+      motionDeadline: readMotionDeadline(association),
     };
   }
 
@@ -720,6 +738,53 @@ export class SettingsService {
       `Public issue reporting ${association.issueReportingPublic ? "enabled" : "disabled"}`,
     );
     return { publicFormEnabled: association.issueReportingPublic };
+  }
+
+  /**
+   * Records the deadline the bylaws set for motions to the general meeting.
+   *
+   * Transcribed rather than decided. EFL 6 kap. 15 §, applied to a housing
+   * cooperative by BRL 9 kap. 14 §, makes the deadline the association's own
+   * clause, so what this stores is what the bylaws already say - and null is a
+   * complete answer, not a blank waiting to be filled: a cooperative whose
+   * bylaws are silent has no deadline and intake stays open.
+   *
+   * Both columns move together, because half a deadline is not one. A month
+   * without a day would be a rule nothing could resolve to a date, and a screen
+   * would then have to show a member a deadline it could not name.
+   *
+   * The pair is refused unless it is a date somebody could have written in a
+   * clause: February takes 29, which is what the resolver's clamp exists for, but
+   * "31 February" is refused outright because no year has one and a board typing
+   * it has made a mistake worth being told about.
+   */
+  async updateMotionDeadline(
+    input: MotionDeadline | null,
+  ): Promise<{ motionDeadline: MotionDeadline | null }> {
+    await this.requireAssociation();
+
+    if (input !== null && !isWritableDeadline(input.month, input.day)) {
+      throw new SettingsError(
+        "That month and day are not a date the bylaws could name.",
+        "motion-deadline-not-a-date",
+      );
+    }
+
+    const association = await this.prisma.association.update({
+      where: { id: 1 },
+      data: {
+        motionDeadlineMonth: input?.month ?? null,
+        motionDeadlineDay: input?.day ?? null,
+      },
+    });
+
+    const stored = readMotionDeadline(association);
+    this.logger.log(
+      stored === null
+        ? "Motion deadline cleared; the bylaws set none"
+        : `Motion deadline set to ${String(stored.month)}-${String(stored.day)}`,
+    );
+    return { motionDeadline: stored };
   }
 
   /** The signed-in person's own preferences. Reached with self:manage. */

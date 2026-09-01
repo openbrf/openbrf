@@ -116,6 +116,10 @@ describe("property manager", () => {
     "bookings:book",
     "bookings:manage",
     "bookings:configure",
+    // A motion is the members' business with their own association. An external
+    // contractor neither puts one nor reads the queue they arrive in.
+    "motions:submit",
+    "motions:handle",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -159,13 +163,51 @@ describe("resident and member", () => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });
 
-  it("gives a member no more than a resident", () => {
-    // Membership is about the tenant-ownership, not about system access. A
-    // member's right to their own apartment register entry is a separate,
-    // per-apartment check rather than a capability.
+  it("gives a member exactly one capability a resident does not hold", () => {
+    /*
+     * The one place where membership rather than residency decides access, and
+     * the difference is a statute rather than a product choice.
+     *
+     * EFL 6 kap. 15 § gives the right to have an item taken up at a general
+     * meeting to a member, and BRL 9 kap. 14 § applies that chapter to a
+     * housing cooperative with six exceptions of which this is not one. So a
+     * partner, an adult child or a tenant living here holds no motion right.
+     *
+     * Written as the exact difference rather than as a containment: a
+     * capability that quietly widened to every resident would still satisfy
+     * "a member holds at least what a resident holds".
+     *
+     * Everything else about membership stays out of the capability model. A
+     * member's right to their own apartment register entry is a per-apartment
+     * check rather than a capability.
+     */
     const member = capabilitiesFor(roles({ isResident: true, isMember: true }));
     const resident = capabilitiesFor(roles({ isResident: true }));
-    expect([...member].sort()).toEqual([...resident].sort());
+    const extra = [...member].filter((capability) => !resident.has(capability));
+    expect(extra).toEqual(["motions:submit"]);
+  });
+
+  it("denies a resident who is not a member the motion right", () => {
+    // The same statute stated on its own, so a slip that granted it to
+    // residents fails here as well as in the difference above.
+    expect(can({ isResident: true }, "motions:submit")).toBe(false);
+    expect(can({ isResident: true, isMember: true }, "motions:submit")).toBe(
+      true,
+    );
+  });
+
+  it("does not let a board seat stand in for membership", () => {
+    // The right attaches to the tenant-ownership and not to the office. A board
+    // member who holds no tenant-ownership works the queue and holds no right
+    // to put an item into it.
+    expect(can({ isBoardMember: true }, "motions:handle")).toBe(true);
+    expect(can({ isBoardMember: true }, "motions:submit")).toBe(false);
+    expect(
+      can(
+        { isBoardMember: true, isResident: true, isMember: true },
+        "motions:submit",
+      ),
+    ).toBe(true);
   });
 });
 

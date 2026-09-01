@@ -170,6 +170,43 @@ export const CAPABILITIES = [
    * not given it.
    */
   "systemRole:manage",
+  /**
+   * Put an item to a general meeting (motion till stamman), and read one's own.
+   *
+   * The one capability in this list that is derived from membership rather than
+   * from residency, a board seat or a grant, and the reason is the statute
+   * rather than a product decision. EFL 6 kap. 15 § gives the right to have an
+   * item taken up at a general meeting to "en medlem" - a member - and BRL
+   * 9 kap. 14 § applies that chapter to a housing cooperative with six
+   * exceptions of which this is not one. So a resident who is not a
+   * tenant-owner does not hold it: a partner, an adult child, a tenant living
+   * here on a second-hand contract. They live in the building; the item put to
+   * the meeting is the member's.
+   *
+   * Nor does a board seat confer it. A board member who is also a member holds
+   * it as a member, and one who is not holds nothing here, because the right
+   * attaches to the membership and not to the office.
+   *
+   * The capability is what opens the route. Whether the caller is a member on
+   * the day they submit is checked again by `MotionService.submit` against the
+   * register, which is what closes the administrator path: an administrator
+   * holds every capability in this list by definition, and holding a grant is
+   * not being a member.
+   */
+  "motions:submit",
+  /**
+   * Work the motion queue: read what the members have put to the meeting, and
+   * record that a motion has been received.
+   *
+   * The board's, because a motion is addressed to it. EFL 6 kap. 15 § has the
+   * member ask the board in writing, and it is the board that decides what goes
+   * into the notice (kallelse) for the meeting.
+   *
+   * Deliberately not the property manager's, on the issues:report precedent: a
+   * motion is the members' business with their own association, and an external
+   * contractor has nothing to do with it.
+   */
+  "motions:handle",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -240,7 +277,31 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "bookings:manage",
   "bookings:configure",
   "events:manage",
+  "motions:handle",
 ];
+
+/**
+ * What being a member grants, over and above living here.
+ *
+ * The only role-derived list on this page that comes from a statute naming the
+ * role rather than from a decision about who should be able to do what. EFL
+ * 6 kap. 15 §, applied to a housing cooperative by BRL 9 kap. 14 §, gives the
+ * right to put an item to a general meeting to a member; every other resident
+ * of the building has no such right, and the platform is not free to extend it.
+ *
+ * So this list is short and stays short. A capability belongs here only when
+ * membership - the tenant-ownership - is what confers it, and not when it is
+ * merely something residents happen to do. Booking the laundry room is part of
+ * living here, which is why `bookings:book` is a resident's; putting a motion to
+ * the meeting is part of owning a share in the association, which is why
+ * `motions:submit` is a member's.
+ *
+ * Membership is derived on every request from an active residency with the
+ * MEMBER role (`PrincipalService.forPerson`), so a household that has sold up
+ * stops holding this the day the residency ends rather than when somebody
+ * remembers to revoke something.
+ */
+const MEMBER_CAPABILITIES: readonly Capability[] = ["motions:submit"];
 
 /**
  * The property manager is an external party with access to issue handling
@@ -286,6 +347,21 @@ export function capabilitiesFor(roles: PrincipalRoles): Set<Capability> {
   }
   if (roles.isResident) {
     add(RESIDENT_CAPABILITIES);
+  }
+  /*
+   * Read on its own rather than as a refinement of isResident, even though
+   * every member is a resident in the register today.
+   *
+   * `isMember` has been on PrincipalRoles since the principal was first built
+   * and nothing here read it, so this is the first capability the platform
+   * derives from membership. Stated as its own branch because the two roles
+   * answer different questions and the statute cares which: living here is what
+   * grants the resident list, and holding the tenant-ownership is what grants
+   * the right in EFL 6 kap. 15 §. Nesting one inside the other would make the
+   * member's right look like a resident's with an extra condition.
+   */
+  if (roles.isMember) {
+    add(MEMBER_CAPABILITIES);
   }
   // Someone with an account but no residency, board seat or grant (an external
   // person mid-onboarding) can still manage their own record.

@@ -79,6 +79,34 @@ model Association {
   /// page.
   issueReportingPublic Boolean @default(true)
 
+  /// The deadline the bylaws (stadgar) set for motions to the general meeting,
+  /// as a recurring month and day.
+  ///
+  /// EFL 6 kap. 15 §, which BRL 9 kap. 14 § applies to a housing cooperative
+  /// unchanged, gives a member the right to have an item taken up at a general
+  /// meeting if they ask the board in writing in time for the notice, and adds
+  /// that the request is to be made in the manner and within the time the
+  /// bylaws determine where the bylaws say anything about it. So the deadline is
+  /// the association's own clause and never the platform's: there is no default
+  /// here, and null means the bylaws state none rather than that nobody has
+  /// typed one in yet.
+  ///
+  /// A recurring month and day rather than an absolute date, because a bylaws
+  /// clause is a standing rule. "Motions must reach the board by 31 January"
+  /// holds every year, and a stored 2027-01-31 would be silently wrong for every
+  /// season after the first - which is the worst shape for this failure to take,
+  /// since it surfaces in the one month of the year the clause matters. Not a
+  /// number of days before the meeting either, which is the other shape a clause
+  /// takes: no meeting exists in this data model yet, so a window measured
+  /// backwards from one would be a setting nothing could evaluate.
+  ///
+  /// Both columns are set or neither is, which SettingsService enforces. The day
+  /// is taken as the clause writes it and clamped to the length of the month in
+  /// the year it is resolved for, so a clause naming 29 February falls on the
+  /// 28th in a year that has no 29th.
+  motionDeadlineMonth Int?
+  motionDeadlineDay   Int?
+
   smtpHost           String?
   smtpPort           Int?
   smtpUser           String?
@@ -589,6 +617,17 @@ enum AuditAction {
   /// One occurrence of a series was called off, leaving the rest of the series
   /// standing.
   EVENT_OCCURRENCE_CANCELLED
+  /// A member submitted a motion to the general meeting. The member is both the
+  /// actor and the subject: the right in EFL 6 kap. 15 § is theirs to exercise,
+  /// and nobody submits on anybody's behalf.
+  MOTION_SUBMITTED
+  /// The board recorded that it had received a motion and would put it to a
+  /// meeting. The subject stays the member who submitted it, so their access
+  /// report shows what the board did with their item.
+  MOTION_ACKNOWLEDGED
+  /// A member took a motion back while it was still open. Actor and subject are
+  /// the member, as at submission.
+  MOTION_WITHDRAWN
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -2380,4 +2419,110 @@ model EventOccurrence {
   /// The calendar read, which is by date across every series at once.
   @@index([startsAt])
   @@map("event_occurrence")
+}
+
+/// Where a motion stands. Three states, and it leaves the first exactly once.
+///
+/// A motion is closed with a date and never deleted: what a member put to the
+/// meeting, and that the board received it, is the record the member is
+/// entitled to be able to point at. Deleting a row would leave the association
+/// with no answer to "I sent one in".
+enum MotionStatus {
+  /// With the board and not yet dealt with. Where every motion starts.
+  SUBMITTED
+
+  /// The board has recorded that it received the motion and will put it to a
+  /// meeting. Not "approved": whether the meeting adopts the proposal is the
+  /// meeting's decision and is minuted there, never here.
+  ACKNOWLEDGED
+
+  /// Taken back by the member who submitted it, while it was still open.
+  WITHDRAWN
+}
+
+/// One motion (motion till stamman) put to the general meeting by a member.
+///
+/// ## Who may submit one
+///
+/// A member, and precisely a member. EFL 6 kap. 15 § - applied to a housing
+/// cooperative by BRL 9 kap. 14 §, which excepts six of that chapter's rules and
+/// not this one - gives the right to "en medlem", so a resident who is not a
+/// tenant-owner has none of it: a partner, an adult child, a tenant. That is the
+/// statute rather than a product choice, and it is why `motions:submit` is
+/// derived from membership in `authorization/capabilities.ts` and re-checked
+/// against the register by `MotionService.submit`.
+///
+/// The same paragraph withholds the right from a member who has been excluded
+/// even though the membership has not yet ended. This platform records no
+/// exclusion - the member register knows entry, exit and correction, and an
+/// exclusion reaches it only as the exit it eventually becomes - so the check
+/// cannot subtract that case and does not pretend to. A board handling a motion
+/// from somebody it has excluded decides that on the facts it holds.
+///
+/// ## Service tier
+///
+/// The title and the body are the member's own writing and the person reference
+/// is a plain column, so the purge can erase a motion without negotiating with
+/// this table. The retention clock runs from the closing date rather than from a
+/// move-out, for the reason `motion-retention.ts` gives, and an open motion is
+/// not purged at all: the association is still processing it, so the purpose it
+/// is held for has not ended.
+///
+/// ## No meeting
+///
+/// Deliberately no meetingId. Meetings are a later module, and a column
+/// referencing a table that does not exist would be either a foreign key to
+/// nothing or an identifier nothing could resolve. Which meeting a motion
+/// reaches is answered when meetings exist; until then a motion is an item with
+/// the board, which is what the statute makes it before a notice goes out.
+model Motion {
+  id String @id @default(cuid())
+
+  /// What the member is proposing, in one line. The association's own content:
+  /// stored as written and never translated (decision 59).
+  title String
+
+  /// The proposal itself, and what a general meeting would vote on. Free text
+  /// scanned for a personal identity number before it is stored - the one
+  /// guardrail a member's own writing goes through here - because a motion is
+  /// read out at a meeting and copied into a notice, and a personnummer in it is
+  /// a disclosure the association cannot take back.
+  body String
+
+  /// The member who submitted it.
+  ///
+  /// A plain column and not a relation, for the reason Issue.reporterPersonId
+  /// and Booking.bookedByPersonId are: every referential action a foreign key
+  /// can carry either rewrites this row when a person is erased or vetoes the
+  /// erasure outright, and service-tier data has to be purgeable without the
+  /// purge having to negotiate with the motion queue.
+  submittedByPersonId String
+
+  submittedAt DateTime @default(now())
+
+  status MotionStatus @default(SUBMITTED)
+
+  /// When the motion stopped being open, whichever way it closed. Null while it
+  /// is with the board.
+  ///
+  /// One date and not one per status, because a motion closes exactly once and
+  /// there is no path back: the status says which close it was, and the purge
+  /// needs a single column to compare a cutoff against rather than an OR across
+  /// two.
+  closedAt DateTime?
+
+  /// Who closed it: the board member who acknowledged it, or the member who took
+  /// it back. A plain column, for the reason submittedByPersonId is one.
+  closedByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The board's queue: open motions first, oldest first within a status.
+  @@index([status, submittedAt])
+  /// A member's own motions, and the DSAR section.
+  @@index([submittedByPersonId, submittedAt])
+  /// The purge scan: which motions closed long enough ago.
+  @@index([closedAt])
+  @@map("motion")
 }

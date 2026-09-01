@@ -3,6 +3,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
+import { computeMotionPurgeDate } from "../motions/motion-retention";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -44,6 +45,7 @@ const SECTIONS = [
   "issues",
   "documents",
   "bookings",
+  "motions",
   "auditEntries",
 ] as const;
 
@@ -89,10 +91,12 @@ const SECTIONS = [
  * their retention story was unfinished would be an incomplete answer to an
  * access request, which is the one failure this document cannot have.
  *
- * The bookings section is the one that does state an erasure date per row. A
- * booking is purged a year after the booked period ended, on its own clock
- * rather than the residency one, so the date at the foot of the document is not
- * the date that governs it and each booking says when it goes.
+ * Two sections state an erasure date per row, because two modules purge on
+ * clocks of their own. A booking is purged a year after the booked period ended
+ * and a motion two years after it was closed, so the date at the foot of the
+ * document is not the date that governs either, and each row says when it goes.
+ * A motion still with the board states no date at all: it has no closing date to
+ * count from, and the association is still processing it.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -343,6 +347,24 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Motions this person put to the general meeting. `submittedByPersonId` is a
+     * plain column and not a relation, for the reason the bookings query above
+     * gives, so this is a query of its own.
+     */
+    const motions = await tx.motion.findMany({
+      where: { submittedByPersonId: personId },
+      orderBy: [{ submittedAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        status: true,
+        submittedAt: true,
+        closedAt: true,
+      },
+    });
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -517,6 +539,21 @@ export class DataSubjectReportService {
          * holds true whether or not one stands.
          */
         erasableFrom: toIsoDate(computeBookingPurgeDate(booking.endsAt)),
+      })),
+      motions: motions.map((motion) => ({
+        motionId: motion.id,
+        title: motion.title,
+        body: motion.body,
+        status: motion.status,
+        submittedAt: motion.submittedAt.toISOString(),
+        closedAt: motion.closedAt?.toISOString() ?? null,
+        /*
+         * Derived here rather than stored, as a residency's and a booking's are.
+         * Null while the motion is open, which is not a gap in the answer: an
+         * open motion has no closing date to count from, and the association is
+         * still processing it, so no purge date exists to state.
+         */
+        erasableFrom: toIsoDate(computeMotionPurgeDate(motion.closedAt)),
       })),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,

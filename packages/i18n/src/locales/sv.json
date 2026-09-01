@@ -307,6 +307,7 @@
           "issues": "Felanmälningar",
           "documents": "Inlagda dokument",
           "bookings": "Bokningar",
+          "motions": "Motioner",
           "audit": "Granskningsloggen",
           "retention": "Gallring"
         },
@@ -363,7 +364,10 @@
           "onLegalHold": "Rättsligt bevarandekrav",
           "creditor": "Panthavare",
           "amount": "Belopp",
-          "noted": "Noterad"
+          "noted": "Noterad",
+          "motionTitle": "Motion",
+          "submitted": "Inlämnad",
+          "closed": "Avslutad"
         },
         "event": {
           "ENTRY": "Inträde",
@@ -416,7 +420,10 @@
           "EVENT_SERIES_CREATED": "Evenemang skapades",
           "EVENT_SERIES_UPDATED": "Evenemang ändrades",
           "EVENT_SERIES_PUBLISHED": "Evenemang publicerades",
-          "EVENT_OCCURRENCE_CANCELLED": "Evenemangstillfälle ställdes in"
+          "EVENT_OCCURRENCE_CANCELLED": "Evenemangstillfälle ställdes in",
+          "MOTION_SUBMITTED": "Motion inlämnad",
+          "MOTION_ACKNOWLEDGED": "Motion antecknad som mottagen",
+          "MOTION_WITHDRAWN": "Motion återkallad"
         },
         "auditRole": {
           "subject": "Om den här personen",
@@ -2283,6 +2290,13 @@
       "alreadyCancelled": "Bokningen är redan avbokad, så det finns inget att avboka.",
       "rangeInvalid": "De dagarna går inte att hämta en kalender för. Ladda om sidan.",
       "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
+  "motions": {
+    "status": {
+      "SUBMITTED": "Hos styrelsen",
+      "ACKNOWLEDGED": "Mottagen",
+      "WITHDRAWN": "Återkallad"
     }
   }
 }
