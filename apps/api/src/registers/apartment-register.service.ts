@@ -3,8 +3,9 @@ import { Injectable } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import type { Prisma, TerminationKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { statutoryDate } from "./statutory-date";
 
 /**
  * The statutory apartment register (lagenhetsforteckning), BRL 9 kap.
@@ -14,7 +15,8 @@ import { DomainError } from "../http/domain-error";
  *
  *   apartment designation, holder including personal identity number,
  *   initial share capital, participation share, liens with their note dates,
- *   transfers with their agreement references
+ *   transfers with their agreement references and membership decision dates,
+ *   terminations with the ground and the day they took effect
  *
  * The member register is public on request. This one is confidential: the board
  * may read it, and a tenant-owner may read their own entry and nobody else's.
@@ -32,7 +34,32 @@ import { DomainError } from "../http/domain-error";
  */
 
 export type ApartmentRegisterErrorReason =
-  "apartment-not-found" | "lien-not-found" | "lien-already-released";
+  | "apartment-not-found"
+  | "lien-not-found"
+  | "lien-already-released"
+  | "transfer-not-found"
+  | "membership-decision-already-recorded"
+  | "date-not-a-calendar-date"
+  | "date-in-the-future"
+  | "association-not-set-up";
+
+/**
+ * Which reasons are a conflict rather than an absence, and which a bad request.
+ *
+ * Stated as a map rather than as a chain of ternaries: a reason added without a
+ * status here is a compile error, where a fall-through default would silently
+ * answer 404 to a refusal that is nothing of the kind.
+ */
+const ERROR_STATUS = {
+  "apartment-not-found": 404,
+  "lien-not-found": 404,
+  "lien-already-released": 409,
+  "transfer-not-found": 404,
+  "membership-decision-already-recorded": 409,
+  "date-not-a-calendar-date": 400,
+  "date-in-the-future": 400,
+  "association-not-set-up": 409,
+} as const satisfies Record<ApartmentRegisterErrorReason, number>;
 
 export class ApartmentRegisterError extends DomainError {
   override readonly status: number;
@@ -41,7 +68,7 @@ export class ApartmentRegisterError extends DomainError {
   constructor(message: string, reason: ApartmentRegisterErrorReason) {
     super(message);
     this.reason = reason;
-    this.status = reason === "lien-already-released" ? 409 : 404;
+    this.status = ERROR_STATUS[reason];
   }
 }
 
@@ -72,6 +99,19 @@ export interface ApartmentRegisterLien {
 export interface ApartmentRegisterTransfer {
   id: string;
   transferredOn: string;
+  /**
+   * The day the association decided on the acquirer's membership, which is the
+   * day the cooperative housing register's two-week reporting window opens
+   * (Lag (2026:484) 3 kap. 3 § andra stycket).
+   *
+   * Null where there was no such decision to date - a transfer to a sitting
+   * member, or to an acquirer outside the membership requirement, which the
+   * same paragraph runs from the transfer instead - and null on a transfer
+   * recorded before the column existed. The extract does not distinguish the
+   * two: nothing in the register can, which is why the date is recorded when
+   * the decision is taken rather than derived afterwards.
+   */
+  membershipDecidedOn: string | null;
   /** Null for the first grant of a tenant-ownership (upplatelse). */
   fromName: string | null;
   toName: string;
@@ -86,6 +126,21 @@ export interface ApartmentRegisterTransfer {
   agreementReference: string | null;
 }
 
+/**
+ * A tenant-ownership that has ceased to exist (upphorande).
+ *
+ * On the extract because the register has to say that an apartment no longer
+ * carries a tenant-ownership: an entry listing holders and transfers, with
+ * nothing saying the right itself ended, reads as though it were still held.
+ */
+export interface ApartmentRegisterTermination {
+  id: string;
+  kind: TerminationKind;
+  /** The day it ceased, and the day the statutory two weeks start running. */
+  tookEffectOn: string;
+  reference: string;
+}
+
 export interface ApartmentRegisterRow {
   apartmentId: string;
   /** Address and apartment number together, as the register designates it. */
@@ -97,10 +152,22 @@ export interface ApartmentRegisterRow {
   holders: ApartmentRegisterHolder[];
   liens: ApartmentRegisterLien[];
   transfers: ApartmentRegisterTransfer[];
+  terminations: ApartmentRegisterTermination[];
 }
 
 export interface ApartmentRegisterExtract {
-  housingCooperative: { name: string; organizationNumber: string | null };
+  housingCooperative: {
+    name: string;
+    organizationNumber: string | null;
+    /**
+     * The property's designation with Lantmateriet, from the association's own
+     * authoritative record of it and never from the published broker prose.
+     *
+     * On this extract and not on the member register's: the designation names
+     * the property the apartments are in, which is apartment register content.
+     */
+    propertyDesignation: string | null;
+  };
   generatedOn: string;
   /** Whether this copy carries the holders' personal identity numbers. */
   identityNumbersIncluded: boolean;
@@ -326,6 +393,231 @@ export class ApartmentRegisterService {
   }
 
   /**
+   * The board records that a tenant-ownership has ceased (upphorande).
+   *
+   * The event Lag (2026:484) 3 kap. 4 § makes the association report to the
+   * cooperative housing register within two weeks of the day it ceased, and
+   * 3 kap. 10 § lets Lantmateriet order a late report in under penalty of a
+   * fine. The obligation ledger and the report itself are a later train; this
+   * is the record the window is computed from, and it lands now because a date
+   * nobody wrote down is not recoverable afterwards.
+   *
+   * The row and its audit entry share a transaction, as every write to this
+   * register does. Nothing here checks the conditions the ground carries - BRL
+   * 6 kap. 11 § permits the general meeting's decision on a pledged
+   * tenant-ownership only with the lienholder's consent - because those are
+   * conditions on the decision the association took, not on recording that it
+   * took it, and a register that refused to record a decision already made
+   * would leave the association unable to report it.
+   */
+  async recordTermination(input: {
+    actorPersonId: string;
+    apartmentId: string;
+    kind: TerminationKind;
+    tookEffectOn: string;
+    reference: string;
+    now?: Date;
+  }): Promise<ApartmentRegisterTermination> {
+    const apartment = await this.prisma.apartment.findUnique({
+      where: { id: input.apartmentId },
+      select: { id: true },
+    });
+    if (apartment === null) {
+      throw new ApartmentRegisterError(
+        "No such apartment.",
+        "apartment-not-found",
+      );
+    }
+
+    const tookEffectOn = statutoryDateColumn(
+      input.tookEffectOn,
+      input.now ?? new Date(),
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const termination = await tx.termination.create({
+        data: {
+          apartmentId: input.apartmentId,
+          kind: input.kind,
+          tookEffectOn,
+          reference: input.reference.trim(),
+        },
+      });
+
+      await this.audit.record(
+        {
+          action: "APARTMENT_REGISTER_TERMINATION_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "termination",
+          targetId: termination.id,
+          context: {
+            apartmentId: input.apartmentId,
+            kind: termination.kind,
+            tookEffectOn: isoDate(termination.tookEffectOn),
+          },
+        },
+        tx,
+      );
+
+      return toTermination(termination);
+    });
+  }
+
+  /**
+   * Records the day the association decided on an acquirer's membership.
+   *
+   * Its own act rather than a field on the move, because it is a different
+   * decision taken on a different day: the board approves membership when it
+   * meets, and the transfer completes on the tilltradesdag. Lag (2026:484)
+   * 3 kap. 3 § andra stycket runs the transfer report's two weeks from the
+   * former.
+   *
+   * Refused rather than rewritten once recorded. Transfer keeps UPDATE, so the
+   * database would accept a second value, and this date is the start of a
+   * statutory window: overwriting it would move a deadline with nothing left
+   * saying where it had been. Claimed conditionally, so two boards recording it
+   * at once cannot both write and the loser is answered as a sequential second
+   * attempt would be.
+   */
+  async recordMembershipDecision(input: {
+    actorPersonId: string;
+    transferId: string;
+    membershipDecidedOn: string;
+    now?: Date;
+  }): Promise<ApartmentRegisterTransfer> {
+    const existing = await this.prisma.transfer.findUnique({
+      where: { id: input.transferId },
+      select: { id: true, apartmentId: true, membershipDecidedOn: true },
+    });
+    if (existing === null) {
+      throw new ApartmentRegisterError(
+        "No such transfer.",
+        "transfer-not-found",
+      );
+    }
+    if (existing.membershipDecidedOn !== null) {
+      throw new ApartmentRegisterError(
+        "That transfer already carries a membership decision date.",
+        "membership-decision-already-recorded",
+      );
+    }
+
+    const decidedOn = statutoryDateColumn(
+      input.membershipDecidedOn,
+      input.now ?? new Date(),
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.transfer.updateMany({
+        where: { id: input.transferId, membershipDecidedOn: null },
+        data: { membershipDecidedOn: decidedOn },
+      });
+      if (claimed.count === 0) {
+        throw new ApartmentRegisterError(
+          "That transfer already carries a membership decision date.",
+          "membership-decision-already-recorded",
+        );
+      }
+
+      const transfer = await tx.transfer.findUniqueOrThrow({
+        where: { id: input.transferId },
+        select: {
+          id: true,
+          transferredOn: true,
+          membershipDecidedOn: true,
+          price: true,
+          agreementReference: true,
+          agreementDocumentPath: true,
+          fromPerson: { select: { firstName: true, lastName: true } },
+          toPerson: { select: { firstName: true, lastName: true } },
+        },
+      });
+
+      await this.audit.record(
+        {
+          action: "APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "transfer",
+          targetId: transfer.id,
+          context: {
+            apartmentId: existing.apartmentId,
+            membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
+            transferredOn: isoDate(transfer.transferredOn),
+          },
+        },
+        tx,
+      );
+
+      return toTransfer(transfer);
+    });
+  }
+
+  /**
+   * Records the association's authoritative property designation.
+   *
+   * Register content rather than a setting, which is why it is written here and
+   * not in the settings module: the designation identifies the property the
+   * register's apartments are in, the cooperative housing register holds data
+   * about the bostadsrattslagenhet (Lag (2026:484) 2 kap. 1 § forsta stycket 1)
+   * which the association has to supply (Lag (2026:485) 3 §), and 6 § of that
+   * act drops the duty where the data can instead be taken from
+   * fastighetsregistret or lagenhetsregistret - registers keyed on this
+   * designation.
+   *
+   * association_facts carries a designation of its own and keeps it. That one is
+   * prose the board publishes to a broker, and that model forbids statutory data
+   * being derived from it; this one is the register's. Correctable in place - a
+   * fastighetsbildning renames a property - and the audit entry carries what it
+   * was changed from as well as to, because "the designation was wrong for a
+   * year" is a question the log has to be able to answer.
+   */
+  async recordPropertyDesignation(input: {
+    actorPersonId: string;
+    propertyDesignation: string | null;
+  }): Promise<{ propertyDesignation: string | null }> {
+    const trimmed = input.propertyDesignation?.trim() ?? "";
+    const designation = trimmed === "" ? null : trimmed;
+
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: { propertyDesignation: true },
+    });
+    if (association === null) {
+      throw new ApartmentRegisterError(
+        "The association has not been set up yet.",
+        "association-not-set-up",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.association.update({
+        where: { id: 1 },
+        data: { propertyDesignation: designation },
+        select: { propertyDesignation: true },
+      });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_PROPERTY_DESIGNATION_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "association",
+          targetId: "1",
+          context: {
+            // The designation names a property and not a person, and the
+            // register extract prints it, so both values belong in the entry:
+            // what it was and what it became is the whole content of the act.
+            from: association.propertyDesignation,
+            to: updated.propertyDesignation,
+          },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  /**
    * Which apartments this request may read.
    *
    * A tenant-owner reads the apartments they currently hold and nothing else,
@@ -384,7 +676,11 @@ export class ApartmentRegisterService {
   ): Promise<ApartmentRegisterExtract> {
     const association = await tx.association.findUnique({
       where: { id: 1 },
-      select: { name: true, organizationNumber: true },
+      select: {
+        name: true,
+        organizationNumber: true,
+        propertyDesignation: true,
+      },
     });
 
     const apartments = await tx.apartment.findMany({
@@ -430,11 +726,21 @@ export class ApartmentRegisterService {
           select: {
             id: true,
             transferredOn: true,
+            membershipDecidedOn: true,
             price: true,
             agreementReference: true,
             agreementDocumentPath: true,
             fromPerson: { select: { firstName: true, lastName: true } },
             toPerson: { select: { firstName: true, lastName: true } },
+          },
+        },
+        terminations: {
+          orderBy: [{ tookEffectOn: "desc" }],
+          select: {
+            id: true,
+            kind: true,
+            tookEffectOn: true,
+            reference: true,
           },
         },
       },
@@ -477,19 +783,8 @@ export class ApartmentRegisterService {
         participationShare: apartment.participationShare?.toString() ?? null,
         holders,
         liens: apartment.lienNotes.map(toLien),
-        transfers: apartment.transfers.map((transfer) => ({
-          id: transfer.id,
-          transferredOn: isoDate(transfer.transferredOn) ?? "",
-          fromName:
-            transfer.fromPerson === null
-              ? null
-              : `${transfer.fromPerson.firstName} ${transfer.fromPerson.lastName}`.trim(),
-          toName:
-            `${transfer.toPerson.firstName} ${transfer.toPerson.lastName}`.trim(),
-          price: transfer.price?.toString() ?? null,
-          agreementReference:
-            transfer.agreementReference ?? transfer.agreementDocumentPath,
-        })),
+        transfers: apartment.transfers.map(toTransfer),
+        terminations: apartment.terminations.map(toTermination),
       });
     }
 
@@ -497,6 +792,7 @@ export class ApartmentRegisterService {
       housingCooperative: {
         name: association?.name ?? "",
         organizationNumber: association?.organizationNumber ?? null,
+        propertyDesignation: association?.propertyDesignation ?? null,
       },
       generatedOn: isoDate(now) ?? "",
       identityNumbersIncluded: query.includeIdentityNumbers,
@@ -546,6 +842,74 @@ function toLien(lien: {
     releasedOn: isoDate(lien.releasedOn),
     amount: lien.amount?.toString() ?? null,
   };
+}
+
+/**
+ * One transfer as the extract states it.
+ *
+ * A function rather than an inline map because two callers now build it: the
+ * extract, and recording a membership decision, which answers with the row it
+ * changed. Two spellings of one payload is how a field ends up on one path and
+ * not the other.
+ */
+function toTransfer(transfer: {
+  id: string;
+  transferredOn: Date;
+  membershipDecidedOn: Date | null;
+  price: { toString: () => string } | null;
+  agreementReference: string | null;
+  agreementDocumentPath: string | null;
+  fromPerson: { firstName: string; lastName: string } | null;
+  toPerson: { firstName: string; lastName: string };
+}): ApartmentRegisterTransfer {
+  return {
+    id: transfer.id,
+    transferredOn: isoDate(transfer.transferredOn) ?? "",
+    membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
+    fromName:
+      transfer.fromPerson === null
+        ? null
+        : `${transfer.fromPerson.firstName} ${transfer.fromPerson.lastName}`.trim(),
+    toName:
+      `${transfer.toPerson.firstName} ${transfer.toPerson.lastName}`.trim(),
+    price: transfer.price?.toString() ?? null,
+    agreementReference:
+      transfer.agreementReference ?? transfer.agreementDocumentPath,
+  };
+}
+
+function toTermination(termination: {
+  id: string;
+  kind: TerminationKind;
+  tookEffectOn: Date;
+  reference: string;
+}): ApartmentRegisterTermination {
+  return {
+    id: termination.id,
+    kind: termination.kind,
+    tookEffectOn: isoDate(termination.tookEffectOn) ?? "",
+    reference: termination.reference,
+  };
+}
+
+/**
+ * The value a statutory `@db.Date` column takes, or the refusal.
+ *
+ * The check and the conversion both live in `statutory-date.ts`, which is pure
+ * and where the daylight-saving boundary is tested; this only turns its answer
+ * into the refusal a board reads.
+ */
+function statutoryDateColumn(text: string, now: Date): Date {
+  const parsed = statutoryDate(text, now);
+  if (parsed.ok) {
+    return parsed.column;
+  }
+  throw new ApartmentRegisterError(
+    parsed.problem === "date-not-a-calendar-date"
+      ? "That is not a calendar date."
+      : "That date has not arrived yet.",
+    parsed.problem,
+  );
 }
 
 function isoDate(value: Date | null): string | null {

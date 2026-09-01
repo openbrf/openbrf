@@ -91,10 +91,38 @@ export interface ApartmentRegisterLien {
 export interface ApartmentRegisterTransfer {
   id: string;
   transferredOn: string;
+  /**
+   * The day the association decided on the acquirer's membership, or null.
+   *
+   * The day the cooperative housing register's two-week reporting window opens
+   * for this transfer (Lag (2026:484) 3 kap. 3 §). Null means no such decision
+   * was recorded - which the statute provides for, since a transfer to a
+   * sitting member has none - so the screen offers to record one and never
+   * asserts that a deadline has been missed.
+   */
+  membershipDecidedOn: string | null;
   fromName: string | null;
   toName: string;
   price: string | null;
   agreementReference: string | null;
+}
+
+/**
+ * On which ground a tenant-ownership ceased.
+ *
+ * Mirrors the TerminationKind enum in `apps/api/prisma/schema.prisma`: a
+ * general meeting deciding that one held by the association should cease
+ * (BRL 6 kap. 11 §), or the building being transferred or sold executively
+ * (BRL 7 kap. 33 §).
+ */
+export type TerminationKind =
+  "GENERAL_MEETING_DECISION" | "BUILDING_TRANSFERRED";
+
+export interface ApartmentRegisterTermination {
+  id: string;
+  kind: TerminationKind;
+  tookEffectOn: string;
+  reference: string;
 }
 
 export interface ApartmentRegisterRow {
@@ -107,10 +135,24 @@ export interface ApartmentRegisterRow {
   holders: ApartmentRegisterHolder[];
   liens: ApartmentRegisterLien[];
   transfers: ApartmentRegisterTransfer[];
+  terminations: ApartmentRegisterTermination[];
+}
+
+/**
+ * The association as the apartment register names it.
+ *
+ * One field more than the member register's, and the extra field is why this is
+ * a separate type rather than the shared one widened. The property designation
+ * is apartment register content - it names the property the apartments are in -
+ * and the member register extract is public on request, so nothing on it should
+ * grow by accident.
+ */
+export interface ApartmentRegisterHousingCooperative extends RegisterHousingCooperative {
+  propertyDesignation: string | null;
 }
 
 export interface ApartmentRegisterExtract {
-  housingCooperative: RegisterHousingCooperative;
+  housingCooperative: ApartmentRegisterHousingCooperative;
   generatedOn: string;
   identityNumbersIncluded: boolean;
   audience: "board" | "holder";
@@ -162,4 +204,42 @@ export function releaseLien(input: {
   releasedOn: string;
 }): Promise<ApiResult<ApartmentRegisterLien>> {
   return apiRequest("POST", "/api/apartment-register/liens/release", input);
+}
+
+/**
+ * Records that a tenant-ownership has ceased (upphorande).
+ *
+ * The event the association reports to the cooperative housing register within
+ * two weeks of the day it ceased (Lag (2026:484) 3 kap. 4 §).
+ */
+export function recordTermination(input: {
+  apartmentId: string;
+  kind: TerminationKind;
+  tookEffectOn: string;
+  reference: string;
+}): Promise<ApiResult<ApartmentRegisterTermination>> {
+  return apiRequest("POST", "/api/apartment-register/terminations", input);
+}
+
+/** Records the day the association decided on an acquirer's membership. */
+export function recordMembershipDecision(input: {
+  transferId: string;
+  membershipDecidedOn: string;
+}): Promise<ApiResult<ApartmentRegisterTransfer>> {
+  return apiRequest(
+    "POST",
+    "/api/apartment-register/membership-decision",
+    input,
+  );
+}
+
+/** Records the association's authoritative property designation. */
+export function recordPropertyDesignation(input: {
+  propertyDesignation: string | null;
+}): Promise<ApiResult<{ propertyDesignation: string | null }>> {
+  return apiRequest(
+    "POST",
+    "/api/apartment-register/property-designation",
+    input,
+  );
 }

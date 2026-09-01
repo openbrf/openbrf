@@ -202,6 +202,17 @@ export interface ReportPostalAddress {
 }
 
 /**
+ * On which ground a tenant-ownership ceased.
+ *
+ * Mirrors the TerminationKind enum in `apps/api/prisma/schema.prisma`. Spelled
+ * out for the reason the audit actions below are: the report prints this to the
+ * person it is about, so a value added on the API side has to be a build
+ * failure here rather than an enum name on a statutory document.
+ */
+export type TerminationKind =
+  "GENERAL_MEETING_DECISION" | "BUILDING_TRANSFERRED";
+
+/**
  * Every audit action an entry on the report can carry.
  *
  * Mirrors the AuditAction enum in `apps/api/prisma/schema.prisma`. Spelled out
@@ -217,6 +228,9 @@ export type ReportAuditAction =
   | "APARTMENT_REGISTER_EXTRACT_GENERATED"
   | "APARTMENT_REGISTER_LIEN_NOTED"
   | "APARTMENT_REGISTER_LIEN_RELEASED"
+  | "APARTMENT_REGISTER_TERMINATION_RECORDED"
+  | "APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED"
+  | "ASSOCIATION_PROPERTY_DESIGNATION_RECORDED"
   | "DATA_EXPORTED"
   | "SYSTEM_ROLE_GRANTED"
   | "SYSTEM_ROLE_REVOKED"
@@ -318,15 +332,31 @@ export interface DataSubjectReport {
     apartment: string;
     direction: "acquired" | "relinquished";
     transferredOn: string;
+    /** The day the association decided on the acquirer's membership, or null. */
+    membershipDecidedOn: string | null;
     price: string | null;
     agreementReference: string | null;
   }[];
   /**
+   * Tenant-ownerships this person held that have ceased to exist.
+   *
+   * Not keyed on a person column either: a termination names an apartment and a
+   * date, so the API derives whose it is from the member register, on a boundary
+   * rule of its own. See `apps/api/src/retention/holding-periods.ts`.
+   */
+  terminations: {
+    terminationId: string;
+    apartment: string;
+    kind: TerminationKind;
+    tookEffectOn: string;
+    reference: string;
+  }[];
+  /**
    * Lien notes that stood against a tenant-ownership this person held.
    *
-   * The only section not keyed on a person column: a lien note names an
-   * apartment and a creditor and never a person, so the API derives whose it is
-   * from the member register. See `apps/api/src/retention/holding-periods.ts`.
+   * Not keyed on a person column: a lien note names an apartment and a creditor
+   * and never a person, so the API derives whose it is from the member register.
+   * See `apps/api/src/retention/holding-periods.ts`.
    */
   lienNotes: {
     lienNoteId: string;

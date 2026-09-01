@@ -49,6 +49,7 @@ const EMPTY_REPORT: Report = {
   account: null,
   memberRegisterEntries: [],
   transfers: [],
+  terminations: [],
   lienNotes: [],
   publicationConsents: [],
   legalHolds: [],
@@ -62,6 +63,28 @@ const EMPTY_REPORT: Report = {
 
 const FULL_REPORT: Report = {
   ...EMPTY_REPORT,
+  transfers: [
+    {
+      transferId: "transfer-1",
+      apartment: "Storgatan 12 1201",
+      direction: "acquired",
+      transferredOn: "2020-03-01",
+      // The day the two-week reporting window opened for this transfer, which
+      // is not the day the transfer completed.
+      membershipDecidedOn: "2020-02-18",
+      price: "2950000.00",
+      agreementReference: "Overlatelseavtal 2020-7",
+    },
+  ],
+  terminations: [
+    {
+      terminationId: "termination-1",
+      apartment: "Storgatan 12 1201",
+      kind: "GENERAL_MEETING_DECISION",
+      tookEffectOn: "2026-02-01",
+      reference: "Stammoprotokoll 2026-1",
+    },
+  ],
   lienNotes: [
     {
       lienNoteId: "lien-1",
@@ -387,6 +410,50 @@ describe("what the document prints", () => {
         cell.textContent?.includes("Inget registrerat"),
       ).length,
     ).toBe(2);
+  });
+
+  it("prints the termination of a tenant-ownership, on its statutory ground", async () => {
+    /*
+     * Statutory tier, so no erasure date and no promise of one - the document
+     * says instead that the register is kept for as long as the law requires.
+     *
+     * The ground is printed as the statute's own sentence rather than as the
+     * enum value, because this page is handed to the person it is about. A
+     * fallback to the code would put GENERAL_MEETING_DECISION on a Swedish
+     * document; the label map is total, so it cannot.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Upphöranden")).not.toBeNull();
+    expect(screen.getByText(/Beslut på föreningsstämma/)).not.toBeNull();
+    expect(screen.getByText("Stammoprotokoll 2026-1")).not.toBeNull();
+    // The day it took effect, read out of its own row: the same date is the
+    // move-out and the register exit as well, so searching the page for it
+    // would pass with the termination section printing nothing at all.
+    const ceased = screen
+      .getByText("Stammoprotokoll 2026-1")
+      .closest("tr")?.textContent;
+    expect(ceased).toContain("2026-02-01");
+    // And the retention sentence that covers it, naming the terminations among
+    // what no setting and no administrator reaches.
+    expect(screen.getByText(/upphörandena/)).not.toBeNull();
+  });
+
+  it("prints the day a transfer's membership was decided", async () => {
+    // The day the register's two-week window opened, which is a decision taken
+    // about this person and a different day from the transfer.
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    // Read out of the transfer row, beside the day the transfer completed, so
+    // the assertion is about that row rather than about the page carrying the
+    // date somewhere.
+    const transfer = screen
+      .getByText("Overlatelseavtal 2020-7")
+      .closest("tr")?.textContent;
+    expect(transfer).toContain("2020-03-01");
+    expect(transfer).toContain("2020-02-18");
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { localDayNow } from "../bookings/booking-calendar";
 import { SignChip } from "../register/SignChip";
 import {
   FIELD,
@@ -28,9 +29,13 @@ import {
 import {
   type ApartmentRegisterExtract,
   type ApartmentRegisterRow,
+  type TerminationKind,
   fetchApartmentRegister,
   fetchOwnApartmentRegister,
   noteLien,
+  recordMembershipDecision,
+  recordPropertyDesignation,
+  recordTermination,
   releaseLien,
   revealApartmentRegister,
   revealOwnApartmentRegister,
@@ -95,6 +100,33 @@ const EMPTY_DRAFT: LienDraft = {
   amount: "",
 };
 
+/** What the board is recording about a tenant-ownership that has ceased. */
+interface TerminationDraft {
+  apartmentId: string;
+  kind: TerminationKind;
+  tookEffectOn: string;
+  reference: string;
+}
+
+/*
+ * The general meeting's decision is the opening default because it is the
+ * ground a board reaches this form for: the building being disposed of ends
+ * every tenant-ownership in it at once and is not an entry a board makes
+ * apartment by apartment on an ordinary week.
+ */
+const EMPTY_TERMINATION: TerminationDraft = {
+  apartmentId: "",
+  kind: "GENERAL_MEETING_DECISION",
+  tookEffectOn: "",
+  reference: "",
+};
+
+/** The two grounds, in the order the form offers them. */
+const TERMINATION_KINDS: TerminationKind[] = [
+  "GENERAL_MEETING_DECISION",
+  "BUILDING_TRANSFERRED",
+];
+
 export function ApartmentRegisterScreen(): ReactElement {
   const { t } = useTranslation();
   const [extract, setExtract] = useState<ApartmentRegisterExtract | null>(null);
@@ -105,6 +137,18 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [revealFailed, setRevealFailed] = useState(false);
   const [draft, setDraft] = useState<LienDraft | null>(null);
   const [lienFailed, setLienFailed] = useState(false);
+  const [termination, setTermination] = useState<TerminationDraft | null>(null);
+  const [terminationFailed, setTerminationFailed] = useState(false);
+  // Whether a termination is in flight; see submitTermination below.
+  const [recordingTermination, setRecordingTermination] = useState(false);
+  // Its own state, not the termination one. Both acts are recorded from this
+  // screen and they are different register events with different consequences,
+  // so a board told a termination was refused after a membership decision was
+  // refused would go looking for the wrong record - and might record the
+  // termination again to fix it.
+  const [membershipFailed, setMembershipFailed] = useState(false);
+  const [designation, setDesignation] = useState<string | null>(null);
+  const [designationFailed, setDesignationFailed] = useState(false);
 
   /*
    * Nothing is written to state before an answer arrives, so a reload leaves
@@ -181,6 +225,82 @@ export function ApartmentRegisterScreen(): ReactElement {
         setLienFailed(true);
         return;
       }
+      await load();
+    },
+    [load],
+  );
+
+  /*
+   * One request at a time, and this one matters more than the guard on the
+   * membership decision beside it. That route refuses a second value; this one
+   * inserts, so a resubmitted form writes a second termination - and the table
+   * is append-only with UPDATE and DELETE revoked, so nobody can take the
+   * duplicate back out. A register stating that one tenant-ownership ceased
+   * twice is a register that has to be explained to Lantmateriet by hand.
+   *
+   * A pending flag on the form is not a uniqueness rule and does not pretend to
+   * be one: two tabs or a replayed request still reach the route twice. It
+   * closes the ordinary way it happens - an impatient second click on a slow
+   * request - and the durable answer belongs with the reporting work, which is
+   * where a duplicate would first be noticed. A server-side "one per apartment"
+   * rule is deliberately not it: an apartment whose bostadsratt has ceased may
+   * be granted a new one, which may in turn cease, so a later termination on the
+   * same apartment is legitimate.
+   */
+  const submitTermination = useCallback(
+    async (input: TerminationDraft): Promise<void> => {
+      setTerminationFailed(false);
+      setRecordingTermination(true);
+      try {
+        const result = await recordTermination({
+          apartmentId: input.apartmentId,
+          kind: input.kind,
+          tookEffectOn: input.tookEffectOn,
+          reference: input.reference.trim(),
+        });
+        if (!result.ok) {
+          setTerminationFailed(true);
+          return;
+        }
+        setTermination(null);
+        await load();
+      } finally {
+        setRecordingTermination(false);
+      }
+    },
+    [load],
+  );
+
+  const submitMembershipDecision = useCallback(
+    async (transferId: string, membershipDecidedOn: string): Promise<void> => {
+      setMembershipFailed(false);
+      const result = await recordMembershipDecision({
+        transferId,
+        membershipDecidedOn,
+      });
+      if (!result.ok) {
+        setMembershipFailed(true);
+        return;
+      }
+      await load();
+    },
+    [load],
+  );
+
+  const submitDesignation = useCallback(
+    async (value: string): Promise<void> => {
+      setDesignationFailed(false);
+      const trimmed = value.trim();
+      const result = await recordPropertyDesignation({
+        // Cleared rather than stored empty: the register states a designation or
+        // says none is recorded, and an empty string is neither.
+        propertyDesignation: trimmed === "" ? null : trimmed,
+      });
+      if (!result.ok) {
+        setDesignationFailed(true);
+        return;
+      }
+      setDesignation(null);
       await load();
     },
     [load],
@@ -265,6 +385,79 @@ export function ApartmentRegisterScreen(): ReactElement {
             {t("registers.apartment.liens.failed")}
           </Notice>
         ) : null}
+        {terminationFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.terminations.failed")}
+          </Notice>
+        ) : null}
+        {membershipFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.transfers.membershipFailed")}
+          </Notice>
+        ) : null}
+        {designationFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.designation.failed")}
+          </Notice>
+        ) : null}
+
+        {/*
+          The property designation, recorded here rather than in settings
+          because it is register content: it names the property the apartments
+          are in, and the cooperative housing register asks the association for
+          it. The prose the board publishes to a broker is a separate field,
+          and neither is derived from the other.
+        */}
+        {isBoard && extract !== null ? (
+          designation === null ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDesignation(
+                  extract.housingCooperative.propertyDesignation ?? "",
+                );
+              }}
+              className={QUIET_BUTTON}
+            >
+              {extract.housingCooperative.propertyDesignation === null
+                ? t("registers.apartment.designation.add")
+                : t("registers.apartment.designation.edit")}
+            </button>
+          ) : (
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitDesignation(designation);
+              }}
+            >
+              <label className={LABEL}>
+                {t("registers.apartment.designation.label")}
+                <input
+                  type="text"
+                  value={designation}
+                  maxLength={200}
+                  onChange={(event) => {
+                    setDesignation(event.target.value);
+                  }}
+                  className={FIELD}
+                />
+              </label>
+              <button type="submit" className={PRIMARY_BUTTON}>
+                {t("registers.apartment.designation.submit")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDesignation(null);
+                }}
+                className={SECONDARY_BUTTON}
+              >
+                {t("registers.apartment.designation.cancel")}
+              </button>
+            </form>
+          )
+        ) : null}
       </div>
 
       {failed ? (
@@ -286,6 +479,11 @@ export function ApartmentRegisterScreen(): ReactElement {
             {extract.housingCooperative.organizationNumber === null ? null : (
               <p className="font-data text-data text-ink-muted">
                 {`${t("registers.common.organizationNumber")} ${extract.housingCooperative.organizationNumber}`}
+              </p>
+            )}
+            {extract.housingCooperative.propertyDesignation === null ? null : (
+              <p className="font-data text-data text-ink-muted">
+                {`${t("registers.apartment.designation.label")} ${extract.housingCooperative.propertyDesignation}`}
               </p>
             )}
             <p className="text-title">{t("registers.apartment.heading")}</p>
@@ -323,6 +521,26 @@ export function ApartmentRegisterScreen(): ReactElement {
                   onRelease={(lienId, releasedOn) => {
                     void release(lienId, releasedOn);
                   }}
+                  termination={
+                    termination?.apartmentId === row.apartmentId
+                      ? termination
+                      : null
+                  }
+                  onStartTermination={() => {
+                    setTermination({
+                      ...EMPTY_TERMINATION,
+                      apartmentId: row.apartmentId,
+                    });
+                  }}
+                  onCancelTermination={() => {
+                    setTermination(null);
+                  }}
+                  onChangeTermination={setTermination}
+                  recordingTermination={recordingTermination}
+                  onSubmitTermination={(input) => {
+                    void submitTermination(input);
+                  }}
+                  onRecordMembershipDecision={submitMembershipDecision}
                 />
               ))}
             </div>
@@ -342,7 +560,10 @@ export function ApartmentRegisterScreen(): ReactElement {
   );
 }
 
-/** One apartment's entry: the designation, its holders, its liens, its transfers. */
+/**
+ * One apartment's entry: the designation, its holders, its liens, its transfers
+ * and any tenant-ownership that has ceased.
+ */
 function ApartmentEntry({
   row,
   canWrite,
@@ -352,6 +573,13 @@ function ApartmentEntry({
   onChangeLien,
   onSubmitLien,
   onRelease,
+  termination,
+  onStartTermination,
+  onCancelTermination,
+  onChangeTermination,
+  recordingTermination,
+  onSubmitTermination,
+  onRecordMembershipDecision,
 }: {
   row: ApartmentRegisterRow;
   canWrite: boolean;
@@ -361,6 +589,16 @@ function ApartmentEntry({
   onChangeLien: (draft: LienDraft) => void;
   onSubmitLien: (draft: LienDraft) => void;
   onRelease: (lienId: string, releasedOn: string) => void;
+  termination: TerminationDraft | null;
+  onStartTermination: () => void;
+  onCancelTermination: () => void;
+  onChangeTermination: (draft: TerminationDraft) => void;
+  recordingTermination: boolean;
+  onSubmitTermination: (draft: TerminationDraft) => void;
+  onRecordMembershipDecision: (
+    transferId: string,
+    decidedOn: string,
+  ) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -611,12 +849,223 @@ function ApartmentEntry({
                     {`${t("registers.apartment.transfers.agreement")} ${transfer.agreementReference}`}
                   </span>
                 )}
+                {/*
+                  The membership decision date, which is the day the register's
+                  two-week reporting window opens for this transfer. Shown once
+                  recorded, and offered for recording while it is absent -
+                  never described as missing, because the statute has transfers
+                  with no such decision at all and a register must not call one
+                  of those a gap.
+                */}
+                {transfer.membershipDecidedOn === null ? (
+                  canWrite ? (
+                    <MembershipDecisionControl
+                      transferId={transfer.id}
+                      onRecord={onRecordMembershipDecision}
+                    />
+                  ) : null
+                ) : (
+                  <span className="font-data text-data text-ink-muted">
+                    {`${t("registers.apartment.transfers.membershipDecided")} ${transfer.membershipDecidedOn}`}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-label text-ink-muted uppercase">
+          {t("registers.apartment.terminations.heading")}
+        </h4>
+        {row.terminations.length === 0 ? (
+          <p className="text-body text-ink-muted">
+            {t("registers.apartment.terminations.none")}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {row.terminations.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2"
+              >
+                <span className="font-data text-data text-ink">
+                  {entry.tookEffectOn}
+                </span>
+                <span className="text-body text-ink">
+                  {t(`registers.apartment.terminations.kind.${entry.kind}`)}
+                </span>
+                <span className="font-data text-data text-ink-muted">
+                  {`${t("registers.apartment.terminations.reference")} ${entry.reference}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {!canWrite ? null : termination === null ? (
+          <button
+            type="button"
+            onClick={onStartTermination}
+            className={`${QUIET_BUTTON} self-start print:hidden`}
+          >
+            {t("registers.apartment.terminations.add")}
+          </button>
+        ) : (
+          <form
+            className="flex flex-col gap-3 print:hidden"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (recordingTermination) {
+                return;
+              }
+              onSubmitTermination(termination);
+            }}
+          >
+            <label className={LABEL}>
+              {t("registers.apartment.terminations.kindLabel")}
+              <select
+                value={termination.kind}
+                onChange={(event) => {
+                  onChangeTermination({
+                    ...termination,
+                    // The select offers exactly the two grounds, so its value
+                    // is one of them; the cast is what carries that from the
+                    // DOM's string back into the union.
+                    kind: event.target.value as TerminationKind,
+                  });
+                }}
+                className={FIELD}
+              >
+                {TERMINATION_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {t(`registers.apartment.terminations.kind.${kind}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={LABEL}>
+              {t("registers.apartment.terminations.tookEffectOn")}
+              <input
+                type="date"
+                required
+                value={termination.tookEffectOn}
+                max={today()}
+                onChange={(event) => {
+                  onChangeTermination({
+                    ...termination,
+                    tookEffectOn: event.target.value,
+                  });
+                }}
+                className={FIELD_DATA}
+              />
+            </label>
+            <label className={LABEL}>
+              {t("registers.apartment.terminations.reference")}
+              <input
+                type="text"
+                required
+                maxLength={500}
+                value={termination.reference}
+                onChange={(event) => {
+                  onChangeTermination({
+                    ...termination,
+                    reference: event.target.value,
+                  });
+                }}
+                className={FIELD}
+              />
+              <span className={HINT}>
+                {t("registers.apartment.terminations.referenceHint")}
+              </span>
+            </label>
+            <p className={HINT}>
+              {t("registers.apartment.terminations.appendOnly")}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={recordingTermination}
+                className={PRIMARY_BUTTON}
+              >
+                {t("registers.apartment.terminations.submit")}
+              </button>
+              <button
+                type="button"
+                onClick={onCancelTermination}
+                className={SECONDARY_BUTTON}
+              >
+                {t("registers.apartment.terminations.cancel")}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
     </article>
+  );
+}
+
+/**
+ * Records the day the association decided on one transfer's membership.
+ *
+ * Its own component so the date it holds belongs to the transfer it is on. A
+ * single draft on the screen would put the value a board typed for one transfer
+ * into the input on the next one.
+ *
+ * Empty rather than defaulted to today, unlike the lien release beside it. A
+ * release is normally recorded the day it happens; a membership decision is
+ * normally minuted at a board meeting some days before anybody types it in, and
+ * a prefilled today would be the wrong answer offered as the easy one - on a
+ * date that starts a statutory window and cannot be corrected afterwards.
+ *
+ * One request at a time. A second click while the first is in flight sends the
+ * date twice, and the route refuses a transfer that already carries one, so the
+ * board would be told the recording failed by the very request that proves it
+ * succeeded - on the one date here that cannot be recorded again.
+ */
+function MembershipDecisionControl({
+  transferId,
+  onRecord,
+}: {
+  transferId: string;
+  onRecord: (transferId: string, decidedOn: string) => Promise<void>;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [decidedOn, setDecidedOn] = useState("");
+  const [recording, setRecording] = useState(false);
+
+  return (
+    <span className="flex flex-wrap items-center gap-2 print:hidden">
+      <label className="flex items-center gap-2 text-small text-ink-muted">
+        {t("registers.apartment.transfers.membershipDecidedLabel")}
+        <input
+          type="date"
+          value={decidedOn}
+          max={today()}
+          onChange={(event) => {
+            setDecidedOn(event.target.value);
+          }}
+          className={FIELD_DATA}
+        />
+      </label>
+      <button
+        type="button"
+        disabled={decidedOn === "" || recording}
+        onClick={() => {
+          if (recording) {
+            return;
+          }
+          setRecording(true);
+          void onRecord(transferId, decidedOn).finally(() => {
+            setRecording(false);
+          });
+        }}
+        className={QUIET_BUTTON}
+      >
+        {t("registers.apartment.transfers.membershipDecidedSubmit")}
+      </button>
+    </span>
   );
 }
 
@@ -640,19 +1089,24 @@ function Pair({
 }
 
 /**
- * Today as an ISO calendar date, which is what a release date defaults to.
+ * Today on the association's calendar, which every date on this screen is a
+ * date on.
  *
- * Built from the local year, month and day rather than sliced off the UTC
- * instant. Sweden runs an hour or two ahead of UTC, so a release recorded
- * between local midnight and 02:00 would otherwise be stored a day early - and
- * that value is the statutory release date on a row the database will not let
- * anyone delete.
+ * {@link localDayNow} and not the device's own year, month and day. The three
+ * dates here are a lien release, the day a tenant-ownership ceased and the day
+ * the association decided on a membership, and the server checks the last two
+ * against the Stockholm calendar - `statutoryDate` refuses a day after
+ * `localDayOf(now)`. A device in another zone disagrees with that for part of
+ * every day, in both directions: west of Stockholm after local midnight there
+ * the input would refuse the very day a termination took effect, and east of it
+ * before midnight the input would offer tomorrow and the API would refuse it.
+ * Either way a board is stopped from recording the legally correct date on a
+ * row nobody can correct afterwards, at the start of a statutory two-week
+ * window under Lag (2026:484) 3 kap.
+ *
+ * The zone itself is named once in the client, in the booking module's
+ * calendar, so that no screen can quietly fall back to the viewer's own.
  */
 function today(): string {
-  const now = new Date();
-  return [
-    String(now.getFullYear()),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-  ].join("-");
+  return localDayNow();
 }

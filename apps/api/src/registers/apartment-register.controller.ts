@@ -16,6 +16,8 @@ import {
   type ApartmentRegisterExtract,
   type ApartmentRegisterLien,
   ApartmentRegisterService,
+  type ApartmentRegisterTermination,
+  type ApartmentRegisterTransfer,
 } from "./apartment-register.service";
 
 const scopeSchema = z.object({
@@ -44,6 +46,34 @@ const lienSchema = z.object({
 const releaseLienSchema = z.object({
   lienId: z.string().min(1),
   releasedOn: isoDate,
+});
+
+/**
+ * Recording that a tenant-ownership has ceased (upphorande).
+ *
+ * The two grounds are stated as a literal union rather than as the generated
+ * enum. A schema that accepted whatever the enum happens to hold would widen
+ * silently the day a value is added to it, and a ground the register records is
+ * a statement about which section of bostadsrattslagen applies.
+ */
+const terminationSchema = z.object({
+  apartmentId: z.string().min(1),
+  kind: z.enum(["GENERAL_MEETING_DECISION", "BUILDING_TRANSFERRED"]),
+  tookEffectOn: isoDate,
+  // Non-empty after trimming, matching the CHECK on the column. The service
+  // trims before it writes, so a value of spaces would otherwise reach the
+  // database as an empty string and surface as a driver error.
+  reference: z.string().trim().min(1).max(500),
+});
+
+const membershipDecisionSchema = z.object({
+  transferId: z.string().min(1),
+  membershipDecidedOn: isoDate,
+});
+
+const propertyDesignationSchema = z.object({
+  /** Null clears it, which is how a designation recorded in error is undone. */
+  propertyDesignation: z.string().trim().max(200).nullable(),
 });
 
 /**
@@ -132,6 +162,74 @@ export class ApartmentRegisterController {
   ): Promise<ApartmentRegisterLien> {
     return this.register.releaseLien({
       ...releaseLienSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Records that a tenant-ownership has ceased (upphorande).
+   *
+   * Behind the same pair of capabilities as a lien note, and for the reason
+   * that route gives: writing to a statutory register needs more than the right
+   * to read it. This row is one the database will not let anyone update or
+   * delete afterwards.
+   *
+   * No live role holds `apartmentRegister:read` without `addressBook:write`, so
+   * no request can tell the pair apart today. It is declared for the role that
+   * reads the register without keeping its content - and asserted in
+   * apartment-register.controller.spec.ts, because a request test would go on
+   * passing without it.
+   */
+  @Post("terminations")
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordTermination(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ApartmentRegisterTermination> {
+    return this.register.recordTermination({
+      ...terminationSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Records the day the association decided on an acquirer's membership.
+   *
+   * A POST although it sets one field on an existing row: it is the act of
+   * recording a board decision, it is audited, and it is refused if the date is
+   * already there.
+   */
+  @Post("membership-decision")
+  @HttpCode(200)
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordMembershipDecision(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ApartmentRegisterTransfer> {
+    return this.register.recordMembershipDecision({
+      ...membershipDecisionSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Records the association's authoritative property designation.
+   *
+   * Here rather than in the settings module because it is register content: the
+   * cooperative housing register identifies the property the apartments are in,
+   * and the prose the board publishes to a broker is a separate field that no
+   * statutory answer may be derived from.
+   */
+  @Post("property-designation")
+  @HttpCode(200)
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordPropertyDesignation(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<{ propertyDesignation: string | null }> {
+    const { propertyDesignation } = propertyDesignationSchema.parse(body);
+    return this.register.recordPropertyDesignation({
+      propertyDesignation,
       actorPersonId: actingPersonId(request),
     });
   }

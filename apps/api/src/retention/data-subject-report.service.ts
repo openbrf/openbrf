@@ -14,7 +14,11 @@ import type {
   ReportAuditEntry,
   ReportPostalAddress,
 } from "./data-subject-report";
-import { holdingPeriods, lienNotesDuringHolding } from "./holding-periods";
+import {
+  holdingPeriods,
+  lienNotesDuringHolding,
+  terminationsDuringHolding,
+} from "./holding-periods";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -39,6 +43,7 @@ const SECTIONS = [
   "account",
   "memberRegisterEntries",
   "transfers",
+  "terminations",
   "lienNotes",
   "publicationConsents",
   "legalHolds",
@@ -80,11 +85,19 @@ const SECTIONS = [
  *
  * Art. 15 asks for the personal data, not for the tables it happens to live
  * in, so the report crosses both tiers. It carries the statutory archive -
- * member register entries and transfers - even though those are exempt from
- * erasure, because exemption from purging is not exemption from access: a
- * person is entitled to see what the cooperative keeps about them and to be
- * told that it is kept because the law requires it, which the retention
- * section says.
+ * member register entries, transfers, terminations and lien notes - even
+ * though those are exempt from erasure, because exemption from purging is not
+ * exemption from access: a person is entitled to see what the cooperative
+ * keeps about them and to be told that it is kept because the law requires it,
+ * which the retention section says.
+ *
+ * Two of those sections are not keyed on a person at all. A lien note and a
+ * termination both name an apartment and never a person, so they reach the
+ * report through the tenant-ownerships the member register says this person
+ * held. `holding-periods.ts` is that derivation, and it errs in opposite
+ * directions for the two: a lien note is left out on a boundary day because it
+ * would be a third party's financial position, and a termination is kept
+ * because it is normally the event that ended the holding.
  *
  * It carries issues and archived documents that reference the person even
  * though this train does not purge either. A report that omitted rows because
@@ -248,6 +261,7 @@ export class DataSubjectReportService {
         id: true,
         toPersonId: true,
         transferredOn: true,
+        membershipDecidedOn: true,
         price: true,
         agreementReference: true,
         apartment: {
@@ -272,6 +286,37 @@ export class DataSubjectReportService {
     const heldApartmentIds = [
       ...new Set(holdings.map((holding) => holding.apartmentId)),
     ];
+    /*
+     * Terminations reach a person the same way and are bounded by the same
+     * holdings, on their own boundary rule: a termination on the day a holding
+     * ended is normally what ended it, so both boundaries are closed where the
+     * lien rule leaves both open. Argued in holding-periods.ts and covered in
+     * holding-periods.spec.ts.
+     */
+    const terminations =
+      heldApartmentIds.length === 0
+        ? []
+        : terminationsDuringHolding(
+            await tx.termination.findMany({
+              where: { apartmentId: { in: heldApartmentIds } },
+              orderBy: [{ tookEffectOn: "asc" }],
+              select: {
+                id: true,
+                apartmentId: true,
+                kind: true,
+                tookEffectOn: true,
+                reference: true,
+                apartment: {
+                  select: {
+                    number: true,
+                    address: { select: { street: true, number: true } },
+                  },
+                },
+              },
+            }),
+            holdings,
+          );
+
     const lienNotes =
       heldApartmentIds.length === 0
         ? []
@@ -476,6 +521,24 @@ export class DataSubjectReportService {
         // would round in a document that states what an apartment sold for.
         price: transfer.price === null ? null : transfer.price.toString(),
         agreementReference: transfer.agreementReference,
+        // The acquirer's date, and only theirs. This section carries both
+        // directions - a person's own report lists the transfer they sold on as
+        // well as the one they bought - and the membership decision is the day
+        // the association decided whether to admit the person taking over. On a
+        // relinquished transfer that is a personal-data event about somebody
+        // else, so a report that stated it would answer this person's art. 15
+        // request with a fact about the other party.
+        membershipDecidedOn:
+          transfer.toPersonId === personId
+            ? toIsoDate(transfer.membershipDecidedOn)
+            : null,
+      })),
+      terminations: terminations.map((termination) => ({
+        terminationId: termination.id,
+        apartment: `${termination.apartment.address.street} ${termination.apartment.address.number} ${termination.apartment.number}`,
+        kind: termination.kind,
+        tookEffectOn: toIsoDate(termination.tookEffectOn) ?? "",
+        reference: termination.reference,
       })),
       lienNotes: lienNotes.map((note) => ({
         lienNoteId: note.id,

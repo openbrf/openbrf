@@ -138,6 +138,11 @@ REVOKE UPDATE, DELETE ON public."member_register_entry" FROM openbrf_app;
 REVOKE UPDATE, DELETE ON public."audit_log_entry" FROM openbrf_app;
 REVOKE DELETE ON public."transfer" FROM openbrf_app;
 REVOKE DELETE ON public."lien_note" FROM openbrf_app;
+-- UPDATE as well as DELETE, unlike the two rows above it. A lien note is
+-- released and a mis-keyed transfer corrected, so both keep UPDATE; a
+-- tenant-ownership that has ceased has no later state to reach, so a
+-- termination is as strictly append-only as the member register.
+REVOKE UPDATE, DELETE ON public."termination" FROM openbrf_app;
 
 -- TRUNCATE is a separate privilege in Postgres and is not implied by DELETE,
 -- so the grants above never conferred it. Revoked explicitly anyway, because
