@@ -307,7 +307,7 @@ const FULL_REPORT: Report = {
     },
   ],
   /*
-   * One appointment on each side of the person, which is what this section
+   * One authorisation on each side of the person, which is what this section
    * exists to be able to print: they gave their own vote away at one meeting and
    * carried a neighbour's at another. A section answering for one role only
    * would show one of these two rows.
@@ -848,7 +848,7 @@ describe("what the document prints", () => {
     /*
      * A fullmakt names two people and both of them have an art. 15 interest in
      * it: the member gave their vote away and the ombud carried somebody else's.
-     * The fixture puts this person on one side of one appointment and the other
+     * The fixture puts this person on one side of one authorisation and the other
      * side of another, so a section that answered for one role would print one
      * row and look complete.
      *

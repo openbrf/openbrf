@@ -100,15 +100,30 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  * BRL 9 kap. 14 § 1's one permitted deviation turns on what a space is used
  * for, and nothing in this platform records that: an apartment carries a
  * number, a floor, a participation share and an initial share capital, none of
- * which tells a garage from a flat. So {@link
- * VotingRegister.storageOnlyVoteLimited} states whether the clause stands and
- * the meeting applies it. An answer invented from a participation share would
- * take somebody's vote away on a guess, which is the one error a voting
- * register must not make quietly.
+ * which tells a garage from a flat. So the register reports that the clause
+ * stands - `storageOnlyVoteLimited` - and the meeting applies it.
+ *
+ * The consequence of getting this wrong runs both ways, and the two directions
+ * are not symmetrical. Applying the clause on a guess, from a small
+ * participation share say, takes a vote away from a member who may be entitled
+ * to it, and a decision carried against them on that basis is one EFL 6 kap.
+ * 47 § lets a member have set aside. Not applying it leaves a vote in the count
+ * that the association's own bylaws may exclude, which is the same defect read
+ * from the other end. The difference is that the second is visible and the first
+ * is not: the register says the clause stands and that no line has been adjusted
+ * for it, so the chair can act on the gap, while an adjustment made on a guess
+ * looks exactly like a correct one.
+ *
+ * The meeting is where the decision belongs in any case. EFL 6 kap. 27 § has the
+ * register drawn up by the chair, approved by the meeting, and standing until
+ * the meeting resolves to change it, so what this file produces is a proposal
+ * and not the operative register. Recording what a space is used for is the
+ * change that would let the platform apply the clause; it is a change to the
+ * apartment register, and the roadmap carries it as a stated gap.
  */
 
 /** One line of attendance, as much of it as the voting register needs. */
-export interface RollAttendance {
+export interface VotingRegisterAttendance {
   personId: string;
   capacity: "MEMBER" | "PROXY_HOLDER" | "ASSISTANT";
   /** Set where the board struck the line off the list again. */
@@ -123,13 +138,13 @@ export interface RollAttendance {
  * period here would invite this file to re-answer a question with a rule of its
  * own beside the one the register service already applies.
  */
-export interface RollHolding {
+export interface VotingRegisterHolding {
   personId: string;
   apartmentId: string;
 }
 
 /** One proxy authorisation, as much of it as the voting register needs. */
-export interface RollProxyAuthorisation {
+export interface VotingRegisterProxyAuthorisation {
   memberPersonId: string;
   proxyHolderPersonId: string;
   /** The day the member signed the proxy authorisation, from the `@db.Date` column. */
@@ -139,7 +154,7 @@ export interface RollProxyAuthorisation {
 }
 
 /** A proxy holder present and holding one member's authority. */
-export interface RollProxyHolder {
+export interface VotingRegisterProxyHolder {
   personId: string;
   /** The member on this line whose authority they hold. */
   memberPersonId: string;
@@ -180,7 +195,7 @@ export interface VotingRegisterLine {
    * exercises it is for the meeting to settle when it approves the voting
    * register.
    */
-  proxyHolders: readonly RollProxyHolder[];
+  proxyHolders: readonly VotingRegisterProxyHolder[];
 
   /**
    * Whether the one vote this line carries is present at the meeting: a member
@@ -274,10 +289,10 @@ export interface VotingRegisterInput {
    * residencies with the MEMBER role. See the file comment for why these do not
    * come out of the archive above.
    */
-  holdings: readonly RollHolding[];
+  holdings: readonly VotingRegisterHolding[];
 
-  attendances: readonly RollAttendance[];
-  proxyAuthorisations: readonly RollProxyAuthorisation[];
+  attendances: readonly VotingRegisterAttendance[];
+  proxyAuthorisations: readonly VotingRegisterProxyAuthorisation[];
 
   /** BRL 9 kap. 14 § 1's clause, as the association recorded it. */
   storageOnlyVoteLimited: boolean;
@@ -315,7 +330,7 @@ export function votingRegister(input: VotingRegisterInput): VotingRegister {
       presentAs.MEMBER.has(personId),
     );
 
-    const proxyHolders: RollProxyHolder[] = [];
+    const proxyHolders: VotingRegisterProxyHolder[] = [];
     for (const memberPersonId of memberPersonIds) {
       /*
        * A proxy holder acts for a member who is not personally present. EFL 6
@@ -402,7 +417,7 @@ interface MembershipOnTheDay {
 function membersOn(
   events: readonly ResolvedRegisterEvent[],
   meetingDay: LocalDay,
-  holdings: readonly RollHolding[],
+  holdings: readonly VotingRegisterHolding[],
 ): MembershipOnTheDay[] {
   const byPerson = new Map<string, ResolvedRegisterEvent[]>();
   for (const event of events) {
@@ -515,7 +530,7 @@ function mergeJointHoldings(
 }
 
 /** Who is standing on the list, by the capacity they are on it in. */
-function presenceByCapacity(attendances: readonly RollAttendance[]): {
+function presenceByCapacity(attendances: readonly VotingRegisterAttendance[]): {
   MEMBER: Set<string>;
   PROXY_HOLDER: Set<string>;
   ASSISTANT: Set<string>;
@@ -551,23 +566,26 @@ function presenceByCapacity(attendances: readonly RollAttendance[]): {
  * (EFL 6 kap. 4 § forsta stycket).
  */
 function currentAuthorities(
-  appointments: readonly RollProxyAuthorisation[],
+  authorisations: readonly VotingRegisterProxyAuthorisation[],
   meetingDay: LocalDay,
 ): Map<string, string> {
   const holders = new Map<string, string>();
-  for (const appointment of appointments) {
-    if (appointment.withdrawnAt !== null) {
+  for (const authorisation of authorisations) {
+    if (authorisation.withdrawnAt !== null) {
       continue;
     }
     if (
       !isProxyAuthorityCurrent(
-        localDayOfColumn(appointment.authorisedOn),
+        localDayOfColumn(authorisation.authorisedOn),
         meetingDay,
       )
     ) {
       continue;
     }
-    holders.set(appointment.memberPersonId, appointment.proxyHolderPersonId);
+    holders.set(
+      authorisation.memberPersonId,
+      authorisation.proxyHolderPersonId,
+    );
   }
   return holders;
 }

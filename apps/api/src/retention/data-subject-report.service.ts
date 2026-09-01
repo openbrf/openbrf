@@ -554,7 +554,7 @@ export class DataSubjectReportService {
 
     /*
      * Every written authority for a proxy holder (fullmakt) naming this person,
-     * either way round. The appointment names the member who gave the authority
+     * either way round. The authorisation names the member who gave the authority
      * and the proxy holder who held it, and both of those are facts about the
      * person concerned, so this is one query with an OR - the shape the audit
      * log query below uses over its own two person columns, and for the same
@@ -863,28 +863,28 @@ export class DataSubjectReportService {
         }),
       ),
       proxyAuthorisations: proxyAuthorisations.map(
-        (appointment): ReportProxyAuthorisation => {
+        (authorisation): ReportProxyAuthorisation => {
           /*
-           * Which side of the appointment this person is on. The member column
-           * is tested first because the table refuses an appointment naming one
+           * Which side of the authorisation this person is on. The member column
+           * is tested first because the table refuses an authorisation naming one
            * person on both sides, so a match there settles it.
            */
-          const asMember = appointment.memberPersonId === personId;
+          const asMember = authorisation.memberPersonId === personId;
           return {
-            authorisationId: appointment.id,
+            authorisationId: authorisation.id,
             meetingHeldOn:
-              toIsoDate(appointment.meeting.heldOn) ??
-              appointment.meeting.heldOn.toISOString(),
-            meetingKind: appointment.meeting.kind,
+              toIsoDate(authorisation.meeting.heldOn) ??
+              authorisation.meeting.heldOn.toISOString(),
+            meetingKind: authorisation.meeting.kind,
             role: asMember ? "member" : "proxyHolder",
             counterpartPersonId: asMember
-              ? appointment.proxyHolderPersonId
-              : appointment.memberPersonId,
-            ground: appointment.ground,
+              ? authorisation.proxyHolderPersonId
+              : authorisation.memberPersonId,
+            ground: authorisation.ground,
             authorisedOn:
-              toIsoDate(appointment.authorisedOn) ??
-              appointment.authorisedOn.toISOString(),
-            withdrawnAt: appointment.withdrawnAt?.toISOString() ?? null,
+              toIsoDate(authorisation.authorisedOn) ??
+              authorisation.authorisedOn.toISOString(),
+            withdrawnAt: authorisation.withdrawnAt?.toISOString() ?? null,
           };
         },
       ),

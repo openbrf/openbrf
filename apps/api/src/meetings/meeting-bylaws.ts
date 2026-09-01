@@ -64,7 +64,7 @@ export interface MeetingBylaws {
    * True where the bylaws let somebody other than the member's spouse or
    * cohabitant or another member act as proxy holder (BRL 9 kap. 14 § 4).
    *
-   * The one thing it decides is whether an appointment resting on the bylaws is
+   * The one thing it decides is whether an authorisation resting on the bylaws is
    * accepted. The statute's own two grounds stand whatever it says.
    */
   proxyHolderEligibilityWidened: boolean;

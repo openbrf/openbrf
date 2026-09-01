@@ -1316,7 +1316,7 @@ describe("what the report contains", () => {
   it("answers for both sides of a proxy authorisation", async () => {
     /*
      * A proxy authorisation names two people and both have an art. 15 interest
-     * in it. The fixture puts the subject on one side of one appointment and
+     * in it. The fixture puts the subject on one side of one authorisation and
      * the other side of another, so a section answering for one role would
      * return one row and look complete.
      *

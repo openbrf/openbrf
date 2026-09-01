@@ -16,7 +16,7 @@ import {
  * Its own module, and pure, because the answer is needed twice and must not be
  * allowed to differ. The board is refused a stale proxy authorisation when it
  * registers one, and the voting register asks again when it is drawn up - the
- * meeting day can be moved after an appointment was registered, and a register
+ * meeting day can be moved after an authorisation was registered, and a register
  * that trusted the registration would then seat a proxy holder whose authority
  * had run out.
  *
@@ -27,7 +27,7 @@ import {
  * signed with an advanced electronic signature (EFL 1 kap. 15 §), which is a
  * trust service this platform does not provide, so nothing here produces or
  * verifies a signature. What the board records is that it saw the paper and the
- * date on it; the paper is what stands behind the appointment.
+ * date on it; the paper is what stands behind the authorisation.
  */
 
 /** Days in a month of a particular year, from the platform's own calendar. */

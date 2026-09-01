@@ -187,7 +187,7 @@ CREATE TABLE "meeting_attendance" (
 --
 -- A proxy holder's line carries none on purpose: the statute lets one proxy
 -- holder carry several members where the bylaws allow it, so which members a
--- proxy holder is here for is the appointments they hold and not a single
+-- proxy holder is here for is the authorisations they hold and not a single
 -- column.
 --
 -- Nobody stands in for themselves, which is the second half. It is stated here
@@ -227,7 +227,7 @@ CREATE TABLE "proxy_authorisation" (
 -- Nobody is their own proxy holder.
 --
 -- A member appoints a proxy holder because they are not personally present (EFL
--- 6 kap. 4 § forsta stycket), so an appointment naming the member as the holder
+-- 6 kap. 4 § forsta stycket), so an authorisation naming the member as the holder
 -- is not a narrow case to refuse but a contradiction. It matters more than it
 -- looks: such a row would satisfy the per-holder count without anybody standing
 -- in for anybody, and it would let a member reach the register twice.

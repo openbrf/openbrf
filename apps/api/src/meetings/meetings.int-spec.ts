@@ -34,7 +34,7 @@ import type { MeetingSummaryView, MeetingView } from "./meeting.service";
  * which for a housing cooperative is one unless the bylaws say otherwise (BRL 9
  * kap. 14 § 4, replacing EFL 6 kap. 5 §'s three). Asserted at both settings,
  * because the refusal alone would pass against an implementation that refused
- * every second appointment.
+ * every second authorisation.
  *
  * An assistant is on the list EFL 6 kap. 27 § requires and carries no vote (EFL
  * 6 kap. 7 § gives it the right to speak and nothing else).
@@ -962,7 +962,7 @@ describe("a member's written authority for a proxy holder", () => {
     /*
      * The other half of the same rule, and the reason both halves are here: a
      * suite that asserted only the refusal would pass against an implementation
-     * that refused every second appointment whatever the bylaws said, which is
+     * that refused every second authorisation whatever the bylaws said, which is
      * the platform overriding the association's own clause.
      */
     await setBylaws({ maxMembersPerProxyHolder: 2 });
@@ -1127,6 +1127,58 @@ describe("a member's written authority for a proxy holder", () => {
     expect(entry?.actorPersonId).toBe(board.personId);
     expect(entry?.targetPersonId).toBe(soloMember.personId);
     expect(entry?.context).toMatchObject({ superseded: true });
+  });
+
+  it("leaves one standing authorisation when two registrations race", async () => {
+    /*
+     * EFL 6 kap. 4 § forsta stycket allows a member no more than one proxy
+     * holder, and that rule is over the authorisations standing at any moment
+     * rather than over any row - so no index can state it, not even a partial
+     * one, and the check is a read before a write.
+     *
+     * Two board members naming different holders for one member at the same
+     * instant would each read no standing authorisation and each write one,
+     * because the unique key includes the holder and neither insert collides.
+     * The member would end the meeting with two people entitled to cast their
+     * single vote, and the register would pick one of them - a decision no rule
+     * here made. The advisory lock in `proxy-lock.ts` is what serialises it.
+     *
+     * Driven as two requests in flight together rather than one after the other,
+     * because a sequence cannot fail this way however often it is run.
+     */
+    const meetingId = await arrangeMeeting();
+    const [first, second] = await Promise.all([
+      registerProxy(meetingId, {
+        memberPersonId: soloMember.personId,
+        proxyHolderPersonId: twoHoldings.personId,
+      }),
+      registerProxy(meetingId, {
+        memberPersonId: soloMember.personId,
+        proxyHolderPersonId: jointFirst.personId,
+      }),
+    ]);
+
+    // Both are accepted: the second is a replacement, which is a lawful act.
+    expect(first?.statusCode).toBe(201);
+    expect(second?.statusCode).toBe(201);
+
+    const standing = await prisma.proxyAuthorisation.findMany({
+      where: {
+        meetingId,
+        memberPersonId: soloMember.personId,
+        withdrawnAt: null,
+      },
+      select: { proxyHolderPersonId: true },
+    });
+    // One standing, whichever of the two won the lock, and the other kept with
+    // its withdrawal date.
+    expect(standing).toHaveLength(1);
+    const all = await prisma.proxyAuthorisation.findMany({
+      where: { meetingId, memberPersonId: soloMember.personId },
+      select: { withdrawnAt: true },
+    });
+    expect(all).toHaveLength(2);
+    expect(all.filter((row) => row.withdrawnAt !== null)).toHaveLength(1);
   });
 
   it("takes a member re-appointing a proxy holder they had withdrawn on one row", async () => {
@@ -1412,7 +1464,7 @@ describe("what running a meeting records", () => {
     /*
      * It is their voting right that somebody else will exercise, so their own
      * access report is where that has to be visible. The proxy holder reaches
-     * their own report through the appointment's section, which answers for
+     * their own report through the authorisation's section, which answers for
      * both roles - the log has one subject column and this is the one that
      * belongs in it.
      */

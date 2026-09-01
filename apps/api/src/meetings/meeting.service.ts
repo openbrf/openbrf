@@ -24,6 +24,7 @@ import {
   statutoryMeetingBylaws,
 } from "./meeting-bylaws";
 import { MeetingError } from "./meeting.error";
+import { lockProxyAuthorisations } from "./proxy-lock";
 import { proxyAuthorityProblem } from "./proxy-authority";
 import { votingRegister, type VotingRegister } from "./voting-register";
 
@@ -583,6 +584,15 @@ export class MeetingService {
     actorPersonId: string,
   ): Promise<ProxyAuthorisationView> {
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Before anything about this member is read. The one-standing-authorisation
+       * rule is a read followed by a write and no index can state it, so without
+       * this two board members registering different proxy holders for one member
+       * would each read no standing authorisation and each write one - see
+       * `proxy-lock.ts`.
+       */
+      await lockProxyAuthorisations(tx, meetingId, input.memberPersonId);
+
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
 
@@ -630,12 +640,13 @@ export class MeetingService {
        * answered, and this table is the only place that fact lives, because the
        * registration entry names the member and not the holder.
        *
-       * Read and written inside the transaction that writes the second row, so
-       * two board members registering different proxy holder for one member
-       * cannot both see no standing authority and both write one. The read is
-       * the check the table cannot make - a partial unique index is not
-       * expressible in the schema - which is why it is here rather than in a
-       * constraint.
+       * Read behind the advisory lock taken at the top of this transaction, and
+       * that is what makes it a decision rather than a value something else can
+       * invalidate before the write lands. The check itself is one the table
+       * cannot make - a partial unique index is not expressible in the schema -
+       * and a transaction alone would not serialise it, because the unique key
+       * includes the proxy holder, so two writers naming different holders would
+       * both insert.
        */
       const standing = await tx.proxyAuthorisation.findFirst({
         where: {
@@ -704,7 +715,7 @@ export class MeetingService {
            * voting right that somebody else will exercise, so their own access
            * report is where that has to be visible. The proxy holder is not a
            * second target column here - the log has one - and reaches their own
-           * report through the appointment's section, which answers for both
+           * report through the authorisation's section, which answers for both
            * roles.
            */
           targetPersonId: input.memberPersonId,
@@ -753,7 +764,7 @@ export class MeetingService {
         return toProxyView(existing);
       }
 
-      const appointment = await tx.proxyAuthorisation.update({
+      const authorisation = await tx.proxyAuthorisation.update({
         where: { id: authorisationId },
         data: { withdrawnAt: new Date() },
         select: PROXY_COLUMNS,
@@ -774,7 +785,7 @@ export class MeetingService {
       this.logger.log(
         `Proxy authorisation ${authorisationId} withdrawn at meeting ${meetingId}`,
       );
-      return toProxyView(appointment);
+      return toProxyView(authorisation);
     });
   }
 
@@ -890,48 +901,57 @@ export class MeetingService {
      * or a vote whose line is not on the list, which is precisely the state a
      * single call exists to prevent.
      *
+     * REPEATABLE READ, and the level is the whole of it. PostgreSQL's default
+     * READ COMMITTED takes a fresh snapshot for every statement, so a
+     * transaction alone would leave both attendance reads exactly as exposed as
+     * two separate calls - the transaction would look like a fix and be none.
+     * At this level the snapshot is taken once and every statement sees it.
+     *
      * Every read here is a read, so the transaction holds no lock anybody waits
-     * on. What it takes is one snapshot.
+     * on, and there is nothing for a serialisation failure to happen to.
      */
-    return this.prisma.$transaction(async (tx) => {
-      const meeting = await tx.meeting.findUnique({
-        where: { id: meetingId },
-        select: {
-          ...MEETING_COLUMNS,
-          _count: { select: { agendaItems: true } },
-        },
-      });
-      if (meeting === null) {
-        throw new MeetingError("No such meeting.", "meeting-not-found");
-      }
+    return this.prisma.$transaction(
+      async (tx) => {
+        const meeting = await tx.meeting.findUnique({
+          where: { id: meetingId },
+          select: {
+            ...MEETING_COLUMNS,
+            _count: { select: { agendaItems: true } },
+          },
+        });
+        if (meeting === null) {
+          throw new MeetingError("No such meeting.", "meeting-not-found");
+        }
 
-      const [agenda, attendances, proxyAuthorisations, bylaws, register] =
-        await Promise.all([
-          this.readAgenda(tx, meetingId),
-          tx.meetingAttendance.findMany({
-            where: { meetingId },
-            orderBy: [{ capacity: "asc" }, { createdAt: "asc" }],
-            select: ATTENDANCE_COLUMNS,
-          }),
-          tx.proxyAuthorisation.findMany({
-            where: { meetingId },
-            orderBy: [{ createdAt: "asc" }],
-            select: PROXY_COLUMNS,
-          }),
-          this.readBylaws(tx),
-          this.readVotingRegister(tx, meetingId, meeting.heldOn),
-        ]);
+        const [agenda, attendances, proxyAuthorisations, bylaws, register] =
+          await Promise.all([
+            this.readAgenda(tx, meetingId),
+            tx.meetingAttendance.findMany({
+              where: { meetingId },
+              orderBy: [{ capacity: "asc" }, { createdAt: "asc" }],
+              select: ATTENDANCE_COLUMNS,
+            }),
+            tx.proxyAuthorisation.findMany({
+              where: { meetingId },
+              orderBy: [{ createdAt: "asc" }],
+              select: PROXY_COLUMNS,
+            }),
+            this.readBylaws(tx),
+            this.readVotingRegister(tx, meetingId, meeting.heldOn),
+          ]);
 
-      return {
-        ...toSummary(meeting),
-        agendaItemCount: meeting._count.agendaItems,
-        agenda,
-        attendances: attendances.map(toAttendanceView),
-        proxyAuthorisations: proxyAuthorisations.map(toProxyView),
-        bylaws,
-        votingRegister: register,
-      };
-    });
+        return {
+          ...toSummary(meeting),
+          agendaItemCount: meeting._count.agendaItems,
+          agenda,
+          attendances: attendances.map(toAttendanceView),
+          proxyAuthorisations: proxyAuthorisations.map(toProxyView),
+          bylaws,
+          votingRegister: register,
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
   }
 
   /**
@@ -953,7 +973,7 @@ export class MeetingService {
     meetingId: string,
     meetingDay: Date,
   ): Promise<VotingRegister> {
-    const [rows, holdings, attendances, appointments, bylaws] =
+    const [rows, holdings, attendances, authorisations, bylaws] =
       await Promise.all([
         client.memberRegisterEntry.findMany({
           orderBy: [{ eventOn: "asc" }, { createdAt: "asc" }],
@@ -1005,7 +1025,7 @@ export class MeetingService {
       meetingDay,
       holdings,
       attendances,
-      proxyAuthorisations: appointments,
+      proxyAuthorisations: authorisations,
       storageOnlyVoteLimited: bylaws.storageOnlyVoteLimited,
     });
   }
@@ -1217,7 +1237,7 @@ export class MeetingService {
          * married to whom or who lives with whom - one inferred from a shared
          * residency would be wrong about siblings and lodgers alike. So the
          * board's statement is what the row carries, and refusing it would
-         * refuse an appointment the statute allows.
+         * refuse an authorisation the statute allows.
          */
         return;
 

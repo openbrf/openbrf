@@ -547,7 +547,7 @@ change it.
       calendar, the `events:manage` capability and the audit entries; sign-up
       per occurrence with the places counted per date and a claim the database
       and a lock decide, withdrawal as a dated close that frees the place
-      again, the register-call behind the managing capability with a person with
+      again, the roll-call behind the managing capability with a person with
       protected personal data counted and never named, `events:attend` as a
       capability of its own, the data subject access report section and the
       sign-up purge with its legal-hold check; the calendar screen in two
@@ -557,7 +557,7 @@ change it.
       control are read from one server answer so the two cannot disagree after
       a race, and the board's own half entering a series, publishing it to the
       members or to the street, moving the period it shows, calling one date
-      off, putting one back and reading the register-call, with the personal
+      off, putting one back and reading the roll-call, with the personal
       identity number refusal naming the fields it was found in; and the public
       calendar page at /kalender with one address per event, a month at a time
       with plain previous and next links and no script at all, the dates a
@@ -572,7 +572,7 @@ change it.
       members from one field whose default is the members, a place taken and
       given up again with the row read again from the instance between the two
       acts, the last place going while somebody is looking at it and the count
-      they are looking at catching up in the same breath, the register-call naming
+      they are looking at catching up in the same breath, the roll-call naming
       who is coming and never the person carrying protected personal data, and
       the street reading the public date on a page that runs no script, sets no
       cookie and asks no other company for a byte, while the members' event at
@@ -601,6 +601,16 @@ change it.
     personal data have a section in the data subject access report, and the
     proxy section answers for the member who gave the authority and for the
     ombud who held it
+  - Not modelled, and needed before the platform can apply one bylaws clause it
+    records: what a space in the building is used for. BRL 9 kap. 14 § lets the
+    bylaws limit the vote of a member holding nothing but a garage, a store or
+    another space used primarily for storage, and an apartment carries a number,
+    a floor, a participation share and an initial share capital - none of which
+    tells a garage from a flat. So the voting register reports that the clause
+    stands and the meeting applies it, which is where EFL 6 kap. 27 § puts the
+    decision in any case. Recording the use would be a change to the apartment
+    register, and inventing the answer from a participation share would take a
+    vote away on a guess
   - Pending: the board's screens for arranging a meeting, checking people in and
     reading the register; the notice on a delivery ledger; the link from a
     motion to the meeting it is taken up at; and real-time voting, for which the

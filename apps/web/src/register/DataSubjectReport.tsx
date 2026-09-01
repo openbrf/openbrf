@@ -1000,24 +1000,26 @@ export function DataSubjectReport({
                 "register.person.report.field.withdrawn",
               ]}
             >
-              {report.proxyAuthorisations.map((appointment) => (
-                <tr key={appointment.authorisationId} className={ROW}>
+              {report.proxyAuthorisations.map((authorisation) => (
+                <tr key={authorisation.authorisationId} className={ROW}>
                   <td className={TEXT_CELL}>
-                    {t(MEETING_KIND_LABEL[appointment.meetingKind])}
+                    {t(MEETING_KIND_LABEL[authorisation.meetingKind])}
                   </td>
-                  <td className={DATA_CELL}>{appointment.meetingHeldOn}</td>
+                  <td className={DATA_CELL}>{authorisation.meetingHeldOn}</td>
                   <td className={TEXT_CELL}>
-                    {t(`register.person.report.proxyRole.${appointment.role}`)}
+                    {t(
+                      `register.person.report.proxyRole.${authorisation.role}`,
+                    )}
                   </td>
                   <td className={DATA_CELL}>
-                    {appointment.counterpartPersonId}
+                    {authorisation.counterpartPersonId}
                   </td>
                   <td className={TEXT_CELL}>
-                    {t(PROXY_GROUND_LABEL[appointment.ground])}
+                    {t(PROXY_GROUND_LABEL[authorisation.ground])}
                   </td>
-                  <td className={DATA_CELL}>{appointment.authorisedOn}</td>
+                  <td className={DATA_CELL}>{authorisation.authorisedOn}</td>
                   <td className={DATA_CELL}>
-                    {day(appointment.withdrawnAt) ?? nothing}
+                    {day(authorisation.withdrawnAt) ?? nothing}
                   </td>
                 </tr>
               ))}

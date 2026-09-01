@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { dateColumnOf, parseLocalDay } from "../bookings/stockholm-calendar";
 import type { ResolvedRegisterEvent } from "../registers/membership-periods";
 import {
-  type RollAttendance,
-  type RollHolding,
-  type RollProxyAuthorisation,
+  type VotingRegisterAttendance,
+  type VotingRegisterHolding,
+  type VotingRegisterProxyAuthorisation,
   votingRegister,
 } from "./voting-register";
 
@@ -81,21 +81,24 @@ const exit = (
 
 const present = (
   personId: string,
-  capacity: RollAttendance["capacity"],
-): RollAttendance => ({ personId, capacity, withdrawnAt: null });
+  capacity: VotingRegisterAttendance["capacity"],
+): VotingRegisterAttendance => ({ personId, capacity, withdrawnAt: null });
 
 const authority = (
   memberPersonId: string,
   proxyHolderPersonId: string,
   authorisedOn = "2027-04-20",
-): RollProxyAuthorisation => ({
+): VotingRegisterProxyAuthorisation => ({
   memberPersonId,
   proxyHolderPersonId,
   authorisedOn: day(authorisedOn),
   withdrawnAt: null,
 });
 
-const holds = (personId: string, apartmentId: string): RollHolding => ({
+const holds = (
+  personId: string,
+  apartmentId: string,
+): VotingRegisterHolding => ({
   personId,
   apartmentId,
 });
@@ -111,8 +114,8 @@ const holds = (personId: string, apartmentId: string): RollHolding => ({
  */
 function holdingsImpliedBy(
   events: readonly ResolvedRegisterEvent[],
-): RollHolding[] {
-  const implied: RollHolding[] = [];
+): VotingRegisterHolding[] {
+  const implied: VotingRegisterHolding[] = [];
   for (const row of events) {
     if (row.eventType === "ENTRY" && row.apartmentId !== null) {
       implied.push(holds(row.personId, row.apartmentId));
@@ -123,9 +126,9 @@ function holdingsImpliedBy(
 
 function drawRegister(input: {
   events?: readonly ResolvedRegisterEvent[];
-  holdings?: readonly RollHolding[];
-  attendances?: readonly RollAttendance[];
-  proxyAuthorisations?: readonly RollProxyAuthorisation[];
+  holdings?: readonly VotingRegisterHolding[];
+  attendances?: readonly VotingRegisterAttendance[];
+  proxyAuthorisations?: readonly VotingRegisterProxyAuthorisation[];
   meetingDay?: Date;
   storageOnlyVoteLimited?: boolean;
 }) {

@@ -364,7 +364,7 @@ export interface ReportNewsComment {
  *
  * Every other person-linked section whose module purges states the earliest day
  * the purge can reach its rows. This one states none, and neither does the
- * proxy appointment below it, because nothing purges either: the voting
+ * proxy authorisation below it, because nothing purges either: the voting
  * register (rostlangd) is taken into or appended to the protokoll (EFL 6 kap.
  * 39 §) and 40 § has the protokoll kept safely, so a line erased on a clock of
  * its own would take part of the association's minutes with it. That puts these
@@ -417,7 +417,7 @@ export interface ReportMeetingAttendance {
  *
  * ## Both roles, one section
  *
- * An appointment names two people: the member who gave their voting right away,
+ * An authorisation names two people: the member who gave their voting right away,
  * and the proxy holder who was to exercise it. Both are facts about the person
  * concerned, and they are different facts - "I gave somebody my vote" and
  * "somebody gave me theirs" - so `role` says which side this row reached the
@@ -435,7 +435,7 @@ export interface ReportProxyAuthorisation {
   meetingHeldOn: string;
   meetingKind: "ORDINARY" | "EXTRAORDINARY";
   /**
-   * Which side of the appointment this person is on: the member who gave the
+   * Which side of the authorisation this person is on: the member who gave the
    * authority, or the proxy holder who held it.
    */
   role: "member" | "proxyHolder";

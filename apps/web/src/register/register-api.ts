@@ -559,7 +559,7 @@ export interface DataSubjectReport {
    * either side of them.
    *
    * `role` says which side, exactly as it does on the audit entries below and
-   * for the same reason: an appointment names the member who gave their vote
+   * for the same reason: an authorisation names the member who gave their vote
    * away and the proxy holder who held it, and those are two different facts
    * about two different people. A report answering for only one of the roles
    * would leave a proxy holder unable to see that the association holds a
