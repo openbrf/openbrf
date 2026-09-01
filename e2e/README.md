@@ -269,6 +269,13 @@ ports 3011, 5443 and 8126, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
+Everybody a walk signs in as has a client address of their own, for the reason
+`src/fixtures.ts` gives, and signs in once: the session travels to each browser
+they come back in. Their allowance is still twenty requests a minute each, and a
+session check runs on every guarded navigation, so a client that has nearly spent
+its own waits for the window to roll. A walk that gains screens therefore takes
+longer rather than failing on a sign-in that was refused.
+
 ### Seeded data has to be safe to publish
 
 **This is a requirement, not a convention.** The images go into pull requests on
@@ -338,7 +345,10 @@ The pieces:
   error, so that an entry which has quietly started finding a second one fails
   instead of photographing whichever came first; add `first: true` where several
   matches are the nature of the screen, as with a control repeated once per
-  register row.
+  register row. `within: "Sista dag för motioner"` looks inside the settings card
+  of that name rather than at the whole page, which is what the settings route
+  needs: every card is on it, seven of them offer a "Spara" and two hold a field
+  whose label begins "Dag".
 - **`waitFor`** proves the right screen rendered and is what the capture waits
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
