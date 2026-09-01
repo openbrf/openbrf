@@ -78,16 +78,34 @@ interface Running {
 }
 
 /**
- * One read of the calendar, and which period it answers for.
+ * One finished read of the calendar, and which period it answers for.
  *
- * The period is carried with the list so the panel can tell an answer about what
- * is on screen from one about the period that was on screen a moment ago. The
+ * The period is carried with the answer so the panel can tell one about what is
+ * on screen from one about the period that was on screen a moment ago. The
  * board's calendar reads a window at a time, and applying a late answer
  * unguarded would replace the months being looked at with the ones that were.
+ *
+ * The outcome travels here too rather than in a flag beside it. A flag would
+ * have to be cleared in step with the period, which means clearing it as a read
+ * starts - and a notice about the period that could not be read would otherwise
+ * sit above the period being fetched, with no list for it yet and so no loading
+ * line under it either: a calendar that reads as broken rather than as loading.
+ * Held on the record, "did this period's read fail" is answered by the same
+ * comparison that answers "is this list this period's", and cannot fall out of
+ * step with it.
  */
 interface Loaded {
   readonly key: string;
-  readonly series: readonly EventSeries[];
+  /**
+   * What the period holds, or null when nothing has answered for it.
+   *
+   * A read that failed keeps the list already on screen for the same period:
+   * the form below writes against those series, and taking them away would take
+   * the form with them. A failed read of a period nothing has answered for has
+   * no list to keep, and this is null.
+   */
+  readonly series: readonly EventSeries[] | null;
+  readonly failed: boolean;
 }
 
 /**
@@ -148,7 +166,6 @@ export function EventAdminPanel(): ReactElement {
   /** The first day of the period on screen. The last is derived from it. */
   const [from, setFrom] = useState(() => localDayNow());
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
   /**
    * Bumped to ask for the list again without changing what is asked for.
    *
@@ -173,12 +190,19 @@ export function EventAdminPanel(): ReactElement {
       if (!active) {
         return;
       }
-      if (result.ok) {
-        setLoaded({ key, series: result.value });
-        setLoadFailed(false);
-      } else {
-        setLoadFailed(true);
-      }
+      setLoaded((previous) => ({
+        key,
+        // A failed read keeps the list on screen only when it is this period's.
+        // Read off the state rather than off a variable this closure captured,
+        // because an act's re-read of the same period settles against whatever
+        // is there when it lands.
+        series: result.ok
+          ? result.value
+          : previous?.key === key
+            ? previous.series
+            : null,
+        failed: !result.ok,
+      }));
     });
     return () => {
       active = false;
@@ -186,12 +210,13 @@ export function EventAdminPanel(): ReactElement {
   }, [key, from, to, refreshes]);
 
   /*
-   * The list on screen, or nothing while the answer describes another period.
-   * A re-read of the same period that failed keeps the list it has - see the
-   * render below for why - and one for a period nothing has answered for yet
-   * has no list to keep.
+   * The finished read for the period on screen, or nothing while none has
+   * landed. Both the list and whether the read failed come from it, so a period
+   * being fetched can never wear the notice of the period before it.
    */
-  const series = loaded?.key === key ? loaded.series : null;
+  const settled = loaded?.key === key ? loaded : null;
+  const series = settled?.series ?? null;
+  const loadFailed = settled?.failed ?? false;
 
   /**
    * Runs one act, reads the list again, and answers whether it was taken.
@@ -335,13 +360,11 @@ export function EventAdminPanel(): ReactElement {
       </nav>
 
       {/*
-       * Nothing under a first read that failed, for the reason the attending
-       * panel says: the notice above has said the calendar could not be read, and
+       * Nothing under a read that failed, for the reason the attending panel
+       * says: the notice above has said the calendar could not be read, and
        * "reading the calendar..." under it would go on saying something is still
-       * happening. A failed re-read of the period on screen keeps the list it
-       * has - the form below writes against those series, and taking them away
-       * would take the form with them. A read for a period nothing has answered
-       * for yet has no list to keep, so that one waits.
+       * happening. Which list is kept through a failure, and which period wears
+       * the notice at all, are both decided on {@link Loaded} rather than here.
        */}
       {series === null ? (
         loadFailed ? null : (

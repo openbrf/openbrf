@@ -730,4 +730,89 @@ describe("a list that could not be read", () => {
       screen.getByRole("button", { name: "Lägg in evenemanget" }),
     ).toBeTruthy();
   });
+
+  it("does not carry the notice over into the next period's read", async () => {
+    /*
+     * The failure belongs to the read that produced it, and the assertion is
+     * about the moment the next read is in flight - which is the only moment the
+     * two behaviours differ, because a read that succeeds clears the notice
+     * either way.
+     *
+     * Carried over, the sentence for the period that could not be read would sit
+     * above the period being fetched, and with no list for that period yet the
+     * panel would draw it with no loading line under it and no read left in
+     * flight to end it: a calendar that reads as broken rather than as loading.
+     *
+     * So the second read is held open here rather than resolved, and both halves
+     * are asserted while it is: the notice gone, and the panel saying it is
+     * reading.
+     */
+    fetchEventSeries.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    let answer: (result: unknown) => void = () => undefined;
+    fetchEventSeries.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+
+    render(<EventAdminPanel />);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+      ).toBeTruthy();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Senare" }));
+
+    // The read for the new period is still open at this point.
+    await waitFor(() => {
+      expect(screen.getByText("Läser kalendern...")).toBeTruthy();
+    });
+    expect(
+      screen.queryByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+    ).toBeNull();
+
+    // Answered, so the test leaves no read in flight and the list it was
+    // waiting for is what lands.
+    answer({ ok: true, value: [CLEANING] });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Publicera Städdag" }),
+      ).toBeTruthy();
+    });
+  });
+
+  it("keeps the period's list when a re-read of it fails", async () => {
+    // The other half of the same rule, and the reason the outcome is held per
+    // period rather than as one flag: the cards the board is editing are still
+    // the last thing the server said about this period, and taking them away
+    // over a failed refresh would take the form the board is typing in with
+    // them.
+    await open();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    fetchEventSeries.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    // The act succeeds; the read it asks for afterwards is what fails.
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.getByRole("button", { name: "Publicera Städdag" }),
+    ).toBeTruthy();
+    // And no loading line: the read is over, and one under the notice would go
+    // on saying something is still happening.
+    expect(screen.queryByText("Läser kalendern...")).toBeNull();
+  });
 });
