@@ -374,16 +374,18 @@ const blockSchema = z.discriminatedUnion("type", [
   }),
   // A form block takes a type and, at most, the sentence the board wants above
   // it. Nothing else: what the form asks for is fixed by this platform, not
-  // configured per page.
-  z.object({
+  // configured per page. A field naming anything else is refused rather than
+  // dropped: a body that tried to configure the form is told so, instead of
+  // being stored without the part it sent.
+  z.strictObject({
     type: z.literal("contactForm"),
     intro: runsSchema.optional(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("issueReportForm"),
     intro: runsSchema.optional(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("newsTeaser"),
     count: z.int().min(1).max(LIMITS.teaserCount),
   }),

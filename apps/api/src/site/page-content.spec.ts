@@ -75,6 +75,31 @@ describe("reading a stored body", () => {
     expect(content.version).toBe(1);
   });
 
+  it("keeps a block carrying a field no block type declares", () => {
+    // The write path refuses such a field; this one has never looked at it. A
+    // body already in the column - written by hand, or by a version that
+    // accepted it - therefore still renders, block for block, as this version
+    // understands it.
+    expect(
+      readPageContent({
+        blocks: [
+          {
+            type: "contactForm",
+            intro: [{ text: "Hej." }],
+            fields: ["personalIdentityNumber"],
+          },
+          { type: "newsTeaser", count: 3, audience: "MEMBER" },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        { type: "contactForm", intro: [{ text: "Hej." }] },
+        { type: "newsTeaser", count: 3 },
+      ],
+    });
+  });
+
   it("reads a paragraph written before runs existed", () => {
     expect(
       readPageContent({ blocks: [{ type: "paragraph", text: "Hej." }] }).blocks,
@@ -326,11 +351,12 @@ describe("the form blocks", () => {
     });
   });
 
-  it("carries no configuration beyond that sentence", () => {
-    // Whatever else is sent is stripped rather than stored. What the forms ask
-    // for is fixed by the platform: a form whose fields could be edited per
-    // page would be a form that could ask a stranger for a personnummer.
-    expect(
+  it("refuses a field that would configure what a form asks for", () => {
+    // What the forms ask for is fixed by the platform: a form whose fields
+    // could be edited per page would be a form that could ask a stranger for a
+    // personnummer. Refused rather than stripped - a body accepted without the
+    // part that was sent is the one answer a write path must not give.
+    expect(() =>
       submittedContent({
         blocks: [
           {
@@ -341,10 +367,12 @@ describe("the form blocks", () => {
           },
         ],
       }),
-    ).toEqual({
-      version: 1,
-      blocks: [{ type: "contactForm", intro: [{ text: "Hej." }] }],
-    });
+    ).toThrow();
+    expect(() =>
+      submittedContent({
+        blocks: [{ type: "issueReportForm", issueTypes: ["water"] }],
+      }),
+    ).toThrow();
   });
 
   it("refuses an intro linking somewhere this platform will not publish", () => {
@@ -435,6 +463,18 @@ describe("the news teaser block", () => {
     ).toThrow();
     expect(() =>
       submittedContent({ blocks: [{ type: "newsTeaser", count: 2.5 }] }),
+    ).toThrow();
+  });
+
+  it("refuses a field it has no rendering for", () => {
+    // Strict, like the rest of the write path. How many items to show is the
+    // whole of this block: a field deciding which ones would be a second place
+    // to decide what a page discloses, and the first stored page carrying it
+    // would put a member-only headline in a public body.
+    expect(() =>
+      submittedContent({
+        blocks: [{ type: "newsTeaser", count: 3, audience: "MEMBER" }],
+      }),
     ).toThrow();
   });
 
