@@ -43,8 +43,11 @@ Every reference it carries is RESTRICT, because a deadline that lost the event i
 was about would be a false record rather than a shorter one. The database states
 the rest of the shape as well: the two weeks as a CHECK, so no writer can enter a
 window that is not fourteen days, one deadline per event as a unique constraint,
-and the event reference matching the kind, so a row cannot report one paragraph's
-event on another paragraph's clock.
+the event reference matching the kind, so a row cannot report one paragraph's
+event on another paragraph's clock, and a trigger tying the row to the event it
+names - the apartment is the event's own, the day the window opened is the date
+that event carries, and a transfer with no recorded membership decision takes no
+row at all, because the paragraph gives no day to count from.
 
 Liens are deliberately absent and are not an oversight to correct. 3 kap. 5 §
 puts the anmälan on the panthavare, who signs it together with the pledgor, and

@@ -178,6 +178,15 @@ BEGIN
       FROM "transfer" t
      WHERE t."id" = NEW."transferId";
 
+    -- A reference to no row at all is the foreign key's to refuse, and it names
+    -- the constraint that was broken. A BEFORE ROW trigger runs before the key
+    -- is checked, so without this the row would be refused here instead, on a
+    -- message about a missing membership decision - true of nothing, since there
+    -- is no transfer to have taken one about.
+    IF NOT FOUND THEN
+      RETURN NEW;
+    END IF;
+
     IF event_date IS NULL THEN
       RAISE EXCEPTION
         'OPENBRF_REPORT_OBLIGATION_EVENT: transfer % carries no membership decision, so Lag (2026:484) 3 kap. 3 § andra stycket names no day to count its two weeks from',
@@ -189,6 +198,10 @@ BEGIN
       INTO event_apartment, event_date
       FROM "termination" e
      WHERE e."id" = NEW."terminationId";
+
+    IF NOT FOUND THEN
+      RETURN NEW;
+    END IF;
   ELSE
     -- Neither reference: register_report_obligation_event_matches_kind is what
     -- refuses this, and it says so more precisely than this trigger could.

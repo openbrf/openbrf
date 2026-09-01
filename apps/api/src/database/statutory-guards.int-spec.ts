@@ -664,6 +664,26 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
     ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
   });
 
+  it("leaves a reference to no event at all to the foreign key", async () => {
+    // The event-match trigger returns without an opinion, so the refusal names
+    // the constraint that was actually broken rather than reporting a missing
+    // membership decision on a transfer that does not exist.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("dangling"),
+          kind: "TRANSFER",
+          apartmentId: APARTMENT_ID,
+          transferId: id("no-such-transfer"),
+          triggeredOn: new Date("2019-05-20"),
+          dueOn: new Date("2019-06-03"),
+        },
+      }),
+    ).rejects.toThrow(
+      /register_report_obligation_transferId_fkey|foreign key/i,
+    );
+  });
+
   it("refuses a second deadline for one event", async () => {
     // One anmalan per event, so one deadline per event. Nothing here can take
     // either row out again, so two would leave the ledger permanently unable to
