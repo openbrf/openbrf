@@ -180,6 +180,18 @@ export class MailService {
       day: "2-digit",
       timeZone: "Europe/Stockholm",
     });
+    /*
+     * The association's zone here too, and for the harder of the two reasons.
+     * A date is wrong by a day at the edges if the zone is wrong; a time of day
+     * is wrong by an hour for half the year, and a laundry hour stated an hour
+     * from where it was booked is a resident standing in front of a machine
+     * somebody else is using.
+     */
+    const timeFormatter = new Intl.DateTimeFormat(resolved, {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/Stockholm",
+    });
 
     return {
       t: this.i18n.translatorFor(resolved),
@@ -187,6 +199,7 @@ export class MailService {
       brand,
       appUrl: this.env.APP_URL,
       formatDate: (date) => dateFormatter.format(date),
+      formatTime: (date) => timeFormatter.format(date),
     };
   }
 

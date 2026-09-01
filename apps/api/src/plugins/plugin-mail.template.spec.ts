@@ -27,6 +27,7 @@ const CONTEXT = {
   brand: { associationName: "Brf Exempel", primaryColor: "#000000" },
   appUrl: "https://exempel.se",
   formatDate: (date: Date) => date.toISOString(),
+  formatTime: (date: Date) => date.toISOString(),
 } satisfies MailTemplateContext;
 
 const renderBody = (text: string): Promise<string> =>
