@@ -527,46 +527,45 @@ change it.
       through a browser against the production image, including the refusal a
       second household reads when it loses the hour and the allowance shared
       across one household
-- [x] Event calendar with sign-ups
-  - Landed: the event series the board arranges, with its category, its
-    location and its sign-up settings; the recurrence rule - weekly,
-    monthly or annual, with an interval and an end it has to state - and
-    the occurrences written out from it as rows on the association's own
-    clock, across both daylight saving changes and over month ends and the
-    29th of February; the write path with the personal identity number
-    scan on publication, members-only unless the board publishes to the
-    street, the refusal to move a date people are standing on, one date
-    called off on its own, the `events:manage` capability and the audit
-    entries; sign-up per occurrence with the places counted per date and a
-    claim the database and a lock decide, withdrawal as a dated close that
-    frees the place again, the roll-call behind the managing capability with
-    a person with protected personal data counted and never named,
-    `events:attend` as a capability of its own, the data subject access
-    report section and the sign-up purge with its legal-hold check; the
-    calendar screen in two halves - what is coming up with the places gone
-    per date and never who has them, a sign-up and a withdrawal whose count
-    and control are read from one server answer so the two cannot disagree
-    after a race, and the board's own half entering a series, publishing it
-    to the members or to the street, calling one date off and reading the
-    roll-call, with the personal identity number refusal naming the fields
-    it was found in; and the public calendar page at /kalender with one
-    address per event, a month at a time with plain previous and next links
-    and no script at all, the dates a reader may see decided among the
-    published ones by whether they carry a session and nothing else, a draft
-    on the calendar for nobody, an event kept for the members answered
-    signed-out with the website's own not-found document byte for byte, how
-    many places are gone beside a date and never who has them, and a
-    calendar block the board can put on a page it writes; and the end-to-end
-    suite that drives all of it through a browser against the production
-    image - the board publishing one event to the street and one to the
-    members from one field whose default is the members, a place taken and
-    given up again with the row read again from the instance between the two
-    acts, the last place going while somebody is looking at it and the count
-    they are looking at catching up in the same breath, the roll-call naming
-    who is coming and never the person carrying protected personal data, and
-    the street reading the public date on a page that runs no script, sets no
-    cookie and asks no other company for a byte, while the members' event at
-    its own address is answered as nothing at all
+- [x] Event calendar with sign-ups: the event series the board arranges, with
+      its category, its location and its sign-up settings; the recurrence
+      rule - weekly, monthly or annual, with an interval and an end it has to
+      state - and the occurrences written out from it as rows on the
+      association's own clock, across both daylight saving changes and over
+      month ends and the 29th of February; the write path with the personal
+      identity number scan on publication, members-only unless the board
+      publishes to the street, the refusal to move a date people are standing
+      on, one date called off on its own, the `events:manage` capability and
+      the audit entries; sign-up per occurrence with the places counted per
+      date and a claim the database and a lock decide, withdrawal as a dated
+      close that frees the place again, the roll-call behind the managing
+      capability with a person with protected personal data counted and never
+      named, `events:attend` as a capability of its own, the data subject
+      access report section and the sign-up purge with its legal-hold check;
+      the calendar screen in two halves - what is coming up with the places
+      gone per date and never who has them, a sign-up and a withdrawal whose
+      count and control are read from one server answer so the two cannot
+      disagree after a race, and the board's own half entering a series,
+      publishing it to the members or to the street, calling one date off and
+      reading the roll-call, with the personal identity number refusal naming
+      the fields it was found in; and the public calendar page at /kalender
+      with one address per event, a month at a time with plain previous and
+      next links and no script at all, the dates a reader may see decided among
+      the published ones by whether they carry a session and nothing else, a
+      draft on the calendar for nobody, an event kept for the members answered
+      signed-out with the website's own not-found document byte for byte, how
+      many places are gone beside a date and never who has them, and a calendar
+      block the board can put on a page it writes; and the end-to-end suite
+      that drives all of it through a browser against the production image -
+      the board publishing one event to the street and one to the members from
+      one field whose default is the members, a place taken and given up again
+      with the row read again from the instance between the two acts, the last
+      place going while somebody is looking at it and the count they are
+      looking at catching up in the same breath, the roll-call naming who is
+      coming and never the person carrying protected personal data, and the
+      street reading the public date on a page that runs no script, sets no
+      cookie and asks no other company for a byte, while the members' event at
+      its own address is answered as nothing at all
 
 **Later, still free and in the core**
 
