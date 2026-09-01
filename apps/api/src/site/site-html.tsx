@@ -16,6 +16,12 @@ import type {
 } from "./page-content";
 import type { SitePage } from "./pages.service";
 import {
+  type CalendarMonth,
+  CALENDAR_MONTH_PARAM,
+  formatCalendarMonth,
+  type SiteEventDate,
+} from "./site-events.service";
+import {
   associationFactGroups,
   type BrokerPageInput,
   hasRecordedFacts,
@@ -101,6 +107,20 @@ export interface SiteChrome {
    */
   newsTeasers: readonly NewsTeaser[];
   /**
+   * The next dates in the association's calendar this reader may see.
+   *
+   * Resolved against the reader's own session by the caller, like the news
+   * teasers beside it, so a page carrying a calendar block shows a visitor with
+   * no account the events published to the street and a member the members'
+   * ones as well. Empty on every page that carries no calendar block, and empty
+   * on the not-found document always.
+   *
+   * Carries a count of the places taken and no name. Who has signed up is
+   * personal data behind events:manage, and the shape handed in here has
+   * nowhere to put one.
+   */
+  eventDates: readonly SiteEventDate[];
+  /**
    * The documents this reader may fetch, in the archive's own order.
    *
    * Narrowed by the caller against the reader's own account, exactly as the
@@ -170,6 +190,32 @@ export function newsPath(slug: string): string {
 }
 
 /**
+ * Where the association's calendar lives, and the prefix an event sits under.
+ *
+ * One address for the calendar and one per event, and nothing per date. A
+ * reader arriving at a cleaning day in April wants the series - what to bring,
+ * and when the other cleaning days are - so the address is the series' and the
+ * occurrences are what stands on it.
+ */
+export const CALENDAR_PATH = "/kalender";
+
+/** The address of one event. */
+export function eventPath(eventId: string): string {
+  return `${CALENDAR_PATH}/${eventId}`;
+}
+
+/**
+ * The address of one month of the calendar.
+ *
+ * A query parameter rather than a path segment, so /kalender is always the
+ * calendar and a month is a view of it. There is no script on the website, so
+ * this is what a prev or next anchor is: an ordinary link the browser follows.
+ */
+export function calendarMonthPath(month: CalendarMonth): string {
+  return `${CALENDAR_PATH}?${CALENDAR_MONTH_PARAM}=${formatCalendarMonth(month)}`;
+}
+
+/**
  * The calendar a published date is read against.
  *
  * The association is in Sweden and its notices are dated the way the people
@@ -193,6 +239,61 @@ export function formatNewsDate(date: Date, locale: string): string {
     day: "numeric",
     timeZone: ASSOCIATION_TIME_ZONE,
   }).format(date);
+}
+
+/**
+ * The day an event falls on, with its weekday, in the reader's own language.
+ *
+ * The weekday is what a published date is missing and what a calendar needs: a
+ * cleaning day is planned around by whether it is a Saturday, and a reader
+ * looking at a list of dates should not have to work that out. A news item's
+ * publication date carries no weekday for the same reason in reverse - when a
+ * notice went up is read as a date and never as a day of the week.
+ */
+export function formatEventDate(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: ASSOCIATION_TIME_ZONE,
+  }).format(date);
+}
+
+/**
+ * The time of day an event runs at, on the association's own wall clock.
+ *
+ * The 24-hour cycle is stated rather than left to the locale, because the
+ * notice in the stairwell says 10:00 and a page that rendered it as 10 AM for
+ * an English-reading visitor would be quoting the board differently from the
+ * board.
+ */
+export function formatEventTime(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: ASSOCIATION_TIME_ZONE,
+  }).format(date);
+}
+
+/**
+ * A month, as the calendar's own heading names it.
+ *
+ * Built from noon rather than from midnight: the label is formatted in the
+ * association's zone, and midnight UTC on the first of a month is the evening
+ * before in Stockholm for part of the year - which would head April's page with
+ * March.
+ */
+export function formatCalendarMonthName(
+  month: CalendarMonth,
+  locale: string,
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    timeZone: ASSOCIATION_TIME_ZONE,
+  }).format(new Date(Date.UTC(month.year, month.month - 1, 1, 12)));
 }
 
 const DOCTYPE = "<!doctype html>";
@@ -303,6 +404,8 @@ export function renderBlock(
           );
     case "newsTeaser":
       return renderNewsTeaser(chrome, block.count, index);
+    case "eventCalendar":
+      return renderEventCalendar(chrome, block.count, index);
     case "documentList":
       return renderDocumentList(chrome, block, index);
     case "boardRoster":
@@ -602,6 +705,140 @@ function renderNewsTeaser(
         <a href={NEWS_PATH}>{chrome.t("news.site.allNews")}</a>
       </p>
     </section>
+  );
+}
+
+/**
+ * The association's next dates, on a page that asked for them.
+ *
+ * The dates come from the chrome, already narrowed to what this reader may see,
+ * so the block itself decides only how many of them to show. A block on an
+ * instance whose calendar holds nothing this reader may have renders as nothing
+ * at all rather than as an empty heading - a page must not announce a calendar
+ * the association has not started keeping, and an empty heading is also how a
+ * visitor would learn that the members have dates they do not.
+ */
+function renderEventCalendar(
+  chrome: SiteChrome,
+  count: number,
+  index: number,
+): ReactElement | null {
+  const dates = chrome.eventDates.slice(0, count);
+  if (dates.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="site-calendar" key={index}>
+      <h2>{chrome.t("site.calendar.heading")}</h2>
+      {renderEventDates(chrome, dates)}
+      <p>
+        <a href={CALENDAR_PATH}>{chrome.t("site.calendar.wholeCalendar")}</a>
+      </p>
+    </section>
+  );
+}
+
+/**
+ * A list of dates, as both the calendar block and the calendar pages show them.
+ *
+ * Exported so the block on a page the board wrote, the month at /kalender and
+ * one event's own page are one renderer and not three. A second copy would
+ * drift, and the drift that matters is the called-off marker: a page whose
+ * block showed a cancelled cleaning day as though it were going ahead would
+ * send somebody down to the courtyard on a Saturday morning.
+ *
+ * Always third-level headings, because the three places that use it have the
+ * same outline above them: the page or the calendar's title, then the heading
+ * of the block or of the month, then the dates.
+ *
+ * Every date links to its own event rather than to itself. The occurrence has
+ * no address, and it does not need one: what the reader is being sent to is the
+ * series that says what to bring and when the others are.
+ */
+export function renderEventDates(
+  chrome: SiteChrome,
+  dates: readonly SiteEventDate[],
+): ReactElement {
+  const { t } = chrome;
+
+  return (
+    <ul className="site-calendar-list">
+      {dates.map((date, at) => (
+        <li className="site-calendar-item" key={at}>
+          <p className="site-calendar-when">
+            <time dateTime={isoDate(date.startsAt)}>
+              {formatEventDate(date.startsAt, chrome.locale)}
+            </time>{" "}
+            {t("site.calendar.time", {
+              from: formatEventTime(date.startsAt, chrome.locale),
+              to: formatEventTime(date.endsAt, chrome.locale),
+            })}
+          </p>
+          <h3>
+            <a href={eventPath(date.eventId)}>{date.title}</a>
+          </h3>
+          {/*
+           * Called off before anything else about the date, because it is what
+           * changes what the reader should do with the rest of it. The date
+           * stays on the page: the association announced it, and "the cleaning
+           * day on the 18th is off" is a different thing to say than saying
+           * nothing.
+           */}
+          {date.cancelled ? (
+            <p className="site-calendar-cancelled">
+              {t("site.calendar.cancelled")}
+            </p>
+          ) : null}
+          {date.location === null ? null : (
+            <p className="site-calendar-where">{date.location}</p>
+          )}
+          {renderPlaces(chrome, date)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * How many places at one date are gone.
+ *
+ * A count and never a name, which is the whole of what the website may say
+ * about who is coming: the roll-call is personal data about the association's
+ * own residents and it is behind events:manage. There is nothing on the shape
+ * this reads from that a name could have travelled in.
+ *
+ * Nothing at all for a series that takes no sign-ups, and nothing for a date
+ * the board has called off: a place at an event that is not happening is not a
+ * thing to count. A series with no limit says how many have put their name down
+ * and stops there - there is no number to be short of.
+ */
+function renderPlaces(
+  chrome: SiteChrome,
+  date: SiteEventDate,
+): ReactElement | null {
+  if (!date.signupOpen || date.cancelled) {
+    return null;
+  }
+  const { t } = chrome;
+
+  if (date.capacity === null) {
+    return date.placesTaken === 0 ? null : (
+      <p className="site-calendar-places">
+        {t("site.calendar.signedUp", { taken: date.placesTaken })}
+      </p>
+    );
+  }
+
+  return (
+    <p className="site-calendar-places">
+      {date.placesTaken >= date.capacity
+        ? t("site.calendar.full")
+        : t("site.calendar.places", {
+            taken: date.placesTaken,
+            capacity: date.capacity,
+          })}
+    </p>
   );
 }
 

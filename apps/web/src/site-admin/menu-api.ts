@@ -17,7 +17,8 @@ export const MENU_ITEM_KINDS: readonly MenuItemKind[] = [
   "EXTERNAL",
 ];
 
-export type MenuGeneratedKey = "news" | "broker" | "requestAccount";
+export type MenuGeneratedKey =
+  "news" | "calendar" | "broker" | "requestAccount";
 
 /**
  * The generated destinations the board can put in the menu.
@@ -29,6 +30,7 @@ export type MenuGeneratedKey = "news" | "broker" | "requestAccount";
  */
 export const MENU_GENERATED_KEYS: readonly MenuGeneratedKey[] = [
   "news",
+  "calendar",
   "broker",
   "requestAccount",
 ];

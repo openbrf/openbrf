@@ -90,6 +90,26 @@ describe("isUsableSlug", () => {
       expect(isUsableSlug(taken), taken).toBe(false);
     }
   });
+
+  it("refuses the addresses of the pages the product generates", () => {
+    /*
+     * Both spellings of each, and the English ones are held even where only the
+     * Swedish address is routed: a page written at /news or /calendar on an
+     * English-speaking cooperative's instance would open today and stop opening
+     * the day that route is added, and a page that stops opening is worse than
+     * an address that was never free.
+     */
+    for (const taken of [
+      "nyheter",
+      "news",
+      "kalender",
+      "calendar",
+      "maklarinfo",
+      "broker",
+    ]) {
+      expect(isUsableSlug(taken), taken).toBe(false);
+    }
+  });
 });
 
 describe("the front page", () => {

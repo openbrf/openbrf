@@ -16,6 +16,16 @@ export const PAGE_CONTENT_LIMITS = {
   caption: 500,
   /** How many news items one teaser block may ask for. */
   teaserCount: 10,
+  /**
+   * How many dates one event calendar block may ask for.
+   *
+   * The same number as the news teaser and for the same reason: a block on a
+   * page is an invitation to the calendar rather than a copy of it, and a list
+   * longer than this is the /kalender page's work. It is not the bound on how
+   * far ahead the calendar itself reaches - that is a span of months and lives
+   * with the page.
+   */
+  calendarCount: 10,
   /** The binder a document list narrows to. The archive's own bound. */
   category: 80,
   /** How many questions one FAQ block may hold. */

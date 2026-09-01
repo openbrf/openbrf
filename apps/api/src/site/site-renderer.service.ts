@@ -15,7 +15,14 @@ import { AssociationFactsService } from "./association-facts.service";
 import { MenuService } from "./menu.service";
 import { hasBlock } from "./page-content";
 import { renderBrokerPage } from "./site-broker";
+import { renderCalendarPage, renderEventPage } from "./site-calendar";
 import { buildSiteStylesheet } from "./site-css";
+import {
+  type SiteCalendarPage,
+  type SiteEvent,
+  type SiteEventDate,
+  SiteEventsService,
+} from "./site-events.service";
 import type { BrokerPageInput } from "./site-facts";
 import type { SiteFormKind, SiteFormState, SiteIssueType } from "./site-forms";
 import {
@@ -115,6 +122,7 @@ export class SiteRenderer {
     private readonly menu: MenuService,
     private readonly issueTypes: IssueTypeService,
     private readonly news: SiteNewsService,
+    private readonly events: SiteEventsService,
     private readonly facts: AssociationFactsService,
     private readonly documents: DocumentsService,
     private readonly roster: BoardRosterService,
@@ -229,6 +237,44 @@ export class SiteRenderer {
   }
 
   /**
+   * One month of the calendar as a whole document.
+   *
+   * Session-aware for the chrome around it, exactly as the news index is. Which
+   * dates the month holds was already decided by the caller; what the session
+   * decides here is the menu, and a member who reached the calendar through it
+   * would otherwise lose it on arrival.
+   *
+   * Rendered in the visitor's own language, like a news document and unlike the
+   * broker page. The labels around the dates are chrome and are translated; the
+   * title of an event, its category and where it happens are the board's own
+   * words and are printed as written, which is what makes a cooperative keeping
+   * an English-reading visitor's language possible without translating what the
+   * association wrote.
+   */
+  async calendar(
+    acceptLanguage: string | undefined,
+    page: SiteCalendarPage,
+    visit: SiteVisit,
+  ): Promise<string> {
+    return renderCalendarPage(
+      await this.chrome(acceptLanguage, visit.hasSession),
+      page,
+    );
+  }
+
+  /** One event as a whole document, with the chrome this reader gets. */
+  async event(
+    acceptLanguage: string | undefined,
+    event: SiteEvent,
+    visit: SiteVisit,
+  ): Promise<string> {
+    return renderEventPage(
+      await this.chrome(acceptLanguage, visit.hasSession),
+      event,
+    );
+  }
+
+  /**
    * The website's own not-found document, in the visitor's language.
    *
    * Built from the chrome alone, never from anything a reader asked for, and
@@ -254,7 +300,7 @@ export class SiteRenderer {
    * the reason it is worth keeping: a housing cooperative's front page is the
    * one address that has to answer quickly for somebody with no account.
    *
-   * The four reads are independent and run together. Each is resolved for this
+   * The reads are independent and run together. Each is resolved for this
    * reader rather than for the page, which is what lets one stored page read
    * correctly for a visitor and for a member without the page knowing who
    * either of them is.
@@ -264,18 +310,20 @@ export class SiteRenderer {
     page: SitePage,
     visit: SiteVisit,
   ): Promise<SiteChrome> {
-    const [newsTeasers, documents, roster, facts] = await Promise.all([
-      this.teasersFor(page, visit.hasSession),
-      hasBlock(page.content, "documentList")
-        ? this.documentsFor(visit.personId)
-        : [],
-      hasBlock(page.content, "boardRoster") ? this.roster.published() : [],
-      hasBlock(page.content, "associationFacts")
-        ? this.associationFacts()
-        : null,
-    ]);
+    const [newsTeasers, eventDates, documents, roster, facts] =
+      await Promise.all([
+        this.teasersFor(page, visit.hasSession),
+        this.eventDatesFor(page, visit.hasSession),
+        hasBlock(page.content, "documentList")
+          ? this.documentsFor(visit.personId)
+          : [],
+        hasBlock(page.content, "boardRoster") ? this.roster.published() : [],
+        hasBlock(page.content, "associationFacts")
+          ? this.associationFacts()
+          : null,
+      ]);
 
-    return { ...chrome, newsTeasers, documents, roster, facts };
+    return { ...chrome, newsTeasers, eventDates, documents, roster, facts };
   }
 
   /**
@@ -296,6 +344,26 @@ export class SiteRenderer {
       0,
     );
     return wanted === 0 ? [] : this.news.teasers(hasSession, wanted);
+  }
+
+  /**
+   * The dates a calendar block on this page would show.
+   *
+   * Read for this reader, so a member sees the members' events among the ones
+   * published to the street. The largest count any block on the page asks for is
+   * what is fetched, on the news teaser's argument: several calendar blocks on
+   * one page are then one query, and each shows as many dates as it asked for.
+   */
+  private async eventDatesFor(
+    page: SitePage,
+    hasSession: boolean,
+  ): Promise<readonly SiteEventDate[]> {
+    const wanted = page.content.blocks.reduce(
+      (most, block) =>
+        block.type === "eventCalendar" ? Math.max(most, block.count) : most,
+      0,
+    );
+    return wanted === 0 ? [] : this.events.upcoming(hasSession, wanted);
   }
 
   /**
@@ -489,6 +557,7 @@ export class SiteRenderer {
       // document included: the refusal a visitor gets for a member-only address
       // must not vary with what the association happens to have published.
       newsTeasers: [],
+      eventDates: [],
       documents: [],
       roster: [],
       facts: null,

@@ -149,6 +149,28 @@ export interface NewsTeaserBlock {
 }
 
 /**
+ * The association's own calendar, on a page.
+ *
+ * The block carries no dates in it - only how many of them to show. What it
+ * becomes is resolved by the renderer against the reader's own session, so a
+ * page carrying this block shows a visitor with no account the events published
+ * to the street and a member the members' ones as well. Storing the dates in
+ * the block instead would freeze one reader's answer into a page every reader
+ * gets, and would put a member-only cleaning day into a public page's stored
+ * body.
+ *
+ * How many places are gone is the most this block can ever say about who is
+ * coming. Who has taken them is personal data about the association's own
+ * residents, it is behind events:manage, and there is no field here that could
+ * carry a name.
+ */
+export interface EventCalendarBlock {
+  type: "eventCalendar";
+  /** How many of the next dates to show, soonest first. */
+  count: number;
+}
+
+/**
  * The association's document archive, on a page.
  *
  * The block carries no documents in it - at most the binder to narrow to. What
@@ -245,6 +267,7 @@ export type PageBlock =
   | ContactFormBlock
   | IssueReportFormBlock
   | NewsTeaserBlock
+  | EventCalendarBlock
   | DocumentListBlock
   | BoardRosterBlock
   | AssociationFactsBlock
@@ -363,6 +386,10 @@ const blockSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("newsTeaser"),
     count: z.int().min(1).max(LIMITS.teaserCount),
+  }),
+  z.strictObject({
+    type: z.literal("eventCalendar"),
+    count: z.int().min(1).max(LIMITS.calendarCount),
   }),
   // The three blocks that name something the instance already holds. Two of
   // them take nothing at all: what they show is decided when the page is
@@ -553,15 +580,16 @@ function blockText(block: PageBlock): string {
         .join(" ")
         .trim();
     case "newsTeaser":
+    case "eventCalendar":
     case "documentList":
     case "boardRoster":
     case "associationFacts":
       // Nothing of the board's own writing. What these blocks show - a news
-      // item's title, a document's, a board member's name, a recorded fact -
-      // is scanned where it is written rather than again on every page that
-      // names it. The binder on a document list is the exception in shape
-      // only: it selects rows rather than being published as prose, and it is
-      // bounded to the archive's own category.
+      // item's title, an event's, a document's, a board member's name, a
+      // recorded fact - is scanned where it is written rather than again on
+      // every page that names it. The binder on a document list is the
+      // exception in shape only: it selects rows rather than being published as
+      // prose, and it is bounded to the archive's own category.
       return "";
   }
 }
@@ -588,6 +616,7 @@ function normalize(block: PageBlock): PageBlock | null {
     }
     case "image":
     case "newsTeaser":
+    case "eventCalendar":
     case "boardRoster":
     case "associationFacts":
       return block;
@@ -687,6 +716,18 @@ function readBlock(entry: unknown): PageBlock | null {
         count >= 1 &&
         count <= LIMITS.teaserCount
         ? { type: "newsTeaser", count }
+        : null;
+    }
+    case "eventCalendar": {
+      const count = block["count"];
+      // Dropped rather than clamped, for the reason the news teaser above
+      // gives: a count outside what this version knows is a block it cannot
+      // vouch for, and showing some other number of dates would be a guess.
+      return typeof count === "number" &&
+        Number.isInteger(count) &&
+        count >= 1 &&
+        count <= LIMITS.calendarCount
+        ? { type: "eventCalendar", count }
         : null;
     }
     case "documentList": {

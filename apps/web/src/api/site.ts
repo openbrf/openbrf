@@ -100,6 +100,20 @@ export interface NewsTeaserBlock {
   count: number;
 }
 
+/**
+ * The association's calendar on a page: how many dates, and nothing else.
+ *
+ * The dates are read by the website when the page is rendered, against the
+ * reader, so one stored block shows a visitor with no account the events
+ * published to everyone and a member the members' ones as well. What it may say
+ * about who is coming is how many places are gone - there is no field here for a
+ * name, and the API has none to send.
+ */
+export interface EventCalendarBlock {
+  type: "eventCalendar";
+  count: number;
+}
+
 export type PageBlock =
   | ParagraphBlock
   | HeadingBlock
@@ -107,6 +121,7 @@ export type PageBlock =
   | ContactFormBlock
   | IssueReportFormBlock
   | NewsTeaserBlock
+  | EventCalendarBlock
   | DocumentListBlock
   | BoardRosterBlock
   | AssociationFactsBlock

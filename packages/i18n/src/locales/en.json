@@ -1756,6 +1756,21 @@
     "faq": {
       "heading": "Frequently asked questions"
     },
+    "calendar": {
+      "title": "Calendar",
+      "heading": "Coming up",
+      "wholeCalendar": "The whole calendar",
+      "time": "{{from}}-{{to}}",
+      "cancelled": "Cancelled",
+      "places": "{{taken}} of {{capacity}} places taken",
+      "signedUp": "{{taken}} signed up",
+      "full": "Fully booked",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "emptyMonth": "Nothing is arranged this month.",
+      "datesHeading": "Dates",
+      "signupNote": "Sign-up is made after signing in."
+    },
     "broker": {
       "title": "Broker information",
       "groups": {
@@ -2045,6 +2060,8 @@
       "documentBinderHint": "Only the documents filed in this binder. Leave it empty to list every document the reader may see. The archive decides who may see what: nobody is shown a document their account does not open, and the board's own shelf is never on the website.",
       "rosterHint": "The board is read from the register when the page is rendered. A person appears only with a recorded publication consent for the board roster, and never if they carry protected personal data - so the block is empty until the consents have been recorded.",
       "factsHint": "The facts the board records on the association facts screen, the same ones the broker information page is generated from. A question nobody has answered is not on the page.",
+      "calendarCount": "How many dates",
+      "calendarHint": "The next dates in the association's calendar, read when the page is rendered. A reader with no account is shown the events published to everyone, and a member the members' ones as well. How many places are gone stands beside a date; who has taken them never does.",
       "faqQuestion": "Question {{number}}",
       "faqAnswer": "Answer {{number}}",
       "faqAddItem": "Add a question",
@@ -2060,6 +2077,7 @@
         "contactForm": "Contact form",
         "issueReportForm": "Issue report form",
         "newsTeaser": "The latest news",
+        "eventCalendar": "The calendar",
         "documentList": "Document list",
         "boardRoster": "The board",
         "associationFacts": "The association's facts",
@@ -2069,6 +2087,7 @@
         "paragraph": "Add a paragraph",
         "heading": "Add a heading",
         "image": "Add a picture",
+        "eventCalendar": "Add the calendar",
         "documentList": "Add a document list",
         "boardRoster": "Add the board",
         "associationFacts": "Add the association's facts",
@@ -2110,6 +2129,7 @@
       "generated": {
         "field": "Generated page",
         "news": "News",
+        "calendar": "Calendar",
         "broker": "Broker information",
         "requestAccount": "Request an account",
         "unavailable": "Left out of the menu until this instance has that page."

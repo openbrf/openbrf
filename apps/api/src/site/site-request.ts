@@ -5,16 +5,41 @@ import { AuthService } from "../auth/auth.service";
 /**
  * What the public website is allowed to read off a request.
  *
- * Two things, and they are here rather than on a controller because more than
- * one controller answers on the website's behalf - the pages, the news, and
- * whatever the association publishes next - and each of them has to read a
- * request the same way. A second copy of the session rule would be a second
- * place for the website to start setting a cookie.
+ * Three things, and they are here rather than on a controller because more than
+ * one controller answers on the website's behalf - the pages, the news, the
+ * calendar, and whatever the association publishes next - and each of them has
+ * to read a request the same way. A second copy of the session rule would be a
+ * second place for the website to start setting a cookie.
  */
 
 /** The Accept-Language header as one string, whatever shape Fastify parsed. */
 export function acceptLanguage(request: FastifyRequest): string | undefined {
   const value = request.headers["accept-language"];
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * One query parameter as a single string, or nothing.
+ *
+ * A repeated parameter parses to an array, and taking neither of them is the
+ * right answer: a caller sending the same name twice is not a browser following
+ * a link this website printed. So is a query string that did not parse to an
+ * object at all.
+ *
+ * The website's whole use of the query string goes through here - which form
+ * was just submitted, and which month of the calendar is being read - and none
+ * of it is ever printed back onto the page: what a parameter can produce is a
+ * fixed translated sentence or a month the calendar clamps into its own range.
+ */
+export function queryValue(
+  request: FastifyRequest,
+  name: string,
+): string | undefined {
+  const query = request.query;
+  if (typeof query !== "object" || query === null) {
+    return undefined;
+  }
+  const value = (query as Record<string, unknown>)[name];
   return typeof value === "string" ? value : undefined;
 }
 

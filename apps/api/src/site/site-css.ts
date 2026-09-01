@@ -378,6 +378,97 @@ body {
 }
 
 /*
+ * The calendar, on its own page and as a block on a page the board wrote. One
+ * list, so a date reads the same in both places and there is one set of rules
+ * to keep legible.
+ *
+ * A list and not a grid. A month of a housing cooperative's calendar holds a
+ * handful of dates, a grid of squares is unreadable on a telephone unless a
+ * script rearranges it, and there is no script here - so the dates are read in
+ * the order they happen, which is the order somebody plans in.
+ */
+.site-calendar {
+  margin: 2.5rem 0 0;
+}
+
+.site-calendar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-calendar-item {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 1.5rem 0;
+}
+
+.site-calendar-item h3 {
+  margin: 0 0 0.5rem;
+}
+
+.site-calendar-when {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+.site-calendar-where,
+.site-calendar-places {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+/*
+ * A date the board has called off.
+ *
+ * The word says it and the weight is the only decoration. Colour alone would
+ * leave the one thing on the page that changes what the reader should do
+ * invisible to somebody who cannot see it, and the danger token is used rather
+ * than a literal so an installed theme restyles it with everything else.
+ */
+.site-calendar-cancelled {
+  color: var(--obrf-status-danger);
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+/* The month the calendar page is showing, above its own dates. */
+.site-calendar-month {
+  margin: 0 0 0.5rem;
+}
+
+/*
+ * Between months.
+ *
+ * Two ordinary links with the whole target height to themselves, because
+ * moving a month is done with a thumb on a telephone and there is no script to
+ * make anything else of them. Spread apart, so back and forward are not next
+ * to each other under one finger.
+ */
+.site-calendar-nav {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin: 0 0 1.5rem;
+}
+
+.site-calendar-nav a {
+  align-items: center;
+  display: inline-flex;
+  min-height: 44px;
+}
+
+/* What the board sorts an event under, under the event's own title. */
+.site-event-category {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: -1rem 0 1.5rem;
+}
+
+/*
  * The document archive on a page.
  *
  * A list of links with the file underneath each, because a document on a

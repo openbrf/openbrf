@@ -209,7 +209,7 @@ describe("the blocks that name what the instance already holds", () => {
 
   it("carry no text of their own for the scan to read", () => {
     // What they show is scanned where it was written: on the news item, in the
-    // archive, on the facts screen.
+    // archive, on the facts screen, on the event.
     expect(
       scanPage({
         title: "Om foreningen",
@@ -218,9 +218,21 @@ describe("the blocks that name what the instance already holds", () => {
           { type: "boardRoster" },
           { type: "associationFacts" },
           { type: "newsTeaser", count: 3 },
+          { type: "eventCalendar", count: 3 },
         ],
       }),
     ).toEqual([]);
+  });
+
+  it("start the calendar on a count the API accepts", () => {
+    // The one of them with something for the board to decide, and it is a
+    // number of dates rather than a date: which dates the block shows is read
+    // when the page is rendered, against whoever is reading it.
+    const block = emptyBlock("eventCalendar");
+
+    expect(INSERTABLE).toContain("eventCalendar");
+    expect(block).toEqual({ type: "eventCalendar", count: 3 });
+    expect(submittableBlocks([block]).blocks).toEqual([block]);
   });
 
   it("do not offer the blocks another feature's screen places", () => {

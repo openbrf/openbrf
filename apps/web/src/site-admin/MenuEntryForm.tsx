@@ -59,6 +59,7 @@ const KIND_LABELS: Readonly<Record<MenuItemKind, TranslationKey>> = {
 
 const GENERATED_LABELS: Readonly<Record<MenuGeneratedKey, TranslationKey>> = {
   news: "siteAdmin.menu.generated.news",
+  calendar: "siteAdmin.menu.generated.calendar",
   broker: "siteAdmin.menu.generated.broker",
   requestAccount: "siteAdmin.menu.generated.requestAccount",
 };
