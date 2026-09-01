@@ -426,7 +426,7 @@ export class BookableResourceService {
   }
 
   /**
-   * Refuses a resource whose name or description carries a personnummer.
+   * Refuses a resource carrying a Swedish personal identity number.
    *
    * The same rule a page, a news item, a motion and an event series live under,
    * and it belongs here for the reason it belongs there: a personal identity
