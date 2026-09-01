@@ -177,8 +177,8 @@ describe("a catalogue that could not be read", () => {
     // The read is over, so a loading line under the notice would go on saying
     // something is still happening when nothing is.
     expect(screen.queryByText(LOADING)).toBeNull();
-    // The form to enter a type is still there: nothing about a catalogue that
-    // could not be read stops a board writing the next type down.
+    // The form to enter an issue type is still there: nothing about a
+    // catalogue that could not be read stops a board entering the next one.
     expect(screen.getByRole("button", { name: /lägg till typ/i })).toBeTruthy();
   });
 
