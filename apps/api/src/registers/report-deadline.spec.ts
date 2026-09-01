@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { REPORT_WINDOW_DAYS, reportDueOn } from "./report-deadline";
@@ -56,17 +59,30 @@ describe("reportDueOn", () => {
     expect(stored(reportDueOn(column("2028-02-20")))).toBe("2028-03-05");
   });
 
-  it("states the window the database also enforces", () => {
-    // The constant, not the literal 14. The same rule is a CHECK on the table
-    // (register_report_obligation_two_week_window), and a test asserting the
-    // literal in both places would pass with the two disagreeing.
-    expect(stored(reportDueOn(column("2027-06-01")))).toBe(
-      stored(
-        new Date(
-          column("2027-06-01").getTime() +
-            REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-        ),
+  it("states the window the database enforces, read out of the migration", () => {
+    /*
+     * The same rule is a CHECK on the table, so the two have to agree: a
+     * constant changed here alone would have the database refuse every insert,
+     * and a CHECK changed alone would let a wrong deadline through this module.
+     *
+     * The constraint is read out of the migration rather than restated, on the
+     * reading statutory-guards.int-spec.ts takes of the REVOKE lines: a CHECK
+     * that was dropped has no text to find. The directory name is a fixed
+     * string because migrations are forward-only and never renamed.
+     */
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        "prisma",
+        "migrations",
+        "20260910100000_register_report_obligation",
+        "migration.sql",
       ),
+      "utf8",
+    );
+
+    expect(sql).toContain(
+      `CHECK ("dueOn" = "triggeredOn" + ${String(REPORT_WINDOW_DAYS)})`,
     );
   });
 });

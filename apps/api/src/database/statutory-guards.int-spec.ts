@@ -40,6 +40,8 @@ const PERSON_ID = id("person");
 const ERASED_PERSON_ID = id("erased");
 const ADDRESS_ID = id("address");
 const APARTMENT_ID = id("apartment");
+/** A second apartment, so "the wrong apartment" is a real id and not a typo. */
+const OTHER_APARTMENT_ID = id("other-apartment");
 const ENTRY_ID = id("entry");
 const AUDIT_ID = id("audit");
 const ERASED_AUDIT_ID = id("erased-audit");
@@ -54,6 +56,14 @@ const OBLIGATION_ID = id("obligation");
  * reuse the row the assertions above it are about.
  */
 const PROBE_TERMINATION_ID = id("probe-termination");
+/**
+ * A transfer with no membership decision recorded.
+ *
+ * The state Lag (2026:484) 3 kap. 3 § andra stycket names no day to count from,
+ * so it may take no deadline at all - which is what
+ * register_report_obligation_matches_its_event refuses.
+ */
+const UNDECIDED_TRANSFER_ID = id("undecided-transfer");
 
 /**
  * A role for the privilege suite, made per run.
@@ -84,6 +94,14 @@ beforeAll(async () => {
   });
   await prisma.apartment.create({
     data: { id: APARTMENT_ID, addressId: ADDRESS_ID, number: "1001", floor: 0 },
+  });
+  await prisma.apartment.create({
+    data: {
+      id: OTHER_APARTMENT_ID,
+      addressId: ADDRESS_ID,
+      number: "1002",
+      floor: 0,
+    },
   });
   await prisma.memberRegisterEntry.create({
     data: {
@@ -116,9 +134,29 @@ beforeAll(async () => {
       apartmentId: APARTMENT_ID,
       toPersonId: PERSON_ID,
       transferredOn: new Date("2019-06-01"),
+      /*
+       * Before the transfer, which is the ordinary order: the board approves
+       * membership when it meets and the transfer completes on the
+       * tilltradesdag. Recorded because the obligation suite below appends a
+       * deadline to this transfer, and
+       * register_report_obligation_matches_its_event refuses one on a transfer
+       * with no membership decision - Lag (2026:484) 3 kap. 3 § andra stycket
+       * names no day to count from without it.
+       */
+      membershipDecidedOn: new Date("2019-05-20"),
       // Required by transfer_agreement_reference_present: the apartment
       // register extract states a reference for every transfer it lists.
       agreementReference: `Upplatelseavtal ${TRANSFER_ID}`,
+    },
+  });
+  await prisma.transfer.create({
+    data: {
+      id: UNDECIDED_TRANSFER_ID,
+      apartmentId: APARTMENT_ID,
+      fromPersonId: PERSON_ID,
+      toPersonId: PERSON_ID,
+      transferredOn: new Date("2022-03-01"),
+      agreementReference: `Overlatelseavtal ${UNDECIDED_TRANSFER_ID}`,
     },
   });
   await prisma.lienNote.create({
@@ -263,7 +301,9 @@ afterAll(async () => {
     await prisma.termination.deleteMany({
       where: { apartmentId: APARTMENT_ID },
     });
-    await prisma.apartment.deleteMany({ where: { id: APARTMENT_ID } });
+    await prisma.apartment.deleteMany({
+      where: { id: { in: [APARTMENT_ID, OTHER_APARTMENT_ID] } },
+    });
     await prisma.address.deleteMany({ where: { id: ADDRESS_ID } });
     await prisma.person.deleteMany({
       where: { id: { in: [PERSON_ID, ERASED_PERSON_ID] } },
@@ -568,6 +608,62 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
     ).rejects.toThrow(/register_report_obligation_event_matches_kind/);
   });
 
+  it("refuses a deadline on an apartment its event is not about", async () => {
+    // The apartment is denormalised onto this row, so nothing but this trigger
+    // stops the two answers disagreeing - permanently, on a table nothing can
+    // correct.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("wrong-apartment"),
+          kind: "TERMINATION",
+          apartmentId: OTHER_APARTMENT_ID,
+          terminationId: PROBE_TERMINATION_ID,
+          triggeredOn: new Date("2026-04-08"),
+          dueOn: new Date("2026-04-22"),
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
+  });
+
+  it("refuses a window opened on a day its event does not carry", async () => {
+    // Lag (2026:484) 3 kap. 4 § counts the two weeks from the day the
+    // bostadsratt ceased. A row fourteen days wide from some other day satisfies
+    // register_report_obligation_two_week_window and is still the wrong
+    // deadline.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("wrong-window-start"),
+          kind: "TERMINATION",
+          apartmentId: APARTMENT_ID,
+          terminationId: PROBE_TERMINATION_ID,
+          triggeredOn: new Date("2026-05-01"),
+          dueOn: new Date("2026-05-15"),
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
+  });
+
+  it("refuses a deadline on a transfer with no membership decision", async () => {
+    // 3 kap. 3 § andra stycket runs the window from the decision, so a transfer
+    // without one has no day to count from and takes no row. The service
+    // reaches this state by never writing one; this is what says so for every
+    // other writer.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("undecided"),
+          kind: "TRANSFER",
+          apartmentId: APARTMENT_ID,
+          transferId: UNDECIDED_TRANSFER_ID,
+          triggeredOn: new Date("2022-03-01"),
+          dueOn: new Date("2022-03-15"),
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
+  });
+
   it("refuses a second deadline for one event", async () => {
     // One anmalan per event, so one deadline per event. Nothing here can take
     // either row out again, so two would leave the ledger permanently unable to
@@ -617,6 +713,8 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
         kind: "TRANSFER",
         apartmentId: APARTMENT_ID,
         transferId: TRANSFER_ID,
+        // The transfer's own membership decision date, which
+        // register_report_obligation_matches_its_event requires.
         triggeredOn: new Date("2019-05-20"),
         dueOn: new Date("2019-06-03"),
       },

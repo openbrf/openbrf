@@ -3,11 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type {
-  Prisma,
-  RegisterReportKind,
-  TerminationKind,
-} from "../generated/prisma/client";
+import type { Prisma, TerminationKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { reportDueOn } from "./report-deadline";
 import { statutoryDate } from "./statutory-date";
@@ -36,6 +32,13 @@ import { statutoryDate } from "./statutory-date";
  * those numbers is theirs to read. The disclosure is written to the audit log
  * naming every person it covered, because "who has seen these identity numbers"
  * is the question the log exists to answer.
+ *
+ * This service also writes the obligation ledger, which is not part of this
+ * register: it is the association's record of the deadlines the cooperative
+ * housing register imposes. It is written here because a deadline and the
+ * register event it runs from have to be one transaction, and this is where
+ * those events are recorded. RegisterReportObligation in schema.prisma carries
+ * the model's own account of itself.
  */
 
 export type ApartmentRegisterErrorReason =
@@ -605,25 +608,32 @@ export class ApartmentRegisterService {
    *
    * The deadline itself comes from `report-deadline.ts`, and the database states
    * the same rule as a CHECK, so a wrong window is refused rather than recorded.
+   *
+   * The kind and the event it names travel together as one argument rather than
+   * as a kind beside two optional identifiers, so naming a termination on a
+   * transfer's clock is a compile error. The database refuses that combination
+   * too (`register_report_obligation_event_matches_kind`), and this is the half
+   * that says so before anything runs.
    */
   private async enterObligation(
     tx: Prisma.TransactionClient,
     input: {
       actorPersonId: string;
-      kind: RegisterReportKind;
       apartmentId: string;
-      transferId?: string;
-      terminationId?: string;
       /** The day the statutory window opened, as a date column value. */
       triggeredOn: Date;
-    },
+    } & (
+      | { kind: "TRANSFER"; transferId: string }
+      | { kind: "TERMINATION"; terminationId: string }
+    ),
   ): Promise<void> {
     const obligation = await tx.registerReportObligation.create({
       data: {
         kind: input.kind,
         apartmentId: input.apartmentId,
-        transferId: input.transferId ?? null,
-        terminationId: input.terminationId ?? null,
+        transferId: input.kind === "TRANSFER" ? input.transferId : null,
+        terminationId:
+          input.kind === "TERMINATION" ? input.terminationId : null,
         triggeredOn: input.triggeredOn,
         dueOn: reportDueOn(input.triggeredOn),
       },

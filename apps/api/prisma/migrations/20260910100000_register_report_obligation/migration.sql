@@ -131,6 +131,92 @@ ALTER TABLE "register_report_obligation"
   ADD CONSTRAINT "register_report_obligation_two_week_window"
   CHECK ("dueOn" = "triggeredOn" + 14);
 
+-- The row says the same thing as the event it names.
+--
+-- The constraints above check the row against itself: that the kind matches
+-- which reference is present, and that the two dates are fourteen days apart.
+-- Neither reads the event. So a row could name one transfer, carry another
+-- apartment, and open its window on a day that transfer has nothing to do with,
+-- and every check above would pass - on a table nothing can correct afterwards.
+--
+-- A CHECK cannot express this: it may not read another table. A foreign key
+-- could, over (event, apartment, date) with a unique index behind it, but ON
+-- UPDATE on such a key would rewrite a statutory deadline when the parent moved,
+-- and the append-only trigger would then surface the archive message for what is
+-- really a refusal to move a window. A trigger says which paragraph was
+-- violated instead.
+--
+-- What it enforces, per reference and only when that reference is present, so
+-- that a row failing register_report_obligation_event_matches_kind still fails
+-- on that constraint rather than on this:
+--
+--   The apartment is the event's own. It is denormalised here because the queue
+--   is read per apartment and per date, and a denormalised column nothing checks
+--   is a second answer waiting to disagree with the first.
+--
+--   triggeredOn is the day the statute counts from for that event, read off the
+--   event: transfer."membershipDecidedOn" under 3 kap. 3 § andra stycket, and
+--   termination."tookEffectOn" under 3 kap. 4 §.
+--
+--   A transfer with no recorded membership decision takes no row at all. The
+--   paragraph gives no other day to count from, so a deadline on such a transfer
+--   could only be counted from a date the statute does not name.
+--
+-- P0001 with a marker, for the reason 20260827123837 gives about the archive
+-- guards: anything in SQLSTATE class 23 is rewritten by Prisma into a generic
+-- constraint error and the real reason is lost. A separate marker from the
+-- archive's, because this refuses a wrong row rather than a forbidden mutation.
+CREATE OR REPLACE FUNCTION openbrf_check_report_obligation_event()
+RETURNS TRIGGER AS $$
+DECLARE
+  event_apartment TEXT;
+  event_date DATE;
+BEGIN
+  IF NEW."transferId" IS NOT NULL THEN
+    SELECT t."apartmentId", t."membershipDecidedOn"
+      INTO event_apartment, event_date
+      FROM "transfer" t
+     WHERE t."id" = NEW."transferId";
+
+    IF event_date IS NULL THEN
+      RAISE EXCEPTION
+        'OPENBRF_REPORT_OBLIGATION_EVENT: transfer % carries no membership decision, so Lag (2026:484) 3 kap. 3 § andra stycket names no day to count its two weeks from',
+        NEW."transferId"
+        USING ERRCODE = 'raise_exception';
+    END IF;
+  ELSIF NEW."terminationId" IS NOT NULL THEN
+    SELECT e."apartmentId", e."tookEffectOn"
+      INTO event_apartment, event_date
+      FROM "termination" e
+     WHERE e."id" = NEW."terminationId";
+  ELSE
+    -- Neither reference: register_report_obligation_event_matches_kind is what
+    -- refuses this, and it says so more precisely than this trigger could.
+    RETURN NEW;
+  END IF;
+
+  IF event_apartment IS DISTINCT FROM NEW."apartmentId" THEN
+    RAISE EXCEPTION
+      'OPENBRF_REPORT_OBLIGATION_EVENT: the obligation names apartment % but its register event is about %',
+      NEW."apartmentId", event_apartment
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF event_date IS DISTINCT FROM NEW."triggeredOn" THEN
+    RAISE EXCEPTION
+      'OPENBRF_REPORT_OBLIGATION_EVENT: the window is dated % but the statute counts it from %, the date on the register event',
+      NEW."triggeredOn", event_date
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER register_report_obligation_matches_its_event
+  BEFORE INSERT ON "register_report_obligation"
+  FOR EACH ROW EXECUTE FUNCTION openbrf_check_report_obligation_event();
+
 -- The append-only guard, row level.
 --
 -- BEFORE UPDATE OR DELETE and not DELETE alone, which is the shape

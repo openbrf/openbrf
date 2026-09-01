@@ -1580,9 +1580,28 @@ describe("recording the membership decision behind a transfer", () => {
  * unawaited insert, and both would pass a test that only read the database.
  */
 describe("the obligation ledger and the event it is about", () => {
-  const REFUSE_INSERTS = "openbrf_test_refuse_obligation_insert";
+  /*
+   * Named per run, like every fixture id in this file.
+   *
+   * A fixed name collides across concurrent runs: the second CREATE TRIGGER
+   * fails, its cleanup drops the trigger anyway, and the first run then gets a
+   * 201 where it expects the write to have been refused - a pass turning into a
+   * failure in the other run, for a reason neither test mentions.
+   */
+  const REFUSE_INSERTS = `openbrf_test_refuse_obligation_insert_${suffix}`;
 
-  /** Refuses every insert into the ledger, for as long as the callback runs. */
+  /**
+   * Refuses this suite's obligation inserts, for as long as the callback runs.
+   *
+   * Restricted by apartment rather than left table-wide. The trigger is on a
+   * shared table, so an unconditional one refuses every connection's insert
+   * while it exists - including the other suites that write register events -
+   * and the WHEN clause keeps the refusal to the rows these two tests cause.
+   *
+   * CREATE OR REPLACE on the function, because the two tests below each install
+   * and drop it: a run that died between them would otherwise leave the second
+   * failing on a duplicate rather than on what it asserts.
+   */
   async function withLedgerRefusingInserts(
     body: () => Promise<void>,
   ): Promise<void> {
@@ -1597,7 +1616,9 @@ describe("the obligation ledger and the event it is about", () => {
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER ${REFUSE_INSERTS}
         BEFORE INSERT ON "register_report_obligation"
-        FOR EACH ROW EXECUTE FUNCTION ${REFUSE_INSERTS}()
+        FOR EACH ROW
+        WHEN (NEW."apartmentId" IN ('${apartments.held}', '${apartments.other}'))
+        EXECUTE FUNCTION ${REFUSE_INSERTS}()
     `);
     try {
       await body();

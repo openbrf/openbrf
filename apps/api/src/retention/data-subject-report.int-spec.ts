@@ -984,7 +984,7 @@ describe("what the report contains", () => {
     ).not.toContain(`Kopeavtal ${suffix}`);
   });
 
-  it("lists the report due for the transfer this person acquired", async () => {
+  it("lists the reporting obligation for the transfer this person acquired", async () => {
     const report = await reportFor(boardCookie);
 
     // The window opened on the membership decision (Lag (2026:484) 3 kap. 3 §
@@ -1004,7 +1004,7 @@ describe("what the report contains", () => {
     expect(acquired).not.toHaveProperty("erasableFrom");
   });
 
-  it("lists the report due for the termination that ended their holding", async () => {
+  it("lists the reporting obligation for the termination that ended their holding", async () => {
     const report = await reportFor(boardCookie);
 
     const termination = report.registerReportObligations.find(

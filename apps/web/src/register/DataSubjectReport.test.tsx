@@ -597,7 +597,7 @@ describe("what the document prints", () => {
     expect(screen.getByText(/upphörandena/)).not.toBeNull();
   });
 
-  it("prints each report due to the cooperative housing register", async () => {
+  it("prints each reporting obligation to the cooperative housing register", async () => {
     /*
      * Statutory tier, so no erasure date, like the register sections above it.
      *
@@ -614,11 +614,11 @@ describe("what the document prints", () => {
     await screen.findByText("Brf Eksemplet");
 
     expect(
-      screen.getByText("Anmälningar till bostadsrättsregistret"),
+      screen.getByText("Anmälningsskyldigheter till bostadsrättsregistret"),
     ).not.toBeNull();
 
     const rows = screen
-      .getByText("Anmälningar till bostadsrättsregistret")
+      .getByText("Anmälningsskyldigheter till bostadsrättsregistret")
       .closest("section")
       ?.querySelectorAll("tbody tr");
     expect(rows).toHaveLength(2);
@@ -632,7 +632,7 @@ describe("what the document prints", () => {
     // And the retention sentence that covers them, naming the reports among
     // what no setting and no administrator reaches.
     expect(
-      screen.getByText(/anmälningarna till bostadsrättsregistret/),
+      screen.getByText(/anmälningsskyldigheterna till bostadsrättsregistret/),
     ).not.toBeNull();
   });
 

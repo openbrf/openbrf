@@ -760,10 +760,10 @@ enum RegisterReportKind {
 ///
 /// A pledge is reported by the panthavare and not by the association: 3 kap. 5 §
 /// puts the anmalan on the lienholder, who signs it together with the pledgor,
-/// and 6 § lets Lantmateriet authorise one to register pledges itself. So no
-/// lien note opens an obligation here, and none should be added: registration in
-/// the register replaces denuntiation to the association, which is why the
-/// pledge fee is being withdrawn from BRL 7 kap. 14 § at the same time.
+/// and 6 § lets Lantmateriet authorise one to register pledges itself. 8 § puts
+/// the deregistration on the lienholder too. So no lien note opens an obligation
+/// here, and none should be added: the association is not the anmalare for any
+/// of it, and a row here would state a duty the statute puts on somebody else.
 ///
 /// ## Append-only, both mechanisms
 ///

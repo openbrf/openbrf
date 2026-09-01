@@ -309,7 +309,7 @@
         "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
-        "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, överlåtelserna, upphörandena, pantnoteringarna, anmälningarna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
+        "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
         "section": {
           "person": "Personen",
           "residencies": "Boenden",
@@ -320,7 +320,7 @@
           "transfers": "Överlåtelser",
           "terminations": "Upphöranden",
           "lienNotes": "Pantnoteringar",
-          "reportObligations": "Anmälningar till bostadsrättsregistret",
+          "reportObligations": "Anmälningsskyldigheter till bostadsrättsregistret",
           "consents": "Publiceringssamtycke",
           "legalHolds": "Rättsliga bevarandekrav",
           "issues": "Felanmälningar",
@@ -466,7 +466,7 @@
           "MOTION_WITHDRAWN": "Motion återkallad",
           "EVENT_SIGNUP_MADE": "Anmälan till evenemang gjordes",
           "EVENT_SIGNUP_WITHDRAWN": "Anmälan till evenemang återkallades",
-          "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälan till bostadsrättsregistret fördes in i förteckningen"
+          "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades"
         },
         "reportKind": {
           "TRANSFER": "Överlåtelse",
