@@ -91,13 +91,14 @@ on the account the later specs sign in as.
 - `src/xlsx.ts` builds a real .xlsx workbook in memory, so the import's upload
   control is exercised with a workbook rather than with a binary fixture nobody
   can read in a diff.
-- `src/fixtures.ts` gives each test its own client address. Better Auth
-  rate-limits to twenty requests a minute per client and identifies the client
-  by `X-Forwarded-For`; without this the suite would throttle itself. A test
-  where two people act asks it for a second address as well, rather than
-  spending one person's budget on the other's sign-ins: a session check runs on
-  every guarded navigation, so signing in through the screen and landing on the
-  board costs four requests rather than one, and twenty is not far away.
+- `src/fixtures.ts` gives each test its own client address. Better Auth counts
+  its endpoints per client and per path and identifies the client by
+  `X-Forwarded-For`, and a sign-in attempt is counted tightly because guessing a
+  password is what that budget is for; without this the suite would spend one
+  test's attempts on another's and throttle itself. A test where two people act
+  asks it for a second address as well, for the same reason: an applicant
+  activating an account really is somewhere else from the board member who
+  approved their request.
 
 Specs run serially, in file-name order. `01-first-boot` needs an unclaimed
 instance, which an instance is exactly once, and the rest share the instance it
@@ -271,10 +272,13 @@ instances hold different data, which the next section is about.
 
 Everybody a walk signs in as has a client address of their own, for the reason
 `src/fixtures.ts` gives, and signs in once: the session travels to each browser
-they come back in. Their allowance is still twenty requests a minute each, and a
-session check runs on every guarded navigation, so a client that has nearly spent
-its own waits for the window to roll. A walk that gains screens therefore takes
-longer rather than failing on a sign-in that was refused.
+they come back in. That is what keeps each of them inside the tight budget on
+signing in. The session check every guarded navigation makes has a budget of its
+own, sized for a client rather than for a password guess, so a walk that gains
+screens takes longer rather than being refused one. The walk watches for a
+refusal on any auth endpoint rather than pacing itself to stay clear of one: the
+client cannot tell a refusal from having no session, so a walk that met one would
+otherwise photograph every screen after it signed out.
 
 ### Seeded data has to be safe to publish
 

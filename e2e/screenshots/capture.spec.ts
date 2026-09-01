@@ -96,17 +96,21 @@ const PERSONAS: Readonly<
 /**
  * A client address per person the walk signs in as.
  *
- * Better Auth rate-limits its endpoints to twenty requests a minute per client
- * and identifies the client by X-Forwarded-For, because a deployed instance
- * sits behind a reverse proxy that sets it. One walk visits every screen and
- * signs in as three different people, so one address between them would spend
- * one person's allowance on another's sign-ins, and the refusal arrives as an
+ * Better Auth identifies a client by X-Forwarded-For, because a deployed
+ * instance sits behind a reverse proxy that sets it, and it counts a sign-in
+ * attempt against that client: a few in ten seconds, which is what stands
+ * between a stolen address list and the accounts on it. One walk visits every
+ * screen and signs in as three different people, so one address between them
+ * would spend one person's attempts on another's, and the refusal arrives as an
  * ordinary failed sign-in. Separating them is not a way around the limit: these
  * are different members of the housing cooperative, each at home, which is what
  * the instance would really see.
  *
- * Keeping each of them inside their own allowance is a separate matter, and it
- * is what the sessions and the pacing below are for.
+ * Keeping each of them inside that allowance is what the sessions below are
+ * for: one sign-in per person, however many screens they appear on. The session
+ * check every page load makes has a budget of its own, sized for a client
+ * rather than for a password guess, so the walk does not pace itself against
+ * it - see auth-options.ts.
  */
 const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
   nobody: "10.40.0.1",
@@ -114,38 +118,6 @@ const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
   resident: "10.40.0.3",
   member: "10.40.0.4",
 };
-
-/**
- * What one client may spend on the instance's own auth endpoints, and how long
- * it has to be quiet before it may spend again.
- *
- * `auth-options.ts` sets both. Every request to one of those endpoints counts
- * against them - a sign-in, and the session check the client makes each time a
- * page loads, which is what every screen here pays - and the request past the
- * allowance is answered with a refusal the client reads as "no session": the
- * screen goes to the sign-in form, and the entry then fails on a control that is
- * not on it. The administrator alone spends about twenty on a walk this long.
- *
- * A walk photographs sixty screens in well under a minute, which is more of the
- * application than a board member opens in a minute, so it spends one person's
- * allowance at a pace no person keeps and has to wait for it where a person
- * never would. The two alternatives - a higher limit on every instance, or
- * several addresses for one member - both change what a real association gets so
- * that a capture can pass.
- *
- * Written out here rather than read from the API's configuration: the capture
- * addresses the deployed image over HTTP and shares no code with it.
- */
-const AUTH_ALLOWANCE = { requests: 20, quietSeconds: 60 } as const;
-
-/**
- * How much of the allowance the screen about to be reached may still need, and
- * therefore how far short of the limit the walk stops.
- *
- * A page load costs a session check or two, and the first screen an actor
- * appears on costs a sign-in and the checks around it as well.
- */
-const ALLOWANCE_FOR_ONE_SCREEN = 6;
 
 // --- the register the walk photographs ---------------------------------------
 
@@ -398,11 +370,11 @@ test("captures every declared screen in light and dark", async ({
    * The session cookies of everyone who has signed in, kept for the whole walk.
    *
    * One sign-in per person, not one per screen they appear on. The walk returns
-   * to the administrator a dozen times, and signing in again each time spends
-   * that client's allowance on credentials the instance has already accepted -
-   * every request to an auth endpoint counts against the same twenty, and each
-   * screen already spends one of them checking who is signed in. Handing the
-   * cookie back costs none.
+   * to the administrator a dozen times, and signing in again each time would
+   * spend that client's sign-in attempts on credentials the instance has
+   * already accepted - a few in ten seconds is what guessing a password is
+   * allowed, and a walk that signed in per screen would be refused inside the
+   * first few. Handing the cookie back costs none of them.
    *
    * The cookies alone, and deliberately not the whole storage state: a restored
    * local storage would carry a theme preference from the screen before it, and
@@ -411,18 +383,33 @@ test("captures every declared screen in light and dark", async ({
    */
   const sessions = new Map<Actor, Cookie[]>();
 
+  /** The screen being reached, for the message a refusal below would carry. */
+  let reaching = "the first screen";
+
   /**
-   * What each person's client has spent of its auth allowance, and when it last
-   * spent something.
+   * Every refusal the instance answered on an auth endpoint.
    *
-   * Kept per person rather than per browser, because the instance counts per
-   * client: a context that is closed and opened again is the same member at the
-   * same address, and the allowance it comes back to is the one it left. Counted
-   * across the auth endpoints together where the instance counts each of them
-   * on its own, which makes the walk wait a little sooner than it strictly has
-   * to - the error the other way round is a walk that stops on a refusal.
+   * A refusal is invisible from the outside: the client cannot tell a 429 from
+   * having no session, so the screen quietly becomes the sign-in form and the
+   * entry then fails on a control that is not on it, several screens after the
+   * cause. The walk therefore watches for the refusal itself rather than
+   * pacing itself to stay clear of one: the session check is nearly every auth
+   * request a walk makes and has a budget sized for a client rather than for a
+   * password guess, and one sign-in per person is well inside the tight budget
+   * that guards those.
    */
-  const spent = new Map<Actor, { requests: number; at: number }>();
+  const refusals: string[] = [];
+
+  const assertNothingWasRefused = (): void => {
+    if (refusals.length === 0) {
+      return;
+    }
+    throw new Error(
+      `The instance refused an auth request: ${refusals.join("; ")}. The ` +
+        "client reads a refusal as having no session, so every screen from " +
+        "there on is photographed signed out.",
+    );
+  };
 
   /**
    * A browser for one person.
@@ -440,57 +427,19 @@ test("captures every declared screen in light and dark", async ({
       extraHTTPHeaders: { "x-forwarded-for": CLIENT_ADDRESS[actor] },
       storageState: { cookies: sessions.get(actor) ?? [], origins: [] },
     });
-    // Counted from what the instance answered rather than from what the walk
-    // meant to ask for: the session checks are the client's own, and nothing
-    // here would otherwise know how many it had made.
+    // Read from what the instance answered rather than from what the walk meant
+    // to ask for: the session checks are the client's own, and nothing here
+    // would otherwise see them at all.
     opened.on("response", (response) => {
-      if (!new URL(response.url()).pathname.startsWith("/api/auth/")) {
+      const { pathname } = new URL(response.url());
+      if (!pathname.startsWith("/api/auth/")) {
         return;
       }
-      const before = spent.get(actor);
-      spent.set(actor, {
-        requests: (before?.requests ?? 0) + 1,
-        at: Date.now(),
-      });
+      if (response.status() === 429) {
+        refusals.push(`${actor} was refused ${pathname} reaching ${reaching}`);
+      }
     });
     return opened;
-  };
-
-  /**
-   * Waits until a person's client may spend again, and only when it must.
-   *
-   * Asked before every screen rather than only before the ones that navigate: a
-   * `prepare` step that opens a person or a card reaches a guarded route too, so
-   * a screen with no `goto` of its own can still spend.
-   *
-   * The window rolls forward from the last request rather than from the first,
-   * so the wait is measured from the last one seen and taken again if anything
-   * arrives while it runs: a page left open can still ask.
-   */
-  const waitForAllowance = async (actor: Actor): Promise<void> => {
-    for (;;) {
-      const used = spent.get(actor);
-      if (
-        used === undefined ||
-        used.requests <= AUTH_ALLOWANCE.requests - ALLOWANCE_FOR_ONE_SCREEN
-      ) {
-        return;
-      }
-
-      const quietFor = Date.now() - used.at;
-      const windowMs = AUTH_ALLOWANCE.quietSeconds * 1000;
-      if (quietFor >= windowMs) {
-        // The instance has forgotten what this client spent, so the walk may.
-        spent.set(actor, { requests: 0, at: used.at });
-        return;
-      }
-
-      const remaining = windowMs - quietFor;
-      console.log(
-        `  ${actor} waits ${String(Math.ceil(remaining / 1000))}s for its auth allowance`,
-      );
-      await new Promise((done) => setTimeout(done, remaining));
-    }
   };
 
   let context = await openContextFor("nobody");
@@ -557,7 +506,7 @@ test("captures every declared screen in light and dark", async ({
 
   try {
     for (const screen of SCREENS) {
-      await waitForAllowance(screen.as ?? signedInAs);
+      reaching = screen.name;
       await establish(screen.as);
       if (screen.goto !== undefined) {
         await page.goto(screen.goto);
@@ -565,6 +514,10 @@ test("captures every declared screen in light and dark", async ({
       for (const action of screen.prepare ?? []) {
         await perform(page, action);
       }
+      // Before the photographs rather than after them: a screen reached without
+      // a session is the sign-in form, and the safety checks below would find
+      // nothing wrong with a picture of it.
+      assertNothingWasRefused();
 
       for (const theme of THEMES) {
         await page.emulateMedia({ colorScheme: theme });
@@ -601,6 +554,10 @@ test("captures every declared screen in light and dark", async ({
         console.log(`  ${relative(repositoryRoot, path)}`);
       }
     }
+
+    // Again at the end, for a refusal that arrived while the last screen was
+    // being photographed and so was never read above.
+    assertNothingWasRefused();
   } finally {
     await context.close();
   }
