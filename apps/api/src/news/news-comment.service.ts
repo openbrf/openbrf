@@ -44,6 +44,18 @@ export const NEWS_COMMENT_MAX_LENGTH = 2000;
  * honeypot on this path: a decoy field protects a form anyone can reach, and
  * this endpoint cannot be reached without a session and a capability. There is
  * no CAPTCHA either, here or anywhere in this product.
+ *
+ * A throttle on sustained writing rather than a hard ceiling, which is worth
+ * stating rather than leaving to be discovered. The count is one statement and
+ * the insert another, so requests in flight together can each read the same
+ * count and each write, and the window ends up over by however many were in
+ * flight. Counting inside the insert's own transaction would not change that: at
+ * READ COMMITTED each transaction counts the rows committed when its statement
+ * began, so two would still read the same number. Closing it takes SERIALIZABLE
+ * or a per-person lock taken on every comment written, to bound an overshoot of
+ * a handful - and every caller here holds a session and a capability, so there
+ * is no anonymous volume to defend against. What this budget has to stop is one
+ * account writing all afternoon, and it does that whatever the concurrency.
  */
 export const COMMENTS_PER_WRITE_WINDOW = 20;
 

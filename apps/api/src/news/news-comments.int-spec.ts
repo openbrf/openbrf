@@ -851,9 +851,16 @@ describe("the purge", () => {
       select: { id: true },
     });
 
-    const summary = await purge.run(new Date("2026-06-01T03:11:00.000Z"), 365);
+    /*
+     * The run is unscoped: it scans every author in the integration database,
+     * which the suites share and run against in parallel. So both purge tests
+     * here assert on the rows they created and never on the run summary - a
+     * count over the whole table reports another suite's fixture as this
+     * purge's work, and fails for a reason belonging to whichever suite
+     * happened to run alongside.
+     */
+    await purge.run(new Date("2026-06-01T03:11:00.000Z"), 365);
 
-    expect(summary.commentsDeleted).toBeGreaterThanOrEqual(1);
     expect(
       await prisma.newsComment.findUnique({
         where: { id: old.id },
@@ -909,7 +916,7 @@ describe("the purge", () => {
       },
     });
 
-    const summary = await purge.run(new Date("2026-06-01T03:11:00.000Z"), 365);
+    await purge.run(new Date("2026-06-01T03:11:00.000Z"), 365);
 
     // Not in the scan's answer at all: held people are excluded by the query
     // rather than dropped from it, or five hundred of them could spend a run's
@@ -917,7 +924,8 @@ describe("the purge", () => {
     expect(
       await purge.eligible(new Date("2026-06-01T03:11:00.000Z"), 365),
     ).not.toContain(heldMember.personId);
-    expect(summary.commentsDeleted).toBe(0);
+    // The held row itself, which is what the hold is about. The summary is not
+    // asserted, for the reason the test above gives.
     expect(
       await prisma.newsComment.findUnique({
         where: { id: held.id },

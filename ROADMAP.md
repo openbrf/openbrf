@@ -559,10 +559,10 @@ change it.
       so a thread there would be either anonymous or a login wall on a page
       that promises neither. The board can strike a comment through and cannot
       erase one, because what somebody wrote is a record of what was said.
-      Landed: the schema, the write and read endpoints with the personnummer
-      guardrail on a member's own text, moderation, the data subject access
-      report section and the nightly purge with its legal hold. Pending: the
-      reading screen that renders a thread.
+      Landed: the schema, the write and read endpoints with the personal
+      identity number guardrail on a member's own text, moderation, the data
+      subject access report section and the nightly purge with its legal hold.
+      Pending: the reading screen that renders a thread.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders

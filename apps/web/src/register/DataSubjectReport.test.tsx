@@ -292,12 +292,11 @@ function fieldValue(label: string): string {
 /**
  * One section of the document, found by the heading printed above it.
  *
- * Sections share column headings - bookings, event sign-ups and news comments
- * all state the earliest date the purge can reach a row - so an assertion on a
- * heading alone
- * is satisfied by whichever section happens to be found first, and would go on
- * passing if the section it was written about stopped printing the column
- * entirely.
+ * Sections share column headings - bookings, motions, event sign-ups and news
+ * comments all state the earliest date the purge can reach a row - so an
+ * assertion on a heading alone is satisfied by whichever section happens to be
+ * found first, and would go on passing if the section it was written about
+ * stopped printing the column entirely.
  */
 function sectionOf(heading: string): HTMLElement {
   const title = screen.getByText(heading);
@@ -438,10 +437,10 @@ describe("what the document prints", () => {
 
   it("prints a booking with the earliest date it can be erased on", async () => {
     /*
-     * The one section that states a retention date per row. A booking is erased
-     * a year after it ended, on its own clock, so printing the document's own
-     * purge date here would tell the person a date that is not going to happen
-     * to this row.
+     * The first of the four sections that state a retention date per row. A
+     * booking is erased a year after it ended, on its own clock, so printing the
+     * document's own purge date here would tell the person a date that is not
+     * going to happen to this row.
      *
      * And the column says the earliest such date rather than the day it goes,
      * which is the difference this fixture exists to hold: the person it
@@ -615,6 +614,13 @@ describe("what the document prints", () => {
     expect(comments.getByText("Portkoden byts")).not.toBeNull();
     expect(comments.getByText("Gallras tidigast")).not.toBeNull();
     expect(comments.getByText("2027-01-20")).not.toBeNull();
+
+    // Both bodies, named rather than reached through the row lookup below. The
+    // struck one being printed at all is the art. 15 behaviour this section
+    // exists for, and it would go untested if the lookup were later rewritten
+    // to find its row by the comment's identifier.
+    expect(comments.getByText(STANDING_COMMENT)).not.toBeNull();
+    expect(comments.getByText(STRUCK_COMMENT)).not.toBeNull();
 
     expect(hiddenColumnOf(STRUCK_COMMENT)).toBe("Ja");
     expect(hiddenColumnOf(STANDING_COMMENT)).toBe("Nej");

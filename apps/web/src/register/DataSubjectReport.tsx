@@ -812,8 +812,17 @@ export function DataSubjectReport({
                    * In full, and whether or not it was hidden. What somebody
                    * wrote is the personal data this section is about, and a
                    * moderated comment is still their words.
+                   *
+                   * Line breaks kept, as the motion body above keeps them. A
+                   * comment runs to a couple of paragraphs and this is a printed
+                   * document, so collapsing the newlines would hand its subject
+                   * a run-on paragraph that is not what they wrote.
                    */}
-                  <td className={TEXT_CELL}>{comment.body}</td>
+                  <td className={TEXT_CELL}>
+                    <span className="block whitespace-pre-line">
+                      {comment.body}
+                    </span>
+                  </td>
                   <td className={TEXT_CELL}>
                     {t(
                       comment.hidden
