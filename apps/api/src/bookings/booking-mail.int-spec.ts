@@ -50,8 +50,9 @@ import {
  * a few lines earlier - so the rejection here carries the resident's real
  * address in its message, and the log line is asserted not to.
  *
- * **The cancellation reaches the household only when somebody else cancelled
- * it, and in the household's own language.** The resident's route and the
+ * **The cancellation reaches the resident who booked, only when somebody else
+ * cancelled it, and in that resident's own language.** The resident's route and
+ * the
  * board's route are the same service method with a different actor, so which of
  * the two sends is proved by driving both.
  *
@@ -437,9 +438,9 @@ describe("who a booking mail reaches", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
-      // The household, not the board member who acted.
+      // The resident who booked, not the board member who acted.
       to: resident.email,
-      // Rendered in the household's language even though the board member who
+      // Rendered in that resident's language even though the board member who
       // pressed the button reads Swedish.
       locale: resident.locale,
       template: { id: "booking-cancellation" },

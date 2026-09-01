@@ -207,7 +207,7 @@ describe("the notice that a booking was cancelled", () => {
     expect(rendered.html).toContain("Ankomst 2026-07-07, avresa 2026-07-10");
   });
 
-  it("tells the household the period is free again", async () => {
+  it("tells the resident the period is free again", async () => {
     const rendered = await service.renderMail({
       locale: "en",
       template: bookingCancellationMail,

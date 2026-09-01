@@ -57,7 +57,7 @@ interface Recipient {
  * ## The recipient's own language
  *
  * `preferredLocale` comes off the recipient's row, not from the principal who
- * acted. A board member working in English cancelling a Swedish household's
+ * acted. A board member working in English cancelling a Swedish resident's
  * booking sends a Swedish message, because which language a person is written
  * to in is theirs.
  *
@@ -81,11 +81,11 @@ export class BookingMailerService {
   /**
    * Confirms a booking to whoever made it.
    *
-   * The booker alone, and not the household. Joint holders of one apartment
-   * share the allowance the booking was counted against, but the booking is one
-   * person's own act and mailing everybody who lives at an address would be a
-   * broadcast nobody asked for - and it would tell a partner which hours the
-   * other one keeps.
+   * The booker alone, and nobody else living at the address. Joint holders of
+   * one apartment share the allowance the booking was counted against, but the
+   * booking is one person's own act and mailing everybody who lives there would
+   * be a broadcast nobody asked for - and it would tell a partner which hours
+   * the other one keeps.
    *
    * @returns Whether a message went out. False means the recipient has no
    *   address on file, which is not a failure: a resident who has never been
