@@ -2628,6 +2628,8 @@
       "description": "A comment is exactly as visible as the news item it sits on, and no comment is ever shown on the association's website.",
       "loading": "Reading the comments...",
       "empty": "Nobody has answered this yet.",
+      "earlier": "Show the earlier comments",
+      "earlierReading": "Reading the earlier comments...",
       "field": "Your comment",
       "hint": "Write nothing about anybody's health or a neighbour's circumstances. A personal identity number is refused.",
       "submit": "Post the comment",

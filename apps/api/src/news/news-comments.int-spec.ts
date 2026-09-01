@@ -14,13 +14,16 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import { NEWS_COMMENT_MAX_LENGTH } from "./news-comment.service";
+import {
+  COMMENTS_PER_PAGE,
+  NEWS_COMMENT_MAX_LENGTH,
+} from "./news-comment.service";
 import { NewsCommentPurgeService } from "./news-comment-purge.service";
 
 /**
  * Comments on the association's news, over HTTP and against a real database.
  *
- * The unit tests pin the rules. Four things only this suite can show, and each
+ * The unit tests pin the rules. Six things only this suite can show, and each
  * one is a promise made outside the service.
  *
  * That the capability really gates the routes as the class decorators claim -
@@ -38,6 +41,16 @@ import { NewsCommentPurgeService } from "./news-comment-purge.service";
  * That the visibility a comment inherits holds in both directions - a
  * member-only item's thread opens to a resident signed in, and a draft's thread
  * is answered exactly as an item that was never written.
+ *
+ * That taking a notice down shuts its thread to readers and leaves the board's
+ * one act over it intact, which is two answers from one column and only provable
+ * against a real one - together with the document that answers an author for
+ * their own words either way, because that document is another module's.
+ *
+ * That a thread longer than a page is handed over a page at a time and comes back
+ * whole across the pages, with the boundary landing in one place when every
+ * comment shares an instant. That is the database's own ordering and its own
+ * collation, which is exactly what a fake cannot stand in for.
  *
  * And that the purge erases what it says it does, that a legal hold placed
  * against the author stops it, and that the audit entry lands in the same
@@ -113,6 +126,9 @@ const slugs = {
   held: `comment-held-item-${suffix}`,
   read: `comment-read-${suffix}`,
   readDraft: `comment-read-draft-${suffix}`,
+  takenDown: `comment-taken-down-${suffix}`,
+  paged: `comment-paged-${suffix}`,
+  cursor: `comment-cursor-${suffix}`,
 };
 
 /** The name nobody is ever shown. Distinctive, so a leak is unmistakable. */
@@ -252,17 +268,50 @@ async function writeComment(
   return response.json() as CommentBody;
 }
 
+/** One page of a thread, as the endpoint answers it. */
+interface ThreadPage {
+  comments: CommentBody[];
+  earlier: string | null;
+}
+
+/** One page of a thread: the newest, or the one before the given cursor. */
+async function readThreadPage(
+  cookie: string,
+  newsId: string,
+  before: string | null = null,
+): Promise<ThreadPage> {
+  const query = before === null ? "" : `?before=${encodeURIComponent(before)}`;
+  const response = await inject({
+    method: "GET",
+    url: `/api/news-comments/${newsId}${query}`,
+    headers: { cookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json() as ThreadPage;
+}
+
+/**
+ * The comments on the newest page.
+ *
+ * Which is the whole thread everywhere in this suite but the paging tests, where
+ * the page is the subject and {@link readThreadPage} is what answers for it.
+ */
 async function readThread(
   cookie: string,
   newsId: string,
 ): Promise<CommentBody[]> {
+  return (await readThreadPage(cookie, newsId)).comments;
+}
+
+/** Takes a published notice back down, leaving the thread it had. */
+async function unpublishNews(newsId: string): Promise<void> {
   const response = await inject({
-    method: "GET",
-    url: `/api/news-comments/${newsId}`,
-    headers: { cookie },
+    method: "POST",
+    url: `/api/news/${newsId}/publish`,
+    payload: { published: false },
+    headers: { cookie: boardCookie },
   });
-  expect(response.statusCode, response.body).toBe(200);
-  return response.json() as CommentBody[];
+  expect(response.statusCode, response.body).toBe(201);
 }
 
 let boardCookie: string;
@@ -878,6 +927,189 @@ describe("hiding a comment", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.targetKind).toBe("newsComment");
+  });
+});
+
+describe("a notice the board has taken down", () => {
+  /**
+   * Its comment is the protected member's rather than the member's, and that is
+   * about this suite rather than about the rule.
+   *
+   * The audit assertion above counts the hides recorded against the member, and
+   * the report assertion below picks the member's one struck comment out of their
+   * document by being struck. A second hide against the same author would make
+   * both of those about which test ran first.
+   */
+  const COMMENT = "Det har vill styrelsen stryka.";
+
+  it("keeps the board's one act, and keeps the thread shut to its readers", async () => {
+    const newsId = await publishedNews(
+      slugs.takenDown,
+      "MEMBER",
+      "Ett besked som styrelsen tar tillbaka.",
+    );
+    const written = await writeComment(protectedCookie, newsId, COMMENT);
+    await unpublishNews(newsId);
+
+    /*
+     * Shut, in both the ways it was shut before. Publication is what decides who
+     * may read a thread, so a resident is answered exactly as for an item that
+     * was never written, and the notice is off the list they choose from.
+     */
+    const forReader = await inject({
+      method: "GET",
+      url: `/api/news-comments/${newsId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(forReader.statusCode).toBe(404);
+    const offered = await inject({
+      method: "GET",
+      url: "/api/news-reader",
+      headers: { cookie: memberCookie },
+    });
+    expect(
+      (offered.json() as { id: string }[]).map((item) => item.id),
+    ).not.toContain(newsId);
+
+    /*
+     * And the board can still strike the comment through, which is the whole of
+     * this test. The text a board most wants struck is often exactly the text it
+     * took the notice down over, and the refusal this replaces left it with
+     * nothing it could do about it.
+     */
+    const struck = await inject({
+      method: "POST",
+      url: `/api/news-comment-moderation/${written.id}/hide`,
+      headers: { cookie: boardCookie },
+    });
+    expect(struck.statusCode, struck.body).toBe(201);
+    expect((struck.json() as CommentBody).hiddenAt).not.toBeNull();
+
+    // On the row rather than only in the answer, and recorded: the board is
+    // answerable for this act whatever the notice above it is doing.
+    const row = await prisma.newsComment.findUniqueOrThrow({
+      where: { id: written.id },
+      select: { hiddenAt: true, hiddenByPersonId: true },
+    });
+    expect(row.hiddenAt).not.toBeNull();
+    expect(row.hiddenByPersonId).toBe(boardMember.personId);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "NEWS_COMMENT_HIDDEN", targetId: written.id },
+      }),
+    ).toBe(1);
+  });
+
+  it("still answers its author for their own words, in full", async () => {
+    /*
+     * The reason the thread read is left refusing and does not need widening for
+     * an author. What somebody wrote about themselves is answered by the document
+     * that exists for exactly that, which reads a person's comments by author and
+     * asks nothing about publication - so taking a notice down does not put a
+     * resident's own words out of their reach, and the thread stays one answer
+     * rather than becoming a filtered one.
+     */
+    const report = await inject({
+      method: "POST",
+      url: `/api/data-subject-reports/persons/${protectedMember.personId}`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(report.statusCode, report.body).toBe(200);
+    const body = report.json() as {
+      newsComments: { body: string; hidden: boolean }[];
+    };
+    const mine = body.newsComments.find((one) => one.body === COMMENT);
+    // In full and marked struck, which is what the section says for a moderated
+    // comment on a notice that is still up.
+    expect(mine?.hidden).toBe(true);
+  });
+});
+
+describe("a thread longer than one page", () => {
+  /** Five past the page, so the second page is plainly a partial one. */
+  const WRITTEN = COMMENTS_PER_PAGE + 5;
+
+  it("hands back a page and a cursor, and the whole thread across the pages", async () => {
+    const newsId = await publishedNews(
+      slugs.paged,
+      "MEMBER",
+      "En trad som blir langre an en sida.",
+    );
+
+    /*
+     * Written straight into the table, and every one of them in the same instant.
+     *
+     * The instant is the point. `createdAt` keeps milliseconds and defaults to
+     * the transaction's clock, so comments written together carry one instant
+     * exactly - and a cursor on the instant alone would put the page boundary
+     * wherever the database happened to answer from, repeating the tied rows or
+     * stepping over them. Fifty-five comments through the API would also take
+     * three accounts to get past the write budget and say nothing more.
+     *
+     * The identifiers are zero-padded, so the order the database sorts them in is
+     * the order they were written and the assertion below is about the boundary
+     * rather than about how a number sorts as text.
+     */
+    await prisma.newsComment.createMany({
+      data: Array.from({ length: WRITTEN }, (_unused, index) => ({
+        id: `comment-page-${suffix}-${String(index).padStart(3, "0")}`,
+        newsId,
+        authorPersonId: member.personId,
+        body: `Kommentar ${String(index)} pa den langa traden.`,
+        createdAt: new Date("2026-08-01T09:00:00.000Z"),
+      })),
+    });
+
+    const newest = await readThreadPage(memberCookie, newsId);
+
+    // A bounded page, and the cursor that says there is more. Not a short page
+    // and not a full one the reader has to draw a conclusion from.
+    expect(newest.comments).toHaveLength(COMMENTS_PER_PAGE);
+    expect(newest.earlier).not.toBeNull();
+
+    const earlier = await readThreadPage(memberCookie, newsId, newest.earlier);
+
+    expect(earlier.comments).toHaveLength(WRITTEN - COMMENTS_PER_PAGE);
+    // The start of the thread, said by the answer rather than inferred from the
+    // page having come back short.
+    expect(earlier.earlier).toBeNull();
+
+    /*
+     * Every comment exactly once, in the order they were written. A boundary off
+     * by one repeats a comment or loses one, and a comment lost from a thread
+     * reads as a moderation nobody performed.
+     */
+    const ids = [...earlier.comments, ...newest.comments].map((one) => one.id);
+    expect(ids).toHaveLength(WRITTEN);
+    expect(new Set(ids).size).toBe(WRITTEN);
+    expect(ids).toEqual([...ids].sort());
+    // And the newest page is the newest end of the thread, which is where a
+    // reader opening a long one lands.
+    expect(ids.at(-1)).toContain(String(WRITTEN - 1).padStart(3, "0"));
+  });
+
+  it("refuses a cursor it did not hand out rather than answering another page", async () => {
+    const newsId = await publishedNews(
+      slugs.cursor,
+      "MEMBER",
+      "En nyhet med en trad.",
+    );
+    await writeComment(memberCookie, newsId, "Forsta kommentaren.");
+
+    const refused = await inject({
+      method: "GET",
+      url: `/api/news-comments/${newsId}?before=igar`,
+      headers: { cookie: memberCookie },
+    });
+
+    /*
+     * Refused, not read leniently. Answering the newest page to somebody who
+     * asked for an older one would hand a reader the comments already on their
+     * screen and tell them the thread ends there.
+     */
+    expect(refused.statusCode).toBe(400);
+    expect((refused.json() as { reason: string }).reason).toBe("invalid-body");
   });
 });
 

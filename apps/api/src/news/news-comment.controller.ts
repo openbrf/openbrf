@@ -5,6 +5,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   Req,
 } from "@nestjs/common";
 import { z } from "zod";
@@ -14,8 +15,10 @@ import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   NEWS_COMMENT_MAX_LENGTH,
+  type NewsCommentPage,
   type NewsCommentView,
   NewsCommentService,
+  parseThreadCursor,
 } from "./news-comment.service";
 
 /**
@@ -48,6 +51,37 @@ const bodySchema = z.object({
 });
 
 /**
+ * Which page of a thread to answer with.
+ *
+ * Absent means the newest page, which is what a screen opening a notice asks
+ * for. Anything else has to be a cursor this application handed out, and one
+ * that is not is refused here rather than read leniently further in: a query
+ * string the screen could not have produced is answered exactly as a body it
+ * could not have produced, and the alternative - answering the newest page to
+ * somebody who asked for an older one - would tell a reader the thread ends
+ * where it does not.
+ */
+const threadQuerySchema = z.object({
+  before: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined) {
+        return null;
+      }
+      const cursor = parseThreadCursor(value);
+      if (cursor === null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "is not a cursor into a comment thread",
+        });
+        return z.NEVER;
+      }
+      return cursor;
+    }),
+});
+
+/**
  * The acting person, or a fault.
  *
  * The global guard attaches a principal to every non-public route or rejects it,
@@ -71,9 +105,11 @@ export class NewsCommentController {
   @Get(":newsId")
   async list(
     @Param("newsId") newsId: string,
+    @Query() query: unknown,
     @Req() request: RequestWithPrincipal,
-  ): Promise<NewsCommentView[]> {
-    return this.comments.list(newsId, requirePrincipal(request));
+  ): Promise<NewsCommentPage> {
+    const { before } = threadQuerySchema.parse(query);
+    return this.comments.list(newsId, requirePrincipal(request), before);
   }
 
   @Post(":newsId")

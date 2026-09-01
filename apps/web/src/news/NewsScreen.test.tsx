@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import type { NewsArticle, NewsComment } from "../api/news-reader";
+import type {
+  NewsArticle,
+  NewsComment,
+  NewsCommentPage,
+} from "../api/news-reader";
 import { NewsScreen } from "./NewsScreen";
 
 /**
@@ -61,6 +65,14 @@ function body(text: string): NewsArticle["content"] {
   };
 }
 
+/** One page of a thread, as the API answers it. */
+function page(
+  comments: NewsComment[],
+  earlier: string | null = null,
+): NewsCommentPage {
+  return { comments, earlier };
+}
+
 const NEWEST: NewsArticle = {
   id: "news-1",
   slug: "portkoden-byts",
@@ -107,7 +119,7 @@ beforeEach(() => {
   });
   fetchNewsComments.mockReset().mockResolvedValue({
     ok: true,
-    value: [STANDING],
+    value: page([STANDING]),
   });
   writeNewsComment.mockReset().mockResolvedValue({ ok: true, value: STANDING });
   hideNewsComment
@@ -120,9 +132,16 @@ describe("the notices", () => {
     render(<NewsScreen viewer={viewer(["news:comment"])} />);
 
     // The newest is open without anything being pressed, and its thread is the
-    // one that was read.
+    // one that was read. Waited for rather than asserted straight away: the
+    // notice's body arrives with the list of notices and the thread is a second
+    // request, so the two land in whichever order they land.
     await screen.findByText("Vi byter portkod på lördag klockan tio.");
-    expect(fetchNewsComments).toHaveBeenCalledWith({ newsId: "news-1" });
+    await waitFor(() => {
+      expect(fetchNewsComments).toHaveBeenCalledWith({
+        newsId: "news-1",
+        before: null,
+      });
+    });
 
     await userEvent.click(
       screen.getByRole("button", {
@@ -134,8 +153,160 @@ describe("the notices", () => {
       screen.getByText("Vi städar trapphuset den tolfte oktober."),
     ).not.toBeNull();
     await waitFor(() => {
-      expect(fetchNewsComments).toHaveBeenCalledWith({ newsId: "news-2" });
+      expect(fetchNewsComments).toHaveBeenCalledWith({
+        newsId: "news-2",
+        before: null,
+      });
     });
+  });
+});
+
+describe("a thread longer than one page", () => {
+  const OLDER: NewsComment = {
+    ...STANDING,
+    id: "comment-older",
+    body: "Detta skrevs när nyheten var ny.",
+    createdAt: "2026-08-20T08:30:00.000Z",
+  };
+  const CURSOR = "2026-08-20T09:00:00.000Z|comment-1";
+
+  it("reaches back for the earlier comments and keeps the ones on screen", async () => {
+    fetchNewsComments
+      .mockResolvedValueOnce({ ok: true, value: page([STANDING], CURSOR) })
+      .mockResolvedValue({ ok: true, value: page([OLDER]) });
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa tidigare kommentarer" }),
+    );
+
+    /*
+     * The cursor goes back exactly as it arrived. A screen that composed one of
+     * its own would be answered a refusal, and one that counted comments instead
+     * would be paging by a distance from the end of a thread people are still
+     * writing into.
+     */
+    expect(fetchNewsComments).toHaveBeenLastCalledWith({
+      newsId: "news-1",
+      before: CURSOR,
+    });
+
+    // Both pages are on the thread, older first: a comment written earlier is
+    // read earlier, and the page that arrived second goes in front.
+    const thread = await screen.findByText("Detta skrevs när nyheten var ny.");
+    expect(screen.getByText("Tack för beskedet.")).not.toBeNull();
+    const rows = thread.closest("ul")?.querySelectorAll("li") ?? [];
+    expect(rows[0]?.textContent).toContain("Detta skrevs när nyheten var ny.");
+    expect(rows[1]?.textContent).toContain("Tack för beskedet.");
+
+    // And the control is gone, because the answer said this is the start of the
+    // thread. It is the server that knows, not a full page.
+    expect(
+      screen.queryByRole("button", { name: "Visa tidigare kommentarer" }),
+    ).toBeNull();
+  });
+
+  it("offers no control at all when the whole thread is on the page", async () => {
+    fetchNewsComments.mockResolvedValue({ ok: true, value: page([STANDING]) });
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    expect(
+      screen.queryByRole("button", { name: "Visa tidigare kommentarer" }),
+    ).toBeNull();
+  });
+
+  it("will not reach back while the newest page is being read again", async () => {
+    /*
+     * One panel, one read. A second ask supersedes the first, so reaching back
+     * for the earlier comments while the newest page is being re-read would drop
+     * that re-read - and the comment somebody had just written would be missing
+     * from the thread until something else asked again. The control is therefore
+     * refused for as long as the re-read is in flight, and says what it would do
+     * rather than what the panel is doing meanwhile.
+     */
+    let landRefresh: ((answer: unknown) => void) | undefined;
+    fetchNewsComments
+      .mockResolvedValueOnce({ ok: true, value: page([STANDING], CURSOR) })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            landRefresh = resolve;
+          }),
+      );
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    await userEvent.type(screen.getByLabelText("Din kommentar"), "Tack.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka kommentaren" }),
+    );
+
+    const control = await screen.findByRole("button", {
+      name: "Visa tidigare kommentarer",
+    });
+    expect((control as HTMLButtonElement).disabled).toBe(true);
+
+    const posted: NewsComment = {
+      ...STANDING,
+      id: "comment-posted",
+      body: "Tack.",
+    };
+    landRefresh?.({ ok: true, value: page([STANDING, posted], CURSOR) });
+
+    // And once it has landed the control is offered again, over a thread that
+    // carries the comment the re-read was for.
+    await screen.findByText("Tack.");
+    await waitFor(() => {
+      expect((control as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it("reads the newest page again after a comment is posted", async () => {
+    /*
+     * The consequence of a bounded read, written down as a test because it is a
+     * decision rather than an accident. Re-reading each page the reader had open
+     * would let a comment written in between fall into the gap between two pages
+     * read at two moments, which is the silent loss paging exists to remove. So
+     * the panel goes back to the newest page - where the comment just written is
+     * - and says again that there are earlier comments.
+     */
+    fetchNewsComments.mockResolvedValue({
+      ok: true,
+      value: page([STANDING], CURSOR),
+    });
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa tidigare kommentarer" }),
+    );
+    await waitFor(() => {
+      expect(fetchNewsComments).toHaveBeenLastCalledWith({
+        newsId: "news-1",
+        before: CURSOR,
+      });
+    });
+
+    await userEvent.type(screen.getByLabelText("Din kommentar"), "Tack.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka kommentaren" }),
+    );
+
+    await waitFor(() => {
+      expect(fetchNewsComments).toHaveBeenLastCalledWith({
+        newsId: "news-1",
+        before: null,
+      });
+    });
+    expect(
+      screen.getByRole("button", { name: "Visa tidigare kommentarer" }),
+    ).not.toBeNull();
   });
 });
 
@@ -143,7 +314,7 @@ describe("a comment the board has struck through", () => {
   it("says so where the text was, and keeps its author named", async () => {
     fetchNewsComments.mockResolvedValue({
       ok: true,
-      value: [STANDING, WITHHELD],
+      value: page([STANDING, WITHHELD]),
     });
 
     render(<NewsScreen viewer={viewer(["news:comment"])} />);
@@ -179,7 +350,7 @@ describe("a comment the board has struck through", () => {
      */
     fetchNewsComments.mockResolvedValue({
       ok: true,
-      value: [READABLE_STRUCK],
+      value: page([READABLE_STRUCK]),
     });
 
     render(<NewsScreen viewer={viewer(["news:comment"])} />);
@@ -203,7 +374,7 @@ describe("a comment the board has struck through", () => {
 
 describe("striking a comment through", () => {
   it("is offered to the board and to nobody else", async () => {
-    fetchNewsComments.mockResolvedValue({ ok: true, value: [STANDING] });
+    fetchNewsComments.mockResolvedValue({ ok: true, value: page([STANDING]) });
 
     const { unmount } = render(
       <NewsScreen viewer={viewer(["news:comment"])} />,
@@ -231,8 +402,8 @@ describe("striking a comment through", () => {
       hiddenAt: "2026-08-21T11:00:00.000Z",
     };
     fetchNewsComments
-      .mockResolvedValueOnce({ ok: true, value: [STANDING] })
-      .mockResolvedValue({ ok: true, value: [struck] });
+      .mockResolvedValueOnce({ ok: true, value: page([STANDING]) })
+      .mockResolvedValue({ ok: true, value: page([struck]) });
     hideNewsComment.mockResolvedValue({ ok: true, value: struck });
 
     render(<NewsScreen viewer={viewer(["news:comment", "site:manage"])} />);
@@ -272,8 +443,8 @@ describe("posting a comment", () => {
       body: "Den här kom med skrivsvaret.",
     };
     fetchNewsComments
-      .mockResolvedValueOnce({ ok: true, value: [] })
-      .mockResolvedValue({ ok: true, value: [fromTheRead] });
+      .mockResolvedValueOnce({ ok: true, value: page([]) })
+      .mockResolvedValue({ ok: true, value: page([fromTheRead]) });
     writeNewsComment.mockResolvedValue({ ok: true, value: fromTheWrite });
 
     render(<NewsScreen viewer={viewer(["news:comment"])} />);
