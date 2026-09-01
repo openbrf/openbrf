@@ -70,10 +70,11 @@ interface Thread {
   /**
    * The cursor of the oldest page on it, or null when only the newest page is.
    *
-   * The panel's own record of what it has already put on the thread. An effect
-   * runs more than once for one request - the development double-render is the
-   * ordinary case - and a page prepended twice would be a thread showing every
-   * comment twice.
+   * What the panel has already put on the thread, so a page applied twice is a
+   * page applied once. The thread is assembled inside a state updater and an
+   * updater is run more than once by design, so what to do with an arriving page
+   * is decided from what the thread already reaches rather than from having been
+   * asked exactly once.
    */
   reaches: string | null;
   comments: readonly NewsComment[];
@@ -452,9 +453,9 @@ export function NewsThread({
  * thread now", and it is what a save asks for - see the panel's own comment for
  * why the earlier pages are not re-read to go with it.
  *
- * A page already on the thread is not applied twice. One request can reach the
- * reading effect more than once, and a page prepended again would show every one
- * of its comments twice.
+ * A page already on the thread is applied again as itself, because prepending it
+ * a second time would show every one of its comments twice. See
+ * {@link Thread.reaches} for why that is decided rather than assumed.
  *
  * Anything else is an earlier page, and it goes in front of what is already
  * there. Older comments were written first, so they read first.
