@@ -35,6 +35,15 @@ vi.mock("./event-attendance", () => ({
 const held = vi.mocked(occurrencesWithSignups);
 
 /**
+ * What the transaction asked the database, in the order it asked.
+ *
+ * The lock and the read that rests on it are only correct in one order, and
+ * neither call says so on its own - so the ordering is recorded rather than
+ * inferred from two separate assertions that a call happened.
+ */
+const calls: string[] = [];
+
+/**
  * Makes those ids the ones somebody has signed up to.
  *
  * The stub answers with the intersection rather than with the whole set,
@@ -44,10 +53,10 @@ const held = vi.mocked(occurrencesWithSignups);
  * about none.
  */
 function signedUpTo(...occurrenceIds: readonly string[]): void {
-  held.mockImplementation(
-    async (_db, requested) =>
-      new Set(requested.filter((id) => occurrenceIds.includes(id))),
-  );
+  held.mockImplementation(async (_db, requested) => {
+    calls.push("read-signups");
+    return new Set(requested.filter((id) => occurrenceIds.includes(id)));
+  });
 }
 
 /** A weekly Sunday series at ten in the morning, as the board states it. */
@@ -139,6 +148,13 @@ function build(
   );
 
   const tx = {
+    // The advisory lock the sign-up claim takes on the same key. Records the
+    // key rather than the statement, because which occurrences were locked is
+    // half of what makes the read behind it decisive.
+    $executeRaw: vi.fn(async (_sql: unknown, key?: unknown) => {
+      calls.push(typeof key === "string" ? key : "lock");
+      return 1;
+    }),
     event: {
       findUnique: vi.fn(async () => row),
       update: vi.fn(async () => row),
@@ -169,6 +185,7 @@ function build(
 
 beforeEach(() => {
   held.mockReset();
+  calls.length = 0;
   signedUpTo();
 });
 
@@ -256,6 +273,35 @@ describe("editing a series people have signed up to", () => {
       "occurrence-18",
       "occurrence-25",
       "occurrence-02",
+    ]);
+  });
+
+  it("locks every displaced date, in one order, before it asks who holds them", async () => {
+    /*
+     * The ordering the whole refusal rests on, and the one thing being inside
+     * the transaction does not give. This read runs at READ COMMITTED and so
+     * sees the snapshot it began with: a claim that committed while the board
+     * was saving would be invisible to it, and the edit would carry that sign-up
+     * onto a day nobody chose. The claim's lock is what the two writers share,
+     * and it is only worth anything taken before the count.
+     *
+     * Sorted, so two edits over overlapping dates queue rather than each holding
+     * what the other waits for. The read is still asked in the plan's own order,
+     * which the test above pins.
+     */
+    const { service } = build();
+
+    await service.update(
+      "event-1",
+      { ...AS_STATED, startsAtMinute: 9 * 60 },
+      "board-1",
+    );
+
+    expect(calls).toEqual([
+      "event-occurrence-signups:occurrence-02",
+      "event-occurrence-signups:occurrence-18",
+      "event-occurrence-signups:occurrence-25",
+      "read-signups",
     ]);
   });
 
@@ -356,6 +402,26 @@ describe("removing a series", () => {
       "occurrence-02",
     ]);
     expect(tx.event.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks every date before it asks, because the delete cascades to the sign-ups", async () => {
+    /*
+     * The removal has more to lose from an unlocked read than the edit does. The
+     * occurrence reference cascades, so a claim that committed after a read
+     * saying nobody held the date is not merely moved - it is deleted, by the
+     * removal that should have been refused, and nothing tells the person who
+     * made it.
+     */
+    const { service } = build();
+
+    await service.remove("event-1", "board-1");
+
+    expect(calls).toEqual([
+      "event-occurrence-signups:occurrence-02",
+      "event-occurrence-signups:occurrence-18",
+      "event-occurrence-signups:occurrence-25",
+      "read-signups",
+    ]);
   });
 });
 

@@ -2736,12 +2736,13 @@ model Motion {
 /// back countable - the places taken are the sign-ups with no withdrawal date,
 /// so standing down frees a place the moment it is recorded.
 ///
-/// One row per person and date, ever, which is what the unique constraint
-/// states. Signing up again after standing down clears the withdrawal date on
-/// that row rather than writing a second one, so `signedUpAt` is the sign-up
-/// that stands now and `createdAt` is the first time this person put their name
-/// down for this date. The two differ exactly for the people who changed their
-/// mind twice.
+/// One row per person and occurrence for as long as the row is kept, which is
+/// what the unique constraint states - the retention window is what ends it, not
+/// a second sign-up. Signing up again after standing down clears the withdrawal
+/// date on that row rather than writing a second one, so `signedUpAt` is the
+/// sign-up that stands now and `createdAt` is the first time this person put
+/// their name down for this date. The two differ exactly for the people who
+/// changed their mind twice.
 ///
 /// ## Cascade, and what stands in front of it
 ///

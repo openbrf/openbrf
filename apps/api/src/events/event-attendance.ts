@@ -49,10 +49,15 @@ export type EventDbClient = PrismaService | Prisma.TransactionClient;
  *
  * Runs on the client it is handed rather than on an injected one, so that the
  * series write path can ask it inside the transaction that is about to do the
- * writing. A sign-up taken while the board is saving the form then either lands
- * before this read and refuses the edit, or lands after it and loses the race
- * against the write - rather than slipping between a check and a write that were
- * two transactions.
+ * writing, rather than across a check and a write that were two transactions.
+ *
+ * That is necessary and not sufficient, and the caller owes the other half. At
+ * READ COMMITTED this read sees the snapshot it began with, so a sign-up that
+ * committed while the board was saving the form would be invisible here and
+ * still be moved or dropped by the write. What makes the answer decisive is the
+ * caller having taken `lockOccurrencesSignups` over the same ids first: a claim
+ * either lands before that lock and is counted, or waits for the commit and
+ * finds the date already moved. Both callers do.
  *
  * `distinct` because the answer is a set of occurrence ids: a date nine people
  * have signed up to is one refusal and not nine.

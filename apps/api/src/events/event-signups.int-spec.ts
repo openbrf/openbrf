@@ -754,6 +754,51 @@ describe("standing down", () => {
     expect(never.json<{ reason: string }>().reason).toBe("signup-not-found");
   });
 
+  it("lets somebody stand down after the board has taken the series down", async () => {
+    /*
+     * Publication decides who may take a place. It must not decide who may give
+     * one back: a board that unpublished a series would otherwise hold everybody
+     * standing on its dates to something they can no longer see on their own
+     * calendar and cannot leave, with a request to the board as the only way out,
+     * and their place would go on being counted the whole time.
+     *
+     * A date of a series nobody published is still answered as absent to somebody
+     * with no row on it, which is the other half of the same promise. It is
+     * asserted here rather than in a test of its own because the two answers are
+     * the same request from two callers, and it is the pair that says the reason
+     * this is allowed is the caller's own row and not the date.
+     */
+    const series = await publishedSeries({ firstOn: dayAhead(46) });
+    const occurrenceId = onlyOccurrence(series);
+    expect((await claim(alfaCookie, occurrenceId)).statusCode).toBe(200);
+
+    const takenDown = await inject({
+      method: "POST",
+      url: `/api/events/${series.id}/publish`,
+      payload: { published: false },
+      headers: { cookie: boardCookie },
+    });
+    expect(takenDown.statusCode).toBe(201);
+    // Off the calendar a resident reads, which is what makes a refusal here a
+    // trap rather than an inconvenience.
+    await expect(ownViewOf(alfaCookie, occurrenceId)).resolves.toBeUndefined();
+
+    const stoodDown = await withdraw(alfaCookie, occurrenceId);
+
+    expect(stoodDown.statusCode).toBe(200);
+    const view = stoodDown.json<AttendableOccurrenceView>();
+    expect(view.placesTaken).toBe(0);
+    expect(view.own?.withdrawnAt).not.toBeNull();
+    // And the place is genuinely back, on the board's own reading of the date.
+    expect((await rollCall(occurrenceId)).placesTaken).toBe(0);
+
+    const stranger = await withdraw(gammaCookie, occurrenceId);
+    expect(stranger.statusCode).toBe(404);
+    expect(stranger.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-found",
+    );
+  });
+
   it("lets the board stand somebody down and records whose place it was", async () => {
     const series = await publishedSeries({ firstOn: dayAhead(45) });
     const occurrenceId = onlyOccurrence(series);

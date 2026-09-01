@@ -52,3 +52,35 @@ export async function lockOccurrenceSignups(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`event-occurrence-signups:${occurrenceId}`}))`;
 }
+
+/**
+ * The same lock, over the set of occurrences one decision rests on.
+ *
+ * What the series write path needs, and the reason this file says the lock only
+ * works if every writer takes the same key. The refusal to move or drop a date
+ * somebody is standing on is a count over exactly the rows a claim counts, so it
+ * has to be read behind this key too: a claim in flight when the board pressed
+ * save would otherwise commit after the read that said nobody held that date, and
+ * the edit would carry the sign-up onto a day nobody chose - or, for a date the
+ * new rule does not name, drop it with the row it hangs from.
+ *
+ * Nothing shorter closes that. A claim reads the occurrence without locking the
+ * row, and its insert takes only the key-share lock a foreign key needs, which
+ * does not conflict with an update of the start instant - so locking the
+ * occurrence rows would still let the move through while the claim was deciding.
+ * The two writers have nothing in common except this key.
+ *
+ * Sorted and de-duplicated, so two edits over overlapping dates queue in one
+ * order rather than each holding what the other is waiting for. One statement at
+ * a time for the same reason: the order is the point, and a single statement over
+ * an array would leave it to whatever order the executor happened to evaluate the
+ * rows in.
+ */
+export async function lockOccurrencesSignups(
+  tx: Prisma.TransactionClient,
+  occurrenceIds: readonly string[],
+): Promise<void> {
+  for (const occurrenceId of [...new Set(occurrenceIds)].sort()) {
+    await lockOccurrenceSignups(tx, occurrenceId);
+  }
+}

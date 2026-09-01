@@ -42,10 +42,14 @@ export interface OwnSignupView {
  * answer on a different controller.
  *
  * `own` is the whole of the caller's own state, and it comes back with every
- * answer this service gives - including the answer to a sign-up that was refused.
- * That is what lets a screen be server-authoritative rather than optimistic: the
- * count and the button are read from one payload, so they cannot disagree after a
- * race.
+ * answer this service returns: the count and the button are read from one
+ * payload, so a screen can be server-authoritative rather than optimistic and
+ * the two cannot disagree after a race.
+ *
+ * A refusal is not one of those answers. `EventError` carries its reason and the
+ * particulars in {@link EventError.details}, which are field locations and
+ * calendar dates and never a count - so a screen that lost a race re-reads the
+ * calendar rather than reading `placesTaken` off a 409 and finding it undefined.
  */
 export interface AttendableOccurrenceView {
   occurrenceId: string;
@@ -416,6 +420,13 @@ export class EventSignupService {
    * 18th, and a screen that had to keep hold of a row identifier to offer it
    * would have one more thing to get wrong after a race. The board's own
    * withdrawal is keyed on the sign-up, which is what its roll-call gives it.
+   *
+   * Possible for as long as the row is, which is not the same rule signing up
+   * lives under. Publication decides whether somebody may take a place; it does
+   * not decide whether somebody who already has one may give it back, and the
+   * board taking a series down must not be a way of holding people to a date
+   * they can no longer see. Nothing is disclosed by allowing it: the row the
+   * caller is closing is one they put there themselves.
    */
   async withdrawOwn(
     personId: string,
@@ -423,25 +434,42 @@ export class EventSignupService {
     now: Date = new Date(),
   ): Promise<AttendableOccurrenceView> {
     const view = await this.prisma.$transaction(async (tx) => {
-      const occurrence = await this.requireAttendable(tx, occurrenceId);
-
       /*
-       * The conditional update first, and a read only afterwards to word the
-       * refusal.
+       * The conditional update first, and every read only afterwards.
        *
        * A read taken first would be the stale thing: the board may be
        * withdrawing the same sign-up in the same instant. This way one of the two
-       * writes matches the row and the other matches nothing, and the read that
-       * follows a failure is asked about a fact that has settled.
+       * writes matches the row and the other matches nothing, and the reads that
+       * follow are asked about a fact that has settled.
+       *
+       * It is also what lets somebody stand down from a date whose series the
+       * board has taken down since. `requireAttendable` answers a date of an
+       * unpublished series exactly as one that does not exist, which is right for
+       * a claim and wrong for a withdrawal: the caller holds a row on that date
+       * already, so the answer discloses nothing they did not put there, and
+       * refusing would leave them expected at something they cannot see and
+       * cannot leave. The `where` is their own row, so nothing here can reach
+       * anybody else's.
        */
       const { count } = await tx.eventSignup.updateMany({
         where: { occurrenceId, personId, withdrawnAt: null },
         data: { withdrawnAt: now },
       });
       if (count === 0) {
+        /*
+         * Nothing matched, so nothing has been said about this date yet and the
+         * publication check goes first - a draft is still answered as absent, and
+         * only a caller whose own row exists gets past it to the two answers
+         * below.
+         */
+        await this.requireAttendable(tx, occurrenceId);
         await this.refuseMissingSignup(tx, { occurrenceId, personId });
       }
 
+      const occurrence = await tx.eventOccurrence.findUniqueOrThrow({
+        where: { id: occurrenceId },
+        select: OCCURRENCE_SELECT,
+      });
       const signup = await tx.eventSignup.findUniqueOrThrow({
         where: { occurrenceId_personId: { occurrenceId, personId } },
         select: { id: true },

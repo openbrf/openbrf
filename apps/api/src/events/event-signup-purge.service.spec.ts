@@ -300,3 +300,52 @@ describe("erasing one person's sign-ups", () => {
     });
   });
 });
+
+describe("what a run reports", () => {
+  it("carries on past a person whose purge throws, and counts the failure", async () => {
+    /*
+     * The one behaviour of this job that fails silently. A person whose delete
+     * the database refuses must not stop everybody behind them: eligibility is
+     * computed from the data rather than marked on it, so the next night's scan
+     * re-selects the stranded people and reports no fault at all - the run just
+     * quietly erases less every night for as long as the bad row stands.
+     *
+     * The summary is the only place that says so, which is why it is asserted
+     * whole rather than by the counts that happen to be interesting.
+     */
+    const { service, tx } = build({
+      signups: [expiredSignupFor("aa"), expiredSignupFor("bb")],
+    });
+    tx.eventSignup.deleteMany.mockRejectedValueOnce(
+      new Error("deadlock detected"),
+    );
+
+    await expect(service.run(NOW, RETENTION_DAYS)).resolves.toEqual({
+      considered: 2,
+      purged: 1,
+      signupsDeleted: 3,
+      failed: 1,
+    });
+  });
+
+  it("counts a person the hold caught between the scan and the delete as neither purged nor failed", async () => {
+    /*
+     * A hold placed while the run was in flight is not a fault and did not erase
+     * anything, and the summary has to be able to say both. Driven through the
+     * transaction's own answer rather than through the scan, because the scan
+     * excludes held people already - this is the second check, the one that
+     * counts.
+     */
+    const { service, tx } = build({
+      signups: [expiredSignupFor("aa"), expiredSignupFor("bb")],
+    });
+    tx.legalHold.findFirst.mockResolvedValueOnce({ id: "hold-late" });
+
+    await expect(service.run(NOW, RETENTION_DAYS)).resolves.toEqual({
+      considered: 2,
+      purged: 1,
+      signupsDeleted: 3,
+      failed: 0,
+    });
+  });
+});

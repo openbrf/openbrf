@@ -117,7 +117,17 @@ describe("eventSignupPurgeCutoff", () => {
     const cutoff = eventSignupPurgeCutoff(now, 365);
     const aMillisecondLater = new Date(cutoff.getTime() + 1);
 
-    expect(cutoff.getTime() <= cutoff.getTime()).toBe(true);
+    /*
+     * The inside half, asserted through the other function rather than by
+     * comparing the cutoff with itself: an occurrence that ended on the cutoff
+     * instant states a purge date of exactly now, so a drift of a millisecond in
+     * either function moves this off the boundary and fails. Comparing the
+     * cutoff with itself is true of every Date and would go on passing through
+     * any arithmetic at all.
+     */
+    expect(
+      computeEventSignupPurgeDate(cutoff, 365).getTime() === now.getTime(),
+    ).toBe(true);
     expect(aMillisecondLater.getTime() <= cutoff.getTime()).toBe(false);
     expect(
       computeEventSignupPurgeDate(aMillisecondLater, 365).getTime() >
@@ -187,11 +197,11 @@ describe("eventSignupPurgeCutoff", () => {
 describe("the anchor is the occurrence's own end", () => {
   it("is hours away from what the series' date column would give", () => {
     /*
-     * A cleaning day on the 18th of April, from ten in the morning. The date
-     * column for the 18th reads back as midnight UTC, which is two in the morning
-     * in Stockholm on a summer date - so anchoring on it would put the purge date
-     * ten hours and the retention window's own boundary half a day away from the
-     * moment the event actually ended.
+     * A cleaning day on the 18th of April, ending at two in the afternoon in
+     * Stockholm. The date column for the 18th reads back as midnight UTC, which
+     * is two in the morning in Stockholm on a summer date - so anchoring on it
+     * would put the purge date, and with it the retention window's own boundary,
+     * twelve hours from the moment the event actually ended.
      */
     const endsAt = new Date("2027-04-18T12:00:00.000Z");
     const asDateColumn = dateColumnOf(localDayOf(endsAt));

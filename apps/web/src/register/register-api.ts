@@ -400,7 +400,7 @@ export interface DataSubjectReport {
   /**
    * Bookings this person made.
    *
-   * One of the two sections that state a retention date per row: a booking is
+   * One of the three sections that state a retention date per row: a booking is
    * purged a year after the booked period ended, on its own clock rather than
    * the residency one, so the date at the foot of the document does not govern
    * it.
@@ -423,9 +423,8 @@ export interface DataSubjectReport {
   /**
    * Motions this person put to the general meeting.
    *
-   * The second section that states a retention date per row: a motion is purged
-   * two years after it was closed, on its own clock rather than the residency
-   * one.
+   * The second of those three: a motion is purged two years after it was closed,
+   * on its own clock rather than the residency one.
    *
    * A motion still with the board states none, and that absence is information
    * rather than a gap: it has no closing date to count from, and the association
@@ -444,10 +443,10 @@ export interface DataSubjectReport {
    * Sign-ups (anmalan) this person made to dates in the association's calendar,
    * the ones they stood down from included.
    *
-   * The other section with a retention date of its own: a sign-up is purged a
-   * year after the date it was for ended. `withdrawnOn` is what makes a
-   * withdrawal readable as one - a report listing only the standing sign-ups
-   * would be silent about a row the association is still holding.
+   * The third of those three: a sign-up is purged a year after the date it was
+   * for ended. `withdrawnOn` is what makes a withdrawal readable as one - a
+   * report listing only the standing sign-ups would be silent about a row the
+   * association is still holding.
    *
    * `on` is the local date the event falls on, stated by the server on the
    * association's own clock rather than derived here from the instant, so a

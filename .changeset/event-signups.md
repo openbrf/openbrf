@@ -11,7 +11,8 @@ A sign-up attaches to one occurrence and never to the event, which is the whole
 reason the dates are rows. Somebody signs up for the cleaning day on the 18th of
 April, and the places are counted against that date - so twenty places at each of
 a year's cleaning days is twenty places twelve times over rather than twenty for
-the year. One row per person and date, ever.
+the year. One row per person and occurrence, for as long as it is kept - the
+purge below is what ends it, and nothing before then writes a second one.
 
 The place is claimed rather than checked for. One sign-up per person and date is
 a statement about a single row, so a unique index holds it and a second claim
