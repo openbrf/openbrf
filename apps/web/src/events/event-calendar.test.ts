@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatEventDay,
-  hasBegun,
   minuteOfTimeValue,
   timeValueOfMinute,
 } from "./event-calendar";
@@ -10,10 +9,10 @@ import {
 /**
  * The part of the association's clock this module answers.
  *
- * Everything about which date an occurrence belongs to is the server's, and it
- * arrives already decided. What is left is reading a bare date to a person,
- * saying whether an instant has passed, and moving a time of day between the
- * minute the API takes and the value a time field holds.
+ * Everything about which date an occurrence belongs to is the server's, and so
+ * is whether it has begun; both arrive already decided. What is left is reading
+ * a bare date to a person and moving a time of day between the minute the API
+ * takes and the value a time field holds.
  *
  * The date reading carries a year on purpose: this calendar reaches half a year
  * ahead, so it crosses a new year, and "onsdag 7 januari" is ambiguous exactly
@@ -45,23 +44,6 @@ describe("a date as a person reads it", () => {
     expect(formatEventDay("2026-02-30", "sv")).toBe("2026-02-30");
     expect(formatEventDay("den 18 april", "sv")).toBe("den 18 april");
     expect(formatEventDay("", "sv")).toBe("");
-  });
-});
-
-describe("whether an instant has passed", () => {
-  const now = new Date("2026-04-18T08:00:00.000Z");
-
-  it("compares instants and reads no calendar at all", () => {
-    expect(hasBegun("2026-04-18T07:59:59.000Z", now)).toBe(true);
-    expect(hasBegun("2026-04-18T08:00:00.000Z", now)).toBe(true);
-    expect(hasBegun("2026-04-18T08:00:01.000Z", now)).toBe(false);
-  });
-
-  it("says an unreadable instant has not begun", () => {
-    // The alternative would put "has begun" on a row the server would happily
-    // take a sign-up for, and the reader would have no control to press.
-    expect(hasBegun("not an instant", now)).toBe(false);
-    expect(hasBegun("", now)).toBe(false);
   });
 });
 

@@ -23,6 +23,15 @@ import { type EventInput, EventService } from "./event.service";
  * on every edit, because an edit to something already published is itself a
  * publication; a draft is not, because nothing it holds is readable by anyone.
  *
+ * The third is the board list's window: what it refuses, and the period it asks
+ * the database for. What a windowed read actually returns is a question for a
+ * database and is `events.int-spec.ts`.
+ *
+ * The fourth is the reinstatement, which is here for the half a database cannot
+ * show: what it refuses, that the clearing is conditional, and that it touches
+ * no sign-up at all. The fake client's sign-up table throws on every method, so
+ * that last one is structural rather than an assertion about a row.
+ *
  * What the plan does date by date is `occurrence-plan.spec.ts`, the rule itself
  * is `recurrence.spec.ts`, and what the database does about any of it is
  * `events.int-spec.ts`.
@@ -123,6 +132,7 @@ function storedEvent(
     recurrenceInterval: 1,
     recurrenceCount: 3,
     recurrenceUntil: null,
+    _count: { occurrences: STORED_OCCURRENCES.length },
     occurrences: STORED_OCCURRENCES.map((occurrence) =>
       occurrence.id === cancelledOccurrenceId
         ? { ...occurrence, cancelledAt: new Date("2027-04-01T09:00:00.000Z") }
@@ -139,7 +149,19 @@ function storedEvent(
  * takes its own clock and covers that.
  */
 function build(
-  options: { published?: boolean; cancelledOccurrenceId?: string } = {},
+  options: {
+    published?: boolean;
+    cancelledOccurrenceId?: string;
+    /** The row a reinstatement or a call-off reads. Defaults to CALLED_OFF. */
+    occurrence?: {
+      id: string;
+      eventId: string;
+      startsAt: Date;
+      cancelledAt: Date | null;
+    };
+    /** True to make the conditional clearing match nothing, as a race would. */
+    reinstatedElsewhere?: boolean;
+  } = {},
 ) {
   const row = storedEvent(
     options.published ?? false,
@@ -165,22 +187,60 @@ function build(
       deleteMany: vi.fn(async () => ({ count: 0 })),
       update: vi.fn(async () => STORED_OCCURRENCES[0]),
       createMany: vi.fn(async () => ({ count: 0 })),
+      findUnique: vi.fn(async () => options.occurrence ?? CALLED_OFF),
+      updateMany: vi.fn(async () => ({
+        count: options.reinstatedElsewhere === true ? 0 : 1,
+      })),
+    },
+    /*
+     * Present only to fail loudly. Reinstating a date must not read or write a
+     * sign-up: somebody who stood down while the date was off has stood down,
+     * and the place they gave back is not theirs to be handed again. A service
+     * that reached for this table would throw here rather than quietly passing
+     * an assertion about a row nothing checked.
+     */
+    eventSignup: {
+      findUnique: refuseSignupAccess,
+      findMany: refuseSignupAccess,
+      count: refuseSignupAccess,
+      update: refuseSignupAccess,
+      updateMany: refuseSignupAccess,
+      createMany: refuseSignupAccess,
+      deleteMany: refuseSignupAccess,
     },
   };
 
+  // Both doubles declare the argument they are asked with, because two of the
+  // assertions below are about what was asked rather than about what came back.
+  const record = vi.fn(async (_entry: unknown) => undefined);
   const prisma = {
     $transaction: vi.fn(async (run: (client: typeof tx) => Promise<unknown>) =>
       run(tx),
     ),
+    event: { findMany: vi.fn(async (_args: unknown) => [row]) },
   };
 
   return {
     service: new EventService(
       prisma as unknown as PrismaService,
-      { record: vi.fn(async () => undefined) } as unknown as AuditLogService,
+      { record } as unknown as AuditLogService,
     ),
+    prisma,
+    record,
     tx,
   };
+}
+
+/** The one date of the fixture, called off and still ahead of the clock. */
+const CALLED_OFF = {
+  id: "occurrence-25",
+  eventId: "event-1",
+  startsAt: new Date("2027-04-25T08:00:00.000Z"),
+  cancelledAt: new Date("2027-04-01T09:00:00.000Z"),
+};
+
+function refuseSignupAccess(): never {
+  throw new Error("The act under test must not touch a sign-up.");
 }
 
 beforeEach(() => {
@@ -495,6 +555,182 @@ describe("the personal identity number scan", () => {
     await service.update("event-1", WITH_A_NUMBER, "board-1");
 
     expect(tx.event.update).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the board list's window", () => {
+  /** Two months from the 1st of April, inclusive at both ends. */
+  const WINDOW = {
+    from: { year: 2027, month: 4, day: 1 },
+    to: { year: 2027, month: 6, day: 1 },
+  };
+
+  it("asks for the dates running inside the period, at local midnight", async () => {
+    const { service, prisma } = build();
+
+    await service.list(WINDOW);
+
+    const asked = prisma.event.findMany.mock.calls[0]?.[0] as unknown as {
+      where: {
+        occurrences: {
+          some: { startsAt: { lt: Date }; endsAt: { gt: Date } };
+        };
+      };
+    };
+    /*
+     * Local midnight on the first day, to local midnight after the last. April
+     * and June 2027 are inside summer time, so both are 22:00 UTC the evening
+     * before - which is the whole reason the window goes through the calendar
+     * rather than through Date.UTC.
+     */
+    expect(asked.where.occurrences.some.endsAt.gt.toISOString()).toBe(
+      "2027-03-31T22:00:00.000Z",
+    );
+    expect(asked.where.occurrences.some.startsAt.lt.toISOString()).toBe(
+      "2027-06-01T22:00:00.000Z",
+    );
+  });
+
+  it("refuses a period that runs backwards", async () => {
+    const { service, prisma } = build();
+
+    await expect(
+      service.list({ from: WINDOW.to, to: WINDOW.from }),
+    ).rejects.toMatchObject({ reason: "range-invalid" });
+    expect(prisma.event.findMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a period longer than one read answers for", async () => {
+    const { service, prisma } = build();
+
+    // 62 days is the bound, so the 62nd day past the first is one too many.
+    await expect(
+      service.list({
+        from: { year: 2027, month: 4, day: 1 },
+        to: { year: 2027, month: 6, day: 2 },
+      }),
+    ).rejects.toMatchObject({ reason: "range-invalid" });
+    expect(prisma.event.findMany).not.toHaveBeenCalled();
+  });
+
+  it("allows the widest period there is", async () => {
+    const { service, prisma } = build();
+
+    await service.list({
+      from: { year: 2027, month: 4, day: 1 },
+      to: { year: 2027, month: 6, day: 1 },
+    });
+
+    expect(prisma.event.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("says how many dates the series has, whatever the period holds", async () => {
+    // The count is the database's over the whole relation. A screen editing the
+    // series needs the series' own number, not the number of rows it was sent.
+    const { service } = build();
+
+    const [series] = await service.list(WINDOW);
+
+    expect(series?.occurrenceCount).toBe(3);
+  });
+});
+
+describe("putting a called-off date back", () => {
+  /** Before every date the fixture holds, so nothing has begun. */
+  const BEFORE = new Date("2027-01-01T09:00:00.000Z");
+
+  it("clears the date the call-off wrote, and only while it is set", async () => {
+    const { service, tx } = build();
+
+    await service.reinstateOccurrence("occurrence-25", "board-1", BEFORE);
+
+    expect(tx.eventOccurrence.updateMany).toHaveBeenCalledWith({
+      // Conditional on the date still being off, so two board members acting in
+      // the same instant produce one clearing and one refusal rather than two
+      // entries saying the date was reinstated.
+      where: { id: "occurrence-25", cancelledAt: { not: null } },
+      data: { cancelledAt: null },
+    });
+  });
+
+  it("records an act of its own rather than a second call-off", async () => {
+    const { service, record } = build();
+
+    await service.reinstateOccurrence("occurrence-25", "board-1", BEFORE);
+
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0]?.[0]).toMatchObject({
+      action: "EVENT_OCCURRENCE_REINSTATED",
+      actorPersonId: "board-1",
+      targetKind: "eventOccurrence",
+      targetId: "occurrence-25",
+      // The series and the date, and never what the series is called: the log
+      // outlives the row.
+      context: { eventId: "event-1", on: "2027-04-25" },
+    });
+  });
+
+  it("touches no sign-up, so a place given back stays given back", async () => {
+    /*
+     * Structural: the fake client's sign-up table throws on every method, so a
+     * service that re-enrolled the people who stood down - or even counted
+     * them - would fail here rather than pass an assertion about a row nothing
+     * looked at. Somebody who withdrew because the date was off has withdrawn.
+     */
+    const { service } = build();
+
+    await expect(
+      service.reinstateOccurrence("occurrence-25", "board-1", BEFORE),
+    ).resolves.toBeTruthy();
+  });
+
+  it("refuses a date that was never called off", async () => {
+    const { service, tx } = build({
+      occurrence: { ...CALLED_OFF, cancelledAt: null },
+    });
+
+    await expect(
+      service.reinstateOccurrence("occurrence-25", "board-1", BEFORE),
+    ).rejects.toMatchObject({ reason: "occurrence-not-cancelled" });
+    expect(tx.eventOccurrence.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a date the clock has passed", async () => {
+    // It did not go ahead, and the calendar cannot say afterwards that it did.
+    const { service, tx } = build();
+
+    await expect(
+      service.reinstateOccurrence(
+        "occurrence-25",
+        "board-1",
+        new Date("2027-04-25T08:00:00.000Z"),
+      ),
+    ).rejects.toMatchObject({ reason: "occurrence-already-begun" });
+    expect(tx.eventOccurrence.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a date that does not exist, series and all", async () => {
+    // Which covers a series removed since one of its dates was called off: the
+    // occurrences cascade with it, so there is no row left to put back and this
+    // path is the one that answers.
+    const { service, tx } = build();
+    tx.eventOccurrence.findUnique.mockResolvedValue(
+      null as unknown as typeof CALLED_OFF,
+    );
+
+    await expect(
+      service.reinstateOccurrence("occurrence-25", "board-1", BEFORE),
+    ).rejects.toMatchObject({ reason: "occurrence-not-found" });
+    expect(tx.eventOccurrence.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses the losing side of two reinstatements in one instant", async () => {
+    const { service, record } = build({ reinstatedElsewhere: true });
+
+    await expect(
+      service.reinstateOccurrence("occurrence-25", "board-1", BEFORE),
+    ).rejects.toMatchObject({ reason: "occurrence-not-cancelled" });
+    expect(record).not.toHaveBeenCalled();
   });
 });
 

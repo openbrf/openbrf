@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import type { AttendableOccurrence } from "../api/events";
@@ -24,21 +24,14 @@ import { EventAttendPanel } from "./EventAttendPanel";
  * than merely the absence of a name.
  *
  * That only the row that was clicked reads as busy, and that the four states the
- * server refuses a sign-up for are statements rather than controls.
- */
-
-/**
- * The day the panel believes it is, for as long as these tests run.
+ * server refuses a sign-up for are statements rather than controls. All four are
+ * read off the answer, "has begun" included: no test here touches the clock, and
+ * the panel has none to touch.
  *
- * Whether a date has begun is a comparison against the clock, so an unpinned one
- * would make every fixture below pass or fail depending on the date the suite is
- * run on. April the 1st is chosen for sitting before the fixtures, which are
- * later in April.
- *
- * Only `Date` is replaced. The timers stay real, so `userEvent` needs no
- * `advanceTimers` and `waitFor` behaves as it does everywhere else here.
+ * That a date published to everyone says so, because a reader entitled to see
+ * the members' events and the public ones both cannot otherwise tell which they
+ * are looking at.
  */
-const TODAY = new Date("2026-04-01T09:00:00.000Z");
 
 const fetchUpcomingOccurrences = vi.fn();
 const signUpForOccurrence = vi.fn();
@@ -63,6 +56,8 @@ const CLEANING: AttendableOccurrence = {
   endsAt: "2026-04-18T11:00:00.000Z",
   on: "2026-04-18",
   cancelledAt: null,
+  begun: false,
+  visibility: "MEMBER",
   signupOpen: true,
   capacity: 20,
   placesTaken: 8,
@@ -82,6 +77,8 @@ const SAUNA: AttendableOccurrence = {
   endsAt: "2026-04-22T19:00:00.000Z",
   on: "2026-04-22",
   cancelledAt: null,
+  begun: false,
+  visibility: "MEMBER",
   signupOpen: false,
   capacity: null,
   placesTaken: 0,
@@ -109,7 +106,6 @@ const FULL: AttendableOccurrence = {
 };
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["Date"], now: TODAY });
   fetchUpcomingOccurrences
     .mockReset()
     .mockResolvedValue({ ok: true, value: [CLEANING, SAUNA] });
@@ -117,10 +113,6 @@ beforeEach(() => {
   withdrawFromOccurrence
     .mockReset()
     .mockResolvedValue({ ok: true, value: CLEANING });
-});
-
-afterEach(() => {
-  vi.useRealTimers();
 });
 
 /**
@@ -155,6 +147,29 @@ describe("a date somebody can sign up to", () => {
     );
   });
 
+  it("says nothing about the audience of a members' event", async () => {
+    // Which is what the calendar is. Marking those would mark almost every row
+    // and say nothing about any of them.
+    await open();
+
+    expect(screen.queryByText("Även på webbplatsen")).toBeNull();
+    const [row] = screen.getAllByRole("article");
+    expect(row?.textContent).not.toContain("webbplatsen");
+  });
+
+  it("says when the same words are also on the street", async () => {
+    // A resident reading this may see the members' events and the public ones
+    // both, and cannot otherwise tell which of the two is in front of them.
+    fetchUpcomingOccurrences.mockResolvedValue({
+      ok: true,
+      value: [{ ...CLEANING, visibility: "PUBLIC" }],
+    });
+
+    await open();
+
+    expect(screen.getByText("Även på webbplatsen")).toBeTruthy();
+  });
+
   it("files it under the local date the server worked out", async () => {
     await open();
 
@@ -169,7 +184,7 @@ describe("a date somebody can sign up to", () => {
 describe("taking a place", () => {
   it("sends the date's own identifier", async () => {
     await open();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const user = userEvent.setup();
 
     await user.click(
       screen.getByRole("button", {
@@ -197,7 +212,7 @@ describe("taking a place", () => {
       });
 
     await open();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const user = userEvent.setup();
 
     await user.click(
       screen.getByRole("button", {
@@ -238,7 +253,7 @@ describe("taking a place", () => {
     });
 
     await open();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const user = userEvent.setup();
 
     await user.click(
       screen.getByRole("button", {
@@ -278,7 +293,7 @@ describe("losing the last place", () => {
     });
 
     await open();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const user = userEvent.setup();
 
     await user.click(
       screen.getByRole("button", {
@@ -314,7 +329,7 @@ describe("standing down", () => {
       .mockResolvedValue({ ok: true, value: [CLEANING] });
 
     await open();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const user = userEvent.setup();
 
     expect(screen.getByText("Du kommer")).toBeTruthy();
     await user.click(
@@ -396,11 +411,19 @@ describe("a date with no act to offer", () => {
     ).toBeNull();
   });
 
-  it("says a date has begun", async () => {
-    // Today's event stays on the list, because a resident looking at it while it
-    // runs is entitled to see it. What it does not offer is a place.
-    vi.setSystemTime(new Date("2026-04-18T08:00:00.000Z"));
-    fetchUpcomingOccurrences.mockResolvedValue({ ok: true, value: [CLEANING] });
+  it("says a date has begun, on the server's word and not the clock's", async () => {
+    /*
+     * Today's event stays on the list, because a resident looking at it while it
+     * runs is entitled to see it. What it does not offer is a place.
+     *
+     * The row says it has begun and nothing here touches the clock, which is the
+     * whole of the assertion: the same instants with `begun` false read as a
+     * date still open, so this cannot pass by the machine's own time.
+     */
+    fetchUpcomingOccurrences.mockResolvedValue({
+      ok: true,
+      value: [{ ...CLEANING, begun: true }],
+    });
 
     await open();
 
@@ -422,8 +445,10 @@ describe("a date with no act to offer", () => {
      * the person's intention with a date on it, and refusing it would only
      * strand somebody who forgot to say so in time.
      */
-    vi.setSystemTime(new Date("2026-04-18T08:00:00.000Z"));
-    fetchUpcomingOccurrences.mockResolvedValue({ ok: true, value: [MINE] });
+    fetchUpcomingOccurrences.mockResolvedValue({
+      ok: true,
+      value: [{ ...MINE, begun: true }],
+    });
 
     await open();
 

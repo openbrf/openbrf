@@ -180,6 +180,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.EVENT_SERIES_PUBLISHED",
   EVENT_OCCURRENCE_CANCELLED:
     "register.person.report.action.EVENT_OCCURRENCE_CANCELLED",
+  EVENT_OCCURRENCE_REINSTATED:
+    "register.person.report.action.EVENT_OCCURRENCE_REINSTATED",
   MOTION_SUBMITTED: "register.person.report.action.MOTION_SUBMITTED",
   MOTION_ACKNOWLEDGED: "register.person.report.action.MOTION_ACKNOWLEDGED",
   MOTION_WITHDRAWN: "register.person.report.action.MOTION_WITHDRAWN",

@@ -4,6 +4,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import type { PageVisibility } from "../generated/prisma/enums";
 import { EventError } from "./event.error";
 import { lockOccurrenceSignups } from "./event-signup-lock";
 
@@ -72,6 +73,36 @@ export interface AttendableOccurrenceView {
   on: string;
   /** ISO instant the board called it off, or null while it is going ahead. */
   cancelledAt: string | null;
+  /**
+   * Whether the date has already begun, as the server read the clock.
+   *
+   * Decided here rather than left to a comparison in the browser, which is the
+   * rule every other fact on this row already follows: the calendar decides, the
+   * screen renders. `PAST` is one of the four states the booking calendar sends
+   * per slot for the same reason, and a screen comparing instants of its own
+   * would be a second clock with its own idea of when a date stopped taking
+   * names - measured on a machine whose time nobody here sets.
+   *
+   * It is a fact about the date and not a permission: what refuses a sign-up is
+   * the claim, and this is what lets a screen say so before the claim is made.
+   */
+  begun: boolean;
+  /**
+   * Who the series was published to, PUBLIC or MEMBER.
+   *
+   * On this list and deliberately not on the website's own, which carries no
+   * field describing an audience at all. Who may read an event is decided in one
+   * place from whether the request carries a session, and a second field about
+   * audiences travelling to the street would be a second answer for the two to
+   * disagree on.
+   *
+   * Here it answers a different question, asked by somebody who is already
+   * entitled to read the event: whether the same words are also on the
+   * association's public calendar. A resident reading a notice about the sauna
+   * cannot otherwise tell, and a board that published one of the two to the
+   * street by mistake finds out from a member rather than from a screen.
+   */
+  visibility: PageVisibility;
   /** Whether the series takes sign-ups at all. */
   signupOpen: boolean;
   /** Places at this date. Null is no limit. */
@@ -144,6 +175,7 @@ const OCCURRENCE_SELECT = {
       category: true,
       location: true,
       published: true,
+      visibility: true,
       signupOpen: true,
       capacity: true,
     },
@@ -235,7 +267,9 @@ export class EventSignupService {
    * series published to the members and one published to the street are both
    * readable by anybody who is signed in - which everybody holding events:attend
    * is - so the audience decides what reaches the website and not what reaches
-   * this list.
+   * this list. It travels on each row all the same, because a reader who may see
+   * both wants to know which of the two they are looking at: see
+   * {@link AttendableOccurrenceView.visibility}.
    *
    * A date that has begun but not ended stays on the list. It is today's event,
    * and a resident looking at it while it runs is entitled to see it rather than
@@ -284,6 +318,7 @@ export class EventSignupService {
         occurrence,
         taken.get(occurrence.id) ?? 0,
         ownByOccurrence.get(occurrence.id) ?? null,
+        now,
       ),
     );
   }
@@ -400,7 +435,7 @@ export class EventSignupService {
         tx,
       );
 
-      return this.readAttendable(tx, occurrence, personId);
+      return this.readAttendable(tx, occurrence, personId, now);
     });
 
     // The identifiers and nothing else. Which resident is going to which
@@ -482,7 +517,7 @@ export class EventSignupService {
         occurrence,
       });
 
-      return this.readAttendable(tx, occurrence, personId);
+      return this.readAttendable(tx, occurrence, personId, now);
     });
 
     this.logger.log(
@@ -794,6 +829,7 @@ export class EventSignupService {
     tx: Prisma.TransactionClient,
     occurrence: OccurrenceRecord,
     personId: string,
+    now: Date,
   ): Promise<AttendableOccurrenceView> {
     const taken = await tx.eventSignup.count({
       where: { occurrenceId: occurrence.id, withdrawnAt: null },
@@ -808,7 +844,7 @@ export class EventSignupService {
         withdrawnAt: true,
       },
     });
-    return attendableView(occurrence, taken, own);
+    return attendableView(occurrence, taken, own, now);
   }
 
   /** The standing sign-ups per occurrence, for the ids that have any. */
@@ -849,6 +885,7 @@ function attendableView(
     signedUpAt: Date;
     withdrawnAt: Date | null;
   } | null,
+  now: Date,
 ): AttendableOccurrenceView {
   return {
     occurrenceId: occurrence.id,
@@ -861,6 +898,14 @@ function attendableView(
     endsAt: occurrence.endsAt.toISOString(),
     on: formatLocalDay(localDayOf(occurrence.startsAt)),
     cancelledAt: occurrence.cancelledAt?.toISOString() ?? null,
+    /*
+     * The same comparison the claim refuses on, taken from the same clock. An
+     * instant comparison and no calendar: "has ten this morning happened yet"
+     * has one answer in every zone, and the two Sundays a year the wall clock
+     * moves do not change it.
+     */
+    begun: occurrence.startsAt.getTime() <= now.getTime(),
+    visibility: occurrence.event.visibility,
     signupOpen: occurrence.event.signupOpen,
     capacity: occurrence.event.capacity,
     placesTaken,
