@@ -115,9 +115,10 @@ function inject(options: {
     .inject({
       ...options,
       headers: {
-        // 10.32.0.0/16 is this suite's - the event series suite holds 10.30 and
-        // the motions suite 10.31; the others each hold their own.
-        "x-forwarded-for": `10.32.${String(subnet)}.${String(host + 1)}`,
+        // 10.33.0.0/16 is this suite's - the event series suite holds 10.30,
+        // the motions suite 10.31 and the register suite 10.32; the others
+        // each hold their own.
+        "x-forwarded-for": `10.33.${String(subnet)}.${String(host + 1)}`,
         ...options.headers,
       },
     });
