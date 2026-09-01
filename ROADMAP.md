@@ -560,7 +560,7 @@ change it.
       that promises neither. The board can strike a comment through and cannot
       erase one, because what somebody wrote is a record of what was said.
       Landed: the schema, the write and read endpoints with the personal
-      identity number guardrail on a member's own text, moderation, the data
+      identity number guardrail on a resident's own text, moderation, the data
       subject access report section and the nightly purge with its legal hold.
       Pending: the reading screen that renders a thread.
 - [ ] Shared board mailbox
