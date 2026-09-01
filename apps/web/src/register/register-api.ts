@@ -344,9 +344,9 @@ export interface DataSubjectReport {
   /**
    * Tenant-ownerships this person held that have ceased to exist.
    *
-   * Not keyed on a person column either: a termination names an apartment and a
-   * date, so the API derives whose it is from the member register, on a boundary
-   * rule of its own. See `apps/api/src/retention/holding-periods.ts`.
+   * Not keyed on a person column: a termination names an apartment and a date,
+   * so the API derives whose it is from the member register, on a boundary rule
+   * of its own. See `apps/api/src/retention/holding-periods.ts`.
    */
   terminations: {
     terminationId: string;
@@ -358,9 +358,9 @@ export interface DataSubjectReport {
   /**
    * Lien notes that stood against a tenant-ownership this person held.
    *
-   * Not keyed on a person column: a lien note names an apartment and a creditor
-   * and never a person, so the API derives whose it is from the member register.
-   * See `apps/api/src/retention/holding-periods.ts`.
+   * Not keyed on a person column either: a lien note names an apartment and a
+   * creditor and never a person, so the API derives whose it is from the member
+   * register. See `apps/api/src/retention/holding-periods.ts`.
    */
   lienNotes: {
     lienNoteId: string;
@@ -402,7 +402,7 @@ export interface DataSubjectReport {
   /**
    * Bookings this person made.
    *
-   * One of the three sections that state a retention date per row: a booking is
+   * One of the four sections that state a retention date per row: a booking is
    * purged a year after the booked period ended, on its own clock rather than
    * the residency one, so the date at the foot of the document does not govern
    * it.
@@ -425,7 +425,7 @@ export interface DataSubjectReport {
   /**
    * Motions this person put to the general meeting.
    *
-   * The second of those three: a motion is purged two years after it was closed,
+   * The second of those four: a motion is purged two years after it was closed,
    * on its own clock rather than the residency one.
    *
    * A motion still with the board states none, and that absence is information
@@ -445,7 +445,7 @@ export interface DataSubjectReport {
    * Sign-ups (anmalan) this person made to dates in the association's calendar,
    * the ones they stood down from included.
    *
-   * The third of those three: a sign-up is purged a year after the date it was
+   * The third of those four: a sign-up is purged a year after the date it was
    * for ended. `withdrawnOn` is what makes a withdrawal readable as one - a
    * report listing only the standing sign-ups would be silent about a row the
    * association is still holding.
@@ -474,9 +474,10 @@ export interface DataSubjectReport {
    * without telling them what they said. `hidden` says the board struck it
    * through.
    *
-   * `erasableFrom` is the earliest date the purge can reach the row, on the same
-   * terms as the bookings above - a comment goes a year after it was written,
-   * and a legal hold defers that date without ever advancing it.
+   * The fourth of those four states its date here too: `erasableFrom` is the
+   * earliest date the purge can reach the row, on the same terms as the bookings
+   * above - a comment goes a year after it was written, and a legal hold defers
+   * that date without ever advancing it.
    */
   newsComments: {
     commentId: string;

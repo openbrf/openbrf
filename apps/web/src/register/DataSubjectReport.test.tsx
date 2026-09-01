@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  getDefaultNormalizer,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
@@ -21,6 +27,19 @@ const IDENTITY_NUMBER = "19850101-0017";
 /** A comment that stands, and one the board struck through. */
 const STANDING_COMMENT = "Tack for beskedet om porten.";
 const STRUCK_COMMENT = "Detta togs bort av styrelsen.";
+
+/**
+ * A fault report written on three lines, as a resident writes one.
+ *
+ * Free text with line breaks in it, so the assertion below is about what the
+ * document does to somebody's own writing rather than about whether it printed
+ * a string at all.
+ */
+const ISSUE_DESCRIPTION = [
+  "Porten gar inte igen.",
+  "Den slar upp igen nar man slapper.",
+  "Varst pa morgonen.",
+].join("\n");
 
 const { fetchDataSubjectReport } = vi.hoisted(() => ({
   fetchDataSubjectReport: vi.fn(),
@@ -149,6 +168,17 @@ const FULL_REPORT: Report = {
       placedAt: "2026-02-10T09:00:00.000Z",
       releasedAt: null,
       releaseReason: null,
+    },
+  ],
+  issues: [
+    {
+      issueId: "issue-1",
+      typeName: "Porten",
+      status: "IN_PROGRESS",
+      location: "Storgatan 12, entren",
+      description: ISSUE_DESCRIPTION,
+      reportedAt: "2026-01-05T08:00:00.000Z",
+      photographs: 2,
     },
   ],
   bookings: [
@@ -455,11 +485,11 @@ describe("what the document prints", () => {
     await screen.findByText("Brf Eksemplet");
 
     /*
-     * Read out of the bookings section rather than off the page. Three
-     * sections carry this column now - bookings, motions and event sign-ups,
-     * each purged on a clock of its own - so a count would have to be revised
-     * every time a fourth module purges, and a bare query would pass while
-     * pointing at the wrong table.
+     * Read out of the bookings section rather than off the page. Four sections
+     * carry this column now - bookings, motions, event sign-ups and news
+     * comments, each purged on a clock of its own - so a count has to be
+     * revised every time another module purges, and a bare query would pass
+     * while pointing at the wrong table.
      */
     const bookings = within(sectionOf("Bokningar"));
     expect(bookings.getByText("Tvättstugan")).not.toBeNull();
@@ -624,6 +654,39 @@ describe("what the document prints", () => {
 
     expect(hiddenColumnOf(STRUCK_COMMENT)).toBe("Ja");
     expect(hiddenColumnOf(STANDING_COMMENT)).toBe("Nej");
+  });
+
+  it("keeps the line breaks in every piece of the person's own writing", async () => {
+    /*
+     * Three sections of this document carry free text somebody wrote - a fault
+     * report, a motion and a comment - and all three are the person's own
+     * words rather than the association's summary of them. A description
+     * written as three observations reads as one run-on sentence once the
+     * breaks collapse, which is the association altering what it hands back.
+     *
+     * Asserted as the instruction to keep them rather than as the rendered
+     * result, because no stylesheet applies here: the text node holds its
+     * newlines either way, so reading the text content would pass against a
+     * cell that had dropped the rule. Asserted for all three together so the
+     * fourth free-text section cannot arrive without it - the issue
+     * description was the one that had been missed.
+     *
+     * The breaks are also why the match does not collapse whitespace, which is
+     * the default: a query that collapsed them would be looking for a string
+     * this document must never print.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const asWritten = getDefaultNormalizer({ collapseWhitespace: false });
+    for (const written of [
+      ISSUE_DESCRIPTION,
+      "Foreningen bor utreda vad laddstolpar skulle kosta.",
+      STANDING_COMMENT,
+    ]) {
+      const printed = screen.getByText(written, { normalizer: asWritten });
+      expect(printed.className).toContain("whitespace-pre-line");
+    }
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {
