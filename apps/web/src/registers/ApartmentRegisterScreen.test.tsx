@@ -525,6 +525,44 @@ describe("register completeness", () => {
     });
   });
 
+  it("records the termination once however often the form is submitted", async () => {
+    // The route inserts rather than refusing a second one, and the table is
+    // append-only with UPDATE and DELETE revoked, so a resubmitted form writes a
+    // duplicate statutory record that nobody can take back out. A register
+    // saying one tenant-ownership ceased twice has to be explained to
+    // Lantmateriet by hand.
+    let settle = (): void => {};
+    recordTermination.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve({ ok: true, value: {} });
+          };
+        }),
+    );
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Registrera upphörande/ }),
+    );
+    await session.type(screen.getByLabelText(/Upphörde/), "2026-02-18");
+    await session.type(
+      screen.getByLabelText(/Hänvisning/),
+      "Stammoprotokoll 2026-1",
+    );
+    const submit = screen.getByRole("button", {
+      name: /Registrera upphörandet/,
+    });
+    await session.click(submit);
+    await session.click(submit);
+
+    expect(recordTermination).toHaveBeenCalledTimes(1);
+
+    settle();
+    await screen.findAllByLabelText(/Medlemskap beslutat/);
+  });
+
   it("bounds both statutory dates by the association's calendar", async () => {
     // The server refuses a date after the Stockholm calendar day
     // (statutoryDate), so an input bounded by the device's day disagrees with it

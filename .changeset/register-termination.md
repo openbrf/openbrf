@@ -38,6 +38,11 @@ released and a mis-keyed entry corrected: a bostadsrätt that has ceased has no
 later state to reach. The apartment reference is RESTRICT and never SET NULL - a
 statutory event may not lose what it was about.
 
+Because nothing can take a row out again, the form that writes one sends a
+single request: recording is an insert rather than a refusal of a second value,
+so a resubmitted form would leave two records of one tenant-ownership ceasing
+and no way to remove either.
+
 A transfer now carries the day the association decided on the acquirer's
 membership. Lag (2026:484) 3 kap. 3 § andra stycket runs the transfer report's
 two weeks from that decision and not from the transfer, and the decision is

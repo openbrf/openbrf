@@ -139,6 +139,8 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [lienFailed, setLienFailed] = useState(false);
   const [termination, setTermination] = useState<TerminationDraft | null>(null);
   const [terminationFailed, setTerminationFailed] = useState(false);
+  // Whether a termination is in flight; see submitTermination below.
+  const [recordingTermination, setRecordingTermination] = useState(false);
   // Its own state, not the termination one. Both acts are recorded from this
   // screen and they are different register events with different consequences,
   // so a board told a termination was refused after a membership decision was
@@ -228,21 +230,43 @@ export function ApartmentRegisterScreen(): ReactElement {
     [load],
   );
 
+  /*
+   * One request at a time, and this one matters more than the guard on the
+   * membership decision beside it. That route refuses a second value; this one
+   * inserts, so a resubmitted form writes a second termination - and the table
+   * is append-only with UPDATE and DELETE revoked, so nobody can take the
+   * duplicate back out. A register stating that one tenant-ownership ceased
+   * twice is a register that has to be explained to Lantmateriet by hand.
+   *
+   * A pending flag on the form is not a uniqueness rule and does not pretend to
+   * be one: two tabs or a replayed request still reach the route twice. It
+   * closes the ordinary way it happens - an impatient second click on a slow
+   * request - and the durable answer belongs with the reporting work, which is
+   * where a duplicate would first be noticed. A server-side "one per apartment"
+   * rule is deliberately not it: an apartment whose bostadsratt has ceased may
+   * be granted a new one, which may in turn cease, so a later termination on the
+   * same apartment is legitimate.
+   */
   const submitTermination = useCallback(
     async (input: TerminationDraft): Promise<void> => {
       setTerminationFailed(false);
-      const result = await recordTermination({
-        apartmentId: input.apartmentId,
-        kind: input.kind,
-        tookEffectOn: input.tookEffectOn,
-        reference: input.reference.trim(),
-      });
-      if (!result.ok) {
-        setTerminationFailed(true);
-        return;
+      setRecordingTermination(true);
+      try {
+        const result = await recordTermination({
+          apartmentId: input.apartmentId,
+          kind: input.kind,
+          tookEffectOn: input.tookEffectOn,
+          reference: input.reference.trim(),
+        });
+        if (!result.ok) {
+          setTerminationFailed(true);
+          return;
+        }
+        setTermination(null);
+        await load();
+      } finally {
+        setRecordingTermination(false);
       }
-      setTermination(null);
-      await load();
     },
     [load],
   );
@@ -512,6 +536,7 @@ export function ApartmentRegisterScreen(): ReactElement {
                     setTermination(null);
                   }}
                   onChangeTermination={setTermination}
+                  recordingTermination={recordingTermination}
                   onSubmitTermination={(input) => {
                     void submitTermination(input);
                   }}
@@ -552,6 +577,7 @@ function ApartmentEntry({
   onStartTermination,
   onCancelTermination,
   onChangeTermination,
+  recordingTermination,
   onSubmitTermination,
   onRecordMembershipDecision,
 }: {
@@ -567,6 +593,7 @@ function ApartmentEntry({
   onStartTermination: () => void;
   onCancelTermination: () => void;
   onChangeTermination: (draft: TerminationDraft) => void;
+  recordingTermination: boolean;
   onSubmitTermination: (draft: TerminationDraft) => void;
   onRecordMembershipDecision: (
     transferId: string,
@@ -890,6 +917,9 @@ function ApartmentEntry({
             className="flex flex-col gap-3 print:hidden"
             onSubmit={(event) => {
               event.preventDefault();
+              if (recordingTermination) {
+                return;
+              }
               onSubmitTermination(termination);
             }}
           >
@@ -954,7 +984,11 @@ function ApartmentEntry({
               {t("registers.apartment.terminations.appendOnly")}
             </p>
             <div className="flex gap-2">
-              <button type="submit" className={PRIMARY_BUTTON}>
+              <button
+                type="submit"
+                disabled={recordingTermination}
+                className={PRIMARY_BUTTON}
+              >
                 {t("registers.apartment.terminations.submit")}
               </button>
               <button
