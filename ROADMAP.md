@@ -671,11 +671,25 @@ change it.
     date derivable from nothing else the platform holds. The association's
     authoritative property designation sits beside its organisation number,
     separate from the prose the board publishes to a broker. All three are
-    recordable on the apartment register screen and written to the audit log
-  - Pending: turning each recorded event into a dated duty, a screen showing
-    which of those are still outstanding, telling the board when one falls due,
-    and the first submission of the existing apartments (due 31 December 2027,
-    Lag (2026:485) 3 §). Nothing in the platform computes a deadline yet
+    recordable on the apartment register screen and written to the audit log.
+    Each recorded date that opens a reporting window now becomes a dated duty in
+    a statutory-tier ledger, written by the same transaction as the register
+    event it is computed from, so the register write itself fails rather than
+    leaving a deadline unrecorded. The two weeks are stated in the database as
+    well as in the service, so no writer can enter a window that is not the
+    statutory fourteen days, and each duty carries its own audit entry. A
+    person's own duties are on their data subject access report, reached through
+    the register events already on it
+  - Pending: a screen showing which duties are still outstanding, telling the
+    board when one falls due, and the first submission of the existing
+    apartments (due 31 December 2027, Lag (2026:485) 3 §). The ledger also
+    carries no duty whose window the statute runs from the event itself rather
+    than from a separately recorded date: an upplåtelse (3 kap. 2 §), a transfer
+    to somebody already a member or outside the membership requirement, and one
+    where the bostadsrätt passed to the association (3 kap. 3 § andra and
+    fjärde styckena). None of those is distinguishable from what the platform
+    records today, and the statute also assigns some reports to a juridical
+    person rather than to the association
   - Not modelled, and needed before a report can be rendered: Förordning
     (2026:898) 2 kap. 4 § andra stycket reports fastighetsbeteckning together
     with taxeringsenhetsnummer and fastighetstyp, in place of the association's

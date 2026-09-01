@@ -3,8 +3,13 @@ import { Injectable } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma, TerminationKind } from "../generated/prisma/client";
+import type {
+  Prisma,
+  RegisterReportKind,
+  TerminationKind,
+} from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { reportDueOn } from "./report-deadline";
 import { statutoryDate } from "./statutory-date";
 
 /**
@@ -398,12 +403,20 @@ export class ApartmentRegisterService {
    * The event Lag (2026:484) 3 kap. 4 § makes the association report to the
    * cooperative housing register within two weeks of the day it ceased, and
    * 3 kap. 10 § lets Lantmateriet order a late report in under penalty of a
-   * fine. The obligation ledger and the report itself are a later train; this
-   * is the record the window is computed from, and it lands now because a date
-   * nobody wrote down is not recoverable afterwards.
+   * fine. The report itself is a later train; the deadline is not, and it is
+   * entered in the obligation ledger by this same transaction.
    *
-   * The row and its audit entry share a transaction, as every write to this
-   * register does. Nothing here checks the conditions the ground carries - BRL
+   * The window runs from `tookEffectOn` and never from the day the board typed
+   * it in. 3 kap. 4 § says "inom tva veckor fran det att bostadsratten
+   * upphorde", and nothing in that section defers the count to the day the
+   * association noticed: a termination recorded a month after the general
+   * meeting resolved it arrives with its window already closed, which is the
+   * true state and the one 3 kap. 10 § attaches a fine to. `createdAt` says
+   * when the row was written and is not a statutory date.
+   *
+   * The row, its obligation and its audit entries share a transaction, as every
+   * write to this register does. Nothing here checks the conditions the ground
+   * carries - BRL
    * 6 kap. 11 § permits the general meeting's decision on a pledged
    * tenant-ownership only with the lienholder's consent - because those are
    * conditions on the decision the association took, not on recording that it
@@ -459,6 +472,14 @@ export class ApartmentRegisterService {
         tx,
       );
 
+      await this.enterObligation(tx, {
+        actorPersonId: input.actorPersonId,
+        kind: "TERMINATION",
+        apartmentId: input.apartmentId,
+        terminationId: termination.id,
+        triggeredOn: termination.tookEffectOn,
+      });
+
       return toTermination(termination);
     });
   }
@@ -478,6 +499,13 @@ export class ApartmentRegisterService {
    * saying where it had been. Claimed conditionally, so two boards recording it
    * at once cannot both write and the loser is answered as a sequential second
    * attempt would be.
+   *
+   * This is also where the transfer's entry in the obligation ledger is written,
+   * in the same transaction as the date it runs from - and not at the transfer's
+   * own insert, where there is no decision date and 3 kap. 3 § andra stycket
+   * gives no other day to count from. So a transfer whose decision has not been
+   * recorded has no deadline in the ledger, which is what is true of it: the
+   * board has not told the register when its window opened.
    */
   async recordMembershipDecision(input: {
     actorPersonId: string;
@@ -548,8 +576,76 @@ export class ApartmentRegisterService {
         tx,
       );
 
+      await this.enterObligation(tx, {
+        actorPersonId: input.actorPersonId,
+        kind: "TRANSFER",
+        apartmentId: existing.apartmentId,
+        transferId: transfer.id,
+        // The decision date this transaction has just claimed, and never
+        // transfer.transferredOn beside it. 3 kap. 3 § andra stycket runs the
+        // two weeks from the decision, and the transfer completes on the
+        // tilltradesdag - usually the later day - so counting from it would
+        // state a deadline after the statutory one.
+        triggeredOn: decidedOn,
+      });
+
       return toTransfer(transfer);
     });
+  }
+
+  /**
+   * Enters one duty in the obligation ledger, inside the caller's transaction.
+   *
+   * Private and takes the transaction client rather than the service's own, so
+   * there is no way to reach it that is not already writing the register event
+   * the deadline is computed from. That coupling is the guarantee the ledger
+   * rests on: an obligation cannot be lost to a crash between the two writes,
+   * and a scan that built the ledger afterwards could be missing a deadline
+   * nobody would notice was absent.
+   *
+   * The deadline itself comes from `report-deadline.ts`, and the database states
+   * the same rule as a CHECK, so a wrong window is refused rather than recorded.
+   */
+  private async enterObligation(
+    tx: Prisma.TransactionClient,
+    input: {
+      actorPersonId: string;
+      kind: RegisterReportKind;
+      apartmentId: string;
+      transferId?: string;
+      terminationId?: string;
+      /** The day the statutory window opened, as a date column value. */
+      triggeredOn: Date;
+    },
+  ): Promise<void> {
+    const obligation = await tx.registerReportObligation.create({
+      data: {
+        kind: input.kind,
+        apartmentId: input.apartmentId,
+        transferId: input.transferId ?? null,
+        terminationId: input.terminationId ?? null,
+        triggeredOn: input.triggeredOn,
+        dueOn: reportDueOn(input.triggeredOn),
+      },
+    });
+
+    await this.audit.record(
+      {
+        action: "REGISTER_REPORT_OBLIGATION_RECORDED",
+        actorPersonId: input.actorPersonId,
+        targetKind: "registerReportObligation",
+        targetId: obligation.id,
+        context: {
+          kind: obligation.kind,
+          apartmentId: obligation.apartmentId,
+          transferId: obligation.transferId,
+          terminationId: obligation.terminationId,
+          triggeredOn: isoDate(obligation.triggeredOn),
+          dueOn: isoDate(obligation.dueOn),
+        },
+      },
+      tx,
+    );
   }
 
   /**

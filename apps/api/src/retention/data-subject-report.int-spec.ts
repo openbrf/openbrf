@@ -59,6 +59,16 @@ const occurrenceId = `dsar-occurrence-${suffix}`;
 const newsSlug = `dsar-nyhet-${suffix}`;
 
 /**
+ * The two transfers, named because the obligation fixture points at them.
+ *
+ * A reporting obligation is keyed on the register event rather than on a person,
+ * so the fixture has to name the event a deadline belongs to - and which of the
+ * two it is decides whether the deadline reaches this report at all.
+ */
+const ACQUIRED_TRANSFER_ID = `dsar-transfer-acquired-${suffix}`;
+const RELINQUISHED_TRANSFER_ID = `dsar-transfer-relinquished-${suffix}`;
+
+/**
  * When the fixture comment was written.
  *
  * Relative to now and only a week back, for the reason the booking below gives:
@@ -379,6 +389,7 @@ beforeAll(async () => {
   });
   await prisma.transfer.create({
     data: {
+      id: ACQUIRED_TRANSFER_ID,
       apartmentId,
       toPersonId: subject.personId,
       transferredOn: new Date("2020-03-01"),
@@ -399,6 +410,7 @@ beforeAll(async () => {
    */
   await prisma.transfer.create({
     data: {
+      id: RELINQUISHED_TRANSFER_ID,
       apartmentId,
       fromPersonId: subject.personId,
       toPersonId: ACQUIRER_PERSON_ID,
@@ -433,6 +445,58 @@ beforeAll(async () => {
         kind: "BUILDING_TRANSFERRED",
         tookEffectOn: new Date("2026-08-01"),
         reference: `Kopeavtal ${suffix}`,
+      },
+    ],
+  });
+
+  /*
+   * One reporting obligation per register event above, which is what the
+   * derivation has to sort out. An obligation names an event and never a person,
+   * so it reaches this report through the events already on it - and two of
+   * these four must not arrive:
+   *
+   *   The later holder's termination is not the subject's, so neither is its
+   *   deadline.
+   *
+   *   The transfer the subject sold on is on their report, but its deadline is
+   *   not: dueOn less fourteen days is 2026-01-14, the day the association
+   *   decided on the acquirer's membership, which the transfer section withholds
+   *   from the seller deliberately. A deadline printed here would hand it back
+   *   by subtraction.
+   */
+  await prisma.registerReportObligation.createMany({
+    data: [
+      {
+        id: `dsar-obligation-acquired-${suffix}`,
+        kind: "TRANSFER",
+        apartmentId,
+        transferId: ACQUIRED_TRANSFER_ID,
+        triggeredOn: new Date("2020-02-12"),
+        dueOn: new Date("2020-02-26"),
+      },
+      {
+        id: `dsar-obligation-relinquished-${suffix}`,
+        kind: "TRANSFER",
+        apartmentId,
+        transferId: RELINQUISHED_TRANSFER_ID,
+        triggeredOn: new Date("2026-01-14"),
+        dueOn: new Date("2026-01-28"),
+      },
+      {
+        id: `dsar-obligation-termination-theirs-${suffix}`,
+        kind: "TERMINATION",
+        apartmentId,
+        terminationId: `dsar-termination-theirs-${suffix}`,
+        triggeredOn: new Date("2026-02-01"),
+        dueOn: new Date("2026-02-15"),
+      },
+      {
+        id: `dsar-obligation-termination-after-${suffix}`,
+        kind: "TERMINATION",
+        apartmentId,
+        terminationId: `dsar-termination-after-${suffix}`,
+        triggeredOn: new Date("2026-08-01"),
+        dueOn: new Date("2026-08-15"),
       },
     ],
   });
@@ -918,6 +982,73 @@ describe("what the report contains", () => {
     expect(
       report.terminations.map((termination) => termination.reference),
     ).not.toContain(`Kopeavtal ${suffix}`);
+  });
+
+  it("lists the report due for the transfer this person acquired", async () => {
+    const report = await reportFor(boardCookie);
+
+    // The window opened on the membership decision (Lag (2026:484) 3 kap. 3 §
+    // andra stycket) and closes fourteen days later. Both dates are stated,
+    // because a document saying a report is due without saying from when could
+    // not be checked against the statute by whoever reads it.
+    const acquired = report.registerReportObligations.find(
+      (obligation) => obligation.triggeredOn === "2020-02-12",
+    );
+    expect(acquired?.kind).toBe("TRANSFER");
+    expect(acquired?.dueOn).toBe("2020-02-26");
+    // The apartment stated in words, the way every other register section on
+    // this document states it, rather than as the identifier the ledger stores.
+    expect(acquired?.apartment).toContain("1001");
+    // Statutory tier: on the report because exemption from erasure is not
+    // exemption from access, and with no erasure date because there is none.
+    expect(acquired).not.toHaveProperty("erasableFrom");
+  });
+
+  it("lists the report due for the termination that ended their holding", async () => {
+    const report = await reportFor(boardCookie);
+
+    const termination = report.registerReportObligations.find(
+      (obligation) => obligation.kind === "TERMINATION",
+    );
+    // Lag (2026:484) 3 kap. 4 §: two weeks from the day the bostadsratt ceased.
+    expect(termination?.triggeredOn).toBe("2026-02-01");
+    expect(termination?.dueOn).toBe("2026-02-15");
+  });
+
+  it("keeps the acquirer's deadline off the seller's report", async () => {
+    /*
+     * The one disclosure this section could make and must not.
+     *
+     * The transfer the subject sold on is on their report, and its own
+     * membershipDecidedOn is already withheld. Its deadline is the same fact
+     * arithmetic: 2026-01-28 less fourteen days is 2026-01-14, the day the
+     * association decided on the acquirer's membership. So the obligation is
+     * withheld too, and the assertion is on both dates rather than only on the
+     * one the ledger stores.
+     */
+    const report = await reportFor(boardCookie);
+
+    const dates = report.registerReportObligations.flatMap((obligation) => [
+      obligation.triggeredOn,
+      obligation.dueOn,
+    ]);
+    expect(dates).not.toContain("2026-01-14");
+    expect(dates).not.toContain("2026-01-28");
+  });
+
+  it("keeps a later holder's deadline off this person's report", async () => {
+    // The termination it reports is already off the report, and the deadline
+    // follows the event rather than being bounded a second time - which is the
+    // whole reason the derivation reads the sections above it instead of the
+    // apartment.
+    const report = await reportFor(boardCookie);
+
+    expect(
+      report.registerReportObligations.map(
+        (obligation) => obligation.triggeredOn,
+      ),
+    ).not.toContain("2026-08-01");
+    expect(report.registerReportObligations).toHaveLength(2);
   });
 
   it("lists the pledges on the apartment while this person held it", async () => {

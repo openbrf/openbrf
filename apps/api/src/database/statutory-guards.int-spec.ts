@@ -46,6 +46,14 @@ const ERASED_AUDIT_ID = id("erased-audit");
 const TRANSFER_ID = id("transfer");
 const LIEN_ID = id("lien");
 const TERMINATION_ID = id("termination");
+const OBLIGATION_ID = id("obligation");
+/**
+ * A second termination, so the privilege suite has an event with no obligation
+ * of its own to append one to. One anmalan per event is a unique constraint, so
+ * the insert that proves the application may still record a deadline cannot
+ * reuse the row the assertions above it are about.
+ */
+const PROBE_TERMINATION_ID = id("probe-termination");
 
 /**
  * A role for the privilege suite, made per run.
@@ -132,6 +140,28 @@ beforeAll(async () => {
       tookEffectOn: new Date("2026-04-01"),
     },
   });
+  await prisma.termination.create({
+    data: {
+      id: PROBE_TERMINATION_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "BUILDING_TRANSFERRED",
+      reference: `Kopeavtal ${PROBE_TERMINATION_ID}`,
+      tookEffectOn: new Date("2026-04-08"),
+    },
+  });
+  await prisma.registerReportObligation.create({
+    data: {
+      id: OBLIGATION_ID,
+      kind: "TERMINATION",
+      apartmentId: APARTMENT_ID,
+      terminationId: TERMINATION_ID,
+      triggeredOn: new Date("2026-04-01"),
+      // Fourteen days on, which register_report_obligation_two_week_window
+      // requires: Lag (2026:484) 3 kap. 4 § gives two weeks from the day the
+      // bostadsratt ceased.
+      dueOn: new Date("2026-04-15"),
+    },
+  });
 
   /*
    * The role the privilege suite runs as, and the grants the hardening script
@@ -206,6 +236,7 @@ afterAll(async () => {
     ["transfer", "transfer_no_delete"],
     ["lien_note", "lien_note_no_delete"],
     ["termination", "termination_append_only"],
+    ["register_report_obligation", "register_report_obligation_append_only"],
   ] as const;
 
   for (const [table, trigger] of triggers) {
@@ -222,6 +253,12 @@ afterAll(async () => {
       where: { actorPersonId: { in: [PERSON_ID, ERASED_PERSON_ID] } },
     });
     await prisma.lienNote.deleteMany({ where: { apartmentId: APARTMENT_ID } });
+    // Before the events it points at: every reference it carries is RESTRICT,
+    // so a transfer or a termination with a deadline against it cannot go
+    // first.
+    await prisma.registerReportObligation.deleteMany({
+      where: { apartmentId: APARTMENT_ID },
+    });
     await prisma.transfer.deleteMany({ where: { apartmentId: APARTMENT_ID } });
     await prisma.termination.deleteMany({
       where: { apartmentId: APARTMENT_ID },
@@ -379,9 +416,27 @@ describe("termination (upphorande)", () => {
   });
 
   it("refuses a truncate, which row triggers alone would not catch", async () => {
+    /*
+     * Both tables in one statement, because register_report_obligation
+     * references this one. PostgreSQL refuses to truncate a table referenced by
+     * a foreign key unless the referencing table is truncated with it, and it
+     * does so with 0A000 before any statement-level trigger fires - so
+     * `TRUNCATE TABLE "termination"` alone would pass this test on a database
+     * where the guard had been dropped. This is the form somebody emptying the
+     * archive would have to use, and it is the form the guard has to stop.
+     *
+     * The table is named in the expected message, and this table is named first
+     * in the statement, because both tables carry a guard of their own: matching
+     * the marker alone would let the ledger's guard answer for this one, and the
+     * test would stay green with this table's guard gone.
+     */
     await expect(
-      prisma.$executeRawUnsafe('TRUNCATE TABLE "termination"'),
-    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+      prisma.$executeRawUnsafe(
+        'TRUNCATE TABLE "termination", "register_report_obligation"',
+      ),
+    ).rejects.toThrow(
+      /OPENBRF_STATUTORY_ARCHIVE: TRUNCATE is not permitted on termination/,
+    );
   });
 
   it("refuses to lose the apartment it was about", async () => {
@@ -433,6 +488,146 @@ describe("termination (upphorande)", () => {
       where: { id: TERMINATION_ID },
     });
     expect(original.kind).toBe("GENERAL_MEETING_DECISION");
+  });
+});
+
+describe("the obligation ledger (anmalningsskyldighet)", () => {
+  it("refuses an update, on the termination's reading rather than the transfer's", async () => {
+    // The row states a statutory deadline: the event it reports cannot change,
+    // and neither can the day Lag (2026:484) 3 kap. runs the two weeks from. So
+    // there is no later state for an UPDATE to reach, and discharging the duty
+    // is a separate fact about a report that was made.
+    await expect(
+      prisma.registerReportObligation.update({
+        where: { id: OBLIGATION_ID },
+        data: { dueOn: new Date("2027-01-01") },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a delete", async () => {
+    await expect(
+      prisma.registerReportObligation.delete({ where: { id: OBLIGATION_ID } }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a truncate, which row triggers alone would not catch", async () => {
+    await expect(
+      prisma.$executeRawUnsafe('TRUNCATE TABLE "register_report_obligation"'),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a window that is not the statutory two weeks", async () => {
+    // The CHECK, not the service. This table has writers the service is not - a
+    // seed, an import, a migration - and a deadline stated fifteen days out
+    // looks exactly like one stated fourteen days out, which is why the
+    // arithmetic is in the database as well.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("wrong-window"),
+          kind: "TERMINATION",
+          apartmentId: APARTMENT_ID,
+          terminationId: PROBE_TERMINATION_ID,
+          triggeredOn: new Date("2026-04-08"),
+          dueOn: new Date("2026-04-23"),
+        },
+      }),
+    ).rejects.toThrow(/register_report_obligation_two_week_window/);
+  });
+
+  it("refuses an event reference that does not match the kind", async () => {
+    // A row naming a termination while calling itself a transfer would report
+    // the wrong event on the wrong paragraph's clock: 3 kap. 3 § runs from the
+    // membership decision and 3 kap. 4 § from the day the bostadsratt ceased.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("mismatched-kind"),
+          kind: "TRANSFER",
+          apartmentId: APARTMENT_ID,
+          terminationId: PROBE_TERMINATION_ID,
+          triggeredOn: new Date("2026-04-08"),
+          dueOn: new Date("2026-04-22"),
+        },
+      }),
+    ).rejects.toThrow(/register_report_obligation_event_matches_kind/);
+  });
+
+  it("refuses a row that names no event at all", async () => {
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("eventless"),
+          kind: "TERMINATION",
+          apartmentId: APARTMENT_ID,
+          triggeredOn: new Date("2026-04-08"),
+          dueOn: new Date("2026-04-22"),
+        },
+      }),
+    ).rejects.toThrow(/register_report_obligation_event_matches_kind/);
+  });
+
+  it("refuses a second deadline for one event", async () => {
+    // One anmalan per event, so one deadline per event. Nothing here can take
+    // either row out again, so two would leave the ledger permanently unable to
+    // say which date the duty ran to.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("duplicate"),
+          kind: "TERMINATION",
+          apartmentId: APARTMENT_ID,
+          terminationId: TERMINATION_ID,
+          triggeredOn: new Date("2026-04-01"),
+          dueOn: new Date("2026-04-15"),
+        },
+      }),
+    ).rejects.toThrow(/terminationId/i);
+  });
+
+  it("refuses to lose the event it was about", async () => {
+    // Restrict on every reference, for the reason the termination above gives: a
+    // deadline with no event is not a shorter record but a false one. The
+    // termination is undeletable anyway, so this is asserted through the
+    // obligation's own constraint by deleting with the archive guard off - which
+    // is only possible because this suite connects as the schema owner.
+    await prisma.$executeRawUnsafe(
+      'ALTER TABLE "termination" DISABLE TRIGGER "termination_append_only"',
+    );
+    try {
+      await expect(
+        prisma.termination.delete({ where: { id: TERMINATION_ID } }),
+      ).rejects.toThrow(
+        /register_report_obligation_terminationId_fkey|foreign key/i,
+      );
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'ALTER TABLE "termination" ENABLE TRIGGER "termination_append_only"',
+      );
+    }
+  });
+
+  it("still accepts a second obligation, which is an insert", async () => {
+    // Append-only is not read-only: every register event the association has to
+    // report gets a row, and the ledger only grows.
+    const second = await prisma.registerReportObligation.create({
+      data: {
+        id: id("second-obligation"),
+        kind: "TRANSFER",
+        apartmentId: APARTMENT_ID,
+        transferId: TRANSFER_ID,
+        triggeredOn: new Date("2019-05-20"),
+        dueOn: new Date("2019-06-03"),
+      },
+    });
+
+    expect(second.kind).toBe("TRANSFER");
+
+    const original = await prisma.registerReportObligation.findUniqueOrThrow({
+      where: { id: OBLIGATION_ID },
+    });
+    expect(original.dueOn).toEqual(new Date("2026-04-15"));
   });
 });
 
@@ -553,6 +748,52 @@ describe("the application role's privileges on the statutory archive", () => {
       await sqlStateAsProbe(
         `INSERT INTO public."termination" ("id", "apartmentId", "kind", "tookEffectOn", "reference")
          VALUES ('${id("probe-insert")}', '${APARTMENT_ID}', 'BUILDING_TRANSFERRED', '2026-06-01', 'Kopeavtal probe')`,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("refuses to rewrite an obligation", async () => {
+    expect(
+      await sqlStateAsProbe(
+        `UPDATE public."register_report_obligation" SET "dueOn" = '2030-01-01' WHERE id = 'no-such-row'`,
+      ),
+    ).toBe(PERMISSION_DENIED);
+  });
+
+  it("refuses to delete an obligation", async () => {
+    expect(
+      await sqlStateAsProbe(
+        `DELETE FROM public."register_report_obligation" WHERE id = 'no-such-row'`,
+      ),
+    ).toBe(PERMISSION_DENIED);
+  });
+
+  it("refuses to truncate the obligation ledger", async () => {
+    // TRUNCATE was never granted - it is its own privilege and DELETE does not
+    // imply it - so this is refused before the statement-level trigger.
+    expect(
+      await sqlStateAsProbe(
+        'TRUNCATE TABLE public."register_report_obligation"',
+      ),
+    ).toBe(PERMISSION_DENIED);
+  });
+
+  it("still reads the ledger, because the duties have to be listable", async () => {
+    expect(
+      await sqlStateAsProbe(
+        'SELECT count(*) FROM public."register_report_obligation"',
+      ),
+    ).toBeUndefined();
+  });
+
+  it("still appends to it, because a deadline has to be recordable", async () => {
+    // The insert the register write performs in its own transaction. If this
+    // were refused the application could record a termination and not its
+    // deadline, which is the one outcome the ledger exists to rule out.
+    expect(
+      await sqlStateAsProbe(
+        `INSERT INTO public."register_report_obligation" ("id", "kind", "apartmentId", "terminationId", "triggeredOn", "dueOn")
+         VALUES ('${id("probe-obligation")}', 'TERMINATION', '${APARTMENT_ID}', '${PROBE_TERMINATION_ID}', '2026-04-08', '2026-04-22')`,
       ),
     ).toBeUndefined();
   });

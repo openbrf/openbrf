@@ -74,6 +74,7 @@ const EMPTY_REPORT: Report = {
   transfers: [],
   terminations: [],
   lienNotes: [],
+  registerReportObligations: [],
   publicationConsents: [],
   legalHolds: [],
   issues: [],
@@ -118,6 +119,24 @@ const FULL_REPORT: Report = {
       amount: "450000.00",
       notedOn: "2016-05-01",
       releasedOn: null,
+    },
+  ],
+  registerReportObligations: [
+    {
+      obligationId: "obligation-1",
+      kind: "TRANSFER",
+      apartment: "Storgatan 12 1201",
+      // The membership decision above, and fourteen days on from it. Not the
+      // day the transfer completed, which is a fortnight later again.
+      triggeredOn: "2020-02-18",
+      dueOn: "2020-03-03",
+    },
+    {
+      obligationId: "obligation-2",
+      kind: "TERMINATION",
+      apartment: "Storgatan 12 1201",
+      triggeredOn: "2026-02-01",
+      dueOn: "2026-02-15",
     },
   ],
   housingCooperative: {
@@ -576,6 +595,45 @@ describe("what the document prints", () => {
     // And the retention sentence that covers it, naming the terminations among
     // what no setting and no administrator reaches.
     expect(screen.getByText(/upphörandena/)).not.toBeNull();
+  });
+
+  it("prints each report due to the cooperative housing register", async () => {
+    /*
+     * Statutory tier, so no erasure date, like the register sections above it.
+     *
+     * The two dates are read out of their own rows. Every date in this section
+     * appears somewhere else on the document as well - the window opens on the
+     * membership decision or on the day a tenant-ownership ceased, both of which
+     * are printed above - so searching the page for one would pass with this
+     * section printing nothing at all.
+     *
+     * The kind is printed as a word rather than as the enum value, for the reason
+     * the termination ground is: this page is handed to the person it is about.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText("Anmälningar till bostadsrättsregistret"),
+    ).not.toBeNull();
+
+    const rows = screen
+      .getByText("Anmälningar till bostadsrättsregistret")
+      .closest("section")
+      ?.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(2);
+    expect(rows?.[0]?.textContent).toContain("2020-02-18");
+    expect(rows?.[0]?.textContent).toContain("2020-03-03");
+    expect(rows?.[0]?.textContent).toContain("Överlåtelse");
+    expect(rows?.[1]?.textContent).toContain("2026-02-01");
+    expect(rows?.[1]?.textContent).toContain("2026-02-15");
+    expect(rows?.[1]?.textContent).toContain("Upphörande");
+
+    // And the retention sentence that covers them, naming the reports among
+    // what no setting and no administrator reaches.
+    expect(
+      screen.getByText(/anmälningarna till bostadsrättsregistret/),
+    ).not.toBeNull();
   });
 
   it("prints the day a transfer's membership was decided", async () => {

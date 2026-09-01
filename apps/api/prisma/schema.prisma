@@ -230,6 +230,7 @@ model Apartment {
   lienNotes             LienNote[]
   transfers             Transfer[]
   terminations          Termination[]
+  reportObligations     RegisterReportObligation[]
   memberRegisterEntries MemberRegisterEntry[]
   signupRequests        SignupRequest[]
   issues                Issue[]
@@ -556,6 +557,10 @@ model Transfer {
   /// made.
   agreementReference String?
 
+  /// The reporting obligation this transfer opened, once its window has a
+  /// start. At most one: see {@link RegisterReportObligation}.
+  reportObligation RegisterReportObligation?
+
   createdAt DateTime @default(now())
 
   @@index([apartmentId, transferredOn])
@@ -681,11 +686,161 @@ model Termination {
   /// the only writer this table has.
   reference String
 
+  /// The reporting obligation this termination opened. At most one: see
+  /// {@link RegisterReportObligation}.
+  reportObligation RegisterReportObligation?
+
   createdAt DateTime @default(now())
 
   @@index([apartmentId, tookEffectOn])
   @@index([tookEffectOn])
   @@map("termination")
+}
+
+/// Which register event a reporting obligation is about.
+///
+/// Two values, because two of the three duties Lag (2026:484) 3 kap. lays on
+/// the association are computable from what this database records:
+///
+///   TRANSFER, an overgang under 3 kap. 3 §. Its window runs from the day the
+///   association decided on membership, which is a date of its own on
+///   {@link Transfer}.
+///
+///   TERMINATION, a bostadsratt having ceased under 3 kap. 4 §. Its window runs
+///   from the day it ceased, which is `Termination.tookEffectOn`.
+///
+/// What is deliberately absent is the third duty, the upplatelse of 3 kap. 2 §,
+/// whose window runs "inom tva veckor fran upplatelsen". A grant is recorded
+/// here as a Transfer with a null `fromPersonId`, and that is also what a
+/// transfer whose seller the register does not hold looks like, so the two are
+/// not separable from what is recorded today. Adding a GRANT value before they
+/// are would put a deadline on the wrong statutory paragraph.
+enum RegisterReportKind {
+  TRANSFER
+  TERMINATION
+}
+
+/// One dated duty to report a register event to the cooperative housing
+/// register (bostadsrattsregistret). Statutory tier.
+///
+/// Lag (2026:484) 3 kap. makes the association report a register event to
+/// Lantmateriet within two weeks, and 3 kap. 10 § lets Lantmateriet order a
+/// late report in under penalty of a fine. This table is the association's own
+/// record of those deadlines: one row per reportable event, stating which event,
+/// which date the window opened on, and the day it closes.
+///
+/// ## Written in the transaction that dates it
+///
+/// A row here is created by the same transaction as the register write that
+/// fixes its `triggeredOn`, never by a job that scans for events afterwards. A
+/// ledger built by a scan is a ledger that can be missing rows nobody notices,
+/// and the row that goes missing is a deadline. So:
+///
+///   A termination is recorded and its obligation written together
+///   (`recordTermination`), on `tookEffectOn`.
+///
+///   A transfer's obligation is written by the transaction that records the
+///   membership decision (`recordMembershipDecision`), on
+///   `membershipDecidedOn`. Not by the transfer's own insert: at that moment
+///   there is no decision date, and 3 kap. 3 § andra stycket runs the window
+///   from the decision and not from the transfer. An obligation written at the
+///   insert could only state a deadline the statute does not set.
+///
+/// Two consequences of that follow the statute rather than this model, and are
+/// gaps in coverage rather than in shape. A transfer to an acquirer who is
+/// already a member or falls outside the membership requirement has no decision
+/// to date and runs on the overgang instead (3 kap. 3 § andra stycket, second
+/// sentence), as does a bostadsratt that passed to the association (fjarde
+/// stycket); neither is distinguishable from a decision not yet taken, so
+/// neither gets a row. The same paragraph's forsta stycket also assigns the
+/// report to a juridical person rather than to the association in defined
+/// cases, and nothing here records that either.
+///
+/// ## Liens are deliberately absent
+///
+/// A pledge is reported by the panthavare and not by the association: 3 kap. 5 §
+/// puts the anmalan on the lienholder, who signs it together with the pledgor,
+/// and 6 § lets Lantmateriet authorise one to register pledges itself. So no
+/// lien note opens an obligation here, and none should be added: registration in
+/// the register replaces denuntiation to the association, which is why the
+/// pledge fee is being withdrawn from BRL 7 kap. 14 § at the same time.
+///
+/// ## Append-only, both mechanisms
+///
+/// Strictly append-only, on Termination's shape rather than Transfer's. The row
+/// states a statutory deadline: the event it is about cannot change, and neither
+/// can the date the law runs the window from, so there is no later state for an
+/// UPDATE to reach. Discharging the duty is a separate later fact about a report
+/// that was made, not an edit to this row. 20260910100000 puts a
+/// BEFORE UPDATE OR DELETE trigger and a statement-level TRUNCATE trigger on the
+/// table, and prisma/sql/harden-runtime-role.sql revokes UPDATE and DELETE from
+/// the runtime role. Both are needed: a trigger is switched off by the table's
+/// owner, and the application deliberately connects as a role that owns nothing.
+///
+/// ## The personal data on it
+///
+/// No person column. An obligation names an apartment and a register event, the
+/// way a lien note and a termination do, and which of them concern a given
+/// person is derived from the events already on that person's data subject
+/// access report rather than from a second rule of its own. A transfer's
+/// obligation is on the acquirer's report alone: `dueOn` less fourteen days is
+/// the membership decision date, which that report withholds from the seller on
+/// purpose.
+model RegisterReportObligation {
+  id String @id @default(cuid())
+
+  kind RegisterReportKind
+
+  /// The apartment the report is about, carried here as well as on the event.
+  ///
+  /// Restrict, for the reason Termination gives: a statutory record may not lose
+  /// what it was about, and a row that cannot be deleted cannot cascade. Denormalised
+  /// deliberately - the outstanding-duty question is asked per apartment and per
+  /// date across the whole ledger, and a row that had to be joined through two
+  /// nullable event references to say which apartment it concerns would be a
+  /// deadline that does not state its subject.
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
+  /// The transfer this obligation reports, when `kind` is TRANSFER.
+  ///
+  /// Unique: one anmalan per overgang, so a second row would be a second
+  /// deadline for one report, and nothing here can take either of them out
+  /// again. A CHECK in 20260910100000 requires exactly the reference that
+  /// matches `kind` and refuses the other.
+  transferId String?   @unique
+  transfer   Transfer? @relation(fields: [transferId], references: [id], onDelete: Restrict)
+
+  /// The termination this obligation reports, when `kind` is TERMINATION.
+  terminationId String?      @unique
+  termination   Termination? @relation(fields: [terminationId], references: [id], onDelete: Restrict)
+
+  /// The day the statutory two-week window opened.
+  ///
+  /// Stored rather than read back through the event, so the row says which date
+  /// the deadline was computed from without depending on that date still being
+  /// reachable and without a reader having to know which paragraph applied.
+  ///
+  /// A calendar date and not an instant, for the reason Termination.tookEffectOn
+  /// gives: the statute counts weeks from a day, and an instant stored at local
+  /// midnight is the previous day in UTC.
+  triggeredOn DateTime @db.Date
+
+  /// The day the report is due: `triggeredOn` plus fourteen days.
+  ///
+  /// Stored rather than computed on read, because it is what the ledger is
+  /// queried by, and a CHECK in 20260910100000 ties it to `triggeredOn` so no
+  /// writer - the service, a seed, an import or a migration - can record a
+  /// window that is not the statutory fourteen days.
+  dueOn DateTime @db.Date
+
+  createdAt DateTime @default(now())
+
+  /// What falls due next across the whole ledger, which is the queue's order.
+  @@index([dueOn])
+  /// This apartment's duties, in the order their windows opened.
+  @@index([apartmentId, triggeredOn])
+  @@map("register_report_obligation")
 }
 
 enum AuditAction {
@@ -825,6 +980,12 @@ enum AuditAction {
   /// subject is whoever signed up either way, so their access report shows a
   /// withdrawal somebody else decided on.
   EVENT_SIGNUP_WITHDRAWN
+  /// A duty to report a register event to the cooperative housing register was
+  /// entered in the ledger. Derived rather than decided: the actor is whoever
+  /// recorded the register event in the same transaction, and the entry is what
+  /// says which act produced the deadline. The register write has an entry of
+  /// its own, and neither says the other's dates.
+  REGISTER_REPORT_OBLIGATION_RECORDED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.

@@ -143,6 +143,11 @@ REVOKE DELETE ON public."lien_note" FROM openbrf_app;
 -- tenant-ownership that has ceased has no later state to reach, so a
 -- termination is as strictly append-only as the member register.
 REVOKE UPDATE, DELETE ON public."termination" FROM openbrf_app;
+-- The obligation ledger, on the same reading as the termination above it. A row
+-- states a statutory deadline: the event it reports cannot change, and neither
+-- can the date Lag (2026:484) 3 kap. runs the two weeks from, so there is no
+-- later state for an UPDATE to reach.
+REVOKE UPDATE, DELETE ON public."register_report_obligation" FROM openbrf_app;
 
 -- TRUNCATE is a separate privilege in Postgres and is not implied by DELETE,
 -- so the grants above never conferred it. Revoked explicitly anyway, because

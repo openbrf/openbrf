@@ -124,6 +124,39 @@ export interface ReportTermination {
   reference: string;
 }
 
+/**
+ * A duty to report one of this person's register events to the cooperative
+ * housing register (bostadsrattsregistret).
+ *
+ * Statutory tier and exempt from the purge, like the three sections above it.
+ * Here for GDPR art. 15(1)(c) rather than for the dates, which the transfer and
+ * termination sections already carry: the row is the association's only record
+ * that this person's data is to go to a recipient outside it, and that article
+ * gives the data subject the recipients "to whom the personal data have been or
+ * will be disclosed".
+ *
+ * Not keyed on a person, like the termination and lien note sections, and reached
+ * one step further out than either: an obligation names a register event, and
+ * which events are this person's is already answered by those sections. A
+ * termination's obligation follows the terminations `terminationsDuringHolding`
+ * selected; a transfer's follows the transfers, and only where this person
+ * acquired. On a relinquished transfer it is withheld, because `dueOn` less
+ * fourteen days is the day the association decided on the acquirer's membership -
+ * the value {@link ReportTransfer.membershipDecidedOn} withholds from the seller
+ * for that same reason, and a report stating a deadline instead would disclose it
+ * by subtraction.
+ */
+export interface ReportRegisterReportObligation {
+  obligationId: string;
+  /** Which register event the report is about. */
+  kind: "TRANSFER" | "TERMINATION";
+  apartment: string;
+  /** The day the statutory two-week window opened. */
+  triggeredOn: string;
+  /** The day the report falls due: fourteen days after the day above. */
+  dueOn: string;
+}
+
 export interface ReportPublicationConsent {
   scope: "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
   grantedOn: string;
@@ -377,6 +410,7 @@ export interface DataSubjectReport {
   transfers: ReportTransfer[];
   terminations: ReportTermination[];
   lienNotes: ReportLienNote[];
+  registerReportObligations: ReportRegisterReportObligation[];
   publicationConsents: ReportPublicationConsent[];
   legalHolds: {
     holdId: string;

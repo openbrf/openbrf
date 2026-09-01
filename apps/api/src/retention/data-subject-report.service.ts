@@ -49,6 +49,7 @@ const SECTIONS = [
   "transfers",
   "terminations",
   "lienNotes",
+  "registerReportObligations",
   "publicationConsents",
   "legalHolds",
   "issues",
@@ -91,7 +92,8 @@ const SECTIONS = [
  *
  * Art. 15 asks for the personal data, not for the tables it happens to live
  * in, so the report crosses both tiers. It carries the statutory archive -
- * member register entries, transfers, terminations and lien notes - even
+ * member register entries, transfers, terminations, lien notes and the duties to
+ * report a register event onward - even
  * though those are exempt from erasure, because exemption from purging is not
  * exemption from access: a person is entitled to see what the cooperative
  * keeps about them and to be told that it is kept because the law requires it,
@@ -104,6 +106,16 @@ const SECTIONS = [
  * directions for the two: a lien note is left out on a boundary day because it
  * would be a third party's financial position, and a termination is kept
  * because it is normally the event that ended the holding.
+ *
+ * A reporting obligation is keyed on neither a person nor an apartment but on
+ * the register event it is about, so it is reached one step further out again:
+ * through the transfers and terminations those rules have already selected,
+ * rather than through a derivation of its own. It is on the report for art.
+ * 15(1)(c), which gives the data subject the recipients their data will be
+ * disclosed to, and this ledger is the association's only record of one. A
+ * transfer's obligation goes to the acquirer alone: its due date less fourteen
+ * days is the membership decision date, which this report withholds from the
+ * seller deliberately.
  *
  * It carries issues and archived documents that reference the person even
  * though this train does not purge either. A report that omitted rows because
@@ -348,6 +360,48 @@ export class DataSubjectReportService {
             }),
             holdings,
           );
+
+    /*
+     * The duties to report a register event onward, reached through the events
+     * this report already carries rather than through a rule of their own.
+     *
+     * A termination's obligation follows every termination selected above, so it
+     * inherits that boundary rule whole. A transfer's follows the transfers this
+     * person acquired, and never those they sold on: the due date less fourteen
+     * days is the day the association decided on the acquirer's membership, and
+     * the transfer section withholds that value from the seller on purpose, so
+     * listing the deadline would hand it back by subtraction.
+     */
+    const reportedTerminationIds = terminations.map(
+      (termination) => termination.id,
+    );
+    const acquiredTransferIds = transfers
+      .filter((transfer) => transfer.toPersonId === personId)
+      .map((transfer) => transfer.id);
+    const registerReportObligations =
+      reportedTerminationIds.length === 0 && acquiredTransferIds.length === 0
+        ? []
+        : await tx.registerReportObligation.findMany({
+            where: {
+              OR: [
+                { terminationId: { in: reportedTerminationIds } },
+                { transferId: { in: acquiredTransferIds } },
+              ],
+            },
+            orderBy: [{ dueOn: "asc" }],
+            select: {
+              id: true,
+              kind: true,
+              triggeredOn: true,
+              dueOn: true,
+              apartment: {
+                select: {
+                  number: true,
+                  address: { select: { street: true, number: true } },
+                },
+              },
+            },
+          });
 
     const issues = await tx.issue.findMany({
       where: { reporterPersonId: personId },
@@ -601,6 +655,15 @@ export class DataSubjectReportService {
         notedOn: toIsoDate(note.notedOn) ?? "",
         releasedOn: toIsoDate(note.releasedOn),
       })),
+      registerReportObligations: registerReportObligations.map(
+        (obligation) => ({
+          obligationId: obligation.id,
+          kind: obligation.kind,
+          apartment: `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`,
+          triggeredOn: toIsoDate(obligation.triggeredOn) ?? "",
+          dueOn: toIsoDate(obligation.dueOn) ?? "",
+        }),
+      ),
       publicationConsents: person.publicationConsents.map((consent) => ({
         scope: consent.scope,
         grantedOn: consent.grantedAt.toISOString(),
