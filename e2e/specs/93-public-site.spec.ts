@@ -244,6 +244,10 @@ test("no spec addresses the client at the instance root", async () => {
     // The data blocks are read on the association's own website, which
     // really is at the root: a visitor opens the page by name.
     "27-site-data-blocks.spec.ts",
+    // The association's calendar is at /kalender on the website itself, and
+    // what that spec is about is what a visitor with no account is and is not
+    // shown there.
+    "29-events.spec.ts",
     "93-public-site.spec.ts",
   ]);
 
