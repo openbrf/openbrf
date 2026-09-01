@@ -327,10 +327,11 @@ export interface ReportNewsComment {
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
- * The one section of this report that is not keyed on a person column. A lien
- * note names an apartment and a creditor, never a person, so which of them are
- * this person's is derived from the member register - see `holding-periods.ts`
- * for the rule and for why it errs towards leaving a note out.
+ * The first of the two sections of this report that are not keyed on a person
+ * column; `ReportTermination` above is the other. A lien note names an apartment
+ * and a creditor, never a person, so which of them are this person's is derived
+ * from the member register - see `holding-periods.ts` for the rule and for why
+ * it errs towards leaving a note out.
  */
 export interface ReportLienNote {
   lienNoteId: string;

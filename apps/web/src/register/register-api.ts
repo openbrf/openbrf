@@ -402,7 +402,7 @@ export interface DataSubjectReport {
   /**
    * Bookings this person made.
    *
-   * One of the three sections that state a retention date per row: a booking is
+   * One of the four sections that state a retention date per row: a booking is
    * purged a year after the booked period ended, on its own clock rather than
    * the residency one, so the date at the foot of the document does not govern
    * it.
