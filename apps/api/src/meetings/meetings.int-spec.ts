@@ -1181,6 +1181,88 @@ describe("a member's proxy authorisation", () => {
     expect(all.filter((row) => row.withdrawnAt !== null)).toHaveLength(1);
   });
 
+  it("waits for the meeting's lock rather than for the member's", async () => {
+    /*
+     * The other rule the lock protects, and the reason its key is the meeting.
+     * The limit BRL 9 kap. 14 § 4 sets is a count of one proxy holder's standing
+     * authorisations, so two registrations naming different members for one
+     * holder each read a count below the limit and each write - and a lock keyed
+     * on the member would not stop them, because they name different members and
+     * would take different keys.
+     *
+     * Asserted by holding the key from a transaction of this suite's own and
+     * watching a registration block on it, rather than by racing two requests
+     * and hoping they overlap. A race here passes with no lock at all whenever
+     * the two transactions happen not to interleave, which is most of the time -
+     * it would be a test that passes through the regression it exists for.
+     */
+    const meetingId = await arrangeMeeting();
+    const key = `meeting-proxy:${meetingId}`;
+
+    let release = (): void => {
+      /* replaced below */
+    };
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await holding;
+      },
+      { timeout: 20_000 },
+    );
+
+    const pending = registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+    });
+    const blocked = await Promise.race([
+      pending.then(() => "answered"),
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("blocked"), 750),
+      ),
+    ]);
+    // Blocked, because the registration wants the key this suite is holding. A
+    // registration that took a member-keyed lock, or none, would have answered.
+    expect(blocked).toBe("blocked");
+
+    release();
+    await holder;
+    expect((await pending).statusCode).toBe(201);
+  });
+
+  it("refuses a second member for one proxy holder however they arrive", async () => {
+    // The limit itself, once the lock has done its work: the second
+    // registration reads the first and is refused rather than written.
+    const meetingId = await arrangeMeeting();
+    const [first, second] = await Promise.all([
+      registerProxy(meetingId, {
+        memberPersonId: soloMember.personId,
+        proxyHolderPersonId: twoHoldings.personId,
+      }),
+      registerProxy(meetingId, {
+        memberPersonId: otherMember.personId,
+        proxyHolderPersonId: twoHoldings.personId,
+      }),
+    ]);
+
+    // Sorted with a comparator, because the default sorts numbers as strings.
+    const codes = [first?.statusCode, second?.statusCode].sort(
+      (left, right) => (left ?? 0) - (right ?? 0),
+    );
+    expect(codes).toEqual([201, 403]);
+    expect(
+      await prisma.proxyAuthorisation.count({
+        where: {
+          meetingId,
+          proxyHolderPersonId: twoHoldings.personId,
+          withdrawnAt: null,
+        },
+      }),
+    ).toBe(1);
+  });
+
   it("takes a member re-appointing a proxy holder they had withdrawn on one row", async () => {
     // The sign-up's pattern, applied where it fits: to the row that person
     // already has, rather than across two people.
@@ -1460,7 +1542,7 @@ describe("what running a meeting records", () => {
     expect(arranged?.targetPersonId).toBeNull();
   });
 
-  it("names the member who gave the authority as the subject", async () => {
+  it("names the member whose right it authorises as the subject", async () => {
     /*
      * It is their voting right that somebody else will exercise, so their own
      * access report is where that has to be visible. The proxy holder reaches

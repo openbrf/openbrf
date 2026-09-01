@@ -1127,7 +1127,7 @@ enum AuditAction {
   /// own report reaches it.
   MEETING_PROXY_REGISTERED
   /// A proxy authorisation was withdrawn, by the member or by the board. The
-  /// subject stays the member who gave the authority.
+  /// subject stays the member whose right it authorised.
   MEETING_PROXY_WITHDRAWN
   /// The chair recorded what the meeting decided on one agenda item, as the
   /// counts and the outcome. No subject: a decision of the meeting is about the
@@ -3643,14 +3643,14 @@ model MeetingAttendance {
 /// have a personal interest in it and the data subject access report answers
 /// for either role - the pattern the audit log's own two person columns set,
 /// rather than a new one. Which role a row reached the report through is stated
-/// on it, because "I gave somebody my vote" and "somebody gave me theirs" are
+/// on it, because "I authorised somebody to exercise my vote" and "somebody
 /// different facts about different people.
 model ProxyAuthorisation {
   id        String  @id @default(cuid())
   meetingId String
   meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
-  /// The member who gave the authority. A plain column, like every person
+  /// The member whose right this authorises somebody else to exercise. A plain
   /// reference outside the registers.
   memberPersonId String
 

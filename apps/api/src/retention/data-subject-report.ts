@@ -419,8 +419,9 @@ export interface ReportMeetingAttendance {
  *
  * An authorisation names two people: the member who gave their voting right
  * away, and the proxy holder who was to exercise it. Both are facts about the
- * person concerned, and they are different facts - "I gave somebody my vote"
- * and "somebody gave me theirs" - so `role` says which side this row reached
+ * person concerned, and they are different facts - "I authorised somebody to
+ * exercise my vote" and "somebody authorised me to exercise theirs" - so `role`
+ * says which side this row reached
  * the report from. That is the audit log's own pattern rather than a new one:
  * {@link ReportAuditEntry} carries the same discriminator over the log's two
  * person columns, for the same reason. A report answering for only one of the

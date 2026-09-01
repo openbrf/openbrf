@@ -585,13 +585,14 @@ export class MeetingService {
   ): Promise<ProxyAuthorisationView> {
     return this.prisma.$transaction(async (tx) => {
       /*
-       * Before anything about this member is read. The
-       * one-standing-authorisation rule is a read followed by a write and no
-       * index can state it, so without this two board members registering
-       * different proxy holders for one member would each read no standing
-       * authorisation and each write one - see `proxy-lock.ts`.
+       * Before anything about this meeting's authorisations is read. Two rules
+       * here are a read followed by a write and neither can be an index: a
+       * member has at most one proxy holder, and a proxy holder carries at most
+       * as many members as the bylaws allow. They are keyed on different people,
+       * so one lock over the meeting is what covers both - `proxy-lock.ts` says
+       * why a lock per person would either leave one rule racing or deadlock.
        */
-      await lockProxyAuthorisations(tx, meetingId, input.memberPersonId);
+      await lockProxyAuthorisations(tx, meetingId);
 
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
@@ -711,7 +712,7 @@ export class MeetingService {
           action: "MEETING_PROXY_REGISTERED",
           actorPersonId,
           /*
-           * The member who gave the authority is the subject. It is their
+           * The member whose right it authorises is the subject. It is their
            * voting right that somebody else will exercise, so their own access
            * report is where that has to be visible. The proxy holder is not a
            * second target column here - the log has one - and reaches their own

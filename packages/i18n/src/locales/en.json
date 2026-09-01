@@ -507,8 +507,8 @@
           "actor": "This person acted"
         },
         "proxyRole": {
-          "member": "Gave the authority",
-          "proxyHolder": "Held the authority"
+          "member": "Authorised somebody",
+          "proxyHolder": "Authorised by somebody"
         },
         "yes": "Yes",
         "no": "No"

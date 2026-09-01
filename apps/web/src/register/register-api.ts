@@ -555,13 +555,12 @@ export interface DataSubjectReport {
     withdrawnAt: string | null;
   }[];
   /**
-   * Written authorities for a proxy holder (fullmakt) naming this person, on
-   * either side of them.
+   * Proxy authorisations (fullmakt) naming this person, on either side of them.
    *
    * `role` says which side, exactly as it does on the audit entries below and
-   * for the same reason: an authorisation names the member who gave their vote
-   * away and the proxy holder who held it, and those are two different facts
-   * about two different people. A report answering for only one of the roles
+   * for the same reason: an authorisation names the member who authorised
+   * somebody to exercise their vote and the proxy holder who exercised it, and
+   * those are two different facts about two different people. A report answering for only one of the roles
    * would leave a proxy holder unable to see that the association holds a
    * record of them carrying a neighbour's vote.
    *

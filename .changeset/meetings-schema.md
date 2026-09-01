@@ -108,7 +108,8 @@ voting is separate work.
 Same change, because this is the change that creates the tables: the data
 subject access report carries a person's attendance at a general meeting and
 every authority naming them. The proxy section answers for both roles - an
-authorisation names the member who gave their vote away and the proxy holder who
+authorisation names the member who authorised somebody to exercise their vote
+and the proxy holder who
 carried it, which are two different facts about two different people - on the
 pattern the audit log's own two person columns already set. Neither section
 states an erasure date, and that is an answer rather than an omission: the
