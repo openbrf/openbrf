@@ -38,3 +38,11 @@ overrides:
   # server built from the other: @fastify/static's `reply.sendFile` augments a
   # FastifyReply the application never sees. One copy, the declared one.
   fastify: "5.12.1"
+  # GHSA-rgwj-5xj2-c3m3: the compressed MySQL protocol handler inflates a
+  # packet with no output cap, so a hostile server can expand a small packet
+  # into gigabytes of client memory. Fixed in 3.23.1. The Prisma CLI depends on
+  # mysql2 at an exact 3.15.3 and better-auth resolves the same copy as an
+  # optional peer; this project speaks PostgreSQL and never opens a MySQL
+  # connection, so the handler is unreachable, but the pin is what the CLI
+  # ships and only an override moves it.
+  mysql2: "^3.23.1"
