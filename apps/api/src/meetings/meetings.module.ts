@@ -20,12 +20,12 @@ import { MeetingsController } from "./meetings.controller";
  * No purge service. The other person-linked modules arrive with one because
  * their rows are held to run a service and their purpose ends when the service
  * does - a booking a year after the booked period, a motion two years after it
- * closed. An attendance line and a proxy authorisation are part of the record of a
- * general meeting: the register is taken into or appended to the protokoll (EFL
- * 6 kap. 39 §), which 40 § has kept safely, so a row erased on a clock of its
- * own would take part of the association's minutes with it. Both still have a
- * section in the data subject access report, because exemption from erasure has
- * never been exemption from access.
+ * closed. An attendance line and a proxy authorisation are part of the record
+ * of a general meeting: the register is taken into or appended to the protokoll
+ * (EFL 6 kap. 39 §), which 40 § has kept safely, so a row erased on a clock of
+ * its own would take part of the association's minutes with it. Both still have
+ * a section in the data subject access report, because exemption from erasure
+ * has never been exemption from access.
  *
  * The database, the audit log and the principal the controller reads all come
  * from global modules, which is why nothing is imported here.

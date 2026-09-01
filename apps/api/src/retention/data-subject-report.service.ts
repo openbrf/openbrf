@@ -134,14 +134,14 @@ const SECTIONS = [
  * says when it goes. A motion still with the board states no date at all: it has
  * no closing date to count from, and the association is still processing it.
  *
- * The two general meeting sections state none, and that is an answer rather than
- * an omission: attendance at a stamma and the written authority a vote was
- * exercised under are part of the meeting's record, whose lasting form is the
- * protokoll that EFL 6 kap. 39 § has the voting register taken into and 40 § has
- * kept safely. So they sit with the statutory register sections above - kept
- * because the law requires the record - rather than with the four that go on a
- * clock of their own. A section added here that does purge takes the count to
- * five.
+ * The two general meeting sections state none, and that is an answer rather
+ * than an omission: attendance at a general meeting and the written authority a
+ * vote was exercised under are part of the meeting's record, whose lasting form
+ * is the protokoll that EFL 6 kap. 39 § has the voting register taken into and
+ * 40 § has kept safely. So they sit with the statutory register sections above
+ * - kept because the law requires the record - rather than with the four that
+ * go on a clock of their own. A section added here that does purge takes the
+ * count to five.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -466,9 +466,9 @@ export class DataSubjectReportService {
     });
 
     /*
-     * Motions this person put to the general meeting. `submittedByPersonId` is a
-     * plain column and not a relation, for the reason the bookings query above
-     * gives, so this is a query of its own.
+     * Motions this person put to the general meeting. `submittedByPersonId` is
+     * a plain column and not a relation, for the reason the bookings query
+     * above gives, so this is a query of its own.
      */
     const motions = await tx.motion.findMany({
       where: { submittedByPersonId: personId },
@@ -535,9 +535,9 @@ export class DataSubjectReportService {
      * the kind reach the document without being copied onto the line.
      *
      * One person can be on one meeting's list twice - as a member and as an
-     * ombud, which is the ordinary case for somebody arriving with a
-     * neighbour's fullmakt - so this section has a row per capacity rather than
-     * per meeting.
+     * proxy holder, which is the ordinary case for somebody arriving with a
+     * neighbour's proxy authorisation - so this section has a row per capacity
+     * rather than per meeting.
      */
     const meetingAttendances = await tx.meetingAttendance.findMany({
       where: { personId },
@@ -553,11 +553,12 @@ export class DataSubjectReportService {
     });
 
     /*
-     * Every written authority for an ombud (fullmakt) naming this person, either
-     * way round. The appointment names the member who gave the authority and the
-     * ombud who held it, and both of those are facts about the person concerned,
-     * so this is one query with an OR - the shape the audit log query below uses
-     * over its own two person columns, and for the same reason.
+     * Every written authority for a proxy holder (fullmakt) naming this person,
+     * either way round. The appointment names the member who gave the authority
+     * and the proxy holder who held it, and both of those are facts about the
+     * person concerned, so this is one query with an OR - the shape the audit
+     * log query below uses over its own two person columns, and for the same
+     * reason.
      *
      * A row can match both sides at once only if somebody appointed themselves,
      * which the table refuses outright, so the role each row carries is decided
@@ -852,8 +853,9 @@ export class DataSubjectReportService {
           meetingKind: attendance.meeting.kind,
           capacity: attendance.capacity,
           mode: attendance.mode,
-          // An identifier and never a name: the member or ombud a bitrade came
-          // with is a third party on a document the association hands over.
+          // An identifier and never a name: the member or proxy holder an
+          // assistant came with is a third party on a document the association
+          // hands over.
           onBehalfOfPersonId: attendance.onBehalfOfPersonId,
           withdrawnAt: attendance.withdrawnAt?.toISOString() ?? null,
           // No erasure date, and the section's own comment says why: nothing

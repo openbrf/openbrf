@@ -22,10 +22,10 @@ import {
  *   Members holding one bostadsratt jointly have one vote between them (BRL
  *   9 kap. 14 § 1, second sentence).
  *
- *   A bitrade has no vote (EFL 6 kap. 7 § gives it the right to speak).
+ *   An assistant has no vote (EFL 6 kap. 7 § gives it the right to speak).
  *
- *   An ombud's authority is measured against the meeting day and not against the
- *   day it was registered (EFL 6 kap. 4 § andra stycket).
+ * A proxy holder's authority is measured against the meeting day and not
+ * against the day it was registered (EFL 6 kap. 4 § andra stycket).
  */
 
 const day = (text: string): Date => {
@@ -121,7 +121,7 @@ function holdingsImpliedBy(
   return implied;
 }
 
-function roll(input: {
+function drawRegister(input: {
   events?: readonly ResolvedRegisterEvent[];
   holdings?: readonly RollHolding[];
   attendances?: readonly RollAttendance[];
@@ -151,7 +151,7 @@ describe("one vote per membership", () => {
      * Two lines here would be visible in the room as a household voting twice,
      * which is the kind of defect a meeting cannot undo afterwards.
      */
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1"), entry("maja", "apartment-2")],
     });
 
@@ -172,7 +172,7 @@ describe("one vote per membership", () => {
      * BRL 9 kap. 14 § 1, second sentence, and unconditional: unlike the storage
      * limitation in the same paragraph it does not depend on the bylaws.
      */
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1"), entry("erik", "apartment-1")],
     });
 
@@ -186,10 +186,10 @@ describe("one vote per membership", () => {
      * Maja holds one apartment with Erik and another with Nils. She cannot have
      * one vote with each of them without having two, which the first rule
      * forbids, so the three memberships are one vote and the line names all of
-     * them - which is what lets the meeting change the voting register under EFL
-     * 27 § if it reads the paragraph differently.
+     * them - which is what lets the meeting change the voting register under
+     * EFL 27 § if it reads the paragraph differently.
      */
-    const result = roll({
+    const result = drawRegister({
       events: [
         entry("maja", "apartment-1"),
         entry("erik", "apartment-1"),
@@ -210,7 +210,7 @@ describe("one vote per membership", () => {
     // The control for the two rules above: merging is what a shared apartment
     // does, and a test that only asserted merges would pass against a register that
     // merged everything.
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1"), entry("erik", "apartment-2")],
     });
 
@@ -226,7 +226,10 @@ describe("one vote per membership", () => {
     // apartment being recorded - and the vote belongs to the membership, so
     // dropping the line would take somebody's vote away over a gap in the
     // archive.
-    const result = roll({ events: [entry("maja", null)], holdings: [] });
+    const result = drawRegister({
+      events: [entry("maja", null)],
+      holdings: [],
+    });
 
     expect(result.votesTotal).toBe(1);
     expect(result.lines[0]?.apartmentIds).toEqual([]);
@@ -235,7 +238,7 @@ describe("one vote per membership", () => {
 
 describe("membership on the meeting day", () => {
   it("leaves out somebody whose membership ended before the meeting", () => {
-    const result = roll({
+    const result = drawRegister({
       events: [
         entry("maja", "apartment-1", "2020-01-01"),
         exit("maja", "apartment-1", "2027-04-30"),
@@ -246,7 +249,7 @@ describe("membership on the meeting day", () => {
   });
 
   it("counts a membership that ends after the meeting", () => {
-    const result = roll({
+    const result = drawRegister({
       events: [
         entry("maja", "apartment-1", "2020-01-01"),
         exit("maja", "apartment-1", "2027-06-01"),
@@ -260,7 +263,7 @@ describe("membership on the meeting day", () => {
     // The move-out convention every other reader of a dated close in this
     // codebase follows: the closing date is the first day not held. A meeting on
     // the day a membership ended is a meeting they have no vote at.
-    const result = roll({
+    const result = drawRegister({
       events: [
         entry("maja", "apartment-1", "2020-01-01"),
         exit("maja", "apartment-1", "2027-05-12"),
@@ -271,7 +274,7 @@ describe("membership on the meeting day", () => {
   });
 
   it("leaves out a membership that began after the meeting day", () => {
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1", "2027-06-01")],
     });
 
@@ -293,7 +296,7 @@ describe("membership on the meeting day", () => {
      *
      * The residencies say what actually happened, and they are passed as such.
      */
-    const result = roll({
+    const result = drawRegister({
       events: [
         entry("maja", "apartment-1", "2020-01-01"),
         entry("maja", "apartment-2", "2020-01-01"),
@@ -317,7 +320,7 @@ describe("membership on the meeting day", () => {
      * they held. The vote stands, because EFL 6 kap. 3 § gives it to the member
      * and not to the holding, and the line merges with nobody.
      */
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1", "2020-01-01")],
       holdings: [],
     });
@@ -334,7 +337,7 @@ describe("who is exercising a vote", () => {
   ];
 
   it("counts a member present themselves", () => {
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("maja", "MEMBER")],
     });
@@ -343,18 +346,20 @@ describe("who is exercising a vote", () => {
     expect(result.votesTotal).toBe(2);
   });
 
-  it("gives a bitrade no vote", () => {
+  it("gives an assistant no vote", () => {
     /*
-     * EFL 6 kap. 7 § lets a member or an ombud bring at most one bitrade, who
-     * may speak at the meeting. That is the whole of what it grants. A bitrade
-     * counted as a vote would be a vote nobody in the room believes they cast.
+     * EFL 6 kap. 7 § lets a member or a proxy holder bring at most one
+     * assistant, who may speak at the meeting. That is the whole of what it
+     * grants. An assistant counted as a vote would be a vote nobody in the room
+     * believes they cast.
      *
-     * The bitrade here is a member of the association in their own right, which
-     * is the case that would slip past a check written against the register
-     * rather than against the capacity: Erik holds apartment-2 and is present
-     * only as Maja's bitrade, so his own vote is not in the room either.
+     * The assistant here is a member of the association in their own right,
+     * which is the case that would slip past a check written against the
+     * register rather than against the capacity: Erik holds apartment-2 and is
+     * present only as Maja's assistant, so his own vote is not in the room
+     * either.
      */
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("erik", "ASSISTANT")],
     });
@@ -368,7 +373,7 @@ describe("who is exercising a vote", () => {
   });
 
   it("counts a vote once when a joint holder is present", () => {
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1"), entry("erik", "apartment-1")],
       attendances: [present("maja", "MEMBER"), present("erik", "MEMBER")],
     });
@@ -380,9 +385,9 @@ describe("who is exercising a vote", () => {
 
   it("counts a member and the neighbour's vote they carry as two", () => {
     // One body, two lines, two votes: the ordinary case for somebody arriving
-    // with a fullmakt, and the reason the capacity belongs to the line rather
-    // than to the person.
-    const result = roll({
+    // with a proxy authorisation, and the reason the capacity belongs to the
+    // line rather than to the person.
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("maja", "MEMBER"), present("maja", "PROXY_HOLDER")],
       proxyAuthorisations: [authority("erik", "maja")],
@@ -392,14 +397,14 @@ describe("who is exercising a vote", () => {
     expect(result.proxyHoldersWithoutVote).toEqual([]);
   });
 
-  it("does not count an ombud whose member turned up", () => {
+  it("does not count a proxy holder whose member turned up", () => {
     /*
-     * EFL 6 kap. 4 § has the ombud act for "en medlem som inte ar personligen
-     * narvarande", so a member who came exercises their own right and the
-     * authority has nothing left to do. Counting both would put two
+     * EFL 6 kap. 4 § has the proxy holder act for "en medlem som inte ar
+     * personligen narvarande", so a member who came exercises their own right
+     * and the authority has nothing left to do. Counting both would put two
      * representatives on a line that carries one vote.
      */
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("erik", "MEMBER"), present("maja", "PROXY_HOLDER")],
       proxyAuthorisations: [authority("erik", "maja")],
@@ -415,13 +420,13 @@ describe("who is exercising a vote", () => {
 
   it("refuses an authority that has run out on the meeting day", () => {
     /*
-     * EFL 6 kap. 4 § andra stycket: a fullmakt holds for at most one year from
-     * the day it was issued. Asked here rather than trusted from the
-     * registration, because the meeting day can be moved after the board checked
-     * it - and a register that trusted the write would seat an ombud whose authority
-     * had expired in between.
+     * EFL 6 kap. 4 § andra stycket: a proxy authorisation holds for at most one
+     * year from the day it was issued. Asked here rather than trusted from the
+     * registration, because the meeting day can be moved after the board
+     * checked it - and a register that trusted the write would seat a proxy
+     * holder whose authority had expired in between.
      */
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("maja", "PROXY_HOLDER")],
       proxyAuthorisations: [authority("erik", "maja", "2026-05-11")],
@@ -435,7 +440,7 @@ describe("who is exercising a vote", () => {
     // The far edge of the same rule, and the control for it: a year to the day
     // still holds, so a test that only asserted the refusal would pass against
     // an implementation that refused everything older than a month.
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("maja", "PROXY_HOLDER")],
       proxyAuthorisations: [authority("erik", "maja", "2026-05-12")],
@@ -445,7 +450,7 @@ describe("who is exercising a vote", () => {
   });
 
   it("ignores an authority that was taken back", () => {
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("maja", "PROXY_HOLDER")],
       proxyAuthorisations: [
@@ -457,7 +462,7 @@ describe("who is exercising a vote", () => {
   });
 
   it("ignores a line the board struck off the list", () => {
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [
         { personId: "maja", capacity: "MEMBER", withdrawnAt: new Date() },
@@ -474,7 +479,7 @@ describe("who is exercising a vote", () => {
      * like. Reported rather than dropped: a name on the list at the door with no
      * line here is exactly what the chair has to be told about.
      */
-    const result = roll({
+    const result = drawRegister({
       events: twoHouseholds,
       attendances: [present("nils", "MEMBER")],
     });
@@ -490,13 +495,13 @@ describe("the bylaws clause the platform does not apply", () => {
      * BRL 9 kap. 14 § 1 permits the bylaws to limit the vote of a member holding
      * nothing but a garage, a store or other storage space. The clause turns on
      * what a space is used for and nothing in this platform records that, so the
-     * roll states that the clause stands and the meeting applies it - which is
+     * register states that the clause stands and the meeting applies it -
      * where EFL 6 kap. 27 § puts the decision in any case.
      *
      * Asserted as a vote that is still counted, because the failure to guard
      * against is a register that quietly subtracted one on a guess.
      */
-    const result = roll({
+    const result = drawRegister({
       events: [entry("maja", "apartment-1")],
       storageOnlyVoteLimited: true,
     });

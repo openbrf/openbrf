@@ -856,7 +856,7 @@ export class SettingsService {
     // The clause that is a number, because it is the one whose effect a board
     // reads back. The three flags are in the response.
     this.logger.log(
-      `Meeting bylaws recorded; one ombud may represent ${String(stored.maxMembersPerProxyHolder)} members`,
+      `Meeting bylaws recorded; one proxy holder may represent ${String(stored.maxMembersPerProxyHolder)} members`,
     );
     return { meetingBylaws: stored };
   }

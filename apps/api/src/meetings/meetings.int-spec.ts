@@ -30,13 +30,13 @@ import type { MeetingSummaryView, MeetingView } from "./meeting.service";
  * Members holding one bostadsratt jointly have one vote between them (BRL 9 kap.
  * 14 § 1, second sentence, and unconditional).
  *
- * An ombud may represent as many members as the bylaws allow and no more, which
- * for a housing cooperative is one unless the bylaws say otherwise (BRL 9 kap.
- * 14 § 4, replacing EFL 6 kap. 5 §'s three). Asserted at both settings, because
- * the refusal alone would pass against an implementation that refused every
- * second appointment.
+ * A proxy holder may represent as many members as the bylaws allow and no more,
+ * which for a housing cooperative is one unless the bylaws say otherwise (BRL 9
+ * kap. 14 § 4, replacing EFL 6 kap. 5 §'s three). Asserted at both settings,
+ * because the refusal alone would pass against an implementation that refused
+ * every second appointment.
  *
- * A bitrade is on the list EFL 6 kap. 27 § requires and carries no vote (EFL
+ * An assistant is on the list EFL 6 kap. 27 § requires and carries no vote (EFL
  * 6 kap. 7 § gives it the right to speak and nothing else).
  *
  * The audiences are split at the controller: the board reaches the module, a
@@ -87,7 +87,7 @@ const jointSecond = {
   personId: `mt-joint-2-${suffix}`,
   email: `mt-joint-2-${suffix}@exempel.se`,
 };
-/** One apartment each: the two members whose votes an ombud may carry. */
+/** One apartment each: the two members whose votes a proxy holder may carry. */
 const soloMember = {
   personId: `mt-solo-${suffix}`,
   email: `mt-solo-${suffix}@exempel.se`,
@@ -151,14 +151,15 @@ const createdMeetingIds: string[] = [];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The day the meetings are held on, and the day a fullmakt was signed.
+ * The day the meetings are held on, and the day a proxy authorisation was
+ * signed.
  *
  * Relative to now rather than a literal date, for the reason every other suite
  * anchors its fixtures that way: this database is shared and a literal would
  * drift out of every window measured from today - here the year EFL 6 kap. 4 §
- * gives a fullmakt. Built through the association's own calendar because the
- * columns are `@db.Date`, and a date column read as an instant is yesterday's
- * date for the two hours a night Stockholm runs ahead of UTC.
+ * gives a proxy authorisation. Built through the association's own calendar
+ * because the columns are `@db.Date`, and a date column read as an instant is
+ * yesterday's date for the two hours a night Stockholm runs ahead of UTC.
  */
 const today = localDayOf(new Date());
 const MEETING_DAY = dateColumnOf(today);
@@ -526,9 +527,9 @@ beforeAll(async () => {
   /*
    * The board member holds no tenant-ownership, deliberately. `meetings:manage`
    * is the board's office and not a member's right - what a member holds at a
-   * stamma is the right to attend, speak and vote (EFL 6 kap. 2-3 §§), none of
-   * which is a thing this platform does - so a board member who is not a member
-   * must still reach the whole module.
+   * general meeting is the right to attend, speak and vote (EFL 6 kap. 2-3 §§),
+   * none of which is a thing this platform does - so a board member who is not
+   * a member must still reach the whole module.
    */
   await prisma.systemRole.create({
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
@@ -789,15 +790,16 @@ describe("checking people in", () => {
     ).toEqual([jointFirst.personId, jointSecond.personId].sort());
   });
 
-  it("gives a bitrade no vote, and puts them on the list", async () => {
+  it("gives an assistant no vote, and puts them on the list", async () => {
     /*
-     * EFL 6 kap. 7 § lets a member or an ombud bring at most one bitrade, who
-     * may speak at the meeting. That is the whole of what it grants.
+     * EFL 6 kap. 7 § lets a member or a proxy holder bring at most one
+     * assistant, who may speak at the meeting. That is the whole of what it
+     * grants.
      *
-     * The bitrade here is a member of the association in her own right, which is
-     * the case that would slip past a check written against the register rather
-     * than against the capacity: Sofia holds an apartment and is present only as
-     * Maja's bitrade, so her own vote is not in the room either.
+     * The assistant here is a member of the association in her own right, which
+     * is the case that would slip past a check written against the register
+     * rather than against the capacity: Sofia holds an apartment and is present
+     * only as Maja's assistant, so her own vote is not in the room either.
      */
     const meetingId = await arrangeMeeting();
     expect(
@@ -827,8 +829,8 @@ describe("checking people in", () => {
 
   it("refuses a member's line that names somebody who brought them", async () => {
     /*
-     * A member is nobody's stand-in and an ombud's principals are the
-     * authorities they hold, so only a bitrade came with anybody - which the
+     * A member is nobody's stand-in and a proxy holder's principals are the
+     * authorities they hold, so only an assistant came with anybody - which the
      * table also states as a check constraint. Refused rather than dropped,
      * because a field the server silently ignored is a defect nothing surfaces.
      */
@@ -845,7 +847,7 @@ describe("checking people in", () => {
     );
   });
 
-  it("refuses a bitrade nobody on the list brought", async () => {
+  it("refuses an assistant nobody on the list brought", async () => {
     const meetingId = await arrangeMeeting();
     const response = await checkIn(meetingId, {
       personId: soloMember.personId,
@@ -900,8 +902,8 @@ describe("checking people in", () => {
   });
 });
 
-describe("a member's written authority for an ombud", () => {
-  it("lets the ombud exercise an absent member's vote", async () => {
+describe("a member's written authority for a proxy holder", () => {
+  it("lets the proxy holder exercise an absent member's vote", async () => {
     const meetingId = await arrangeMeeting();
     expect(
       (
@@ -921,19 +923,20 @@ describe("a member's written authority for an ombud", () => {
     ).toBe(201);
 
     const meeting = await readMeeting(meetingId);
-    // Sofia's vote is in the room and Maja's is not: she came as an ombud only.
+    // Sofia's vote is in the room and Maja's is not: she came as a proxy holder
+    // only.
     expect(lineOf(meeting, soloMember.personId)?.votePresent).toBe(true);
     expect(lineOf(meeting, twoHoldings.personId)?.votePresent).toBe(false);
     expect(ownVotes(meeting).present).toBe(1);
   });
 
-  it("refuses a second member for one ombud when the bylaws allow one", async () => {
+  it("refuses a second member for one proxy holder when the bylaws allow one", async () => {
     /*
      * BRL 9 kap. 14 § 4, last sentence: nobody may represent more than one
-     * member as ombud unless the bylaws determine otherwise. The default here is
-     * one and not the three EFL 6 kap. 5 § allows an economic association
-     * generally, which is the exception this Act makes for a housing
-     * cooperative.
+     * member as proxy holder unless the bylaws determine otherwise. The default
+     * here is one and not the three EFL 6 kap. 5 § allows an economic
+     * association generally, which is the exception this Act makes for a
+     * housing cooperative.
      */
     const meetingId = await arrangeMeeting();
     expect(
@@ -999,7 +1002,7 @@ describe("a member's written authority for an ombud", () => {
     }
   });
 
-  it("refuses an ombud who is not a member on the ground that they are one", async () => {
+  it("refuses a proxy holder who is not a member on the ground that they are one", async () => {
     // BRL 9 kap. 14 § 4's first limb, which is the one the register can decide.
     const meetingId = await arrangeMeeting();
     const response = await registerProxy(meetingId, {
@@ -1065,13 +1068,13 @@ describe("a member's written authority for an ombud", () => {
 
   it("keeps the first authority when a member appoints somebody else", async () => {
     /*
-     * EFL 6 kap. 4 § forsta stycket allows a member no more than one ombud, so a
-     * member naming a second one is replacing the first. The first row is kept
-     * with a withdrawal date rather than overwritten, and that is the whole
-     * reason the table is keyed on the pair: the ombud who held somebody's vote
-     * for a while has an access request of their own, and this table is the only
-     * place that fact lives - the registration entry names the member, not the
-     * holder.
+     * EFL 6 kap. 4 § forsta stycket allows a member no more than one proxy
+     * holder, so a member naming a second one is replacing the first. The first
+     * row is kept with a withdrawal date rather than overwritten, and that is
+     * the whole reason the table is keyed on the pair: the proxy holder who
+     * held somebody's vote for a while has an access request of their own, and
+     * this table is the only place that fact lives - the registration entry
+     * names the member, not the holder.
      */
     const meetingId = await arrangeMeeting();
     const first = await registerProxy(meetingId, {
@@ -1091,7 +1094,7 @@ describe("a member's written authority for an ombud", () => {
     const held = meeting.proxyAuthorisations.filter(
       (row) => row.memberPersonId === soloMember.personId,
     );
-    // Two rows: the first ombud's, withdrawn and kept, and the second's.
+    // Two rows: the first proxy holder's, withdrawn and kept, and the second's.
     expect(held).toHaveLength(2);
     const replaced = held.find((row) => row.id === firstId);
     expect(replaced?.proxyHolderPersonId).toBe(twoHoldings.personId);
@@ -1101,9 +1104,10 @@ describe("a member's written authority for an ombud", () => {
     expect(standing?.withdrawnAt).toBeNull();
 
     /*
-     * Only the second ombud can exercise the vote. Asserted because the point of
-     * keeping the first row is the record, never a second live authority: two
-     * standing rows would put two representatives on a line carrying one vote.
+     * Only the second proxy holder can exercise the vote. Asserted because the
+     * point of keeping the first row is the record, never a second live
+     * authority: two standing rows would put two representatives on a line
+     * carrying one vote.
      */
     expect(
       (
@@ -1125,7 +1129,7 @@ describe("a member's written authority for an ombud", () => {
     expect(entry?.context).toMatchObject({ superseded: true });
   });
 
-  it("takes a member re-appointing an ombud they had withdrawn on one row", async () => {
+  it("takes a member re-appointing a proxy holder they had withdrawn on one row", async () => {
     // The sign-up's pattern, applied where it fits: to the row that person
     // already has, rather than across two people.
     const meetingId = await arrangeMeeting();
@@ -1157,8 +1161,8 @@ describe("a member's written authority for an ombud", () => {
   });
 
   it("refuses an authority older than the year the statute allows", async () => {
-    // EFL 6 kap. 4 § andra stycket: a fullmakt holds for at most one year from
-    // the day it was issued.
+    // EFL 6 kap. 4 § andra stycket: a proxy authorisation holds for at most one
+    // year from the day it was issued.
     const meetingId = await arrangeMeeting();
     const response = await registerProxy(meetingId, {
       memberPersonId: soloMember.personId,
@@ -1201,8 +1205,8 @@ describe("a member's written authority for an ombud", () => {
 
     const meeting = await readMeeting(meetingId);
     expect(lineOf(meeting, soloMember.personId)?.votePresent).toBe(false);
-    // The ombud is still in the room and exercising nothing, which is what the
-    // chair has to be told at the door.
+    // The proxy holder is still in the room and exercising nothing, which is
+    // what the chair has to be told at the door.
     expect(meeting.votingRegister.proxyHoldersWithoutVote).toContain(
       twoHoldings.personId,
     );
@@ -1407,9 +1411,10 @@ describe("what running a meeting records", () => {
   it("names the member who gave the authority as the subject", async () => {
     /*
      * It is their voting right that somebody else will exercise, so their own
-     * access report is where that has to be visible. The ombud reaches their own
-     * report through the appointment's section, which answers for both roles -
-     * the log has one subject column and this is the one that belongs in it.
+     * access report is where that has to be visible. The proxy holder reaches
+     * their own report through the appointment's section, which answers for
+     * both roles - the log has one subject column and this is the one that
+     * belongs in it.
      */
     const meetingId = await arrangeMeeting();
     const created = await registerProxy(meetingId, {

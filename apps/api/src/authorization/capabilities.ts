@@ -287,7 +287,7 @@ export const CAPABILITIES = [
   "motions:handle",
   /**
    * Arrange a general meeting (foreningsstamma) and run it: write its agenda
-   * (dagordning), register a member's written authority for an ombud, record who
+   * (dagordning), register a member's written authority for a proxy holder, record who
    * is present, read the voting register (rostlangd) and minute what the meeting
    * decided.
    *
@@ -300,7 +300,7 @@ export const CAPABILITIES = [
    * not exist.
    *
    * Deliberately not derived from membership, which makes it the opposite of
-   * `motions:submit` above. What a member holds at a stamma is the right to
+   * `motions:submit` above. What a member holds at a general meeting is the right to
    * attend, speak and vote (EFL 6 kap. 2-3 §§), and none of that is something
    * this platform does - the meeting happens in a room or on a call. What the
    * platform does is the record-keeping, and the record is the board's to keep. A

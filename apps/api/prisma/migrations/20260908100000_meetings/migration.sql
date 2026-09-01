@@ -15,11 +15,11 @@
 -- count has to be able to correct it.
 --
 -- Nothing here stores a vote count or an eligibility flag against a person. The
--- rostlangd EFL 6 kap. 27 § has drawn up at the meeting is derived from the
--- member register when it is asked for - src/meetings/voting-register.ts - exactly
--- as the booking allowance is counted out of the residencies at write time. A
--- stored count goes stale the moment somebody moves or a transfer completes,
--- and it goes stale without anything about the row looking wrong.
+-- voting register EFL 6 kap. 27 § has drawn up at the meeting is derived from
+-- the member register when it is asked for - src/meetings/voting-register.ts -
+-- exactly as the booking allowance is counted out of the residencies at write
+-- time. A stored count goes stale the moment somebody moves or a transfer
+-- completes, and it goes stale without anything about the row looking wrong.
 
 -- CreateEnum
 --
@@ -30,9 +30,9 @@ CREATE TYPE "MeetingKind" AS ENUM ('ORDINARY', 'EXTRAORDINARY');
 
 -- CreateEnum
 --
--- The three the rostlangd lists: "narvarande medlemmar, ombud och bitraden"
--- (EFL 6 kap. 27 §). A bitrade carries no vote - 6 kap. 7 § gives it the right
--- to speak at the meeting and no more.
+-- The three the voting register lists: "narvarande medlemmar, ombud och
+-- bitraden" (EFL 6 kap. 27 §). An assistant carries no vote - 6 kap. 7 § gives
+-- it the right to speak at the meeting and no more.
 CREATE TYPE "AttendanceCapacity" AS ENUM ('MEMBER', 'PROXY_HOLDER', 'ASSISTANT');
 
 -- CreateEnum
@@ -43,8 +43,8 @@ CREATE TYPE "AttendanceMode" AS ENUM ('IN_PERSON', 'REMOTE');
 
 -- CreateEnum
 --
--- Which limb of BRL 9 kap. 14 § 4 an ombud's eligibility rests on. Two of the
--- three are decidable from what this platform holds and one is not: the
+-- Which limb of BRL 9 kap. 14 § 4 a proxy holder's eligibility rests on. Two of
+-- the three are decidable from what this platform holds and one is not: the
 -- register says who is a member, and nothing here records who is anybody's
 -- spouse or cohabitant.
 CREATE TYPE "RepresentativeGround" AS ENUM ('MEMBER', 'SPOUSE_OR_COHABITANT', 'BYLAWS');
@@ -178,20 +178,21 @@ CREATE TABLE "meeting_attendance" (
     CONSTRAINT "meeting_attendance_pkey" PRIMARY KEY ("id")
 );
 
--- Only a bitrade came with somebody, and a bitrade always did.
+-- Only an assistant came with somebody, and an assistant always did.
 --
--- This is what makes the unique index below express EFL 6 kap. 7 §'s "hogst
--- ett bitrade" in the database. A null repeats freely in a PostgreSQL unique
--- index, so with this constraint in place the index binds the bitrade lines and
--- leaves the member and ombud lines alone.
+-- This is what makes the unique index below express EFL 6 kap. 7 §'s "hogst ett
+-- assistant" in the database. A null repeats freely in a PostgreSQL unique
+-- index, so with this constraint in place the index binds the assistant lines
+-- and leaves the member and proxy holder lines alone.
 --
--- An ombud's line carries none on purpose: the statute lets one ombud carry
--- several members where the bylaws allow it, so which members an ombud is here
--- for is the appointments they hold and not a single column.
+-- A proxy holder's line carries none on purpose: the statute lets one proxy
+-- holder carry several members where the bylaws allow it, so which members a
+-- proxy holder is here for is the appointments they hold and not a single
+-- column.
 --
 -- Nobody stands in for themselves, which is the second half. It is stated here
 -- rather than only in the service because a self-referencing line would make a
--- bitrade their own principal and satisfy every count in the register.
+-- assistant their own principal and satisfy every count in the register.
 ALTER TABLE "meeting_attendance" ADD CONSTRAINT "meeting_attendance_onBehalfOf_check"
   CHECK (
     ("onBehalfOfPersonId" IS NOT NULL) = ("capacity" = 'ASSISTANT')
@@ -201,12 +202,13 @@ ALTER TABLE "meeting_attendance" ADD CONSTRAINT "meeting_attendance_onBehalfOf_c
 -- CreateTable
 --
 -- authorisedOn is a DATE because EFL 6 kap. 4 § runs one year from the day the
--- fullmakt was issued, and a year is counted in days.
+-- proxy authorisation was issued, and a year is counted in days.
 --
--- The row records that the board saw a written, dated and signed fullmakt. It
--- records no signature and implies none: a document that has to be signed under
--- that Act may be signed with an advanced electronic signature (EFL 1 kap.
--- 15 §), which is a trust service this platform does not provide.
+-- The row records that the board saw a written, dated and signed proxy
+-- authorisation. It records no signature and implies none: a document that has
+-- to be signed under that Act may be signed with an advanced electronic
+-- signature (EFL 1 kap. 15 §), which is a trust service this platform does not
+-- provide.
 CREATE TABLE "proxy_authorisation" (
     "id" TEXT NOT NULL,
     "meetingId" TEXT NOT NULL,
@@ -222,9 +224,9 @@ CREATE TABLE "proxy_authorisation" (
     CONSTRAINT "proxy_authorisation_pkey" PRIMARY KEY ("id")
 );
 
--- Nobody is their own ombud.
+-- Nobody is their own proxy holder.
 --
--- A member appoints an ombud because they are not personally present (EFL
+-- A member appoints a proxy holder because they are not personally present (EFL
 -- 6 kap. 4 § forsta stycket), so an appointment naming the member as the holder
 -- is not a narrow case to refuse but a contradiction. It matters more than it
 -- looks: such a row would satisfy the per-holder count without anybody standing
@@ -273,14 +275,15 @@ CREATE INDEX "meeting_attendance_personId_idx" ON "meeting_attendance"("personId
 -- One line per person, meeting and capacity. Two would be one person counted
 -- twice on the list the votes are read from - and a person is legitimately on
 -- it twice with two capacities, which is why the capacity is part of the key: a
--- member who arrives holding a neighbour's fullmakt has two votes and one body.
+-- member who arrives holding a neighbour's proxy authorisation has two votes
+-- and one body.
 CREATE UNIQUE INDEX "meeting_attendance_meetingId_personId_capacity_key" ON "meeting_attendance"("meetingId", "personId", "capacity");
 
 -- CreateIndex
 --
--- At most one bitrade per member or ombud (EFL 6 kap. 7 §). See the check
--- constraint on "onBehalfOfPersonId" above for why a plain unique index states
--- a rule that binds one capacity only.
+-- At most one assistant per member or proxy holder (EFL 6 kap. 7 §). See the
+-- check constraint on "onBehalfOfPersonId" above for why a plain unique index
+-- states a rule that binds one capacity only.
 CREATE UNIQUE INDEX "meeting_attendance_meetingId_onBehalfOfPersonId_key" ON "meeting_attendance"("meetingId", "onBehalfOfPersonId");
 
 -- CreateIndex
@@ -294,17 +297,17 @@ CREATE INDEX "proxy_authorisation_proxyHolderPersonId_idx" ON "proxy_authorisati
 
 -- CreateIndex
 --
--- One row per member and ombud, and deliberately not one per member.
+-- One row per member and proxy holder, and deliberately not one per member.
 --
--- EFL 6 kap. 4 § forsta stycket allows a member no more than one ombud, and that
--- is a rule about the authorities standing at any moment. A unique key on the
--- member alone would force a replacement to overwrite the first authority, and
--- the replaced ombud's own record that they once held somebody's vote would be
--- gone - the audit entry names the member and not the holder, so nothing else
--- here could answer that person's access request for it. So a replacement writes
--- the withdrawal on the first row and a second row for the second ombud, and the
--- standing-authority rule is checked in the service inside the transaction that
--- writes.
+-- EFL 6 kap. 4 § forsta stycket allows a member no more than one proxy holder,
+-- and that is a rule about the authorities standing at any moment. A unique key
+-- on the member alone would force a replacement to overwrite the first
+-- authority, and the replaced proxy holder's own record that they once held
+-- somebody's vote would be gone - the audit entry names the member and not the
+-- holder, so nothing else here could answer that person's access request for
+-- it. So a replacement writes the withdrawal on the first row and a second row
+-- for the second proxy holder, and the standing-authority rule is checked in
+-- the service inside the transaction that writes.
 --
 -- It cannot be checked here. The rule applies to the rows with no withdrawal
 -- date, which is a partial unique index, and the schema this migration is

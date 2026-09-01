@@ -80,9 +80,9 @@ const agendaSchema = z.object({
    * is not a running order.
    *
    * Bounded generously at both ends. An agenda with no items is a meeting
-   * nothing was convened for, and a hundred items is far past what a stamma
-   * deals with - the cap is here so one request cannot write an unbounded number
-   * of rows, not because ninety-nine is a rule anybody has.
+   * nothing was convened for, and a hundred items is far past what a general
+   * meeting deals with - the cap is here so one request cannot write an
+   * unbounded number of rows, not because ninety-nine is a rule anybody has.
    */
   items: z
     .array(z.object({ title: z.string().trim().min(1).max(300) }))
@@ -95,7 +95,7 @@ const attendanceSchema = z.object({
   capacity: z.enum(CAPACITIES),
   mode: z.enum(MODES),
   /**
-   * The member or ombud a bitrade came with.
+   * The member or proxy holder an assistant came with.
    *
    * Required on that capacity and refused on the other two, which the service
    * decides and the table states as a check constraint. Refused rather than
@@ -150,17 +150,18 @@ function requirePrincipal(request: RequestWithPrincipal): Principal {
  *
  * One capability on the class, so a route added here later inherits it rather
  * than being open by omission. There is deliberately no @Public() route: a
- * stamma is the members' business with their own association and none of it is
- * published, and the members' own view of a meeting is a later decision rather
- * than something to leave half-open now.
+ * general meeting is the members' business with their own association and none
+ * of it is published, and the members' own view of a meeting is a later
+ * decision rather than something to leave half-open now.
  *
  * `meetings:manage` and not one capability per act, unlike the motions module's
  * two. There the split is between two audiences - a member submitting and the
  * board working the queue - and one controller carrying both would open a route
  * to the wrong half of the house. Here every act is the board's own side of the
  * same meeting: arranging it, writing its agenda, checking people in,
- * registering a fullmakt and minuting a decision are the same office doing the
- * same job, and splitting them would suggest an audience that does not exist.
+ * registering a proxy authorisation and minuting a decision are the same office
+ * doing the same job, and splitting them would suggest an audience that does
+ * not exist.
  *
  * The external property manager holds none of it, on the `motions:handle`
  * precedent: an external contractor has nothing to do with the members'

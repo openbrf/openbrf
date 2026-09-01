@@ -30,9 +30,9 @@ import type { DataSubjectReport } from "./data-subject-report";
  * store the product has - both register tiers, an account, a consent, a hold,
  * an issue, an archived document, a booking, a motion to the general meeting, a
  * sign-up to one of the association's own dates, a comment on a news item, two
- * lines on a general meeting's list of those present, a written authority for an
- * ombud on each side of the subject and an audit trail - and each section is
- * asserted to have found it.
+ * lines on a general meeting's list of those present, a written authority for
+ * an proxy holder on each side of the subject and an audit trail - and each
+ * section is asserted to have found it.
  *
  * The gate. This is the one endpoint that decrypts a personal identity number,
  * so the capability that opens it is checked as four different callers rather
@@ -109,8 +109,8 @@ const motionClosedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 const openMotionSubmittedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
 
 /**
- * The general meeting's day, the day the subject signed a fullmakt, and the
- * moment the board struck their second line off the list.
+ * The general meeting's day, the day the subject signed a proxy authorisation,
+ * and the moment the board struck their second line off the list.
  *
  * A week back rather than a fixed year, for the reason the motion's dates are:
  * this database is shared between suites and a fixture anchored on a literal
@@ -666,10 +666,10 @@ beforeAll(async () => {
 
   /*
    * A general meeting the subject was at twice over: as a member, and as the
-   * ombud carrying the acquirer's vote. Two lines because one body in the room
-   * is two lines on the list EFL 6 kap. 27 § has drawn up - and because the
-   * second is what a report answering only "were they there" would collapse
-   * into the first.
+   * proxy holder carrying the acquirer's vote. Two lines because one body in
+   * the room is two lines on the list EFL 6 kap. 27 § has drawn up - and
+   * because the second is what a report answering only "were they there" would
+   * collapse into the first.
    *
    * The second line is struck off, so the section's withdrawal column is
    * exercised rather than only declared: a line the board took off the list is
@@ -703,11 +703,11 @@ beforeAll(async () => {
    * role - a report answering for one side would print one of these two rows and
    * look complete.
    *
-   * The grounds differ on purpose. The one the subject gave rests on the ombud
-   * being another member, which the register can decide; the one they held rests
-   * on the board's statement that they are the acquirer's spouse or cohabitant,
-   * which nothing in this platform records and which BRL 9 kap. 14 § 4 permits
-   * outright.
+   * The grounds differ on purpose. The one the subject gave rests on the proxy
+   * holder being another member, which the register can decide; the one they
+   * held rests on the board's statement that they are the acquirer's spouse or
+   * cohabitant, which nothing in this platform records and which BRL 9 kap. 14
+   * § 4 permits outright.
    */
   await prisma.proxyAuthorisation.createMany({
     data: [
@@ -1269,13 +1269,13 @@ describe("what the report contains", () => {
   it("lists both lines somebody was on a general meeting's list under", async () => {
     /*
      * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §
-     * has the list cover the members, ombud and bitraden present, and the three
-     * are different facts about a person - own vote, somebody else's, or a seat
-     * with the right to speak and no vote at all (6 kap. 7 §).
+     * has the list cover the members, proxy holders and assistants present, and
+     * the three are different facts about a person - own vote, somebody else's,
+     * or a seat with the right to speak and no vote at all (6 kap. 7 §).
      *
      * Two lines for one person at one meeting, which is what a report keyed on
      * the meeting rather than on the capacity would collapse: the subject was
-     * there as a member and as the acquirer's ombud.
+     * there as a member and as the acquirer's proxy holder.
      */
     const report = await reportFor(boardCookie);
 
@@ -1313,12 +1313,12 @@ describe("what the report contains", () => {
     }
   });
 
-  it("answers for both sides of a written authority for an ombud", async () => {
+  it("answers for both sides of a proxy authorisation", async () => {
     /*
-     * A fullmakt names two people and both have an art. 15 interest in it. The
-     * fixture puts the subject on one side of one appointment and the other side
-     * of another, so a section answering for one role would return one row and
-     * look complete.
+     * A proxy authorisation names two people and both have an art. 15 interest
+     * in it. The fixture puts the subject on one side of one appointment and
+     * the other side of another, so a section answering for one role would
+     * return one row and look complete.
      *
      * The counterpart is asserted as the identifier it is. Naming them would put
      * a third party's name on a document the association hands over, which is

@@ -90,20 +90,21 @@ function statusFor(reason: MeetingError["reason"]): number {
        * about the association's own bylaws rather than about a malformed
        * request. Somebody who is not a member on the meeting day is understood
        * perfectly well and has no vote at that meeting (EFL 6 kap. 3 § with BRL
-       * 9 kap. 14 § 1); an ombud who is neither another member nor covered by a
-       * bylaws clause may not act (BRL 9 kap. 14 § 4); and a person already
-       * carrying as many members as the bylaws allow may not take another.
+       * 9 kap. 14 § 1); a proxy holder who is neither another member nor
+       * covered by a bylaws clause may not act (BRL 9 kap. 14 § 4); and a
+       * person already carrying as many members as the bylaws allow may not
+       * take another.
        */
       return HttpStatus.FORBIDDEN;
 
     case "proxy-authority-not-yet-issued":
     case "proxy-authority-expired":
       /*
-       * Understood and refused on the merits: EFL 6 kap. 4 § holds a fullmakt
-       * good for at most a year from the day the member signed it, and a member
-       * cannot have signed on a day that has not arrived. Both are facts about
-       * the value sent rather than about the meeting, so the caller is told
-       * which date is wrong.
+       * Understood and refused on the merits: EFL 6 kap. 4 § holds a proxy
+       * authorisation good for at most a year from the day the member signed
+       * it, and a member cannot have signed on a day that has not arrived. Both
+       * are facts about the value sent rather than about the meeting, so the
+       * caller is told which date is wrong.
        */
       return HttpStatus.UNPROCESSABLE_ENTITY;
 
@@ -111,14 +112,15 @@ function statusFor(reason: MeetingError["reason"]): number {
     case "attendance-principal-not-applicable":
     case "assistant-principal-not-present":
       /*
-       * The request describes something that is not a date, or not a bitrade.
-       * "2027-02-30" is refused rather than read as the 2nd of March, which is
-       * what `Date.parse` would make of it; EFL 6 kap. 7 § has a bitrade brought
-       * by a member or an ombud, so a bitrade with nobody on the list to have
-       * brought them is a request that has not said who they came with; and only
-       * a bitrade came with anybody, so naming somebody on a member's or an
-       * ombud's line is refused rather than dropped - a field a request set and
-       * the server silently ignored is a defect nobody can see.
+       * The request describes something that is not a date, or not an
+       * assistant. "2027-02-30" is refused rather than read as the 2nd of
+       * March, which is what `Date.parse` would make of it; EFL 6 kap. 7 § has
+       * an assistant brought by a member or a proxy holder, so an assistant
+       * with nobody on the list to have brought them is a request that has not
+       * said who they came with; and only an assistant came with anybody, so
+       * naming somebody on a member's or an proxy holder's line is refused
+       * rather than dropped - a field a request set and the server silently
+       * ignored is a defect nobody can see.
        */
       return HttpStatus.UNPROCESSABLE_ENTITY;
   }

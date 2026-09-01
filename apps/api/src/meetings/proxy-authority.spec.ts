@@ -8,8 +8,8 @@ import {
 } from "./proxy-authority";
 
 /**
- * How long a fullmakt holds: EFL 6 kap. 4 § andra stycket, "hogst ett ar fran
- * utfardandet".
+ * How long a proxy authorisation holds: EFL 6 kap. 4 § andra stycket, "hogst
+ * ett ar fran utfardandet".
  *
  * Both edges are asserted, and both directions. A year to the day still holds,
  * and a day past it does not - a test that only asserted the refusal would pass
@@ -64,11 +64,11 @@ describe("whether an authority covers a meeting", () => {
 
   it("refuses one dated after the meeting", () => {
     /*
-     * Not a formality. EFL 6 kap. 4 § has the member sign the fullmakt, and a
-     * member cannot have signed on a day that has not arrived. It is also the
-     * shape a mis-keyed year takes - 2028 for 2027 - which would otherwise read
-     * as an authority with an unusually long life rather than as the mistake it
-     * is.
+     * Not a formality. EFL 6 kap. 4 § has the member sign the proxy
+     * authorisation, and a member cannot have signed on a day that has not
+     * arrived. It is also the shape a mis-keyed year takes - 2028 for 2027 -
+     * which would otherwise read as an authority with an unusually long life
+     * rather than as the mistake it is.
      */
     expect(proxyAuthorityProblem(day("2027-05-13"), meeting)).toBe(
       "proxy-authority-not-yet-issued",

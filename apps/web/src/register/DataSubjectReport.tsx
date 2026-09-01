@@ -110,11 +110,11 @@ const MOTION_STATUS_LABEL = {
 } as const satisfies Record<string, TranslationKey>;
 
 /*
- * The general meeting's own vocabulary, under the meetings namespace rather than
- * the report's, on the precedent of the booking status and the motion status
- * above: an enum the module already has a word for keeps that word, so the
- * document and the board's own screens cannot come to call the same thing two
- * things.
+ * The general meeting's own vocabulary, under the meetings namespace rather
+ * than the report's, on the precedent of the booking status and the motion
+ * status above: an enum the module already has a word for keeps that word, so
+ * the document and the board's own screens cannot come to call the same thing
+ * two things.
  */
 const MEETING_KIND_LABEL = {
   ORDINARY: "meetings.kind.ORDINARY",
@@ -965,10 +965,11 @@ export function DataSubjectReport({
                     {t(ATTENDANCE_MODE_LABEL[attendance.mode])}
                   </td>
                   {/*
-                   * The identifier of the member or ombud a bitrade came with,
-                   * and never their name. They are a third party on a document
-                   * the association hands over, which is the same judgement the
-                   * audit log's two person columns are printed under.
+                   * The identifier of the member or proxy holder an assistant
+                   * came with, and never their name. They are a third party on
+                   * a document the association hands over, which is the same
+                   * judgement the audit log's two person columns are printed
+                   * under.
                    */}
                   <td className={DATA_CELL}>
                     {attendance.onBehalfOfPersonId ?? nothing}
@@ -982,9 +983,9 @@ export function DataSubjectReport({
           </Section>
 
           {/*
-           * Written authorities for an ombud (fullmakt) naming this person, on
-           * either side of them. The role column is what makes the section
-           * answer for both, exactly as it does on the audit log below.
+           * Written authorities for a proxy holder (fullmakt) naming this
+           * person, on either side of them. The role column is what makes the
+           * section answer for both, exactly as it does on the audit log below.
            */}
           <Section titleKey="register.person.report.section.proxyAuthorisations">
             <Rows

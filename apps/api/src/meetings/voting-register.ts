@@ -8,15 +8,16 @@ import { membershipPeriods } from "../registers/membership-periods";
 import { isProxyAuthorityCurrent } from "./proxy-authority";
 
 /**
- * The voting register (rostlangd) of a general meeting: which votes there are, who
- * holds each of them, and which of them are in the room.
+ * The voting register (rostlangd) of a general meeting: which votes there are,
+ * who holds each of them, and which of them are in the room.
  *
- * EFL 6 kap. 27 § has a list drawn up at the meeting of the members, ombud and
- * bitraden present, stating the number of votes the members have where they do
- * not all have the same number. This file is that list's derivation. It is pure,
- * and it is pure for the same reason `membership-periods.ts` is: the archive it
- * reads cannot be repaired by editing, and how it is read has to be exercised
- * exhaustively without a database in the way.
+ * EFL 6 kap. 27 § has a list drawn up at the meeting of the members, proxy
+ * holder and assistants present, stating the number of votes the members have
+ * where they do not all have the same number. This file is that list's
+ * derivation. It is pure, and it is pure for the same reason
+ * `membership-periods.ts` is: the archive it reads cannot be repaired by
+ * editing, and how it is read has to be exercised exhaustively without a
+ * database in the way.
  *
  * ## Derived, and never stored
  *
@@ -56,8 +57,9 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  *   is rare, because the merge is arguable where it chains, and because EFL
  *   6 kap. 27 § puts the decision at the meeting in any case: it is drawn
  *   up by the chair, approved by the meeting, and stands until the meeting
- *   resolves to change it. The platform's job is to propose a defensible roll
- *   and to show its working, not to settle a question the meeting settles.
+ *   resolves to change it. The platform's job is to propose a defensible
+ *   register and to show its working, not to settle a question the meeting
+ *   settles.
  *
  * ## Two sources, each for what it is the record of
  *
@@ -84,24 +86,25 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  * merging degrades. The record of a meeting that has been held is its protokoll
  * (EFL 6 kap. 39-40 §§) rather than anything derived here.
  *
- * ## A bitrade carries no vote
+ * ## An assistant carries no vote
  *
- * EFL 6 kap. 7 § lets a member or an ombud bring at most one bitrade, who may
- * speak at the meeting. That is the whole of what it grants. So a bitrade is on
- * the list EFL 6 kap. 27 § requires - it names bitraden explicitly - and
- * contributes nothing to any vote count here. It is counted separately for that
- * reason: a register that reported bodies in the room would be reporting a number
- * nobody may act on.
+ * EFL 6 kap. 7 § lets a member or a proxy holder bring at most one assistant,
+ * who may speak at the meeting. That is the whole of what it grants. So an
+ * assistant is on the list EFL 6 kap. 27 § requires - it names assistants
+ * explicitly - and contributes nothing to any vote count here. It is counted
+ * separately for that reason: a register that reported bodies in the room would
+ * be reporting a number nobody may act on.
  *
  * ## The storage limitation is reported, never applied
  *
- * BRL 9 kap. 14 § 1's one permitted deviation turns on what a space is used for,
- * and nothing in this platform records that: an apartment carries a number, a
- * floor, a participation share and an initial share capital, none of which tells
- * a garage from a flat. So {@link VotingRegister.storageOnlyVoteLimited} states
- * whether the clause stands and the meeting applies it. An answer invented from
- * a participation share would take somebody's vote away on a guess, which is the
- * one error a voting register must not make quietly.
+ * BRL 9 kap. 14 § 1's one permitted deviation turns on what a space is used
+ * for, and nothing in this platform records that: an apartment carries a
+ * number, a floor, a participation share and an initial share capital, none of
+ * which tells a garage from a flat. So {@link
+ * VotingRegister.storageOnlyVoteLimited} states whether the clause stands and
+ * the meeting applies it. An answer invented from a participation share would
+ * take somebody's vote away on a guess, which is the one error a voting
+ * register must not make quietly.
  */
 
 /** One line of attendance, as much of it as the voting register needs. */
@@ -129,13 +132,13 @@ export interface RollHolding {
 export interface RollProxyAuthorisation {
   memberPersonId: string;
   proxyHolderPersonId: string;
-  /** The day the member signed the fullmakt, from the `@db.Date` column. */
+  /** The day the member signed the proxy authorisation, from the `@db.Date` column. */
   authorisedOn: Date;
   /** Set where the authority was taken back. */
   withdrawnAt: Date | null;
 }
 
-/** An ombud present and holding one member's authority. */
+/** A proxy holder present and holding one member's authority. */
 export interface RollProxyHolder {
   personId: string;
   /** The member on this line whose authority they hold. */
@@ -167,19 +170,22 @@ export interface VotingRegisterLine {
   presentMemberPersonIds: readonly string[];
 
   /**
-   * The ombud present who hold a current authority from a member on this line.
+   * The proxy holder present who hold a current authority from a member on this
+   * line.
    *
    * Plural, and not one chosen for the meeting. Joint holders are separate
-   * members, so two of them may each have appointed a different ombud while both
-   * stay away - and the one vote they share cannot be split between them. The
-   * line names both, the vote counts once, and which of them exercises it is for
-   * the meeting to settle when it approves the voting register.
+   * members, so two of them may each have appointed a different proxy holder
+   * while both stay away - and the one vote they share cannot be split between
+   * them. The line names both, the vote counts once, and which of them
+   * exercises it is for the meeting to settle when it approves the voting
+   * register.
    */
   proxyHolders: readonly RollProxyHolder[];
 
   /**
    * Whether the one vote this line carries is present at the meeting: a member
-   * on it is there, or an ombud with a current authority from one of them is.
+   * on it is there, or a proxy holder with a current authority from one of them
+   * is.
    */
   votePresent: boolean;
 }
@@ -200,9 +206,9 @@ export interface VotingRegister {
    *
    * The size of the voting register and deliberately not a majority basis: EFL
    * measures an ordinary majority against "de avgivna rosterna" - the votes
-   * cast - and somebody present who does not vote has cast none. What a decision
-   * needed is the chair's to state, which is why the decision row carries the
-   * counts rather than deriving them from this.
+   * cast - and somebody present who does not vote has cast none. What a
+   * decision needed is the chair's to state, which is why the decision row
+   * carries the counts rather than deriving them from this.
    */
   votesPresent: number;
 
@@ -226,15 +232,17 @@ export interface VotingRegister {
   presentWithoutMembership: readonly string[];
 
   /**
-   * People recorded as present as ombud who are exercising no vote, sorted.
+   * People recorded as present as proxy holder who are exercising no vote,
+   * sorted.
    *
    * Four things look like this and all four are answers the chair needs at the
    * door: the authority was withdrawn, it has run out under EFL 6 kap. 4 §, the
    * member who gave it is no longer a member, or that member turned up and is
    * exercising their own right - which is the one case where nothing is wrong
-   * and the ombud simply has nothing left to do. Reported rather than dropped,
-   * because somebody standing there with a fullmakt has to be answered, and the
-   * answer is that they may not vote rather than that they are not present.
+   * and the proxy holder simply has nothing left to do. Reported rather than
+   * dropped, because somebody standing there with a proxy authorisation has to
+   * be answered, and the answer is that they may not vote rather than that they
+   * are not present.
    */
   proxyHoldersWithoutVote: readonly string[];
 
@@ -281,8 +289,9 @@ export interface VotingRegisterInput {
  * Read the file comment before changing anything here. Four properties are
  * load-bearing and each of them is a statutory rule rather than a design
  * preference: a member holding two apartments is one vote, joint holders of one
- * bostadsratt are one vote, a bitrade is no vote, and an ombud's authority is
- * re-checked against the meeting day rather than trusted from its registration.
+ * bostadsratt are one vote, an assistant is no vote, and a proxy holder's
+ * authority is re-checked against the meeting day rather than trusted from its
+ * registration.
  */
 export function votingRegister(input: VotingRegisterInput): VotingRegister {
   const meetingDay = localDayOfColumn(input.meetingDay);
@@ -309,11 +318,12 @@ export function votingRegister(input: VotingRegisterInput): VotingRegister {
     const proxyHolders: RollProxyHolder[] = [];
     for (const memberPersonId of memberPersonIds) {
       /*
-       * An ombud acts for a member who is not personally present. EFL 6 kap. 4 §
-       * says so in its first words - "en medlem som inte ar personligen
-       * narvarande" - so a member who turned up exercises their own right and
-       * the authority they gave has nothing left to do. Counting it as well
-       * would put a second representative on a line that carries one vote.
+       * A proxy holder acts for a member who is not personally present. EFL 6
+       * kap. 4 § says so in its first words - "en medlem som inte ar
+       * personligen narvarande" - so a member who turned up exercises their own
+       * right and the authority they gave has nothing left to do. Counting it
+       * as well would put a second representative on a line that carries one
+       * vote.
        */
       if (presentAs.MEMBER.has(memberPersonId)) {
         continue;
@@ -334,10 +344,10 @@ export function votingRegister(input: VotingRegisterInput): VotingRegister {
       proxyHolders,
       /*
        * One vote either way. A member on the line being there is enough, and so
-       * is an ombud with a current authority from one of them - EFL 6 kap. 4 §
-       * has the ombud exercise the member's right, which is the one right the
-       * line carries, so the two paths lead to the same single vote rather than
-       * to two.
+       * is a proxy holder with a current authority from one of them - EFL 6
+       * kap. 4 § has the proxy holder exercise the member's right, which is the
+       * one right the line carries, so the two paths lead to the same single
+       * vote rather than to two.
        */
       votePresent: presentMemberPersonIds.length > 0 || proxyHolders.length > 0,
     });
@@ -528,7 +538,7 @@ function presenceByCapacity(attendances: readonly RollAttendance[]): {
 }
 
 /**
- * Which member each standing, current authority names as its ombud.
+ * Which member each standing, current authority names as its proxy holder.
  *
  * The validity is asked again here rather than trusted from the registration
  * that wrote the row, because the meeting day can be moved afterwards: an
@@ -537,8 +547,8 @@ function presenceByCapacity(attendances: readonly RollAttendance[]): {
  * whatever the platform did in between.
  *
  * One entry per member, which the table's own unique constraint already
- * guarantees: a member may not be represented by more than one ombud (EFL
- * 6 kap. 4 § forsta stycket).
+ * guarantees: a member may not be represented by more than one proxy holder
+ * (EFL 6 kap. 4 § forsta stycket).
  */
 function currentAuthorities(
   appointments: readonly RollProxyAuthorisation[],

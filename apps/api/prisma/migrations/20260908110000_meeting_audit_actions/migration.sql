@@ -1,14 +1,14 @@
 -- What happened around a general meeting: the board arranged one, set its
 -- agenda and recorded that it had been held; somebody was recorded as present
--- or struck off the list again; a member's written authority for an ombud was
--- registered or withdrawn; and the chair recorded what the meeting decided on an
--- item.
+-- or struck off the list again; a member's written authority for a proxy holder
+-- was registered or withdrawn; and the chair recorded what the meeting decided
+-- on an item.
 --
 -- Each is an act the association answers for. Four of the eight are also acts a
 -- person's own data subject access report has to be able to show - being
--- recorded in the room, being struck off it, giving somebody a fullmakt and
--- taking it back - so each is written to the audit log with the person as the
--- subject and whoever acted as the actor.
+-- recorded in the room, being struck off it, giving somebody a proxy
+-- authorisation and taking it back - so each is written to the audit log with
+-- the person as the subject and whoever acted as the actor.
 --
 -- The four that name no subject say so deliberately. Arranging a meeting,
 -- setting an agenda, recording that a meeting was held and minuting a decision

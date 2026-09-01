@@ -529,17 +529,17 @@ export interface DataSubjectReport {
   /**
    * Lines on which this person was recorded as present at a general meeting.
    *
-   * Not one of the four sections above: this one states no erasure date, and the
-   * absence is an answer rather than a missing column. Nothing purges a line of
-   * the meeting's record - the voting register (rostlangd) is taken into or appended
-   * to the protokoll under EFL 6 kap. 39 §, which 40 § has kept safely - so it
-   * belongs with the statutory register sections, kept because the law requires
-   * the record and printed because exemption from erasure is not exemption from
-   * access.
+   * Not one of the four sections above: this one states no erasure date, and
+   * the absence is an answer rather than a missing column. Nothing purges a
+   * line of the meeting's record - the voting register (rostlangd) is taken
+   * into or appended to the protokoll under EFL 6 kap. 39 §, which 40 § has
+   * kept safely - so it belongs with the statutory register sections, kept
+   * because the law requires the record and printed because exemption from
+   * erasure is not exemption from access.
    *
    * One row per capacity and not per meeting: a member arriving with a
-   * neighbour's fullmakt is on one list as a member and as an ombud, with two
-   * votes and one body.
+   * neighbour's proxy authorisation is on one list as a member and as a proxy
+   * holder, with two votes and one body.
    *
    * `withdrawnAt` says the board struck the line off again, which is a different
    * fact from never having been recorded.
@@ -555,15 +555,15 @@ export interface DataSubjectReport {
     withdrawnAt: string | null;
   }[];
   /**
-   * Written authorities for an ombud (fullmakt) naming this person, on either
-   * side of them.
+   * Written authorities for a proxy holder (fullmakt) naming this person, on
+   * either side of them.
    *
-   * `role` says which side, exactly as it does on the audit entries below and for
-   * the same reason: an appointment names the member who gave their vote away and
-   * the ombud who held it, and those are two different facts about two different
-   * people. A report answering for only one of the roles would leave an ombud
-   * unable to see that the association holds a record of them carrying a
-   * neighbour's vote.
+   * `role` says which side, exactly as it does on the audit entries below and
+   * for the same reason: an appointment names the member who gave their vote
+   * away and the proxy holder who held it, and those are two different facts
+   * about two different people. A report answering for only one of the roles
+   * would leave a proxy holder unable to see that the association holds a
+   * record of them carrying a neighbour's vote.
    *
    * States no erasure date, for the reason the attendance section above gives.
    */

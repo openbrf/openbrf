@@ -14,15 +14,15 @@
  *   no limitation on anybody else. Which is why {@link MeetingBylaws} carries
  *   one flag for that one case and no rule engine.
  *
- *   Only the member's spouse or cohabitant or another member may be an ombud,
- *   unless the bylaws determine otherwise (§ 14 p. 4, first sentence).
+ * Only the member's spouse or cohabitant or another member may be a proxy
+ * holder, unless the bylaws determine otherwise (§ 14 p. 4, first sentence).
  *
- *   Nobody may represent more than one member as ombud, unless the bylaws
- *   determine otherwise (§ 14 p. 4, last sentence). This replaces EFL 6 kap.
- *   5 §'s general three, which is why the default here is one.
+ * Nobody may represent more than one member as proxy holder, unless the bylaws
+ * determine otherwise (§ 14 p. 4, last sentence). This replaces EFL 6 kap. 5
+ * §'s general three, which is why the default here is one.
  *
  *   A member may bring only their spouse or cohabitant or another member as a
- *   bitrade, unless the bylaws determine otherwise (§ 14 p. 5).
+ *   assistant, unless the bylaws determine otherwise (§ 14 p. 5).
  *
  * The other two exceptions are not settings at all: postal voting does not
  * apply to a housing cooperative (§ 14 p. 3, excepting EFL 6 kap. 6 §) and the
@@ -44,14 +44,14 @@
  * The platform enforces a bylaws clause exactly when it holds the facts the
  * clause turns on, and states it otherwise.
  *
- * It holds membership, so it can decide whether an ombud is another member and
- * count how many members one ombud is carrying. Those two are checked when a
- * proxy is registered.
+ * It holds membership, so it can decide whether a proxy holder is another
+ * member and count how many members one proxy holder is carrying. Those two are
+ * checked when a proxy is registered.
  *
  * It holds no record of who is anybody's spouse or cohabitant, and none of what
  * a space in the building is used for - an apartment carries a number, a floor,
  * a participation share and an initial share capital, and none of those tells a
- * garage from a flat. So the storage limitation and the bitrade rule are
+ * garage from a flat. So the storage limitation and the assistant rule are
  * reported to the board and applied by the meeting. That is not a gap left for
  * later: an answer invented from a participation share would take somebody's
  * vote away on a guess, and EFL 6 kap. 27 § puts the decision at the meeting in
@@ -62,7 +62,7 @@
 export interface MeetingBylaws {
   /**
    * True where the bylaws let somebody other than the member's spouse or
-   * cohabitant or another member act as ombud (BRL 9 kap. 14 § 4).
+   * cohabitant or another member act as proxy holder (BRL 9 kap. 14 § 4).
    *
    * The one thing it decides is whether an appointment resting on the bylaws is
    * accepted. The statute's own two grounds stand whatever it says.
@@ -70,9 +70,9 @@ export interface MeetingBylaws {
   proxyHolderEligibilityWidened: boolean;
 
   /**
-   * How many members one ombud may represent at one meeting. One under the
-   * statute (BRL 9 kap. 14 § 4), which is what an association that has recorded
-   * nothing is under.
+   * How many members one proxy holder may represent at one meeting. One under
+   * the statute (BRL 9 kap. 14 § 4), which is what an association that has
+   * recorded nothing is under.
    */
   maxMembersPerProxyHolder: number;
 
@@ -86,13 +86,13 @@ export interface MeetingBylaws {
 
   /**
    * True where the bylaws let somebody other than the member's spouse or
-   * cohabitant or another member be a bitrade (BRL 9 kap. 14 § 5).
+   * cohabitant or another member be an assistant (BRL 9 kap. 14 § 5).
    *
    * Reported and never applied here, for a reason about the statute rather than
-   * this platform's reach: a bitrade needs no written authority - EFL 6 kap. 7 §
-   * simply lets a member or an ombud bring one, who may speak at the meeting -
-   * so there is no document for the board to attest and nothing for a check to
-   * key itself to.
+   * this platform's reach: an assistant needs no written authority - EFL 6 kap.
+   * 7 § simply lets a member or a proxy holder bring one, who may speak at the
+   * meeting - so there is no document for the board to attest and nothing for a
+   * check to key itself to.
    */
   assistantEligibilityWidened: boolean;
 }

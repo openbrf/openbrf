@@ -4,29 +4,30 @@ import {
 } from "../bookings/stockholm-calendar";
 
 /**
- * How long a member's written authority for an ombud (fullmakt) holds.
+ * How long a member's written authority for a proxy holder (fullmakt) holds.
  *
  * EFL 6 kap. 4 § andra stycket, which BRL 9 kap. 14 § leaves standing: the
- * ombud is to have a fullmakt that is written, dated and signed by the member,
- * and "en fullmakt galler hogst ett ar fran utfardandet". So the date the member
- * wrote on it is not a formality on the row - it is the whole of what makes the
- * authority current, and a meeting held a year and a day later is one the ombud
- * may not vote at.
+ * proxy holder is to have a proxy authorisation that is written, dated and
+ * signed by the member, and "en fullmakt galler hogst ett ar fran utfardandet".
+ * So the date the member wrote on it is not a formality on the row - it is the
+ * whole of what makes the authority current, and a meeting held a year and a
+ * day later is one the proxy holder may not vote at.
  *
  * Its own module, and pure, because the answer is needed twice and must not be
- * allowed to differ. The board is refused a stale fullmakt when it registers
- * one, and the voting register asks again when it is drawn up - the meeting day can
- * be moved after an appointment was registered, and a register that trusted the
- * registration would then seat an ombud whose authority had run out.
+ * allowed to differ. The board is refused a stale proxy authorisation when it
+ * registers one, and the voting register asks again when it is drawn up - the
+ * meeting day can be moved after an appointment was registered, and a register
+ * that trusted the registration would then seat a proxy holder whose authority
+ * had run out.
  *
  * ## What this module does not decide
  *
- * That the fullmakt exists, that it is written, and that the member signed it.
- * A document signed under the Economic Associations Act may be signed with an
- * advanced electronic signature (EFL 1 kap. 15 §), which is a trust service
- * this platform does not provide, so nothing here produces or verifies a
- * signature. What the board records is that it saw the paper and the date on it;
- * the paper is what stands behind the appointment.
+ * That the proxy authorisation exists, that it is written, and that the member
+ * signed it. A document signed under the Economic Associations Act may be
+ * signed with an advanced electronic signature (EFL 1 kap. 15 §), which is a
+ * trust service this platform does not provide, so nothing here produces or
+ * verifies a signature. What the board records is that it saw the paper and the
+ * date on it; the paper is what stands behind the appointment.
  */
 
 /** Days in a month of a particular year, from the platform's own calendar. */
@@ -35,7 +36,7 @@ function daysInMonth(year: number, month: number): number {
 }
 
 /**
- * The last day a fullmakt issued on the given day still holds.
+ * The last day a proxy authorisation issued on the given day still holds.
  *
  * One year on, that day included: "hogst ett ar fran utfardandet" measures from
  * the day of issue, so an authority dated the 12th of May 2027 covers a meeting
@@ -61,8 +62,8 @@ export type ProxyAuthorityProblem =
   "proxy-authority-not-yet-issued" | "proxy-authority-expired";
 
 /**
- * Whether a fullmakt issued on one day still holds on a meeting day, and why
- * not where it does not.
+ * Whether a proxy authorisation issued on one day still holds on a meeting day,
+ * and why not where it does not.
  *
  * Both ends are checked, and the first is not a formality. An authority dated
  * after the meeting is not an authority the meeting can act on: EFL 6 kap. 4 §

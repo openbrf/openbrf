@@ -53,19 +53,19 @@ export interface AttendanceView {
   personId: string;
   capacity: AttendanceCapacity;
   mode: AttendanceMode;
-  /** The member or ombud a bitrade came with. Null on every other line. */
+  /** The member or proxy holder an assistant came with. Null on every other line. */
   onBehalfOfPersonId: string | null;
   /** ISO instant, or null while the person stands on the list. */
   withdrawnAt: string | null;
 }
 
-/** One member's written authority for an ombud. */
+/** One member's written authority for a proxy holder. */
 export interface ProxyAuthorisationView {
   id: string;
   memberPersonId: string;
   proxyHolderPersonId: string;
   ground: RepresentativeGround;
-  /** "YYYY-MM-DD": the day the member signed the fullmakt. */
+  /** "YYYY-MM-DD": the day the member signed the proxy authorisation. */
   authorisedOn: string;
   /** ISO instant, or null while the authority stands. */
   withdrawnAt: string | null;
@@ -116,7 +116,7 @@ export interface RecordAttendanceInput {
   personId: string;
   capacity: AttendanceCapacity;
   mode: AttendanceMode;
-  /** Required for a bitrade and refused for anybody else. */
+  /** Required for an assistant and refused for anybody else. */
   onBehalfOfPersonId?: string | null;
 }
 
@@ -124,7 +124,7 @@ export interface RegisterProxyInput {
   memberPersonId: string;
   proxyHolderPersonId: string;
   ground: RepresentativeGround;
-  /** "YYYY-MM-DD": the day the member signed the fullmakt. */
+  /** "YYYY-MM-DD": the day the member signed the proxy authorisation. */
   authorisedOn: string;
 }
 
@@ -163,15 +163,15 @@ const MEETING_COLUMNS = {
  *
  * ## What this service records, and what it does not
  *
- * It records the decisions. The protokoll is a document: EFL 6 kap. 39 § has the
- * chair see that one is kept, with the voting register taken into it or appended to
- * it, and 40 § has it held available to the members within three weeks and kept
- * safely. That document is filed in the association's archive, which is also
- * where the motion module already says the lasting record of a meeting's
- * decision lives. So nothing here produces minutes, and nothing here signs
- * anything: a document that has to be signed under that Act may be signed with
- * an advanced electronic signature (EFL 1 kap. 15 §), which is a trust service
- * this platform does not provide.
+ * It records the decisions. The protokoll is a document: EFL 6 kap. 39 § has
+ * the chair see that one is kept, with the voting register taken into it or
+ * appended to it, and 40 § has it held available to the members within three
+ * weeks and kept safely. That document is filed in the association's archive,
+ * which is also where the motion module already says the lasting record of a
+ * meeting's decision lives. So nothing here produces minutes, and nothing here
+ * signs anything: a document that has to be signed under that Act may be signed
+ * with an advanced electronic signature (EFL 1 kap. 15 §), which is a trust
+ * service this platform does not provide.
  *
  * It does not cast a vote. The chair records the outcome and the counts, which
  * is how EFL 6 kap. 39 § has the protokoll state an omrostning. The vote table
@@ -182,9 +182,10 @@ const MEETING_COLUMNS = {
  *
  * One capability across the whole module. A general meeting is the members'
  * business with their own association, and arranging one, checking people in,
- * registering a fullmakt and minuting a decision are all the board's side of
- * it - which is the same judgement `motions:handle` makes about the queue a
- * member's item arrives in. An external property manager reaches none of it.
+ * registering a proxy authorisation and minuting a decision are all the board's
+ * side of it - which is the same judgement `motions:handle` makes about the
+ * queue a member's item arrives in. An external property manager reaches none
+ * of it.
  *
  * ## Membership is asked of the register, as of the meeting day
  *
@@ -242,8 +243,8 @@ export class MeetingService {
    * The day is checked as a calendar date and not as an instant, through the
    * same module the register's own statutory dates go through - except that a
    * meeting day in the future is the ordinary case rather than a refusal, which
-   * is why the future check is undone here and stated. A stamma is arranged
-   * before it is held; a termination is recorded after it happened.
+   * is why the future check is undone here and stated. A general meeting is
+   * arranged before it is held; a termination is recorded after it happened.
    */
   async arrange(
     input: ArrangeMeetingInput,
@@ -260,8 +261,8 @@ export class MeetingService {
         {
           action: "MEETING_ARRANGED",
           actorPersonId,
-          // No subject: a stamma is the association's own act and is about
-          // nobody in particular.
+          // No subject: a general meeting is the association's own act and is
+          // about nobody in particular.
           targetKind: "meeting",
           targetId: created.id,
           context: {
@@ -396,19 +397,19 @@ export class MeetingService {
    *   the right to attend, speak and vote to a member, and 3 § gives them the
    *   vote.
    *
-   *   A PROXY_HOLDER line requires a standing, current authority naming them.
-   *   Otherwise the line is a person on the list with nothing to exercise, and
-   *   the voting register would have to report them as such rather than the board
-   *   told at the door.
+   * A PROXY_HOLDER line requires a standing, current authority naming them.
+   * Otherwise the line is a person on the list with nothing to exercise, and
+   * the voting register would have to report them as such rather than the board
+   * told at the door.
    *
-   *   An ASSISTANT line requires the member or ombud they came with to be on the
-   *   list already. EFL 6 kap. 7 § has a member or an ombud bring the bitrade,
-   *   so a bitrade with nobody there to have brought them is not one. At most
-   *   one per principal, which the database states.
+   * An ASSISTANT line requires the member or proxy holder they came with to be
+   * on the list already. EFL 6 kap. 7 § has a member or a proxy holder bring
+   * the assistant, so an assistant with nobody there to have brought them is
+   * not one. At most one per principal, which the database states.
    *
-   *   Nothing else may carry `onBehalfOfPersonId`, which the database also
-   *   states. A member is nobody's stand-in and an ombud's principals are the
-   *   authorities they hold.
+   * Nothing else may carry `onBehalfOfPersonId`, which the database also
+   * states. A member is nobody's stand-in and a proxy holder's principals are
+   * the authorities they hold.
    *
    * Somebody recorded and struck off again is checked in on the same line, which
    * clears the date - the sign-up's own pattern.
@@ -424,15 +425,15 @@ export class MeetingService {
 
       const onBehalfOfPersonId = input.onBehalfOfPersonId ?? null;
       /*
-       * Only a bitrade came with anybody, which the table also states as a check
-       * constraint. Refused rather than dropped: a member is nobody's stand-in
-       * and an ombud's principals are the authorities they hold, so a request
-       * naming one on either line has misunderstood the payload - and a field the
-       * server silently ignored is a defect nothing surfaces.
+       * Only an assistant came with anybody, which the table also states as a
+       * check constraint. Refused rather than dropped: a member is nobody's
+       * stand-in and a proxy holder's principals are the authorities they hold,
+       * so a request naming one on either line has misunderstood the payload -
+       * and a field the server silently ignored is a defect nothing surfaces.
        */
       if (input.capacity !== "ASSISTANT" && onBehalfOfPersonId !== null) {
         throw new MeetingError(
-          "Only a bitrade is recorded with the person who brought them.",
+          "Only an assistant is recorded with the person who brought them.",
           "attendance-principal-not-applicable",
         );
       }
@@ -546,7 +547,8 @@ export class MeetingService {
   }
 
   /**
-   * Registers a member's written authority for an ombud, against the bylaws.
+   * Registers a member's written authority for a proxy holder, against the
+   * bylaws.
    *
    * Five checks, in the order a board would meet them, and every one of them
    * cites something:
@@ -554,26 +556,26 @@ export class MeetingService {
    *   The member is a member on the meeting day (EFL 6 kap. 3 §): an authority
    *   from somebody with no vote confers nothing.
    *
-   *   The fullmakt is dated inside its year and not in the future (EFL 6 kap.
-   *   4 § andra stycket). Asked here and again when the voting register is drawn,
-   *   the meeting day can be moved afterwards.
+   * The proxy authorisation is dated inside its year and not in the future (EFL
+   * 6 kap. 4 § andra stycket). Asked here and again when the voting register is
+   * drawn, the meeting day can be moved afterwards.
    *
-   *   The ombud is eligible on the ground stated. MEMBER is checked against the
-   *   register; SPOUSE_OR_COHABITANT is the board's own statement, taken from the
-   *   fullmakt, because this platform holds no record of who is married to whom;
-   *   BYLAWS is accepted only where the association has recorded that its bylaws
-   *   widen BRL 9 kap. 14 § 4.
+   * The proxy holder is eligible on the ground stated. MEMBER is checked
+   * against the register; SPOUSE_OR_COHABITANT is the board's own statement,
+   * taken from the proxy authorisation, because this platform holds no record
+   * of who is married to whom; BYLAWS is accepted only where the association
+   * has recorded that its bylaws widen BRL 9 kap. 14 § 4.
    *
-   *   The ombud is not already carrying as many members as the bylaws allow (BRL
-   *   9 kap. 14 § 4, last sentence, defaulting to one).
+   * The proxy holder is not already carrying as many members as the bylaws
+   * allow (BRL 9 kap. 14 § 4, last sentence, defaulting to one).
    *
-   *   The member is not already represented by somebody else (EFL 6 kap. 4 §
-   *   forsta stycket). Registering a second ombud for one member withdraws the
-   *   first authority and keeps it, rather than overwriting it: the ombud who
-   *   held the vote for a while has an access request of their own, and this
-   *   table is the only place that fact lives. Checked here and not by the
-   *   table, because the rule applies to the rows with no withdrawal date and a
-   *   partial unique index is not expressible in the schema.
+   * The member is not already represented by somebody else (EFL 6 kap. 4 §
+   * forsta stycket). Registering a second proxy holder for one member withdraws
+   * the first authority and keeps it, rather than overwriting it: the proxy
+   * holder who held the vote for a while has an access request of their own,
+   * and this table is the only place that fact lives. Checked here and not by
+   * the table, because the rule applies to the rows with no withdrawal date and
+   * a partial unique index is not expressible in the schema.
    */
   async registerProxy(
     meetingId: string,
@@ -619,20 +621,21 @@ export class MeetingService {
        * The authority this member already has standing, if any, and the act of
        * ending it.
        *
-       * EFL 6 kap. 4 § forsta stycket allows a member no more than one ombud, so
-       * a member naming a second one is replacing the first rather than adding to
-       * it - and the replacement is a withdrawal of the first, with its own entry
-       * in the log naming the same member as the subject. The first row is kept
-       * with its date: the ombud who held somebody's vote for a while has an
-       * access request of their own to be answered, and this table is the only
-       * place that fact lives, because the registration entry names the member
-       * and not the holder.
+       * EFL 6 kap. 4 § forsta stycket allows a member no more than one proxy
+       * holder, so a member naming a second one is replacing the first rather
+       * than adding to it - and the replacement is a withdrawal of the first,
+       * with its own entry in the log naming the same member as the subject.
+       * The first row is kept with its date: the proxy holder who held
+       * somebody's vote for a while has an access request of their own to be
+       * answered, and this table is the only place that fact lives, because the
+       * registration entry names the member and not the holder.
        *
        * Read and written inside the transaction that writes the second row, so
-       * two board members registering different ombud for one member cannot both
-       * see no standing authority and both write one. The read is the check the
-       * table cannot make - a partial unique index is not expressible in the
-       * schema - which is why it is here rather than in a constraint.
+       * two board members registering different proxy holder for one member
+       * cannot both see no standing authority and both write one. The read is
+       * the check the table cannot make - a partial unique index is not
+       * expressible in the schema - which is why it is here rather than in a
+       * constraint.
        */
       const standing = await tx.proxyAuthorisation.findFirst({
         where: {
@@ -680,9 +683,9 @@ export class MeetingService {
           authorisedOn,
           recordedByPersonId: actorPersonId,
         },
-        // The same pair again: a member re-appointing an ombud they had withdrawn
-        // clears the date on the row that person already has, which is the
-        // sign-up's pattern applied to one person's own row.
+        // The same pair again: a member re-appointing a proxy holder they had
+        // withdrawn clears the date on the row that person already has, which
+        // is the sign-up's pattern applied to one person's own row.
         update: {
           ground: input.ground,
           authorisedOn,
@@ -697,11 +700,12 @@ export class MeetingService {
           action: "MEETING_PROXY_REGISTERED",
           actorPersonId,
           /*
-           * The member who gave the authority is the subject. It is their voting
-           * right that somebody else will exercise, so their own access report
-           * is where that has to be visible. The ombud is not a second target
-           * column here - the log has one - and reaches their own report through
-           * the appointment's section, which answers for both roles.
+           * The member who gave the authority is the subject. It is their
+           * voting right that somebody else will exercise, so their own access
+           * report is where that has to be visible. The proxy holder is not a
+           * second target column here - the log has one - and reaches their own
+           * report through the appointment's section, which answers for both
+           * roles.
            */
           targetPersonId: input.memberPersonId,
           targetKind: "proxyAuthorisation",
@@ -725,9 +729,9 @@ export class MeetingService {
   /**
    * Withdraws an authority.
    *
-   * A date and never a delete: a member who takes their fullmakt back has done
-   * something, and a deleted row could only say so by absence. Idempotent, like
-   * striking a line off the list.
+   * A date and never a delete: a member who takes their proxy authorisation
+   * back has done something, and a deleted row could only say so by absence.
+   * Idempotent, like striking a line off the list.
    */
   async withdrawProxy(
     meetingId: string,
@@ -882,9 +886,9 @@ export class MeetingService {
      * The attendance lines are read twice - once for the list the board works
      * from, and once by the voting register that counts them - and on separate
      * connections those two reads can straddle a check-in by a second board
-     * member. The answer would then carry a line the register does not count, or
-     * a vote whose line is not on the list, which is precisely the state a single
-     * call exists to prevent.
+     * member. The answer would then carry a line the register does not count,
+     * or a vote whose line is not on the list, which is precisely the state a
+     * single call exists to prevent.
      *
      * Every read here is a read, so the transaction holds no lock anybody waits
      * on. What it takes is one snapshot.
@@ -1110,11 +1114,12 @@ export class MeetingService {
    *
    * Deliberately not `statutoryDate` itself, whose other rule does not apply
    * here: it refuses a date in the future because a tenant-ownership that has
-   * not ceased cannot be reported as having ceased. A stamma is arranged before
-   * it is held and a fullmakt is dated for a meeting still to come, so both of
-   * the days this method reads are ordinarily ahead of today. The one future
-   * date that is refused is a fullmakt dated after the meeting it is for, which
-   * `proxy-authority.ts` decides on its own grounds.
+   * not ceased cannot be reported as having ceased. A general meeting is
+   * arranged before it is held and a proxy authorisation is dated for a meeting
+   * still to come, so both of the days this method reads are ordinarily ahead
+   * of today. The one future date that is refused is a proxy authorisation
+   * dated after the meeting it is for, which `proxy-authority.ts` decides on
+   * its own grounds.
    */
   private readMeetingDay(text: string): Date {
     const day = parseLocalDay(text);
@@ -1169,21 +1174,23 @@ export class MeetingService {
       orderBy: [{ eventOn: "asc" }, { createdAt: "asc" }],
       select: REGISTER_COLUMNS,
     });
-    const roll = votingRegister({
+    const register = votingRegister({
       events: resolveRegisterEvents(rows),
       meetingDay,
       // No holdings, because none is needed: they decide which lines merge and
-      // never whether a line exists, so a one-person roll answers the membership
+      // never whether a line exists, so a one-person register answers the
       // question with nothing to merge against.
       holdings: [],
       attendances: [],
       proxyAuthorisations: [],
       storageOnlyVoteLimited: false,
     });
-    return roll.lines.some((line) => line.memberPersonIds.includes(personId));
+    return register.lines.some((line) =>
+      line.memberPersonIds.includes(personId),
+    );
   }
 
-  /** The ombud is eligible on the ground the board stated. */
+  /** The proxy holder is eligible on the ground the board stated. */
   private async requireEligibleProxyHolder(
     client: Prisma.TransactionClient,
     input: {
@@ -1217,7 +1224,7 @@ export class MeetingService {
       case "BYLAWS":
         if (!input.bylaws.proxyHolderEligibilityWidened) {
           throw new MeetingError(
-            "The bylaws do not permit an ombud on that ground.",
+            "The bylaws do not permit a proxy holder on that ground.",
             "proxy-holder-not-permitted-by-bylaws",
           );
         }
@@ -1226,7 +1233,8 @@ export class MeetingService {
   }
 
   /**
-   * The ombud is not already carrying as many members as the bylaws allow.
+   * The proxy holder is not already carrying as many members as the bylaws
+   * allow.
    *
    * BRL 9 kap. 14 § 4's last sentence, defaulting to one member and not to EFL
    * 6 kap. 5 §'s three. The member being registered is excluded from the count,
@@ -1234,8 +1242,8 @@ export class MeetingService {
    * satisfies.
    *
    * Counted inside the transaction that writes, and the count is over standing
-   * authorities only: an authority that was withdrawn is not one this ombud is
-   * carrying.
+   * authorities only: an authority that was withdrawn is not one this proxy
+   * holder is carrying.
    */
   private async requireProxyLimitRoom(
     client: Prisma.TransactionClient,
@@ -1263,13 +1271,14 @@ export class MeetingService {
   }
 
   /**
-   * A person recorded as an ombud holds an authority somebody registered.
+   * A person recorded as a proxy holder holds an authority somebody registered.
    *
-   * Standing and not necessarily current: whether it still covers the meeting day
-   * is the voting register's question, asked again there because the day can be
-   * moved after the board checked the paper. Somebody at the door with a fullmakt
-   * that has run out is present and exercising nothing, which the register
-   * reports as such - refusing them here would say they are not in the room.
+   * Standing and not necessarily current: whether it still covers the meeting
+   * day is the voting register's question, asked again there because the day
+   * can be moved after the board checked the paper. Somebody at the door with a
+   * proxy authorisation that has run out is present and exercising nothing,
+   * which the register reports as such - refusing them here would say they are
+   * not in the room.
    */
   private async requireStandingAuthority(
     client: Prisma.TransactionClient,
@@ -1288,12 +1297,12 @@ export class MeetingService {
   }
 
   /**
-   * A bitrade's principal is on the list.
+   * An assistant's principal is on the list.
    *
-   * EFL 6 kap. 7 § has a member or an ombud bring the bitrade, so somebody with
-   * nobody there to have brought them is not a bitrade. A principal whose own
-   * line has been struck off does not count, because a bitrade cannot have been
-   * brought by somebody who is not present.
+   * EFL 6 kap. 7 § has a member or a proxy holder bring the assistant, so
+   * somebody with nobody there to have brought them is not an assistant. A
+   * principal whose own line has been struck off does not count, because an
+   * assistant cannot have been brought by somebody who is not present.
    */
   private async requirePrincipalPresent(
     client: Prisma.TransactionClient,
@@ -1302,7 +1311,7 @@ export class MeetingService {
   ): Promise<void> {
     if (onBehalfOfPersonId === null) {
       throw new MeetingError(
-        "A bitrade is recorded with the member or ombud who brought them.",
+        "An assistant is recorded with the member or proxy holder who brought them.",
         "assistant-principal-not-present",
       );
     }
@@ -1316,7 +1325,7 @@ export class MeetingService {
     });
     if (present === 0) {
       throw new MeetingError(
-        "The member or ombud who brought them is not on the list.",
+        "The member or proxy holder who brought them is not on the list.",
         "assistant-principal-not-present",
       );
     }
