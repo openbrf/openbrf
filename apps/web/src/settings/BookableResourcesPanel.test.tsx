@@ -22,6 +22,12 @@ import { BookableResourcesPanel } from "./BookableResourcesPanel";
  * The two refusals a board meets most - a slot length that does not divide the
  * opening hours, and a resource somebody else withdrew while this page was open
  * - have to arrive as sentences naming what to change.
+ *
+ * And that the one refusal which publishes particulars turns them into
+ * something the board can act on: the fields a personal identity number was
+ * found in, named as the form names them, and never the offset the response
+ * also carried. Read off the response - a screen that guessed would send
+ * somebody to edit text that holds nothing.
  */
 
 const fetchAllBookableResources = vi.fn();
@@ -265,6 +271,60 @@ describe("the refusals a board meets", () => {
         ),
       ).toBeTruthy();
     });
+  });
+
+  it("names the fields a personal identity number was found in", async () => {
+    updateBookableResource.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 422,
+        reason: "personal-identity-number",
+        detail: [
+          { field: "description", offset: 26 },
+          { field: "name", offset: 12 },
+        ],
+      },
+    });
+
+    const session = userEvent.setup();
+    await open();
+    await session.click(screen.getByRole("button", { name: /^Spara$/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+    });
+    // The fields as the form names them, so the board looks at the right box.
+    // The offsets are deliberately not on screen: a character position in a
+    // textarea is not something a person acts on, and the field is.
+    const alert = screen.getByRole("alert").textContent ?? "";
+    expect(alert).toContain(
+      "så ta bort det ur: Vad de boende behöver veta, Resursens namn",
+    );
+    expect(alert).not.toContain("26");
+    expect(alert).not.toContain("12");
+  });
+
+  it("names no field for a refusal that publishes none", async () => {
+    /*
+     * The sentence stays one sentence. Every other refusal carries no
+     * locations, and a screen that appended whatever it found would end each of
+     * them with a field name nothing had been found in.
+     */
+    updateBookableResource.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "quota-not-positive" },
+    });
+
+    const session = userEvent.setup();
+    await open();
+    await session.click(screen.getByRole("button", { name: /^Spara$/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+    });
+    const alert = screen.getByRole("alert").textContent ?? "";
+    expect(alert).toContain("En gräns måste vara minst en bokning.");
+    expect(alert).not.toContain("Resursens namn");
   });
 });
 

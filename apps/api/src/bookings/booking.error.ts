@@ -6,6 +6,22 @@ import { DomainError } from "../http/domain-error";
 export type BookingQuota = "maxConcurrentBookings" | "maxBookingsPerWeek";
 
 /**
+ * Where in a resource's free text a refused value sits.
+ *
+ * A field name and a position, never the value that was found: the thing the
+ * personal-identity-number scan caught is precisely the thing that must not
+ * travel back in a response body, into a log, or onto a screen somebody else is
+ * looking at. The shape follows the event series' own location type, because a
+ * bookable resource is the same shape of thing - named free-text fields, and no
+ * blocks to number.
+ */
+export interface BookingTextLocation {
+  field: "name" | "description";
+  /** Where in that field's text the refused value starts. */
+  offset: number;
+}
+
+/**
  * A refusal from the booking module.
  *
  * It travels as a code rather than as this message, like every other domain
@@ -22,6 +38,12 @@ export type BookingQuota = "maxConcurrentBookings" | "maxBookingsPerWeek";
  * `resource-in-use` is the one refusal that is not about the request at all.
  * The configuration is coherent and the board may set it; what refuses it is
  * the bookings that were made under the configuration it replaces.
+ *
+ * `personal-identity-number` is the guardrail every board-publish path in this
+ * platform carries, and the only refusal here that publishes where it found
+ * something. It names the field and the offset and never the value; see
+ * {@link BookingTextLocation}. What those two fields reach, and why the scan is
+ * on both write paths, is on the scan itself in `bookable-resource.service.ts`.
  *
  * ## What a refusal does not say
  *
@@ -56,6 +78,7 @@ export class BookingError extends DomainError {
       | "closes-before-opens"
       | "slot-does-not-fit"
       | "quota-not-positive"
+      | "personal-identity-number"
       | "booking-not-found"
       | "apartment-not-found"
       | "range-invalid"
@@ -63,25 +86,44 @@ export class BookingError extends DomainError {
       | "slot-taken"
       | "quota-reached"
       | "already-cancelled",
-    /**
-     * Which limit was reached, for `quota-reached` and nothing else.
-     *
-     * Carried because the two limits are answered differently by whoever reads
-     * the refusal: one is waited out and the other is fixed by cancelling
-     * something. The field name and the number are configuration the caller is
-     * subject to rather than anybody's data, which is what makes them safe to
-     * publish through {@link DomainError.details}.
-     */
-    private readonly quota?: { limit: BookingQuota; allowed: number },
+    private readonly found: {
+      /**
+       * Which limit was reached, for `quota-reached` and nothing else.
+       *
+       * Carried because the two limits are answered differently by whoever
+       * reads the refusal: one is waited out and the other is fixed by
+       * cancelling something. The field name and the number are configuration
+       * the caller is subject to rather than anybody's data, which is what
+       * makes them safe to publish through {@link DomainError.details}.
+       */
+      quota?: { limit: BookingQuota; allowed: number };
+      /**
+       * Which fields a `personal-identity-number` refusal found one in.
+       *
+       * A field name and an offset, and never the value; see
+       * {@link BookingTextLocation}.
+       */
+      locations?: readonly BookingTextLocation[];
+    } = {},
   ) {
     super(message);
     this.status = statusFor(reason);
   }
 
+  /**
+   * The particulars the refusal publishes.
+   *
+   * Field names, offsets and the name of a limit: what a screen needs to point
+   * at the problem, and nothing that could be a value. The filter drops any of
+   * these that is empty, so a quota refusal carries no `locations` key and a
+   * scan refusal carries no `quota` key.
+   */
   override details(): Record<string, readonly unknown[]> {
-    return this.quota === undefined
-      ? {}
-      : { quota: [this.quota.limit], allowed: [this.quota.allowed] };
+    return {
+      locations: this.found.locations ?? [],
+      quota: this.found.quota === undefined ? [] : [this.found.quota.limit],
+      allowed: this.found.quota === undefined ? [] : [this.found.quota.allowed],
+    };
   }
 }
 
@@ -122,6 +164,7 @@ function statusFor(reason: BookingError["reason"]): number {
     case "closes-before-opens":
     case "slot-does-not-fit":
     case "quota-not-positive":
+    case "personal-identity-number":
     case "range-invalid":
     case "slot-not-bookable":
       // The request was well formed and describes something no rule the module

@@ -974,6 +974,7 @@
         "closesBeforeOpens": "The closing time has to come after the opening time. A closing time of 00:00 is read as midnight at the end of the day.",
         "slotDoesNotFit": "The slot length does not divide the opening hours into whole slots, so the day would end with a short one. Change the length, or move the closing time.",
         "quotaNotPositive": "A limit must be at least one booking. Leave it empty for no limit; a resource nobody may book is one that has been withdrawn.",
+        "personalIdentityNumber": "The resource carries a personal identity number and cannot be saved. Every resident reads the name and the description on the booking calendar, and the name goes into the confirmation email as well, so take it out of:",
         "resourceNotFound": "That resource is gone. The list has been read again.",
         "resourceWithdrawn": "That resource has been withdrawn from booking, so it cannot be edited. Offering it again is a decision of its own.",
         "resourceInUse": "This resource has bookings still to come, so how it is booked cannot be changed yet. Cancel them, or wait until they have passed. The name, the description and the limits can be changed now.",

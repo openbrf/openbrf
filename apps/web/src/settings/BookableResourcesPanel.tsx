@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import {
   type BookableResource,
   type BookableResourceInput,
@@ -56,11 +57,73 @@ const RESOURCE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "closes-before-opens": "settings.bookableResources.errors.closesBeforeOpens",
   "slot-does-not-fit": "settings.bookableResources.errors.slotDoesNotFit",
   "quota-not-positive": "settings.bookableResources.errors.quotaNotPositive",
+  /*
+   * The guardrail on what the house publishes, and the one refusal here that
+   * names where it found something. What a board member reads is the field,
+   * because that is what they act on; see {@link scannedFields}.
+   */
+  "personal-identity-number":
+    "settings.bookableResources.errors.personalIdentityNumber",
   "resource-not-found": "settings.bookableResources.errors.resourceNotFound",
   "resource-deactivated": "settings.bookableResources.errors.resourceWithdrawn",
   "resource-in-use": "settings.bookableResources.errors.resourceInUse",
   "invalid-body": "settings.bookableResources.errors.unknown",
 };
+
+/**
+ * The parts of a resource a personal-identity-number refusal can name.
+ *
+ * Mirrored from the API's own location type rather than imported, like every
+ * other wire shape in this client. Narrower than `string` on purpose: see
+ * {@link scannedFields}.
+ */
+type ResourceTextField = "name" | "description";
+
+const RESOURCE_TEXT_FIELDS: readonly string[] = ["name", "description"];
+
+/**
+ * Each field as the form above names it, so the board looks at the right box.
+ */
+const FIELD_LABEL: Readonly<Record<ResourceTextField, TranslationKey>> = {
+  name: "settings.bookableResources.name",
+  description: "settings.bookableResources.descriptionLabel",
+};
+
+/**
+ * Which fields of a resource carried a personal identity number.
+ *
+ * Read off the refusal's `locations`, which carry a field name and an offset and
+ * never the value that was found. Only the field names are used: telling a board
+ * member "there is a personal identity number in the description" is actionable,
+ * and quoting the number back onto the screen would be the disclosure the scan
+ * exists to prevent. The offset is not rendered either, on the reading the
+ * motion form and the events panel apply to the same refusal - a character
+ * position in a textarea is not something a person acts on, and the field is.
+ *
+ * A field name this client does not know is dropped rather than carried through.
+ * The panel has one label per field and no honest way to render a third, so an
+ * unrecognised name would have to be folded into one of the two it has - and
+ * pointing a board member at the wrong field sends them editing text that holds
+ * nothing, which leaves the personal identity number where it is and the
+ * resource refused again. Saying less than the response did is the direction to
+ * fail in.
+ */
+function scannedFields(failure: ApiFailure): readonly ResourceTextField[] {
+  if (!Array.isArray(failure.detail)) {
+    return [];
+  }
+  const fields = new Set<ResourceTextField>();
+  for (const location of failure.detail) {
+    if (typeof location !== "object" || location === null) {
+      continue;
+    }
+    const field: unknown = (location as { field?: unknown }).field;
+    if (typeof field === "string" && RESOURCE_TEXT_FIELDS.includes(field)) {
+      fields.add(field as ResourceTextField);
+    }
+  }
+  return [...fields];
+}
 
 /**
  * The whole day, in minutes.
@@ -200,6 +263,13 @@ export function BookableResourcesPanel(): ReactElement {
     void add.submit(inputOf(draft));
   };
 
+  /*
+   * The fields a scan refusal named, in the words of the form the board is
+   * looking at. Empty for every other refusal, which is what keeps the sentence
+   * below one sentence.
+   */
+  const scanned = failure === null ? [] : scannedFields(failure);
+
   const offered = (resources ?? []).filter(
     (resource) => resource.deactivatedAt === null,
   );
@@ -225,6 +295,9 @@ export function BookableResourcesPanel(): ReactElement {
                 "settings.bookableResources.errors.unknown",
               ),
             )}
+            {scanned.length === 0
+              ? null
+              : ` ${scanned.map((field) => t(FIELD_LABEL[field])).join(", ")}`}
           </Notice>
         )
       }

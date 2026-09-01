@@ -48,7 +48,12 @@ import { BookingPurgeService } from "./booking-purge.service";
  *
  * A withdrawn resource keeps its bookings, every act on the catalogue is in the
  * audit log with the mode and the field names and no free text, and the grid a
- * booking was cut from cannot be moved under it while it is still to come.
+ * booking was cut from cannot be moved under it while it is still to come. And
+ * the personal-identity-number refusal reaches the wire as a 422 naming the
+ * field it was found in and never the value, on both write paths, leaving no
+ * row behind and the stored name as it was - the scan itself is
+ * `bookable-resource.service.spec.ts`; what only a real table can show is that
+ * nothing was written.
  *
  * The purge, which is what makes the retention promise real: it erases bookings
  * past their window, leaves the ones inside it, and a legal hold stops it for
@@ -829,6 +834,75 @@ describe("configuring a resource", () => {
       where: { id: laundryId },
       data: { maxBookingsPerWeek: 3 },
     });
+  });
+
+  it("refuses a personal identity number, and writes nothing", async () => {
+    const name = `Bastu ${suffix}`;
+    // A description of the sort a board writes: where the key is and who to
+    // ask. The number arrives pasted along with the sentence around it.
+    const description = "Kallaren, nyckel hos Anna 811228-9874.";
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/bookable-resources",
+      payload: { ...laundryPayload, name, description },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(422);
+    const body = response.json<{
+      reason: string;
+      locations: { field: string; offset: number }[];
+    }>();
+    expect(body.reason).toBe("personal-identity-number");
+    expect(body.locations).toEqual([
+      { field: "description", offset: description.indexOf("811228-9874") },
+    ]);
+    // The value the scan caught is the one thing that must not travel back.
+    expect(response.body).not.toContain("811228");
+
+    // Refused whole: nothing on any resident's calendar, and nothing for the
+    // booking mail to quote later.
+    expect(await prisma.bookableResource.count({ where: { name } })).toBe(0);
+  });
+
+  it("refuses one in the name of a resource that already exists", async () => {
+    /*
+     * The half a guard on the creation path alone would miss. A resource
+     * created clean and then renamed would otherwise be the way round the
+     * scan - and the name is the field that travels furthest, into the
+     * confirmation and cancellation mail as well as onto the calendar.
+     */
+    const before = await prisma.bookableResource.findUniqueOrThrow({
+      where: { id: laundryId },
+    });
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/bookable-resources/${laundryId}`,
+      payload: {
+        name: `${before.name} (Anna 811228-9874)`,
+        description: before.description,
+        mode: before.mode,
+        slotMinutes: before.slotMinutes,
+        opensAtMinute: before.opensAtMinute,
+        closesAtMinute: before.closesAtMinute,
+        maxConcurrentBookings: before.maxConcurrentBookings,
+        maxBookingsPerWeek: before.maxBookingsPerWeek,
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "personal-identity-number",
+    );
+    expect(response.body).not.toContain("811228");
+
+    const after = await prisma.bookableResource.findUniqueOrThrow({
+      where: { id: laundryId },
+    });
+    expect(after.name).toBe(before.name);
   });
 
   it("refuses an update to a resource that does not exist", async () => {

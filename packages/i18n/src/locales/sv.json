@@ -974,6 +974,7 @@
         "closesBeforeOpens": "Stängningstiden måste komma efter öppningstiden. Stängningstiden 00:00 läses som midnatt när dagen är slut.",
         "slotDoesNotFit": "Passets längd delar inte öppettiderna i hela pass, så dagen skulle sluta med ett kort pass. Ändra längden, eller flytta stängningstiden.",
         "quotaNotPositive": "En gräns måste vara minst en bokning. Lämna den tom för ingen gräns; en resurs som ingen får boka är en resurs som är tagen ur bokning.",
+        "personalIdentityNumber": "Resursen innehåller ett personnummer och kan inte sparas. Alla boende läser namnet och beskrivningen i bokningskalendern, och namnet står även i bekräftelsemejlet, så ta bort det ur:",
         "resourceNotFound": "Resursen finns inte längre. Listan har lästs om.",
         "resourceWithdrawn": "Resursen är tagen ur bokning och kan därför inte ändras. Att erbjuda den igen är ett eget beslut.",
         "resourceInUse": "Resursen har bokningar som inte har passerat, så hur den bokas kan inte ändras än. Avboka dem, eller vänta tills de har passerat. Namnet, beskrivningen och gränserna går att ändra nu.",
