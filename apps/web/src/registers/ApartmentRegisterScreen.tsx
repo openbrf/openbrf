@@ -515,9 +515,7 @@ export function ApartmentRegisterScreen(): ReactElement {
                   onSubmitTermination={(input) => {
                     void submitTermination(input);
                   }}
-                  onRecordMembershipDecision={(transferId, decidedOn) => {
-                    void submitMembershipDecision(transferId, decidedOn);
-                  }}
+                  onRecordMembershipDecision={submitMembershipDecision}
                 />
               ))}
             </div>
@@ -570,7 +568,10 @@ function ApartmentEntry({
   onCancelTermination: () => void;
   onChangeTermination: (draft: TerminationDraft) => void;
   onSubmitTermination: (draft: TerminationDraft) => void;
-  onRecordMembershipDecision: (transferId: string, decidedOn: string) => void;
+  onRecordMembershipDecision: (
+    transferId: string,
+    decidedOn: string,
+  ) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -983,16 +984,22 @@ function ApartmentEntry({
  * normally minuted at a board meeting some days before anybody types it in, and
  * a prefilled today would be the wrong answer offered as the easy one - on a
  * date that starts a statutory window and cannot be corrected afterwards.
+ *
+ * One request at a time. A second click while the first is in flight sends the
+ * date twice, and the route refuses a transfer that already carries one, so the
+ * board would be told the recording failed by the very request that proves it
+ * succeeded - on the one date here that cannot be recorded again.
  */
 function MembershipDecisionControl({
   transferId,
   onRecord,
 }: {
   transferId: string;
-  onRecord: (transferId: string, decidedOn: string) => void;
+  onRecord: (transferId: string, decidedOn: string) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
   const [decidedOn, setDecidedOn] = useState("");
+  const [recording, setRecording] = useState(false);
 
   return (
     <span className="flex flex-wrap items-center gap-2 print:hidden">
@@ -1010,9 +1017,15 @@ function MembershipDecisionControl({
       </label>
       <button
         type="button"
-        disabled={decidedOn === ""}
+        disabled={decidedOn === "" || recording}
         onClick={() => {
-          onRecord(transferId, decidedOn);
+          if (recording) {
+            return;
+          }
+          setRecording(true);
+          void onRecord(transferId, decidedOn).finally(() => {
+            setRecording(false);
+          });
         }}
         className={QUIET_BUTTON}
       >

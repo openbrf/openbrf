@@ -451,6 +451,38 @@ describe("register completeness", () => {
     expect(screen.queryByText(/Upphörandet kunde inte registreras/)).toBeNull();
   });
 
+  it("sends the membership decision once however often the control is clicked", async () => {
+    // The route refuses a transfer that already carries a decision date, so a
+    // second request sent while the first is in flight comes back refused and
+    // raises the failure notice for the request that succeeded. The board would
+    // then be told the recording failed by the very act that proves it did not,
+    // on the one date here that cannot be recorded again.
+    let settle = (): void => {};
+    recordMembershipDecision.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve({ ok: true, value: {} });
+          };
+        }),
+    );
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    const [input] = await screen.findAllByLabelText(/Medlemskap beslutat/);
+    await session.type(input as HTMLElement, "2014-02-20");
+    const control = screen.getByRole("button", {
+      name: /Registrera beslutsdatumet/,
+    });
+    await session.click(control);
+    await session.click(control);
+
+    expect(recordMembershipDecision).toHaveBeenCalledTimes(1);
+
+    settle();
+    await screen.findAllByLabelText(/Medlemskap beslutat/);
+  });
+
   it("offers exactly the two grounds a termination can rest on", async () => {
     const session = userEvent.setup();
     render(<ApartmentRegisterScreen />);

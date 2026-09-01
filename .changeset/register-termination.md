@@ -46,9 +46,12 @@ transfer recorded without it cannot be repaired later, which is why the column
 lands before a pilot records real transfers rather than with the reporting
 screen. It is nullable, and an absent value is not a gap: the same paragraph runs
 the window from the transfer itself where the acquirer is already a member or
-falls outside the membership requirement, so those transfers have no decision to
-date. Recording one is refused a second time rather than overwritten, because the
-date is the start of a statutory window.
+falls outside the membership requirement, and its fourth paragraph does the same
+where the bostadsrätt passed to the association, so those transfers have no
+decision to date. Recording one is refused a second time rather than overwritten,
+because the date is the start of a statutory window - and the control that
+records it sends one request at a time, because the refusal of a duplicate would
+otherwise report the failure of the request that succeeded.
 
 The association's authoritative property designation now sits beside its
 organisation number. The register holds data about the bostadsrättslägenhet

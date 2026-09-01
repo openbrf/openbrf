@@ -581,9 +581,14 @@ change it.
       each event the cooperative is responsible for - grant (upplåtelse),
       transfer (övergång) and termination (upphörande) - per Lag (2026:484) om
       bostadsrättsregister, 3 kap. Each has a two-week window, but they do not
-      all start from the same moment: for a transfer the clock runs from the
-      membership decision rather than the transfer itself, and the statute
-      assigns the report to a juridical person in defined cases. Liens
+      all start from the same moment, and a transfer has more than one answer
+      (3 kap. 3 §): the clock normally runs from the day the association
+      decided on membership, but where the acquirer is already a member or
+      falls outside the membership requirement it runs from the transfer
+      itself, and so it does where the tenant-ownership passed to the
+      association. Which is why the recorded membership decision date is
+      nullable and an absent one is not a gap. The statute also assigns the
+      report to a juridical person in defined cases. Liens
       (pantsättning) are registered by the lienholder, not the cooperative, so
       they are deliberately outside this feature. The exact per-event trigger
       and actor rules belong with the implementation, not this page. A missed
