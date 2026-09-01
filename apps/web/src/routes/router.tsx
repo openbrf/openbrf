@@ -284,8 +284,8 @@ const bookingsRoute = createRoute({
  * screen.
  *
  * One route for both halves of the module, on the reasoning the issues route
- * sets out: a member puts an item to the meeting and reads their own, and the
- * board additionally works the queue those arrive in. Two destinations for one
+ * sets out: a member submits a motion and reads their own, and the board
+ * additionally works the queue those arrive in. Two destinations for one
  * subject would put the same word twice in the navigation.
  */
 const motionsRoute = createRoute({

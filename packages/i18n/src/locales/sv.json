@@ -2322,7 +2322,7 @@
       "action": "Skicka motionen",
       "sending": "Skickar...",
       "sent": "Motionen har kommit in till styrelsen.",
-      "deadline": "Era stadgar säger att motioner ska vara styrelsen tillhanda senast {{date}}. En motion som kommer senare tas ändå emot, och styrelsen avgör vilken stämma den hinner till.",
+      "deadline": "Era stadgar säger att motioner ska vara styrelsen tillhanda senast {{date}}. En motion som kommer senare tas ändå emot - dagen handlar om att hinna med i kallelsen till en stämma, inte om huruvida styrelsen tar emot din motion.",
       "noDeadline": "Era stadgar anger ingen tid för motioner, så styrelsen avgör vad den hinner ta upp i kallelsen till en stämma."
     },
     "mine": {
@@ -2345,7 +2345,7 @@
       "acknowledge": "Anteckna som mottagen",
       "acknowledgeNamed": "Anteckna motionen {{title}} som mottagen",
       "acknowledging": "Antecknar...",
-      "deadline": "Era stadgar anger {{date}} som sista dag för motioner. En motion som kommer senare tas ändå emot; om den hinner till den kommande stämman avgör ni.",
+      "deadline": "Era stadgar anger {{date}} som sista dag för motioner. En motion som kommer senare tas ändå emot; dagen säger om den hann med i en kallelse, och ingenting här antecknar vilken stämma som tar upp den.",
       "noDeadline": "Era stadgar anger ingen tid för motioner. Ange en under Inställningar om de gör det."
     },
     "errors": {

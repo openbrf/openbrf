@@ -548,15 +548,16 @@ change it.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders
-  - [x] Motions to the general meeting: a member puts an item to the meeting and
-        the board works the queue it arrives in. The right is a member's, not a
-        resident's (EFL 6 kap. 15 § via BRL 9 kap. 14 §). The deadline is
-        whatever the association's own bylaws set: the platform holds no default,
-        a cooperative whose bylaws are silent has no recurring date of its own to
-        hold, and the statute's own condition - that a request reach the board in
-        time to be taken up in the notice - stands either way. It is stated
-        rather than enforced while there are no meetings to be in time for, so a
-        late motion is received and the board decides which meeting it reaches
+  - [x] Motions to the general meeting: a member submits one in writing and the
+        board works the queue it arrives in, recording that it has been received.
+        The right is a member's, not a resident's (EFL 6 kap. 15 § via BRL 9 kap.
+        14 §). The deadline is whatever the association's own bylaws set: the
+        platform holds no default, a cooperative whose bylaws are silent has no
+        recurring date of its own to hold, and the statute's own condition - that
+        a request reach the board in time to be taken up in the notice - stands
+        either way. It is stated rather than enforced: a late motion is still
+        received, and nothing here records which meeting takes one up, because
+        there are no meetings in the platform yet to record
   - [ ] Subletting applications
   - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a

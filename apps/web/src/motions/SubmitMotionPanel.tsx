@@ -28,7 +28,8 @@ const EMPTY = { title: "", body: "" };
  * The deadline is stated and never enforced. It is the condition on the right to
  * have an item taken up at a *particular* meeting rather than a condition on the
  * association's ability to receive one, so a motion arriving after it is taken
- * and the board decides which meeting it can reach. Saying so here is the point:
+ * all the same, and nothing here records which meeting takes one up - there are
+ * no meetings in the platform yet to record. Saying so here is the point:
  * a form that silently accepted a late motion without mentioning the date would
  * leave a member believing their item was on the coming agenda.
  */
