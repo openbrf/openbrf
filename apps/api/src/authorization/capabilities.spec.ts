@@ -64,7 +64,7 @@ describe("board member", () => {
     "events:attend",
     // Arranging the general meeting and keeping its record. The board calls the
     // meeting (EFL 6 kap. 16 §), the board's chair or whoever it appointed opens
-    // it (26 §), the voting roll is drawn up by whoever opened it or by the chair
+    // it (26 §), the voting register is drawn up by whoever opened it or by the chair
     // the meeting elected (27 §), and the chair sees that a protokoll is kept
     // (39 §).
     "meetings:manage",

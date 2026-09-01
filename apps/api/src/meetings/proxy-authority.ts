@@ -15,8 +15,8 @@ import {
  *
  * Its own module, and pure, because the answer is needed twice and must not be
  * allowed to differ. The board is refused a stale fullmakt when it registers
- * one, and the voting roll asks again when it is drawn up - the meeting day can
- * be moved after an appointment was registered, and a roll that trusted the
+ * one, and the voting register asks again when it is drawn up - the meeting day can
+ * be moved after an appointment was registered, and a register that trusted the
  * registration would then seat an ombud whose authority had run out.
  *
  * ## What this module does not decide

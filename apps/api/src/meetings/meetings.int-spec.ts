@@ -45,11 +45,11 @@ import type { MeetingSummaryView, MeetingView } from "./meeting.service";
  * And a decision is minuted once the meeting has been held, corrected in place
  * rather than written twice, with the entry in the audit log naming the counts.
  *
- * ## Why the assertions filter the roll
+ * ## Why the assertions filter the register
  *
  * The member register is append-only, so this suite cannot delete the rows it
  * writes into it and leaves its people behind - the report suite does the same
- * and says why. The roll is the association's whole membership, so it carries
+ * and says why. The register is the association's whole membership, so it carries
  * every person any suite has ever entered into this shared database. Nothing
  * here asserts a total; every count is over the lines belonging to this run's own
  * people, which is what makes the assertions about the rules rather than about
@@ -109,6 +109,21 @@ const manager = {
   personId: `mt-manager-${suffix}`,
   email: `mt-manager-${suffix}@exempel.se`,
 };
+/**
+ * The account the bylaws writes go through.
+ *
+ * Its own person, and that is load-bearing rather than tidy. Changing what the
+ * instance holds needs association:manage, which the board does not hold; but
+ * granting ADMIN to the board member would give every boardCookie request the
+ * administrator's whole capability set, because the guard resolves capabilities
+ * per request from the roles. The assertion that a board seat alone reaches this
+ * module would then pass whatever the capability model said - which is the one
+ * failure a test about a capability must not have.
+ */
+const administrator = {
+  personId: `mt-admin-${suffix}`,
+  email: `mt-admin-${suffix}@exempel.se`,
+};
 
 const actors = [
   twoHoldings,
@@ -119,6 +134,7 @@ const actors = [
   lodger,
   board,
   manager,
+  administrator,
 ];
 const personIds = actors.map((actor) => actor.personId);
 const memberIds = [
@@ -247,7 +263,7 @@ function registerProxy(
 ) {
   return inject({
     method: "POST",
-    url: `/api/meetings/${meetingId}/proxy-appointments`,
+    url: `/api/meetings/${meetingId}/proxy-authorisations`,
     payload: {
       ground: "MEMBER",
       authorisedOn: AUTHORISED_ON_TEXT,
@@ -257,13 +273,13 @@ function registerProxy(
   });
 }
 
-/** How many of this run's own votes the roll holds, and how many are present. */
+/** How many of this run's own votes the register holds, and how many are present. */
 function ownVotes(meeting: MeetingView): {
   total: number;
   present: number;
-  lines: MeetingView["votingRoll"]["lines"];
+  lines: MeetingView["votingRegister"]["lines"];
 } {
-  const lines = meeting.votingRoll.lines.filter((line) =>
+  const lines = meeting.votingRegister.lines.filter((line) =>
     line.memberPersonIds.some((personId) => memberIds.includes(personId)),
   );
   return {
@@ -273,9 +289,9 @@ function ownVotes(meeting: MeetingView): {
   };
 }
 
-/** The roll line one of this run's members is on. */
+/** The register line one of this run's members is on. */
 function lineOf(meeting: MeetingView, personId: string) {
-  return meeting.votingRoll.lines.find((line) =>
+  return meeting.votingRegister.lines.find((line) =>
     line.memberPersonIds.includes(personId),
   );
 }
@@ -360,6 +376,7 @@ beforeAll(async () => {
     { ...lodger, firstName: "Lars", lastName: "Inneboende" },
     { ...board, firstName: "Bea", lastName: "Ordforande" },
     { ...manager, firstName: "Frida", lastName: "Forvaltare" },
+    { ...administrator, firstName: "Adam", lastName: "Administrator" },
   ]) {
     const email = await encryption.encrypt("person.email", person.email);
     await prisma.person.create({
@@ -381,7 +398,7 @@ beforeAll(async () => {
 
   /*
    * The residencies say which bostadsratt each membership covers, which is the
-   * half of the roll the archive cannot answer: an EXIT row is written only when
+   * half of the register the archive cannot answer: an EXIT row is written only when
    * a person's last tenant-ownership ends, so the archive would leave an open
    * entry on an apartment somebody had sold.
    *
@@ -444,7 +461,7 @@ beforeAll(async () => {
    *
    * These rows are never deleted. The archive refuses UPDATE and DELETE for
    * every caller, so this suite leaves them and the people they name behind -
-   * which is why nothing here asserts a total over the roll.
+   * which is why nothing here asserts a total over the register.
    */
   await prisma.memberRegisterEntry.createMany({
     data: [
@@ -517,21 +534,22 @@ beforeAll(async () => {
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
   });
 
+  /*
+   * The bylaws writes need association:manage, which the board does not hold -
+   * changing what the instance holds stays with an administrator. So they go
+   * through an account of their own, and the board account keeps its board
+   * position and nothing else. See the comment on `administrator`: granting ADMIN
+   * to the board member would disarm every assertion in this suite about what a
+   * board seat reaches.
+   */
+  await prisma.systemRole.create({
+    data: { personId: administrator.personId, role: "ADMIN" },
+  });
+
   boardCookie = await signIn(board.email);
   lodgerCookie = await signIn(lodger.email);
   managerCookie = await signIn(manager.email);
-
-  /*
-   * The bylaws writes need association:manage, which the board does not hold -
-   * changing what the instance holds stays with an administrator. The board
-   * member is granted ADMIN as well so this suite has one account for both, and
-   * the capability split itself is asserted by the settings suite rather than
-   * re-litigated here.
-   */
-  await prisma.systemRole.create({
-    data: { personId: board.personId, role: "ADMIN" },
-  });
-  adminCookie = await signIn(board.email);
+  adminCookie = await signIn(administrator.email);
 }, 180_000);
 
 /*
@@ -550,7 +568,7 @@ afterAll(async () => {
       await prisma.meetingAttendance.deleteMany({
         where: { meetingId: { in: createdMeetingIds } },
       });
-      await prisma.proxyAppointment.deleteMany({
+      await prisma.proxyAuthorisation.deleteMany({
         where: { meetingId: { in: createdMeetingIds } },
       });
       await prisma.meeting.deleteMany({
@@ -632,6 +650,18 @@ describe("who reaches the module", () => {
   });
 
   it("lets a board member who holds no tenant-ownership run the meeting", async () => {
+    /*
+     * The board account holds a board position and no system role, which is what
+     * makes this an assertion about `meetings:manage` rather than about the
+     * administrator's blanket grant. The bylaws writes in this suite go through
+     * a separate administrator for exactly that reason.
+     */
+    const roles = await prisma.systemRole.findMany({
+      where: { personId: board.personId },
+      select: { role: true },
+    });
+    expect(roles).toEqual([]);
+
     const response = await inject({
       method: "GET",
       url: "/api/meetings",
@@ -657,10 +687,10 @@ describe("one vote per membership", () => {
     expect(line?.apartmentIds).toHaveLength(2);
     expect(line?.jointlyHeld).toBe(false);
 
-    // And exactly one line names her, which is the assertion a roll built per
+    // And exactly one line names her, which is the assertion a register built per
     // holding would fail.
     expect(
-      meeting.votingRoll.lines.filter((candidate) =>
+      meeting.votingRegister.lines.filter((candidate) =>
         candidate.memberPersonIds.includes(twoHoldings.personId),
       ),
     ).toHaveLength(1);
@@ -700,8 +730,8 @@ describe("one vote per membership", () => {
      * BRL 9 kap. 14 § 1 permits the bylaws to limit the vote of a member holding
      * nothing but a garage, a store or other storage space. The clause turns on
      * what a space is used for and this platform records no use for a space, so
-     * the roll says the clause stands and the meeting applies it. Asserted as a
-     * vote that is still counted, because the failure to guard against is a roll
+     * the register says the clause stands and the meeting applies it. Asserted as a
+     * vote that is still counted, because the failure to guard against is a register
      * that quietly subtracted one on a guess.
      */
     await setBylaws({ storageOnlyVoteLimited: true });
@@ -709,7 +739,7 @@ describe("one vote per membership", () => {
       const meetingId = await arrangeMeeting();
       const meeting = await readMeeting(meetingId);
 
-      expect(meeting.votingRoll.storageOnlyVoteLimited).toBe(true);
+      expect(meeting.votingRegister.storageOnlyVoteLimited).toBe(true);
       expect(ownVotes(meeting).total).toBe(4);
     } finally {
       await setBylaws({});
@@ -789,7 +819,7 @@ describe("checking people in", () => {
     ).toBe(201);
 
     const meeting = await readMeeting(meetingId);
-    expect(meeting.votingRoll.assistantsPresent).toBe(1);
+    expect(meeting.votingRegister.assistantsPresent).toBe(1);
     // One vote present: Maja's. Sofia is in the room and her own vote is not.
     expect(ownVotes(meeting).present).toBe(1);
     expect(lineOf(meeting, soloMember.personId)?.votePresent).toBe(false);
@@ -829,7 +859,7 @@ describe("checking people in", () => {
     );
   });
 
-  it("takes a struck-off line off the roll and back on again", async () => {
+  it("takes a struck-off line off the register and back on again", async () => {
     const meetingId = await arrangeMeeting();
     const created = await checkIn(meetingId, {
       personId: soloMember.personId,
@@ -1033,6 +1063,99 @@ describe("a member's written authority for an ombud", () => {
     }
   });
 
+  it("keeps the first authority when a member appoints somebody else", async () => {
+    /*
+     * EFL 6 kap. 4 § forsta stycket allows a member no more than one ombud, so a
+     * member naming a second one is replacing the first. The first row is kept
+     * with a withdrawal date rather than overwritten, and that is the whole
+     * reason the table is keyed on the pair: the ombud who held somebody's vote
+     * for a while has an access request of their own, and this table is the only
+     * place that fact lives - the registration entry names the member, not the
+     * holder.
+     */
+    const meetingId = await arrangeMeeting();
+    const first = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+    });
+    expect(first.statusCode).toBe(201);
+    const firstId = first.json<{ id: string }>().id;
+
+    const second = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: jointFirst.personId,
+    });
+    expect(second.statusCode).toBe(201);
+
+    const meeting = await readMeeting(meetingId);
+    const held = meeting.proxyAuthorisations.filter(
+      (row) => row.memberPersonId === soloMember.personId,
+    );
+    // Two rows: the first ombud's, withdrawn and kept, and the second's.
+    expect(held).toHaveLength(2);
+    const replaced = held.find((row) => row.id === firstId);
+    expect(replaced?.proxyHolderPersonId).toBe(twoHoldings.personId);
+    expect(replaced?.withdrawnAt).not.toBeNull();
+    const standing = held.find((row) => row.id !== firstId);
+    expect(standing?.proxyHolderPersonId).toBe(jointFirst.personId);
+    expect(standing?.withdrawnAt).toBeNull();
+
+    /*
+     * Only the second ombud can exercise the vote. Asserted because the point of
+     * keeping the first row is the record, never a second live authority: two
+     * standing rows would put two representatives on a line carrying one vote.
+     */
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: twoHoldings.personId,
+          capacity: "PROXY_HOLDER",
+        })
+      ).statusCode,
+    ).toBe(403);
+
+    // The withdrawal is its own entry, with the member as the subject and a note
+    // that it was superseded rather than simply taken back.
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "MEETING_PROXY_WITHDRAWN", targetId: firstId },
+      select: { actorPersonId: true, targetPersonId: true, context: true },
+    });
+    expect(entry?.actorPersonId).toBe(board.personId);
+    expect(entry?.targetPersonId).toBe(soloMember.personId);
+    expect(entry?.context).toMatchObject({ superseded: true });
+  });
+
+  it("takes a member re-appointing an ombud they had withdrawn on one row", async () => {
+    // The sign-up's pattern, applied where it fits: to the row that person
+    // already has, rather than across two people.
+    const meetingId = await arrangeMeeting();
+    const created = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+    });
+    const authorisationId = created.json<{ id: string }>().id;
+    await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/proxy-authorisations/${authorisationId}/withdrawal`,
+      headers: { cookie: boardCookie },
+    });
+
+    const again = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+    });
+    expect(again.statusCode).toBe(201);
+    expect(again.json<{ id: string }>().id).toBe(authorisationId);
+    expect(again.json<{ withdrawnAt: string | null }>().withdrawnAt).toBeNull();
+
+    const meeting = await readMeeting(meetingId);
+    expect(
+      meeting.proxyAuthorisations.filter(
+        (row) => row.memberPersonId === soloMember.personId,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("refuses an authority older than the year the statute allows", async () => {
     // EFL 6 kap. 4 § andra stycket: a fullmakt holds for at most one year from
     // the day it was issued.
@@ -1056,7 +1179,7 @@ describe("a member's written authority for an ombud", () => {
       proxyHolderPersonId: twoHoldings.personId,
     });
     expect(created.statusCode).toBe(201);
-    const appointmentId = created.json<{ id: string }>().id;
+    const authorisationId = created.json<{ id: string }>().id;
     expect(
       (
         await checkIn(meetingId, {
@@ -1071,7 +1194,7 @@ describe("a member's written authority for an ombud", () => {
 
     const withdrawn = await inject({
       method: "POST",
-      url: `/api/meetings/${meetingId}/proxy-appointments/${appointmentId}/withdrawal`,
+      url: `/api/meetings/${meetingId}/proxy-authorisations/${authorisationId}/withdrawal`,
       headers: { cookie: boardCookie },
     });
     expect(withdrawn.statusCode).toBe(201);
@@ -1080,7 +1203,7 @@ describe("a member's written authority for an ombud", () => {
     expect(lineOf(meeting, soloMember.personId)?.votePresent).toBe(false);
     // The ombud is still in the room and exercising nothing, which is what the
     // chair has to be told at the door.
-    expect(meeting.votingRoll.proxyHoldersWithoutVote).toContain(
+    expect(meeting.votingRegister.proxyHoldersWithoutVote).toContain(
       twoHoldings.personId,
     );
   });

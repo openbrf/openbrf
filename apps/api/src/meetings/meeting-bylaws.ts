@@ -55,7 +55,7 @@
  * reported to the board and applied by the meeting. That is not a gap left for
  * later: an answer invented from a participation share would take somebody's
  * vote away on a guess, and EFL 6 kap. 27 § puts the decision at the meeting in
- * any case, which approves the voting roll and may resolve to change it.
+ * any case, which approves the voting register and may resolve to change it.
  */
 
 /** The four clauses, each resolved to the rule that applies. */

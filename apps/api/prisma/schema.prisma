@@ -203,9 +203,9 @@ model Association {
   /// carries a number, a floor, a participation share and an initial share
   /// capital, none of which distinguishes a garage from a flat. Deriving it
   /// from the share would be an invention, and an invented answer would take
-  /// somebody's vote away. So the voting roll reports that the clause stands
+  /// somebody's vote away. So the voting register reports that the clause stands
   /// and the meeting applies it, which is where EFL 6 kap. 27 § puts the
-  /// decision in any case: the roll is approved by the meeting and stands until
+  /// decision in any case: the register is approved by the meeting and stands until
   /// the meeting resolves to change it.
   bylawsLimitStorageOnlyVote Boolean @default(false)
 
@@ -217,7 +217,7 @@ model Association {
   /// about this platform's reach: a bitrade needs no written authority at all -
   /// EFL 6 kap. 7 § simply lets a member or an ombud bring one, who may speak
   /// at the meeting - so there is no document for the board to attest and
-  /// nothing for a check to key itself to. A proxy appointment has one, which
+  /// nothing for a check to key itself to. A proxy authorisation has one, which
   /// is why the ombud clause is the half that is checked.
   bylawsWidenAssistantEligibility Boolean @default(false)
 
@@ -1125,7 +1125,7 @@ enum AuditAction {
   /// is where that has to be visible. Who they gave it to is on the appointment
   /// the entry points at, which is also how the ombud's own report reaches it.
   MEETING_PROXY_REGISTERED
-  /// A proxy appointment was withdrawn, by the member or by the board. The
+  /// A proxy authorisation was withdrawn, by the member or by the board. The
   /// subject stays the member who gave the authority.
   MEETING_PROXY_WITHDRAWN
   /// The chair recorded what the meeting decided on one agenda item, as the
@@ -3183,7 +3183,7 @@ model EventSignup {
   /// one: two rows would be one person counted twice against the places.
   @@unique([occurrenceId, personId])
   /// The places taken on one date, which is the count every claim is measured
-  /// against and the roll-call the board reads.
+  /// against and the register-call the board reads.
   @@index([occurrenceId, withdrawnAt])
   /// This person's sign-ups: the access report section and the purge's scan.
   @@index([personId])
@@ -3231,7 +3231,7 @@ enum AttendanceCapacity {
   MEMBER
 
   /// An ombud, exercising an absent member's right under EFL 6 kap. 4 §. Which
-  /// members they are exercising it for is the proxy appointments they hold at
+  /// members they are exercising it for is the proxy authorisations they hold at
   /// this meeting, never this row: one ombud may carry several members where the
   /// bylaws allow it, and a capacity that named one of them could not say so.
   PROXY_HOLDER
@@ -3350,9 +3350,9 @@ enum VoteChoice {
 ///
 /// `concludedAt` is null while the meeting is being arranged and carries the
 /// instant the board recorded that it had been held. The difference is not
-/// cosmetic: beforehand the agenda is a plan and the voting roll is a
+/// cosmetic: beforehand the agenda is a plan and the voting register is a
 /// projection of the register as it stands, and afterwards the agenda is what
-/// the meeting dealt with and the roll is a fact about a day that has passed.
+/// the meeting dealt with and the register is a fact about a day that has passed.
 /// A date and not a status, on the precedent of a released legal hold, a
 /// withdrawn resource and a called-off occurrence - "when" answers "whether",
 /// and a flag cannot answer "when".
@@ -3376,9 +3376,9 @@ model Meeting {
   /// being arranged. See the model comment.
   concludedAt DateTime?
 
-  agendaItems       AgendaItem[]
-  attendances       MeetingAttendance[]
-  proxyAppointments ProxyAppointment[]
+  agendaItems         AgendaItem[]
+  attendances         MeetingAttendance[]
+  proxyAuthorisations ProxyAuthorisation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3500,12 +3500,12 @@ model MeetingDecision {
 /// have where they do not all have the same number. This table is the record
 /// those lines are read from.
 ///
-/// ## The roll is derived and never stored
+/// ## The register is derived and never stored
 ///
 /// There is no vote count and no eligibility flag on this row, and there is not
 /// going to be one. Membership on the meeting day, the one vote a membership
 /// carries, and the merging of joint holders into it are all read out of the
-/// member register when the roll is asked for - `voting-roll.ts` - exactly as
+/// member register when the register is asked for - `voting-register.ts` - exactly as
 /// the booking allowance is counted out of the residencies at write time. A
 /// stored count would go stale the moment somebody moved or a transfer
 /// completed, and it would go stale silently: nothing about the row would look
@@ -3574,7 +3574,7 @@ model MeetingAttendance {
   /// onBehalfOfPersonId for why a plain unique constraint states a rule that
   /// applies to one capacity only.
   @@unique([meetingId, onBehalfOfPersonId])
-  /// The list drawn up at the meeting, and the roll the votes are counted from.
+  /// The list drawn up at the meeting, and the register the votes are counted from.
   @@index([meetingId, capacity])
   /// This person's own attendance: the access report section.
   @@index([personId])
@@ -3613,15 +3613,22 @@ model MeetingAttendance {
 /// the member wrote on the paper as the board read it off, and the paper is what
 /// stands behind the appointment.
 ///
-/// ## Withdrawn with a date
+/// ## Withdrawn with a date, and replaced rather than overwritten
 ///
 /// A member who takes the authority back has done something, and a deleted row
 /// can only say so by absence - the argument a called-off occurrence, a released
-/// legal hold and a withdrawn sign-up all make. One row per member and meeting
-/// for as long as it is kept, which is what the unique constraint says;
-/// appointing somebody else clears the withdrawal date and rewrites the holder
-/// on that row rather than adding a second one, exactly as a sign-up taken up
-/// again does.
+/// legal hold and a withdrawn sign-up all make.
+///
+/// Replacing an ombud writes the withdrawal on the first authority and a second
+/// row for the second ombud, and that is the point of keying the table on the
+/// pair rather than on the member. The replaced ombud held somebody's vote for a
+/// while, which is a fact about them: the audit entry for the registration names
+/// the member and not the holder, so an overwritten row would leave the
+/// association unable to answer that ombud's own access request at all.
+///
+/// Re-appointing somebody who had been withdrawn clears the date on the row they
+/// already have, which is the sign-up's pattern applied where it actually fits -
+/// to one person's own row, rather than across two people.
 ///
 /// ## Two people, and a report that answers for both
 ///
@@ -3631,7 +3638,7 @@ model MeetingAttendance {
 /// than a new one. Which role a row reached the report through is stated on it,
 /// because "I gave somebody my vote" and "somebody gave me theirs" are
 /// different facts about different people.
-model ProxyAppointment {
+model ProxyAuthorisation {
   id        String  @id @default(cuid())
   meetingId String
   meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -3662,16 +3669,38 @@ model ProxyAppointment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// A member may not be represented by more than one ombud (EFL 6 kap. 4 §
-  /// forsta stycket), which makes this the statute and not a convenience.
-  @@unique([meetingId, memberPersonId])
+  /// One row per member and ombud at one meeting.
+  ///
+  /// Not per member, which is what the statute limits and what this constraint
+  /// deliberately does not say. EFL 6 kap. 4 § forsta stycket allows a member no
+  /// more than one ombud, and that is a rule about the authorities standing at
+  /// any moment - so a member who replaces their ombud has to end up with the
+  /// first authority withdrawn and kept, not overwritten. A unique key on the
+  /// member alone would force the overwrite, and the replaced ombud's own record
+  /// that they once held it would be gone: the audit entry names the member, so
+  /// nothing else in the platform could answer their access request for it.
+  ///
+  /// The standing-authority rule therefore lives in the service, checked inside
+  /// the transaction that writes. It cannot live here: it applies to the rows
+  /// with no withdrawal date, which is a partial unique index, and Prisma's
+  /// schema cannot declare one - nor `NULLS NOT DISTINCT`, which is the other way
+  /// PostgreSQL expresses it.
+  ///
+  /// What this key does state is that one pair has one row, which is what makes a
+  /// member re-appointing somebody they had withdrawn clear the date on the row
+  /// they already have - the sign-up's own pattern, and now applied to the same
+  /// person rather than across two.
+  @@unique([meetingId, memberPersonId, proxyHolderPersonId])
+  /// One member's authorities, standing or withdrawn: the read that decides
+  /// whether a replacement has an earlier one to withdraw.
+  @@index([meetingId, memberPersonId])
   /// How many members one ombud is carrying at this meeting, which is the count
   /// BRL 9 kap. 14 § 4 limits.
   @@index([meetingId, proxyHolderPersonId])
   /// Either role, for the access report section that answers for both.
   @@index([memberPersonId])
   @@index([proxyHolderPersonId])
-  @@map("proxy_appointment")
+  @@map("proxy_authorisation")
 }
 
 /// One vote cast on one agenda item.

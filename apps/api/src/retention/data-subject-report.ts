@@ -364,7 +364,7 @@ export interface ReportNewsComment {
  *
  * Every other person-linked section whose module purges states the earliest day
  * the purge can reach its rows. This one states none, and neither does the proxy
- * appointment below it, because nothing purges either: the voting roll
+ * appointment below it, because nothing purges either: the voting register
  * (rostlangd) is taken into or appended to the protokoll (EFL 6 kap. 39 §) and
  * 40 § has the protokoll kept safely, so a line erased on a clock of its own
  * would take part of the association's minutes with it. That puts these two with
@@ -428,8 +428,8 @@ export interface ReportMeetingAttendance {
  *
  * States no erasure date, for the reason {@link ReportMeetingAttendance} gives.
  */
-export interface ReportProxyAppointment {
-  appointmentId: string;
+export interface ReportProxyAuthorisation {
+  authorisationId: string;
   /** "YYYY-MM-DD": the day of the meeting the authority was for. */
   meetingHeldOn: string;
   meetingKind: "ORDINARY" | "EXTRAORDINARY";
@@ -532,7 +532,7 @@ export interface DataSubjectReport {
   eventSignups: ReportEventSignup[];
   newsComments: ReportNewsComment[];
   meetingAttendances: ReportMeetingAttendance[];
-  proxyAppointments: ReportProxyAppointment[];
+  proxyAuthorisations: ReportProxyAuthorisation[];
   auditEntries: ReportAuditEntry[];
   /** What the association keeps, and until when. */
   retention: {

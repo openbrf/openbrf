@@ -5,15 +5,15 @@ import type { ResolvedRegisterEvent } from "../registers/membership-periods";
 import {
   type RollAttendance,
   type RollHolding,
-  type RollProxyAppointment,
-  votingRoll,
-} from "./voting-roll";
+  type RollProxyAuthorisation,
+  votingRegister,
+} from "./voting-register";
 
 /**
- * The voting roll (rostlangd), exercised without a database.
+ * The voting register (rostlangd), exercised without a database.
  *
  * Four of these assertions are the statute and not a preference, and each of
- * them is a rule a mistake here would break silently - a roll is read once, in a
+ * them is a rule a mistake here would break silently - a register is read once, in a
  * room, by people who cannot check it against the register:
  *
  *   A member holding two apartments has one vote (EFL 6 kap. 3 § with BRL 9 kap.
@@ -40,7 +40,7 @@ const MEETING_DAY = day("2027-05-12");
 
 let sequence = 0;
 
-/** One archive row, with the fields the roll does not read left plausible. */
+/** One archive row, with the fields the voting register does not read. */
 function event(input: {
   personId: string;
   apartmentId: string | null;
@@ -88,7 +88,7 @@ const authority = (
   memberPersonId: string,
   proxyHolderPersonId: string,
   authorisedOn = "2027-04-20",
-): RollProxyAppointment => ({
+): RollProxyAuthorisation => ({
   memberPersonId,
   proxyHolderPersonId,
   authorisedOn: day(authorisedOn),
@@ -101,7 +101,7 @@ const holds = (personId: string, apartmentId: string): RollHolding => ({
 });
 
 /**
- * Draws a roll, with the holdings defaulted from the archive's own entries.
+ * Draws a register, with the holdings defaulted from the archive's own entries.
  *
  * The register and the residencies agree in every ordinary case - a member who
  * entered on an apartment lives there as a MEMBER - so deriving the default from
@@ -125,17 +125,17 @@ function roll(input: {
   events?: readonly ResolvedRegisterEvent[];
   holdings?: readonly RollHolding[];
   attendances?: readonly RollAttendance[];
-  proxyAppointments?: readonly RollProxyAppointment[];
+  proxyAuthorisations?: readonly RollProxyAuthorisation[];
   meetingDay?: Date;
   storageOnlyVoteLimited?: boolean;
 }) {
   const events = input.events ?? [];
-  return votingRoll({
+  return votingRegister({
     events,
     meetingDay: input.meetingDay ?? MEETING_DAY,
     holdings: input.holdings ?? holdingsImpliedBy(events),
     attendances: input.attendances ?? [],
-    proxyAppointments: input.proxyAppointments ?? [],
+    proxyAuthorisations: input.proxyAuthorisations ?? [],
     storageOnlyVoteLimited: input.storageOnlyVoteLimited ?? false,
   });
 }
@@ -186,7 +186,7 @@ describe("one vote per membership", () => {
      * Maja holds one apartment with Erik and another with Nils. She cannot have
      * one vote with each of them without having two, which the first rule
      * forbids, so the three memberships are one vote and the line names all of
-     * them - which is what lets the meeting change the roll under EFL 6 kap.
+     * them - which is what lets the meeting change the voting register under EFL
      * 27 § if it reads the paragraph differently.
      */
     const result = roll({
@@ -208,7 +208,7 @@ describe("one vote per membership", () => {
 
   it("keeps two members in two apartments as two votes", () => {
     // The control for the two rules above: merging is what a shared apartment
-    // does, and a test that only asserted merges would pass against a roll that
+    // does, and a test that only asserted merges would pass against a register that
     // merged everything.
     const result = roll({
       events: [entry("maja", "apartment-1"), entry("erik", "apartment-2")],
@@ -385,7 +385,7 @@ describe("who is exercising a vote", () => {
     const result = roll({
       events: twoHouseholds,
       attendances: [present("maja", "MEMBER"), present("maja", "PROXY_HOLDER")],
-      proxyAppointments: [authority("erik", "maja")],
+      proxyAuthorisations: [authority("erik", "maja")],
     });
 
     expect(result.votesPresent).toBe(2);
@@ -402,7 +402,7 @@ describe("who is exercising a vote", () => {
     const result = roll({
       events: twoHouseholds,
       attendances: [present("erik", "MEMBER"), present("maja", "PROXY_HOLDER")],
-      proxyAppointments: [authority("erik", "maja")],
+      proxyAuthorisations: [authority("erik", "maja")],
     });
 
     const erik = result.lines.find((line) =>
@@ -418,13 +418,13 @@ describe("who is exercising a vote", () => {
      * EFL 6 kap. 4 § andra stycket: a fullmakt holds for at most one year from
      * the day it was issued. Asked here rather than trusted from the
      * registration, because the meeting day can be moved after the board checked
-     * it - and a roll that trusted the write would seat an ombud whose authority
+     * it - and a register that trusted the write would seat an ombud whose authority
      * had expired in between.
      */
     const result = roll({
       events: twoHouseholds,
       attendances: [present("maja", "PROXY_HOLDER")],
-      proxyAppointments: [authority("erik", "maja", "2026-05-11")],
+      proxyAuthorisations: [authority("erik", "maja", "2026-05-11")],
     });
 
     expect(result.votesPresent).toBe(0);
@@ -438,7 +438,7 @@ describe("who is exercising a vote", () => {
     const result = roll({
       events: twoHouseholds,
       attendances: [present("maja", "PROXY_HOLDER")],
-      proxyAppointments: [authority("erik", "maja", "2026-05-12")],
+      proxyAuthorisations: [authority("erik", "maja", "2026-05-12")],
     });
 
     expect(result.votesPresent).toBe(1);
@@ -448,7 +448,7 @@ describe("who is exercising a vote", () => {
     const result = roll({
       events: twoHouseholds,
       attendances: [present("maja", "PROXY_HOLDER")],
-      proxyAppointments: [
+      proxyAuthorisations: [
         { ...authority("erik", "maja"), withdrawnAt: new Date() },
       ],
     });
@@ -494,7 +494,7 @@ describe("the bylaws clause the platform does not apply", () => {
      * where EFL 6 kap. 27 § puts the decision in any case.
      *
      * Asserted as a vote that is still counted, because the failure to guard
-     * against is a roll that quietly subtracted one on a guess.
+     * against is a register that quietly subtracted one on a guess.
      */
     const result = roll({
       events: [entry("maja", "apartment-1")],

@@ -288,12 +288,12 @@ export const CAPABILITIES = [
   /**
    * Arrange a general meeting (foreningsstamma) and run it: write its agenda
    * (dagordning), register a member's written authority for an ombud, record who
-   * is present, read the voting roll (rostlangd) and minute what the meeting
+   * is present, read the voting register (rostlangd) and minute what the meeting
    * decided.
    *
    * The board's, because every one of those acts is the board's side of the
    * meeting. EFL 6 kap. 16 § has the board call the meeting; 6 kap. 26 § has the
-   * board's chair, or whoever it appointed, open it; 6 kap. 27 § has the roll
+   * board's chair, or whoever it appointed, open it; 6 kap. 27 § has the register
    * drawn up by whoever opened it or by the chair the meeting elected; and
    * 6 kap. 39 § has the chair see that a protokoll is kept. So this is one
    * capability and not one per act: a second would suggest an audience that does

@@ -8,7 +8,7 @@ import { membershipPeriods } from "../registers/membership-periods";
 import { isProxyAuthorityCurrent } from "./proxy-authority";
 
 /**
- * The voting roll (rostlangd) of a general meeting: which votes there are, who
+ * The voting register (rostlangd) of a general meeting: which votes there are, who
  * holds each of them, and which of them are in the room.
  *
  * EFL 6 kap. 27 § has a list drawn up at the meeting of the members, ombud and
@@ -20,11 +20,11 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  *
  * ## Derived, and never stored
  *
- * Nothing writes a vote count or an eligibility flag anywhere. The roll is
+ * Nothing writes a vote count or an eligibility flag anywhere. The register is
  * computed when it is asked for, exactly as the booking allowance is counted out
  * of the residencies at write time and for exactly the same reason: a stored
  * count goes stale the moment somebody moves or a transfer completes, and it
- * goes stale silently, because nothing about the stored row looks wrong. A roll
+ * goes stale silently, because nothing about the stored row looks wrong. A register
  * asked for twice on one day gives one answer; asked for after a transfer it
  * gives the new one, which is what the statute wants of a list drawn up at the
  * meeting.
@@ -37,7 +37,7 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  * Three consequences, and all three are properties of this file:
  *
  *   **A member who holds two apartments has one vote.** The vote belongs to the
- *   membership and not to the holding. So the roll is built from memberships
+ *   membership and not to the holding. So the voting register is built from
  *   first - one line per membership - and the apartments are read afterwards
  *   only to decide which lines merge. `membershipPeriods` already ignores a
  *   second ENTRY while a membership is open, on the same reading, which is why
@@ -54,7 +54,7 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  *   are connected components over "shares a tenant-ownership", and the line
  *   names every member and every apartment that went into it - because a chain
  *   is rare, because the merge is arguable where it chains, and because EFL
- *   6 kap. 27 § puts the decision at the meeting in any case: the roll is drawn
+ *   6 kap. 27 § puts the decision at the meeting in any case: it is drawn
  *   up by the chair, approved by the meeting, and stands until the meeting
  *   resolves to change it. The platform's job is to propose a defensible roll
  *   and to show its working, not to settle a question the meeting settles.
@@ -90,7 +90,7 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  * speak at the meeting. That is the whole of what it grants. So a bitrade is on
  * the list EFL 6 kap. 27 § requires - it names bitraden explicitly - and
  * contributes nothing to any vote count here. It is counted separately for that
- * reason: a roll that reported bodies in the room would be reporting a number
+ * reason: a register that reported bodies in the room would be reporting a number
  * nobody may act on.
  *
  * ## The storage limitation is reported, never applied
@@ -98,13 +98,13 @@ import { isProxyAuthorityCurrent } from "./proxy-authority";
  * BRL 9 kap. 14 § 1's one permitted deviation turns on what a space is used for,
  * and nothing in this platform records that: an apartment carries a number, a
  * floor, a participation share and an initial share capital, none of which tells
- * a garage from a flat. So {@link VotingRoll.storageOnlyVoteLimited} states
+ * a garage from a flat. So {@link VotingRegister.storageOnlyVoteLimited} states
  * whether the clause stands and the meeting applies it. An answer invented from
  * a participation share would take somebody's vote away on a guess, which is the
- * one error a voting roll must not make quietly.
+ * one error a voting register must not make quietly.
  */
 
-/** One line of attendance, as much of it as the roll needs. */
+/** One line of attendance, as much of it as the voting register needs. */
 export interface RollAttendance {
   personId: string;
   capacity: "MEMBER" | "PROXY_HOLDER" | "ASSISTANT";
@@ -115,7 +115,7 @@ export interface RollAttendance {
 /**
  * One tenant-ownership a membership covered on the meeting day.
  *
- * A flat pair rather than a period, because the roll asks about one day: the
+ * A flat pair rather than a period, because the voting register asks about one
  * caller has already narrowed the residencies to the ones covering it, and a
  * period here would invite this file to re-answer a question with a rule of its
  * own beside the one the register service already applies.
@@ -125,8 +125,8 @@ export interface RollHolding {
   apartmentId: string;
 }
 
-/** One proxy appointment, as much of it as the roll needs. */
-export interface RollProxyAppointment {
+/** One proxy authorisation, as much of it as the voting register needs. */
+export interface RollProxyAuthorisation {
   memberPersonId: string;
   proxyHolderPersonId: string;
   /** The day the member signed the fullmakt, from the `@db.Date` column. */
@@ -143,10 +143,10 @@ export interface RollProxyHolder {
 }
 
 /** One vote, and who holds and exercises it. */
-export interface VotingRollLine {
+export interface VotingRegisterLine {
   /**
    * The members who share this one vote, sorted so two reads of one register
-   * produce one roll.
+   * produce one register.
    */
   memberPersonIds: readonly string[];
 
@@ -173,7 +173,7 @@ export interface VotingRollLine {
    * members, so two of them may each have appointed a different ombud while both
    * stay away - and the one vote they share cannot be split between them. The
    * line names both, the vote counts once, and which of them exercises it is for
-   * the meeting to settle when it approves the roll.
+   * the meeting to settle when it approves the voting register.
    */
   proxyHolders: readonly RollProxyHolder[];
 
@@ -184,10 +184,10 @@ export interface VotingRollLine {
   votePresent: boolean;
 }
 
-/** The roll as a whole. */
-export interface VotingRoll {
+/** The register as a whole. */
+export interface VotingRegister {
   /** One line per vote, ordered by the sorted member ids for stability. */
-  lines: readonly VotingRollLine[];
+  lines: readonly VotingRegisterLine[];
 
   /**
    * Every vote the association has on the meeting day, present or not, which is
@@ -198,7 +198,7 @@ export interface VotingRoll {
   /**
    * How many of them are in the room.
    *
-   * The size of the roll and deliberately not a majority basis: EFL 6 kap. 33 §
+   * The size of the voting register and deliberately not a majority basis: EFL
    * measures an ordinary majority against "de avgivna rosterna" - the votes
    * cast - and somebody present who does not vote has cast none. What a decision
    * needed is the chair's to state, which is why the decision row carries the
@@ -219,7 +219,7 @@ export interface VotingRoll {
    *
    * Not dropped in silence, which is the point of the field. Check-in happens
    * before the meeting and the register keeps moving until the day itself, so
-   * this is what a transfer completed in between looks like - and a roll that
+   * this is what a transfer completed in between looks like - and a register that
    * simply omitted the person would leave the chair with a name on the list at
    * the door and no line for it here.
    */
@@ -247,7 +247,7 @@ export interface VotingRoll {
   storageOnlyVoteLimited: boolean;
 }
 
-export interface VotingRollInput {
+export interface VotingRegisterInput {
   /**
    * The member register archive with its corrections applied, for every person.
    *
@@ -269,14 +269,14 @@ export interface VotingRollInput {
   holdings: readonly RollHolding[];
 
   attendances: readonly RollAttendance[];
-  proxyAppointments: readonly RollProxyAppointment[];
+  proxyAuthorisations: readonly RollProxyAuthorisation[];
 
   /** BRL 9 kap. 14 § 1's clause, as the association recorded it. */
   storageOnlyVoteLimited: boolean;
 }
 
 /**
- * Draws the roll.
+ * Draws the voting register.
  *
  * Read the file comment before changing anything here. Four properties are
  * load-bearing and each of them is a statutory rule rather than a design
@@ -284,15 +284,15 @@ export interface VotingRollInput {
  * bostadsratt are one vote, a bitrade is no vote, and an ombud's authority is
  * re-checked against the meeting day rather than trusted from its registration.
  */
-export function votingRoll(input: VotingRollInput): VotingRoll {
+export function votingRegister(input: VotingRegisterInput): VotingRegister {
   const meetingDay = localDayOfColumn(input.meetingDay);
   const members = membersOn(input.events, meetingDay, input.holdings);
   const groups = mergeJointHoldings(members);
 
   const presentAs = presenceByCapacity(input.attendances);
-  const standing = currentAuthorities(input.proxyAppointments, meetingDay);
+  const standing = currentAuthorities(input.proxyAuthorisations, meetingDay);
 
-  const lines: VotingRollLine[] = [];
+  const lines: VotingRegisterLine[] = [];
   const memberOfSomeLine = new Set<string>();
   const authorityUsed = new Set<string>();
 
@@ -343,7 +343,7 @@ export function votingRoll(input: VotingRollInput): VotingRoll {
     });
   }
 
-  // Ordered by the sorted member ids, so one register produces one roll however
+  // Ordered by the sorted member ids, so one register produces one register however
   // the rows came back from the database.
   lines.sort((left, right) => {
     const first = left.memberPersonIds.join(" ");
@@ -517,7 +517,7 @@ function presenceByCapacity(attendances: readonly RollAttendance[]): {
   };
   for (const attendance of attendances) {
     // A line struck off is not a line. The date is what makes "was recorded and
-    // struck off again" answerable at all, and it is what the roll must not
+    // struck off again" answerable at all, and it is what the voting register
     // count.
     if (attendance.withdrawnAt !== null) {
       continue;
@@ -541,7 +541,7 @@ function presenceByCapacity(attendances: readonly RollAttendance[]): {
  * 6 kap. 4 § forsta stycket).
  */
 function currentAuthorities(
-  appointments: readonly RollProxyAppointment[],
+  appointments: readonly RollProxyAuthorisation[],
   meetingDay: LocalDay,
 ): Map<string, string> {
   const holders = new Map<string, string>();

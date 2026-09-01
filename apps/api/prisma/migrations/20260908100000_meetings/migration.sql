@@ -16,7 +16,7 @@
 --
 -- Nothing here stores a vote count or an eligibility flag against a person. The
 -- rostlangd EFL 6 kap. 27 § has drawn up at the meeting is derived from the
--- member register when it is asked for - src/meetings/voting-roll.ts - exactly
+-- member register when it is asked for - src/meetings/voting-register.ts - exactly
 -- as the booking allowance is counted out of the residencies at write time. A
 -- stored count goes stale the moment somebody moves or a transfer completes,
 -- and it goes stale without anything about the row looking wrong.
@@ -191,7 +191,7 @@ CREATE TABLE "meeting_attendance" (
 --
 -- Nobody stands in for themselves, which is the second half. It is stated here
 -- rather than only in the service because a self-referencing line would make a
--- bitrade their own principal and satisfy every count in the roll.
+-- bitrade their own principal and satisfy every count in the register.
 ALTER TABLE "meeting_attendance" ADD CONSTRAINT "meeting_attendance_onBehalfOf_check"
   CHECK (
     ("onBehalfOfPersonId" IS NOT NULL) = ("capacity" = 'ASSISTANT')
@@ -207,7 +207,7 @@ ALTER TABLE "meeting_attendance" ADD CONSTRAINT "meeting_attendance_onBehalfOf_c
 -- records no signature and implies none: a document that has to be signed under
 -- that Act may be signed with an advanced electronic signature (EFL 1 kap.
 -- 15 §), which is a trust service this platform does not provide.
-CREATE TABLE "proxy_appointment" (
+CREATE TABLE "proxy_authorisation" (
     "id" TEXT NOT NULL,
     "meetingId" TEXT NOT NULL,
     "memberPersonId" TEXT NOT NULL,
@@ -219,7 +219,7 @@ CREATE TABLE "proxy_appointment" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "proxy_appointment_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "proxy_authorisation_pkey" PRIMARY KEY ("id")
 );
 
 -- Nobody is their own ombud.
@@ -228,8 +228,8 @@ CREATE TABLE "proxy_appointment" (
 -- 6 kap. 4 § forsta stycket), so an appointment naming the member as the holder
 -- is not a narrow case to refuse but a contradiction. It matters more than it
 -- looks: such a row would satisfy the per-holder count without anybody standing
--- in for anybody, and it would let a member reach the roll twice.
-ALTER TABLE "proxy_appointment" ADD CONSTRAINT "proxy_appointment_not_self_check"
+-- in for anybody, and it would let a member reach the register twice.
+ALTER TABLE "proxy_authorisation" ADD CONSTRAINT "proxy_authorisation_not_self_check"
   CHECK ("proxyHolderPersonId" <> "memberPersonId");
 
 -- CreateTable
@@ -284,22 +284,40 @@ CREATE UNIQUE INDEX "meeting_attendance_meetingId_personId_capacity_key" ON "mee
 CREATE UNIQUE INDEX "meeting_attendance_meetingId_onBehalfOfPersonId_key" ON "meeting_attendance"("meetingId", "onBehalfOfPersonId");
 
 -- CreateIndex
-CREATE INDEX "proxy_appointment_meetingId_proxyHolderPersonId_idx" ON "proxy_appointment"("meetingId", "proxyHolderPersonId");
+CREATE INDEX "proxy_authorisation_meetingId_proxyHolderPersonId_idx" ON "proxy_authorisation"("meetingId", "proxyHolderPersonId");
 
 -- CreateIndex
-CREATE INDEX "proxy_appointment_memberPersonId_idx" ON "proxy_appointment"("memberPersonId");
+CREATE INDEX "proxy_authorisation_memberPersonId_idx" ON "proxy_authorisation"("memberPersonId");
 
 -- CreateIndex
-CREATE INDEX "proxy_appointment_proxyHolderPersonId_idx" ON "proxy_appointment"("proxyHolderPersonId");
+CREATE INDEX "proxy_authorisation_proxyHolderPersonId_idx" ON "proxy_authorisation"("proxyHolderPersonId");
 
 -- CreateIndex
 --
--- A member may not be represented by more than one ombud (EFL 6 kap. 4 § forsta
--- stycket), so this is the statute and not a convenience. The mirror rule -
--- nobody represents more than one member unless the bylaws determine otherwise
--- (BRL 9 kap. 14 § 4) - is a count against a setting and is checked where the
--- setting is read.
-CREATE UNIQUE INDEX "proxy_appointment_meetingId_memberPersonId_key" ON "proxy_appointment"("meetingId", "memberPersonId");
+-- One row per member and ombud, and deliberately not one per member.
+--
+-- EFL 6 kap. 4 § forsta stycket allows a member no more than one ombud, and that
+-- is a rule about the authorities standing at any moment. A unique key on the
+-- member alone would force a replacement to overwrite the first authority, and
+-- the replaced ombud's own record that they once held somebody's vote would be
+-- gone - the audit entry names the member and not the holder, so nothing else
+-- here could answer that person's access request for it. So a replacement writes
+-- the withdrawal on the first row and a second row for the second ombud, and the
+-- standing-authority rule is checked in the service inside the transaction that
+-- writes.
+--
+-- It cannot be checked here. The rule applies to the rows with no withdrawal
+-- date, which is a partial unique index, and the schema this migration is
+-- generated from can declare neither that nor NULLS NOT DISTINCT - so an index
+-- created here alone would read as drift the next time a migration is generated.
+--
+-- The mirror rule - nobody represents more than one member unless the bylaws
+-- determine otherwise (BRL 9 kap. 14 § 4) - is a count against a setting and is
+-- checked where the setting is read.
+CREATE UNIQUE INDEX "proxy_authorisation_meetingId_memberPersonId_proxyHolderPer_key" ON "proxy_authorisation"("meetingId", "memberPersonId", "proxyHolderPersonId");
+
+-- CreateIndex
+CREATE INDEX "proxy_authorisation_meetingId_memberPersonId_idx" ON "proxy_authorisation"("meetingId", "memberPersonId");
 
 -- CreateIndex
 CREATE INDEX "meeting_vote_agendaItemId_idx" ON "meeting_vote"("agendaItemId");
@@ -322,7 +340,7 @@ ALTER TABLE "meeting_decision" ADD CONSTRAINT "meeting_decision_agendaItemId_fke
 ALTER TABLE "meeting_attendance" ADD CONSTRAINT "meeting_attendance_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "proxy_appointment" ADD CONSTRAINT "proxy_appointment_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "proxy_authorisation" ADD CONSTRAINT "proxy_authorisation_meetingId_fkey" FOREIGN KEY ("meetingId") REFERENCES "meeting"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "meeting_vote" ADD CONSTRAINT "meeting_vote_agendaItemId_fkey" FOREIGN KEY ("agendaItemId") REFERENCES "agenda_item"("id") ON DELETE CASCADE ON UPDATE CASCADE;

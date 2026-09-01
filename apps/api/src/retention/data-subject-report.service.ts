@@ -18,7 +18,7 @@ import type {
   ReportMeetingAttendance,
   ReportNewsComment,
   ReportPostalAddress,
-  ReportProxyAppointment,
+  ReportProxyAuthorisation,
 } from "./data-subject-report";
 import {
   holdingPeriods,
@@ -61,7 +61,7 @@ const SECTIONS = [
   "eventSignups",
   "newsComments",
   "meetingAttendances",
-  "proxyAppointments",
+  "proxyAuthorisations",
   "auditEntries",
 ] as const;
 
@@ -134,13 +134,14 @@ const SECTIONS = [
  * says when it goes. A motion still with the board states no date at all: it has
  * no closing date to count from, and the association is still processing it.
  *
- * Four and not six. The two general meeting sections state none, and that is an
- * answer rather than an omission: attendance at a stamma and the written
- * authority a vote was exercised under are part of the meeting's record, whose
- * lasting form is the protokoll that EFL 6 kap. 39 § has the roll taken into and
- * 40 § has kept safely. So they sit with the statutory register sections above -
- * kept because the law requires the record - rather than with the four that go on
- * a clock. A section added here that does purge takes the count to five.
+ * The two general meeting sections state none, and that is an answer rather than
+ * an omission: attendance at a stamma and the written authority a vote was
+ * exercised under are part of the meeting's record, whose lasting form is the
+ * protokoll that EFL 6 kap. 39 § has the voting register taken into and 40 § has
+ * kept safely. So they sit with the statutory register sections above - kept
+ * because the law requires the record - rather than with the four that go on a
+ * clock of their own. A section added here that does purge takes the count to
+ * five.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -562,7 +563,7 @@ export class DataSubjectReportService {
      * which the table refuses outright, so the role each row carries is decided
      * by which column matched and there is no third case.
      */
-    const proxyAppointments = await tx.proxyAppointment.findMany({
+    const proxyAuthorisations = await tx.proxyAuthorisation.findMany({
       where: {
         OR: [{ memberPersonId: personId }, { proxyHolderPersonId: personId }],
       },
@@ -859,8 +860,8 @@ export class DataSubjectReportService {
           // purges a line of the meeting's record.
         }),
       ),
-      proxyAppointments: proxyAppointments.map(
-        (appointment): ReportProxyAppointment => {
+      proxyAuthorisations: proxyAuthorisations.map(
+        (appointment): ReportProxyAuthorisation => {
           /*
            * Which side of the appointment this person is on. The member column
            * is tested first because the table refuses an appointment naming one
@@ -868,7 +869,7 @@ export class DataSubjectReportService {
            */
           const asMember = appointment.memberPersonId === personId;
           return {
-            appointmentId: appointment.id,
+            authorisationId: appointment.id,
             meetingHeldOn:
               toIsoDate(appointment.meeting.heldOn) ??
               appointment.meeting.heldOn.toISOString(),

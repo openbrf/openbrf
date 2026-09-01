@@ -84,7 +84,7 @@ const EMPTY_REPORT: Report = {
   eventSignups: [],
   newsComments: [],
   meetingAttendances: [],
-  proxyAppointments: [],
+  proxyAuthorisations: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -312,9 +312,9 @@ const FULL_REPORT: Report = {
    * carried a neighbour's at another. A section answering for one role only
    * would show one of these two rows.
    */
-  proxyAppointments: [
+  proxyAuthorisations: [
     {
-      appointmentId: "proxy-1",
+      authorisationId: "proxy-1",
       meetingHeldOn: "2026-05-20",
       meetingKind: "ORDINARY",
       role: "member",
@@ -324,7 +324,7 @@ const FULL_REPORT: Report = {
       withdrawnAt: null,
     },
     {
-      appointmentId: "proxy-2",
+      authorisationId: "proxy-2",
       meetingHeldOn: "2027-05-12",
       meetingKind: "ORDINARY",
       role: "proxyHolder",
@@ -844,7 +844,7 @@ describe("what the document prints", () => {
     expect(meetings.queryByText("Gallras tidigast")).toBeNull();
   });
 
-  it("answers for both sides of a proxy appointment", async () => {
+  it("answers for both sides of a proxy authorisation", async () => {
     /*
      * A fullmakt names two people and both of them have an art. 15 interest in
      * it: the member gave their vote away and the ombud carried somebody else's.

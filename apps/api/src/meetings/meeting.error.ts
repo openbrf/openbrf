@@ -44,7 +44,7 @@ export class MeetingError extends DomainError {
       | "proxy-holder-limit-reached"
       | "proxy-authority-not-yet-issued"
       | "proxy-authority-expired"
-      | "proxy-appointment-not-found"
+      | "proxy-authorisation-not-found"
       | "attendance-not-found"
       | "attendance-principal-not-applicable"
       | "assistant-principal-not-present"
@@ -65,7 +65,7 @@ function statusFor(reason: MeetingError["reason"]): number {
   switch (reason) {
     case "meeting-not-found":
     case "agenda-item-not-found":
-    case "proxy-appointment-not-found":
+    case "proxy-authorisation-not-found":
     case "attendance-not-found":
       return HttpStatus.NOT_FOUND;
 

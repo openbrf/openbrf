@@ -933,7 +933,7 @@ export function DataSubjectReport({
            *
            * No erasure column, unlike the four sections above it, and the
            * absence is deliberate rather than a heading nobody filled in.
-           * Nothing purges a line of the meeting's record: the voting roll
+           * Nothing purges a line of the meeting's record: the voting register
            * (rostlangd) is taken into or appended to the protokoll under EFL
            * 6 kap. 39 §, which 40 § has kept safely. So this sits with the
            * register sections - kept because the law requires the record, and
@@ -986,9 +986,9 @@ export function DataSubjectReport({
            * either side of them. The role column is what makes the section
            * answer for both, exactly as it does on the audit log below.
            */}
-          <Section titleKey="register.person.report.section.proxyAppointments">
+          <Section titleKey="register.person.report.section.proxyAuthorisations">
             <Rows
-              empty={report.proxyAppointments.length === 0}
+              empty={report.proxyAuthorisations.length === 0}
               headings={[
                 "register.person.report.field.meeting",
                 "register.person.report.field.date",
@@ -999,8 +999,8 @@ export function DataSubjectReport({
                 "register.person.report.field.withdrawn",
               ]}
             >
-              {report.proxyAppointments.map((appointment) => (
-                <tr key={appointment.appointmentId} className={ROW}>
+              {report.proxyAuthorisations.map((appointment) => (
+                <tr key={appointment.authorisationId} className={ROW}>
                   <td className={TEXT_CELL}>
                     {t(MEETING_KIND_LABEL[appointment.meetingKind])}
                   </td>

@@ -709,7 +709,7 @@ beforeAll(async () => {
    * which nothing in this platform records and which BRL 9 kap. 14 § 4 permits
    * outright.
    */
-  await prisma.proxyAppointment.createMany({
+  await prisma.proxyAuthorisation.createMany({
     data: [
       {
         meetingId,
@@ -878,7 +878,7 @@ afterAll(async () => {
          * naming the rows is what clears that case.
          */
         () => prisma.meetingAttendance.deleteMany({ where: { meetingId } }),
-        () => prisma.proxyAppointment.deleteMany({ where: { meetingId } }),
+        () => prisma.proxyAuthorisation.deleteMany({ where: { meetingId } }),
         () => prisma.meeting.deleteMany({ where: { id: meetingId } }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
         () => prisma.mediaFile.deleteMany({ where: { id: mediaFileId } }),
@@ -1303,7 +1303,7 @@ describe("what the report contains", () => {
 
     /*
      * No erasure date on either line, asserted rather than assumed. Nothing
-     * purges a line of the meeting's record - the roll is taken into or appended
+     * purges a line of the meeting's record - the register is taken into or appended
      * to the protokoll (EFL 6 kap. 39 §), which 40 § has kept safely - so a date
      * here would promise an erasure the association is not going to perform. It
      * is the mirror of the four sections that do state one.
@@ -1327,9 +1327,11 @@ describe("what the report contains", () => {
      */
     const report = await reportFor(boardCookie);
 
-    expect(report.proxyAppointments).toHaveLength(2);
-    const given = report.proxyAppointments.find((row) => row.role === "member");
-    const held = report.proxyAppointments.find(
+    expect(report.proxyAuthorisations).toHaveLength(2);
+    const given = report.proxyAuthorisations.find(
+      (row) => row.role === "member",
+    );
+    const held = report.proxyAuthorisations.find(
       (row) => row.role === "proxyHolder",
     );
 

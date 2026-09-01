@@ -531,7 +531,7 @@ export interface DataSubjectReport {
    *
    * Not one of the four sections above: this one states no erasure date, and the
    * absence is an answer rather than a missing column. Nothing purges a line of
-   * the meeting's record - the voting roll (rostlangd) is taken into or appended
+   * the meeting's record - the voting register (rostlangd) is taken into or appended
    * to the protokoll under EFL 6 kap. 39 §, which 40 § has kept safely - so it
    * belongs with the statutory register sections, kept because the law requires
    * the record and printed because exemption from erasure is not exemption from
@@ -567,8 +567,8 @@ export interface DataSubjectReport {
    *
    * States no erasure date, for the reason the attendance section above gives.
    */
-  proxyAppointments: {
-    appointmentId: string;
+  proxyAuthorisations: {
+    authorisationId: string;
     meetingHeldOn: string;
     meetingKind: "ORDINARY" | "EXTRAORDINARY";
     role: "member" | "proxyHolder";

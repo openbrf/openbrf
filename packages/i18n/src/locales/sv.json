@@ -341,7 +341,7 @@
           "eventSignups": "Anmälningar till evenemang",
           "newsComments": "Nyhetskommentarer",
           "meetingAttendances": "Närvaro vid föreningsstämma",
-          "proxyAppointments": "Fullmakter till ombud",
+          "proxyAuthorisations": "Fullmakter till ombud",
           "audit": "Granskningsloggen",
           "retention": "Gallring"
         },

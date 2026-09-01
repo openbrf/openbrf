@@ -341,7 +341,7 @@
           "eventSignups": "Event sign-ups",
           "newsComments": "News comments",
           "meetingAttendances": "Attendance at general meetings",
-          "proxyAppointments": "Proxy appointments",
+          "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
           "retention": "Retention"
         },
@@ -494,8 +494,8 @@
           "MEETING_AGENDA_SET": "Agenda set",
           "MEETING_ATTENDANCE_RECORDED": "Recorded as present at the general meeting",
           "MEETING_ATTENDANCE_WITHDRAWN": "Struck off the list of those present",
-          "MEETING_PROXY_REGISTERED": "Proxy appointment registered",
-          "MEETING_PROXY_WITHDRAWN": "Proxy appointment withdrawn",
+          "MEETING_PROXY_REGISTERED": "Proxy authorisation registered",
+          "MEETING_PROXY_WITHDRAWN": "Proxy authorisation withdrawn",
           "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded"
         },
         "reportKind": {

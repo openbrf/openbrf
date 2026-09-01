@@ -26,7 +26,7 @@ import {
   MeetingService,
   type MeetingSummaryView,
   type MeetingView,
-  type ProxyAppointmentView,
+  type ProxyAuthorisationView,
 } from "./meeting.service";
 
 /**
@@ -178,7 +178,7 @@ export class MeetingsController {
 
   /**
    * One meeting with its agenda, its list of those present, the authorities
-   * registered against it, the bylaws that govern it and the roll.
+   * registered against it, the bylaws that govern it and the register.
    *
    * One answer rather than six calls: a board checking people in needs all of it
    * at once, and a screen that fetched the parts separately would show a state
@@ -270,13 +270,13 @@ export class MeetingsController {
     );
   }
 
-  @Post(":id/proxy-appointments")
+  @Post(":id/proxy-authorisations")
   @HttpCode(201)
   async registerProxy(
     @Param("id") id: string,
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
-  ): Promise<ProxyAppointmentView> {
+  ): Promise<ProxyAuthorisationView> {
     return this.meetings.registerProxy(
       id,
       proxySchema.parse(body),
@@ -285,15 +285,15 @@ export class MeetingsController {
   }
 
   /** Takes an authority back. A date on the row, never a delete. */
-  @Post(":id/proxy-appointments/:appointmentId/withdrawal")
+  @Post(":id/proxy-authorisations/:authorisationId/withdrawal")
   async withdrawProxy(
     @Param("id") id: string,
-    @Param("appointmentId") appointmentId: string,
+    @Param("authorisationId") authorisationId: string,
     @Req() request: RequestWithPrincipal,
-  ): Promise<ProxyAppointmentView> {
+  ): Promise<ProxyAuthorisationView> {
     return this.meetings.withdrawProxy(
       id,
-      appointmentId,
+      authorisationId,
       requirePrincipal(request).personId,
     );
   }
