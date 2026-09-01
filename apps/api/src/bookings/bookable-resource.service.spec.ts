@@ -25,6 +25,11 @@ import {
  *
  * The schedule rules themselves are `resource-schedule.spec.ts`, and what the
  * database does about it is `bookings.int-spec.ts`.
+ *
+ * The second half of this file is the personal-identity-number guardrail on the
+ * two free-text fields, asserted on both write paths: a resource that already
+ * exists must not be the way round it, which is why the scan sits on the one
+ * method create and update share rather than at either call site.
  */
 
 const LAUNDRY = {
@@ -61,20 +66,26 @@ function build(options: { standingBookings?: number } = {}) {
     ...LAUNDRY,
     ...args.data,
   }));
+  const create = vi.fn(async (args: { data: BookableResourceInput }) => ({
+    ...LAUNDRY,
+    ...args.data,
+    id: "resource-new",
+  }));
 
   const tx = {
     bookableResource: {
       findUnique: vi.fn(async () => LAUNDRY),
+      create,
       update,
     },
     booking: { count },
   };
 
-  const prisma = {
-    $transaction: vi.fn(async (run: (client: typeof tx) => Promise<unknown>) =>
-      run(tx),
-    ),
-  };
+  const transaction = vi.fn(
+    async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+  );
+
+  const prisma = { $transaction: transaction };
 
   return {
     service: new BookableResourceService(
@@ -82,7 +93,9 @@ function build(options: { standingBookings?: number } = {}) {
       { record: vi.fn(async () => undefined) } as unknown as AuditLogService,
     ),
     count,
+    create,
     update,
+    transaction,
   };
 }
 
@@ -184,5 +197,111 @@ describe("changing a resource that has been booked", () => {
 
     expect(update).toHaveBeenCalledTimes(1);
     expect(count).not.toHaveBeenCalled();
+  });
+});
+
+describe("the personal identity number scan", () => {
+  /*
+   * A description of the sort a board actually writes: where the key is and who
+   * to ask. The number arrives pasted along with the sentence around it rather
+   * than because anybody decided to publish it, which is the case the guard
+   * exists for.
+   */
+  const IN_THE_DESCRIPTION = {
+    ...AS_STATED,
+    description: "Kallaren, nyckel hos Anna 811228-9874.",
+  };
+
+  it("refuses a resource carried in on create, and writes nothing", async () => {
+    const { service, create, transaction } = build();
+
+    const failure = await service
+      .create(IN_THE_DESCRIPTION, "board-1")
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ reason: "personal-identity-number" });
+    expect(create).not.toHaveBeenCalled();
+    // Refused before the transaction is even opened, so there is no write to
+    // roll back and no audit entry describing one.
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a rewrite of a resource that already exists", async () => {
+    /*
+     * The half a guard on the creation path alone would miss. A resource
+     * created clean and then edited would otherwise be a way round the scan,
+     * and editing is the commoner act: the room is renamed, the house rules
+     * change, somebody adds who to ask for the key.
+     */
+    const { service, update } = build();
+
+    const failure = await service
+      .update(LAUNDRY.id, IN_THE_DESCRIPTION, "board-1")
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ reason: "personal-identity-number" });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("names the field and the offset, and never the value", async () => {
+    const { service } = build();
+
+    const failure = await service
+      .create(IN_THE_DESCRIPTION, "board-1")
+      .catch((error: unknown) => error);
+
+    const details = (
+      failure as { details: () => Record<string, unknown[]> }
+    ).details();
+    expect(details).toEqual({
+      locations: [
+        {
+          field: "description",
+          offset: IN_THE_DESCRIPTION.description.indexOf("811228-9874"),
+        },
+      ],
+      quota: [],
+      allowed: [],
+    });
+    expect(JSON.stringify(details)).not.toContain("811228");
+  });
+
+  it("reads the name as well as the description", async () => {
+    // The name is the field that travels furthest: it labels the resource on
+    // every resident's calendar and it goes into the booking mail.
+    const { service, create } = build();
+
+    const failure = await service
+      .create({ ...AS_STATED, name: "Bastu (Anna 811228-9874)" }, "board-1")
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ reason: "personal-identity-number" });
+    expect(
+      (failure as { details: () => Record<string, unknown[]> }).details()
+        .locations,
+    ).toEqual([{ field: "name", offset: "Bastu (Anna ".length }]);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("lets a description carrying ordinary numbers through", async () => {
+    /*
+     * The scan puts every candidate through the same calendar and checksum
+     * check a stored value goes through, so a door code and a set of opening
+     * hours are not a personal identity number. A guard that refused those
+     * would be one a board learned to work around.
+     */
+    const { service, create } = build();
+
+    const view = await service.create(
+      {
+        ...AS_STATED,
+        name: "Tvattstuga 1",
+        description: "Portkod 123456-7890. Oppet 07-21, tre pass i veckan.",
+      },
+      "board-1",
+    );
+
+    expect(view.name).toBe("Tvattstuga 1");
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });

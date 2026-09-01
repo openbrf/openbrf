@@ -1,9 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { BookingResourceMode } from "../generated/prisma/enums";
-import { BookingError } from "./booking.error";
+import { BookingError, type BookingTextLocation } from "./booking.error";
 import { checkResourceSchedule } from "./resource-schedule";
 
 /** The kind an audit entry names a resource by. */
@@ -81,6 +82,17 @@ const COMPARED_FIELDS = [
 ] as const satisfies readonly (keyof BookableResourceInput)[];
 
 /**
+ * The free-text fields the personal-identity-number scan reads.
+ *
+ * The two the board writes in its own words. Everything else on a resource is
+ * an enum or a number, and neither can carry a personal identity number.
+ */
+const SCANNED_FIELDS = [
+  "name",
+  "description",
+] as const satisfies readonly BookingTextLocation["field"][];
+
+/**
  * The fields that decide what a booking on this resource can be.
  *
  * Changing any of them moves the grid the bookings already made were cut from.
@@ -125,6 +137,13 @@ const MECHANICS_FIELDS = [
  * the mode, the field names that changed and the counts affected, and never the
  * name or the description: those are free text belonging to a row with a
  * lifecycle, and a copy in the append-only log would outlive the row by design.
+ *
+ * The name and the description are also scanned for a personal identity number
+ * before either write reaches the table, which is the guardrail every
+ * board-publish path in this platform carries. There is no publication step
+ * here to hang it on - a resource is on every resident's calendar as soon as it
+ * exists - so both write paths are scanned. What those two fields reach is set
+ * out on `refusePersonalIdentityNumbers` below.
  */
 @Injectable()
 export class BookableResourceService {
@@ -367,12 +386,21 @@ export class BookableResourceService {
   /**
    * The stated configuration, or a refusal.
    *
-   * Both rules live here rather than in the endpoint's schema, because both are
-   * about fields agreeing with each other rather than about one field being
-   * well formed, and because the schema bounds what a request may carry while
-   * this bounds what the table may hold.
+   * The schedule and the quota rules live here rather than in the endpoint's
+   * schema, because both are about fields agreeing with each other rather than
+   * about one field being well formed, and because the schema bounds what a
+   * request may carry while this bounds what the table may hold.
+   *
+   * The personal-identity-number scan is here for a different reason: this
+   * method is the one path both {@link BookableResourceService.create} and
+   * {@link BookableResourceService.update} take to reach the table, so a guard
+   * sitting on it cannot be got round by rewriting a resource that already
+   * exists, and a third write path added later has to come through it as well.
+   * Two call sites would be two places to remember.
    */
   private validated(input: BookableResourceInput): BookableResourceInput {
+    this.refusePersonalIdentityNumbers(input);
+
     const problem = checkResourceSchedule(input);
     if (problem !== null) {
       throw new BookingError(scheduleMessage(problem), problem);
@@ -395,6 +423,67 @@ export class BookableResourceService {
     }
 
     return input;
+  }
+
+  /**
+   * Refuses a resource whose name or description carries a personnummer.
+   *
+   * The same rule a page, a news item, a motion and an event series live under,
+   * and it belongs here for the reason it belongs there: a personal identity
+   * number on something the association publishes is a disclosure it cannot
+   * take back, and it arrives pasted along with the text around it rather than
+   * because anybody decided to publish it. A board member writing down who has
+   * the sauna key, and the number beside their name so the next board knows
+   * which neighbour is meant, is recording a practical arrangement rather than
+   * deciding to publish somebody's identity number.
+   *
+   * What these two fields reach is wider than the settings form they are typed
+   * on. Both are read by every resident: the name labels the resource on the
+   * booking calendar and the description sits above it. The name travels
+   * further still, into the confirmation mail sent once a booking commits and
+   * into the notice sent when somebody else cancels one - so a number pasted
+   * here is copied out to mailboxes the association does not control, which is
+   * the one disclosure no later edit reaches. A resource is also the
+   * longest-lived row in the module: it is withdrawn rather than deleted,
+   * because the bookings made against it say what they were for only through
+   * it, and it is outside every purge scope for the same reason. Text refused
+   * here is text that would otherwise have stayed as long as the association
+   * does.
+   *
+   * There is no publication step to hang the scan on, unlike an event series or
+   * a news item: a resource is on every resident's calendar from the moment it
+   * exists. So it is scanned on the way in, and on both write paths - a
+   * resource that is already there must not be the way round the guard.
+   *
+   * The refusal names the field and the offset and never the value: the thing
+   * the scan caught is precisely the thing that must not travel back. The
+   * offset is published because the response is the only place it could come
+   * from, and whether to render it is the screen's decision rather than this
+   * one's - the settings panel names the field alone, on the reading the motion
+   * form and the events panel apply to the same refusal, that a character
+   * position in a textarea is not something a person acts on while the field
+   * is.
+   */
+  private refusePersonalIdentityNumbers(input: BookableResourceInput): void {
+    const locations: BookingTextLocation[] = [];
+
+    for (const field of SCANNED_FIELDS) {
+      const text = input[field];
+      if (text === null) {
+        continue;
+      }
+      for (const hit of scanForPersonalIdentityNumbers(text)) {
+        locations.push({ field, offset: hit.index });
+      }
+    }
+
+    if (locations.length > 0) {
+      throw new BookingError(
+        "The resource carries a personal identity number and cannot be saved.",
+        "personal-identity-number",
+        { locations },
+      );
+    }
   }
 }
 

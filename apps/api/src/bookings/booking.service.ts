@@ -818,7 +818,7 @@ function quotaReached(limit: BookingQuota, allowed: number): BookingError {
   return new BookingError(
     "The apartment already holds as many bookings of this resource as it may.",
     "quota-reached",
-    { limit, allowed },
+    { quota: { limit, allowed } },
   );
 }
 
