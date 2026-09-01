@@ -277,6 +277,36 @@ describe("how many places are gone", () => {
     expect(html).toContain("4 anmälda");
   });
 
+  it("has a singular form for a single sign-up", () => {
+    // "1 anmalda" is not Swedish. The sentence is a plural form pluralised on
+    // the number of sign-ups rather than one string with a number dropped into
+    // it, so one reads as one.
+    const html = renderCalendarPage(chrome, {
+      month: { year: 2026, month: 4 },
+      previous: null,
+      next: null,
+      dates: [{ ...CLEANING_DAY, capacity: null, placesTaken: 1 }],
+    });
+
+    expect(html).toContain("1 anmäld<");
+    expect(html.includes("anmälda")).toBe(false);
+  });
+
+  it("agrees with a limit of one place", () => {
+    // The noun agrees with the limit rather than with how many are gone: one
+    // place is taken, two places are taken. So the limit is what the sentence
+    // is pluralised on and how many are gone stands beside it.
+    const html = renderCalendarPage(chrome, {
+      month: { year: 2026, month: 4 },
+      previous: null,
+      next: null,
+      dates: [{ ...CLEANING_DAY, capacity: 1, placesTaken: 0 }],
+    });
+
+    expect(html).toContain("0 av 1 plats tagen");
+    expect(html.includes("platser tagna")).toBe(false);
+  });
+
   it("says the date is full rather than counting to the limit", () => {
     const html = renderCalendarPage(chrome, {
       month: { year: 2026, month: 4 },

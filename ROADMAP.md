@@ -551,11 +551,12 @@ change it.
     roll-call, with the personal identity number refusal naming the fields
     it was found in; and the public calendar page at /kalender with one
     address per event, a month at a time with plain previous and next links
-    and no script at all, the dates a reader may see decided by whether
-    they carry a session and nothing else, an event kept for the members
-    answered signed-out with the website's own not-found document byte for
-    byte, how many places are gone beside a date and never who has them,
-    and a calendar block the board can put on a page it writes
+    and no script at all, the dates a reader may see decided among the
+    published ones by whether they carry a session and nothing else, a draft
+    on the calendar for nobody, an event kept for the members answered
+    signed-out with the website's own not-found document byte for byte, how
+    many places are gone beside a date and never who has them, and a
+    calendar block the board can put on a page it writes
   - Pending: the end-to-end suite
 
 **Later, still free and in the core**

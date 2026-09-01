@@ -812,6 +812,12 @@ export function renderEventDates(
  * the board has called off: a place at an event that is not happening is not a
  * thing to count. A series with no limit says how many have put their name down
  * and stops there - there is no number to be short of.
+ *
+ * Both sentences are plural forms rather than one string with a number in it,
+ * and each is pluralised on the word that has to agree in Swedish. How many
+ * have signed up agrees with that number, so it is the count. How many places
+ * are gone agrees with the limit - one place is taken, two places are taken -
+ * so the limit is the count and how many are gone is interpolated beside it.
  */
 function renderPlaces(
   chrome: SiteChrome,
@@ -825,7 +831,7 @@ function renderPlaces(
   if (date.capacity === null) {
     return date.placesTaken === 0 ? null : (
       <p className="site-calendar-places">
-        {t("site.calendar.signedUp", { taken: date.placesTaken })}
+        {t("site.calendar.signedUp", { count: date.placesTaken })}
       </p>
     );
   }
@@ -836,7 +842,7 @@ function renderPlaces(
         ? t("site.calendar.full")
         : t("site.calendar.places", {
             taken: date.placesTaken,
-            capacity: date.capacity,
+            count: date.capacity,
           })}
     </p>
   );
