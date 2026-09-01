@@ -1130,17 +1130,29 @@ describe("the purge", () => {
     });
 
     // A transaction that takes the hold key, writes the hold, and waits.
-    const holder = prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${member.personId}`}))`;
-      await tx.legalHold.create({
-        data: {
-          personId: member.personId,
-          reason: "Placed while the purge was running",
-          placedByPersonId: board.personId,
-        },
-      });
-      await holderDone;
-    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${member.personId}`}))`;
+        await tx.legalHold.create({
+          data: {
+            personId: member.personId,
+            reason: "Placed while the purge was running",
+            placedByPersonId: board.personId,
+          },
+        });
+        await holderDone;
+      },
+      /*
+       * Longer than the wait below is willing to spend. An interactive
+       * transaction defaults to five seconds, and this one is held open on
+       * purpose while the purge queues behind its key - so on the default it
+       * would abort with P2028 before the test let it go, the lock would be
+       * released by the rollback, and the purge would sail through and erase.
+       * The assertion would then fail as though the hold had not been honoured.
+       * The same numbers as the booking and import interleaving tests.
+       */
+      { timeout: 60_000, maxWait: 20_000 },
+    );
 
     try {
       await waitFor(

@@ -420,7 +420,7 @@
           "EVENT_SERIES_CREATED": "Event created",
           "EVENT_SERIES_UPDATED": "Event changed",
           "EVENT_SERIES_PUBLISHED": "Event published",
-          "EVENT_OCCURRENCE_CANCELLED": "Event date called off",
+          "EVENT_OCCURRENCE_CANCELLED": "Event occurrence cancelled",
           "MOTION_SUBMITTED": "Motion submitted",
           "MOTION_ACKNOWLEDGED": "Motion recorded as received",
           "MOTION_WITHDRAWN": "Motion withdrawn"
