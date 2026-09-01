@@ -12,12 +12,12 @@ import { type EventInput, EventService } from "./event.service";
  * about a decision the service takes before it writes anything and neither needs
  * a database to be true.
  *
- * The first is the refusal to move a date people are standing on. Sign-ups are a
- * table this change does not create, so the one question the service cannot
- * answer itself - which occurrences somebody has signed up to - is asked through
- * `event-attendance.ts` and is stubbed here. Stubbing it is the point: the
- * refusal has to be exercised now, or the branch that carries it would arrive
- * with the sign-up endpoint having never once run.
+ * The first is the refusal to move a date people are standing on. The one
+ * question the service cannot answer itself - which occurrences somebody has
+ * signed up to - is asked through `event-attendance.ts` and is stubbed here, so
+ * that what is exercised is the refusal rather than a query. The query itself is
+ * `event-attendance.spec.ts`, including the rule that a withdrawal does not hold
+ * a date, and the two together against a database are `event-signups.int-spec.ts`.
  *
  * The second is the personal-identity-number scan. A published series is scanned
  * on every edit, because an edit to something already published is itself a
@@ -35,6 +35,15 @@ vi.mock("./event-attendance", () => ({
 const held = vi.mocked(occurrencesWithSignups);
 
 /**
+ * What the transaction asked the database, in the order it asked.
+ *
+ * The lock and the read that rests on it are only correct in one order, and
+ * neither call says so on its own - so the ordering is recorded rather than
+ * inferred from two separate assertions that a call happened.
+ */
+const calls: string[] = [];
+
+/**
  * Makes those ids the ones somebody has signed up to.
  *
  * The stub answers with the intersection rather than with the whole set,
@@ -44,10 +53,10 @@ const held = vi.mocked(occurrencesWithSignups);
  * about none.
  */
 function signedUpTo(...occurrenceIds: readonly string[]): void {
-  held.mockImplementation(
-    async (_db, requested) =>
-      new Set(requested.filter((id) => occurrenceIds.includes(id))),
-  );
+  held.mockImplementation(async (_db, requested) => {
+    calls.push("read-signups");
+    return new Set(requested.filter((id) => occurrenceIds.includes(id)));
+  });
 }
 
 /** A weekly Sunday series at ten in the morning, as the board states it. */
@@ -91,7 +100,11 @@ const STORED_OCCURRENCES = [
   },
 ];
 
-function storedEvent(published: boolean, title = AS_STATED.title) {
+function storedEvent(
+  published: boolean,
+  title = AS_STATED.title,
+  cancelledOccurrenceId?: string,
+) {
   return {
     id: "event-1",
     title,
@@ -110,7 +123,11 @@ function storedEvent(published: boolean, title = AS_STATED.title) {
     recurrenceInterval: 1,
     recurrenceCount: 3,
     recurrenceUntil: null,
-    occurrences: STORED_OCCURRENCES,
+    occurrences: STORED_OCCURRENCES.map((occurrence) =>
+      occurrence.id === cancelledOccurrenceId
+        ? { ...occurrence, cancelledAt: new Date("2027-04-01T09:00:00.000Z") }
+        : occurrence,
+    ),
   };
 }
 
@@ -121,10 +138,23 @@ function storedEvent(published: boolean, title = AS_STATED.title) {
  * "already started" half of the plan is not in play here - `occurrence-plan.spec.ts`
  * takes its own clock and covers that.
  */
-function build(options: { published?: boolean } = {}) {
-  const row = storedEvent(options.published ?? false);
+function build(
+  options: { published?: boolean; cancelledOccurrenceId?: string } = {},
+) {
+  const row = storedEvent(
+    options.published ?? false,
+    AS_STATED.title,
+    options.cancelledOccurrenceId,
+  );
 
   const tx = {
+    // The advisory lock the sign-up claim takes on the same key. Records the
+    // key rather than the statement, because which occurrences were locked is
+    // half of what makes the read behind it decisive.
+    $executeRaw: vi.fn(async (_sql: unknown, key?: unknown) => {
+      calls.push(typeof key === "string" ? key : "lock");
+      return 1;
+    }),
     event: {
       findUnique: vi.fn(async () => row),
       update: vi.fn(async () => row),
@@ -155,6 +185,7 @@ function build(options: { published?: boolean } = {}) {
 
 beforeEach(() => {
   held.mockReset();
+  calls.length = 0;
   signedUpTo();
 });
 
@@ -199,6 +230,79 @@ describe("editing a series people have signed up to", () => {
       ),
     ).rejects.toMatchObject({ reason: "occurrence-in-use" });
     expect(tx.event.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a change that would move a called-off date somebody holds", async () => {
+    /*
+     * A called-off date is still one somebody is standing on. Nothing withdraws
+     * a sign-up when the board calls a date off - the row stays with the date on
+     * it precisely because people may have signed up to it - so somebody who has
+     * not stood down is still expecting to be there, and an edit that moved that
+     * date would move their sign-up onto a day they never chose.
+     *
+     * The board's way out is dated and deliberate: leave the date alone, or
+     * withdraw those sign-ups on those people's behalf.
+     */
+    signedUpTo("occurrence-25");
+    const { service, tx } = build({ cancelledOccurrenceId: "occurrence-25" });
+
+    await expect(
+      service.update(
+        "event-1",
+        { ...AS_STATED, startsAtMinute: 9 * 60 },
+        "board-1",
+      ),
+    ).rejects.toMatchObject({ reason: "occurrence-in-use" });
+    expect(tx.eventOccurrence.update).not.toHaveBeenCalled();
+    expect(tx.event.update).not.toHaveBeenCalled();
+  });
+
+  it("asks about a called-off date rather than leaving it out", async () => {
+    // The set the question is asked of, stated directly: an implementation that
+    // filtered called-off dates out before asking would pass the refusal test
+    // above only because the stub was told about the same id.
+    const { service } = build({ cancelledOccurrenceId: "occurrence-25" });
+
+    await service.update(
+      "event-1",
+      { ...AS_STATED, startsAtMinute: 9 * 60 },
+      "board-1",
+    );
+
+    expect(held.mock.calls[0]?.[1]).toEqual([
+      "occurrence-18",
+      "occurrence-25",
+      "occurrence-02",
+    ]);
+  });
+
+  it("locks every displaced date, in one order, before it asks who holds them", async () => {
+    /*
+     * The ordering the whole refusal rests on, and the one thing being inside
+     * the transaction does not give. This read runs at READ COMMITTED and so
+     * sees the snapshot it began with: a claim that committed while the board
+     * was saving would be invisible to it, and the edit would carry that sign-up
+     * onto a day nobody chose. The claim's lock is what the two writers share,
+     * and it is only worth anything taken before the count.
+     *
+     * Sorted, so two edits over overlapping dates queue rather than each holding
+     * what the other waits for. The read is still asked in the plan's own order,
+     * which the test above pins.
+     */
+    const { service } = build();
+
+    await service.update(
+      "event-1",
+      { ...AS_STATED, startsAtMinute: 9 * 60 },
+      "board-1",
+    );
+
+    expect(calls).toEqual([
+      "event-occurrence-signups:occurrence-02",
+      "event-occurrence-signups:occurrence-18",
+      "event-occurrence-signups:occurrence-25",
+      "read-signups",
+    ]);
   });
 
   it("names the dates on the association's own calendar and nothing else", async () => {
@@ -298,6 +402,26 @@ describe("removing a series", () => {
       "occurrence-02",
     ]);
     expect(tx.event.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks every date before it asks, because the delete cascades to the sign-ups", async () => {
+    /*
+     * The removal has more to lose from an unlocked read than the edit does. The
+     * occurrence reference cascades, so a claim that committed after a read
+     * saying nobody held the date is not merely moved - it is deleted, by the
+     * removal that should have been refused, and nothing tells the person who
+     * made it.
+     */
+    const { service } = build();
+
+    await service.remove("event-1", "board-1");
+
+    expect(calls).toEqual([
+      "event-occurrence-signups:occurrence-02",
+      "event-occurrence-signups:occurrence-18",
+      "event-occurrence-signups:occurrence-25",
+      "read-signups",
+    ]);
   });
 });
 

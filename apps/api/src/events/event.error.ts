@@ -31,7 +31,14 @@ export type EventReason =
   | "start-does-not-exist"
   | "capacity-not-positive"
   | "occurrence-in-use"
-  | "occurrence-already-cancelled";
+  | "occurrence-already-cancelled"
+  | "signup-not-offered"
+  | "occurrence-cancelled"
+  | "occurrence-started"
+  | "occurrence-full"
+  | "already-signed-up"
+  | "already-withdrawn"
+  | "signup-not-found";
 
 /**
  * A refusal from the events module.
@@ -54,6 +61,30 @@ export type EventReason =
  * board's answer is to leave those dates where they are, or to deal with the
  * sign-ups first - which is a decision taken date by date rather than the
  * silent effect of saving a form.
+ *
+ * ## The sign-up reasons, and the two that are deliberately vague
+ *
+ * `occurrence-not-found` answers a date that does not exist AND every date of a
+ * series the caller may not read - a draft the board has not published. The
+ * alternative would let anybody holding events:attend discover what the board is
+ * drafting, one identifier at a time, from the difference between "no such date"
+ * and "that date is not taking sign-ups"; the issues module answers a type the
+ * caller may not report under exactly as one that does not exist, and the media
+ * layer answers a file it will not serve exactly as a file that is not there.
+ *
+ * `signup-not-found`, on the same reading, answers both a sign-up that does not
+ * exist and one that belongs to somebody else. Standing down is only ever an act
+ * on one's own sign-up, so anything else is a request for somebody else's row
+ * and is answered as absent.
+ *
+ * The rest are separate for the reason the recurrence reasons are: "that date is
+ * not taking sign-ups", "that date has been called off", "that date has already
+ * begun", "the places are gone", "you already have a place" and "that sign-up is
+ * already withdrawn" are six different facts with six different answers, and the
+ * one about the places changes the moment somebody stands down.
+ * `occurrence-cancelled` is not the same refusal as
+ * `occurrence-already-cancelled`: one refuses signing up to a date the board has
+ * called off, the other refuses calling off a date that is already off.
  */
 export class EventError extends DomainError {
   readonly status: number;
@@ -98,16 +129,24 @@ function statusFor(reason: EventReason): number {
   switch (reason) {
     case "not-found":
     case "occurrence-not-found":
+    case "signup-not-found":
       return HttpStatus.NOT_FOUND;
 
     case "occurrence-in-use":
     case "occurrence-already-cancelled":
+    case "signup-not-offered":
+    case "occurrence-cancelled":
+    case "occurrence-started":
+    case "occurrence-full":
+    case "already-signed-up":
+    case "already-withdrawn":
       /*
        * A conflict rather than an unprocessable entity: the request is well
        * formed, the caller may see what it names, and it describes a state the
        * thing is already in, or one it cannot be moved to while other rows
        * stand. Neither stays true for ever, and neither is fixed by sending a
-       * different request.
+       * different request - a place refused because the date is full is there
+       * again the moment somebody stands down.
        */
       return HttpStatus.CONFLICT;
 

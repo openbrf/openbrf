@@ -269,7 +269,9 @@ export type ReportAuditAction =
   | "EVENT_OCCURRENCE_CANCELLED"
   | "MOTION_SUBMITTED"
   | "MOTION_ACKNOWLEDGED"
-  | "MOTION_WITHDRAWN";
+  | "MOTION_WITHDRAWN"
+  | "EVENT_SIGNUP_MADE"
+  | "EVENT_SIGNUP_WITHDRAWN";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -398,9 +400,10 @@ export interface DataSubjectReport {
   /**
    * Bookings this person made.
    *
-   * The one section that states a retention date per row: a booking is purged a
-   * year after the booked period ended, on its own clock rather than the
-   * residency one, so the date at the foot of the document does not govern it.
+   * One of the three sections that state a retention date per row: a booking is
+   * purged a year after the booked period ended, on its own clock rather than
+   * the residency one, so the date at the foot of the document does not govern
+   * it.
    *
    * `erasableFrom` is the earliest date the purge can reach the row, not a
    * promise that it will. A legal hold suspends every purge for the person it
@@ -420,9 +423,8 @@ export interface DataSubjectReport {
   /**
    * Motions this person put to the general meeting.
    *
-   * The second section that states a retention date per row: a motion is purged
-   * two years after it was closed, on its own clock rather than the residency
-   * one.
+   * The second of those three: a motion is purged two years after it was closed,
+   * on its own clock rather than the residency one.
    *
    * A motion still with the board states none, and that absence is information
    * rather than a gap: it has no closing date to count from, and the association
@@ -435,6 +437,30 @@ export interface DataSubjectReport {
     status: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
     submittedAt: string;
     closedAt: string | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Sign-ups (anmalan) this person made to dates in the association's calendar,
+   * the ones they stood down from included.
+   *
+   * The third of those three: a sign-up is purged a year after the date it was
+   * for ended. `withdrawnOn` is what makes a withdrawal readable as one - a
+   * report listing only the standing sign-ups would be silent about a row the
+   * association is still holding.
+   *
+   * `on` is the local date the event falls on, stated by the server on the
+   * association's own clock rather than derived here from the instant, so a
+   * document printed abroad names the same day as the notice in the stairwell.
+   */
+  eventSignups: {
+    signupId: string;
+    eventTitle: string;
+    startsAt: string;
+    endsAt: string;
+    on: string;
+    signedUpAt: string;
+    withdrawnOn: string | null;
+    calledOff: boolean;
     erasableFrom: string | null;
   }[];
   auditEntries: {

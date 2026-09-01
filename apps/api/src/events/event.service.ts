@@ -21,6 +21,7 @@ import {
   EventError,
   type EventReason,
 } from "./event.error";
+import { lockOccurrencesSignups } from "./event-signup-lock";
 import {
   displacedBy,
   planOccurrences,
@@ -365,11 +366,16 @@ export class EventService {
        * whole displaced set at once, because the refusal is about the edit and
        * not about one date: an edit that would move six dates and drop one
        * somebody has signed up to is refused whole rather than applied in part.
+       *
+       * And behind the claim's own lock, taken before the count it rests on is
+       * read - the ordering `event-signup-lock.ts` sets out. Being inside the
+       * transaction is not enough on its own: at READ COMMITTED this read sees
+       * the snapshot it began with, so without the lock a claim that committed
+       * while the board was saving would neither refuse the edit nor lose to it.
        */
-      const held = await occurrencesWithSignups(
-        tx,
-        displaced.map((occurrence) => occurrence.id),
-      );
+      const displacedIds = displaced.map((occurrence) => occurrence.id);
+      await lockOccurrencesSignups(tx, displacedIds);
+      const held = await occurrencesWithSignups(tx, displacedIds);
       if (held.size > 0) {
         throw new EventError(
           "People have signed up to dates this change would move or remove. Leave those dates where they are, or deal with the sign-ups first.",
@@ -617,10 +623,15 @@ export class EventService {
         throw new EventError("There is no such event.", "not-found");
       }
 
-      const held = await occurrencesWithSignups(
-        tx,
-        existing.occurrences.map((occurrence) => occurrence.id),
+      // Every date of the series, behind the claim's own lock and before the
+      // count is read, for the reason the edit path gives: the delete cascades
+      // to the sign-ups, so a claim that committed after an unlocked read would
+      // be erased by the removal it should have refused.
+      const occurrenceIds = existing.occurrences.map(
+        (occurrence) => occurrence.id,
       );
+      await lockOccurrencesSignups(tx, occurrenceIds);
+      const held = await occurrencesWithSignups(tx, occurrenceIds);
       if (held.size > 0) {
         throw new EventError(
           "People have signed up to dates in this event. Deal with the sign-ups before removing it.",

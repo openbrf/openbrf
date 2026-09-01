@@ -234,6 +234,52 @@ export interface ReportMotion {
 }
 
 /**
+ * A sign-up (anmalan) this person made to one date in the association's
+ * calendar.
+ *
+ * Purged, like the bookings above and on the same reading: the purpose the row is
+ * held for is running the date it names, so it is erased a year after that date
+ * ended rather than on the residency clock. So each row states when that window
+ * runs out.
+ *
+ * The withdrawn ones are here too, with the date they were withdrawn on. A report
+ * that listed only the standing ones would be an incomplete answer: the
+ * association is still holding a row saying this person had put their name down
+ * and then stood down, and that row is what the section is for.
+ *
+ * The event is named because a person is entitled to know which of the
+ * association's dates the association holds a record of them for; the date it
+ * falls on is stated on the association's own clock rather than as a slice of an
+ * instant, so a document produced abroad does not move it.
+ */
+export interface ReportEventSignup {
+  signupId: string;
+  /** What the board calls the event, read from the event itself. */
+  eventTitle: string;
+  /** ISO instants: the date signed up to. */
+  startsAt: string;
+  endsAt: string;
+  /** "YYYY-MM-DD" on the association's own clock. */
+  on: string;
+  /** ISO instant the sign-up that stands now was made. */
+  signedUpAt: string;
+  /** ISO instant they stood down, or null while they are expected. */
+  withdrawnOn: string | null;
+  /** Whether the board has called that date off. */
+  calledOff: boolean;
+  /**
+   * The earliest date the purge can reach this sign-up, derived from the
+   * retention window and never stored.
+   *
+   * The earliest, and deliberately not "the date it is erased on", for the reason
+   * the booking section gives: a legal hold suspends every purge for the person it
+   * stands against, and `retention.onLegalHold` on this same report says whether
+   * one does.
+   */
+  erasableFrom: string | null;
+}
+
+/**
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
@@ -298,6 +344,7 @@ export interface DataSubjectReport {
   documents: ReportDocument[];
   bookings: ReportBooking[];
   motions: ReportMotion[];
+  eventSignups: ReportEventSignup[];
   auditEntries: ReportAuditEntry[];
   /** What the association keeps, and until when. */
   retention: {

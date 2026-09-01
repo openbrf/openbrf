@@ -309,6 +309,7 @@
           "documents": "Documents filed",
           "bookings": "Bookings",
           "motions": "Motions",
+          "eventSignups": "Event sign-ups",
           "audit": "The audit log",
           "retention": "Retention"
         },
@@ -356,6 +357,9 @@
           "binder": "Binder",
           "audience": "Audience",
           "filed": "Filed",
+          "eventTitle": "Event",
+          "signedUp": "Signed up",
+          "calledOff": "Called off",
           "resource": "Resource",
           "starts": "Starts",
           "ends": "Ends",
@@ -431,7 +435,9 @@
           "EVENT_OCCURRENCE_CANCELLED": "Event occurrence cancelled",
           "MOTION_SUBMITTED": "Motion submitted",
           "MOTION_ACKNOWLEDGED": "Motion recorded as received",
-          "MOTION_WITHDRAWN": "Motion withdrawn"
+          "MOTION_WITHDRAWN": "Motion withdrawn",
+          "EVENT_SIGNUP_MADE": "Event sign-up made",
+          "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn"
         },
         "auditRole": {
           "subject": "About this person",

@@ -532,10 +532,15 @@ change it.
     29th of February; the write path with the personal identity number
     scan on publication, members-only unless the board publishes to the
     street, the refusal to move a date people are standing on, one date
-    callable off on its own, the events capability and the audit entries
-  - Pending: sign-up per occurrence with its data subject access report
-    section and purge; the calendar screen; the public calendar page; the
-    end-to-end suite
+    called off on its own, the `events:manage` capability and the audit
+    entries; sign-up per occurrence with the places counted per date and a
+    claim the database and a lock decide, withdrawal as a dated close that
+    frees the place again, the roll-call behind the managing capability with
+    a person with protected personal data counted and never named,
+    `events:attend` as a capability of its own, the data subject access
+    report section and the sign-up purge with its legal-hold check
+  - Pending: the calendar screen; the public calendar page; the end-to-end
+    suite
 
 **Later, still free and in the core**
 

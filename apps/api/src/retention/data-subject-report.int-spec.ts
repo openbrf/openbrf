@@ -27,8 +27,9 @@ import type { DataSubjectReport } from "./data-subject-report";
  * about me", and an answer that quietly omits a table is worse than no answer,
  * because nobody reading it can tell. So the fixture puts something in every
  * store the product has - both register tiers, an account, a consent, a hold,
- * an issue, an archived document, a booking and an audit trail - and each
- * section is asserted to have found it.
+ * an issue, an archived document, a booking, a sign-up to one of the
+ * association's own dates and an audit trail - and each section is asserted to
+ * have found it.
  *
  * The gate. This is the one endpoint that decrypts a personal identity number,
  * so the capability that opens it is checked as four different callers rather
@@ -53,6 +54,8 @@ const apartmentId = `dsar-apartment-${suffix}`;
 const issueTypeId = `dsar-issue-type-${suffix}`;
 const mediaFileId = `dsar-media-${suffix}`;
 const bookableResourceId = `dsar-resource-${suffix}`;
+const eventId = `dsar-event-${suffix}`;
+const occurrenceId = `dsar-occurrence-${suffix}`;
 
 /**
  * When the fixture booking ended.
@@ -66,6 +69,73 @@ const bookingEndedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 const bookingStartedAt = new Date(
   bookingEndedAt.getTime() - 2 * 60 * 60 * 1000,
 );
+
+/**
+ * When the fixture cleaning day ran, and when the subject stood down from it.
+ *
+ * A week back rather than a year, for the reason the booking's own dates are: a
+ * sign-up is erased on its own clock a year after the date it was for, and a
+ * fixture dated a year ago would survive or vanish depending on which suite ran
+ * first in this worker.
+ *
+ * At 23:30 UTC, which is the boundary this section has to get right rather than
+ * an arbitrary hour. Stockholm is an hour ahead of UTC in winter and two in
+ * summer, so half past eleven at night in UTC is half past midnight or half past
+ * one in the morning on the FOLLOWING local day, whichever season this runs in.
+ * The local date and the instant's own date therefore always differ, and a
+ * document deriving the day from the instant names the day before the one the
+ * notice in the stairwell did.
+ */
+const aWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+const occurrenceStartedAt = new Date(
+  Date.UTC(
+    aWeekAgo.getUTCFullYear(),
+    aWeekAgo.getUTCMonth(),
+    aWeekAgo.getUTCDate(),
+    23,
+    30,
+  ),
+);
+const occurrenceEndedAt = new Date(
+  occurrenceStartedAt.getTime() + 2 * 60 * 60 * 1000,
+);
+const signupWithdrawnAt = new Date(
+  occurrenceStartedAt.getTime() - 24 * 60 * 60 * 1000,
+);
+
+/** The Stockholm wall clock the fixture's own date and time are stated from. */
+const STOCKHOLM_FIELDS = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Europe/Stockholm",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * The series' own wall-clock fields for that instant.
+ *
+ * Read off the instant rather than written out, so the series says the same thing
+ * its occurrence does whichever season this runs in - and so that nothing here
+ * depends on the module under test to say what those fields are.
+ */
+function stockholmFieldsOf(instant: Date): {
+  firstOn: Date;
+  startsAtMinute: number;
+} {
+  const [day, time] = STOCKHOLM_FIELDS.format(instant).split(" ");
+  const [year, month, date] = (day ?? "").split("-").map(Number);
+  const [hour, minute] = (time ?? "").split(":").map(Number);
+  return {
+    // A date column, so midnight UTC for that calendar date and no time zone at
+    // all. The report never reads it: the date it states comes from the
+    // occurrence's own instant.
+    firstOn: new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, date ?? 1)),
+    startsAtMinute: (hour ?? 0) * 60 + (minute ?? 0),
+  };
+}
 
 const board = {
   personId: `dsar-board-${suffix}`,
@@ -455,6 +525,41 @@ beforeAll(async () => {
     },
   });
 
+  await prisma.event.create({
+    data: {
+      id: eventId,
+      title: `Stadag ${suffix}`,
+      category: "Stadag",
+      location: "Innergarden",
+      published: true,
+      publishedAt: new Date(occurrenceStartedAt.getTime() - 30 * 86_400_000),
+      signupOpen: true,
+      capacity: 20,
+      authorPersonId: board.personId,
+      ...stockholmFieldsOf(occurrenceStartedAt),
+      durationMinutes: 2 * 60,
+    },
+  });
+  await prisma.eventOccurrence.create({
+    data: {
+      id: occurrenceId,
+      eventId,
+      startsAt: occurrenceStartedAt,
+      endsAt: occurrenceEndedAt,
+    },
+  });
+  // Stood down rather than standing, because a withdrawal is the case a report
+  // can be silently wrong about: the row is still held and a section listing
+  // only the standing ones would say nothing about it.
+  await prisma.eventSignup.create({
+    data: {
+      occurrenceId,
+      personId: subject.personId,
+      signedUpAt: new Date(occurrenceStartedAt.getTime() - 14 * 86_400_000),
+      withdrawnAt: signupWithdrawnAt,
+    },
+  });
+
   // One entry each way round, so the report can be shown to carry both what
   // was done to this person and what they did.
   await prisma.auditLogEntry.createMany({
@@ -507,6 +612,8 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
+        () => prisma.eventSignup.deleteMany({ where: { occurrenceId } }),
+        () => prisma.event.deleteMany({ where: { id: eventId } }),
         () =>
           prisma.booking.deleteMany({
             where: { resourceId: bookableResourceId },
@@ -786,6 +893,48 @@ describe("what the report contains", () => {
      * defer that date, never bring it forward.
      */
     expect(report.retention.onLegalHold).toBe(true);
+  });
+
+  it("lists the event sign-ups with the withdrawal and the association's own day", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.eventSignups).toHaveLength(1);
+    const signup = report.eventSignups[0];
+    expect(signup?.eventTitle).toBe(`Stadag ${suffix}`);
+    expect(signup?.endsAt).toBe(occurrenceEndedAt.toISOString());
+    expect(signup?.calledOff).toBe(false);
+
+    /*
+     * The withdrawal, stated as a date. This is the case a report can be
+     * silently wrong about: the row is still held, so a section listing only the
+     * standing sign-ups would tell the person nothing about a record that says
+     * they had put their name down and then stood down.
+     */
+    expect(signup?.withdrawnOn).toBe(signupWithdrawnAt.toISOString());
+
+    /*
+     * The date on the association's own clock, and the boundary this section has
+     * to get right. The fixture's cleaning day starts at 23:30 UTC, which is the
+     * small hours of the FOLLOWING day in Stockholm in every season - so a
+     * document deriving the day from the instant names the day before the one the
+     * notice in the stairwell did.
+     */
+    expect(signup?.on).toBe(
+      STOCKHOLM_FIELDS.format(occurrenceStartedAt).split(" ")[0],
+    );
+    expect(signup?.on).not.toBe(occurrenceStartedAt.toISOString().slice(0, 10));
+
+    /*
+     * And its own retention date, a year after the date it was for ended -
+     * anchored on the occurrence and not on the withdrawal, because the row is
+     * about a date and it is the date that decides when the association has no
+     * further use for it. A withdrawal a fortnight early does not erase it a
+     * fortnight early.
+     */
+    const expected = new Date(
+      occurrenceEndedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
+    );
+    expect(signup?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
   });
 
   it("carries the audit trail both ways round", async () => {

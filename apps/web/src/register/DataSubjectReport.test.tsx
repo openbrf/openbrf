@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
@@ -57,6 +57,7 @@ const EMPTY_REPORT: Report = {
   documents: [],
   bookings: [],
   motions: [],
+  eventSignups: [],
   auditEntries: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
@@ -182,6 +183,26 @@ const FULL_REPORT: Report = {
       erasableFrom: null,
     },
   ],
+  eventSignups: [
+    {
+      signupId: "signup-1",
+      eventTitle: "Städdag",
+      /*
+       * Half past midnight local, so the instant falls on the day before in UTC.
+       * The server states the local date and the document prints what it was
+       * given; a column that read the day off the instant here would name the
+       * 17th of April on a document about the 18th.
+       */
+      startsAt: "2027-04-17T22:30:00.000Z",
+      endsAt: "2027-04-18T02:30:00.000Z",
+      on: "2027-04-18",
+      signedUpAt: "2027-03-01T10:00:00.000Z",
+      // Stood down, which is a date on the row rather than an absent row.
+      withdrawnOn: "2027-03-20T12:00:00.000Z",
+      calledOff: false,
+      erasableFrom: "2028-04-17",
+    },
+  ],
   auditEntries: [
     {
       entryId: "audit-1",
@@ -229,6 +250,24 @@ function fieldValue(label: string): string {
     throw new Error(`The report states no value against "${label}".`);
   }
   return value.textContent ?? "";
+}
+
+/**
+ * One section of the document, found by the heading printed above it.
+ *
+ * Sections share column headings - bookings and event sign-ups both state the
+ * earliest date the purge can reach a row - so an assertion on a heading alone
+ * is satisfied by whichever section happens to be found first, and would go on
+ * passing if the section it was written about stopped printing the column
+ * entirely.
+ */
+function sectionOf(heading: string): HTMLElement {
+  const title = screen.getByText(heading);
+  const section = title.closest("section");
+  if (!section) {
+    throw new Error(`The report prints no section headed "${heading}".`);
+  }
+  return section;
 }
 
 beforeEach(() => {
@@ -350,14 +389,18 @@ describe("what the document prints", () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    expect(screen.getByText("Bokningar")).not.toBeNull();
-    expect(screen.getByText("Tvättstugan")).not.toBeNull();
-    expect(screen.getByText("Bokad")).not.toBeNull();
-    // Two sections carry this column now - bookings and motions, each purged on
-    // a clock of its own - so it is asserted as a pair. The date below is the
-    // booking's own and unique to it.
-    expect(screen.getAllByText("Gallras tidigast")).toHaveLength(2);
-    expect(screen.getByText("2027-01-17")).not.toBeNull();
+    /*
+     * Read out of the bookings section rather than off the page. Three
+     * sections carry this column now - bookings, motions and event sign-ups,
+     * each purged on a clock of its own - so a count would have to be revised
+     * every time a fourth module purges, and a bare query would pass while
+     * pointing at the wrong table.
+     */
+    const bookings = within(sectionOf("Bokningar"));
+    expect(bookings.getByText("Tvättstugan")).not.toBeNull();
+    expect(bookings.getByText("Bokad")).not.toBeNull();
+    expect(bookings.getByText("Gallras tidigast")).not.toBeNull();
+    expect(bookings.getByText("2027-01-17")).not.toBeNull();
 
     // And the hold state that makes that wording load-bearing, stated on the
     // same page, so the two are read together. Asserted as the answer and not
@@ -454,6 +497,34 @@ describe("what the document prints", () => {
       .closest("tr")?.textContent;
     expect(transfer).toContain("2020-03-01");
     expect(transfer).toContain("2020-02-18");
+  });
+
+  it("prints a sign-up with its withdrawal date and the association's own day", async () => {
+    /*
+     * Two things this section has to get right, both of which a report that
+     * looked complete could be wrong about.
+     *
+     * The withdrawal is a date and not an absence. A person who stood down and a
+     * person who never signed up are two different answers to an access request,
+     * and the association is still holding a row about the first.
+     *
+     * And the date is the association's own. The fixture's event starts at half
+     * past midnight in Stockholm, so its instant is the day before in UTC: a
+     * column that derived the day from the instant would print the 17th on a
+     * document about the cleaning day on the 18th.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const signups = within(sectionOf("Anmälningar till evenemang"));
+    expect(signups.getByText("Städdag")).not.toBeNull();
+    expect(signups.getByText("2027-04-18")).not.toBeNull();
+    expect(signups.queryByText("2027-04-17")).toBeNull();
+    expect(signups.getByText("2027-03-20")).not.toBeNull();
+    // A year after the date ended, on its own clock, exactly as the booking
+    // above states its own.
+    expect(signups.getByText("Gallras tidigast")).not.toBeNull();
+    expect(signups.getByText("2028-04-17")).not.toBeNull();
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {

@@ -805,6 +805,14 @@ enum AuditAction {
   /// A member took a motion back while it was still open. Actor and subject are
   /// the member, as at submission.
   MOTION_WITHDRAWN
+  /// Somebody signed up (anmalan) to one date of a series. The entry names them
+  /// as both the actor and the subject, and again as the subject when they had
+  /// stood down before and signed up a second time.
+  EVENT_SIGNUP_MADE
+  /// A sign-up was withdrawn, by the person who made it or by the board. The
+  /// subject is whoever signed up either way, so their access report shows a
+  /// withdrawal somebody else decided on.
+  EVENT_SIGNUP_WITHDRAWN
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -2585,6 +2593,8 @@ model EventOccurrence {
   /// different thing to say than "there was never one".
   cancelledAt DateTime?
 
+  signups EventSignup[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2701,4 +2711,80 @@ model Motion {
   /// The purge scan: which motions closed long enough ago.
   @@index([closedAt])
   @@map("motion")
+}
+
+/// One person putting their name down for one date (anmalan).
+///
+/// Per occurrence and never per series, which is the whole reason an occurrence
+/// is a row: somebody signs up for the cleaning day on the 18th of April, and
+/// the places are counted against that date. A sign-up per series would mean a
+/// board offering twenty places at each of a year's cleaning days had offered
+/// twenty for the year.
+///
+/// Service tier, and the only personal data the event calendar holds: the series
+/// records who entered it the way a news item records its author, while this row
+/// says that a named person intends to be somewhere. So it carries a retention
+/// window of its own, anchored on the end of the date it names, and a section of
+/// its own in the data subject access report.
+///
+/// ## Withdrawing is a dated close
+///
+/// `withdrawnAt` and never a delete, on the precedent of a called-off
+/// occurrence, a withdrawn resource and a released legal hold: who was expected
+/// at a cleaning day and who stood down are two different answers, and a deleted
+/// row can only give the first by omission. It is also what makes a place given
+/// back countable - the places taken are the sign-ups with no withdrawal date,
+/// so standing down frees a place the moment it is recorded.
+///
+/// One row per person and occurrence for as long as the row is kept, which is
+/// what the unique constraint states - the retention window is what ends it, not
+/// a second sign-up. Signing up again after standing down clears the withdrawal
+/// date on that row rather than writing a second one, so `signedUpAt` is the
+/// sign-up that stands now and `createdAt` is the first time this person put
+/// their name down for this date. The two differ exactly for the people who
+/// changed their mind twice.
+///
+/// ## Cascade, and what stands in front of it
+///
+/// The occurrence reference cascades, because a sign-up says what it is only
+/// through the date it names - the same argument the occurrence itself makes
+/// about its series. What stops a date somebody is standing on from going
+/// anywhere is the refusal in the write service, and that refusal counts
+/// standing sign-ups only: a withdrawal is a person saying they are not coming,
+/// and letting it veto the board's edit for ever would turn a dated close into a
+/// lock on the calendar.
+model EventSignup {
+  id String @id @default(cuid())
+
+  occurrenceId String
+  occurrence   EventOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+
+  /// Who signed up.
+  ///
+  /// A plain column and not a relation, for the reason the audit log,
+  /// Issue.reporterPersonId and Booking.bookedByPersonId all give: every
+  /// referential action a foreign key can carry either rewrites this row when a
+  /// person is erased or vetoes the erasure outright, and service-tier data has
+  /// to be purgeable without the purge having to negotiate with the calendar.
+  personId String
+
+  /// When the sign-up that stands now was made. See the model comment: it moves
+  /// when somebody who stood down signs up again.
+  signedUpAt DateTime @default(now())
+
+  /// When they stood down. Null while they are expected.
+  withdrawnAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One sign-up per person and date. Expressible as a constraint, so it is
+  /// one: two rows would be one person counted twice against the places.
+  @@unique([occurrenceId, personId])
+  /// The places taken on one date, which is the count every claim is measured
+  /// against and the roll-call the board reads.
+  @@index([occurrenceId, withdrawnAt])
+  /// This person's sign-ups: the access report section and the purge's scan.
+  @@index([personId])
+  @@map("event_signup")
 }
