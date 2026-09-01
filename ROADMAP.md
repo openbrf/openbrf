@@ -551,13 +551,13 @@ change it.
   - [x] Motions to the general meeting: a member submits one in writing and the
         board works the queue it arrives in, recording that it has been received.
         The right is a member's, not a resident's (EFL 6 kap. 15 § via BRL 9 kap.
-        14 §). The deadline is whatever the association's own bylaws set: the
-        platform holds no default, a cooperative whose bylaws are silent has no
-        recurring date of its own to hold, and the statute's own condition - that
-        a request reach the board in time to be taken up in the notice - stands
-        either way. It is stated rather than enforced: a late motion is still
-        received, and nothing here records which meeting takes one up, because
-        there are no meetings in the platform yet to record
+        14 §). The motion deadline is whatever the association's own bylaws set:
+        the platform holds no default, a cooperative whose bylaws are silent has
+        no recurring date of its own to hold, and the statute's own condition -
+        that a request reach the board in time to be taken up in the notice -
+        stands either way. It is stated rather than enforced: a late motion is
+        still received, and nothing here records which general meeting takes one
+        up, because there are no general meetings in the platform yet to record
   - [ ] Subletting applications
   - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a

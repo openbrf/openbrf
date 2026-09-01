@@ -2322,7 +2322,7 @@
       "action": "Send the motion",
       "sending": "Sending...",
       "sent": "The motion has reached the board.",
-      "deadline": "Your bylaws say motions must reach the board by {{date}}. One sent later is still received - the date is about being in time for a meeting's notice, not about whether the board takes your motion.",
+      "deadline": "Your bylaws say motions must reach the board by {{date}}. One sent later is still received - the date is about being in time for a meeting's notice, not about whether the board receives your motion.",
       "noDeadline": "Your bylaws set no deadline for motions, so the board decides what it can still get into the notice for a meeting."
     },
     "mine": {
