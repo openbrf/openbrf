@@ -20,10 +20,10 @@ export const EVENT_SIGNUP_PURGE_QUEUE = "event-signup-purge";
  * When it runs.
  *
  * In the small hours, on a minute of its own: the import session purge takes
- * 03:23, the service data purge 03:41 and the booking purge 03:53, and jobs
- * waking together on one small connection pool is a contention nobody gains
- * anything from. Ahead of the others rather than after them, so that adding one
- * more purge later has the whole second half of the hour free.
+ * 03:23, the motion purge 03:29, the service data purge 03:41 and the booking
+ * purge 03:53, and jobs waking together on one small connection pool is a
+ * contention nobody gains anything from. Earliest of the five, which leaves the
+ * gaps between the others for whatever purges next.
  */
 const PURGE_CRON = "11 3 * * *";
 
