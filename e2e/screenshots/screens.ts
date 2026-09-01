@@ -226,6 +226,27 @@ const CLEANING = {
 } as const;
 
 /**
+ * The notice the news screens are photographed against.
+ *
+ * Held here rather than inline because six entries name it: the board writes it
+ * and publishes it, a resident opens it and answers it, the board strikes that
+ * answer through, and the same notice is then read on the association's website
+ * where no comment appears at all.
+ *
+ * The comment carries no personal identity number and no address, like every
+ * other value in this file: these images go into pull requests on a public
+ * repository, and what a capture can photograph is published.
+ */
+const NOTICE = {
+  title: "Städdag i trapphuset",
+  slug: "staddag-i-trapphuset",
+  /** The first sentence, which the article page is waited for by. */
+  opening: "Vi städar trapphuset lördagen den 12 oktober klockan tio.",
+  /** What a resident leaves under it. */
+  comment: "Tack för beskedet. Jag tar med en hink och krattan.",
+} as const;
+
+/**
  * A token in the shape an invitation link carries.
  *
  * The activation screen renders its form from the link alone and sends the
@@ -621,20 +642,21 @@ export const SCREENS: readonly Screen[] = [
   },
 
   // --- news ------------------------------------------------------------------
-  // The board's own screen, then the item it published, then that item on the
-  // association's website. In that order, because the last two photograph what
-  // the ones above them did.
+  // The board's own screen, then the item it published, then a resident reading
+  // that item and answering it, then the board striking the answer through, then
+  // the item on the association's website - where the thread does not appear at
+  // all. In that order, because each of them photographs what the ones above it
+  // did.
   {
     name: "news-compose",
     as: "administrator",
     goto: appPath("/admin/site/news"),
     prepare: [
-      { fill: { label: "Rubrik" }, value: "Städdag i trapphuset" },
-      { fill: { label: "Adress" }, value: "staddag-i-trapphuset" },
+      { fill: { label: "Rubrik" }, value: NOTICE.title },
+      { fill: { label: "Adress" }, value: NOTICE.slug },
       {
         fill: { label: "Text" },
-        value:
-          "Vi städar trapphuset lördagen den 12 oktober klockan tio.\n\n## Ta med\n\nHandskar och en hink.",
+        value: `${NOTICE.opening}\n\n## Ta med\n\nHandskar och en hink.`,
       },
     ],
     waitFor: { button: "Spara nyheten" },
@@ -654,16 +676,67 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Nyheten är publicerad." },
   },
   {
+    /*
+     * The notice as the house reads it, with the answer a resident leaves under
+     * it.
+     *
+     * The resident persona rather than the member, and that is the capability
+     * model rather than a convenience: news:comment is granted by living in the
+     * building, so the account holding no tenant-ownership is the one that shows
+     * the box is offered on residency alone. The same persona is offered no
+     * motion form at all.
+     */
+    name: "news-reading",
+    as: "resident",
+    goto: appPath("/news"),
+    prepare: [
+      // The notice's own heading, which exists only once the list has arrived,
+      // so the comment box below it is the one belonging to this notice.
+      { see: { heading: NOTICE.title } },
+      { fill: { label: "Din kommentar" }, value: NOTICE.comment },
+      { click: { button: "Skicka kommentaren" } },
+    ],
+    // The comment as the thread read it back. Nothing on this screen is
+    // optimistic, so the row arrives with the re-read rather than with the click
+    // - which is exactly what makes it a marker that waits for the data.
+    waitFor: { text: NOTICE.comment },
+    capture: "page",
+  },
+  {
+    /*
+     * The whole of what the board may do to a thread: strike a comment through.
+     *
+     * The card on its own rather than the screen, because the picture is of one
+     * state - the comment still there, its author still named, its text struck
+     * through and readable to the board with the sentence saying who else can
+     * read it. There is deliberately no control that takes it back.
+     */
+    name: "news-comment-struck",
+    as: "administrator",
+    goto: appPath("/news"),
+    prepare: [
+      { see: { heading: NOTICE.title } },
+      { click: { button: `Stryk kommentaren från ${RESIDENT.name}` } },
+    ],
+    // The sentence that only appears once the struck comment has been read back
+    // with its text: the strike-through is the server's answer, not the screen's
+    // arithmetic. Whole, because a string target here matches exactly.
+    waitFor: {
+      text: "Struken. Texten visas för styrelsen och för den som skrev den.",
+    },
+    capture: { panel: "Kommentarer" },
+  },
+  {
     name: "site-news",
     as: "nobody",
     goto: "/nyheter",
-    waitFor: { heading: "Städdag i trapphuset" },
+    waitFor: { heading: NOTICE.title },
   },
   {
     name: "site-news-article",
-    goto: "/nyheter/staddag-i-trapphuset",
+    goto: `/nyheter/${NOTICE.slug}`,
     waitFor: {
-      text: "Vi städar trapphuset lördagen den 12 oktober klockan tio.",
+      text: NOTICE.opening,
     },
   },
   // --- the association's website again ---------------------------------------

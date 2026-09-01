@@ -188,6 +188,25 @@ on the form she writes in, which is the only path by which that date can reach
 her - the platform holds no default. The spec restores the deadline to none over
 HTTP, so the shared instance is left as the specs after it expect.
 
+`31-news-comments.spec.ts` drives the thread under a notice, and its subject is
+one payload answered differently per reader. It takes the spec above from the
+other side: Nils Lindqvist holds no tenant-ownership, and where that one offers
+him no motion at all, this one offers him the comment box - `news:comment` is
+granted by living in the building, and membership adds exactly one capability in
+this platform. He writes a comment and reads it back off the thread. The board
+then strikes it through and is offered no way to take that back; afterwards the
+same comment reads three ways, and all three are asserted through the interface:
+struck through with its text to the board, struck through with its text to its
+author, and struck through with the text absent to the neighbour the server never
+sent it to. That third reader is Karl Berg rather than the author's own household
+
+- `27-site-data-blocks` puts Astrid Lindqvist on the board to photograph the
+  roster block, and a board seat reads a struck comment by design, so she cannot
+  stand for the reader it is kept from. Last, a comment carrying a personal
+  identity number is refused, the refusal reaches the screen as a sentence, and the
+  sentence does not carry the number. The spec publishes a notice of its own and
+  asks for no mailing, so it leaves the mailbox alone.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on

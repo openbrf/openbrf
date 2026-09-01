@@ -61,6 +61,15 @@ describe("the external property manager", () => {
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/events");
   });
 
+  it("is not offered the news, which is addressed to the house", () => {
+    // The capability model grants them news:comment no more than it grants them
+    // a laundry hour: the board writes a notice to the people who live in the
+    // building, and an outside contractor is not among them. Reading what the
+    // association has published needs no account at all on its website.
+    expect(PROPERTY_MANAGER).not.toContain("news:comment");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/news");
+  });
+
   it("reaches issues without holding the reporting capability", () => {
     // They handle the association's issues; they do not live in the building,
     // so they never hold issues:report. An entry gated on that alone would hide
@@ -84,6 +93,7 @@ describe("the other seats", () => {
         "self:manage",
         "residentDirectory:read",
         "issues:report",
+        "news:comment",
         "bookings:book",
         "events:attend",
       ]),
@@ -93,6 +103,7 @@ describe("the other seats", () => {
       "/issues",
       "/bookings",
       "/events",
+      "/news",
       "/documents",
     ]);
   });
@@ -105,6 +116,7 @@ describe("the other seats", () => {
         "self:manage",
         "residentDirectory:read",
         "issues:report",
+        "news:comment",
         "bookings:book",
         "events:attend",
         "motions:submit",
@@ -116,6 +128,7 @@ describe("the other seats", () => {
       "/bookings",
       "/events",
       "/motions",
+      "/news",
       "/documents",
     ]);
   });
@@ -129,6 +142,7 @@ describe("the other seats", () => {
         "issues:report",
         "issues:handle",
         "documents:manage",
+        "news:comment",
         "bookings:book",
         "bookings:manage",
         "bookings:configure",
@@ -144,6 +158,7 @@ describe("the other seats", () => {
       "/bookings",
       "/events",
       "/motions",
+      "/news",
       "/documents",
     ]);
   });
@@ -155,6 +170,21 @@ describe("the other seats", () => {
     // queue from the seat that exists to work it.
     expect(destinations(["motions:handle"])).toContain("/motions");
     expect(destinations(["motions:submit"])).toContain("/motions");
+  });
+
+  it("offers the news on residency rather than on membership", () => {
+    /*
+     * The contrast with motions above, and the reason this module has no any-of
+     * list. news:comment is granted by living in the building, so it is what
+     * opens this destination; membership adds motions:submit and nothing else, so
+     * an account holding the member's capability and not the resident's is
+     * offered the meeting's business and not the notices.
+     */
+    expect(destinations(["news:comment"])).toContain("/news");
+    expect(destinations(["motions:submit"])).not.toContain("/news");
+    // And the board's own writing capability is not a way in either: it opens
+    // the screen where news is written, which is a different destination.
+    expect(destinations(["site:manage"])).not.toContain("/news");
   });
 
   it("offers bookings to whoever runs the calendar without holding a slot", () => {

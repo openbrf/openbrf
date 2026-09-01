@@ -121,6 +121,26 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["motions:submit", "motions:handle"],
   },
   {
+    to: "/news",
+    // The reading side's own word for itself, under its own namespace, so the
+    // label moves with the feature. The board's writing side is a separate entry
+    // below, worded as the act it is rather than putting the same noun in the
+    // band twice.
+    labelKey: "newsReader.navLabel",
+    // One capability and no any-of list, because there is one seat here rather
+    // than two halves. news:comment belongs to whoever lives in the house: a
+    // partner, an adult child and a tenant hold it exactly as a member does,
+    // because answering a notice about the building is not the statutory right
+    // that membership carries - membership adds motions:submit and nothing else.
+    // The board holds it as well, and its own site:manage adds the
+    // strike-through control inside the screen rather than a second door to it.
+    //
+    // Deliberately not the external property manager, who holds neither: they
+    // handle the association's issues and do not live in the building, so the
+    // notices addressed to the house are not theirs to answer.
+    capability: "news:comment",
+  },
+  {
     to: "/documents",
     // The archive's own word for itself, under its own namespace, so the label
     // moves with the feature.
@@ -146,11 +166,14 @@ const ENTRIES: readonly NavEntry[] = [
   {
     to: "/admin/site/news",
     // The module's own word for itself, under its own namespace, so the label
-    // moves with the feature.
+    // moves with the feature. It names the act rather than the subject, because
+    // the band also carries the reading side above: a board member holds both
+    // capabilities, and two links reading "News" would be one word for two
+    // screens with nothing to tell them apart.
     labelKey: "news.navLabel",
-    // Writing the association's website, which is what news is. Reading the
-    // news needs no capability at all - it is on the public website - so this
-    // entry is only ever offered to whoever writes it.
+    // Writing the association's website, which is what news is. Reading it
+    // needs no capability at all on the website itself, so this entry is only
+    // ever offered to whoever writes it.
     capability: "site:manage",
   },
 ];

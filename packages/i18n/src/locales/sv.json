@@ -2204,7 +2204,7 @@
     }
   },
   "news": {
-    "navLabel": "Nyheter",
+    "navLabel": "Skriv nyheter",
     "heading": "Nyheter",
     "description": "Styrelsen skriver till dem som bor i huset och till dem som läser föreningens webbplats. En nyhet är för medlemmarna tills styrelsen säger något annat.",
     "loading": "Läser nyheterna...",
@@ -2566,6 +2566,52 @@
       "alreadyWithdrawn": "Anmälan är redan avanmäld, så det finns inget att avanmäla.",
       "signupNotFound": "Anmälan finns inte längre. Kalendern har lästs om.",
       "invalidBody": "Evenemanget behöver ett namn, ett första datum, en tid och en längd, och inget av dem får vara längre än formuläret tillåter.",
+      "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
+  "newsReader": {
+    "navLabel": "Nyheter",
+    "title": "Nyheter",
+    "intro": "Det styrelsen har skrivit till huset, och vad grannarna har svarat.",
+    "loading": "Läser nyheterna...",
+    "loadFailed": "Nyheterna kunde inte läsas just nu. Ladda om sidan.",
+    "empty": "Styrelsen har inte publicerat något än.",
+    "notOffered": "Nyheterna här är för dem som bor i huset. Det föreningen har publicerat finns på webbplatsen, som inte kräver något konto alls.",
+    "list": {
+      "title": "Alla nyheter",
+      "description": "Nyast först. Öppna en för att läsa den och kommentarerna under den.",
+      "open": "Öppna {{title}}, publicerad {{date}}"
+    },
+    "article": {
+      "publishedOn": "Publicerad {{date}}",
+      "address": "På webbplatsen: /nyheter/{{slug}}"
+    },
+    "thread": {
+      "title": "Kommentarer",
+      "description": "En kommentar syns precis så mycket som nyheten den står under, och ingen kommentar visas någonsin på föreningens webbplats.",
+      "loading": "Läser kommentarerna...",
+      "empty": "Ingen har svarat på den här än.",
+      "field": "Din kommentar",
+      "hint": "Skriv inget om någons hälsa eller en grannes förhållanden. Ett personnummer avvisas.",
+      "submit": "Skicka kommentaren",
+      "sending": "Skickar...",
+      "sent": "Din kommentar står på tråden.",
+      "authorProtected": "Skyddade personuppgifter: namnges inte här.",
+      "authorUnknown": "Finns inte längre i registret.",
+      "struck": "Struken",
+      "struckWithheld": "Styrelsen har tagit bort texten från tråden.",
+      "struckReadable": "Struken. Texten visas för styrelsen och för den som skrev den.",
+      "hide": "Stryk kommentaren",
+      "hideNamed": "Stryk kommentaren från {{author}}",
+      "hiding": "Stryker...",
+      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och den som skrev den står kvar med namn."
+    },
+    "errors": {
+      "newsNotFound": "Nyheten finns inte längre, så det finns ingen tråd under den.",
+      "commentNotFound": "Kommentaren finns inte längre.",
+      "personalIdentityNumber": "Kommentaren innehåller ett personnummer och kan inte skickas. Ta bort det: alla som nyheten skrevs för läser det som står på tråden.",
+      "tooManyComments": "Du har skrivit flera kommentarer på kort tid. Vänta några minuter och skicka den här igen.",
+      "invalidBody": "En kommentar behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     }
   }

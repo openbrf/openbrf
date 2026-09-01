@@ -2204,7 +2204,7 @@
     }
   },
   "news": {
-    "navLabel": "News",
+    "navLabel": "Write news",
     "heading": "News",
     "description": "The board writes to the people who live in the house and to whoever reads the association's website. A news item is for the members until the board says otherwise.",
     "loading": "Reading the news...",
@@ -2566,6 +2566,52 @@
       "alreadyWithdrawn": "That sign-up is already withdrawn, so there is nothing to withdraw.",
       "signupNotFound": "That sign-up is gone. The calendar has been read again.",
       "invalidBody": "The event needs a name, a first date, a time and a length, and none of them may be longer than the form allows.",
+      "unknown": "That could not be done just now. Please try again."
+    }
+  },
+  "newsReader": {
+    "navLabel": "News",
+    "title": "News",
+    "intro": "What the board has written to the house, and what the neighbours have answered.",
+    "loading": "Reading the news...",
+    "loadFailed": "The news could not be read just now. Reload the page.",
+    "empty": "The board has not published anything yet.",
+    "notOffered": "The news here is for the people who live in the house. What the association has published is on its website, which needs no account at all.",
+    "list": {
+      "title": "All the news",
+      "description": "Newest first. Open one to read it and the comments under it.",
+      "open": "Open {{title}}, published {{date}}"
+    },
+    "article": {
+      "publishedOn": "Published {{date}}",
+      "address": "On the website: /nyheter/{{slug}}"
+    },
+    "thread": {
+      "title": "Comments",
+      "description": "A comment is exactly as visible as the news item it sits on, and no comment is ever shown on the association's website.",
+      "loading": "Reading the comments...",
+      "empty": "Nobody has answered this yet.",
+      "field": "Your comment",
+      "hint": "Write nothing about anybody's health or a neighbour's circumstances. A personal identity number is refused.",
+      "submit": "Post the comment",
+      "sending": "Posting...",
+      "sent": "Your comment is on the thread.",
+      "authorProtected": "Protected personal data: not named here.",
+      "authorUnknown": "No longer in the register.",
+      "struck": "Struck through",
+      "struckWithheld": "The board has taken the text off the thread.",
+      "struckReadable": "Struck through. The text is shown to the board and to whoever wrote it.",
+      "hide": "Strike it through",
+      "hideNamed": "Strike the comment from {{author}} through",
+      "hiding": "Striking through...",
+      "hideHint": "Striking a comment through withholds its text and cannot be undone. Nothing is deleted, and its author stays named."
+    },
+    "errors": {
+      "newsNotFound": "That news item is gone, so there is no thread under it.",
+      "commentNotFound": "That comment is gone.",
+      "personalIdentityNumber": "The comment carries a personal identity number and cannot be posted. Take it out: everyone the notice was written for reads what is on the thread.",
+      "tooManyComments": "You have written several comments in a short while. Wait a few minutes and post this one again.",
+      "invalidBody": "A comment needs some text, and no more than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     }
   }
