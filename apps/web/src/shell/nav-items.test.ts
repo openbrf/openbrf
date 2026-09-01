@@ -50,6 +50,17 @@ describe("the external property manager", () => {
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/motions");
   });
 
+  it("is not offered the event calendar either, for the same reason", () => {
+    // The capability model grants them neither half of the module: putting your
+    // name down for the cleaning day is part of living here, and arranging what
+    // the association does is the board's. An external contractor is on neither
+    // side of that, and a place they took would be a place taken from a
+    // household.
+    expect(PROPERTY_MANAGER).not.toContain("events:attend");
+    expect(PROPERTY_MANAGER).not.toContain("events:manage");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/events");
+  });
+
   it("reaches issues without holding the reporting capability", () => {
     // They handle the association's issues; they do not live in the building,
     // so they never hold issues:report. An entry gated on that alone would hide
@@ -74,8 +85,16 @@ describe("the other seats", () => {
         "residentDirectory:read",
         "issues:report",
         "bookings:book",
+        "events:attend",
       ]),
-    ).toEqual(["/", "/settings", "/issues", "/bookings", "/documents"]);
+    ).toEqual([
+      "/",
+      "/settings",
+      "/issues",
+      "/bookings",
+      "/events",
+      "/documents",
+    ]);
   });
 
   it("offers a member the motions destination as well", () => {
@@ -87,6 +106,7 @@ describe("the other seats", () => {
         "residentDirectory:read",
         "issues:report",
         "bookings:book",
+        "events:attend",
         "motions:submit",
       ]),
     ).toEqual([
@@ -94,6 +114,7 @@ describe("the other seats", () => {
       "/settings",
       "/issues",
       "/bookings",
+      "/events",
       "/motions",
       "/documents",
     ]);
@@ -111,6 +132,8 @@ describe("the other seats", () => {
         "bookings:book",
         "bookings:manage",
         "bookings:configure",
+        "events:attend",
+        "events:manage",
         "motions:handle",
       ]),
     ).toEqual([
@@ -119,6 +142,7 @@ describe("the other seats", () => {
       "/settings",
       "/issues",
       "/bookings",
+      "/events",
       "/motions",
       "/documents",
     ]);
@@ -138,6 +162,14 @@ describe("the other seats", () => {
     // an entry gated on bookings:book alone would pass every assertion above
     // and still hide the calendar from a seat granted only the running of it.
     expect(destinations(["bookings:manage"])).toContain("/bookings");
+  });
+
+  it("offers the calendar to whoever arranges it without attending it", () => {
+    // Any of the two, not all of them. The board holds both halves today, so an
+    // entry gated on events:attend alone would pass every assertion above and
+    // still hide the calendar from a seat granted only the arranging of it.
+    expect(destinations(["events:manage"])).toContain("/events");
+    expect(destinations(["events:attend"])).toContain("/events");
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {

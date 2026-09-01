@@ -4,7 +4,7 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
-import { APPLICANT, MEMBER, MEMBER_LIST } from "./people";
+import { APPLICANT, MEMBER, MEMBER_LIST, RESIDENT } from "./people";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -161,6 +161,68 @@ const LAUNDRY = {
   slotMinutes: "420",
   opensAt: "07:00",
   closesAt: "21:00",
+} as const;
+
+/**
+ * A "YYYY-MM-DD" date some whole days from today.
+ *
+ * Read on the association's clock rather than on this machine's, for the reason
+ * the client reads it the same way: just after midnight in Stockholm the two
+ * disagree, and the day an event belongs to is the building's. The arithmetic on
+ * that date is then calendar arithmetic and carries no zone at all - the day
+ * after the 25th of October is the 26th, however many hours that Sunday had.
+ *
+ * The one computed value in this file, and it is computed because the event
+ * screens are about a date somebody can still sign up to: a date written down
+ * here would pass into the past, and the walk would photograph a statement
+ * saying the date had begun where the control belongs.
+ */
+function dayFromToday(days: number): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const field = (type: "year" | "month" | "day"): number =>
+    Number(parts.find((part) => part.type === type)?.value);
+
+  const shifted = new Date(
+    Date.UTC(field("year"), field("month") - 1, field("day")) +
+      days * 24 * 60 * 60 * 1000,
+  );
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * The cleaning day the event screens are photographed against.
+ *
+ * Held here rather than inline because all three entries name it: the board
+ * enters and publishes it, a resident puts their name down for it, and the board
+ * reads who is coming. Twice a year with twenty places, because that is what
+ * shows the two things this module has that a booking calendar does not - a
+ * recurrence rule written out into dates, and places counted per date.
+ *
+ * A month out, so the date is one somebody can still sign up to whichever day
+ * the walk runs on. Six months between the two dates is a monthly rule with an
+ * interval of six rather than a frequency of its own: the platform offers weeks,
+ * months and years, and the interval is how a board says every other one.
+ */
+const CLEANING = {
+  title: "Städdag",
+  category: "Gemensamt arbete",
+  location: "Innergården",
+  description:
+    "Vi räfsar löv, rensar rabatterna och tömmer grovsoprummet. " +
+    "Ta med arbetshandskar - föreningen bjuder på fika i föreningslokalen efteråt.",
+  firstOn: dayFromToday(30),
+  startsAt: "10:00",
+  durationMinutes: "180",
+  /** Every sixth month, twice, which is spring and autumn. */
+  frequency: "Varje månad",
+  interval: "6",
+  count: "2",
+  capacity: "20",
 } as const;
 
 /**
@@ -846,5 +908,99 @@ export const SCREENS: readonly Screen[] = [
       button: `Anteckna motionen ${MOTION.title} som mottagen`,
     },
     capture: { panel: "Motioner från medlemmarna" },
+  },
+
+  // --- events -----------------------------------------------------------------
+  // Three screens in one order, because each photographs what the one above it
+  // did: the board enters a cleaning day and publishes it, a resident puts their
+  // name down for the first date, and the board reads who is coming. Nothing is
+  // on the calendar before the first of them - the wizard seeds no events, and a
+  // board arranging what the association does is where this module starts.
+  //
+  // The resident rather than the member, because putting your name down for the
+  // cleaning day is part of living here rather than part of holding a
+  // tenant-ownership: the capability comes from the residency, and the persona
+  // who has one and nothing more is the honest reader of that half.
+  {
+    /*
+     * The calendar the board keeps, with a recurring cleaning day on it.
+     *
+     * Entered and then published, in that order, because those are two acts: a
+     * series is written before it is meant to be read, and publishing is what
+     * decides who may read it. A card photographed before the second act would
+     * show a draft, which says nothing about the audience.
+     *
+     * The card on its own rather than the whole screen, because this is the half
+     * the capability exists for - and the administrator's own attending half
+     * above it would only show a calendar with one date they have not signed up
+     * to.
+     */
+    name: "events-board",
+    as: "administrator",
+    goto: appPath("/events"),
+    prepare: [
+      { fill: { label: "Vad det heter" }, value: CLEANING.title },
+      { fill: { label: "Kategori" }, value: CLEANING.category },
+      { fill: { label: "Var det är" }, value: CLEANING.location },
+      { fill: { label: "Vad det handlar om" }, value: CLEANING.description },
+      { fill: { label: "Första datumet" }, value: CLEANING.firstOn },
+      { fill: { label: "Börjar" }, value: CLEANING.startsAt },
+      { fill: { label: "Minuter" }, value: CLEANING.durationMinutes },
+      // The rule first: the interval and the number of dates are offered only
+      // once the series repeats at all, which is what the form has to say before
+      // there is anything to fill in.
+      { select: { combobox: "Hur ofta" }, option: CLEANING.frequency },
+      { fill: { label: "Med intervall" }, value: CLEANING.interval },
+      { fill: { label: "Antal tillfällen" }, value: CLEANING.count },
+      // And the places only once sign-up is offered, for the same reason.
+      { click: { label: "Det går att anmäla sig till det här evenemanget" } },
+      { fill: { label: "Platser per tillfälle" }, value: CLEANING.capacity },
+      { click: { button: "Lägg in evenemanget" } },
+      { see: { button: `Publicera ${CLEANING.title}` } },
+      { click: { button: `Publicera ${CLEANING.title}` } },
+    ],
+    // The audience the series carries, which reads this way only once the
+    // publication has been written and the list read back with it. A draft's
+    // chip says something else, so this marker stands for the act rather than
+    // for the card.
+    waitFor: { text: "Publicerat för medlemmarna" },
+    capture: { panel: "Styrelsens kalender" },
+  },
+  {
+    /*
+     * A resident putting their name down, and what the calendar then says.
+     *
+     * The first date of the series, which is a month out: a date that had begun
+     * would be stated as begun rather than offered, and the name matched here
+     * cannot land on one.
+     *
+     * The whole page, because the point of this screen is what a resident is and
+     * is not shown - how many places are gone, and nobody's name.
+     */
+    name: "events-resident",
+    as: "resident",
+    goto: appPath("/events"),
+    prepare: [{ click: { button: /^Anmäl dig till /, first: true } }],
+    // The way out of the place that was just taken, which arrives with the
+    // re-read of the calendar rather than with the click.
+    waitFor: { button: /^Avanmäl dig från / },
+    capture: "page",
+  },
+  {
+    /*
+     * The roll-call (deltagarlistan): who is coming to one date.
+     *
+     * The half events:manage exists for. It is read when it is opened rather
+     * than with the series, so the entry opens it - and the resident the entry
+     * above signed up is what proves it was read.
+     */
+    name: "events-roll-call",
+    as: "administrator",
+    goto: appPath("/events"),
+    prepare: [{ click: { button: /^Vilka kommer den /, first: true } }],
+    // The resident who signed up above, which exists only once the roll-call has
+    // come back. The first date of the two, which is the one they took.
+    waitFor: { text: RESIDENT.name },
+    capture: { panel: "Styrelsens kalender" },
   },
 ];

@@ -42,6 +42,20 @@ interface ErrorBody {
    * this list is the client agreeing to carry them.
    */
   quota?: unknown;
+  /**
+   * The calendar dates a refusal is about, as "YYYY-MM-DD".
+   *
+   * The association's own calendar rather than anybody's data. The event module
+   * refuses a change that would move or remove dates people have signed up to,
+   * and it names those dates because the board's next act is to go and deal with
+   * them one date at a time. Which of them somebody signed up to is not said,
+   * and who did is never said.
+   *
+   * The filter that serialises a refusal leaves out any field it has nothing for,
+   * so a refusal carrying dates carries no `locations` key at all and the
+   * coalescing below reaches this one.
+   */
+  dates?: unknown;
 }
 
 /**
@@ -127,7 +141,11 @@ async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
         status: response.status,
         reason: typeof error.reason === "string" ? error.reason : "unexpected",
         detail:
-          error.findings ?? error.issues ?? error.locations ?? error.quota,
+          error.findings ??
+          error.issues ??
+          error.locations ??
+          error.quota ??
+          error.dates,
       },
     };
   }
