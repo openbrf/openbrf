@@ -3055,11 +3055,13 @@ enum MotionStatus {
 ///
 /// ## No meeting
 ///
-/// Deliberately no meetingId. Meetings are a later module, and a column
-/// referencing a table that does not exist would be either a foreign key to
-/// nothing or an identifier nothing could resolve. Which meeting a motion
-/// reaches is answered when meetings exist; until then a motion is an item with
-/// the board, which is what the statute makes it before a notice goes out.
+/// Still deliberately no meetingId, now that a meeting is a table. What decides
+/// which meeting a motion reaches is the notice (kallelse): EFL 6 kap. 15 §
+/// conditions the right on the request arriving in time for the item to be taken
+/// up in it, and EFL 6 kap. 22 § makes the notice state the matters to be dealt
+/// with. So the linkage belongs with the notice rather than ahead of it - and
+/// until then a motion is an item with the board, which is what the statute
+/// makes it before a notice goes out.
 model Motion {
   id String @id @default(cuid())
 

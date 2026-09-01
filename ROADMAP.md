@@ -582,8 +582,9 @@ change it.
 
 - [ ] General meetings: the notice (kallelse), the agenda, the voting register,
       proxies, real-time voting, and the link from a motion to the meeting it is
-      taken up at - a motion deliberately carries no meeting reference until
-      there are meetings to reference. Motion intake itself is the Forms item
+      taken up at - a motion still carries no meeting reference, because what
+      decides which meeting takes an item up is the notice that states it.
+      Motion intake itself is the Forms item
       below rather than this one. Postal voting is prohibited for a housing
       cooperative under BRL 9 kap. 14 §, and will never be built.
   - Landed: the meeting itself, its agenda, who was present and in what
@@ -646,8 +647,8 @@ change it.
         that a member ask the board in writing in time for the item to be taken
         up in the notice - stands either way. It is stated rather than enforced:
         a late motion is still received, and nothing here records which general
-        meeting takes one up, because there are no general meetings in the
-        platform yet to record
+        meeting takes one up, because that is decided by the notice that states
+        the item and no notice is issued yet
   - [ ] Subletting applications
   - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
