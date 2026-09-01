@@ -75,6 +75,8 @@ interface CommentFixture {
   authorPersonId: string;
   body: string;
   hiddenAt: Date | null;
+  /** Which board member struck it through: who is answerable for the act. */
+  hiddenByPersonId: string | null;
   createdAt: Date;
 }
 
@@ -226,6 +228,7 @@ function build(options: {
         authorPersonId: args.data.authorPersonId,
         body: args.data.body,
         hiddenAt: null,
+        hiddenByPersonId: null,
         createdAt: new Date("2026-08-01T12:00:00.000Z"),
       };
       comments.push(row);
@@ -248,6 +251,10 @@ function build(options: {
       );
       for (const row of matched) {
         row.hiddenAt = args.data.hiddenAt;
+        // Both columns, because the statement writes both. A fake that applied
+        // only the date would let the service stop recording who decided the
+        // act without a test here noticing.
+        row.hiddenByPersonId = args.data.hiddenByPersonId;
       }
       return { count: matched.length };
     },
@@ -368,6 +375,7 @@ function comment(overrides: Partial<CommentFixture> = {}): CommentFixture {
     authorPersonId: "person-astrid",
     body: "Tack for beskedet.",
     hiddenAt: null,
+    hiddenByPersonId: null,
     createdAt: new Date("2026-08-01T12:00:00.000Z"),
     ...overrides,
   };
@@ -849,12 +857,15 @@ describe("a cursor into a thread", () => {
     }
   });
 
-  it("keeps an identifier that carries the separator out of the instant", () => {
-    // Split on the first separator, so the half that has to be a moment is a
-    // moment and everything after it is the identifier as it was written.
-    const parsed = parseThreadCursor("2026-08-01T12:00:00.000Z|a|b");
-
-    expect(parsed?.id).toBe("a|b");
+  it("refuses a value carrying a second separator", () => {
+    /*
+     * Neither half of a cursor this application issues can hold the separator, so
+     * a value with two of them is not one of ours. Read leniently - the first
+     * separator winning and the rest becoming the identifier - it would name a
+     * comment that does not exist and still be answered as a page boundary.
+     */
+    expect(parseThreadCursor("2026-08-01T12:00:00.000Z|a|b")).toBeNull();
+    expect(parseThreadCursor("2026-08-01T12:00:00.000Z||comment-1")).toBeNull();
   });
 });
 
@@ -904,7 +915,7 @@ describe("hiding a comment", () => {
   });
 
   it("records the act against the person it was done to", async () => {
-    const { service, audit } = service_with_thread(
+    const { service, audit, comments } = service_with_thread(
       [ASTRID],
       [comment({ id: "comment-1", authorPersonId: ASTRID.id })],
     );
@@ -918,6 +929,11 @@ describe("hiding a comment", () => {
     // The subject is whoever wrote it: their access report has to show a
     // moderation somebody else decided on.
     expect(entry?.targetPersonId).toBe(ASTRID.id);
+    // And on the row as well as in the log. The column is what a reader of the
+    // thread's own history asks, and the entry is what the association is
+    // answerable for; a service writing one and not the other would leave the
+    // two disagreeing about who decided.
+    expect(comments[0]?.hiddenByPersonId).toBe("person-board");
   });
 
   it("is not an event the second time", async () => {

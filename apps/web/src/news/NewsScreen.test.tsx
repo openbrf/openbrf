@@ -219,6 +219,53 @@ describe("a thread longer than one page", () => {
     ).toBeNull();
   });
 
+  it("will not reach back while the newest page is being read again", async () => {
+    /*
+     * One panel, one read. A second ask supersedes the first, so reaching back
+     * for the earlier comments while the newest page is being re-read would drop
+     * that re-read - and the comment somebody had just written would be missing
+     * from the thread until something else asked again. The control is therefore
+     * refused for as long as the re-read is in flight, and says what it would do
+     * rather than what the panel is doing meanwhile.
+     */
+    let landRefresh: ((answer: unknown) => void) | undefined;
+    fetchNewsComments
+      .mockResolvedValueOnce({ ok: true, value: page([STANDING], CURSOR) })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            landRefresh = resolve;
+          }),
+      );
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    await userEvent.type(screen.getByLabelText("Din kommentar"), "Tack.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka kommentaren" }),
+    );
+
+    const control = await screen.findByRole("button", {
+      name: "Visa tidigare kommentarer",
+    });
+    expect((control as HTMLButtonElement).disabled).toBe(true);
+
+    const posted: NewsComment = {
+      ...STANDING,
+      id: "comment-posted",
+      body: "Tack.",
+    };
+    landRefresh?.({ ok: true, value: page([STANDING, posted], CURSOR) });
+
+    // And once it has landed the control is offered again, over a thread that
+    // carries the comment the re-read was for.
+    await screen.findByText("Tack.");
+    await waitFor(() => {
+      expect((control as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
   it("reads the newest page again after a comment is posted", async () => {
     /*
      * The consequence of a bounded read, written down as a test because it is a

@@ -144,12 +144,32 @@ export function threadCursor(row: { id: string; createdAt: Date }): string {
  * a read.
  */
 export function parseThreadCursor(value: string): ThreadCursor | null {
-  const separator = value.indexOf(CURSOR_SEPARATOR);
-  if (separator <= 0 || separator === value.length - 1) {
+  const halves = value.split(CURSOR_SEPARATOR);
+  if (halves.length !== 2) {
+    /*
+     * Exactly two halves, so a value carrying a second separator is refused
+     * rather than read as an identifier containing one. Neither half of a cursor
+     * this application issued can hold the separator at all, so a value that
+     * does is not one of ours - and reading it leniently would let a caller
+     * compose a page boundary from a comment that does not exist.
+     */
+    return null;
+  }
+  const [instant, id] = halves;
+  /*
+   * Neither half may be empty: a cursor names an instant and a comment, and a
+   * value with one of them missing names neither. The undefined the compiler
+   * allows for an index is unreachable past the length check above.
+   */
+  if (
+    instant === undefined ||
+    id === undefined ||
+    instant === "" ||
+    id === ""
+  ) {
     return null;
   }
 
-  const instant = value.slice(0, separator);
   const createdAt = new Date(instant);
   /*
    * Round-tripped rather than merely parsed. `new Date` accepts more than one
@@ -164,7 +184,7 @@ export function parseThreadCursor(value: string): ThreadCursor | null {
     return null;
   }
 
-  return { createdAt, id: value.slice(separator + 1) };
+  return { createdAt, id };
 }
 
 /** One page of a thread, and where the page before it starts. */

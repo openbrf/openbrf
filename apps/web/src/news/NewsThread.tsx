@@ -172,11 +172,17 @@ export function NewsThread({
     nonce: 0,
   });
   /**
-   * Whether a press for the earlier comments is still in flight.
+   * Whether a read this panel asked for is still in flight.
    *
-   * Set by the press rather than by the reading effect, because it is a fact
-   * about the press: the effect also reads on arriving at a notice and after a
-   * save, and neither of those is the control below saying what it is doing.
+   * Every ask, not only a press for the earlier comments, because what it guards
+   * is the request itself: a second ask supersedes the first and the answer in
+   * flight is dropped. Reaching back for the earlier comments while the newest
+   * page is being re-read after a post or a strike-through would discard that
+   * re-read, and the comment somebody had just written or struck would be absent
+   * from the thread until something else asked again.
+   *
+   * Set by the ask rather than by the reading effect. The effect also reads on
+   * arriving at a notice, and that read has the loading line rather than this.
    */
   const [reading, setReading] = useState(false);
   /**
@@ -240,7 +246,7 @@ export function NewsThread({
   /** Asks the reading effect for a page, and for this notice. */
   const ask = useCallback(
     (cursor: string | null) => {
-      setReading(cursor !== null);
+      setReading(true);
       setRequest((asked) => ({
         newsId,
         before: cursor,
@@ -334,7 +340,14 @@ export function NewsThread({
                   ask(earlier);
                 }}
               >
-                {reading
+                {/*
+                 * "Reading" only while the read in flight is this control's own.
+                 * A newest-page read after a post or a strike-through disables
+                 * it for the same reason but is not what it is doing, and a
+                 * control announcing somebody else's work would be describing
+                 * the wrong act.
+                 */}
+                {reading && before !== null
                   ? t("newsReader.thread.earlierReading")
                   : t("newsReader.thread.earlier")}
               </button>
