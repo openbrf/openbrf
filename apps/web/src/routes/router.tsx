@@ -13,6 +13,7 @@ import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { BookingsRoute } from "./BookingsRoute";
 import { DocumentsRoute } from "./DocumentsRoute";
+import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
@@ -280,6 +281,22 @@ const bookingsRoute = createRoute({
 });
 
 /**
+ * The event calendar. Signed in here, capabilities inside the screen.
+ *
+ * One route for both halves of the module, on the reasoning the issues route
+ * sets out: somebody living here reads what is coming and puts their name down
+ * for it, and whoever arranges the calendar additionally enters the series,
+ * publishes them and reads who is coming. Two destinations for one subject would
+ * put the same word twice in the navigation.
+ */
+const eventsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/events",
+  beforeLoad: requireSession,
+  component: EventsRoute,
+});
+
+/**
  * Motions to the general meeting. Signed in here, capabilities inside the
  * screen.
  *
@@ -381,6 +398,7 @@ const routeTree = rootRoute.addChildren([
   siteMenuRoute,
   issuesRoute,
   bookingsRoute,
+  eventsRoute,
   motionsRoute,
   documentsRoute,
   newsAdminRoute,

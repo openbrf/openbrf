@@ -538,9 +538,15 @@ change it.
     frees the place again, the roll-call behind the managing capability with
     a person with protected personal data counted and never named,
     `events:attend` as a capability of its own, the data subject access
-    report section and the sign-up purge with its legal-hold check
-  - Pending: the calendar screen; the public calendar page; the end-to-end
-    suite
+    report section and the sign-up purge with its legal-hold check; the
+    calendar screen in two halves - what is coming up with the places gone
+    per date and never who has them, a sign-up and a withdrawal whose count
+    and control are read from one server answer so the two cannot disagree
+    after a race, and the board's own half entering a series, publishing it
+    to the members or to the street, calling one date off and reading the
+    roll-call, with the personal identity number refusal naming the fields
+    it was found in
+  - Pending: the public calendar page; the end-to-end suite
 
 **Later, still free and in the core**
 
