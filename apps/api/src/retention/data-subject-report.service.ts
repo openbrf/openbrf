@@ -3,6 +3,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
+import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
 import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -14,6 +15,7 @@ import { resolveRegisterEvents } from "../registers/membership-periods";
 import type {
   DataSubjectReport,
   ReportAuditEntry,
+  ReportNewsComment,
   ReportPostalAddress,
 } from "./data-subject-report";
 import {
@@ -54,6 +56,7 @@ const SECTIONS = [
   "bookings",
   "motions",
   "eventSignups",
+  "newsComments",
   "auditEntries",
 ] as const;
 
@@ -107,13 +110,13 @@ const SECTIONS = [
  * their retention story was unfinished would be an incomplete answer to an
  * access request, which is the one failure this document cannot have.
  *
- * Three sections state an erasure date per row, because three modules purge on
+ * Four sections state an erasure date per row, because four modules purge on
  * clocks of their own. A booking is purged a year after the booked period ended,
- * an event sign-up a year after the date it was for, and a motion two years
- * after it was closed - so the date at the foot of the document is not the date
- * that governs any of them, and each row says when it goes. A motion still with
- * the board states no date at all: it has no closing date to count from, and the
- * association is still processing it.
+ * an event sign-up a year after the date it was for, a comment a year after it
+ * was written, and a motion two years after it was closed - so the date at the
+ * foot of the document is not the date that governs any of them, and each row
+ * says when it goes. A motion still with the board states no date at all: it has
+ * no closing date to count from, and the association is still processing it.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -439,6 +442,25 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Comments this person wrote under the association's news. `authorPersonId`
+     * is a plain column and not a relation, for the reason the booking above
+     * gives, so this is a query of its own; the news item is joined for its
+     * title and its address, which is how the person would find what they were
+     * answering.
+     */
+    const newsComments = await tx.newsComment.findMany({
+      where: { authorPersonId: personId },
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        id: true,
+        body: true,
+        hiddenAt: true,
+        createdAt: true,
+        news: { select: { title: true, slug: true } },
+      },
+    });
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -669,6 +691,29 @@ export class DataSubjectReportService {
         erasableFrom: toIsoDate(
           computeEventSignupPurgeDate(signup.occurrence.endsAt),
         ),
+      })),
+      newsComments: newsComments.map((comment): ReportNewsComment => ({
+        commentId: comment.id,
+        newsTitle: comment.news.title,
+        newsSlug: comment.news.slug,
+        // In full, and whether or not it is hidden. What somebody wrote is
+        // the personal data this section is about, and a moderated comment is
+        // still their words.
+        body: comment.body,
+        hidden: comment.hiddenAt !== null,
+        writtenAt: comment.createdAt.toISOString(),
+        /*
+         * Derived here rather than stored, exactly as the booking's is: a
+         * shorter retention window moves every pending date by that act
+         * alone, and this document has to state the date that will actually
+         * apply.
+         *
+         * The earliest date the purge can reach the row rather than the date
+         * it goes on, because a legal hold suspends the purge for the whole
+         * person and this document is read by the person a hold may be
+         * standing against.
+         */
+        erasableFrom: toIsoDate(computeNewsCommentPurgeDate(comment.createdAt)),
       })),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,

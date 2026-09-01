@@ -280,6 +280,50 @@ export interface ReportEventSignup {
 }
 
 /**
+ * A comment this person wrote on one of the association's news items.
+ *
+ * Purged, like the bookings above and on the same shape of clock: a comment is
+ * erased a year after it was written, on its own window rather than the
+ * residency one, so each row states when that runs out.
+ *
+ * The body is carried in full. Art. 15 asks for the personal data, and what
+ * somebody wrote is the personal data here - a report naming a date and a news
+ * item without the sentence would be telling its subject that they commented
+ * without telling them what they said. It is carried whether or not the comment
+ * is hidden, for the same reason: a person is entitled to read the words the
+ * board struck through, and `hidden` is what says the board did.
+ */
+export interface ReportNewsComment {
+  commentId: string;
+  /** The news item it was written under, as the board titled it. */
+  newsTitle: string;
+  /** The item's address under /nyheter, which is how a reader would find it. */
+  newsSlug: string;
+  body: string;
+  /**
+   * Whether a moderator struck it through.
+   *
+   * A boolean rather than the date and whoever decided it. Both are in the audit
+   * entry for the hide, which this same report carries; repeating the actor here
+   * would put a board member's identifier on a document handed to the person
+   * they moderated, in a section that is about what the person themselves wrote.
+   */
+  hidden: boolean;
+  /** ISO instant it was written. */
+  writtenAt: string;
+  /**
+   * The earliest date the purge can reach this comment, derived from the
+   * retention window and never stored.
+   *
+   * The earliest, and deliberately not "the date it is erased on", for the
+   * reason the booking above gives: a legal hold suspends every purge for the
+   * person it stands against, and `retention.onLegalHold` on this same report is
+   * what says whether one does.
+   */
+  erasableFrom: string | null;
+}
+
+/**
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
@@ -345,6 +389,7 @@ export interface DataSubjectReport {
   bookings: ReportBooking[];
   motions: ReportMotion[];
   eventSignups: ReportEventSignup[];
+  newsComments: ReportNewsComment[];
   auditEntries: ReportAuditEntry[];
   /** What the association keeps, and until when. */
   retention: {

@@ -57,6 +57,11 @@ describe("board member", () => {
     "bookings:configure",
     "events:manage",
     "events:attend",
+    // Answering a notice about the house is part of living in it, and a board
+    // member lives here too. Moderating one of those answers is site:manage,
+    // which the board already holds for publishing in the cooperative's name.
+    "news:comment",
+    "site:manage",
   ])("can %s", (capability) => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
@@ -128,6 +133,10 @@ describe("property manager", () => {
     // household.
     "events:manage",
     "events:attend",
+    // The conversation under a notice about the stairwell is the residents'
+    // own, and moderating it is the board's.
+    "news:comment",
+    "site:manage",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -153,6 +162,8 @@ describe("resident and member", () => {
     // its own rather than self:manage, so an external person with an account and
     // no residency cannot take a place at something arranged for the house.
     "events:attend",
+    // Nor is answering a notice the board put up.
+    "news:comment",
   ])("a resident can %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(true);
   });
@@ -174,6 +185,9 @@ describe("resident and member", () => {
     // A resident signs themselves up. Who else is coming, and arranging the
     // date at all, are the board's.
     "events:manage",
+    // A resident writes a comment; hiding a neighbour's is the board's, and it
+    // is the same capability the board publishes the website under.
+    "site:manage",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });

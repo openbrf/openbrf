@@ -753,6 +753,12 @@ enum AuditAction {
   NEWS_EMAILED
   /// A published news item was texted to its recipients.
   NEWS_TEXTED
+  /// A member commented on a news item.
+  NEWS_COMMENT_POSTED
+  /// A comment on a news item was hidden. The comment stays where it is: what
+  /// somebody wrote is a record of what was said, so moderation strikes it
+  /// through and the entry names who decided that.
+  NEWS_COMMENT_HIDDEN
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.
@@ -1958,6 +1964,7 @@ model News {
   updatedAt DateTime @updatedAt
 
   deliveries NewsDelivery[]
+  comments   NewsComment[]
 
   @@index([published, visibility, publishedAt])
   @@map("news")
@@ -2034,6 +2041,70 @@ model NewsDelivery {
   @@unique([newsId, personId, channel])
   @@index([newsId, channel, status])
   @@map("news_delivery")
+}
+
+/// One member's comment on one news item (kommentar).
+///
+/// Service tier: personal data held so the people who live in the house can
+/// answer a notice the board put up, and for nothing else. So it is erased on
+/// its own clock a year after it was written, rather than on the retention
+/// policy that governs a former resident - see `news-comment-retention.ts`.
+///
+/// Read and written from the application only. A comment is exactly as visible
+/// as the news item it sits on, and no comment is ever rendered on the public
+/// website: the website takes no authenticated writes and reads no session, so
+/// a thread there would be anonymous or behind a login wall on a page that
+/// promises neither.
+///
+/// Moderation is a dated close and never a delete. A comment somebody wrote is
+/// a record of what was said, so the board can strike one through and cannot
+/// make it disappear: `hiddenAt` says when, `hiddenByPersonId` says who, and
+/// every read still shows that a comment was written and was hidden.
+model NewsComment {
+  id String @id @default(cuid())
+
+  /// The news item this is a comment on.
+  ///
+  /// Cascade, like the delivery ledger's: a comment is a comment on something,
+  /// and once the item it answers is gone it says nothing at all.
+  newsId String
+  news   News   @relation(fields: [newsId], references: [id], onDelete: Cascade)
+
+  /// Who wrote it.
+  ///
+  /// A plain column and not a relation, for the reason Booking.bookedByPersonId
+  /// and Issue.reporterPersonId give: every referential action a foreign key
+  /// can carry either rewrites this row when a person is erased or vetoes the
+  /// erasure, and service-tier data has to be purgeable without the purge
+  /// having to negotiate with the comment thread.
+  ///
+  /// Required, unlike News.authorPersonId. A news item is the association's own
+  /// notice and stands whoever wrote it; a comment is one person's contribution
+  /// and there is nothing left to attribute it to.
+  authorPersonId String
+
+  /// What they wrote. Free text, capped on the way in, and never scanned for
+  /// anything but a personal identity number.
+  body String
+
+  /// When a moderator struck it through, or null while it stands.
+  ///
+  /// Never cleared. A hide is an act the board is answerable for and the audit
+  /// log records it, so restoring one would take the date off the row that is
+  /// the only place a reader can see the strike-through at all.
+  hiddenAt DateTime?
+
+  /// Who hid it. A plain column for the same reason as authorPersonId above.
+  hiddenByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The thread read: one news item's comments in the order they were written.
+  @@index([newsId, createdAt])
+  /// The purge scan and the rate limit: this person's comments by date.
+  @@index([authorPersonId, createdAt])
+  @@map("news_comment")
 }
 
 // The association's own facts, as a broker asks for them.

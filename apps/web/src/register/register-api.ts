@@ -253,6 +253,8 @@ export type ReportAuditAction =
   | "NEWS_PUBLISHED"
   | "NEWS_EMAILED"
   | "NEWS_TEXTED"
+  | "NEWS_COMMENT_POSTED"
+  | "NEWS_COMMENT_HIDDEN"
   | "LEGAL_HOLD_PLACED"
   | "LEGAL_HOLD_RELEASED"
   | "SERVICE_DATA_PURGED"
@@ -461,6 +463,28 @@ export interface DataSubjectReport {
     signedUpAt: string;
     withdrawnOn: string | null;
     calledOff: boolean;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Comments this person wrote under the association's news.
+   *
+   * The body in full, whether or not the comment is hidden: what somebody wrote
+   * is the personal data this section is about, and a report naming a date and a
+   * news item without the sentence would tell its subject that they commented
+   * without telling them what they said. `hidden` says the board struck it
+   * through.
+   *
+   * `erasableFrom` is the earliest date the purge can reach the row, on the same
+   * terms as the bookings above - a comment goes a year after it was written,
+   * and a legal hold defers that date without ever advancing it.
+   */
+  newsComments: {
+    commentId: string;
+    newsTitle: string;
+    newsSlug: string;
+    body: string;
+    hidden: boolean;
+    writtenAt: string;
     erasableFrom: string | null;
   }[];
   auditEntries: {

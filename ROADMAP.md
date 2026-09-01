@@ -550,6 +550,19 @@ change it.
       there are meetings to reference. Motion intake itself is the Forms item
       below rather than this one. Postal voting is prohibited for a housing
       cooperative under BRL 9 kap. 14 §, and will never be built.
+- [ ] Comments on news items, then group and board chat. Comments first and a
+      full discussion forum never: a forum is a product of its own, and a
+      cooperative that wants one is better served by an integration with
+      software built for it than by a second-rate copy inside this one. A
+      comment is exactly as visible as the news item it sits on, and no comment
+      is rendered on the public website - those pages read no session at all,
+      so a thread there would be either anonymous or a login wall on a page
+      that promises neither. The board can strike a comment through and cannot
+      erase one, because what somebody wrote is a record of what was said.
+      Landed: the schema, the write and read endpoints with the personal
+      identity number guardrail on a resident's own text, moderation, the data
+      subject access report section and the nightly purge with its legal hold.
+      Pending: the reading screen that renders a thread.
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
 - [ ] Forms: subletting applications, motions, key orders
