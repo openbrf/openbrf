@@ -17,11 +17,16 @@ import type { FaqItem, PageBlock, TextRun } from "../api/site";
  * Not every block type is here: the two public forms and the news teaser are
  * placed by the screens those features own, and a page can carry one without
  * this list knowing about it.
+ *
+ * The calendar is offered here because no other screen would place it. Putting
+ * the association's next dates on the front page is arranging the page, which is
+ * this screen's work, and how many dates to show is the only thing to decide.
  */
 export const INSERTABLE = [
   "paragraph",
   "heading",
   "image",
+  "eventCalendar",
   "documentList",
   "boardRoster",
   "associationFacts",
@@ -110,6 +115,14 @@ export function emptyBlock(kind: InsertableBlock): PageBlock {
       return { type: "heading", level: 2, runs: [] };
     case "image":
       return { type: "image", mediaFileId: "", alt: "" };
+    /*
+     * Three dates to begin with, which is what fits under a paragraph on a
+     * front page without becoming the page. The board changes it in the field
+     * beside the block; there is no zero to start from, because a calendar
+     * block showing no dates is a block that renders as nothing.
+     */
+    case "eventCalendar":
+      return { type: "eventCalendar", count: 3 };
     // A binder is not chosen here. An absent one lists every document the
     // reader may see, which is the block a board that has just inserted one
     // most often meant.
@@ -259,6 +272,7 @@ export function blockText(block: PageBlock): string {
         .join(" ")
         .trim();
     case "newsTeaser":
+    case "eventCalendar":
     case "documentList":
     case "boardRoster":
     case "associationFacts":
@@ -376,6 +390,7 @@ function worthSending(block: PageBlock): boolean {
     case "contactForm":
     case "issueReportForm":
     case "newsTeaser":
+    case "eventCalendar":
     case "documentList":
     case "boardRoster":
     case "associationFacts":

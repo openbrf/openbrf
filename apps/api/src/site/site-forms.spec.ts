@@ -40,6 +40,7 @@ beforeAll(async () => {
     // teaser block would show is empty for the same reason.
     menu: [],
     newsTeasers: [],
+    eventDates: [],
     documents: [],
     roster: [],
     facts: null,

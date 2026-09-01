@@ -1756,6 +1756,23 @@
     "faq": {
       "heading": "Vanliga frågor"
     },
+    "calendar": {
+      "title": "Kalender",
+      "heading": "På gång",
+      "wholeCalendar": "Hela kalendern",
+      "time": "{{from}}-{{to}}",
+      "cancelled": "Inställt",
+      "places_one": "{{taken}} av {{count}} plats tagen",
+      "places_other": "{{taken}} av {{count}} platser tagna",
+      "signedUp_one": "{{count}} anmäld",
+      "signedUp_other": "{{count}} anmälda",
+      "full": "Fullbokat",
+      "previousMonth": "Föregående månad",
+      "nextMonth": "Nästa månad",
+      "emptyMonth": "Inget är inplanerat den här månaden.",
+      "datesHeading": "Datum",
+      "signupNote": "Anmälan görs när du har loggat in."
+    },
     "broker": {
       "title": "Mäklarinformation",
       "groups": {
@@ -2045,6 +2062,8 @@
       "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
       "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
       "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
+      "calendarCount": "Hur många datum",
+      "calendarHint": "De närmaste datumen i föreningens kalender, lästa när sidan renderas. En läsare utan konto ser de evenemang som är publicerade för alla, en medlem ser medlemmarnas också. Hur många platser som är tagna står vid ett datum; vem som har tagit dem står aldrig där.",
       "faqQuestion": "Fråga {{number}}",
       "faqAnswer": "Svar {{number}}",
       "faqAddItem": "Lägg till en fråga",
@@ -2060,6 +2079,7 @@
         "contactForm": "Kontaktformulär",
         "issueReportForm": "Felanmälan",
         "newsTeaser": "Senaste nytt",
+        "eventCalendar": "Kalendern",
         "documentList": "Dokumentlista",
         "boardRoster": "Styrelsen",
         "associationFacts": "Föreningens uppgifter",
@@ -2069,6 +2089,7 @@
         "paragraph": "Lägg till ett stycke",
         "heading": "Lägg till en rubrik",
         "image": "Lägg till en bild",
+        "eventCalendar": "Lägg till kalendern",
         "documentList": "Lägg till en dokumentlista",
         "boardRoster": "Lägg till styrelsen",
         "associationFacts": "Lägg till föreningens uppgifter",
@@ -2110,6 +2131,7 @@
       "generated": {
         "field": "Genererad sida",
         "news": "Nyheter",
+        "calendar": "Kalender",
         "broker": "Mäklarinfo",
         "requestAccount": "Ansök om konto",
         "unavailable": "Utelämnas ur menyn tills den här instansen har den sidan."

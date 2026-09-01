@@ -202,6 +202,26 @@ describe("the menu a visitor is served", () => {
     await expect(service.siteMenu(MEMBER)).resolves.toEqual(entry);
   });
 
+  it("offers the calendar to everybody, session or none", async () => {
+    // The calendar page answers a visitor with no session with the dates
+    // anybody may see, exactly as the news index answers with the items
+    // anybody may read, so the entry is the same for both readers.
+    const { service } = build([
+      {
+        id: "1",
+        label: "Kalender",
+        kind: "GENERATED",
+        generatedKey: "calendar",
+      },
+    ]);
+    const entry = [
+      { label: "Kalender", href: "/kalender", external: false, children: [] },
+    ];
+
+    await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual(entry);
+    await expect(service.siteMenu(MEMBER)).resolves.toEqual(entry);
+  });
+
   it("offers the broker information page, which every claimed instance has", async () => {
     // The page is generated from the association's own facts and needs no
     // setting turned on, so the entry is shown to anybody - a broker reading

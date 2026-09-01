@@ -464,6 +464,63 @@ describe("the news teaser block", () => {
   });
 });
 
+describe("the event calendar block", () => {
+  it("stores a count the parser recognises", () => {
+    expect(
+      submittedContent({ blocks: [{ type: "eventCalendar", count: 3 }] }),
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "eventCalendar", count: 3 }],
+    });
+  });
+
+  it("refuses a count outside what a page may ask for", () => {
+    expect(() =>
+      submittedContent({ blocks: [{ type: "eventCalendar", count: 0 }] }),
+    ).toThrow();
+    expect(() =>
+      submittedContent({ blocks: [{ type: "eventCalendar", count: 99 }] }),
+    ).toThrow();
+    expect(() =>
+      submittedContent({ blocks: [{ type: "eventCalendar", count: 2.5 }] }),
+    ).toThrow();
+  });
+
+  it("refuses a field it has no rendering for", () => {
+    // Strict, like the rest of the write path: a body quietly stripped of part
+    // of itself is the one answer a write path must not give. There is nothing
+    // on this block that could name a person, and this is what keeps it that
+    // way.
+    expect(() =>
+      submittedContent({
+        blocks: [{ type: "eventCalendar", count: 3, attendees: true }],
+      }),
+    ).toThrow();
+  });
+
+  it("drops a stored one whose count it does not recognise", () => {
+    expect(
+      readPageContent({
+        blocks: [
+          { type: "eventCalendar", count: "3" },
+          { type: "eventCalendar", count: 999 },
+          { type: "eventCalendar", count: 2 },
+        ],
+      }),
+    ).toEqual({ version: 1, blocks: [{ type: "eventCalendar", count: 2 }] });
+  });
+
+  it("carries no text of its own to be scanned", () => {
+    // What the block shows is each event's own title and location, scanned
+    // where they are written rather than on every page that lists them.
+    expect(
+      pageTextParts(
+        readPageContent({ blocks: [{ type: "eventCalendar", count: 3 }] }),
+      ),
+    ).toEqual([{ index: 0, text: "" }]);
+  });
+});
+
 describe("the document list block", () => {
   it("stores a binder, or the absence of one", () => {
     expect(

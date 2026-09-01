@@ -59,6 +59,17 @@ import {
 const RichText = lazy(async () => import("./RichText"));
 
 /**
+ * The counts a calendar block may be set to.
+ *
+ * Derived from the API's own limit rather than written out, so the field cannot
+ * offer a number the write path would refuse.
+ */
+const CALENDAR_COUNTS: readonly number[] = Array.from(
+  { length: PAGE_CONTENT_LIMITS.calendarCount },
+  (_, at) => at + 1,
+);
+
+/**
  * What a refusal from the write API says on this screen.
  *
  * Every reason the page endpoints can answer with is named here, so a refusal
@@ -627,6 +638,44 @@ export function PageEditor({
                       />
                     </label>
                   </div>
+                ) : null}
+
+                {block.type === "eventCalendar" ? (
+                  <label className={LABEL}>
+                    {t("siteAdmin.editor.calendarCount")}
+                    <select
+                      className={FIELD}
+                      value={String(block.count)}
+                      onChange={(event) => {
+                        setEntries(
+                          replaceBlock(
+                            entries,
+                            index,
+                            withBlock(entry, {
+                              type: "eventCalendar",
+                              count: Number(event.target.value),
+                            }),
+                          ),
+                        );
+                      }}
+                    >
+                      {/*
+                       * A list of the counts the API accepts rather than a
+                       * number field, so there is no way to type one it would
+                       * refuse. One is the smallest: a block showing no dates
+                       * renders as nothing, which is not a page a board meant
+                       * to arrange.
+                       */}
+                      {CALENDAR_COUNTS.map((count) => (
+                        <option key={count} value={String(count)}>
+                          {count}
+                        </option>
+                      ))}
+                    </select>
+                    <span className={HINT}>
+                      {t("siteAdmin.editor.calendarHint")}
+                    </span>
+                  </label>
                 ) : null}
 
                 {block.type === "documentList" ? (

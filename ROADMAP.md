@@ -25,8 +25,8 @@ publication guardrails inside the write path, arranges the menu a visitor finds
 them through, and answers a broker from the facts it has recorded. A page can
 also
 carry the blocks that draw on the instance's own data: the document list, the
-board roster, the association facts and a FAQ. The project is not ready to hold
-your housing cooperative's data.
+board roster, the association facts, a FAQ and the association's calendar. The
+project is not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -549,8 +549,15 @@ change it.
     after a race, and the board's own half entering a series, publishing it
     to the members or to the street, calling one date off and reading the
     roll-call, with the personal identity number refusal naming the fields
-    it was found in
-  - Pending: the public calendar page; the end-to-end suite
+    it was found in; and the public calendar page at /kalender with one
+    address per event, a month at a time with plain previous and next links
+    and no script at all, the dates a reader may see decided among the
+    published ones by whether they carry a session and nothing else, a draft
+    on the calendar for nobody, an event kept for the members answered
+    signed-out with the website's own not-found document byte for byte, how
+    many places are gone beside a date and never who has them, and a
+    calendar block the board can put on a page it writes
+  - Pending: the end-to-end suite
 
 **Later, still free and in the core**
 

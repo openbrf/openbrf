@@ -86,6 +86,14 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   // and the generated page shadows a written one at whichever it links.
   "maklarinfo",
   "broker",
+  // The association's calendar, claimed on the news index's argument and in
+  // both languages for the same reason: only the Swedish address is routed, and
+  // a page written at /calendar on an English-speaking cooperative's instance
+  // would open today and stop opening the day that route is added. One event's
+  // own address sits under /kalender, where nothing the router claims is in its
+  // way.
+  "kalender",
+  "calendar",
 ]);
 
 /**

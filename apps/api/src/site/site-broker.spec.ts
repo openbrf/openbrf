@@ -66,6 +66,7 @@ beforeAll(async () => {
     // for the news a teaser block would show: this page carries no such block.
     menu: [],
     newsTeasers: [],
+    eventDates: [],
     documents: [],
     roster: [],
     facts: null,

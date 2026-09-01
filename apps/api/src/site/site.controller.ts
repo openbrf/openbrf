@@ -12,7 +12,7 @@ import {
   SITE_FORM_REFUSED_PARAM,
   SITE_FORM_SENT_PARAM,
 } from "./site-forms";
-import { acceptLanguage, sessionPersonId } from "./site-request";
+import { acceptLanguage, queryValue, sessionPersonId } from "./site-request";
 import {
   SITE_HTML_HEADERS,
   SiteRenderer,
@@ -214,24 +214,8 @@ export class SiteController {
  * cookie and keeps no session.
  */
 function submissionState(request: FastifyRequest): SiteSubmissionState {
-  const query = request.query;
-  if (typeof query !== "object" || query === null) {
-    return {};
-  }
-  const values = query as Record<string, unknown>;
   return {
-    sent: siteFormKind(oneValue(values[SITE_FORM_SENT_PARAM])),
-    refused: siteFormKind(oneValue(values[SITE_FORM_REFUSED_PARAM])),
+    sent: siteFormKind(queryValue(request, SITE_FORM_SENT_PARAM)),
+    refused: siteFormKind(queryValue(request, SITE_FORM_REFUSED_PARAM)),
   };
-}
-
-/**
- * One string out of a query parameter, whatever shape it arrived in.
- *
- * A repeated parameter parses to an array. Taking neither of them is the right
- * answer: a caller sending the same name twice is not a browser following a
- * redirect this instance produced.
- */
-function oneValue(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }

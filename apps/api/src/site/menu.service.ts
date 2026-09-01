@@ -30,11 +30,13 @@ import { isPublishableUrl } from "./page-content";
  * entry out of its menu, and one that has not built a news page yet should not
  * have an entry leading to the not-found document.
  */
-export type MenuGeneratedKey = "news" | "broker" | "requestAccount";
+export type MenuGeneratedKey =
+  "news" | "calendar" | "broker" | "requestAccount";
 
 /** Every generated destination, in the order the editor offers them. */
 export const MENU_GENERATED_KEYS: readonly MenuGeneratedKey[] = [
   "news",
+  "calendar",
   "broker",
   "requestAccount",
 ];
@@ -99,6 +101,15 @@ const GENERATED_DESTINATIONS: Readonly<
    * much the members are being told.
    */
   news: { path: "/nyheter", available: () => true },
+  /*
+   * The association's calendar, served at the slug the calendar route reserves.
+   * Available to everybody, on the news index's argument: the page is public in
+   * the same sense a page is and answers a visitor with no session with the
+   * dates anybody may see - never with a refusal, and never with a count of the
+   * ones it is leaving out, which would say how much the members are being
+   * told.
+   */
+  calendar: { path: "/kalender", available: () => true },
   /*
    * The generated broker information page. Available on any claimed instance:
    * it is public, no setting turns it on, and it stands before the board has

@@ -18,6 +18,8 @@ import {
 import { PagesModule } from "./pages.module";
 import { PagesWriteService } from "./pages-write.service";
 import { SiteController } from "./site.controller";
+import { SiteCalendarController } from "./site-calendar.controller";
+import { SiteEventsService } from "./site-events.service";
 import { SiteFormsController } from "./site-forms.controller";
 import { SiteNewsController } from "./site-news.controller";
 import { SiteNewsService } from "./site-news.service";
@@ -26,10 +28,11 @@ import { SiteRenderer } from "./site-renderer.service";
 /**
  * The public website.
  *
- * The news controller is declared ahead of the page controller because the page
- * controller's parameter route claims every single-segment path: Fastify ranks
- * a static path above a parameter whatever the order, and stating the order
- * here as well says which way round the two are meant to be read.
+ * The news and calendar controllers are declared ahead of the page controller
+ * because the page controller's parameter route claims every single-segment
+ * path: Fastify ranks a static path above a parameter whatever the order, and
+ * stating the order here as well says which way round they are meant to be
+ * read.
  *
  * Imports the setup module for one question - has this instance been claimed -
  * the theme module for what it renders as, and the media module because a page
@@ -67,8 +70,9 @@ import { SiteRenderer } from "./site-renderer.service";
     BoardModule,
   ],
   controllers: [
-    // The three public ones first, then the board's.
+    // The four public ones first, then the board's.
     SiteNewsController,
+    SiteCalendarController,
     SiteController,
     SiteFormsController,
     PagesAdminController,
@@ -79,6 +83,7 @@ import { SiteRenderer } from "./site-renderer.service";
   providers: [
     SiteRenderer,
     SiteNewsService,
+    SiteEventsService,
     PagesWriteService,
     MenuWriteService,
     AssociationFactsService,
