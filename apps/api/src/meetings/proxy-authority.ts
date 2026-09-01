@@ -4,7 +4,7 @@ import {
 } from "../bookings/stockholm-calendar";
 
 /**
- * How long a member's written authority for a proxy holder (fullmakt) holds.
+ * How long a member's proxy authorisation (fullmakt) holds.
  *
  * EFL 6 kap. 4 § andra stycket, which BRL 9 kap. 14 § leaves standing: the
  * proxy holder is to have a proxy authorisation that is written, dated and
@@ -16,9 +16,9 @@ import {
  * Its own module, and pure, because the answer is needed twice and must not be
  * allowed to differ. The board is refused a stale proxy authorisation when it
  * registers one, and the voting register asks again when it is drawn up - the
- * meeting day can be moved after an authorisation was registered, and a register
- * that trusted the registration would then seat a proxy holder whose authority
- * had run out.
+ * meeting day can be moved after an authorisation was registered, and a
+ * register that trusted the registration would then seat a proxy holder whose
+ * authority had run out.
  *
  * ## What this module does not decide
  *

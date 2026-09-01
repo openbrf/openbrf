@@ -60,7 +60,7 @@ export interface AttendanceView {
   withdrawnAt: string | null;
 }
 
-/** One member's written authority for a proxy holder. */
+/** One member's proxy authorisation (fullmakt). */
 export interface ProxyAuthorisationView {
   id: string;
   memberPersonId: string;
@@ -156,8 +156,8 @@ const MEETING_COLUMNS = {
 
 /**
  * The general meeting (foreningsstamma): arranging one, its agenda, who was
- * present, the written authorities somebody else's vote is exercised under, and
- * what the meeting decided.
+ * present, the proxy authorisations somebody else's vote is exercised under,
+ * and what the meeting decided.
  *
  * EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
  * exceptions.
@@ -548,7 +548,7 @@ export class MeetingService {
   }
 
   /**
-   * Registers a member's written authority for a proxy holder, against the
+   * Registers a member's proxy authorisation, against the
    * bylaws.
    *
    * Five checks, in the order a board would meet them, and every one of them
@@ -585,11 +585,11 @@ export class MeetingService {
   ): Promise<ProxyAuthorisationView> {
     return this.prisma.$transaction(async (tx) => {
       /*
-       * Before anything about this member is read. The one-standing-authorisation
-       * rule is a read followed by a write and no index can state it, so without
-       * this two board members registering different proxy holders for one member
-       * would each read no standing authorisation and each write one - see
-       * `proxy-lock.ts`.
+       * Before anything about this member is read. The
+       * one-standing-authorisation rule is a read followed by a write and no
+       * index can state it, so without this two board members registering
+       * different proxy holders for one member would each read no standing
+       * authorisation and each write one - see `proxy-lock.ts`.
        */
       await lockProxyAuthorisations(tx, meetingId, input.memberPersonId);
 
@@ -645,8 +645,8 @@ export class MeetingService {
        * invalidate before the write lands. The check itself is one the table
        * cannot make - a partial unique index is not expressible in the schema -
        * and a transaction alone would not serialise it, because the unique key
-       * includes the proxy holder, so two writers naming different holders would
-       * both insert.
+       * includes the proxy holder, so two writers naming different holders
+       * would both insert.
        */
       const standing = await tx.proxyAuthorisation.findFirst({
         where: {

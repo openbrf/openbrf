@@ -1,8 +1,8 @@
 -- What happened around a general meeting: the board arranged one, set its
 -- agenda and recorded that it had been held; somebody was recorded as present
--- or struck off the list again; a member's written authority for a proxy holder
--- was registered or withdrawn; and the chair recorded what the meeting decided
--- on an item.
+-- or struck off the list again; a member's proxy authorisation for a proxy
+-- holder was registered or withdrawn; and the chair recorded what the meeting
+-- decided on an item.
 --
 -- Each is an act the association answers for. Four of the eight are also acts a
 -- person's own data subject access report has to be able to show - being

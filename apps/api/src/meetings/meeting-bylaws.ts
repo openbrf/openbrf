@@ -89,10 +89,10 @@ export interface MeetingBylaws {
    * cohabitant or another member be an assistant (BRL 9 kap. 14 § 5).
    *
    * Reported and never applied here, for a reason about the statute rather than
-   * this platform's reach: an assistant needs no written authority - EFL 6 kap.
-   * 7 § simply lets a member or a proxy holder bring one, who may speak at the
-   * meeting - so there is no document for the board to attest and nothing for a
-   * check to key itself to.
+   * this platform's reach: an assistant needs no authority in writing - EFL 6
+   * kap. 7 § simply lets a member or a proxy holder bring one, who may speak at
+   * the meeting - so there is no document for the board to attest and nothing
+   * for a check to key itself to.
    */
   assistantEligibilityWidened: boolean;
 }

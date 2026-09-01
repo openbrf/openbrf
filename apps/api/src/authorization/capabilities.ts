@@ -145,8 +145,8 @@ export const CAPABILITIES = [
    * to make: a board is elected by the general meeting (foreningsstamma), and
    * what the application holds is the minute of that election written down by
    * the people who were there. An instance whose board could only be recorded
-   * by whoever holds the ADMIN grant would make the administrator the gatekeeper
-   * of the association's own constitution.
+   * by whoever holds the ADMIN grant would make the administrator the
+   * gatekeeper of the association's own constitution.
    *
    * The seat this confers carries no more than the conferrer already holds -
    * BOARD_CAPABILITIES is exactly what a board member has - so it cannot be
@@ -219,14 +219,15 @@ export const CAPABILITIES = [
    * is part of living here rather than a board activity, and a board member lives
    * here too.
    *
-   * A capability of its own rather than self:manage, although a sign-up is a row
-   * about the person making it. A capability answers what a principal may do, and
-   * "may take a place at something the association arranges" is a different
-   * question from "may edit their own record and account settings": one is about
-   * the house's activities, the other is a person's own data and would be wrong
-   * to withhold from anybody who has an account at all. Folding the two together
-   * would also mean the external person mid-onboarding who holds self:manage and
-   * nothing else could put their name down for the general meeting.
+   * A capability of its own rather than self:manage, although a sign-up is a
+   * row about the person making it. A capability answers what a principal may
+   * do, and "may take a place at something the association arranges" is a
+   * different question from "may edit their own record and account settings":
+   * one is about the house's activities, the other is a person's own data and
+   * would be wrong to withhold from anybody who has an account at all. Folding
+   * the two together would also mean the external person mid-onboarding who
+   * holds self:manage and nothing else could put their name down for the
+   * general meeting.
    *
    * It does not carry reading the calendar as a whole. A published series reaches
    * the people it was published to without any capability, which is what
@@ -287,8 +288,8 @@ export const CAPABILITIES = [
   "motions:handle",
   /**
    * Arrange a general meeting (foreningsstamma) and run it: write its agenda
-   * (dagordning), register a member's written authority for a proxy holder, record who
-   * is present, read the voting register (rostlangd) and minute what the meeting
+   * (dagordning), register a member's proxy authorisation, record who is
+   * present, read the voting register (rostlangd) and minute what the meeting
    * decided.
    *
    * The board's, because every one of those acts is the board's side of the
@@ -300,12 +301,12 @@ export const CAPABILITIES = [
    * not exist.
    *
    * Deliberately not derived from membership, which makes it the opposite of
-   * `motions:submit` above. What a member holds at a general meeting is the right to
-   * attend, speak and vote (EFL 6 kap. 2-3 §§), and none of that is something
-   * this platform does - the meeting happens in a room or on a call. What the
-   * platform does is the record-keeping, and the record is the board's to keep. A
-   * member who is also on the board holds this as a board member, which is the
-   * ordinary case.
+   * `motions:submit` above. What a member holds at a general meeting is the
+   * right to attend, speak and vote (EFL 6 kap. 2-3 §§), and none of that is
+   * something this platform does - the meeting happens in a room or on a call.
+   * What the platform does is the record-keeping, and the record is the board's
+   * to keep. A member who is also on the board holds this as a board member,
+   * which is the ordinary case.
    *
    * Not the external property manager's either, on the `motions:handle`
    * precedent: the members' decisions about their own association are no part of

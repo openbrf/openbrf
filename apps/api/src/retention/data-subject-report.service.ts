@@ -135,10 +135,11 @@ const SECTIONS = [
  * no closing date to count from, and the association is still processing it.
  *
  * The two general meeting sections state none, and that is an answer rather
- * than an omission: attendance at a general meeting and the written authority a
- * vote was exercised under are part of the meeting's record, whose lasting form
- * is the protokoll that EFL 6 kap. 39 § has the voting register taken into and
- * 40 § has kept safely. So they sit with the statutory register sections above
+ * than an omission: attendance at a general meeting and the proxy authorisation
+ * a vote was exercised under are part of the meeting's record, whose lasting
+ * form is the protokoll that EFL 6 kap. 39 § has the voting register taken into
+ * and 40 § has kept safely. So they sit with the statutory register sections
+ * above
  * - kept because the law requires the record - rather than with the four that
  * go on a clock of their own. A section added here that does purge takes the
  * count to five.
@@ -553,12 +554,12 @@ export class DataSubjectReportService {
     });
 
     /*
-     * Every written authority for a proxy holder (fullmakt) naming this person,
-     * either way round. The authorisation names the member who gave the authority
-     * and the proxy holder who held it, and both of those are facts about the
-     * person concerned, so this is one query with an OR - the shape the audit
-     * log query below uses over its own two person columns, and for the same
-     * reason.
+     * Every proxy authorisation (fullmakt) naming this person, either way
+     * either way round. The authorisation names the member who gave the
+     * authority and the proxy holder who held it, and both of those are facts
+     * about the person concerned, so this is one query with an OR - the shape
+     * the audit log query below uses over its own two person columns, and for
+     * the same reason.
      *
      * A row can match both sides at once only if somebody appointed themselves,
      * which the table refuses outright, so the role each row carries is decided

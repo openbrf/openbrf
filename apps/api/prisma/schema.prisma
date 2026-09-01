@@ -214,7 +214,7 @@ model Association {
   ///
   /// BRL 9 kap. 14 § 5, in the same terms as the proxy holder clause. Recorded
   /// and stated, never enforced, and for a reason about the statute rather than
-  /// about this platform's reach: an assistant needs no written authority at
+  /// about this platform's reach: an assistant needs no authority in writing at
   /// all - EFL 6 kap. 7 § simply lets a member or a proxy holder bring one, who
   /// may speak at the meeting - so there is no document for the board to attest
   /// and nothing for a check to key itself to. A proxy authorisation has one,
@@ -1119,12 +1119,12 @@ enum AuditAction {
   /// of the list rather than somebody leaving. The subject stays the person
   /// struck off.
   MEETING_ATTENDANCE_WITHDRAWN
-  /// A member's written authority for a proxy holder (fullmakt) was registered
-  /// against a meeting. The subject is the member who gave it: it is their
-  /// voting right that somebody else will exercise, and their own access report
-  /// is where that has to be visible. Who they gave it to is on the authorisation
-  /// the entry points at, which is also how the proxy holder's own report
-  /// reaches it.
+  /// A member's proxy authorisation (fullmakt) for a proxy holder was
+  /// registered against a meeting. The subject is the member who gave it: it is
+  /// their voting right that somebody else will exercise, and their own access
+  /// report is where that has to be visible. Who they gave it to is on the
+  /// authorisation the entry points at, which is also how the proxy holder's
+  /// own report reaches it.
   MEETING_PROXY_REGISTERED
   /// A proxy authorisation was withdrawn, by the member or by the board. The
   /// subject stays the member who gave the authority.
@@ -3519,8 +3519,8 @@ model MeetingDecision {
 ///
 /// A MEMBER line is a member present themselves. A PROXY_HOLDER line is
 /// somebody exercising absent members' rights, and which members is the proxy
-/// authorisations they hold at this meeting. An ASSISTANT line carries no vote at
-/// all: EFL 6 kap. 7 § gives an assistant the right to speak and no more.
+/// authorisations they hold at this meeting. An ASSISTANT line carries no vote
+/// at all: EFL 6 kap. 7 § gives an assistant the right to speak and no more.
 ///
 /// ## Struck off with a date
 ///
@@ -3587,8 +3587,8 @@ model MeetingAttendance {
   @@map("meeting_attendance")
 }
 
-/// A member's written authority for somebody else to exercise their right at
-/// one general meeting (fullmakt), and who they gave it to (ombud).
+/// A member's proxy authorisation (fullmakt) for somebody else to exercise their
+/// right at one general meeting, and who they gave it to (ombud).
 ///
 /// EFL 6 kap. 4 § as BRL 9 kap. 14 § 4 restricts it. Four rules, and the
 /// platform's relation to each is different:
@@ -3639,11 +3639,11 @@ model MeetingAttendance {
 ///
 /// ## Two people, and a report that answers for both
 ///
-/// The authorisation names the member and the proxy holder, so both of them have
-/// a personal interest in it and the data subject access report answers for
-/// either role - the pattern the audit log's own two person columns set, rather
-/// than a new one. Which role a row reached the report through is stated on it,
-/// because "I gave somebody my vote" and "somebody gave me theirs" are
+/// The authorisation names the member and the proxy holder, so both of them
+/// have a personal interest in it and the data subject access report answers
+/// for either role - the pattern the audit log's own two person columns set,
+/// rather than a new one. Which role a row reached the report through is stated
+/// on it, because "I gave somebody my vote" and "somebody gave me theirs" are
 /// different facts about different people.
 model ProxyAuthorisation {
   id        String  @id @default(cuid())

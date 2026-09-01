@@ -588,7 +588,7 @@ change it.
       below rather than this one. Postal voting is prohibited for a housing
       cooperative under BRL 9 kap. 14 §, and will never be built.
   - Landed: the meeting itself, its agenda, who was present and in what
-    capacity, the written authorities somebody else's vote is exercised under,
+    capacity, the proxy authorisations somebody else's vote is exercised under,
     and each item's outcome as the counts the chair read out. The voting
     register (röstlängd) is derived when it is read and never stored: every
     member has one vote, so two apartments are one vote and joint holders of one

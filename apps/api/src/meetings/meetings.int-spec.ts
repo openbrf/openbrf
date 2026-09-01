@@ -902,7 +902,7 @@ describe("checking people in", () => {
   });
 });
 
-describe("a member's written authority for a proxy holder", () => {
+describe("a member's proxy authorisation", () => {
   it("lets the proxy holder exercise an absent member's vote", async () => {
     const meetingId = await arrangeMeeting();
     expect(

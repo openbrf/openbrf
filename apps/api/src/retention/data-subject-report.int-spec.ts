@@ -30,7 +30,7 @@ import type { DataSubjectReport } from "./data-subject-report";
  * store the product has - both register tiers, an account, a consent, a hold,
  * an issue, an archived document, a booking, a motion to the general meeting, a
  * sign-up to one of the association's own dates, a comment on a news item, two
- * lines on a general meeting's list of those present, a written authority for
+ * lines on a general meeting's list of those present, a proxy authorisation for
  * an proxy holder on each side of the subject and an audit trail - and each
  * section is asserted to have found it.
  *

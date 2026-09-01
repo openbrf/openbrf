@@ -1,5 +1,5 @@
 -- The general meeting (foreningsstamma): the meeting itself, its agenda, who
--- was present and in what capacity, the written authorities somebody else's
+-- was present and in what capacity, the proxy authorisations somebody else's
 -- vote was exercised under, and what the meeting decided.
 --
 -- EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
@@ -227,10 +227,10 @@ CREATE TABLE "proxy_authorisation" (
 -- Nobody is their own proxy holder.
 --
 -- A member appoints a proxy holder because they are not personally present (EFL
--- 6 kap. 4 § forsta stycket), so an authorisation naming the member as the holder
--- is not a narrow case to refuse but a contradiction. It matters more than it
--- looks: such a row would satisfy the per-holder count without anybody standing
--- in for anybody, and it would let a member reach the register twice.
+-- 6 kap. 4 § forsta stycket), so an authorisation naming the member as the
+-- holder is not a narrow case to refuse but a contradiction. It matters more
+-- than it looks: such a row would satisfy the per-holder count without anybody
+-- standing in for anybody, and it would let a member reach the register twice.
 ALTER TABLE "proxy_authorisation" ADD CONSTRAINT "proxy_authorisation_not_self_check"
   CHECK ("proxyHolderPersonId" <> "memberPersonId");
 
