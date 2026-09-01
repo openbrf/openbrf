@@ -28,6 +28,17 @@ import { BookableResourcesPanel } from "./BookableResourcesPanel";
  * found in, named as the form names them, and never the offset the response
  * also carried. Read off the response - a screen that guessed would send
  * somebody to edit text that holds nothing.
+ *
+ * A read that could not be made is one of those halves. The notice saying so
+ * arrives without a loading line under it, and it belongs to the read that
+ * produced it: the next read says it is reading rather than wearing the last
+ * one's failure, and a refresh that did not land leaves the rows the board is
+ * typing in where they are.
+ *
+ * And a row re-seeds its fields from what is now stored, which turns on its key
+ * being an encoding of the stored values rather than a join on a separator: two
+ * of those values are free text, and every separator is a character a board can
+ * type.
  */
 
 const fetchAllBookableResources = vi.fn();
@@ -483,8 +494,14 @@ describe("adding a resource", () => {
       });
     });
   });
+});
 
-  it("says so when the catalogue cannot be read", async () => {
+describe("a catalogue that could not be read", () => {
+  const LOAD_FAILED =
+    "De bokningsbara resurserna kunde inte läsas just nu. Ladda om sidan.";
+  const LOADING = "Läser in resurserna...";
+
+  it("says so, and stops saying it is reading", async () => {
     fetchAllBookableResources.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
@@ -493,11 +510,133 @@ describe("adding a resource", () => {
     render(<BookableResourcesPanel />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          "De bokningsbara resurserna kunde inte läsas just nu. Ladda om sidan.",
-        ),
-      ).toBeTruthy();
+      expect(screen.getByText(LOAD_FAILED)).toBeTruthy();
     });
+    // The read is over, so a loading line under the notice would go on saying
+    // something is still happening when nothing is.
+    expect(screen.queryByText(LOADING)).toBeNull();
+    // The form to enter a resource is still there: nothing about a catalogue
+    // that could not be read stops a board writing the next resource down.
+    expect(
+      screen.getByRole("button", { name: "Lägg till resurs" }),
+    ).toBeTruthy();
+  });
+
+  it("does not carry the notice into the read an act asks for", async () => {
+    /*
+     * The failure belongs to the read that produced it, and the assertion is
+     * about the moment the next read is in flight - which is the only moment the
+     * two behaviours differ, because a read that lands clears the notice either
+     * way.
+     *
+     * Carried over, the sentence about a catalogue that could not be read would
+     * sit above the read that is happening, and with no list yet the panel would
+     * draw it with no loading line under it and no read left in flight to end
+     * it: a panel that reads as broken rather than as loading.
+     *
+     * So the second read is held open here rather than resolved, and both halves
+     * are asserted while it is: the notice gone, and the panel saying it is
+     * reading.
+     */
+    fetchAllBookableResources.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    let answer: (result: unknown) => void = () => undefined;
+    fetchAllBookableResources.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+
+    const session = userEvent.setup();
+    render(<BookableResourcesPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText(LOAD_FAILED)).toBeTruthy();
+    });
+
+    await session.type(addField(/^Resursens namn/), "Bastun i port 14");
+    await session.click(
+      screen.getByRole("button", { name: "Lägg till resurs" }),
+    );
+
+    // The read the add asked for is still open at this point.
+    await waitFor(() => {
+      expect(screen.getByText(LOADING)).toBeTruthy();
+    });
+    expect(screen.queryByText(LOAD_FAILED)).toBeNull();
+
+    // Answered, so the test leaves no read in flight and the catalogue it was
+    // waiting for is what lands.
+    answer({ ok: true, value: [laundry()] });
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Tvättstugan i port 12")).toBeTruthy();
+    });
+  });
+
+  it("keeps the catalogue it already has when a re-read of it fails", async () => {
+    // The other half of the same rule, and the reason the outcome is held on the
+    // read rather than as one flag: the rows the board is editing are still the
+    // last thing the server said, and taking them away over a failed refresh
+    // would take the form the board is typing in with them.
+    const session = userEvent.setup();
+    await open();
+    fetchAllBookableResources.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    // The save succeeds; the read it asks for afterwards is what fails.
+    await session.click(screen.getByRole("button", { name: /^Spara$/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(LOAD_FAILED)).toBeTruthy();
+    });
+    expect(screen.getByDisplayValue("Tvättstugan i port 12")).toBeTruthy();
+    // And no loading line: the read is over, and one under the notice would go
+    // on saying something is still happening.
+    expect(screen.queryByText(LOADING)).toBeNull();
+  });
+});
+
+describe("a row seeded from what is stored", () => {
+  it("re-seeds when two free-text fields differ only in where a separator falls", async () => {
+    /*
+     * The row is keyed on the stored values, encoded rather than joined on a
+     * separator. Every separator is a character a board can type: a resource
+     * named "Tvattstugan|" with nothing said about it joins to the same string
+     * as one named "Tvattstugan" described as "|", so the row would keep the key
+     * it had, never re-seed, and go on showing what was typed after a save that
+     * stored something else.
+     */
+    fetchAllBookableResources
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [laundry({ name: "Tvättstugan|", description: null })],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [laundry({ name: "Tvättstugan", description: "|" })],
+      });
+
+    const session = userEvent.setup();
+    render(<BookableResourcesPanel />);
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Tvättstugan|")).toBeTruthy();
+    });
+
+    await session.clear(rowField(/^Resursens namn/));
+    await session.type(rowField(/^Resursens namn/), "Bastun");
+    await session.click(screen.getByRole("button", { name: /^Spara$/ }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Tvättstugan")).toBeTruthy();
+    });
+    expect(rowField(/^Vad de boende behöver veta/)).toHaveProperty(
+      "value",
+      "|",
+    );
+    expect(screen.queryByDisplayValue("Bastun")).toBeNull();
   });
 });

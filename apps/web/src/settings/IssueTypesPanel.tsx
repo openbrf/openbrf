@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactElement,
-} from "react";
+import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -37,6 +31,33 @@ const TYPE_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const EMPTY = { name: "", audience: "MEMBER" as IssueAudience };
 
 /**
+ * One finished read of the catalogue, and which read it answers for.
+ *
+ * The outcome travels here rather than in a flag beside the list. A flag would
+ * have to be cleared as the next read starts, which is a write the reading
+ * effect cannot make, and a notice about a read that is over would otherwise
+ * sit above the read that is happening - with no list for it yet and so no
+ * loading line under it either: a panel that reads as broken rather than as
+ * loading. Held on the record, "did this read fail" is answered by the same
+ * comparison that answers "is this the read the panel is on", and cannot fall
+ * out of step with it.
+ */
+interface Loaded {
+  /** Which read this answers for. */
+  readonly read: number;
+  /**
+   * What the board can be reported, or null while no read has answered at all.
+   *
+   * Kept through a read that fails: the rows below are what the board acts on,
+   * and a refresh that did not land is no reason to take the catalogue off the
+   * screen. There is one catalogue, so the last answer about it is the best
+   * there is, whichever read produced it.
+   */
+  readonly types: readonly IssueTypeView[] | null;
+  readonly failed: boolean;
+}
+
+/**
  * The board's catalogue of issue types.
  *
  * The audience is on the row rather than hidden in a submenu, because it is the
@@ -47,50 +68,64 @@ const EMPTY = { name: "", audience: "MEMBER" as IssueAudience };
  */
 export function IssueTypesPanel(): ReactElement {
   const { t } = useTranslation();
-  const [types, setTypes] = useState<readonly IssueTypeView[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  /**
+   * Which read the panel is on.
+   *
+   * Every write ends in a read of the catalogue, which is a request the effect
+   * below cannot tell from the read it has already made. This is how it is
+   * told, and it keeps that effect the only thing that reads - so every answer
+   * is dropped once the panel is gone or a later read has superseded it.
+   */
+  const [reads, setReads] = useState(0);
   const [draft, setDraft] = useState(EMPTY);
 
-  const read = useCallback(async (): Promise<void> => {
-    const result = await fetchIssueTypes();
-    if (result.ok) {
-      setTypes(result.value);
-      setLoadFailed(false);
-      return;
-    }
-    setLoadFailed(true);
-  }, []);
+  const reread = (): void => {
+    setReads((count) => count + 1);
+  };
 
   useEffect(() => {
     // The effect owns its own call and drops a response that arrives after the
-    // panel is gone, rather than applying it to a component nobody is looking
-    // at. Later reads go through `read`, which the writes below call.
+    // panel is gone, or after a later read superseded it, rather than applying
+    // it to a component nobody is looking at.
     let active = true;
     void fetchIssueTypes().then((result) => {
       if (!active) {
         return;
       }
-      if (result.ok) {
-        setTypes(result.value);
-        setLoadFailed(false);
-      } else {
-        setLoadFailed(true);
-      }
+      setLoaded((previous) => ({
+        read: reads,
+        // A read that failed keeps the list already on screen. Read off the
+        // state rather than off a variable this closure captured, because a
+        // write's re-read settles against whatever is there when it lands.
+        types: result.ok ? result.value : (previous?.types ?? null),
+        failed: !result.ok,
+      }));
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [reads]);
+
+  /*
+   * What the panel shows: the last list that landed, and the outcome of the
+   * read it is on. The list outlives the read that produced it, for the reason
+   * {@link Loaded} gives; the outcome does not, because a notice about a read
+   * that is over would sit above one that is happening.
+   */
+  const types = loaded?.types ?? null;
+  const settled = loaded !== null && loaded.read === reads ? loaded : null;
+  const loadFailed = settled?.failed ?? false;
 
   const add = useSaveAction(createIssueType, () => {
     setDraft(EMPTY);
-    void read();
+    reread();
   });
   const change = useSaveAction(updateIssueType, () => {
-    void read();
+    reread();
   });
   const remove = useSaveAction(removeIssueType, () => {
-    void read();
+    reread();
   });
 
   const failure =
@@ -138,10 +173,19 @@ export function IssueTypesPanel(): ReactElement {
         )
       }
     >
+      {/*
+       * Nothing under a read that failed: the notice above has said the
+       * catalogue could not be read, and a loading line under it would go on
+       * saying something is still happening when nothing is. Which list a
+       * failure keeps, and which read wears the notice at all, are both decided
+       * on {@link Loaded} rather than here.
+       */}
       {types === null ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("settings.issueTypes.loading")}
-        </p>
+        loadFailed ? null : (
+          <p role="status" className="text-body text-ink-muted">
+            {t("settings.issueTypes.loading")}
+          </p>
+        )
       ) : types.length === 0 ? (
         <p className="text-body text-ink-muted">
           {t("settings.issueTypes.empty")}
