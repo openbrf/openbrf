@@ -40,6 +40,11 @@ import type { MemberRegisterExtract } from "./member-register.service";
  *   termination, the membership decision behind a transfer, and the property
  *   designation - are recordable, audited, and refused where the register could
  *   only hold a date nobody decided on (Lag (2026:484) 3 kap.).
+ *
+ *   Each of those dates that opens a reporting window enters the obligation
+ *   ledger in the same transaction as the register write, counted from the day
+ *   the statute names and no other, and the register write disappears if the
+ *   deadline cannot be entered.
  */
 
 loadEnvForIntegrationTests();
@@ -166,6 +171,20 @@ function expectNoIdentityNumber(body: string, identityNumber: string): void {
   for (const form of writtenForms(identityNumber)) {
     expect(body).not.toContain(form);
   }
+}
+
+/**
+ * The calendar date a `@db.Date` column holds, as "YYYY-MM-DD".
+ *
+ * Read as UTC, which is what a date column is written and read back as. Slicing
+ * a locally anchored instant would answer the previous day for part of the year,
+ * and every date these assertions are about is the start or the end of a
+ * statutory window.
+ */
+function isoDay(column: Date | null | undefined): string | null {
+  return column === null || column === undefined
+    ? null
+    : column.toISOString().slice(0, 10);
 }
 
 function inject(options: {
@@ -511,10 +530,10 @@ afterAll(async () => {
     });
   }
   // The statutory archive is append-only, so the register entries, transfers,
-  // terminations and lien notes this suite wrote stay. Their apartments and
-  // persons stay with them: a foreign key from an undeletable row is what keeps
-  // the archive readable, and deleting around it is exactly what the guards
-  // prevent.
+  // terminations, lien notes and reporting obligations this suite wrote stay.
+  // Their apartments and persons stay with them: a foreign key from an
+  // undeletable row is what keeps the archive readable, and deleting around it
+  // is exactly what the guards prevent.
   await app.close();
 });
 
@@ -1197,6 +1216,43 @@ describe("recording a termination", () => {
       kind: "GENERAL_MEETING_DECISION",
       tookEffectOn: "2026-02-18",
     });
+
+    /*
+     * And the deadline, entered by the same transaction.
+     *
+     * Lag (2026:484) 3 kap. 4 § gives two weeks from the day the bostadsratt
+     * ceased - tookEffectOn - and never from the day the board typed it in.
+     * This termination was recorded today and dated the 18th of February 2026,
+     * so a window counted from createdAt would fall in a different year
+     * entirely.
+     */
+    const obligation = await prisma.registerReportObligation.findFirstOrThrow({
+      where: { terminationId: termination.id },
+      include: { termination: { select: { tookEffectOn: true } } },
+    });
+
+    expect(obligation.kind).toBe("TERMINATION");
+    expect(obligation.apartmentId).toBe(apartments.other);
+    expect(obligation.transferId).toBeNull();
+    expect(isoDay(obligation.triggeredOn)).toBe("2026-02-18");
+    expect(isoDay(obligation.dueOn)).toBe("2026-03-04");
+    expect(isoDay(obligation.termination?.tookEffectOn)).toBe("2026-02-18");
+
+    const deadlineEntry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "REGISTER_REPORT_OBLIGATION_RECORDED",
+        targetKind: "registerReportObligation",
+        targetId: obligation.id,
+      },
+    });
+    expect(deadlineEntry.actorPersonId).toBe(actors.board.personId);
+    expect(deadlineEntry.context).toMatchObject({
+      kind: "TERMINATION",
+      apartmentId: apartments.other,
+      terminationId: termination.id,
+      triggeredOn: "2026-02-18",
+      dueOn: "2026-03-04",
+    });
   });
 
   it("refuses a date that has not arrived", async () => {
@@ -1381,6 +1437,61 @@ describe("recording the membership decision behind a transfer", () => {
       membershipDecidedOn: "2021-01-14",
       transferredOn: "2021-02-01",
     });
+
+    /*
+     * And the deadline, entered by the same transaction and counted from the
+     * decision.
+     *
+     * The whole content of this assertion is which of the transfer's two dates
+     * the window runs from. Lag (2026:484) 3 kap. 3 § andra stycket runs it from
+     * the day the association decided on membership - the 14th of January, so
+     * the 28th - and the transfer completed on the 1st of February, which would
+     * give the 15th. Both are plausible-looking dates on a screen; only one is
+     * the statutory one, and it is the earlier of the two, so counting from the
+     * wrong date would state a deadline after the duty had already lapsed.
+     */
+    const obligation = await prisma.registerReportObligation.findFirstOrThrow({
+      where: { transferId: UNDECIDED_TRANSFER_ID },
+    });
+
+    expect(obligation.kind).toBe("TRANSFER");
+    expect(obligation.apartmentId).toBe(apartments.other);
+    expect(obligation.terminationId).toBeNull();
+    expect(isoDay(obligation.triggeredOn)).toBe("2021-01-14");
+    expect(isoDay(obligation.dueOn)).toBe("2021-01-28");
+
+    const deadlineEntry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "REGISTER_REPORT_OBLIGATION_RECORDED",
+        targetKind: "registerReportObligation",
+        targetId: obligation.id,
+      },
+    });
+    expect(deadlineEntry.actorPersonId).toBe(actors.board.personId);
+    expect(deadlineEntry.context).toMatchObject({
+      kind: "TRANSFER",
+      apartmentId: apartments.other,
+      transferId: UNDECIDED_TRANSFER_ID,
+      triggeredOn: "2021-01-14",
+      dueOn: "2021-01-28",
+    });
+  });
+
+  it("leaves a transfer with no recorded decision out of the ledger", async () => {
+    // Not an omission. 3 kap. 3 § andra stycket runs the window from the
+    // membership decision, so a transfer whose decision the board has not
+    // recorded has no day to count from and no deadline to state. The fixture's
+    // own transfer is the case: it carries none and never gets one here.
+    const undecided = await prisma.transfer.findFirstOrThrow({
+      where: { apartmentId: apartments.held, membershipDecidedOn: null },
+      select: { id: true },
+    });
+
+    await expect(
+      prisma.registerReportObligation.findUnique({
+        where: { transferId: undecided.id },
+      }),
+    ).resolves.toBeNull();
   });
 
   it("refuses a second recording rather than moving the deadline", async () => {
@@ -1449,6 +1560,136 @@ describe("recording the membership decision behind a transfer", () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+/**
+ * The register event and its deadline are one write.
+ *
+ * The whole reason the ledger is written by the register service rather than by
+ * a job that scans for events afterwards: a scan can be missing a row, and the
+ * row that goes missing is a statutory deadline nobody notices is absent. So the
+ * two writes have to be one transaction, and what proves that is not the code
+ * reading as though it were - it is the register write disappearing when the
+ * ledger insert fails.
+ *
+ * Forced by putting a trigger on the ledger that refuses every insert, which
+ * only this suite can do because it connects as the schema owner. Driven over
+ * HTTP like everything else here, and that matters twice over: an endpoint
+ * answering 201 while the deadline never landed is the same defect as an
+ * unawaited insert, and both would pass a test that only read the database.
+ */
+describe("the obligation ledger and the event it is about", () => {
+  /*
+   * Named per run, like every fixture id in this file.
+   *
+   * A fixed name collides across concurrent runs: the second CREATE TRIGGER
+   * fails, its cleanup drops the trigger anyway, and the first run then gets a
+   * 201 where it expects the write to have been refused - a pass turning into a
+   * failure in the other run, for a reason neither test mentions.
+   */
+  const REFUSE_INSERTS = `openbrf_test_refuse_obligation_insert_${suffix}`;
+
+  /**
+   * Refuses this suite's obligation inserts, for as long as the callback runs.
+   *
+   * Restricted by apartment rather than left table-wide. The trigger is on a
+   * shared table, so an unconditional one refuses every connection's insert
+   * while it exists - including the other suites that write register events -
+   * and the WHEN clause keeps the refusal to the rows these two tests cause.
+   *
+   * CREATE OR REPLACE on the function, because the two tests below each install
+   * and drop it: a run that died between them would otherwise leave the second
+   * failing on a duplicate rather than on what it asserts.
+   */
+  async function withLedgerRefusingInserts(
+    body: () => Promise<void>,
+  ): Promise<void> {
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION ${REFUSE_INSERTS}()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        RAISE EXCEPTION 'refused by the test';
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER ${REFUSE_INSERTS}
+        BEFORE INSERT ON "register_report_obligation"
+        FOR EACH ROW
+        WHEN (NEW."apartmentId" IN ('${apartments.held}', '${apartments.other}'))
+        EXECUTE FUNCTION ${REFUSE_INSERTS}()
+    `);
+    try {
+      await body();
+    } finally {
+      // In a finally, because a failure here would leave the ledger unable to
+      // accept an insert for every later suite sharing this worker's database.
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER ${REFUSE_INSERTS} ON "register_report_obligation"`,
+      );
+      await prisma.$executeRawUnsafe(`DROP FUNCTION ${REFUSE_INSERTS}()`);
+    }
+  }
+
+  it("rolls the termination back when the deadline cannot be entered", async () => {
+    const reference = `Stammoprotokoll rollback ${suffix}`;
+
+    await withLedgerRefusingInserts(async () => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/apartment-register/terminations",
+        payload: {
+          apartmentId: apartments.other,
+          kind: "GENERAL_MEETING_DECISION",
+          tookEffectOn: "2026-03-11",
+          reference,
+        },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      // Not a 201. A board told the termination was recorded, on an instance
+      // where the deadline was not, would have no reason to look again - and the
+      // row cannot be deleted, so there would be nothing to do about it.
+      expect(response.statusCode).toBe(500);
+    });
+
+    // And nothing was written. A termination is append-only, so one committed
+    // here would stay for good.
+    await expect(
+      prisma.termination.findFirst({ where: { reference } }),
+    ).resolves.toBeNull();
+  });
+
+  it("rolls the membership decision back when the deadline cannot be entered", async () => {
+    await withLedgerRefusingInserts(async () => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/apartment-register/membership-decision",
+        payload: {
+          transferId: REFUSED_TRANSFER_ID,
+          membershipDecidedOn: "2022-04-04",
+        },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      expect(response.statusCode).toBe(500);
+    });
+
+    // The date is claimed conditionally and refused a second time, so a value
+    // committed without its deadline could never be completed: the transfer
+    // would carry the start of a statutory window that the ledger has no row
+    // for and no way to gain one.
+    const transfer = await prisma.transfer.findUniqueOrThrow({
+      where: { id: REFUSED_TRANSFER_ID },
+      select: { membershipDecidedOn: true },
+    });
+    expect(transfer.membershipDecidedOn).toBeNull();
+    await expect(
+      prisma.registerReportObligation.findUnique({
+        where: { transferId: REFUSED_TRANSFER_ID },
+      }),
+    ).resolves.toBeNull();
   });
 });
 

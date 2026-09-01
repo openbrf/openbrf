@@ -25,6 +25,7 @@ import {
 import {
   type ConsentScope,
   type DataSubjectReport as Report,
+  type RegisterReportKind,
   type ReportAuditAction,
   type TerminationKind,
   fetchDataSubjectReport,
@@ -90,6 +91,11 @@ const TERMINATION_KIND_LABEL = {
   BUILDING_TRANSFERRED:
     "registers.apartment.terminations.kind.BUILDING_TRANSFERRED",
 } as const satisfies Record<TerminationKind, TranslationKey>;
+
+const REGISTER_REPORT_KIND_LABEL = {
+  TRANSFER: "register.person.report.reportKind.TRANSFER",
+  TERMINATION: "register.person.report.reportKind.TERMINATION",
+} as const satisfies Record<RegisterReportKind, TranslationKey>;
 
 const BOOKING_STATUS_LABEL = {
   BOOKED: "bookings.status.BOOKED",
@@ -188,6 +194,8 @@ const AUDIT_ACTION_LABEL = {
   EVENT_SIGNUP_MADE: "register.person.report.action.EVENT_SIGNUP_MADE",
   EVENT_SIGNUP_WITHDRAWN:
     "register.person.report.action.EVENT_SIGNUP_WITHDRAWN",
+  REGISTER_REPORT_OBLIGATION_RECORDED:
+    "register.person.report.action.REGISTER_REPORT_OBLIGATION_RECORDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
@@ -559,6 +567,29 @@ export function DataSubjectReport({
                     {lienNote.releasedOn ??
                       t("register.person.report.standing")}
                   </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          <Section titleKey="register.person.report.section.reportObligations">
+            <Rows
+              empty={report.registerReportObligations.length === 0}
+              headings={[
+                "register.person.report.field.apartment",
+                "register.person.report.field.event",
+                "register.person.report.field.triggeredOn",
+                "register.person.report.field.dueOn",
+              ]}
+            >
+              {report.registerReportObligations.map((obligation) => (
+                <tr key={obligation.obligationId} className={ROW}>
+                  <td className={DATA_CELL}>{obligation.apartment}</td>
+                  <td className={TEXT_CELL}>
+                    {t(REGISTER_REPORT_KIND_LABEL[obligation.kind])}
+                  </td>
+                  <td className={DATA_CELL}>{obligation.triggeredOn}</td>
+                  <td className={DATA_CELL}>{obligation.dueOn}</td>
                 </tr>
               ))}
             </Rows>

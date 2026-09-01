@@ -1,0 +1,14 @@
+-- What the obligation ledger writes, and which act produced it.
+--
+-- A row in register_report_obligation states a statutory deadline, and it is
+-- derived rather than decided: the actor is whoever recorded the register event
+-- in the same transaction. The register write has an audit entry of its own -
+-- APARTMENT_REGISTER_TERMINATION_RECORDED or
+-- APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED - and neither of those says
+-- which dates the deadline was computed from, so a deadline entered without an
+-- entry of its own could not be accounted for afterwards.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+-- Separate from 20260910100000 for that reason and no other.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'REGISTER_REPORT_OBLIGATION_RECORDED';

@@ -213,6 +213,15 @@ export type TerminationKind =
   "GENERAL_MEETING_DECISION" | "BUILDING_TRANSFERRED";
 
 /**
+ * Which register event a reporting obligation is about.
+ *
+ * Mirrors the RegisterReportKind enum in `apps/api/prisma/schema.prisma`,
+ * spelled out for the reason the one above it is: the report prints this to the
+ * person it is about.
+ */
+export type RegisterReportKind = "TRANSFER" | "TERMINATION";
+
+/**
  * Every audit action an entry on the report can carry.
  *
  * Mirrors the AuditAction enum in `apps/api/prisma/schema.prisma`. Spelled out
@@ -274,7 +283,8 @@ export type ReportAuditAction =
   | "MOTION_ACKNOWLEDGED"
   | "MOTION_WITHDRAWN"
   | "EVENT_SIGNUP_MADE"
-  | "EVENT_SIGNUP_WITHDRAWN";
+  | "EVENT_SIGNUP_WITHDRAWN"
+  | "REGISTER_REPORT_OBLIGATION_RECORDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -370,6 +380,23 @@ export interface DataSubjectReport {
     amount: string | null;
     notedOn: string;
     releasedOn: string | null;
+  }[];
+  /**
+   * Duties to report one of this person's register events to the cooperative
+   * housing register.
+   *
+   * Keyed on neither a person nor an apartment but on the register event, so the
+   * API reaches these through the transfers and terminations above rather than
+   * through a derivation of its own - and a transfer's duty reaches the acquirer
+   * alone, because the due date less fourteen days is the membership decision
+   * date the transfer section withholds from the seller.
+   */
+  registerReportObligations: {
+    obligationId: string;
+    kind: RegisterReportKind;
+    apartment: string;
+    triggeredOn: string;
+    dueOn: string;
   }[];
   publicationConsents: {
     scope: ConsentScope;

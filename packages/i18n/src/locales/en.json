@@ -309,7 +309,7 @@
         "standing": "Still standing",
         "nothing": "Nothing recorded",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
-        "twoTiers": "Service data is erased on the purge date below. The member register, transfers, terminations, lien notes and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
+        "twoTiers": "Service data is erased on the purge date below. The member register, transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
           "person": "The person",
           "residencies": "Residencies",
@@ -320,6 +320,7 @@
           "transfers": "Transfers",
           "terminations": "Terminations",
           "lienNotes": "Lien notes",
+          "reportObligations": "Reporting obligations to the cooperative housing register",
           "consents": "Publication consent",
           "legalHolds": "Legal holds",
           "issues": "Issue reports",
@@ -360,6 +361,8 @@
           "terminationKind": "Ground",
           "tookEffectOn": "Ceased",
           "terminationReference": "Reference",
+          "triggeredOn": "Window opened",
+          "dueOn": "Report due",
           "scope": "Scope",
           "granted": "Given",
           "withdrawn": "Withdrawn",
@@ -462,7 +465,12 @@
           "MOTION_ACKNOWLEDGED": "Motion recorded as received",
           "MOTION_WITHDRAWN": "Motion withdrawn",
           "EVENT_SIGNUP_MADE": "Event sign-up made",
-          "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn"
+          "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn",
+          "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded"
+        },
+        "reportKind": {
+          "TRANSFER": "Transfer",
+          "TERMINATION": "Termination"
         },
         "auditRole": {
           "subject": "About this person",

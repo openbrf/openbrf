@@ -108,6 +108,18 @@ const REFUSED_STATEMENTS: [string, string][] = [
     "a termination cannot be deleted",
     `DELETE FROM public.termination WHERE id = 'no-such-termination'`,
   ],
+  // The obligation ledger takes termination's reading rather than transfer's: a
+  // row states a statutory deadline, and neither the event it reports nor the
+  // day the statute counts from can change, so it keeps neither UPDATE nor
+  // DELETE.
+  [
+    "a reporting obligation cannot be rewritten",
+    `UPDATE public.register_report_obligation SET "dueOn" = '2030-01-01' WHERE id = 'no-such-obligation'`,
+  ],
+  [
+    "a reporting obligation cannot be deleted",
+    `DELETE FROM public.register_report_obligation WHERE id = 'no-such-obligation'`,
+  ],
 ];
 
 /**
@@ -119,6 +131,7 @@ const PERMITTED_READS: string[] = [
   "SELECT count(*) FROM public.transfer",
   "SELECT count(*) FROM public.lien_note",
   "SELECT count(*) FROM public.termination",
+  "SELECT count(*) FROM public.register_report_obligation",
 ];
 
 /** TRUNCATE is its own privilege and is granted on no table at all. */
@@ -128,6 +141,7 @@ const STATUTORY_TABLES = [
   "transfer",
   "lien_note",
   "termination",
+  "register_report_obligation",
 ];
 
 test("the application's role creates a queue and enqueues a job", async () => {
