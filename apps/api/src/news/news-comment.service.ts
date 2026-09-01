@@ -401,9 +401,9 @@ export class NewsCommentService {
    * The newest, and then backwards. A page is cut from the end the thread has
    * reached and turned round inside itself, so the order a comment is read in
    * never changes while the reader still lands where the conversation is. Cutting
-   * from the other end would hand somebody opening a long thread the fifty
-   * comments written when the notice went up and put the answer they came for
-   * behind however many presses the thread is long - and, worse, it would hide a
+   * from the other end would hand somebody opening a long thread the comments
+   * written when the notice went up and put the answer they came for behind
+   * however many presses the thread is long - and, worse, it would hide a
    * reader's own comment the moment they wrote one, because a comment is written
    * at the newest end and the newest end would be the page nobody had opened
    * yet. It is the argument `commentableNews` makes for newest first, applied
