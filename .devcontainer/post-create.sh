@@ -16,8 +16,14 @@ cd "$(dirname "$0")/.."
 
 # --- Node and dependencies ------------------------------------------------
 # .nvmrc pins an exact version and is the single source of truth (CONTRIBUTING).
+#
+# --no-use matters: sourcing nvm.sh normally auto-runs `nvm use --silent` for
+# the .nvmrc in the current directory, and when that version is not in the
+# image yet, that call returns 3 without printing anything. Under `set -e`
+# the script then dies right here, before its first line of output. The
+# explicit `nvm install` below does the same job and reports its failures.
 # shellcheck disable=SC1091
-source "${NVM_DIR}/nvm.sh"
+source "${NVM_DIR}/nvm.sh" --no-use
 nvm install
 nvm use
 
