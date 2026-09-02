@@ -417,8 +417,11 @@ export interface ReportMeetingAttendance {
  *
  * ## Both roles, one section
  *
- * An authorisation names two people: the member who gave their voting right
- * away, and the proxy holder who was to exercise it. Both are facts about the
+ * An authorisation names two people: the member whose voting right it is, and
+ * the proxy holder authorised to exercise that right on their behalf. The right
+ * is not transferred and the meeting's powers are not delegated - the member
+ * remains the one who has the vote, and the authorisation says who may exercise
+ * it in the room. Both are facts about the
  * person concerned, and they are different facts - "I authorised somebody to
  * exercise my vote" and "somebody authorised me to exercise theirs" - so `role`
  * says which side this row reached

@@ -5,7 +5,8 @@
 ---
 
 Add the general meeting: the meeting itself, its agenda, who was present and in
-what capacity, the proxy authorisations somebody else's vote is exercised under,
+what capacity, the proxy authorisations a member's vote is exercised under by
+somebody else,
 and each item's outcome recorded as counts.
 
 EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
@@ -109,8 +110,8 @@ Same change, because this is the change that creates the tables: the data
 subject access report carries a person's attendance at a general meeting and
 every authority naming them. The proxy section answers for both roles - an
 authorisation names the member who authorised somebody to exercise their vote
-and the proxy holder who
-carried it, which are two different facts about two different people - on the
+and the proxy holder authorised to exercise it, which are two different facts
+about two different people - on the
 pattern the audit log's own two person columns already set. Neither section
 states an erasure date, and that is an answer rather than an omission: the
 register is taken into or appended to the minutes and the minutes are kept, so

@@ -555,8 +555,9 @@ export class DataSubjectReportService {
 
     /*
      * Every proxy authorisation (fullmakt) naming this person, either way
-     * either way round. The authorisation names the member who gave the
-     * authority and the proxy holder who held it, and both of those are facts
+     * round. The authorisation names the member whose vote is to be exercised
+     * and the proxy holder authorised to exercise it, and both of those are
+     * facts
      * about the person concerned, so this is one query with an OR - the shape
      * the audit log query below uses over its own two person columns, and for
      * the same reason.
