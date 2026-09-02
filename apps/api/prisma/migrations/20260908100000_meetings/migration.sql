@@ -181,7 +181,7 @@ CREATE TABLE "meeting_attendance" (
 -- Only an assistant came with somebody, and an assistant always did.
 --
 -- This is what makes the unique index below express EFL 6 kap. 7 §'s "hogst ett
--- assistant" in the database. A null repeats freely in a PostgreSQL unique
+-- bitrade" in the database. A null repeats freely in a PostgreSQL unique
 -- index, so with this constraint in place the index binds the assistant lines
 -- and leaves the member and proxy holder lines alone.
 --

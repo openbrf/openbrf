@@ -3644,7 +3644,8 @@ model MeetingAttendance {
 /// for either role - the pattern the audit log's own two person columns set,
 /// rather than a new one. Which role a row reached the report through is stated
 /// on it, because "I authorised somebody to exercise my vote" and "somebody
-/// different facts about different people.
+/// authorised me to exercise theirs" are different facts about different
+/// people.
 model ProxyAuthorisation {
   id        String  @id @default(cuid())
   meetingId String
