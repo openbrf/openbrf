@@ -108,10 +108,11 @@ every enumerated field an instance does not hold with the reason - so
 transforming this into the prescribed form, when there is one, is a mapping
 against a stable contract rather than a second reading of the statute.
 
-Two things about the content are worth naming. **Pantsättningar are inside the
-supply duty although they open no reporting obligation**: the standing per-event
-duty to report a lien is the panthavare's (Lag (2026:484) 3 kap. 5 §), while Lag (2026:485) 3 §
-puts the initial supply of the ones already recorded on the association. 13 § of
+Two things about the content are worth naming. **Lien notes are inside the supply
+duty although they open no reporting obligation for the association**: that
+standing per-event duty is the lienholder's (Lag (2026:484) 3 kap. 5 §), while
+Lag (2026:485) 3 § puts the initial supply of the ones already recorded on the
+association. 13 § of
 that act makes a lien that predates the register keep its sakrättsliga skydd only
 where the data about it reached Lantmäteriet in time, so leaving one out can cost
 the lienholder the protection itself. And **a holder with skyddade personuppgifter has their address

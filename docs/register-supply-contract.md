@@ -50,8 +50,9 @@ association "är skyldig att ha antecknade eller har tillgång till" them.
 
 Two consequences worth naming.
 
-**Lien notes are inside the supply duty although they open no reporting
-obligation.** The two are different duties and the glossary keeps them apart. A
+**Lien notes are inside the supply duty although they open no reporting obligation
+for the association.** The two are different duties and the glossary keeps them
+apart. A
 reporting obligation (anmälningsskyldighet) is the standing per-event duty under
 Lag (2026:484) 3 kap., and the one for a lien falls on the lienholder
 (panthavare) rather than on the association (3 kap. 5 §, 6 § and 8 §) - which is why

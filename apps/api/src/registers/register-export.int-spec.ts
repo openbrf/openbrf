@@ -1060,7 +1060,7 @@ describe("the initial supply", () => {
 
   it("carries the lien notes that still stand and leaves out a released one", async () => {
     // Lien notes are inside the supply duty although they open no reporting
-    // obligation: the standing per-event duty is the lienholder's (Lag (2026:484)
+    // obligation for the association: that duty is the lienholder's (Lag (2026:484)
     // 3 kap. 5 §), while Lag (2026:485) 3 § puts the initial supply of the ones
     // already recorded on the association.
     const supply = await produce();
