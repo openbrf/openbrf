@@ -872,12 +872,24 @@ describe("checking people in", () => {
     expect(right.statusCode).toBe(201);
 
     const meeting = await readMeeting(meetingId);
-    // One standing assistant, and the withdrawn line still on the report: the
-    // correction is visible rather than tidied away. The replacement is a
-    // member in her own right, so she is eligible without the bylaws being
-    // widened, and her own vote is still not in the room.
+    // One standing assistant, and the replacement is a member in her own right,
+    // so she is eligible without the bylaws being widened and her own vote is
+    // still not in the room.
     expect(meeting.votingRegister.assistantsPresent).toBe(1);
     expect(lineOf(meeting, otherMember.personId)?.votePresent).toBe(false);
+
+    /*
+     * And the withdrawn line is still there, dated. Asserted rather than left
+     * to the comment: a regression that deleted the row instead of dating it
+     * would free the slot too, so every assertion above would still pass while
+     * the list lost the correction it exists to show. The minutes are drawn
+     * from this list, and somebody struck off it is a thing that happened.
+     */
+    const struck = meeting.attendances.find(
+      (attendance) => attendance.id === wrong.json<{ id: string }>().id,
+    );
+    expect(struck?.personId).toBe(soloMember.personId);
+    expect(struck?.withdrawnAt).not.toBeNull();
   });
 
   it("refuses a member's line that names somebody who brought them", async () => {
