@@ -35,6 +35,11 @@ interface Options {
   status?: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
   /** How many rows the conditional update matches. */
   updated?: number;
+  /**
+   * What the row says once the conditional update has matched nothing, which is
+   * what tells the lost races apart. `null` is a row that is no longer there.
+   */
+  statusAfterRace?: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN" | null;
 }
 
 /** A database holding one motion, with every call recorded in order. */
@@ -69,11 +74,42 @@ function build(options: Options = {}) {
   });
 
   const updateMany = vi.fn(
-    async (_args: { where: { id: string; meetingId: string | null } }) => {
+    async (_args: {
+      where: {
+        id: string;
+        meetingId: string | null;
+        status?: { not: string };
+      };
+    }) => {
       calls.push("update");
       return { count: options.updated ?? 1 };
     },
   );
+
+  /*
+   * The row is read twice on the losing path: once to decide, and once
+   * afterwards to say which condition the caller lost. The second answer is
+   * what a writer that beat this transaction left behind, so the fake has to
+   * be able to differ from the first.
+   */
+  let reads = 0;
+  const findUnique = vi.fn(async () => {
+    reads += 1;
+    if (reads === 1) {
+      calls.push("readMotion");
+      return {
+        id: "motion-1",
+        status,
+        submittedByPersonId: "person-1",
+        meetingId,
+      };
+    }
+    calls.push("readMotionAgain");
+    // `in` rather than `??`, because null is a case here and not an absence.
+    const after =
+      "statusAfterRace" in options ? options.statusAfterRace : status;
+    return after === null || after === undefined ? null : { status: after };
+  });
 
   const tx = {
     $executeRaw: vi.fn(async (_strings: unknown, ...values: unknown[]) => {
@@ -82,15 +118,7 @@ function build(options: Options = {}) {
       return 1;
     }),
     motion: {
-      findUnique: vi.fn(async () => {
-        calls.push("readMotion");
-        return {
-          id: "motion-1",
-          status,
-          submittedByPersonId: "person-1",
-          meetingId,
-        };
-      }),
+      findUnique,
       updateMany,
       findUniqueOrThrow: vi.fn(async () => motionRow("meeting-b")),
     },
@@ -209,5 +237,67 @@ describe("putting a motion to a meeting", () => {
     await expect(
       service.setMeeting("motion-1", "meeting-a", "board-1"),
     ).rejects.toBeInstanceOf(MotionError);
+  });
+
+  it("writes only while the motion is not withdrawn", async () => {
+    /*
+     * The withdrawal is the member's own act, in a transaction of its own that
+     * takes no agenda key, so at READ COMMITTED it can commit after the check
+     * on the read row and before this write. The state therefore has to be in
+     * the update's own predicate: without it the board would be recording that
+     * it will take up a request the member had already taken back.
+     */
+    const { service, updateMany } = build({ status: "SUBMITTED" });
+
+    await service.setMeeting("motion-1", "meeting-b", "board-1");
+
+    expect(updateMany.mock.calls[0]?.[0].where.status).toEqual({
+      not: "WITHDRAWN",
+    });
+  });
+
+  it("names the withdrawal when that is what the write lost to", async () => {
+    // Three conditions on one update and one count back from it, so the row is
+    // read again to say which was lost. A withdrawal reported as a moved item
+    // would tell the board to look for the motion on another meeting.
+    const { service, calls } = build({
+      status: "SUBMITTED",
+      updated: 0,
+      statusAfterRace: "WITHDRAWN",
+    });
+
+    await expect(
+      service.setMeeting("motion-1", "meeting-b", "board-1"),
+    ).rejects.toMatchObject({ reason: "motion-withdrawn" });
+    expect(calls).toEqual([
+      "readMotion",
+      "lock",
+      "readMeeting",
+      "update",
+      "readMotionAgain",
+    ]);
+  });
+
+  it("names a moved item when the motion is still open", async () => {
+    const { service } = build({
+      meetingId: "meeting-z",
+      updated: 0,
+      statusAfterRace: "ACKNOWLEDGED",
+    });
+
+    await expect(
+      service.setMeeting("motion-1", "meeting-a", "board-1"),
+    ).rejects.toMatchObject({ reason: "meeting-changed-meanwhile" });
+  });
+
+  it("names a motion that is no longer there at all", async () => {
+    // The purge reaches closed motions, so the row this transaction read can be
+    // gone by the time the write runs. "Put to a different meeting" would be a
+    // statement about a row that no longer exists.
+    const { service } = build({ updated: 0, statusAfterRace: null });
+
+    await expect(
+      service.setMeeting("motion-1", "meeting-b", "board-1"),
+    ).rejects.toMatchObject({ reason: "motion-not-found" });
   });
 });

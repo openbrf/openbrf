@@ -994,6 +994,78 @@ describe("the meeting a motion is taken up at", () => {
     }
   });
 
+  /**
+   * The withdrawal refusal holds against a withdrawal that lands while the
+   * request is already in flight.
+   *
+   * Taking a motion back is the member's own act in a transaction of its own,
+   * and it takes no agenda key - it is about the motion rather than about any
+   * meeting's matters. So at READ COMMITTED it can commit after this request
+   * read the motion as open and before the write, and a write conditional on
+   * the link alone would go through: the board would have recorded that it will
+   * take up a request the member had already taken back, and the member's own
+   * data subject access report would say so.
+   *
+   * Driven through the agenda key, which this request takes *after* it reads
+   * the motion. Holding the key from a transaction of this test's own therefore
+   * parks the request in exactly the window under test - between its read of
+   * the motion and its write - and the withdrawal is sent while it waits there.
+   * A race would not reach this window reliably at all.
+   */
+  it("refuses a withdrawal that lands while the link was in flight", async () => {
+    const meetingId = await arrangeMeeting();
+    const motionId = await submitMotion("Utbyte av tvattmaskiner");
+
+    let releaseHolder = (): void => {
+      /* replaced below */
+    };
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`meeting-agenda:${meetingId}`}))`;
+        await holderDone;
+      },
+      // The reasoning on the notice's interleaving test, and the same numbers.
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(async () => (await agendaLockCount(meetingId, true)) > 0n);
+
+      // Reads the motion as open, then queues on the key.
+      const pending = setMotionMeeting(motionId, meetingId);
+      await waitFor(async () => (await agendaLockCount(meetingId, false)) > 0n);
+
+      // The member takes it back while the board's request waits.
+      const withdrawal = await inject({
+        method: "POST",
+        url: `/api/motions/${motionId}/withdrawal`,
+        headers: { cookie: authorCookie },
+      });
+      expect(withdrawal.statusCode).toBe(201);
+
+      releaseHolder();
+      await holder;
+
+      const response = await pending;
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "motion-withdrawn",
+      );
+      const stored = await prisma.motion.findUnique({
+        where: { id: motionId },
+        select: { meetingId: true, status: true },
+      });
+      expect(stored?.meetingId).toBeNull();
+      expect(stored?.status).toBe("WITHDRAWN");
+    } finally {
+      releaseHolder();
+    }
+  });
+
   it("refuses a meeting recorded as held", async () => {
     const meetingId = await arrangeMeeting();
     const motionId = await submitMotion("Male trapphuset");

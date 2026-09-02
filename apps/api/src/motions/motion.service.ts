@@ -373,11 +373,27 @@ export class MotionService {
    * to exercise and taking it back is theirs too.
    *
    * One transaction, under the agenda lock of every meeting it decides about,
-   * with the update conditional on the link the caller read. The lock is what
-   * makes the refusal above a decision rather than a read a notice can
-   * invalidate a moment later; the condition is what makes two board members
-   * putting one item to two meetings produce one link, with the loser answered
-   * exactly as a read would have answered them.
+   * with the update conditional on the link *and* the state the caller read.
+   * Each of the three carries a different failure.
+   *
+   * The lock is what makes the notice refusal a decision rather than a read a
+   * notice can invalidate a moment later.
+   *
+   * The link condition is what makes two board members putting one item to two
+   * meetings produce one link, with the loser answered exactly as a read would
+   * have answered them.
+   *
+   * The state condition is what makes the withdrawal refusal above hold. The
+   * withdrawal is the member's own act in a transaction of its own and takes no
+   * key here - it is about the motion rather than about any meeting's agenda -
+   * so at READ COMMITTED it can commit after that check and before this write.
+   * Without the condition the board would be recording that it will take up a
+   * request the member had already taken back, which is the one outcome the
+   * refusal exists to prevent. The refusal is not deliberately symmetric: a
+   * member withdrawing an item the board has already put to a meeting is
+   * exercising their own right, and the platform records that state honestly,
+   * whereas a board writing a new link onto a withdrawn request is an act with
+   * nothing behind it.
    */
   async setMeeting(
     motionId: string,
@@ -426,16 +442,23 @@ export class MotionService {
       }
 
       const { count } = await tx.motion.updateMany({
-        // Conditional on the link the caller read, so a request that moved the
-        // item first is not silently overwritten by this one.
-        where: { id: motionId, meetingId: existing.meetingId },
+        /*
+         * Conditional on the link the caller read, so a request that moved the
+         * item first is not silently overwritten by this one - and on the state,
+         * so a withdrawal that committed since the check above cannot be written
+         * over either. Both of the checks this method makes about the motion are
+         * therefore decisions rather than reads something else can invalidate
+         * before the write lands.
+         */
+        where: {
+          id: motionId,
+          meetingId: existing.meetingId,
+          status: { not: "WITHDRAWN" },
+        },
         data: { meetingId },
       });
       if (count === 0) {
-        throw new MotionError(
-          "This motion has meanwhile been put to a different meeting.",
-          "meeting-changed-meanwhile",
-        );
+        await this.refuseTheRaceThatWasLost(tx, motionId);
       }
 
       const updated = await tx.motion.findUniqueOrThrow({
@@ -515,6 +538,43 @@ export class MotionService {
         "not-a-member",
       );
     }
+  }
+
+  /**
+   * Says which of the update's conditions the caller lost, and refuses on it.
+   *
+   * The conditional update answers with a count and never with a reason, so the
+   * row is read once more to tell the three cases apart. They are three
+   * different things to tell a board member and only one of them is about a
+   * meeting: the member took the item back, somebody else moved it, or it is no
+   * longer there at all. Answering all three as one would send two of them
+   * looking for a state the motion is not in.
+   *
+   * The read sees the newest committed row rather than the one the transaction
+   * opened on, because each statement at READ COMMITTED takes its own snapshot -
+   * which is what lets it report the write that beat this one.
+   */
+  private async refuseTheRaceThatWasLost(
+    tx: Prisma.TransactionClient,
+    motionId: string,
+  ): Promise<never> {
+    const now = await tx.motion.findUnique({
+      where: { id: motionId },
+      select: { status: true },
+    });
+    if (now === null) {
+      throw new MotionError("No such motion.", "motion-not-found");
+    }
+    if (now.status === "WITHDRAWN") {
+      throw new MotionError(
+        "The member took this motion back, so it is not an item for a meeting.",
+        "motion-withdrawn",
+      );
+    }
+    throw new MotionError(
+      "This motion has meanwhile been put to a different meeting.",
+      "meeting-changed-meanwhile",
+    );
   }
 
   /**

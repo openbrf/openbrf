@@ -68,7 +68,7 @@ one who has left the register.
 
 Electronic notices are lawful for a housing cooperative: **BRL 1 kap. 10 §
 applies the rules on information by electronic means in EFL 1 kap. 16 § to a
-bostadsrattsforening sending kallelser.** That paragraph's first stycke attaches
+bostadsrättsförening sending kallelser.** That paragraph's first stycke attaches
 three conditions - the general meeting has resolved on it, the association has
 reliable routines for identifying the recipient together with reliable
 information on how to reach them, and the recipient has consented. The second
@@ -107,10 +107,18 @@ link is its own act with its own audit action, and the member who submitted the
 motion stays the subject of the entry, so what the board did with their item is
 answerable from their own data subject access report. Both views name the meeting
 and its day rather than giving an identifier, because a member holds no
-capability that would let them resolve one. A request that loses the race for
-the link answers with a reason of its own rather than being told the motion is
-closed: it is exactly as open as it was, and what the board has to do is read
-the queue again.
+capability that would let them resolve one.
+
+The write is conditional on the link and on the state the caller read, and each
+condition carries its own answer. A request that loses the race for the link is
+told the item moved rather than that the motion is closed - it is exactly as
+open as it was, and what the board has to do is read the queue again. A request
+that loses it to the member's own withdrawal is told that, because the
+withdrawal is a transaction of its own that takes no agenda key and can commit
+between the check and the write: without the condition the board would be
+recording that it will take up a request the member had taken back. The refusal
+is deliberately one-sided - a member withdrawing an item already put to a
+meeting is exercising their own right, and that state is recorded honestly.
 
 **The freeze is held by an advisory lock on the meeting**
 (`meetings/agenda-lock.ts`, keyed `meeting-agenda:<meetingId>`). Three writers
