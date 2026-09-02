@@ -679,17 +679,42 @@ change it.
     well as in the service, so no writer can enter a window that is not the
     statutory fourteen days, and each duty carries its own audit entry. A
     person's own duties are on their data subject access report, reached through
-    the register events already on it
-  - Pending: a screen showing which duties are still outstanding, telling the
-    board when one falls due, and the first submission of the existing
-    apartments (due 31 December 2027, Lag (2026:485) 3 §). The ledger also
-    carries no duty whose window the statute runs from the event itself rather
-    than from a separately recorded date: an upplåtelse (3 kap. 2 §), a transfer
-    to somebody already a member or outside the membership requirement, and one
-    where the bostadsrätt passed to the association (3 kap. 3 § andra and
-    fjärde styckena). None of those is distinguishable from what the platform
-    records today, and the statute also assigns some reports to a juridical
-    person rather than to the association
+    the register events already on it. The board reads those duties on a screen
+    of its own that groups them by what is owed, what has passed its statutory
+    deadline and what has been reported, and every seat on the board is emailed
+    in its own language when a window opens - queued after the register write has
+    committed and best effort, so neither a mail server nor a job queue that is
+    down can cost the association a deadline. Recording that an anmälan reached Lantmäteriet is an
+    act with its own audit entry and no register row: the ledger is append-only
+    and a discharged duty has no later state to reach there, so the log carries
+    the day stated and the queue reads it back. The initial supply of the existing
+    apartments is produced as a documented file plus a printable extract of the
+    same rows, and it is the only place the platform writes a personnummer into a
+    file - behind a capability of its own, with an audit entry naming every
+    person whose number it carried and every column it has, with a protected
+    holder's address deliberately withheld, and refused outright where the
+    association has no record or no organisation number to be identified by
+  - Pending: the report itself. Nothing here transmits anything to Lantmäteriet,
+    and nothing can yet: the föreskrifter that Förordning (2026:898) 2 kap. 2 §
+    and 5 kap. 1-2 §§ leave the technical interface to have not been issued, and
+    the register is still being built (Lag (2026:485) 2 § and 10 §). The file the
+    platform produces therefore has Open BRF's own columns, documented in
+    docs/register-supply-contract.md, whose content follows the field list in
+    Förordning (2026:898) 2 kap. as narrowed by that förordning's second
+    övergångsbestämmelse. That document also lists every field inside the supply
+    duty which an instance does not hold - the apartment's rooms, kitchen type
+    and area, the association's postal address and its counts of buildings,
+    dwellings and premises, a co-holder's share of one bostadsrätt, a holder's
+    civil status, and a lienholder's identifier, address and priority number -
+    together with why each is absent. The ledger also carries no duty whose
+    window the statute runs from the event itself rather than from a separately
+    recorded date: an upplåtelse (3 kap. 2 §), a transfer to somebody already a
+    member or outside the membership requirement, and one where the bostadsrätt
+    passed to the association (3 kap. 3 § andra and fjärde styckena). None of
+    those is distinguishable from what the platform records today, and the
+    statute also assigns some reports to a juridical person rather than to the
+    association. A registered överlåtelse that is later hävd or återgången is a
+    further anmälan (3 kap. 3 § tredje stycket) with nothing recording it
   - Not modelled, and needed before a report can be rendered: Förordning
     (2026:898) 2 kap. 4 § andra stycket reports fastighetsbeteckning together
     with taxeringsenhetsnummer and fastighetstyp, in place of the association's

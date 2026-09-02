@@ -196,6 +196,9 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.EVENT_SIGNUP_WITHDRAWN",
   REGISTER_REPORT_OBLIGATION_RECORDED:
     "register.person.report.action.REGISTER_REPORT_OBLIGATION_RECORDED",
+  REGISTER_REPORT_MADE: "register.person.report.action.REGISTER_REPORT_MADE",
+  REGISTER_INITIAL_SUPPLY_EXPORTED:
+    "register.person.report.action.REGISTER_INITIAL_SUPPLY_EXPORTED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */

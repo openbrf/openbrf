@@ -243,3 +243,109 @@ export function recordPropertyDesignation(input: {
     input,
   );
 }
+
+// --- Reporting to the cooperative housing register (bostadsrattsregistret) ---
+
+/**
+ * The duty ledger, as the browser sees it.
+ *
+ * A third set of types with nothing shared with the two registers above, for the
+ * reason this file's header gives about those two: the reporting duty is a third
+ * thing under a third act, and a shared type is one place where the wrong field
+ * could reach the wrong document. Mirrors
+ * `apps/api/src/registers/register-report.service.ts` and
+ * `initial-supply.service.ts`.
+ */
+
+/** Which register event a duty is about. */
+export type RegisterReportKind = "TRANSFER" | "TERMINATION";
+
+/** Where one duty stands today. */
+export type RegisterReportState = "reported" | "overdue" | "due";
+
+export interface RegisterReportDuty {
+  id: string;
+  kind: RegisterReportKind;
+  apartmentId: string;
+  designation: string;
+  transferId: string | null;
+  terminationId: string | null;
+  triggeredOn: string;
+  dueOn: string;
+  state: RegisterReportState;
+  /**
+   * Calendar days from today to the deadline, negative once it has passed.
+   *
+   * From the server rather than computed here, so the count and the state cannot
+   * disagree. A browser clock a day out would otherwise render a duty as still
+   * due with "1 day past the deadline" beside it.
+   */
+  daysUntilDue: number;
+  reportedOn: string | null;
+}
+
+export interface RegisterReportQueue {
+  generatedOn: string;
+  counts: { overdue: number; due: number; reported: number };
+  duties: RegisterReportDuty[];
+}
+
+export function fetchRegisterReportQueue(): Promise<
+  ApiResult<RegisterReportQueue>
+> {
+  return apiRequest("GET", "/api/register-reports");
+}
+
+/**
+ * Records that the anmalan for one duty reached Lantmateriet.
+ *
+ * What it writes is an audit entry rather than a register row: the obligation
+ * ledger is append-only and a discharged duty has no later state to reach there.
+ * An entry cannot be corrected either, so a duty that already carries a date is
+ * refused rather than overwritten.
+ */
+export function recordRegisterReportMade(input: {
+  obligationId: string;
+  reportedOn: string;
+}): Promise<ApiResult<RegisterReportDuty>> {
+  return apiRequest("POST", "/api/register-reports/reported", input);
+}
+
+/** Which kind of thing one row of the initial supply is about. */
+export type SupplyRecordType = "ASSOCIATION" | "APARTMENT" | "HOLDER" | "LIEN";
+
+/**
+ * One row of the initial supply, as the columns it fills.
+ *
+ * A record keyed by column name rather than a named field per column, because
+ * the file's own shape is a header and rows read by position: a row leaves the
+ * columns of the other record types empty, and a type with twenty optional
+ * fields would be the same thing spelled out twice.
+ */
+export type SupplyRow = { recordType: SupplyRecordType } & Record<
+  string,
+  string | undefined
+>;
+
+export interface InitialSupply {
+  generatedOn: string;
+  fileName: string;
+  columns: string[];
+  rows: SupplyRow[];
+  counts: Record<SupplyRecordType, number>;
+  /** The file itself, as the one serialiser on the API produced it. */
+  csv: string;
+}
+
+/**
+ * Produces the initial supply (Lag (2026:485) 3 §).
+ *
+ * A POST although it reads, for the reasons the register's own reveal route
+ * gives: it writes an audit entry, and the response carries a personal identity
+ * number for every current holder, which must not sit in a URL, a proxy log or
+ * a browser history. It also needs a permission of its own, so a 403 here is the
+ * ordinary answer for a caller who may read the register and not supply it.
+ */
+export function produceInitialSupply(): Promise<ApiResult<InitialSupply>> {
+  return apiRequest("POST", "/api/register-reports/initial-supply", {});
+}

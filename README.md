@@ -37,6 +37,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [GLOSSARY.md](GLOSSARY.md) | Canonical Swedish-English mapping of domain terms |
+| [docs/register-supply-contract.md](docs/register-supply-contract.md) | The initial supply to the cooperative housing register: every column, its statutory field, and what an instance does not hold |
 | [DESIGN.md](DESIGN.md) | The "Porttavlan" design system - required reading for UI changes |
 | [PRODUCT.md](PRODUCT.md) | Product scope, users, and principles |
 | [TRADEMARK.md](TRADEMARK.md) | Name and logo policy - fork the code, not the name |

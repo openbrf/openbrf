@@ -1,10 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma, TerminationKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { failureName } from "../logging/failure";
+import { RegisterReportMailerService } from "./register-report-mailer.service";
 import { reportDueOn } from "./report-deadline";
 import { statutoryDate } from "./statutory-date";
 
@@ -200,10 +202,13 @@ export interface ApartmentRegisterQuery {
 
 @Injectable()
 export class ApartmentRegisterService {
+  private readonly logger = new Logger(ApartmentRegisterService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    private readonly notices: RegisterReportMailerService,
   ) {}
 
   /**
@@ -450,7 +455,7 @@ export class ApartmentRegisterService {
       input.now ?? new Date(),
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const recorded = await this.prisma.$transaction(async (tx) => {
       const termination = await tx.termination.create({
         data: {
           apartmentId: input.apartmentId,
@@ -475,7 +480,7 @@ export class ApartmentRegisterService {
         tx,
       );
 
-      await this.enterObligation(tx, {
+      const obligation = await this.enterObligation(tx, {
         actorPersonId: input.actorPersonId,
         kind: "TERMINATION",
         apartmentId: input.apartmentId,
@@ -483,8 +488,11 @@ export class ApartmentRegisterService {
         triggeredOn: termination.tookEffectOn,
       });
 
-      return toTermination(termination);
+      return { view: toTermination(termination), obligation };
     });
+
+    await this.enqueueBoardNotice(recorded.obligation.id);
+    return recorded.view;
   }
 
   /**
@@ -538,7 +546,7 @@ export class ApartmentRegisterService {
       input.now ?? new Date(),
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const recorded = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.transfer.updateMany({
         where: { id: input.transferId, membershipDecidedOn: null },
         data: { membershipDecidedOn: decidedOn },
@@ -579,7 +587,7 @@ export class ApartmentRegisterService {
         tx,
       );
 
-      await this.enterObligation(tx, {
+      const obligation = await this.enterObligation(tx, {
         actorPersonId: input.actorPersonId,
         kind: "TRANSFER",
         apartmentId: existing.apartmentId,
@@ -592,8 +600,49 @@ export class ApartmentRegisterService {
         triggeredOn: decidedOn,
       });
 
-      return toTransfer(transfer);
+      return { view: toTransfer(transfer), obligation };
     });
+
+    await this.enqueueBoardNotice(recorded.obligation.id);
+    return recorded.view;
+  }
+
+  /**
+   * Puts the board's notice on the queue, after the commit and best effort.
+   *
+   * After, because by now the register event and its deadline have both been
+   * written and neither can be taken back: the obligation ledger refuses UPDATE
+   * and DELETE, a termination is as strictly append-only, and a transfer that
+   * carries a membership decision date refuses a second one. Letting a queue
+   * outage reject the request would report a written register as a failure and
+   * invite a retry that writes a second statutory row, since a termination
+   * carries no uniqueness constraint - and the deadline would still be running,
+   * now with nobody told and the board believing nothing was recorded.
+   *
+   * Best effort for the same reason it is after: the part that cannot be
+   * reconstructed is the deadline, and that is written by the same transaction
+   * as the event it is computed from. A notice that never went out is
+   * recoverable from the queue screen, which lists every duty whether or not
+   * anybody was written to. So this is the one half worth losing, and the
+   * move-out reminder's opposite ordering - enqueued by the transaction itself -
+   * is right there for the opposite reason.
+   *
+   * A queue and not a send, because a board has as many seats as it has and
+   * every one of them is a separate SMTP conversation. The reasoning is in
+   * `register-report-mailer.service.ts`, which is where the sending lives.
+   *
+   * The failure is named by the obligation and by the class of what went wrong,
+   * never by its payload.
+   */
+  private async enqueueBoardNotice(obligationId: string): Promise<void> {
+    try {
+      await this.notices.enqueueNotice(obligationId);
+    } catch (error) {
+      this.logger.error(
+        `Reporting obligation notice could not be queued for obligation ${obligationId}: ` +
+          failureName(error),
+      );
+    }
   }
 
   /**
@@ -626,7 +675,12 @@ export class ApartmentRegisterService {
       | { kind: "TRANSFER"; transferId: string }
       | { kind: "TERMINATION"; terminationId: string }
     ),
-  ): Promise<void> {
+  ): Promise<{
+    id: string;
+    kind: "TRANSFER" | "TERMINATION";
+    triggeredOn: Date;
+    dueOn: Date;
+  }> {
     const obligation = await tx.registerReportObligation.create({
       data: {
         kind: input.kind,
@@ -656,6 +710,17 @@ export class ApartmentRegisterService {
       },
       tx,
     );
+
+    // The row as written, for the notice the caller sends once this transaction
+    // has committed. Returned rather than recomposed out there: the dates the
+    // message states are the ones the database accepted, and the CHECK on the
+    // table is what makes that a meaningful difference.
+    return {
+      id: obligation.id,
+      kind: input.kind,
+      triggeredOn: obligation.triggeredOn,
+      dueOn: obligation.dueOn,
+    };
   }
 
   /**

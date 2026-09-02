@@ -284,7 +284,9 @@ export type ReportAuditAction =
   | "MOTION_WITHDRAWN"
   | "EVENT_SIGNUP_MADE"
   | "EVENT_SIGNUP_WITHDRAWN"
-  | "REGISTER_REPORT_OBLIGATION_RECORDED";
+  | "REGISTER_REPORT_OBLIGATION_RECORDED"
+  | "REGISTER_REPORT_MADE"
+  | "REGISTER_INITIAL_SUPPLY_EXPORTED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

@@ -986,6 +986,36 @@ enum AuditAction {
   /// says which act produced the deadline. The register write has an entry of
   /// its own, and neither says the other's dates.
   REGISTER_REPORT_OBLIGATION_RECORDED
+  /// A board member stated that the anmalan for one obligation reached
+  /// Lantmateriet, and on which day.
+  ///
+  /// The only place that fact can live. {@link RegisterReportObligation} is
+  /// append-only on both mechanisms and a discharged duty has no later state to
+  /// reach there, which that model's own comment already says; a column for it
+  /// would mean granting the runtime role UPDATE on a statutory table. So the
+  /// log carries it, and carries it as what it is - a statement by a person
+  /// about an act taken outside this platform, since the anmalan is made to
+  /// Lantmateriet and nothing here observes it arriving.
+  ///
+  /// The context holds the day stated, which is the day Lag (2026:484) 3 kap. 2
+  /// and 3 §§ make operative ("vid den tidpunkt da en fullstandig anmalan kom in
+  /// till Lantmateriet"), and the obligation it is about. The queue reads the
+  /// earliest such entry per obligation: two statements about one anmalan are
+  /// two records of what was said, and the log corrects neither.
+  REGISTER_REPORT_MADE
+  /// The initial supply to the cooperative housing register was produced
+  /// (Lag (2026:485) 3 §, due 31 December 2027).
+  ///
+  /// The second operation in the product that decrypts a personal identity
+  /// number, after the data subject access report, and audited on that report's
+  /// reading rather than a weaker one. The entry names every person whose number
+  /// the file carried, every person on it with protected personal data, and
+  /// every column the file has - field names and counts, never a value - because
+  /// "how much was disclosed, to whom, and by whom" is what the entry exists to
+  /// answer. A PROTECTED_DATA_REVEALED entry is written in the same transaction,
+  /// so the product keeps one action that answers "who has seen these identity
+  /// numbers" across every operation that discloses one.
+  REGISTER_INITIAL_SUPPLY_EXPORTED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.

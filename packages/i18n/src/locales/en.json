@@ -74,6 +74,17 @@
       "body": "The association has cancelled your booking of {{resource}}.",
       "freedNotice": "The period is free again, so anybody in the house can book it. You can make a new booking whenever you like.",
       "action": "Open the bookings"
+    },
+    "registerReportObligation": {
+      "subject": "Report to the cooperative housing register: {{apartment}}",
+      "heading": "A reporting window has opened",
+      "body": "{{event}} was recorded for {{apartment}}. The window opened on {{triggeredOn}} and the report to Lantmäteriet is due on {{dueOn}}.",
+      "lateNotice": "Lantmäteriet may order a late report in under penalty of a fine, so the date is the deadline and not a target. The reporting queue lists this duty and every other one still outstanding.",
+      "action": "Open the reporting queue",
+      "event": {
+        "TRANSFER": "A transfer",
+        "TERMINATION": "A termination"
+      }
     }
   },
   "sms": {
@@ -466,7 +477,9 @@
           "MOTION_WITHDRAWN": "Motion withdrawn",
           "EVENT_SIGNUP_MADE": "Event sign-up made",
           "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn",
-          "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded"
+          "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded",
+          "REGISTER_REPORT_MADE": "A report to the cooperative housing register was recorded as made",
+          "REGISTER_INITIAL_SUPPLY_EXPORTED": "The initial supply to the cooperative housing register was produced"
         },
         "reportKind": {
           "TRANSFER": "Transfer",
@@ -1324,7 +1337,8 @@
     "nav": {
       "memberRegister": "Member register",
       "apartmentRegister": "Apartment register",
-      "ownApartmentRegister": "My apartment register entry"
+      "ownApartmentRegister": "My apartment register entry",
+      "reportQueue": "Reporting queue"
     },
     "common": {
       "print": "Print",
@@ -1464,6 +1478,92 @@
       "ownEmpty": "You do not hold a tenant-ownership, so the apartment register has no entry for you. Ask the board if you believe that is wrong.",
       "noValue": {
         "heldUntil": "Still held"
+      }
+    },
+    "reports": {
+      "heading": "Reporting to the cooperative housing register",
+      "description": "Every register event the association has to report to Lantmäteriet, and the day each report falls due. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names.",
+      "stamp": "Reporting duties - {{date}}",
+      "loading": "Loading the reporting duties",
+      "error": "The reporting duties could not be read just now.",
+      "openSupply": "The initial supply",
+      "backToQueue": "Back to the reporting queue",
+      "overdueNotice_one": "{{count}} report is past its statutory deadline. Lantmäteriet may order a late report in under penalty of a fine.",
+      "overdueNotice_other": "{{count}} reports are past their statutory deadline. Lantmäteriet may order a late report in under penalty of a fine.",
+      "noneOverdue": "No report is past its deadline.",
+      "group": {
+        "overdue": "Past the deadline",
+        "due": "Still to report",
+        "reported": "Reported"
+      },
+      "groupCount_one": "{{count}} duty",
+      "groupCount_other": "{{count}} duties",
+      "column": {
+        "apartment": "Apartment",
+        "event": "Event",
+        "triggeredOn": "Window opened",
+        "dueOn": "Due",
+        "state": "State",
+        "reportedOn": "Reported"
+      },
+      "event": {
+        "TRANSFER": "Transfer",
+        "TERMINATION": "Termination"
+      },
+      "state": {
+        "overdue": "Past the deadline",
+        "due": "Still to report",
+        "reported": "Reported"
+      },
+      "daysLeft_one": "{{count}} day left",
+      "daysLeft_other": "{{count}} days left",
+      "daysOverdue_one": "{{count}} day past the deadline",
+      "daysOverdue_other": "{{count}} days past the deadline",
+      "dueToday": "Due today",
+      "reportedLate_one": "Reported {{count}} day after the deadline",
+      "reportedLate_other": "Reported {{count}} days after the deadline",
+      "empty": {
+        "title": "Nothing to report",
+        "description": "A duty appears here when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
+      },
+      "record": {
+        "open": "Record the report",
+        "openLabel": "Record the report for {{apartment}}",
+        "heading": "Record that the report for {{apartment}} was made",
+        "hint": "The day a complete report reached Lantmäteriet. That is the day the registration counts from, not the day the board prepared it.",
+        "appendOnly": "This is written to the audit log with your name and cannot be edited or removed afterwards. Check the date before you record it.",
+        "reportedOn": "Reported on",
+        "submit": "Record it",
+        "submitting": "Recording",
+        "cancel": "Cancel",
+        "done": "The report was recorded.",
+        "failed": "The report could not be recorded. The date cannot be in the future or earlier than the day the window opened, and a duty that already carries one is not overwritten."
+      },
+      "supply": {
+        "heading": "The initial supply to the cooperative housing register",
+        "description": "What the association supplies to Lantmäteriet once, by 31 December 2027 (Lag (2026:485) 3 §): its apartments, their holders and the lien notes it has recorded.",
+        "stamp": "Initial supply - {{date}}",
+        "ownShapeNotice": "Lantmäteriet has not published a technical interface, so this file has Open BRF's own columns and is not a Lantmäteriet format. Its content follows the field list in Förordning (2026:898) 2 kap., and docs/register-supply-contract.md states what each column means and which fields the platform does not hold.",
+        "disclosureNotice": "The file contains every current holder's personal identity number. Producing it is written to the audit log with your name, and the log records which people's numbers it carried.",
+        "produce": "Produce the initial supply",
+        "producing": "Producing",
+        "produced": "The file was produced. Producing it was written to the audit log.",
+        "refused": {
+          "forbidden": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
+          "association-not-set-up": "The association's own record is missing, so the file would identify nobody. Complete the setup first.",
+          "association-name-missing": "The association has no name recorded, so the file would identify nobody. Record it in settings first.",
+          "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it on the apartment register screen first.",
+          "unexpected": "The initial supply could not be produced just now. Please try again."
+        },
+        "download": "Save the file",
+        "counts": "{{apartments}} apartments, {{holders}} holders, {{liens}} lien notes",
+        "recordType": {
+          "ASSOCIATION": "The association",
+          "APARTMENT": "Apartment",
+          "HOLDER": "Holder",
+          "LIEN": "Lien note"
+        },
+        "notHeld": "A column left empty is one this row's kind does not fill, or one the register holds no value for."
       }
     }
   },
