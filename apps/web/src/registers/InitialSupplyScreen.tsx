@@ -96,6 +96,7 @@ function fileHref(csv: string): string {
 type SupplyRefusal =
   | "forbidden"
   | "association-not-set-up"
+  | "association-name-missing"
   | "association-organization-number-missing"
   | "unexpected";
 
@@ -106,9 +107,13 @@ function refusalOf(failure: {
   if (failure.status === 403) {
     return "forbidden";
   }
-  return failure.reason === "association-not-set-up" ||
-    failure.reason === "association-organization-number-missing"
-    ? failure.reason
+  const named: readonly string[] = [
+    "association-not-set-up",
+    "association-name-missing",
+    "association-organization-number-missing",
+  ];
+  return named.includes(failure.reason ?? "")
+    ? (failure.reason as SupplyRefusal)
     : "unexpected";
 }
 

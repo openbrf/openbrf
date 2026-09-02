@@ -1551,6 +1551,7 @@
         "refused": {
           "forbidden": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
           "association-not-set-up": "Föreningens egen post saknas, så filen skulle inte identifiera någon. Slutför uppstarten först.",
+          "association-name-missing": "Föreningen har inget namn registrerat, så filen skulle inte identifiera någon. Registrera det i inställningarna först.",
           "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det på lägenhetsförteckningens skärm först.",
           "unexpected": "Det inledande uppgiftslämnandet kunde inte tas fram just nu. Försök igen."
         },

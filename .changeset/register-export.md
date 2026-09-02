@@ -101,7 +101,7 @@ already carried these lists before this one.
 the screen. The föreskrifter that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2
 §§ leave the technical interface to have not been issued, and the register is
 still being built. What is not invented is the content: the columns are the fields
-Förordning (2026:898) 2 kap. 3-7 §§ enumerates, as narrowed to the initial duty by
+Förordning (2026:898) 2 kap. 3-7 §§ enumerates, as narrowed to the supply duty by
 that förordning's second övergångsbestämmelse.
 `docs/register-supply-contract.md` states each column, its statutory field, and
 every enumerated field an instance does not hold with the reason - so

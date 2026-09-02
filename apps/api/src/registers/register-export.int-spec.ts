@@ -1236,7 +1236,8 @@ describe("the association's organisation number", () => {
   it("is refused on rather than supplied blank", async () => {
     /*
      * Forordning (2026:898) 2 kap. 4 § 2 registers it, that forordning's
-     * overgangsbestammelse 2 puts the whole of 4 § inside the initial duty, and
+     * overgangsbestammelse 2 puts the whole of 4 § inside the supply duty
+     * (uppgiftsskyldighet), and
      * 3 kap. 1 § makes it one of the sokbegrepp the register is looked up by. So
      * a file with the column blank names an association the receiving register
      * cannot key on - and the column is nullable, because an instance is set up
@@ -1268,6 +1269,60 @@ describe("the association's organisation number", () => {
       await prisma.association.update({
         where: { id: 1 },
         data: { organizationNumber: recorded.organizationNumber },
+      });
+    }
+  });
+
+  it("is refused on a name made only of spaces, which the settings form allows", async () => {
+    /*
+     * Forordning (2026:898) 2 kap. 4 § 1 registers the forening's namn. The
+     * column is NOT NULL, so this is the whitespace case rather than the absent
+     * one: the settings schema requires a character without trimming, and a
+     * space is a character - so a file whose first field is blank is reachable
+     * from the product and names nobody.
+     */
+    const cookie = await signIn(actors.chair.email);
+    const recorded = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { name: true },
+    });
+    const before = await prisma.auditLogEntry.count({
+      where: {
+        action: "REGISTER_INITIAL_SUPPLY_EXPORTED",
+        actorPersonId: actors.chair.personId,
+      },
+    });
+
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { name: "   " },
+    });
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/register-reports/initial-supply",
+        payload: {},
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "association-name-missing",
+      );
+      // Nothing assembled and nothing disclosed, so the refusal cannot be read
+      // afterwards as an export that happened.
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            action: "REGISTER_INITIAL_SUPPLY_EXPORTED",
+            actorPersonId: actors.chair.personId,
+          },
+        }),
+      ).toBe(before);
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { name: recorded.name },
       });
     }
   });

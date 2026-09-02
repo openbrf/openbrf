@@ -7,7 +7,8 @@ import { writeCsv } from "../import/csv";
  * the register is to hold about the bostadsrattslagenhet, the
  * bostadsrattsforening, the bostadsrattshavare, pantsattningar and anteckningar.
  * Forordning (2026:898) 2 kap. 3-7 §§ is the field list, and that forordning's
- * overgangsbestammelse 2 narrows the initial duty to a named subset of it.
+ * overgangsbestammelse 2 narrows that supply duty (uppgiftsskyldighet) to a
+ * named subset of it.
  *
  * ## This is Open BRF's own shape, and not Lantmateriet's
  *

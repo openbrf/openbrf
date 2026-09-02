@@ -76,7 +76,9 @@ import {
 
 /** Why the association's own record cannot support a supply yet. */
 export type InitialSupplyErrorReason =
-  "association-not-set-up" | "association-organization-number-missing";
+  | "association-not-set-up"
+  | "association-name-missing"
+  | "association-organization-number-missing";
 
 /**
  * The supply was asked for before the association could be identified in it.
@@ -257,13 +259,30 @@ export class InitialSupplyService {
         "association-not-set-up",
       );
     }
+    const name = association.name.trim();
+    if (name === "") {
+      /*
+       * Refused beside the organisation number below, and for the same reason:
+       * Forordning (2026:898) 2 kap. 4 § 1 registers the forening's namn, and a
+       * file whose first field is blank names nobody. The column is NOT NULL, so
+       * this is the whitespace case rather than the absent one - the settings
+       * schema requires a character without trimming, and a space is a
+       * character.
+       */
+      throw new InitialSupplyError(
+        "The association has no name recorded.",
+        "association-name-missing",
+      );
+    }
+
     const organizationNumber = (association.organizationNumber ?? "").trim();
     if (organizationNumber === "") {
       /*
        * Refused for the same reason and separately, because the fix is a
        * different one. Forordning (2026:898) 2 kap. 4 § 2 registers the
        * forening's organisationsnummer, that forordning's overgangsbestammelse
-       * 2 puts the whole of 4 § inside the initial duty, and 3 kap. 1 § makes it
+       * 2 puts the whole of 4 § inside the supply duty (uppgiftsskyldighet), and
+       * 3 kap. 1 § makes it
        * one of the sokbegrepp the register is looked up by - so a supply without
        * it names an association the receiving register cannot key on. The column
        * is nullable because an instance is set up before the board has every
@@ -348,7 +367,7 @@ export class InitialSupplyService {
     const rows: SupplyRow[] = [
       {
         recordType: "ASSOCIATION",
-        associationName: association.name,
+        associationName: name,
         associationOrganizationNumber: organizationNumber,
         associationPropertyDesignation: association.propertyDesignation ?? "",
       },

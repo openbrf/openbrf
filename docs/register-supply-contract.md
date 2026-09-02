@@ -30,7 +30,8 @@ were one.** It exists so that:
 
 What is **not** invented here is the content. Förordning (2026:898) 2 kap. 3-7 §§
 enumerates the data the register holds, and that förordning's
-övergångsbestämmelse 2 narrows the initial duty to a named subset of it. Every
+övergångsbestämmelse 2 narrows that supply duty (uppgiftsskyldighet) to a named
+subset of it. Every
 column below is one of those enumerated fields, and the ones that are not say so.
 
 ## What the duty covers
@@ -119,8 +120,8 @@ Statutory references are to Förordning (2026:898) unless stated otherwise.
 | -------------------------------- | ----------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `recordType`                     | every row                     | -                        | Open BRF's own. `ASSOCIATION`, `APARTMENT`, `HOLDER` or `LIEN`.                                                                                                                                                                                                                                                                                                                                                                               |
 | `apartmentKey`                   | `APARTMENT`, `HOLDER`, `LIEN` | -                        | Open BRF's own. The apartment as street, number and apartment number, which is how the apartment register designates it and is unique within an association. It exists so a holder or a lien note can name the apartment it belongs to; it is **not** the beteckning of 2 kap. 3 § första stycket 1.                                                                                                                                          |
-| `associationName`                | `ASSOCIATION`                 | 2 kap. 4 § 1             | Föreningens namn.                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `associationOrganizationNumber`  | `ASSOCIATION`                 | 2 kap. 4 § 2             | Föreningens organisationsnummer. Empty where the instance has not recorded one.                                                                                                                                                                                                                                                                                                                                                               |
+| `associationName`                | `ASSOCIATION`                 | 2 kap. 4 § 1             | Föreningens namn. Never empty, on the same reading: no file is produced where the association has none recorded.                                                                                                                                                                                                                                                                                                                              |
+| `associationOrganizationNumber`  | `ASSOCIATION`                 | 2 kap. 4 § 2             | Föreningens organisationsnummer. Never empty: no file is produced at all where the association has none recorded, because the register cannot be keyed on a blank one. See "When the file is refused rather than produced".                                                                                                                                                                                                                   |
 | `associationPropertyDesignation` | `ASSOCIATION`                 | 2 kap. 4 § andra stycket | Fastighetsbeteckning, from the association's own authoritative record of it and never from the prose published on the broker page. Andra stycket makes this field conditional: it is reported in place of the lagfarts- och tomträttsinnehav of första stycket 4 where the association's buildings stand on land it neither owns nor holds with tomträtt. Open BRF holds the designation and not the innehav, so the file states what it has. |
 | `apartmentNumber`                | `APARTMENT`                   | 2 kap. 3 § 1 2           | Lägenhetsnummer enligt 6 § lagen (2006:378) om lägenhetsregister.                                                                                                                                                                                                                                                                                                                                                                             |
 | `apartmentAddressStreet`         | `APARTMENT`                   | 2 kap. 3 § 1 3           | Belägenhetsadress, street.                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -147,8 +148,11 @@ one.
 
 - **No association record.** Lag (2026:485) 3 § is a duty on a named
   bostadsrättsförening.
+- **No name.** 2 kap. 4 § 1 registers föreningens namn. The column is NOT NULL,
+  so this is the whitespace case: a value made only of spaces passes the
+  settings form and names nobody.
 - **No organisationsnummer.** 2 kap. 4 § 2 registers it, övergångsbestämmelse 2
-  puts the whole of 4 § inside the initial duty, and 3 kap. 1 § makes it one of
+  puts the whole of 4 § inside the supply duty, and 3 kap. 1 § makes it one of
   the sökbegrepp the register is looked up by.
 
 The property designation is deliberately **not** refused on beside them. 4 §

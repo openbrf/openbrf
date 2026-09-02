@@ -1551,6 +1551,7 @@
         "refused": {
           "forbidden": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
           "association-not-set-up": "The association's own record is missing, so the file would identify nobody. Complete the setup first.",
+          "association-name-missing": "The association has no name recorded, so the file would identify nobody. Record it in settings first.",
           "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it on the apartment register screen first.",
           "unexpected": "The initial supply could not be produced just now. Please try again."
         },
