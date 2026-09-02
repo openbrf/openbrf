@@ -112,10 +112,11 @@ Two things about the content are worth naming. **Lien notes are inside the suppl
 duty although they open no reporting obligation for the association**: that
 standing per-event duty is the lienholder's (Lag (2026:484) 3 kap. 5 §), while
 Lag (2026:485) 3 § puts the initial supply of the ones already recorded on the
-association. 13 § of
-that act makes a lien that predates the register keep its sakrättsliga skydd only
-where the data about it reached Lantmäteriet in time, so leaving one out can cost
-the lienholder the protection itself. And **a holder with skyddade personuppgifter has their address
+association. 13 § of that act reaches only a lien that had sakrättsligt skydd before
+Lag (2026:484) took effect and was not noted under 11 §, and such a lien keeps
+that skydd only if the data about it reached Lantmäteriet within six months of that
+act taking effect - so leaving one out of the supply can cost the lienholder the
+protection itself. And **a holder with skyddade personuppgifter has their address
 withheld**, with a column beside it saying so: a supply duty is not an exception
 to the protection, the name and the personal identity number are what identify a
 holder in a register keyed on those, and the receiving authority holds an address
