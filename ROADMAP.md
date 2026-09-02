@@ -588,9 +588,9 @@ change it.
       voting is prohibited for a housing cooperative under BRL 9 kap. 14 §, and
       will never be built.
   - Landed: the meeting itself, its agenda, who was present and in what
-    capacity, the proxy authorisations (fullmakt) a member's vote is exercised
-    under by somebody else, and each item's outcome as the counts the chair read
-    out.
+    capacity, the proxy authorisations (fullmakt) under which somebody else
+    exercises a member's vote, and each item's outcome beside the vote counts
+    it was declared on.
     The voting register (röstlängd) is derived when it is read and never
     stored: every member has one vote, so a member holding two apartments still
     has one and joint holders of one tenant-ownership have one between them, an
