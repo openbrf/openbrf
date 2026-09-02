@@ -53,15 +53,17 @@ Two consequences worth naming.
 **Lien notes are inside the supply duty although they open no reporting
 obligation.** The two are different duties and the glossary keeps them apart. A
 reporting obligation (anmälningsskyldighet) is the standing per-event duty under
-Lag (2026:484) 3 kap., and the one for a pantsättning falls on the panthavare
-rather than on the association (3 kap. 5 §, 6 § and 8 §) - which is why
+Lag (2026:484) 3 kap., and the one for a lien falls on the lienholder
+(panthavare) rather than on the association (3 kap. 5 §, 6 § and 8 §) - which is why
 `RegisterReportObligation` has no lien kind and why a lien note opens nothing in
 that ledger. The supply duty (uppgiftsskyldighet) is the association's own, it
 names pantsättningar explicitly, and the consequence of leaving one out is not
-administrative: Lag (2026:485) 11 § has a
-panträtt with sakrättsligt skydd from before the act registered as a noterad
-pant when it is supplied, and 13 § makes such a panträtt keep that skydd only if
-it reached Lantmäteriet within six months of the act coming into force.
+administrative. A lien created and given sakrättsligt skydd before Lag (2026:484)
+entered into force is registered as a noterad pant once the association supplies
+it (Lag (2026:485) 11 §). One that was not noted that way keeps its sakrättsliga
+skydd only if the data about it reached Lantmäteriet within six months of that
+entry into force (13 §) - so a lien note left out of the supply can cost the
+lienholder the protection itself, not merely a registration.
 
 **Anteckningar produce no rows, and that is the duty being met.** Förordning
 (2026:898) 2 kap. 7 § lists ten decisions and measures: utmätning, kvarstad,
@@ -213,7 +215,7 @@ discover it.
   is the standing per-event duty the obligation ledger carries. An apartment
   whose tenant-ownership has ceased appears here with no `HOLDER` row.
 - **A released lien note.** A pantsättning that no longer applies is deregistered by
-  the panthavare (Lag (2026:484) 3 kap. 8 §), and a released note had no
+  the lienholder (Lag (2026:484) 3 kap. 8 §), and a released note had no
   sakrättsligt skydd for Lag (2026:485) 11 § to preserve.
 
 ## Where the contract lives in the code
