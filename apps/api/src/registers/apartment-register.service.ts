@@ -441,14 +441,7 @@ export class ApartmentRegisterService {
   }): Promise<ApartmentRegisterTermination> {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id: input.apartmentId },
-      // The designation as well as the id: the notice below names the apartment
-      // the deadline is about, and reading it after the commit would be a second
-      // read of a row this one already has.
-      select: {
-        id: true,
-        number: true,
-        address: { select: { street: true, number: true } },
-      },
+      select: { id: true },
     });
     if (apartment === null) {
       throw new ApartmentRegisterError(
@@ -533,19 +526,7 @@ export class ApartmentRegisterService {
   }): Promise<ApartmentRegisterTransfer> {
     const existing = await this.prisma.transfer.findUnique({
       where: { id: input.transferId },
-      select: {
-        id: true,
-        apartmentId: true,
-        membershipDecidedOn: true,
-        // The designation, for the notice below, on the reading recordTermination
-        // gives: the row is already being read here.
-        apartment: {
-          select: {
-            number: true,
-            address: { select: { street: true, number: true } },
-          },
-        },
-      },
+      select: { id: true, apartmentId: true, membershipDecidedOn: true },
     });
     if (existing === null) {
       throw new ApartmentRegisterError(

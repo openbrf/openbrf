@@ -108,9 +108,9 @@ every enumerated field an instance does not hold with the reason - so
 transforming this into the prescribed form, when there is one, is a mapping
 against a stable contract rather than a second reading of the statute.
 
-Two things about the content are worth naming. **Pantsättningar are in the supply
-although they open no obligation in the ledger**: the standing duty to report a
-lien is the panthavare's (Lag (2026:484) 3 kap. 5 §), while Lag (2026:485) 3 §
+Two things about the content are worth naming. **Pantsättningar are inside the
+supply duty although they open no reporting obligation**: the standing per-event
+duty to report a lien is the panthavare's (Lag (2026:484) 3 kap. 5 §), while Lag (2026:485) 3 §
 puts the initial supply of the ones already noted on the association, and 13 § of
 that act makes a panträtt predating the register keep its sakrättsliga skydd only
 if it was supplied. And **a holder with skyddade personuppgifter has their address

@@ -1530,7 +1530,7 @@
         "open": "Record the report",
         "openLabel": "Record the report for {{apartment}}",
         "heading": "Record that the report for {{apartment}} was made",
-        "hint": "The day a complete anmälan reached Lantmäteriet. That is the day the registration counts from, not the day the board prepared it.",
+        "hint": "The day a complete report reached Lantmäteriet. That is the day the registration counts from, not the day the board prepared it.",
         "appendOnly": "This is written to the audit log with your name and cannot be edited or removed afterwards. Check the date before you record it.",
         "reportedOn": "Reported on",
         "submit": "Record it",

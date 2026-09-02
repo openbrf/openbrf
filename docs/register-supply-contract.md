@@ -49,12 +49,15 @@ association "är skyldig att ha antecknade eller har tillgång till" them.
 
 Two consequences worth naming.
 
-**Lien notes are in this file, although they open no obligation in the ledger.** The
-two are different duties. The standing per-event duty to report a pantsättning
-falls on the panthavare and not on the association (Lag (2026:484) 3 kap. 5 §,
-6 § and 8 §), which is why `RegisterReportObligation` has no lien kind. The
-initial supply is the association's, it names pantsättningar explicitly, and the
-consequence of leaving one out is not administrative: Lag (2026:485) 11 § has a
+**Lien notes are inside the supply duty although they open no reporting
+obligation.** The two are different duties and the glossary keeps them apart. A
+reporting obligation (anmälningsskyldighet) is the standing per-event duty under
+Lag (2026:484) 3 kap., and the one for a pantsättning falls on the panthavare
+rather than on the association (3 kap. 5 §, 6 § and 8 §) - which is why
+`RegisterReportObligation` has no lien kind and why a lien note opens nothing in
+that ledger. The supply duty (uppgiftsskyldighet) is the association's own, it
+names pantsättningar explicitly, and the consequence of leaving one out is not
+administrative: Lag (2026:485) 11 § has a
 panträtt with sakrättsligt skydd from before the act registered as a noterad
 pant when it is supplied, and 13 § makes such a panträtt keep that skydd only if
 it reached Lantmäteriet within six months of the act coming into force.

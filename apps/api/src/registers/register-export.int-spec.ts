@@ -1059,9 +1059,10 @@ describe("the initial supply", () => {
   });
 
   it("carries the lien notes that still stand and leaves out a released one", async () => {
-    // Pantsattningar are in the initial supply although they open no obligation:
-    // the standing duty is the panthavare's (Lag (2026:484) 3 kap. 5 §) while
-    // Lag (2026:485) 3 § puts the initial supply of them on the association.
+    // Pantsattningar are inside the supply duty although they open no reporting
+    // obligation: the standing per-event duty is the panthavare's (Lag (2026:484)
+    // 3 kap. 5 §), while Lag (2026:485) 3 § puts the association's own one-off
+    // supply of them on the association.
     const supply = await produce();
     const creditors = rowsOf(supply, "LIEN").map((row) => row.lienCreditor);
 
