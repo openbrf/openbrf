@@ -10,12 +10,16 @@ import {
   localDayOfColumn,
 } from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+// The namespace as a value, not only as a type: the create below reads a Prisma
+// error code off it.
+import { Prisma } from "../generated/prisma/client";
 import {
   isCurrentMembership,
+  type MemberRegisterEvent,
   membershipPeriods,
   resolveRegisterEvents,
 } from "../registers/membership-periods";
+import { lockMeetingAgenda } from "./agenda-lock";
 import { NOTICE_DELIVERY_FAILURES } from "./meeting-notice-delivery";
 import { MeetingNoticeMailerService } from "./meeting-notice-mailer.service";
 import { MeetingError } from "./meeting.error";
@@ -76,24 +80,27 @@ const NOTICE_COLUMNS = {
 /**
  * The columns the recipient snapshot reads out of the member register archive.
  *
- * `resolveRegisterEvents` takes the whole row shape, so every column it names is
- * selected. Nothing here prints the recorded name or address: they are read
- * because the correction chain is followed through the rows themselves.
+ * Six, which is what {@link MemberRegisterEvent} asks for: who the row is
+ * about, which event it is, when it happened, when it was written, and the
+ * identifiers the correction chain is followed through. The question here is
+ * only which persons the register shows as members on the day the notice is
+ * issued, and that is answered without reading a single recorded name or
+ * address.
+ *
+ * Narrow on purpose rather than by accident. This is the association's
+ * statutory member register, which holds the recorded name and postal address
+ * of everyone who has ever been a member, and every row of it is read to answer
+ * this question - so a selection wider than the answer needs would carry that
+ * whole archive into the process on every notice.
  */
 const REGISTER_COLUMNS = {
   id: true,
   personId: true,
-  apartmentId: true,
   eventType: true,
   eventOn: true,
-  recordedFirstName: true,
-  recordedLastName: true,
-  recordedPostalStreet: true,
-  recordedPostalCode: true,
-  recordedPostalCity: true,
   correctsEntryId: true,
   createdAt: true,
-} as const;
+} as const satisfies Record<keyof MemberRegisterEvent, true>;
 
 /**
  * The notice (kallelse) that summons a general meeting, and the ledger of whom
@@ -194,6 +201,11 @@ export class MeetingNoticeService {
    * changes nothing about the notice: the meeting has been summoned, and one
    * unreachable address is a fact for the board to act on rather than a reason
    * to un-summon everybody else.
+   *
+   * The agenda lock is taken first, because issuing the notice is what freezes
+   * the agenda and the two writers that read that freeze - `setAgenda` and the
+   * link from a motion to this meeting - decide on a read of this very row. See
+   * `agenda-lock.ts`.
    */
   async issue(
     meetingId: string,
@@ -206,6 +218,10 @@ export class MeetingNoticeService {
 
     const { notice, recipients } = await this.prisma.$transaction(
       async (tx) => {
+        // Before the meeting is read, which is the whole of what the lock is
+        // worth: taken afterwards it would leave the window it exists to close.
+        await lockMeetingAgenda(tx, meetingId);
+
         const meeting = await tx.meeting.findUnique({
           where: { id: meetingId },
           select: {
@@ -243,15 +259,12 @@ export class MeetingNoticeService {
           meeting.heldOn,
         );
 
-        const created = await tx.meetingNotice.create({
-          data: {
-            meetingId,
-            startsAt,
-            place: input.place,
-            digitalParticipation: input.digitalParticipation,
-            issuedByPersonId: actorPersonId,
-          },
-          select: NOTICE_COLUMNS,
+        const created = await this.createNotice(tx, {
+          meetingId,
+          startsAt,
+          place: input.place,
+          digitalParticipation: input.digitalParticipation,
+          issuedByPersonId: actorPersonId,
         });
 
         const summoned = await this.membersOn(tx, localDayOf(created.issuedAt));
@@ -345,6 +358,53 @@ export class MeetingNoticeService {
           .map((one) => one.personId),
       },
     };
+  }
+
+  /**
+   * Writes the notice row, and answers its unique key in words.
+   *
+   * `meeting_notice_meetingId_key` is what makes one notice per meeting true,
+   * and the check above it is what makes the refusal a sentence. The lock means
+   * two requests no longer reach the insert together, but the index stays the
+   * last line of defence - it is the only thing that holds if a writer is ever
+   * added that forgets the lock - and its refusal has to be worded rather than
+   * escape as a client error the board's screen has no answer for.
+   *
+   * The same reason and the same wording as the check: EFL 6 kap. 25 § gives
+   * the remedy for a notice that went wrong, and it is a further meeting with a
+   * notice of its own rather than a second notice repairing the first.
+   */
+  private async createNotice(
+    tx: Prisma.TransactionClient,
+    data: {
+      meetingId: string;
+      startsAt: Date;
+      place: string;
+      digitalParticipation: string | null;
+      issuedByPersonId: string;
+    },
+  ): Promise<{
+    id: string;
+    startsAt: Date;
+    place: string;
+    digitalParticipation: string | null;
+    issuedAt: Date;
+    issuedByPersonId: string;
+  }> {
+    try {
+      return await tx.meetingNotice.create({ data, select: NOTICE_COLUMNS });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        throw new MeetingError(
+          "This meeting has already been summoned.",
+          "notice-already-issued",
+        );
+      }
+      throw error;
+    }
   }
 
   /**

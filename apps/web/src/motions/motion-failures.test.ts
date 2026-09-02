@@ -72,4 +72,22 @@ describe("the sentence a refusal maps to", () => {
       "settings.errors.forbidden",
     );
   });
+
+  it("tells the board a lost link race apart from a closed motion", () => {
+    /*
+     * Two conflicts with two different things to do about them. A closed motion
+     * has nothing left to do to it; an item another board member moved while
+     * this one was looking at the queue is exactly as open as it was, and what
+     * they have to do is read the queue again. One sentence for both would send
+     * somebody looking for a state the motion is not in.
+     */
+    const conflict = (reason: string): ApiFailure => ({ status: 409, reason });
+
+    expect(motionFailureKey(conflict("meeting-changed-meanwhile"))).toBe(
+      "motions.errors.meetingChangedMeanwhile",
+    );
+    expect(motionFailureKey(conflict("already-closed"))).toBe(
+      "motions.errors.alreadyClosed",
+    );
+  });
 });

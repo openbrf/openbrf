@@ -54,6 +54,7 @@ export class MotionError extends DomainError {
       | "meeting-not-found"
       | "meeting-already-held"
       | "meeting-notice-issued"
+      | "meeting-changed-meanwhile"
       | "personal-identity-number",
     private readonly locations: readonly MotionTextLocation[] = [],
   ) {
@@ -123,11 +124,22 @@ function statusFor(reason: MotionError["reason"]): number {
        * exercising somebody else's right.
        *
        * A meeting that has been held has dealt with what it was summoned to deal
-       * with, and one whose notice has gone out has had that settled: EFL 6 kap.
-       * 25 § leaves a meeting unable to decide a matter its notice did not take
-       * up without the consent of every member the failure affects, so an item
-       * attached after the notice would claim the meeting could deal with
+       * with, and one whose notice has been issued has had that settled: EFL 6
+       * kap. 25 § leaves a meeting unable to decide a matter its notice did not
+       * take up without the consent of every member the failure affects, so an
+       * item attached after the notice would claim the meeting could deal with
        * something the members were never called to.
+       */
+      return HttpStatus.CONFLICT;
+
+    case "meeting-changed-meanwhile":
+      /*
+       * A conflict of the same kind, and deliberately not `already-closed`.
+       * Another board member moved this item while the caller was looking at
+       * it, so the write was refused against the link the caller had read - the
+       * motion is exactly as open as it was, and telling somebody it is closed
+       * would send them looking for a state it is not in. What they have to do
+       * is read the queue again and decide against what it now says.
        */
       return HttpStatus.CONFLICT;
 

@@ -16,7 +16,7 @@ import { MAIL_COLORS, MailLayout } from "./layout";
 export type MeetingNoticeMailKind = "ORDINARY" | "EXTRAORDINARY";
 
 /**
- * What kind of meeting it is, in the recipient's language.
+ * What kind of meeting it is, as a heading and as a subject line.
  *
  * The screens' own keys rather than a second pair under `email`. This is one
  * term, and translating it twice is how the notice and the meeting screen come
@@ -31,6 +31,29 @@ function kindText(
       return t("meetings.kind.ORDINARY");
     case "EXTRAORDINARY":
       return t("meetings.kind.EXTRAORDINARY");
+  }
+}
+
+/**
+ * The same kind of meeting, inside a sentence.
+ *
+ * A second label rather than {@link kindText} reused, because the screens' term
+ * is a heading: it is capitalised and carries no article, and both are wrong in
+ * running text. English needs an article before either kind and needs the term
+ * lowercase; Swedish needs no article and also needs it lowercase, because a
+ * common noun mid-sentence is not capitalised there either. So the article
+ * travels with the label and the sentence around it states none, which is the
+ * only arrangement that lets each language answer for itself.
+ */
+function kindInSentence(
+  kind: MeetingNoticeMailKind,
+  { t }: MailTemplateContext,
+): string {
+  switch (kind) {
+    case "ORDINARY":
+      return t("email.meetingNotice.bodyKind.ORDINARY");
+    case "EXTRAORDINARY":
+      return t("email.meetingNotice.bodyKind.EXTRAORDINARY");
   }
 }
 
@@ -106,7 +129,7 @@ export const meetingNoticeMail: MailTemplate<MeetingNoticeMailProps> = {
         <Text style={line}>
           {t("email.meetingNotice.body", {
             association: brand.associationName,
-            kind,
+            kind: kindInSentence(props.kind, context),
           })}
         </Text>
 

@@ -88,7 +88,7 @@ function statusFor(reason: MeetingError["reason"]): number {
        * A conflict of the same kind, and the one with the most consequence.
        * The notice is what settles which matters a meeting may deal with -
        * EFL 6 kap. 25 § leaves the meeting unable to decide one the notice did
-       * not take up - so once it has gone out the agenda is fixed and a second
+       * not take up - so once it has been issued the agenda is fixed and a second
        * notice is not the remedy that section gives.
        */
       return HttpStatus.CONFLICT;

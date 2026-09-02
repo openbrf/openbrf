@@ -27,7 +27,7 @@ import type { MeetingSummaryView, MeetingView } from "./meeting.service";
  * behaviour.
  *
  * A notice states the matters to be dealt with (EFL 6 kap. 22 §), so a meeting
- * with no agenda cannot be summoned, and once the notice has gone out the agenda
+ * with no agenda cannot be summoned, and once the notice has been issued the agenda
  * is what it stated: setting it again is refused, because EFL 6 kap. 25 § leaves
  * a meeting unable to decide a matter the notice did not take up.
  *
@@ -41,7 +41,7 @@ import type { MeetingSummaryView, MeetingView } from "./meeting.service";
  * act on.
  *
  * A motion may be put to a meeting while that meeting is still being arranged,
- * and not afterwards: not to one whose notice has gone out, and not to one
+ * and not afterwards: not to one whose notice has been issued, and not to one
  * recorded as held.
  *
  * And the audiences are split at the controller: the board reaches both routes,
@@ -243,6 +243,45 @@ async function ownLedger(noticeId: string) {
     where: { noticeId, personId: { in: personIds } },
     orderBy: { personId: "asc" },
   });
+}
+
+/**
+ * How many transactions hold, or are queued behind, this meeting's agenda key.
+ *
+ * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
+ * halves of a bigint, which is what the shifting reassembles. The key is spelled
+ * out here rather than imported, so a writer that quietly changed it would fail
+ * this assertion instead of passing under a new name.
+ */
+async function agendaLockCount(
+  meetingId: string,
+  granted: boolean,
+): Promise<bigint> {
+  const key = `meeting-agenda:${meetingId}`;
+  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+    SELECT count(*) AS locks
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND granted = ${granted}
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return row?.locks ?? 0n;
+}
+
+/** Polls until the condition holds, or gives up so a failure is a failure. */
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("The condition did not hold within the time allowed.");
 }
 
 let boardCookie = "";
@@ -602,7 +641,7 @@ describe("issuing the notice", () => {
    * not take up without the consent of every member the failure affects, so what
    * the notice stated and what the meeting may deal with have to stay one list.
    */
-  it("refuses a rewrite of the agenda once the notice has gone out", async () => {
+  it("refuses a rewrite of the agenda once the notice has been issued", async () => {
     const meetingId = await arrangeMeeting(["Stammans oppnande"]);
     expect((await issueNotice(meetingId)).statusCode).toBe(201);
 
@@ -628,6 +667,78 @@ describe("issuing the notice", () => {
       "Stammans oppnande",
     ]);
     expect(meeting.notice?.deliveries.pending).toBeGreaterThan(0);
+  });
+
+  /**
+   * The same refusal against a notice issued while the rewrite is already in
+   * flight.
+   *
+   * The agenda is a delete and an insert on a table of its own, and the notice
+   * is one row on another, so at READ COMMITTED neither transaction collides
+   * with the other: a rewrite that read "no notice yet" would replace the items
+   * a notice committing a moment later had already summoned the members to, and
+   * nothing in the database would refuse it. The board would then hold a list
+   * EFL 6 kap. 25 § leaves the meeting unable to decide on.
+   *
+   * Driven the way the link's own interleaving test is: the key is held by a
+   * transaction of this test's own, and the wait is read out of `pg_locks`
+   * rather than inferred from a delay.
+   */
+  it("refuses a rewrite against a notice issued while it was in flight", async () => {
+    const meetingId = await arrangeMeeting(["Stammans oppnande"]);
+
+    let releaseHolder = (): void => {
+      /* replaced below */
+    };
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`meeting-agenda:${meetingId}`}))`;
+        await tx.meetingNotice.create({
+          data: {
+            meetingId,
+            startsAt: new Date(`${MEETING_DAY_TEXT}T16:30:00.000Z`),
+            place: "Foreningslokalen",
+            digitalParticipation: null,
+            issuedByPersonId: board.personId,
+          },
+        });
+        await holderDone;
+      },
+      // The reasoning on the link's interleaving test, and the same numbers.
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(async () => (await agendaLockCount(meetingId, true)) > 0n);
+
+      const pending = inject({
+        method: "PUT",
+        url: `/api/meetings/${meetingId}/agenda`,
+        payload: { items: [{ title: "Nagot helt annat" }] },
+        headers: { cookie: boardCookie },
+      });
+      await waitFor(async () => (await agendaLockCount(meetingId, false)) > 0n);
+
+      releaseHolder();
+      await holder;
+
+      const response = await pending;
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "notice-already-issued",
+      );
+      const items = await prisma.agendaItem.findMany({
+        where: { meetingId },
+        select: { title: true },
+      });
+      expect(items.map((item) => item.title)).toEqual(["Stammans oppnande"]);
+    } finally {
+      releaseHolder();
+    }
   });
 
   /**
@@ -766,7 +877,7 @@ describe("the meeting a motion is taken up at", () => {
    * would leave the platform silent about an item the notice stated. Both are
    * refused.
    */
-  it("refuses a meeting whose notice has gone out, and refuses to leave one", async () => {
+  it("refuses a meeting whose notice has been issued, and refuses to leave one", async () => {
     const summoned = await arrangeMeeting();
     const later = await arrangeMeeting();
     const attached = await submitMotion("Hyra ut lokalen");
@@ -795,6 +906,92 @@ describe("the meeting a motion is taken up at", () => {
       select: { meetingId: true },
     });
     expect(stored?.meetingId).toBe(summoned);
+  });
+
+  /**
+   * The refusal above holds against a notice issued while the request is
+   * already in flight, which is the only property here that needs two
+   * transactions interleaved.
+   *
+   * Everything runs at READ COMMITTED. A link that read "no notice yet" and
+   * then wrote would attach an item to a meeting whose agenda a notice
+   * committing a moment later had already frozen, and nothing in the database
+   * would refuse it: the notice is a row in one table and the link is a column
+   * on another. EFL 6 kap. 25 § then leaves the meeting unable to decide that
+   * matter, so the platform would be holding an item the members were never
+   * summoned to - and the board would have been told the item was on the
+   * agenda.
+   *
+   * Driven by holding the agenda key in a transaction of this test's own, which
+   * writes the notice and waits, so the link has to queue behind it. The wait is
+   * read out of `pg_locks` rather than inferred from a delay, so a link that
+   * blocked and one that sailed past the key are told apart by what the
+   * database says - and racing two requests instead would pass with no lock at
+   * all whenever the two happened not to interleave, which is most of the time.
+   */
+  it("refuses a notice issued while the link was already in flight", async () => {
+    const meetingId = await arrangeMeeting();
+    const motionId = await submitMotion("Skotsel av garden");
+
+    let releaseHolder = (): void => {
+      /* replaced below */
+    };
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    // A transaction that takes the agenda key, issues the notice, and waits.
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`meeting-agenda:${meetingId}`}))`;
+        await tx.meetingNotice.create({
+          data: {
+            meetingId,
+            startsAt: new Date(`${MEETING_DAY_TEXT}T16:30:00.000Z`),
+            place: "Foreningslokalen",
+            digitalParticipation: null,
+            issuedByPersonId: board.personId,
+          },
+        });
+        await holderDone;
+      },
+      /*
+       * Longer than the wait below is willing to spend. An interactive
+       * transaction defaults to five seconds, and this one is held open on
+       * purpose while the link queues behind its key - so on the default it
+       * would abort before the test let it go, the lock would be released by the
+       * rollback, and the link would sail through and be written. The assertion
+       * would then fail as though the freeze had not been honoured. The same
+       * numbers as the other interleaving tests in this repository.
+       */
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(async () => (await agendaLockCount(meetingId, true)) > 0n);
+
+      // The link starts now and must block on the key rather than read past it.
+      const pending = setMotionMeeting(motionId, meetingId);
+      await waitFor(async () => (await agendaLockCount(meetingId, false)) > 0n);
+
+      releaseHolder();
+      await holder;
+
+      // Answered only after the notice committed, and answered by the refusal
+      // rather than by a link written after the agenda was settled.
+      const response = await pending;
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "meeting-notice-issued",
+      );
+      const stored = await prisma.motion.findUnique({
+        where: { id: motionId },
+        select: { meetingId: true },
+      });
+      expect(stored?.meetingId).toBeNull();
+    } finally {
+      releaseHolder();
+    }
   });
 
   it("refuses a meeting recorded as held", async () => {

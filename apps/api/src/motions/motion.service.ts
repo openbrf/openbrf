@@ -10,6 +10,7 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { MeetingKind, MotionStatus } from "../generated/prisma/enums";
+import { lockMeetingAgendasInOrder } from "../meetings/agenda-lock";
 import {
   type MotionDeadlineView,
   motionDeadlineView,
@@ -242,7 +243,7 @@ export class MotionService {
    *
    * Only while it is open. Once the board has recorded that it received the
    * motion, taking it back is a matter for the board and the meeting rather than
-   * a button - the item may already be in a notice that has gone out.
+   * a button - the item may already be in a notice that has been issued.
    *
    * Scoped to the caller's own motions in the same query that finds it, so a
    * motion belonging to somebody else answers exactly as one that does not
@@ -359,8 +360,8 @@ export class MotionService {
    * makes the notice state the matters to be dealt with - so this is the board
    * answering "which meeting", and the notice is what settles the answer.
    *
-   * Which is why it is refused once that notice has gone out. EFL 6 kap. 25 §
-   * leaves the meeting unable to decide a matter the notice did not take up
+   * Which is why it is refused once that notice has been issued. EFL 6 kap.
+   * 25 § leaves the meeting unable to decide a matter the notice did not take up
    * without the consent of every member the failure affects, so a motion
    * attached afterwards would claim the meeting could deal with something the
    * members were never called to - and one detached afterwards would leave the
@@ -371,9 +372,12 @@ export class MotionService {
    * withdrawn motion is refused on different ground: the right is the member's
    * to exercise and taking it back is theirs too.
    *
-   * One transaction, with the update conditional on the link the caller read. Two
-   * board members putting one item to two meetings therefore produce one link,
-   * and the loser is answered exactly as a read would have answered them.
+   * One transaction, under the agenda lock of every meeting it decides about,
+   * with the update conditional on the link the caller read. The lock is what
+   * makes the refusal above a decision rather than a read a notice can
+   * invalidate a moment later; the condition is what makes two board members
+   * putting one item to two meetings produce one link, with the loser answered
+   * exactly as a read would have answered them.
    */
   async setMeeting(
     motionId: string,
@@ -400,6 +404,20 @@ export class MotionService {
         );
       }
 
+      /*
+       * Both meetings, and before either is read. Sorted by the helper, because
+       * a move holds two keys and two moves in opposite directions between one
+       * pair of meetings would otherwise take them in opposite orders. Nothing
+       * is taken when the motion is on no meeting and is being put to none:
+       * there is no agenda for that request to decide about.
+       */
+      await lockMeetingAgendasInOrder(
+        tx,
+        [existing.meetingId, meetingId].filter(
+          (id): id is string => id !== null,
+        ),
+      );
+
       if (existing.meetingId !== null) {
         await this.requireMeetingOpen(tx, existing.meetingId);
       }
@@ -416,7 +434,7 @@ export class MotionService {
       if (count === 0) {
         throw new MotionError(
           "This motion has meanwhile been put to a different meeting.",
-          "already-closed",
+          "meeting-changed-meanwhile",
         );
       }
 
@@ -502,14 +520,23 @@ export class MotionService {
   /**
    * Refuses a meeting whose items are no longer the board's to change.
    *
-   * Read inside the caller's transaction, so the notice cannot be issued between
-   * this check and the write it guards.
+   * Read under the meeting's agenda lock, which the caller takes before this
+   * runs. Being inside the caller's transaction is not what makes the answer
+   * hold: everything runs at READ COMMITTED, so a notice committing after this
+   * read and before the write it guards would be invisible here and the write
+   * would land anyway - a motion attached to a meeting whose agenda was already
+   * frozen, with nothing in the database refusing it, because the notice is a
+   * row in another table. The lock in `meetings/agenda-lock.ts` is the only
+   * thing that closes that window, and it closes it only while every writer
+   * takes the same key.
    *
-   * The meeting is read straight from the database rather than through the
-   * meetings module's own service, which keeps this module importing nothing:
-   * the two facts needed here - whether the meeting has been held, and whether
-   * its notice has gone out - are columns, and asking for them through another
-   * module's service would make the motion queue depend on the whole of it.
+   * Which is why this module imports one function from the meetings module. The
+   * two facts needed here - whether the meeting has been held, and whether its
+   * notice has been issued - are still columns read straight from the database
+   * rather than through that module's service, so the motion queue does not
+   * depend on the whole of it. What cannot be kept out is the key: a second
+   * spelling of it here would be two locks that never meet, which is the one
+   * mistake this lock cannot survive.
    */
   private async requireMeetingOpen(
     tx: Prisma.TransactionClient,

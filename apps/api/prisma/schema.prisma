@@ -3083,7 +3083,7 @@ enum MotionStatus {
 /// attached afterwards would say the meeting dealt with something it was never
 /// summoned to deal with. Both refusals are in `MotionService`.
 ///
-/// The board may still receive a motion after the notice has gone out, and a
+/// The board may still receive a motion after the notice has been issued, and
 /// motion no meeting has taken up is the ordinary state rather than an error -
 /// which is what the null means and why there is no default.
 model Motion {

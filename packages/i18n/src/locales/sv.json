@@ -33,6 +33,10 @@
       "subject": "{{kind}} den {{date}} - {{association}}",
       "preview": "{{kind}} den {{date}}",
       "body": "Styrelsen i {{association}} kallar härmed medlemmarna till {{kind}}.",
+      "bodyKind": {
+        "ORDINARY": "ordinarie föreningsstämma",
+        "EXTRAORDINARY": "extra föreningsstämma"
+      },
       "when": "Tid: {{date}} kl. {{time}}",
       "where": "Plats: {{place}}",
       "digital": "Så deltar och röstar du: {{instructions}}",
@@ -2582,6 +2586,7 @@
       "notAMember": "Att lämna in ett ärende till föreningsstämman är en medlems rätt, och det här kontot har ingen bostadsrätt i föreningen.",
       "motionNotFound": "Motionen finns inte längre. Listan har lästs om.",
       "alreadyClosed": "Motionen är inte längre öppen, så det finns inget att göra med den.",
+      "meetingChangedMeanwhile": "Någon har under tiden tagit upp motionen på en annan stämma. Kön har lästs om.",
       "personalIdentityNumber": "Motionen innehåller ett personnummer och kan inte sparas. En motion läses upp på stämman och tas upp i kallelsen, så ta bort det ur:",
       "invalidBody": "Motionen behöver en rubrik och ett förslag, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."

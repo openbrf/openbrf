@@ -32,7 +32,11 @@
     "meetingNotice": {
       "subject": "{{kind}} on {{date}} - {{association}}",
       "preview": "{{kind}} on {{date}}",
-      "body": "The board of {{association}} hereby summons the members to a {{kind}}.",
+      "body": "The board of {{association}} hereby summons the members to {{kind}}.",
+      "bodyKind": {
+        "ORDINARY": "an ordinary general meeting",
+        "EXTRAORDINARY": "an extraordinary general meeting"
+      },
       "when": "Time: {{date}} at {{time}}",
       "where": "Place: {{place}}",
       "digital": "Taking part and voting: {{instructions}}",
@@ -2582,6 +2586,7 @@
       "notAMember": "Putting an item to the general meeting is a member's right, and this account holds no tenant-ownership in the association.",
       "motionNotFound": "That motion is gone. The list has been read again.",
       "alreadyClosed": "That motion is no longer open, so there is nothing to do to it.",
+      "meetingChangedMeanwhile": "Somebody has meanwhile put this motion to a different meeting. The queue has been read again.",
       "personalIdentityNumber": "The motion carries a personal identity number and cannot be stored. A motion is read out at the meeting and goes into the notice, so remove it from:",
       "invalidBody": "The motion needs a heading and a proposal, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."

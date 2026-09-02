@@ -18,6 +18,7 @@ import type {
   RepresentativeGround,
 } from "../generated/prisma/enums";
 import { resolveRegisterEvents } from "../registers/membership-periods";
+import { lockMeetingAgenda } from "./agenda-lock";
 import {
   type MeetingBylaws,
   readMeetingBylaws,
@@ -109,8 +110,8 @@ export interface MeetingView extends MeetingSummaryView {
    * The notice that summons the meeting, or null while none has been issued.
    *
    * In this answer rather than fetched on its own, because it decides whether
-   * the rest of the screen may still be edited at all: once the notice has gone
-   * out the agenda is the record of what the meeting was summoned to deal with
+   * the rest of the screen may still be edited at all: once the notice has been
+   * issued the agenda is the record of what the meeting was summoned to deal with
    * and no longer a plan, and a board offered a form the server will refuse has
    * been told the wrong thing.
    */
@@ -373,6 +374,11 @@ export class MeetingService {
    * member the failure affects. So the notice is what settles the agenda, and
    * these rows are what it stated: rewriting them afterwards would leave the
    * platform holding a list the members were never summoned to.
+   *
+   * That second refusal is a read before a write, and it is taken under the
+   * agenda lock for the reason `agenda-lock.ts` gives: a notice committing
+   * between the read and the rewrite would summon the members to a list this
+   * transaction then replaced, and nothing in the database would refuse it.
    */
   async setAgenda(
     meetingId: string,
@@ -380,6 +386,8 @@ export class MeetingService {
     actorPersonId: string,
   ): Promise<AgendaItemView[]> {
     return this.prisma.$transaction(async (tx) => {
+      await lockMeetingAgenda(tx, meetingId);
+
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
       this.refuseIfSummoned(meeting);

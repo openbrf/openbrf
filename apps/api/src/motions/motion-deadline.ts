@@ -29,7 +29,7 @@ import {
  * is a notice date, and this setting is not where one lives: the notice a meeting
  * is summoned by carries its own date, and whether an item was in time for it is
  * answered by whether the board put the motion to that meeting before the notice
- * went out. So intake stays open and the board decides what it can still get into
+ * was issued. So intake stays open and the board decides what it can still get into
  * the notice, which is what the first sentence leaves to it anyway - and the
  * refusal that does exist is on the link rather than on the intake.
  *

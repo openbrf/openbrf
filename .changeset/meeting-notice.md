@@ -68,15 +68,21 @@ one who has left the register.
 
 Electronic notices are lawful for a housing cooperative: **BRL 1 kap. 10 §
 applies the rules on information by electronic means in EFL 1 kap. 16 § to a
-bostadsrattsforening sending kallelser.** That paragraph attaches three
-conditions - the general meeting has resolved on it, the association has reliable
-routines for identifying the recipient together with reliable information on how
-to reach them, and the recipient has consented, which the second paragraph
-presumes where a request sent by post went unanswered for at least two weeks -
-and a consent may be withdrawn at any time. None of the three is a fact this
-platform decides, and none is claimed: the ledger records that the association
-sent the notice, which is the same line the proxy authorisation draws between the
-board seeing a signed document and the platform producing one. The time within
+bostadsrattsforening sending kallelser.** That paragraph's first stycke attaches
+three conditions - the general meeting has resolved on it, the association has
+reliable routines for identifying the recipient together with reliable
+information on how to reach them, and the recipient has consented. The second
+stycke presumes the consent of a recipient who has not objected within a time
+stated in a request sent by post, which must be at least two weeks from the day
+the request was sent and must state that future information may be given by the
+named electronic means unless they expressly object; the third lets a consent be
+withdrawn at any time. Only the first of the three is association-wide: the
+second is a routine rather than a record, and the third is per-recipient and
+revocable. None of the three is a fact this platform decides, and none is
+claimed: the ledger records that the association sent the notice, never that it
+was entitled to, which is the same line the proxy authorisation draws between
+the board seeing a signed document and the platform producing one. The time
+within
 which a notice is to be issued (EFL 6 kap. 17-18 §§) is stated and never
 enforced, because both sections let the bylaws move the latest date and this
 platform holds no such clause.
@@ -101,7 +107,25 @@ link is its own act with its own audit action, and the member who submitted the
 motion stays the subject of the entry, so what the board did with their item is
 answerable from their own data subject access report. Both views name the meeting
 and its day rather than giving an identifier, because a member holds no
-capability that would let them resolve one.
+capability that would let them resolve one. A request that loses the race for
+the link answers with a reason of its own rather than being told the motion is
+closed: it is exactly as open as it was, and what the board has to do is read
+the queue again.
+
+**The freeze is held by an advisory lock on the meeting**
+(`meetings/agenda-lock.ts`, keyed `meeting-agenda:<meetingId>`). Three writers
+read whether a notice exists and then write on the answer - issuing the notice,
+replacing the agenda, and linking a motion to a meeting or taking that link
+back - and at READ COMMITTED being inside a transaction is not the guarantee: a
+notice committing after the read and before the write is invisible to the
+reader, and the write lands. The three touch different tables, so nothing in
+the database refuses either outcome and both are silent. It is a second key
+rather than the proxy lock's, because who may exercise a member's vote has no
+bearing on which matters were summoned and one key for both would queue
+unrelated board work. A move holds the keys of both meetings, sorted, so two
+moves in opposite directions between one pair cannot deadlock. The unique key on
+`MeetingNotice.meetingId` stays the last line of defence and its refusal is now
+worded rather than escaping as a client error.
 
 Neither ledger table appears in the data subject access report, on the news
 delivery ledger's own precedent: what the report answers for is the meeting's
