@@ -135,6 +135,25 @@ Statutory references are to Förordning (2026:898) unless stated otherwise.
 | `lienCreditor`                   | `LIEN`                        | 2 kap. 6 § 1 1           | Panthavarens namn, as the association noted it.                                                                                                                                                                                                                                                                                                                                                                                               |
 | `lienNotedOn`                    | `LIEN`                        | -                        | Open BRF's own. The anteckningsdag in the association's own lägenhetsförteckning, which is not itself one of the register's fields but is what shows the lien existed before the act came into force (Lag (2026:485) 11 §).                                                                                                                                                                                                                   |
 
+### When the file is refused rather than produced
+
+Two of the association's own fields are refused on rather than left blank,
+because a supply that does not identify the association cannot discharge the
+duty at all - and produced anyway it leaves a download to mistake for a completed
+one.
+
+- **No association record.** Lag (2026:485) 3 § is a duty on a named
+  bostadsrättsförening.
+- **No organisationsnummer.** 2 kap. 4 § 2 registers it, övergångsbestämmelse 2
+  puts the whole of 4 § inside the initial duty, and 3 kap. 1 § makes it one of
+  the sökbegrepp the register is looked up by.
+
+The property designation is deliberately **not** refused on beside them. 4 §
+andra stycket makes fastighetsbeteckning conditional - reported in place of the
+lagfarts- och tomträttsinnehav only where the association's buildings stand on
+land it neither owns nor holds with tomträtt - so an absent one is a truthful
+answer where an absent organisationsnummer is not.
+
 ### A protected holder's address is not supplied
 
 A person with skyddade personuppgifter has an address the association may not

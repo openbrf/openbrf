@@ -1548,7 +1548,12 @@
         "produce": "Produce the initial supply",
         "producing": "Producing",
         "produced": "The file was produced. Producing it was written to the audit log.",
-        "failed": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
+        "refused": {
+          "forbidden": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
+          "association-not-set-up": "The association's own record is missing, so the file would identify nobody. Complete the setup first.",
+          "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it on the apartment register screen first.",
+          "unexpected": "The initial supply could not be produced just now. Please try again."
+        },
         "download": "Save the file",
         "counts": "{{apartments}} apartments, {{holders}} holders, {{liens}} lien notes",
         "recordType": {

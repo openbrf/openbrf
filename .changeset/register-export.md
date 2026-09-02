@@ -76,9 +76,17 @@ as that rather than as a download: nothing is produced until somebody presses th
 button, the entry names every person whose number the file carried, every column
 it has and how many rows of each kind, and a `PROTECTED_DATA_REVEALED` entry goes
 in beside it so that "who has seen these identity numbers" stays answerable from
-one action across the whole product. The supply is refused outright where the
-association has not been set up: a file that identifies nobody is not a smaller
-supply but one that cannot discharge the duty.
+one action across the whole product.
+
+The supply is refused outright where the association cannot be identified in it -
+no association record, or no organisationsnummer, which Förordning (2026:898)
+2 kap. 4 § 2 registers and 3 kap. 1 § makes one of the sökbegrepp the register is
+looked up by. A file that identifies nobody is not a smaller supply but one that
+cannot discharge the duty, and produced anyway it leaves a download to mistake
+for a completed one. The property designation is deliberately not refused on
+beside them, because 4 § andra stycket makes it conditional and an absent one is
+a truthful answer. The screen names which detail is missing, since two of the
+three refusals are the board's own to fix.
 
 An audit entry naming everybody an act covered is what makes the act
 accountable, and the data subject access report prints an entry's context to the

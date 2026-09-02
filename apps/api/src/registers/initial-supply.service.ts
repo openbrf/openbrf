@@ -74,8 +74,12 @@ import {
  * made.
  */
 
+/** Why the association's own record cannot support a supply yet. */
+export type InitialSupplyErrorReason =
+  "association-not-set-up" | "association-organization-number-missing";
+
 /**
- * The supply was asked for before the association was set up.
+ * The supply was asked for before the association could be identified in it.
  *
  * A conflict rather than a bad request, on the reading the apartment register's
  * property designation takes of the same absence: nothing about the request is
@@ -83,7 +87,12 @@ import {
  */
 export class InitialSupplyError extends DomainError {
   readonly status = 409;
-  readonly reason = "association-not-set-up";
+  override readonly reason: InitialSupplyErrorReason;
+
+  constructor(message: string, reason: InitialSupplyErrorReason) {
+    super(message);
+    this.reason = reason;
+  }
 }
 
 export interface InitialSupply {
@@ -243,7 +252,34 @@ export class InitialSupplyService {
        * otherwise record a disclosure that produced an unusable file and the
        * association would have a completed export to point at.
        */
-      throw new InitialSupplyError("The association has not been set up yet.");
+      throw new InitialSupplyError(
+        "The association has not been set up yet.",
+        "association-not-set-up",
+      );
+    }
+    const organizationNumber = (association.organizationNumber ?? "").trim();
+    if (organizationNumber === "") {
+      /*
+       * Refused for the same reason and separately, because the fix is a
+       * different one. Forordning (2026:898) 2 kap. 4 § 2 registers the
+       * forening's organisationsnummer, that forordning's overgangsbestammelse
+       * 2 puts the whole of 4 § inside the initial duty, and 3 kap. 1 § makes it
+       * one of the sokbegrepp the register is looked up by - so a supply without
+       * it names an association the receiving register cannot key on. The column
+       * is nullable because an instance is set up before the board has every
+       * identifier to hand, which is the state this refusal names rather than
+       * papers over.
+       *
+       * The property designation is deliberately not refused on beside it. 4 §
+       * andra stycket makes fastighetsbeteckning conditional - reported in place
+       * of the lagfarts- och tomtrattsinnehav only where the buildings stand on
+       * land the association neither owns nor holds with tomtratt - so an absent
+       * one is a truthful answer where an absent organisationsnummer is not.
+       */
+      throw new InitialSupplyError(
+        "The association has no organisation number recorded.",
+        "association-organization-number-missing",
+      );
     }
 
     const apartments = await tx.apartment.findMany({
@@ -313,7 +349,7 @@ export class InitialSupplyService {
       {
         recordType: "ASSOCIATION",
         associationName: association.name,
-        associationOrganizationNumber: association.organizationNumber ?? "",
+        associationOrganizationNumber: organizationNumber,
         associationPropertyDesignation: association.propertyDesignation ?? "",
       },
     ];

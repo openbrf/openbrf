@@ -691,8 +691,9 @@ change it.
     apartments is produced as a documented file plus a printable extract of the
     same rows, and it is the only place the platform writes a personnummer into a
     file - behind a capability of its own, with an audit entry naming every
-    person whose number it carried and every column it has, and with a protected
-    holder's address deliberately withheld
+    person whose number it carried and every column it has, with a protected
+    holder's address deliberately withheld, and refused outright where the
+    association has no record or no organisation number to be identified by
   - Pending: the report itself. Nothing here transmits anything to Lantmäteriet,
     and nothing can yet: the föreskrifter that Förordning (2026:898) 2 kap. 2 §
     and 5 kap. 1-2 §§ leave the technical interface to have not been issued, and

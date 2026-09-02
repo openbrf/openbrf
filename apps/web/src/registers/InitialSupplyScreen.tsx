@@ -85,21 +85,48 @@ function fileHref(csv: string): string {
   return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
 }
 
+/**
+ * Which refusal a board member is looking at.
+ *
+ * Three different things to do about it, so three messages rather than one. A
+ * permission the seat does not hold is somebody else's to grant; a missing
+ * association record or organisation number is theirs to fix, on a screen they
+ * can reach; anything else is a failure to report rather than to act on.
+ */
+type SupplyRefusal =
+  | "forbidden"
+  | "association-not-set-up"
+  | "association-organization-number-missing"
+  | "unexpected";
+
+function refusalOf(failure: {
+  status: number;
+  reason?: string;
+}): SupplyRefusal {
+  if (failure.status === 403) {
+    return "forbidden";
+  }
+  return failure.reason === "association-not-set-up" ||
+    failure.reason === "association-organization-number-missing"
+    ? failure.reason
+    : "unexpected";
+}
+
 export function InitialSupplyScreen(): ReactElement {
   const { t } = useTranslation();
   const [supply, setSupply] = useState<InitialSupply | null>(null);
   const [producing, setProducing] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [refused, setRefused] = useState<SupplyRefusal | null>(null);
 
   const produce = useCallback(async (): Promise<void> => {
     setProducing(true);
-    setFailed(false);
+    setRefused(null);
     const result = await produceInitialSupply();
     setProducing(false);
     if (result.ok) {
       setSupply(result.value);
     } else {
-      setFailed(true);
+      setRefused(refusalOf(result.failure));
     }
   }, []);
 
@@ -171,11 +198,11 @@ export function InitialSupplyScreen(): ReactElement {
           </a>
         )}
 
-        {failed ? (
+        {refused === null ? null : (
           <Notice tone="danger" live>
-            {t("registers.reports.supply.failed")}
+            {t(`registers.reports.supply.refused.${refused}`)}
           </Notice>
-        ) : null}
+        )}
       </div>
 
       {supply === null ? null : (

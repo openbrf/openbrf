@@ -208,6 +208,35 @@ describe("the produced document", () => {
   });
 });
 
+describe("an association that cannot yet be identified in the file", () => {
+  it("says which of its own details is missing, rather than reporting a fault", async () => {
+    /*
+     * Three refusals with three different things to do about them: a permission
+     * somebody else grants, and two details this board can record itself. One
+     * message for all of them would send a board looking for the wrong fix.
+     */
+    const session = userEvent.setup();
+    produceInitialSupply.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 409,
+        reason: "association-organization-number-missing",
+      },
+    });
+    render(<InitialSupplyScreen />);
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Ta fram det inledande uppgiftslämnandet",
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("organisationsnummer");
+    expect(alert.textContent).not.toContain("behörighet");
+  });
+});
+
 describe("a caller who may read the register but not supply it", () => {
   it("is told it needs a permission of its own", async () => {
     const session = userEvent.setup();

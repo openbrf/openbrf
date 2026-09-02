@@ -1548,7 +1548,12 @@
         "produce": "Ta fram det inledande uppgiftslämnandet",
         "producing": "Tar fram",
         "produced": "Filen togs fram. Att den togs fram skrevs till granskningsloggen.",
-        "failed": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
+        "refused": {
+          "forbidden": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
+          "association-not-set-up": "Föreningens egen post saknas, så filen skulle inte identifiera någon. Slutför uppstarten först.",
+          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det på lägenhetsförteckningens skärm först.",
+          "unexpected": "Det inledande uppgiftslämnandet kunde inte tas fram just nu. Försök igen."
+        },
         "download": "Spara filen",
         "counts": "{{apartments}} lägenheter, {{holders}} innehavare, {{liens}} pantnoteringar",
         "recordType": {

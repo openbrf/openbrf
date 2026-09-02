@@ -1231,6 +1231,85 @@ describe("the association's own record", () => {
   });
 });
 
+describe("the association's organisation number", () => {
+  it("is refused on rather than supplied blank", async () => {
+    /*
+     * Forordning (2026:898) 2 kap. 4 § 2 registers it, that forordning's
+     * overgangsbestammelse 2 puts the whole of 4 § inside the initial duty, and
+     * 3 kap. 1 § makes it one of the sokbegrepp the register is looked up by. So
+     * a file with the column blank names an association the receiving register
+     * cannot key on - and the column is nullable, because an instance is set up
+     * before the board has every identifier to hand.
+     */
+    const cookie = await signIn(actors.chair.email);
+    const recorded = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { organizationNumber: true },
+    });
+
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { organizationNumber: null },
+    });
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/register-reports/initial-supply",
+        payload: {},
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "association-organization-number-missing",
+      );
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { organizationNumber: recorded.organizationNumber },
+      });
+    }
+  });
+
+  it("does not refuse on a missing property designation, which may be absent", async () => {
+    /*
+     * 4 § andra stycket makes fastighetsbeteckning conditional - reported in
+     * place of the lagfarts- och tomtrattsinnehav only where the buildings stand
+     * on land the association neither owns nor holds with tomtratt - so an absent
+     * one is a truthful answer where an absent organisationsnummer is not.
+     */
+    const recorded = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { propertyDesignation: true },
+    });
+
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { propertyDesignation: null },
+    });
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/register-reports/initial-supply",
+        payload: {},
+        headers: { cookie: await signIn(actors.chair.email) },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const supply = JSON.parse(response.body) as InitialSupply;
+      const association = supply.rows.find(
+        (row) => row.recordType === "ASSOCIATION",
+      );
+      expect(association?.associationPropertyDesignation).toBe("");
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { propertyDesignation: recorded.propertyDesignation },
+      });
+    }
+  });
+});
+
 describe("the day a document is stamped with", () => {
   it("is the association's own, not the UTC one", async () => {
     /*
