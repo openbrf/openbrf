@@ -101,8 +101,9 @@ leave that document with the association, filed in its archive, which is what
 the motion module already says of a meeting's lasting record.
 
 A vote record arrives with no voter recorded and nothing writes into it. A
-closed ballot (sluten omrostning) is lawful on request and is the ordinary way
-an election is held, so it is a vote with no voter, and adding that column later
+closed ballot (sluten omrostning) is a vote with no voter. EFL neither requires
+one nor forbids one - the word does not occur in 2018:672 - so it is the
+meeting's own procedure rather than a right, and adding that column later
 would mean migrating a table the association's minutes are built from. Real-time
 voting is separate work.
 

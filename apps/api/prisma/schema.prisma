@@ -3718,9 +3718,10 @@ model ProxyAuthorisation {
 ///
 /// Reserved schema room, deliberately, and the nullable voter is why it is
 /// reserved now rather than added when something needs it. A meeting may resolve
-/// to vote by closed ballot (sluten omrostning), which is lawful on request and
-/// is the ordinary way an election is held, and a closed ballot is a vote with
-/// no voter to record. Adding that column later would mean migrating a table the
+/// to vote by closed ballot (sluten omrostning), and a closed ballot is a vote
+/// with no voter to record. EFL neither requires one nor forbids one - the word
+/// does not appear in 2018:672 - so it is the meeting's own procedure, and
+/// 6 kap. 39 § asks only that the protokoll state how the omrostning fell. Adding that column later would mean migrating a table the
 /// association's minutes are built from, so the shape that has to survive is the
 /// shape the table starts with. The null is the lawful case and not an
 /// unfinished one.
