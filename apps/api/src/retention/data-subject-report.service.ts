@@ -15,8 +15,10 @@ import { resolveRegisterEvents } from "../registers/membership-periods";
 import type {
   DataSubjectReport,
   ReportAuditEntry,
+  ReportMeetingAttendance,
   ReportNewsComment,
   ReportPostalAddress,
+  ReportProxyAuthorisation,
 } from "./data-subject-report";
 import {
   holdingPeriods,
@@ -58,6 +60,8 @@ const SECTIONS = [
   "motions",
   "eventSignups",
   "newsComments",
+  "meetingAttendances",
+  "proxyAuthorisations",
   "auditEntries",
 ] as const;
 
@@ -129,6 +133,16 @@ const SECTIONS = [
  * foot of the document is not the date that governs any of them, and each row
  * says when it goes. A motion still with the board states no date at all: it has
  * no closing date to count from, and the association is still processing it.
+ *
+ * The two general meeting sections state none, and that is an answer rather
+ * than an omission: attendance at a general meeting and the proxy authorisation
+ * a vote was exercised under are part of the meeting's record, whose lasting
+ * form is the protokoll that EFL 6 kap. 39 § has the voting register taken into
+ * and 40 § has kept safely. So they sit with the statutory register sections
+ * above
+ * - kept because the law requires the record - rather than with the four that
+ * go on a clock of their own. A section added here that does purge takes the
+ * count to five.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -453,9 +467,9 @@ export class DataSubjectReportService {
     });
 
     /*
-     * Motions this person put to the general meeting. `submittedByPersonId` is a
-     * plain column and not a relation, for the reason the bookings query above
-     * gives, so this is a query of its own.
+     * Motions this person put to the general meeting. `submittedByPersonId` is
+     * a plain column and not a relation, for the reason the bookings query
+     * above gives, so this is a query of its own.
      */
     const motions = await tx.motion.findMany({
       where: { submittedByPersonId: personId },
@@ -511,6 +525,60 @@ export class DataSubjectReportService {
         hiddenAt: true,
         createdAt: true,
         news: { select: { title: true, slug: true } },
+      },
+    });
+
+    /*
+     * Every line on which this person was recorded as present at a general
+     * meeting, the ones the board struck off again included. `personId` is a
+     * plain column and not a relation, for the reason `bookedByPersonId` is, so
+     * this is a query of its own; the meeting IS one, which is how the day and
+     * the kind reach the document without being copied onto the line.
+     *
+     * One person can be on one meeting's list twice - as a member and as an
+     * proxy holder, which is the ordinary case for somebody arriving with a
+     * neighbour's proxy authorisation - so this section has a row per capacity
+     * rather than per meeting.
+     */
+    const meetingAttendances = await tx.meetingAttendance.findMany({
+      where: { personId },
+      orderBy: [{ meeting: { heldOn: "desc" } }, { capacity: "asc" }],
+      select: {
+        id: true,
+        capacity: true,
+        mode: true,
+        onBehalfOfPersonId: true,
+        withdrawnAt: true,
+        meeting: { select: { heldOn: true, kind: true } },
+      },
+    });
+
+    /*
+     * Every proxy authorisation (fullmakt) naming this person, either way
+     * round. The authorisation names the member whose vote is to be exercised
+     * and the proxy holder authorised to exercise it, and both of those are
+     * facts
+     * about the person concerned, so this is one query with an OR - the shape
+     * the audit log query below uses over its own two person columns, and for
+     * the same reason.
+     *
+     * A row can match both sides at once only if somebody appointed themselves,
+     * which the table refuses outright, so the role each row carries is decided
+     * by which column matched and there is no third case.
+     */
+    const proxyAuthorisations = await tx.proxyAuthorisation.findMany({
+      where: {
+        OR: [{ memberPersonId: personId }, { proxyHolderPersonId: personId }],
+      },
+      orderBy: [{ meeting: { heldOn: "desc" } }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        memberPersonId: true,
+        proxyHolderPersonId: true,
+        ground: true,
+        authorisedOn: true,
+        withdrawnAt: true,
+        meeting: { select: { heldOn: true, kind: true } },
       },
     });
 
@@ -778,6 +846,50 @@ export class DataSubjectReportService {
          */
         erasableFrom: toIsoDate(computeNewsCommentPurgeDate(comment.createdAt)),
       })),
+      meetingAttendances: meetingAttendances.map(
+        (attendance): ReportMeetingAttendance => ({
+          attendanceId: attendance.id,
+          meetingHeldOn:
+            toIsoDate(attendance.meeting.heldOn) ??
+            attendance.meeting.heldOn.toISOString(),
+          meetingKind: attendance.meeting.kind,
+          capacity: attendance.capacity,
+          mode: attendance.mode,
+          // An identifier and never a name: the member or proxy holder an
+          // assistant came with is a third party on a document the association
+          // hands over.
+          onBehalfOfPersonId: attendance.onBehalfOfPersonId,
+          withdrawnAt: attendance.withdrawnAt?.toISOString() ?? null,
+          // No erasure date, and the section's own comment says why: nothing
+          // purges a line of the meeting's record.
+        }),
+      ),
+      proxyAuthorisations: proxyAuthorisations.map(
+        (authorisation): ReportProxyAuthorisation => {
+          /*
+           * Which side of the authorisation this person is on. The member column
+           * is tested first because the table refuses an authorisation naming one
+           * person on both sides, so a match there settles it.
+           */
+          const asMember = authorisation.memberPersonId === personId;
+          return {
+            authorisationId: authorisation.id,
+            meetingHeldOn:
+              toIsoDate(authorisation.meeting.heldOn) ??
+              authorisation.meeting.heldOn.toISOString(),
+            meetingKind: authorisation.meeting.kind,
+            role: asMember ? "member" : "proxyHolder",
+            counterpartPersonId: asMember
+              ? authorisation.proxyHolderPersonId
+              : authorisation.memberPersonId,
+            ground: authorisation.ground,
+            authorisedOn:
+              toIsoDate(authorisation.authorisedOn) ??
+              authorisation.authorisedOn.toISOString(),
+            withdrawnAt: authorisation.withdrawnAt?.toISOString() ?? null,
+          };
+        },
+      ),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,
         role: entry.targetPersonId === personId ? "subject" : "actor",

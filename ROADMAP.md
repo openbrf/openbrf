@@ -582,10 +582,43 @@ change it.
 
 - [ ] General meetings: the notice (kallelse), the agenda, the voting register,
       proxies, real-time voting, and the link from a motion to the meeting it is
-      taken up at - a motion deliberately carries no meeting reference until
-      there are meetings to reference. Motion intake itself is the Forms item
-      below rather than this one. Postal voting is prohibited for a housing
-      cooperative under BRL 9 kap. 14 §, and will never be built.
+      taken up at - a motion still carries no meeting reference, because what
+      decides which meeting takes an item up is the notice that states it.
+      Motion intake itself is the Forms item below rather than this one. Postal
+      voting is prohibited for a housing cooperative under BRL 9 kap. 14 §, and
+      will never be built.
+  - Landed: the meeting itself, its agenda, who was present and in what
+    capacity, the proxy authorisations (fullmakt) under which somebody else
+    exercises a member's vote, and each item's outcome beside the vote counts
+    it was declared on.
+    The voting register (röstlängd) is derived when it is read and never
+    stored: every member has one vote, so a member holding two apartments still
+    has one and joint holders of one tenant-ownership have one between them, an
+    assistant (biträde) is on the list and carries none, and a proxy holder's
+    authority is measured against the meeting day rather than against the day
+    it was registered. The four
+    bylaws clauses BRL 9 kap. 14 § leaves to the association sit with the
+    instance settings, each defaulted to the statutory position - one member per
+    proxy holder for a housing cooperative, not the three the general Act
+    allows. Both new stores of personal data have a section in the data subject
+    access report, and the proxy section answers for the member who gave the
+    authority and for the proxy holder who held it
+  - Not modelled, and needed before the platform can apply one bylaws clause it
+    records: what a space in the building is used for. BRL 9 kap. 14 § lets the
+    bylaws limit the vote of a member holding nothing but a garage, a store or
+    another space used primarily for storage, and an apartment carries a number,
+    a floor, a participation share and an initial share capital - none of which
+    tells a garage from a flat. So the voting register reports that the clause
+    stands and the meeting applies it, which is where EFL 6 kap. 27 § puts the
+    decision in any case. Recording the use would be a change to the apartment
+    register, and inventing the answer from a participation share would take a
+    vote away on a guess
+  - Pending: the board's screens for arranging a meeting, checking people in and
+    reading the voting register; the notice on a delivery ledger; the link from
+    a motion to the meeting it is taken up at; and real-time voting, for which
+    the vote record exists with no voter recorded so a closed ballot
+    (sluten omröstning) is representable without migrating the table the minutes
+    are built from. Nothing casts a vote yet
 - [ ] Comments on news items, then group and board chat. Comments first and a
       full discussion forum never: a forum is a product of its own, and a
       cooperative that wants one is better served by an integration with
@@ -626,8 +659,8 @@ change it.
         that a member ask the board in writing in time for the item to be taken
         up in the notice - stands either way. It is stated rather than enforced:
         a late motion is still received, and nothing here records which general
-        meeting takes one up, because there are no general meetings in the
-        platform yet to record
+        meeting takes one up, because that is decided by the notice that states
+        the item and no notice is issued yet
   - [ ] Subletting applications
   - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a

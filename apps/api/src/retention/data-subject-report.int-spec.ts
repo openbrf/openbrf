@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { dateColumnOf, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
@@ -28,8 +29,10 @@ import type { DataSubjectReport } from "./data-subject-report";
  * because nobody reading it can tell. So the fixture puts something in every
  * store the product has - both register tiers, an account, a consent, a hold,
  * an issue, an archived document, a booking, a motion to the general meeting, a
- * sign-up to one of the association's own dates, a comment on a news item and
- * an audit trail - and each section is asserted to have found it.
+ * sign-up to one of the association's own dates, a comment on a news item, two
+ * lines on a general meeting's list of those present, a proxy authorisation for
+ * an proxy holder on each side of the subject and an audit trail - and each
+ * section is asserted to have found it.
  *
  * The gate. This is the one endpoint that decrypts a personal identity number,
  * so the capability that opens it is checked as four different callers rather
@@ -57,6 +60,7 @@ const bookableResourceId = `dsar-resource-${suffix}`;
 const eventId = `dsar-event-${suffix}`;
 const occurrenceId = `dsar-occurrence-${suffix}`;
 const newsSlug = `dsar-nyhet-${suffix}`;
+const meetingId = `dsar-meeting-${suffix}`;
 
 /**
  * The two transfers, named because the obligation fixture points at them.
@@ -103,6 +107,25 @@ const bookingStartedAt = new Date(
 const motionSubmittedAt = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
 const motionClosedAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 const openMotionSubmittedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+
+/**
+ * The general meeting's day, the day the subject signed a proxy authorisation,
+ * and the moment the board struck their second line off the list.
+ *
+ * A week back rather than a fixed year, for the reason the motion's dates are:
+ * this database is shared between suites and a fixture anchored on a literal
+ * date would drift out of every window that is measured from today. The meeting
+ * day is a `@db.Date` value, so it is built through the association's own
+ * calendar rather than from an instant - a date column read as an instant is
+ * yesterday's date for the two hours a night Stockholm runs ahead of UTC.
+ */
+const meetingHeldOn = dateColumnOf(
+  localDayOf(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+);
+const proxyAuthorisedOn = dateColumnOf(
+  localDayOf(new Date(Date.now() - 21 * 24 * 60 * 60 * 1000)),
+);
+const attendanceStruckOffAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
 /**
  * When the fixture cleaning day ran, and when the subject stood down from it.
@@ -641,6 +664,72 @@ beforeAll(async () => {
     ],
   });
 
+  /*
+   * A general meeting the subject was at twice over: as a member, and as the
+   * proxy holder carrying the acquirer's vote. Two lines because one body in
+   * the room is two lines on the list EFL 6 kap. 27 § has drawn up - and
+   * because the second is what a report answering only "were they there" would
+   * collapse into the first.
+   *
+   * The second line is struck off, so the section's withdrawal column is
+   * exercised rather than only declared: a line the board took off the list is
+   * kept and dated, because "was recorded and struck off again" is a different
+   * fact about somebody from never having been recorded.
+   */
+  await prisma.meeting.create({
+    data: { id: meetingId, kind: "ORDINARY", heldOn: meetingHeldOn },
+  });
+  await prisma.meetingAttendance.createMany({
+    data: [
+      {
+        meetingId,
+        personId: subject.personId,
+        capacity: "MEMBER",
+        mode: "IN_PERSON",
+      },
+      {
+        meetingId,
+        personId: subject.personId,
+        capacity: "PROXY_HOLDER",
+        mode: "REMOTE",
+        withdrawnAt: attendanceStruckOffAt,
+      },
+    ],
+  });
+
+  /*
+   * One authority on each side of the subject: they gave the board member theirs
+   * and held the acquirer's. That is the whole reason this section carries a
+   * role - a report answering for one side would print one of these two rows and
+   * look complete.
+   *
+   * The grounds differ on purpose. The one the subject gave rests on the proxy
+   * holder being another member, which the register can decide; the one they
+   * held rests on the board's statement that they are the acquirer's spouse or
+   * cohabitant, which nothing in this platform records and which BRL 9 kap. 14
+   * § 4 permits outright.
+   */
+  await prisma.proxyAuthorisation.createMany({
+    data: [
+      {
+        meetingId,
+        memberPersonId: subject.personId,
+        proxyHolderPersonId: board.personId,
+        ground: "MEMBER",
+        authorisedOn: proxyAuthorisedOn,
+        recordedByPersonId: board.personId,
+      },
+      {
+        meetingId,
+        memberPersonId: ACQUIRER_PERSON_ID,
+        proxyHolderPersonId: subject.personId,
+        ground: "SPOUSE_OR_COHABITANT",
+        authorisedOn: proxyAuthorisedOn,
+        recordedByPersonId: board.personId,
+      },
+    ],
+  });
+
   await prisma.event.create({
     data: {
       id: eventId,
@@ -782,6 +871,15 @@ afterAll(async () => {
           prisma.motion.deleteMany({
             where: { submittedByPersonId: { in: personIds } },
           }),
+        /*
+         * The attendance lines and the authorities go with the meeting, which
+         * cascades, and both are removed first anyway: a run that failed part
+         * way through may have written one without the other, and a delete
+         * naming the rows is what clears that case.
+         */
+        () => prisma.meetingAttendance.deleteMany({ where: { meetingId } }),
+        () => prisma.proxyAuthorisation.deleteMany({ where: { meetingId } }),
+        () => prisma.meeting.deleteMany({ where: { id: meetingId } }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
         () => prisma.mediaFile.deleteMany({ where: { id: mediaFileId } }),
         () => prisma.issue.deleteMany({ where: { typeId: issueTypeId } }),
@@ -1166,6 +1264,90 @@ describe("what the report contains", () => {
     expect(open?.title).toBe(`Cykelstall pa innergarden ${suffix}`);
     expect(open?.status).toBe("SUBMITTED");
     expect(open?.erasableFrom).toBeNull();
+  });
+
+  it("lists both lines somebody was on a general meeting's list under", async () => {
+    /*
+     * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §
+     * has the list cover the members, proxy holders and assistants present, and
+     * the three are different facts about a person - own vote, somebody else's,
+     * or a seat with the right to speak and no vote at all (6 kap. 7 §).
+     *
+     * Two lines for one person at one meeting, which is what a report keyed on
+     * the meeting rather than on the capacity would collapse: the subject was
+     * there as a member and as the acquirer's proxy holder.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(report.meetingAttendances).toHaveLength(2);
+    const asMember = report.meetingAttendances.find(
+      (line) => line.capacity === "MEMBER",
+    );
+    const asOmbud = report.meetingAttendances.find(
+      (line) => line.capacity === "PROXY_HOLDER",
+    );
+
+    expect(asMember?.meetingKind).toBe("ORDINARY");
+    expect(asMember?.meetingHeldOn).toBe(
+      meetingHeldOn.toISOString().slice(0, 10),
+    );
+    expect(asMember?.mode).toBe("IN_PERSON");
+    expect(asMember?.onBehalfOfPersonId).toBeNull();
+    expect(asMember?.withdrawnAt).toBeNull();
+
+    // Remotely, and struck off. Both are facts the person would be asking
+    // about, and a section that dropped the struck-off line would answer the
+    // second with an absence.
+    expect(asOmbud?.mode).toBe("REMOTE");
+    expect(asOmbud?.withdrawnAt).toBe(attendanceStruckOffAt.toISOString());
+
+    /*
+     * No erasure date on either line, asserted rather than assumed. Nothing
+     * purges a line of the meeting's record - the register is taken into or appended
+     * to the protokoll (EFL 6 kap. 39 §), which 40 § has kept safely - so a date
+     * here would promise an erasure the association is not going to perform. It
+     * is the mirror of the four sections that do state one.
+     */
+    for (const line of report.meetingAttendances) {
+      expect(Object.keys(line)).not.toContain("erasableFrom");
+    }
+  });
+
+  it("answers for both sides of a proxy authorisation", async () => {
+    /*
+     * A proxy authorisation names two people and both have an art. 15 interest
+     * in it. The fixture puts the subject on one side of one authorisation and
+     * the other side of another, so a section answering for one role would
+     * return one row and look complete.
+     *
+     * The counterpart is asserted as the identifier it is. Naming them would put
+     * a third party's name on a document the association hands over, which is
+     * the reading art. 15(4) forces and the same one the audit log's two person
+     * columns are printed under.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(report.proxyAuthorisations).toHaveLength(2);
+    const given = report.proxyAuthorisations.find(
+      (row) => row.role === "member",
+    );
+    const held = report.proxyAuthorisations.find(
+      (row) => row.role === "proxyHolder",
+    );
+
+    expect(given?.counterpartPersonId).toBe(board.personId);
+    expect(given?.ground).toBe("MEMBER");
+    expect(given?.authorisedOn).toBe(
+      proxyAuthorisedOn.toISOString().slice(0, 10),
+    );
+    expect(given?.withdrawnAt).toBeNull();
+
+    // The other side: the subject carried the acquirer's vote, on the board's
+    // statement that they are that person's spouse or cohabitant - a ground BRL
+    // 9 kap. 14 § 4 permits outright and this platform cannot verify.
+    expect(held?.counterpartPersonId).toBe(ACQUIRER_PERSON_ID);
+    expect(held?.ground).toBe("SPOUSE_OR_COHABITANT");
+    expect(held?.meetingHeldOn).toBe(meetingHeldOn.toISOString().slice(0, 10));
   });
 
   it("lists the event sign-ups with the withdrawal and the association's own day", async () => {

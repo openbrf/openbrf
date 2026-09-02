@@ -26,9 +26,10 @@ import {
  * rule at all: the paragraph's first sentence conditions the right on the written
  * request reaching the board in time for the item to be taken up in the notice,
  * and it does so whether or not the bylaws add a date. What that condition needs
- * is a notice date, and this data model has no meeting to give it one - so intake
- * stays open and the board decides what it can still get into the notice, which
- * is what the first sentence leaves to it anyway.
+ * is a notice date, and nothing here records one: a meeting is a table now, but a
+ * motion carries no reference to one and no notice has been issued from this
+ * platform - so intake stays open and the board decides what it can still get
+ * into the notice, which is what the first sentence leaves to it anyway.
  *
  * ## Why a month and a day
  *
@@ -37,9 +38,9 @@ import {
  * and silently wrong for every one after it, and it would go wrong in the one
  * month of the year anybody looks - which is the worst possible time for a
  * setting to be quietly stale. A number of days before the meeting is the other
- * shape such a clause takes, and it is not available: no meeting exists in this
- * data model yet, so a window measured backwards from one would be a setting
- * nothing could evaluate.
+ * shape such a clause takes, and this setting does not hold it: it records the
+ * calendar shape, so a clause written as a window before the meeting would be a
+ * second setting rather than a value this pair could carry.
  *
  * ## What this does not do
  *

@@ -17,6 +17,11 @@ import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
 import {
+  MAX_MEMBERS_PER_PROXY_HOLDER,
+  type MeetingBylaws,
+  MIN_MEMBERS_PER_PROXY_HOLDER,
+} from "../meetings/meeting-bylaws";
+import {
   type BrandingSettings,
   type HousingCooperativeSettings,
   type InstanceSettings,
@@ -125,6 +130,30 @@ const motionDeadlineSchema = z.object({
       day: z.coerce.number().int().min(1).max(31),
     })
     .nullable(),
+});
+
+/**
+ * What the bylaws say about the general meeting.
+ *
+ * Total and carrying no nulls, unlike the deadline above, because each of these
+ * four clauses has a statutory rule that applies unless the bylaws displace it:
+ * an association undoing a clause is recording the statute rather than clearing a
+ * value, so there is nothing for a null to mean.
+ *
+ * The proxy limit is bounded here as well as in the service and in the table. The
+ * bound in this schema is what keeps a request carrying a fraction or a
+ * four-digit figure from reaching the rule at all; the service's is what names
+ * the setting when it does.
+ */
+const meetingBylawsSchema = z.object({
+  proxyHolderEligibilityWidened: z.boolean(),
+  maxMembersPerProxyHolder: z.coerce
+    .number()
+    .int()
+    .min(MIN_MEMBERS_PER_PROXY_HOLDER)
+    .max(MAX_MEMBERS_PER_PROXY_HOLDER),
+  storageOnlyVoteLimited: z.boolean(),
+  assistantEligibilityWidened: z.boolean(),
 });
 
 /**
@@ -303,6 +332,22 @@ export class SettingsWriteController {
     return this.settings.updateMotionDeadline(
       motionDeadlineSchema.parse(body).motionDeadline,
     );
+  }
+
+  /**
+   * Records what the bylaws say about the general meeting.
+   *
+   * Beside the motion deadline, on the write controller, and readable from the
+   * read controller above with association:read - the split the retention policy
+   * and the self-signup toggle already follow. The board answers for its own
+   * bylaws and has to be able to see what the instance believes they say, and
+   * changing what the instance holds stays with an administrator.
+   */
+  @Put("meeting-bylaws")
+  async updateMeetingBylaws(
+    @Body() body: unknown,
+  ): Promise<{ meetingBylaws: MeetingBylaws }> {
+    return this.settings.updateMeetingBylaws(meetingBylawsSchema.parse(body));
   }
 }
 

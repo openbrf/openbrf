@@ -357,6 +357,117 @@ export interface ReportNewsComment {
 }
 
 /**
+ * One general meeting (foreningsstamma) this person was recorded as present at,
+ * and in what capacity.
+ *
+ * ## No erasure date, and why that is an answer rather than a gap
+ *
+ * Every other person-linked section whose module purges states the earliest day
+ * the purge can reach its rows. This one states none, and neither does the
+ * proxy authorisation below it, because nothing purges either: the voting
+ * register (rostlangd) is taken into or appended to the protokoll (EFL 6 kap.
+ * 39 §) and 40 § has the protokoll kept safely, so a line erased on a clock of
+ * its own would take part of the association's minutes with it. That puts these
+ * two with the statutory register sections rather than with the bookings and
+ * the motions - kept because the law requires the record, and on the report
+ * because exemption from erasure has never been exemption from access.
+ *
+ * ## The capacity is the substance
+ *
+ * "Present" is the smaller half of what this says about somebody. EFL 6 kap. 27
+ * § has the list cover the members, proxy holders and assistants present, and
+ * the three are different facts about a person: that they voted their own
+ * share, that they carried somebody else's, or that they came with a member and
+ * could speak but not vote (6 kap. 7 §). A section recording only attendance
+ * would leave its subject unable to see which of those the association wrote
+ * down about them.
+ */
+export interface ReportMeetingAttendance {
+  attendanceId: string;
+  /** "YYYY-MM-DD": the day the meeting was held. */
+  meetingHeldOn: string;
+  meetingKind: "ORDINARY" | "EXTRAORDINARY";
+  capacity: "MEMBER" | "PROXY_HOLDER" | "ASSISTANT";
+  mode: "IN_PERSON" | "REMOTE";
+  /**
+   * The member or proxy holder this person came with, where they came as an
+   * assistant. Null in every other capacity.
+   *
+   * An identifier and never a name, which is the audit log's own choice for its
+   * two person columns and rests on the same reading of GDPR art. 15(4): the
+   * other person is a third party on a document the association hands over, and
+   * naming them here would disclose that they were at the meeting to somebody
+   * who asked about themselves. The association can say who it was on request.
+   */
+  onBehalfOfPersonId: string | null;
+  /**
+   * ISO instant the board struck the line off the list, or null while the person
+   * stands on it.
+   *
+   * Carried rather than the line being left out, because "was recorded as present
+   * and struck off again" is a different fact about somebody from never having
+   * been recorded - and it is the fact a person would be asking about.
+   */
+  withdrawnAt: string | null;
+}
+
+/**
+ * One proxy authorisation (fullmakt) naming this person, on
+ * either side of it.
+ *
+ * ## Both roles, one section
+ *
+ * An authorisation names two people: the member whose voting right it is, and
+ * the proxy holder authorised to exercise that right on their behalf. The right
+ * is not transferred and the meeting's powers are not delegated - the member
+ * remains the one who has the vote, and the authorisation says who may exercise
+ * it in the room. Both are facts about the
+ * person concerned, and they are different facts - "I authorised somebody to
+ * exercise my vote" and "somebody authorised me to exercise theirs" - so `role`
+ * says which side this row reached
+ * the report from. That is the audit log's own pattern rather than a new one:
+ * {@link ReportAuditEntry} carries the same discriminator over the log's two
+ * person columns, for the same reason. A report answering for only one of the
+ * two roles would leave a proxy holder unable to see that the association holds
+ * a record of them having carried a neighbour's vote.
+ *
+ * States no erasure date, for the reason {@link ReportMeetingAttendance} gives.
+ */
+export interface ReportProxyAuthorisation {
+  authorisationId: string;
+  /** "YYYY-MM-DD": the day of the meeting the authority was for. */
+  meetingHeldOn: string;
+  meetingKind: "ORDINARY" | "EXTRAORDINARY";
+  /**
+   * Which side of the authorisation this person is on: the member who gave the
+   * authority, or the proxy holder who held it.
+   */
+  role: "member" | "proxyHolder";
+  /**
+   * The other person named on it, as an identifier and never a name, for the
+   * reason {@link ReportMeetingAttendance.onBehalfOfPersonId} gives.
+   */
+  counterpartPersonId: string;
+  /**
+   * What made the proxy holder eligible: another member, the member's spouse or
+   * cohabitant, or a clause in the bylaws (BRL 9 kap. 14 § 4).
+   *
+   * Personal data about both of them: on the member's report it is the ground
+   * they stated, and on the proxy holder's it is what the association recorded
+   * about their relationship to the member.
+   */
+  ground: "MEMBER" | "SPOUSE_OR_COHABITANT" | "BYLAWS";
+  /**
+   * "YYYY-MM-DD": the day the member signed the proxy authorisation, as the
+   * board read it off the paper. EFL 6 kap. 4 § holds an authority good for at
+   * most a year from that day.
+   */
+  authorisedOn: string;
+  /** ISO instant the authority was taken back, or null while it stands. */
+  withdrawnAt: string | null;
+}
+
+/**
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
@@ -425,6 +536,8 @@ export interface DataSubjectReport {
   motions: ReportMotion[];
   eventSignups: ReportEventSignup[];
   newsComments: ReportNewsComment[];
+  meetingAttendances: ReportMeetingAttendance[];
+  proxyAuthorisations: ReportProxyAuthorisation[];
   auditEntries: ReportAuditEntry[];
   /** What the association keeps, and until when. */
   retention: {

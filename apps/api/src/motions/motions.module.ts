@@ -27,8 +27,9 @@ import {
  * read all come from global modules, which is why nothing is imported here.
  *
  * The service is exported for the screens and endpoints that read the queue
- * without being the ones that write it - and, when meetings arrive, for the module
- * that will link a motion to the meeting it was taken up at.
+ * without being the ones that write it - and for the module that will link a
+ * motion to the meeting it was taken up at, which arrives with the notice that
+ * puts the item on one.
  */
 @Module({
   controllers: [MotionIntakeController, MotionQueueController],

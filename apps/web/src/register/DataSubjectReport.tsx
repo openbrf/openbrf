@@ -110,6 +110,35 @@ const MOTION_STATUS_LABEL = {
 } as const satisfies Record<string, TranslationKey>;
 
 /*
+ * The general meeting's own vocabulary, under the meetings namespace rather
+ * than the report's, on the precedent of the booking status and the motion
+ * status above: an enum the module already has a word for keeps that word, so
+ * the document and the board's own screens cannot come to call the same thing
+ * two things.
+ */
+const MEETING_KIND_LABEL = {
+  ORDINARY: "meetings.kind.ORDINARY",
+  EXTRAORDINARY: "meetings.kind.EXTRAORDINARY",
+} as const satisfies Record<string, TranslationKey>;
+
+const ATTENDANCE_CAPACITY_LABEL = {
+  MEMBER: "meetings.capacity.MEMBER",
+  PROXY_HOLDER: "meetings.capacity.PROXY_HOLDER",
+  ASSISTANT: "meetings.capacity.ASSISTANT",
+} as const satisfies Record<string, TranslationKey>;
+
+const ATTENDANCE_MODE_LABEL = {
+  IN_PERSON: "meetings.mode.IN_PERSON",
+  REMOTE: "meetings.mode.REMOTE",
+} as const satisfies Record<string, TranslationKey>;
+
+const PROXY_GROUND_LABEL = {
+  MEMBER: "meetings.ground.MEMBER",
+  SPOUSE_OR_COHABITANT: "meetings.ground.SPOUSE_OR_COHABITANT",
+  BYLAWS: "meetings.ground.BYLAWS",
+} as const satisfies Record<string, TranslationKey>;
+
+/*
  * Every audit action, not the ones a resident is likely to have. The report
  * lists entries both about the person and of what they did, so a board
  * member's reaches the plugin and theme actions as readily as a resident's
@@ -199,6 +228,19 @@ const AUDIT_ACTION_LABEL = {
   REGISTER_REPORT_MADE: "register.person.report.action.REGISTER_REPORT_MADE",
   REGISTER_INITIAL_SUPPLY_EXPORTED:
     "register.person.report.action.REGISTER_INITIAL_SUPPLY_EXPORTED",
+  MEETING_ARRANGED: "register.person.report.action.MEETING_ARRANGED",
+  MEETING_HELD: "register.person.report.action.MEETING_HELD",
+  MEETING_AGENDA_SET: "register.person.report.action.MEETING_AGENDA_SET",
+  MEETING_ATTENDANCE_RECORDED:
+    "register.person.report.action.MEETING_ATTENDANCE_RECORDED",
+  MEETING_ATTENDANCE_WITHDRAWN:
+    "register.person.report.action.MEETING_ATTENDANCE_WITHDRAWN",
+  MEETING_PROXY_REGISTERED:
+    "register.person.report.action.MEETING_PROXY_REGISTERED",
+  MEETING_PROXY_WITHDRAWN:
+    "register.person.report.action.MEETING_PROXY_WITHDRAWN",
+  MEETING_DECISION_RECORDED:
+    "register.person.report.action.MEETING_DECISION_RECORDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
@@ -878,6 +920,106 @@ export function DataSubjectReport({
                   </td>
                   <td className={DATA_CELL}>
                     {comment.erasableFrom ?? nothing}
+                  </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          {/*
+           * Attendance at a general meeting, and the two things this section
+           * says that "present" does not: in what capacity, and whether the
+           * board struck the line off again.
+           *
+           * No erasure column, unlike the four sections above it, and the
+           * absence is deliberate rather than a heading nobody filled in.
+           * Nothing purges a line of the meeting's record: the voting register
+           * (rostlangd) is taken into or appended to the protokoll under EFL
+           * 6 kap. 39 §, which 40 § has kept safely. So this sits with the
+           * register sections - kept because the law requires the record, and
+           * printed because exemption from erasure is not exemption from
+           * access.
+           */}
+          <Section titleKey="register.person.report.section.meetingAttendances">
+            <Rows
+              empty={report.meetingAttendances.length === 0}
+              headings={[
+                "register.person.report.field.meeting",
+                "register.person.report.field.date",
+                "register.person.report.field.capacity",
+                "register.person.report.field.attendanceMode",
+                "register.person.report.field.broughtBy",
+                "register.person.report.field.withdrawn",
+              ]}
+            >
+              {report.meetingAttendances.map((attendance) => (
+                <tr key={attendance.attendanceId} className={ROW}>
+                  <td className={TEXT_CELL}>
+                    {t(MEETING_KIND_LABEL[attendance.meetingKind])}
+                  </td>
+                  <td className={DATA_CELL}>{attendance.meetingHeldOn}</td>
+                  <td className={TEXT_CELL}>
+                    {t(ATTENDANCE_CAPACITY_LABEL[attendance.capacity])}
+                  </td>
+                  <td className={TEXT_CELL}>
+                    {t(ATTENDANCE_MODE_LABEL[attendance.mode])}
+                  </td>
+                  {/*
+                   * The identifier of the member or proxy holder an assistant
+                   * came with, and never their name. They are a third party on
+                   * a document the association hands over, which is the same
+                   * judgement the audit log's two person columns are printed
+                   * under.
+                   */}
+                  <td className={DATA_CELL}>
+                    {attendance.onBehalfOfPersonId ?? nothing}
+                  </td>
+                  <td className={DATA_CELL}>
+                    {day(attendance.withdrawnAt) ?? nothing}
+                  </td>
+                </tr>
+              ))}
+            </Rows>
+          </Section>
+
+          {/*
+           * Written authorities for a proxy holder (fullmakt) naming this
+           * person, on either side of them. The role column is what makes the
+           * section answer for both, exactly as it does on the audit log below.
+           */}
+          <Section titleKey="register.person.report.section.proxyAuthorisations">
+            <Rows
+              empty={report.proxyAuthorisations.length === 0}
+              headings={[
+                "register.person.report.field.meeting",
+                "register.person.report.field.date",
+                "register.person.report.field.role",
+                "register.person.report.field.counterpart",
+                "register.person.report.field.proxyGround",
+                "register.person.report.field.authorised",
+                "register.person.report.field.withdrawn",
+              ]}
+            >
+              {report.proxyAuthorisations.map((authorisation) => (
+                <tr key={authorisation.authorisationId} className={ROW}>
+                  <td className={TEXT_CELL}>
+                    {t(MEETING_KIND_LABEL[authorisation.meetingKind])}
+                  </td>
+                  <td className={DATA_CELL}>{authorisation.meetingHeldOn}</td>
+                  <td className={TEXT_CELL}>
+                    {t(
+                      `register.person.report.proxyRole.${authorisation.role}`,
+                    )}
+                  </td>
+                  <td className={DATA_CELL}>
+                    {authorisation.counterpartPersonId}
+                  </td>
+                  <td className={TEXT_CELL}>
+                    {t(PROXY_GROUND_LABEL[authorisation.ground])}
+                  </td>
+                  <td className={DATA_CELL}>{authorisation.authorisedOn}</td>
+                  <td className={DATA_CELL}>
+                    {day(authorisation.withdrawnAt) ?? nothing}
                   </td>
                 </tr>
               ))}

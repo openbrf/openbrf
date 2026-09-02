@@ -340,6 +340,8 @@
           "motions": "Motioner",
           "eventSignups": "Anmälningar till evenemang",
           "newsComments": "Nyhetskommentarer",
+          "meetingAttendances": "Närvaro vid föreningsstämma",
+          "proxyAuthorisations": "Fullmakter till ombud",
           "audit": "Granskningsloggen",
           "retention": "Gallring"
         },
@@ -412,7 +414,14 @@
           "noted": "Noterad",
           "motionTitle": "Motion",
           "submitted": "Inlämnad",
-          "closed": "Avslutad"
+          "closed": "Avslutad",
+          "meeting": "Stämma",
+          "capacity": "Egenskap",
+          "attendanceMode": "Deltagande",
+          "broughtBy": "Medtagen av",
+          "counterpart": "Motpart",
+          "proxyGround": "Grund",
+          "authorised": "Fullmakt daterad"
         },
         "event": {
           "ENTRY": "Inträde",
@@ -479,7 +488,15 @@
           "EVENT_SIGNUP_WITHDRAWN": "Anmälan till evenemang återkallades",
           "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades",
           "REGISTER_REPORT_MADE": "En anmälan till bostadsrättsregistret registrerades som gjord",
-          "REGISTER_INITIAL_SUPPLY_EXPORTED": "Det inledande uppgiftslämnandet till bostadsrättsregistret togs fram"
+          "REGISTER_INITIAL_SUPPLY_EXPORTED": "Det inledande uppgiftslämnandet till bostadsrättsregistret togs fram",
+          "MEETING_ARRANGED": "Föreningsstämma inplanerad",
+          "MEETING_HELD": "Föreningsstämma noterad som hållen",
+          "MEETING_AGENDA_SET": "Dagordning fastställd",
+          "MEETING_ATTENDANCE_RECORDED": "Antecknad som närvarande vid föreningsstämman",
+          "MEETING_ATTENDANCE_WITHDRAWN": "Struken från förteckningen över närvarande",
+          "MEETING_PROXY_REGISTERED": "Fullmakt registrerad",
+          "MEETING_PROXY_WITHDRAWN": "Fullmakt återkallad",
+          "MEETING_DECISION_RECORDED": "Föreningsstämmans beslut antecknat"
         },
         "reportKind": {
           "TRANSFER": "Överlåtelse",
@@ -488,6 +505,10 @@
         "auditRole": {
           "subject": "Om den här personen",
           "actor": "Personen agerade"
+        },
+        "proxyRole": {
+          "member": "Lämnade fullmakt",
+          "proxyHolder": "Hade fullmakt"
         },
         "yes": "Ja",
         "no": "Nej"
@@ -2760,6 +2781,26 @@
       "tooManyComments": "Du har skrivit flera kommentarer på kort tid. Vänta några minuter och skicka den här igen.",
       "invalidBody": "En kommentar behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
+  "meetings": {
+    "kind": {
+      "ORDINARY": "Ordinarie föreningsstämma",
+      "EXTRAORDINARY": "Extra föreningsstämma"
+    },
+    "capacity": {
+      "MEMBER": "Medlem",
+      "PROXY_HOLDER": "Ombud",
+      "ASSISTANT": "Biträde"
+    },
+    "mode": {
+      "IN_PERSON": "På plats",
+      "REMOTE": "På distans"
+    },
+    "ground": {
+      "MEMBER": "Annan medlem",
+      "SPOUSE_OR_COHABITANT": "Make, maka eller sambo",
+      "BYLAWS": "Tillåtet enligt stadgarna"
     }
   }
 }
