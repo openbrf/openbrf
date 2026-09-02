@@ -21,6 +21,10 @@ import type {
   RepresentativeGround,
 } from "../generated/prisma/enums";
 import {
+  type MeetingNoticeView,
+  MeetingNoticeService,
+} from "./meeting-notice.service";
+import {
   type AgendaItemView,
   type AttendanceView,
   MeetingService,
@@ -88,6 +92,27 @@ const agendaSchema = z.object({
     .array(z.object({ title: z.string().trim().min(1).max(300) }))
     .min(1)
     .max(100),
+});
+
+/**
+ * The notice, in the terms EFL 6 kap. 22 § has it state itself.
+ *
+ * A time of day and never a date. The day a meeting is held is the meeting's own
+ * and is the day that decides who has a vote at it, so a notice carrying a
+ * second date could summon the members to a different day from the one the
+ * register is read against. The service turns this into an instant on the
+ * meeting's day, and refuses an hour the association's clock does not have.
+ *
+ * `digitalParticipation` is null for a meeting held in a room and the
+ * instruction for one held digitally. Non-empty when present, because a digital
+ * meeting whose members were told nothing about how to take part or how to vote
+ * has not been summoned as that paragraph requires. The table refuses blank text
+ * too; this is what turns the refusal into an answer with a reason.
+ */
+const noticeSchema = z.object({
+  startsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u),
+  place: z.string().trim().min(1).max(300),
+  digitalParticipation: z.string().trim().min(1).max(2000).nullable(),
 });
 
 const attendanceSchema = z.object({
@@ -170,7 +195,10 @@ function requirePrincipal(request: RequestWithPrincipal): Principal {
 @Controller("api/meetings")
 @RequireCapability("meetings:manage")
 export class MeetingsController {
-  constructor(private readonly meetings: MeetingService) {}
+  constructor(
+    private readonly meetings: MeetingService,
+    private readonly notices: MeetingNoticeService,
+  ) {}
 
   @Get()
   async list(): Promise<MeetingSummaryView[]> {
@@ -233,6 +261,29 @@ export class MeetingsController {
     return this.meetings.setAgenda(
       id,
       agendaSchema.parse(body),
+      requirePrincipal(request).personId,
+    );
+  }
+
+  /**
+   * Issues the notice (kallelse) that summons the meeting, and sends it.
+   *
+   * A post to a named sub-resource, like recording that the meeting was held,
+   * because it is one act with one entry in the audit log rather than fields
+   * somebody set. There is no route that edits or withdraws it: EFL 6 kap. 25 §
+   * gives the remedy for a notice that went wrong and it is an extra general
+   * meeting, not a second notice.
+   */
+  @Post(":id/notice")
+  @HttpCode(201)
+  async issueNotice(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<MeetingNoticeView> {
+    return this.notices.issue(
+      id,
+      noticeSchema.parse(body),
       requirePrincipal(request).personId,
     );
   }

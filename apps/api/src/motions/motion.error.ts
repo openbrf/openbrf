@@ -50,6 +50,11 @@ export class MotionError extends DomainError {
       | "not-a-member"
       | "motion-not-found"
       | "already-closed"
+      | "motion-withdrawn"
+      | "meeting-not-found"
+      | "meeting-already-held"
+      | "meeting-notice-issued"
+      | "meeting-changed-meanwhile"
       | "personal-identity-number",
     private readonly locations: readonly MotionTextLocation[] = [],
   ) {
@@ -93,6 +98,50 @@ function statusFor(reason: MotionError["reason"]): number {
 
     case "motion-not-found":
       return HttpStatus.NOT_FOUND;
+
+    case "meeting-not-found":
+      /*
+       * Says what it means, unlike `motion-not-found` above it. This refusal is
+       * reached only from the board's own queue, and a general meeting is the
+       * association's own act rather than anybody's data - so there is nothing
+       * here for a vague answer to protect, and a board that had put an item to
+       * a meeting somebody else had meanwhile removed needs to be told which
+       * half of the request was wrong.
+       */
+      return HttpStatus.NOT_FOUND;
+
+    case "motion-withdrawn":
+    case "meeting-already-held":
+    case "meeting-notice-issued":
+      /*
+       * A conflict in each case: the request is well formed and describes a
+       * state that has already been settled, and sending it again differently
+       * fixes none of them.
+       *
+       * A motion the member took back is not an item for a meeting. The right in
+       * EFL 6 kap. 15 § is the member's to exercise, and taking it back is
+       * theirs too, so the board putting it to a meeting anyway would be
+       * exercising somebody else's right.
+       *
+       * A meeting that has been held has dealt with what it was summoned to deal
+       * with, and one whose notice has been issued has had that settled: EFL 6
+       * kap. 25 § leaves a meeting unable to decide a matter its notice did not
+       * take up without the consent of every member the failure affects, so an
+       * item attached after the notice would claim the meeting could deal with
+       * something the members were never called to.
+       */
+      return HttpStatus.CONFLICT;
+
+    case "meeting-changed-meanwhile":
+      /*
+       * A conflict of the same kind, and deliberately not `already-closed`.
+       * Another board member moved this item while the caller was looking at
+       * it, so the write was refused against the link the caller had read - the
+       * motion is exactly as open as it was, and telling somebody it is closed
+       * would send them looking for a state it is not in. What they have to do
+       * is read the queue again and decide against what it now says.
+       */
+      return HttpStatus.CONFLICT;
 
     case "already-closed":
       /*

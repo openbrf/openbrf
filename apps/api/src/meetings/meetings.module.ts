@@ -1,12 +1,15 @@
 import { Module } from "@nestjs/common";
 
+import { MeetingNoticeMailerService } from "./meeting-notice-mailer.service";
+import { MeetingNoticeService } from "./meeting-notice.service";
 import { MeetingService } from "./meeting.service";
 import { MeetingsController } from "./meetings.controller";
 
 /**
- * The general meeting (foreningsstamma): arranging one, its agenda, who was
- * present and in what capacity, the proxy authorisations under which somebody
- * else exercises a member's vote, and what the meeting decided.
+ * The general meeting (foreningsstamma): arranging one, its agenda, the notice
+ * that summons it, who was present and in what capacity, the proxy
+ * authorisations under which somebody else exercises a member's vote, and what
+ * the meeting decided.
  *
  * EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
  * exceptions.
@@ -27,16 +30,20 @@ import { MeetingsController } from "./meetings.controller";
  * a section in the data subject access report, because exemption from erasure
  * has never been exemption from access.
  *
- * The database, the audit log and the principal the controller reads all come
- * from global modules, which is why nothing is imported here.
+ * The database, the audit log, the queue, the encryption layer, the mail service
+ * and the principal the controller reads all come from global modules, which is
+ * why nothing is imported here. Reaching the members means decrypting their
+ * addresses, which is the reason the news module gives for living outside
+ * src/site as well.
  *
- * The service is exported for the notice, which needs the meeting it summons and
- * the agenda it states, and for the module that links a motion to the meeting it
- * is taken up at.
+ * The meeting service is exported for the module that links a motion to the
+ * meeting it is taken up at. The notice service is exported with it, because
+ * whether a notice has been issued is what decides whether that link may still be
+ * written.
  */
 @Module({
   controllers: [MeetingsController],
-  providers: [MeetingService],
-  exports: [MeetingService],
+  providers: [MeetingService, MeetingNoticeService, MeetingNoticeMailerService],
+  exports: [MeetingService, MeetingNoticeService],
 })
 export class MeetingsModule {}

@@ -1,0 +1,24 @@
+-- What happened around the notice: the board issued the kallelse that summons a
+-- general meeting, and it recorded which meeting takes up a motion.
+--
+-- MEETING_NOTICE_ISSUED names no subject. Summoning the members is the
+-- association's own act and is about nobody in particular, which is the
+-- judgement MEETING_ARRANGED already makes; the recipient count and the channel
+-- travel with the entry and no recipient is named. One action and not two,
+-- because issuing a notice is sending it - a news item is published to a website
+-- and may or may not be mailed, so NEWS_PUBLISHED and NEWS_EMAILED are separable
+-- acts, while a notice that reached nobody has not been given.
+--
+-- MOTION_MEETING_SET names the member who submitted the motion as the subject,
+-- as MOTION_ACKNOWLEDGED does: what the board did with somebody's item has to be
+-- answerable from that person's own data subject access report. It covers taking
+-- the answer back as well as giving one, because both are the board recording
+-- which meeting takes the item up, and the entry says which meeting it moved to
+-- or that it moved to none.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+-- The tables these actions are written about are created and altered by
+-- 20260909100000_meeting_notice, which uses neither value.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'MEETING_NOTICE_ISSUED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'MOTION_MEETING_SET';

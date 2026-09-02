@@ -733,7 +733,7 @@ describe("closing a motion", () => {
 
   it("refuses withdrawing a motion the board has already received", async () => {
     // Once the item has been taken up it may already be in a notice that has
-    // gone out, so taking it back is a matter for the board and the meeting.
+    // been issued, so taking it back is a matter for the board and the meeting.
     const created = await submitMotion(memberCookie, {
       title: `Redan mottagen ${suffix}`,
       body: "Nagot.",

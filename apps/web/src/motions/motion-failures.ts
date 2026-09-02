@@ -22,6 +22,14 @@ const MOTION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-a-member": "motions.errors.notAMember",
   "motion-not-found": "motions.errors.motionNotFound",
   "already-closed": "motions.errors.alreadyClosed",
+  /*
+   * Deliberately not folded into the sentence above it. The board loses this
+   * one to another board member who moved the same item, and the motion is
+   * exactly as open as it was - "no longer open" would send somebody looking
+   * for a state it is not in, when what they have to do is read the queue
+   * again.
+   */
+  "meeting-changed-meanwhile": "motions.errors.meetingChangedMeanwhile",
   "personal-identity-number": "motions.errors.personalIdentityNumber",
   "invalid-body": "motions.errors.invalidBody",
 };

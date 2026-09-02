@@ -48,7 +48,10 @@ export class MeetingError extends DomainError {
       | "attendance-not-found"
       | "attendance-principal-not-applicable"
       | "assistant-principal-not-present"
-      | "proxy-holder-holds-no-authority",
+      | "proxy-holder-holds-no-authority"
+      | "notice-already-issued"
+      | "meeting-has-no-agenda"
+      | "notice-time-not-on-the-meeting-day",
   ) {
     super(message);
     this.status = statusFor(reason);
@@ -77,6 +80,16 @@ function statusFor(reason: MeetingError["reason"]): number {
        * meets clicking the same button, and what somebody meets checking a
        * person in to a meeting that has been closed - neither of which is fixed
        * by sending a different request.
+       */
+      return HttpStatus.CONFLICT;
+
+    case "notice-already-issued":
+      /*
+       * A conflict of the same kind, and the one with the most consequence.
+       * The notice is what settles which matters a meeting may deal with -
+       * EFL 6 kap. 25 § leaves the meeting unable to decide one the notice did
+       * not take up - so once it has been issued the agenda is fixed and a second
+       * notice is not the remedy that section gives.
        */
       return HttpStatus.CONFLICT;
 
@@ -121,6 +134,19 @@ function statusFor(reason: MeetingError["reason"]): number {
        * naming somebody on a member's or an proxy holder's line is refused
        * rather than dropped - a field a request set and the server silently
        * ignored is a defect nobody can see.
+       */
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "meeting-has-no-agenda":
+    case "notice-time-not-on-the-meeting-day":
+      /*
+       * Understood and refused on the merits, both against EFL 6 kap. 22 §.
+       * That paragraph has the notice state clearly the matters to be dealt
+       * with, so a meeting with nothing on its agenda has nothing to be
+       * summoned for; and it has the notice state the time of the meeting,
+       * which has to be the time of that meeting - a notice whose hour falls on
+       * a different day from the meeting's own would summon the members to a
+       * day that decides nobody's vote.
        */
       return HttpStatus.UNPROCESSABLE_ENTITY;
   }

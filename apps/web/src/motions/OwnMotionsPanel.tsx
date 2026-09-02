@@ -19,7 +19,7 @@ export interface OwnMotionsPanelProps {
  *
  * Withdrawing is offered only while the motion is still open, because that is
  * the only state the API accepts it in: once the board has recorded that it
- * received the item, the item may already be in a notice that has gone out, and a
+ * received the item, the item may already be in a notice that has been issued, and a
  * button that always failed would be a worse way to say so than no button.
  *
  * A withdrawn motion stays on the list with its date. The record that the member

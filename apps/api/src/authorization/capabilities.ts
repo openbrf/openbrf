@@ -288,12 +288,13 @@ export const CAPABILITIES = [
   "motions:handle",
   /**
    * Arrange a general meeting (foreningsstamma) and run it: write its agenda
-   * (dagordning), register a member's proxy authorisation, record who is
-   * present, read the voting register (rostlangd) and minute what the meeting
-   * decided.
+   * (dagordning), issue the notice (kallelse) that summons it, register a
+   * member's proxy authorisation, record who is present, read the voting
+   * register (rostlangd) and minute what the meeting decided.
    *
    * The board's, because every one of those acts is the board's side of the
-   * meeting. EFL 6 kap. 16 § has the board call the meeting; 6 kap. 26 § has the
+   * meeting. EFL 6 kap. 16 § has the board call the meeting and 22 § states what
+   * the notice it issues must contain; 6 kap. 26 § has the
    * board's chair, or whoever it appointed, open it; 6 kap. 27 § has the register
    * drawn up by whoever opened it or by the chair the meeting elected; and
    * 6 kap. 39 § has the chair see that a protokoll is kept. So this is one

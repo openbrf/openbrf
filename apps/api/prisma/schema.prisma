@@ -1134,6 +1134,19 @@ enum AuditAction {
   /// association's business and not about a person, even where the item was
   /// somebody's motion.
   MEETING_DECISION_RECORDED
+  /// The board issued the notice (kallelse) that summons a general meeting, and
+  /// the delivery ledger for it was written. One action and not two, because
+  /// issuing a notice is sending it: unlike a news item, which is published to a
+  /// website and may or may not be mailed, a notice that reached nobody has not
+  /// been given. The recipient count and the channel travel with the entry; no
+  /// recipient is named, and neither is the time, the place or an item. No
+  /// subject: summoning the members is the association's own act.
+  MEETING_NOTICE_ISSUED
+  /// The board recorded which general meeting takes up a motion, or took that
+  /// answer back. The subject stays the member who submitted it, so their own
+  /// access report shows the meeting their item was put to. The entry names the
+  /// meeting and never the motion's text.
+  MOTION_MEETING_SET
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -3054,15 +3067,25 @@ enum MotionStatus {
 /// not purged at all: the association is still processing it, so the purpose it
 /// is held for has not ended.
 ///
-/// ## No meeting
+/// ## The meeting it is taken up at
 ///
-/// Still deliberately no meetingId, now that a meeting is a table. What decides
-/// which meeting a motion reaches is the notice (kallelse): EFL 6 kap. 15 §
-/// conditions the right on the request arriving in time for the item to be taken
-/// up in it, and EFL 6 kap. 22 § makes the notice state the matters to be dealt
-/// with. So the linkage belongs with the notice rather than ahead of it - and
-/// until then a motion is an item with the board, which is what the statute
-/// makes it before a notice goes out.
+/// `meetingId`, and nullable, because a motion begins as an item with the board
+/// and becomes an item for a particular meeting only when the board puts it to
+/// one. EFL 6 kap. 15 § conditions the right on the written request reaching the
+/// board in time for the item to be taken up in the notice to the meeting, and
+/// 6 kap. 22 § makes the notice state the matters to be dealt with, so the link
+/// is the board's answer to "which meeting takes this up" and the notice is what
+/// settles it.
+///
+/// Which is also why the link stops being writable once that meeting's notice
+/// has been issued, and once the meeting has been held. EFL 6 kap. 25 § leaves a
+/// meeting unable to decide a matter its notice did not take up, so a motion
+/// attached afterwards would say the meeting dealt with something it was never
+/// summoned to deal with. Both refusals are in `MotionService`.
+///
+/// The board may still receive a motion after the notice has been issued, and
+/// motion no meeting has taken up is the ordinary state rather than an error -
+/// which is what the null means and why there is no default.
 model Motion {
   id String @id @default(cuid())
 
@@ -3103,11 +3126,26 @@ model Motion {
   /// it back. A plain column, for the reason submittedByPersonId is one.
   closedByPersonId String?
 
+  /// The meeting the board has put this item to, or null while no meeting has
+  /// taken it up. See the model comment.
+  ///
+  /// A relation and not a plain column, unlike every person reference here: a
+  /// meeting is the association's own act, is never purged and is never erased
+  /// on anybody's request, so a foreign key costs the purge nothing. It
+  /// restricts rather than cascades or nulls - nothing deletes a meeting, and
+  /// restricting is what keeps that true instead of letting a delete silently
+  /// detach the items a meeting was summoned to deal with.
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   /// The board's queue: open motions first, oldest first within a status.
   @@index([status, submittedAt])
+  /// The items one meeting is to deal with, which is the read the notice and the
+  /// agenda are put together from.
+  @@index([meetingId])
   /// A member's own motions, and the DSAR section.
   @@index([submittedByPersonId, submittedAt])
   /// The purge scan: which motions closed long enough ago.
@@ -3324,6 +3362,49 @@ enum VoteChoice {
   ABSTENTION
 }
 
+/// How one recipient's copy of a notice was sent.
+///
+/// One value, because this platform sends a notice one way. Its own enum rather
+/// than the news mailing's, for the reason the ledger below is its own table: a
+/// notice is not a news item, and a list shared with the news channels would
+/// offer a notice a channel nobody may summon a general meeting by.
+///
+/// Declared as an enum with a default on the row for what happens next rather
+/// than for what is here now. The news ledger's channel column carries a default
+/// so that the rows written before there was a second channel keep their
+/// meaning - every mailing there had ever been was an email - and a column that
+/// starts with one is a value added later rather than a backfill of rows nobody
+/// can ask again.
+///
+/// Post is deliberately not a value. EFL 6 kap. 21 § andra stycket requires a
+/// notice to be sent by post to every member whose postal address is known in
+/// three cases - an ordinary meeting moved off the day the bylaws set, certain
+/// changes to the bylaws, and a fusion, a liquidation or a simplified winding
+/// up - and this platform posts nothing and records none of the three facts
+/// those cases turn on. A POST value would therefore be a ledger of letters
+/// nobody sent.
+enum MeetingNoticeChannel {
+  EMAIL
+}
+
+/// How far one recipient's copy of a notice got.
+///
+/// The news delivery ledger's three states, and its own enum for the same reason
+/// the channel is: the two ledgers are read by different screens and a state
+/// added for one of them has no business widening the other.
+enum MeetingNoticeDeliveryStatus {
+  /// Claimed when the notice was issued and not yet handed to a mail server.
+  PENDING
+
+  /// Accepted by the mail server. It is not a claim that anybody read it, and it
+  /// is not a claim that the notice was lawfully given: see MeetingNotice.
+  SENT
+
+  /// The mail server refused it, or this instance has none configured. The
+  /// notice is issued either way: only this copy of it failed.
+  FAILED
+}
+
 /// One general meeting (foreningsstamma) of the members.
 ///
 /// EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
@@ -3383,6 +3464,12 @@ model Meeting {
   agendaItems         AgendaItem[]
   attendances         MeetingAttendance[]
   proxyAuthorisations ProxyAuthorisation[]
+
+  /// The notice that summons this meeting, once one has been issued.
+  notice MeetingNotice?
+
+  /// The motions the board has put to this meeting.
+  motions Motion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3761,4 +3848,178 @@ model MeetingVote {
   /// This person's own votes, for the day something casts one.
   @@index([voterPersonId])
   @@map("meeting_vote")
+}
+
+/// The notice (kallelse) that summons one general meeting.
+///
+/// ## What a notice has to carry
+///
+/// EFL 6 kap. 22 §, which is what makes this a notice rather than an email about
+/// a meeting. It states the requirement in three parts and this model answers
+/// each of them:
+///
+///   "Kallelsen ska innehalla uppgifter om tid och plats for
+///   foreningsstamman." Unconditional, so `startsAt` and `place` are both
+///   required. The day is the meeting's own column and never repeated here - it
+///   is the day that decides who has a vote - so this row carries the time and
+///   the service refuses a time that does not fall on that day.
+///
+///   "Om foreningsstamman ska hallas digitalt ska kallelsen innehalla uppgift om
+///   hur medlemmarna ska ga till vaga for att delta och for att rosta." That is
+///   `digitalParticipation`, and it is one nullable column rather than a flag
+///   beside a text: the statute makes the instruction required exactly when the
+///   meeting is digital, so the presence of the instruction and the fact that
+///   the meeting is digital are one fact and not two that could disagree.
+///
+///   "I kallelsen ska aven de arenden som ska behandlas pa foreningsstamman
+///   tydligt anges." Those are the meeting's agenda items. They are not copied
+///   onto this row, and issuing the notice is what stops them being rewritten -
+///   see below.
+///
+/// The fourth limb of that paragraph has no column. Where an item concerns a
+/// change to the bylaws the notice must state the main content of the proposal,
+/// and nothing here records that an item is a bylaws change or holds the
+/// proposal: an item is a line the board writes, and the board writes that
+/// content into the line as the notice states it.
+///
+/// ## The notice is what fixes the agenda
+///
+/// A member's right under EFL 6 kap. 15 § is to have an item taken up in the
+/// notice, and 6 kap. 25 § is what gives that force: where the notice rules were
+/// not followed, the meeting may not decide the matter without the consent of
+/// every member the failure affects. So which items a meeting may deal with is
+/// decided by its notice and by nothing else - which is why issuing one refuses
+/// any later rewrite of the agenda, and why a meeting with no agenda cannot be
+/// summoned at all. A notice stating no matters is not a notice under 22 §.
+///
+/// One notice per meeting, which is what the unique key says. A notice that went
+/// wrong is not corrected by a second one: 6 kap. 25 § leaves the meeting unable
+/// to decide the affected matter and lets it resolve to convene an extra general
+/// meeting, and that extra meeting is a meeting of its own with a notice of its
+/// own. Nothing here withdraws a notice either, for the reason Meeting gives for
+/// not calling a meeting off.
+///
+/// ## Electronic notices, and what this row does not claim
+///
+/// A housing cooperative may send notices by electronic means: BRL 1 kap. 10 §
+/// applies the rules on information by electronic means in EFL 1 kap. 16 § to a
+/// bostadsrattsforening sending kallelser. That paragraph attaches three
+/// conditions - the general meeting has resolved on it, the association has
+/// reliable routines for identifying the recipient and reliable information on
+/// how to reach them, and the recipient has consented, which the second
+/// paragraph presumes where a request sent by post went unanswered for at least
+/// two weeks - and a consent may be taken back at any time.
+///
+/// None of the three is a fact this platform decides, and this row makes no
+/// claim about any of them. It records that the association sent the notice, in
+/// the same way ProxyAuthorisation records that the board saw a proxy
+/// authorisation without recording a signature. The manner in which the members
+/// are called is the bylaws' own (EFL 6 kap. 21 § forsta stycket), which this
+/// platform does not hold either.
+///
+/// The time within which a notice is to be issued - EFL 6 kap. 17 § for an
+/// ordinary meeting and 18 § for an extra one - is stated and never enforced.
+/// Both sections let the bylaws move the latest date, and this platform holds no
+/// such clause, so a refusal built on the statutory dates alone would refuse an
+/// association acting on its own lawful bylaws.
+///
+/// Service tier: the association's own act. No append-only trigger and no
+/// retention floor.
+model MeetingNotice {
+  id String @id @default(cuid())
+
+  /// One notice per meeting. See the model comment.
+  meetingId String  @unique
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// When the meeting begins, as the notice states it.
+  ///
+  /// An instant and not a time of day, because that is what a reader needs and
+  /// what a message can print. It is written only where its Stockholm day is the
+  /// meeting's `heldOn`, so the two cannot answer "which day" differently.
+  startsAt DateTime
+
+  /// Where the meeting is held, as the notice states it. The board's own
+  /// writing, stored as written and never translated (decision 59).
+  ///
+  /// Required even for a meeting held digitally. The first sentence of EFL 6
+  /// kap. 22 § states time and place without condition, and where the bylaws let
+  /// a meeting be held digitally (6 kap. 14 § forsta stycket 3) the board still
+  /// convenes it somewhere it can name.
+  place String
+
+  /// How the members are to take part and to vote, where the meeting is held
+  /// digitally. Null for a meeting held in a room. See the model comment.
+  digitalParticipation String?
+
+  issuedAt DateTime @default(now())
+
+  /// The board member who issued it. A plain column and not a relation, for the
+  /// reason every person reference outside the registers is one.
+  issuedByPersonId String
+
+  deliveries MeetingNoticeDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("meeting_notice")
+}
+
+/// One recipient's copy of one notice.
+///
+/// The news delivery ledger's shape, deliberately reproduced rather than
+/// borrowed: a notice is not a news item, so it gets a table of its own on that
+/// pattern. What the pattern is for is making "exactly once per recipient"
+/// mechanical. The recipients are snapshotted into the ledger inside the
+/// transaction that issues the notice, the pair (notice, person, channel) is
+/// unique, and the worker claims each row conditionally - PENDING to SENT -
+/// before it hands anything to a mail server, so a retried or duplicated job
+/// reaches nobody twice.
+///
+/// The snapshot is taken when the notice is issued and never refreshed. That is
+/// a stronger statement here than it is for a news mailing: the ledger is the
+/// association's record of whom it summoned to the meeting, and a member who
+/// joined afterwards was not summoned by this notice however the register looks
+/// later.
+///
+/// A failure is recorded as a code and never as the mail server's own words. A
+/// rejection quotes the envelope back, and the envelope is a member's address.
+///
+/// No section of the data subject access report reads this table, on the news
+/// delivery ledger's own precedent: what the report answers for is the meeting's
+/// record - who was present, and the authority a vote was exercised under - and
+/// a mailing ledger is the association's record of an act it performed. A
+/// section here would be a decision about the report rather than about the
+/// notice.
+model MeetingNoticeDelivery {
+  id String @id @default(cuid())
+
+  noticeId String
+  notice   MeetingNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+
+  /// The recipient. A plain column, like every other person reference outside
+  /// the registers: a referential action here would either rewrite the ledger or
+  /// veto erasure of the person it names. A recipient who is gone by the time
+  /// the worker runs is recorded as unreachable rather than mailed.
+  personId String
+
+  /// Which channel this row is the record of. Defaulted, for the reason
+  /// MeetingNoticeChannel gives.
+  channel MeetingNoticeChannel @default(EMAIL)
+
+  status MeetingNoticeDeliveryStatus @default(PENDING)
+
+  /// Why it failed, as a code. See `meeting-notice-delivery.ts`.
+  failureReason String?
+
+  queuedAt DateTime  @default(now())
+  sentAt   DateTime?
+
+  /// One row per recipient per channel, so a second attempt at one notice
+  /// cannot add a second row for anybody.
+  @@unique([noticeId, personId, channel])
+  /// The worker's queue, and the board's count of what got through.
+  @@index([noticeId, channel, status])
+  @@map("meeting_notice_delivery")
 }
