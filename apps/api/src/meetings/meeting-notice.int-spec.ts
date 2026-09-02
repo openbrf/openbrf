@@ -737,7 +737,15 @@ describe("issuing the notice", () => {
       });
       expect(items.map((item) => item.title)).toEqual(["Stammans oppnande"]);
     } finally {
+      /*
+       * Released and then waited for, so the transaction has committed or
+       * rolled back - and let go of the key - before the next test in this
+       * shared database asks for it. Its own error is swallowed rather than
+       * thrown from a `finally`, which would replace a failed assertion above
+       * with a rollback nobody is asking about.
+       */
       releaseHolder();
+      await holder.catch(() => undefined);
     }
   });
 
@@ -990,7 +998,15 @@ describe("the meeting a motion is taken up at", () => {
       });
       expect(stored?.meetingId).toBeNull();
     } finally {
+      /*
+       * Released and then waited for, so the transaction has committed or
+       * rolled back - and let go of the key - before the next test in this
+       * shared database asks for it. Its own error is swallowed rather than
+       * thrown from a `finally`, which would replace a failed assertion above
+       * with a rollback nobody is asking about.
+       */
       releaseHolder();
+      await holder.catch(() => undefined);
     }
   });
 
@@ -1062,7 +1078,15 @@ describe("the meeting a motion is taken up at", () => {
       expect(stored?.meetingId).toBeNull();
       expect(stored?.status).toBe("WITHDRAWN");
     } finally {
+      /*
+       * Released and then waited for, so the transaction has committed or
+       * rolled back - and let go of the key - before the next test in this
+       * shared database asks for it. Its own error is swallowed rather than
+       * thrown from a `finally`, which would replace a failed assertion above
+       * with a rollback nobody is asking about.
+       */
       releaseHolder();
+      await holder.catch(() => undefined);
     }
   });
 
