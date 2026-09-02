@@ -3576,10 +3576,13 @@ model MeetingAttendance {
   /// One line per person, meeting and capacity. Two would be one person counted
   /// twice on the list the votes are read from.
   @@unique([meetingId, personId, capacity])
-  /// At most one assistant per member or proxy holder (EFL 6 kap. 7 §). See
-  /// onBehalfOfPersonId for why a plain unique constraint states a rule that
-  /// applies to one capacity only.
-  @@unique([meetingId, onBehalfOfPersonId])
+  /// At most one assistant per member or proxy holder (EFL 6 kap. 7 §) is a
+  /// partial unique index written by hand in the migration, with no @@unique
+  /// counterpart here: it has to bind only the rows where withdrawnAt is null.
+  /// A withdrawal is a dated fact rather than a deletion, so the expressible
+  /// constraint would let an assistant recorded in error hold the one slot for
+  /// ever and leave the correction unrecordable. The booking module's live-slot
+  /// index is the same shape for the same reason. Do not add the expressible one.
   /// The list drawn up at the meeting, and the register the votes are counted from.
   @@index([meetingId, capacity])
   /// This person's own attendance: the access report section.

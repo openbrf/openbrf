@@ -421,7 +421,7 @@
           "broughtBy": "Brought by",
           "counterpart": "Other person",
           "proxyGround": "Ground",
-          "authorised": "Authority dated"
+          "authorised": "Proxy authorisation dated"
         },
         "event": {
           "ENTRY": "Membership granted",

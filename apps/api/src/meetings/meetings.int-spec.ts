@@ -827,6 +827,59 @@ describe("checking people in", () => {
     expect(lineOf(meeting, soloMember.personId)?.votePresent).toBe(false);
   });
 
+  it("takes a replacement assistant after the wrong one was withdrawn", async () => {
+    /*
+     * The correction path, and the reason the one-assistant rule is a partial
+     * index rather than the constraint Prisma can express.
+     *
+     * A withdrawal here is a dated fact and not a deletion, because the list is
+     * what the minutes are drawn from and somebody struck off it is a thing that
+     * happened. So a plain unique index over the meeting and the principal would
+     * let an assistant recorded in error hold the one slot for ever: withdrawing
+     * the wrong row would not free it, and the actual assistant could never be
+     * recorded at all. The index binds only the rows where withdrawnAt is null.
+     */
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: twoHoldings.personId,
+          capacity: "MEMBER",
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    const wrong = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(wrong.statusCode).toBe(201);
+
+    const withdrawn = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/attendances/${wrong.json<{ id: string }>().id}/withdrawal`,
+      headers: { cookie: boardCookie },
+    });
+    expect(withdrawn.statusCode).toBe(201);
+
+    // The slot is free, so the assistant who actually came can be recorded.
+    const right = await checkIn(meetingId, {
+      personId: otherMember.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(right.statusCode).toBe(201);
+
+    const meeting = await readMeeting(meetingId);
+    // One standing assistant, and the withdrawn line still on the report: the
+    // correction is visible rather than tidied away. The replacement is a
+    // member in her own right, so she is eligible without the bylaws being
+    // widened, and her own vote is still not in the room.
+    expect(meeting.votingRegister.assistantsPresent).toBe(1);
+    expect(lineOf(meeting, otherMember.personId)?.votePresent).toBe(false);
+  });
+
   it("refuses a member's line that names somebody who brought them", async () => {
     /*
      * A member is nobody's stand-in and a proxy holder's principals are the

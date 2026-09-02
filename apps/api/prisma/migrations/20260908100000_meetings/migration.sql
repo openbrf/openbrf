@@ -282,9 +282,22 @@ CREATE UNIQUE INDEX "meeting_attendance_meetingId_personId_capacity_key" ON "mee
 -- CreateIndex
 --
 -- At most one assistant per member or proxy holder (EFL 6 kap. 7 §). See the
--- check constraint on "onBehalfOfPersonId" above for why a plain unique index
--- states a rule that binds one capacity only.
-CREATE UNIQUE INDEX "meeting_attendance_meetingId_onBehalfOfPersonId_key" ON "meeting_attendance"("meetingId", "onBehalfOfPersonId");
+-- check constraint on "onBehalfOfPersonId" above for why this binds one
+-- capacity only.
+--
+-- Partial on purpose. A withdrawal here is a dated fact and not a deletion, so
+-- a plain unique index over the pair would let an assistant recorded in error
+-- keep the one slot for ever: withdrawing the wrong row would not free it, and
+-- the actual assistant could never be recorded. WHERE "withdrawnAt" IS NULL
+-- means exactly one standing assistant per principal, with any number of
+-- withdrawn rows beside it so the correction stays on the report.
+--
+-- Written by hand because Prisma cannot express a WHERE clause on an index, and
+-- with no @@unique counterpart in schema.prisma. The model comment on
+-- MeetingAttendance says so, so that nobody adds the expressible one later.
+CREATE UNIQUE INDEX "meeting_attendance_meetingId_onBehalfOfPersonId_live_key"
+    ON "meeting_attendance" ("meetingId", "onBehalfOfPersonId")
+    WHERE "withdrawnAt" IS NULL;
 
 -- CreateIndex
 CREATE INDEX "proxy_authorisation_meetingId_proxyHolderPersonId_idx" ON "proxy_authorisation"("meetingId", "proxyHolderPersonId");
