@@ -29,6 +29,16 @@
       "body": "Det här kontot använder en autentiseringsapp, och en inloggningslänk skulle gå förbi din andra faktor. Logga in med ditt lösenord och din kod, eller med en passkey.",
       "notRequested": "Om det inte var du som försökte logga in kan du bortse från det här meddelandet. Ingen har fått åtkomst."
     },
+    "meetingNotice": {
+      "subject": "{{kind}} den {{date}} - {{association}}",
+      "preview": "{{kind}} den {{date}}",
+      "body": "Styrelsen i {{association}} kallar härmed medlemmarna till {{kind}}.",
+      "when": "Tid: {{date}} kl. {{time}}",
+      "where": "Plats: {{place}}",
+      "digital": "Så deltar och röstar du: {{instructions}}",
+      "agendaHeading": "Ärenden som ska behandlas",
+      "agendaItem": "{{position}}. {{item}}"
+    },
     "moveIn": {
       "subject": "Välkommen till {{association}}",
       "heading": "Välkommen till ditt nya hem",
@@ -2565,7 +2575,7 @@
       "acknowledge": "Anteckna som mottagen",
       "acknowledgeNamed": "Anteckna motionen {{title}} som mottagen",
       "acknowledging": "Antecknar...",
-      "deadline": "Era stadgar anger {{date}} som sista dag för motioner. En motion som kommer senare tas ändå emot; dagen säger om den hann med i en kallelse, och ingenting här antecknar vilken stämma som tar upp den.",
+      "deadline": "Era stadgar anger {{date}} som sista dag för motioner. En motion som kommer senare tas ändå emot; dagen säger om den hann med i en kallelse, och vilken stämma som tar upp ärendet antecknas här på motionen.",
       "noDeadline": "Era stadgar anger ingen tid för motioner. Ange en under Inställningar om de gör det."
     },
     "errors": {

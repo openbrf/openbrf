@@ -27,9 +27,12 @@ import {
  * read all come from global modules, which is why nothing is imported here.
  *
  * The service is exported for the screens and endpoints that read the queue
- * without being the ones that write it - and for the module that will link a
- * motion to the meeting it was taken up at, which arrives with the notice that
- * puts the item on one.
+ * without being the ones that write it. Linking a motion to the meeting that
+ * takes it up is one of this module's own acts rather than the meetings
+ * module's: the item belongs to the queue the board works, and the two facts the
+ * refusal turns on - whether the meeting has been held, and whether its notice
+ * has gone out - are columns this service reads for itself, which is why nothing
+ * is imported here.
  */
 @Module({
   controllers: [MotionIntakeController, MotionQueueController],

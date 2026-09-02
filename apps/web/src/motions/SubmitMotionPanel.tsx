@@ -28,11 +28,10 @@ const EMPTY = { title: "", body: "" };
  * The deadline is stated and never enforced. It is the condition on the right to
  * have an item taken up at a *particular* general meeting rather than a
  * condition on the association's ability to receive one, so a motion arriving
- * after it is received all the same, and nothing here records which general
- * meeting takes one up - there are no general meetings in the platform yet to
- * record. Saying so here is the point:
- * a form that silently accepted a late motion without mentioning the date would
- * leave a member believing their item was on the coming agenda.
+ * after it is received all the same, and which meeting takes it up is the
+ * board's own answer recorded against the motion afterwards. Saying so here is
+ * the point: a form that silently accepted a late motion without mentioning the
+ * date would leave a member believing their item was on the coming agenda.
  */
 export function SubmitMotionPanel({
   deadline,

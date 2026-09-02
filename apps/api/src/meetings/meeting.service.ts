@@ -23,6 +23,10 @@ import {
   readMeetingBylaws,
   statutoryMeetingBylaws,
 } from "./meeting-bylaws";
+import {
+  type MeetingNoticeView,
+  MeetingNoticeService,
+} from "./meeting-notice.service";
 import { MeetingError } from "./meeting.error";
 import { lockProxyAuthorisations } from "./proxy-lock";
 import { proxyAuthorityProblem } from "./proxy-authority";
@@ -101,6 +105,16 @@ export interface MeetingView extends MeetingSummaryView {
   bylaws: MeetingBylaws;
   /** The voting register, drawn from the member register as of the meeting day. */
   votingRegister: VotingRegister;
+  /**
+   * The notice that summons the meeting, or null while none has been issued.
+   *
+   * In this answer rather than fetched on its own, because it decides whether
+   * the rest of the screen may still be edited at all: once the notice has gone
+   * out the agenda is the record of what the meeting was summoned to deal with
+   * and no longer a plan, and a board offered a form the server will refuse has
+   * been told the wrong thing.
+   */
+  notice: MeetingNoticeView | null;
 }
 
 export interface ArrangeMeetingInput {
@@ -222,6 +236,7 @@ export class MeetingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly notices: MeetingNoticeService,
   ) {}
 
   /** The board's list: the meeting furthest ahead first, held ones below. */
@@ -350,6 +365,14 @@ export class MeetingService {
    * set once the meeting has been held: afterwards the agenda is the record of
    * what the meeting dealt with, and rewriting it would discard the minute of a
    * decision the meeting took.
+   *
+   * It is also refused once the notice has been issued, and that refusal comes
+   * earlier and matters more. EFL 6 kap. 22 § has the notice state clearly the
+   * matters to be dealt with, and 6 kap. 25 § leaves the meeting unable to
+   * decide a matter its notice did not take up without the consent of every
+   * member the failure affects. So the notice is what settles the agenda, and
+   * these rows are what it stated: rewriting them afterwards would leave the
+   * platform holding a list the members were never summoned to.
    */
   async setAgenda(
     meetingId: string,
@@ -359,6 +382,7 @@ export class MeetingService {
     return this.prisma.$transaction(async (tx) => {
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
+      this.refuseIfSummoned(meeting);
 
       await tx.agendaItem.deleteMany({ where: { meetingId } });
       await tx.agendaItem.createMany({
@@ -925,22 +949,29 @@ export class MeetingService {
           throw new MeetingError("No such meeting.", "meeting-not-found");
         }
 
-        const [agenda, attendances, proxyAuthorisations, bylaws, register] =
-          await Promise.all([
-            this.readAgenda(tx, meetingId),
-            tx.meetingAttendance.findMany({
-              where: { meetingId },
-              orderBy: [{ capacity: "asc" }, { createdAt: "asc" }],
-              select: ATTENDANCE_COLUMNS,
-            }),
-            tx.proxyAuthorisation.findMany({
-              where: { meetingId },
-              orderBy: [{ createdAt: "asc" }],
-              select: PROXY_COLUMNS,
-            }),
-            this.readBylaws(tx),
-            this.readVotingRegister(tx, meetingId, meeting.heldOn),
-          ]);
+        const [
+          agenda,
+          attendances,
+          proxyAuthorisations,
+          bylaws,
+          register,
+          notice,
+        ] = await Promise.all([
+          this.readAgenda(tx, meetingId),
+          tx.meetingAttendance.findMany({
+            where: { meetingId },
+            orderBy: [{ capacity: "asc" }, { createdAt: "asc" }],
+            select: ATTENDANCE_COLUMNS,
+          }),
+          tx.proxyAuthorisation.findMany({
+            where: { meetingId },
+            orderBy: [{ createdAt: "asc" }],
+            select: PROXY_COLUMNS,
+          }),
+          this.readBylaws(tx),
+          this.readVotingRegister(tx, meetingId, meeting.heldOn),
+          this.notices.read(tx, meetingId),
+        ]);
 
         return {
           ...toSummary(meeting),
@@ -950,6 +981,7 @@ export class MeetingService {
           proxyAuthorisations: proxyAuthorisations.map(toProxyView),
           bylaws,
           votingRegister: register,
+          notice,
         };
       },
       { isolationLevel: "RepeatableRead" },
@@ -1103,10 +1135,20 @@ export class MeetingService {
   private async requireMeeting(
     client: MeetingDbClient,
     meetingId: string,
-  ): Promise<{ id: string; heldOn: Date; concludedAt: Date | null }> {
+  ): Promise<{
+    id: string;
+    heldOn: Date;
+    concludedAt: Date | null;
+    notice: { id: string } | null;
+  }> {
     const meeting = await client.meeting.findUnique({
       where: { id: meetingId },
-      select: { id: true, heldOn: true, concludedAt: true },
+      select: {
+        id: true,
+        heldOn: true,
+        concludedAt: true,
+        notice: { select: { id: true } },
+      },
     });
     if (meeting === null) {
       throw new MeetingError("No such meeting.", "meeting-not-found");
@@ -1119,6 +1161,23 @@ export class MeetingService {
       throw new MeetingError(
         "This meeting has been recorded as held.",
         "meeting-already-held",
+      );
+    }
+  }
+
+  /**
+   * Refuses a change the notice has already put beyond reach.
+   *
+   * Separate from {@link refuseIfHeld} because the two answer different
+   * questions and the earlier one binds first: a meeting is summoned weeks
+   * before it is held, and from the moment it is, what it may deal with is
+   * settled (EFL 6 kap. 22 § with 25 §).
+   */
+  private refuseIfSummoned(meeting: { notice: { id: string } | null }): void {
+    if (meeting.notice !== null) {
+      throw new MeetingError(
+        "The notice for this meeting has been issued, so what it deals with is settled.",
+        "notice-already-issued",
       );
     }
   }

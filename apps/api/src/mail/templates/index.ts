@@ -13,6 +13,8 @@ export { magicLinkRefusedMail } from "./magic-link-refused.template";
 export type { MagicLinkRefusedMailProps } from "./magic-link-refused.template";
 export { magicLinkMail } from "./magic-link.template";
 export type { MagicLinkMailProps } from "./magic-link.template";
+export { meetingNoticeMail } from "./meeting-notice.template";
+export type { MeetingNoticeMailProps } from "./meeting-notice.template";
 export { moveInMail } from "./move-in.template";
 export type { MoveInMailProps } from "./move-in.template";
 export { moveOutMail } from "./move-out.template";

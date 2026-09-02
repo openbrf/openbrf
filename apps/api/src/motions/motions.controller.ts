@@ -5,6 +5,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   Req,
 } from "@nestjs/common";
@@ -49,6 +50,18 @@ const submitSchema = z.object({
    * push the argument into a second motion.
    */
   body: z.string().trim().min(1).max(8000),
+});
+
+/**
+ * Which general meeting takes an item up, or none.
+ *
+ * Nullable rather than two routes, because it is one answer the board gives and
+ * can take back. An identifier only: which meetings exist is the meetings
+ * module's own answer, and a body that also carried a day or a kind would be a
+ * second place to write facts about a meeting.
+ */
+const meetingSchema = z.object({
+  meetingId: z.string().min(1).nullable(),
 });
 
 /**
@@ -166,5 +179,28 @@ export class MotionQueueController {
     @Req() request: RequestWithPrincipal,
   ): Promise<QueuedMotionView> {
     return this.motions.acknowledge(id, requirePrincipal(request).personId);
+  }
+
+  /**
+   * Records which general meeting takes this item up.
+   *
+   * A put rather than a post to a named sub-resource, because it is one answer
+   * that can be given, changed and taken back rather than an event that
+   * happened: null is where every motion starts and where the board may put it
+   * back while the meeting is still being arranged. The service refuses the
+   * change once that meeting's notice has been issued, which is what EFL 6 kap.
+   * 25 § makes of a matter the notice did not state.
+   */
+  @Put(":id/meeting")
+  async setMeeting(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedMotionView> {
+    return this.motions.setMeeting(
+      id,
+      meetingSchema.parse(body).meetingId,
+      requirePrincipal(request).personId,
+    );
   }
 }

@@ -582,11 +582,9 @@ change it.
 
 - [ ] General meetings: the notice (kallelse), the agenda, the voting register,
       proxies, real-time voting, and the link from a motion to the meeting it is
-      taken up at - a motion still carries no meeting reference, because what
-      decides which meeting takes an item up is the notice that states it.
-      Motion intake itself is the Forms item below rather than this one. Postal
-      voting is prohibited for a housing cooperative under BRL 9 kap. 14 §, and
-      will never be built.
+      taken up at. Motion intake itself is the Forms item below rather than this
+      one. Postal voting is prohibited for a housing cooperative under BRL 9 kap.
+      14 §, and will never be built.
   - Landed: the meeting itself, its agenda, who was present and in what
     capacity, the proxy authorisations (fullmakt) under which somebody else
     exercises a member's vote, and each item's outcome beside the vote counts
@@ -602,7 +600,22 @@ change it.
     proxy holder for a housing cooperative, not the three the general Act
     allows. Both new stores of personal data have a section in the data subject
     access report, and the proxy section answers for the member who gave the
-    authority and for the proxy holder who held it
+    authority and for the proxy holder who held it. The notice (kallelse) that
+    summons a meeting states what EFL 6 kap. 22 § requires of one: the time, the
+    place, how the members take part and vote where the meeting is held
+    digitally, and the matters to be dealt with. Issuing it settles those
+    matters, so from that moment the agenda may not be rewritten and no motion
+    may be put to the meeting or taken off it - EFL 6 kap. 25 § leaves a meeting
+    unable to decide a matter its notice did not take up. It goes to the members
+    by email, one row per recipient in a delivery ledger of its own with each
+    failure recorded as a code, and a member the association holds no address for
+    is written into that ledger and failed rather than left out: somebody the
+    platform cannot reach is somebody the board still has to call. Electronic
+    notices are lawful under BRL 1 kap. 10 § with EFL 1 kap. 16 §, whose three
+    conditions are the association's to satisfy - the ledger records that the
+    notice was sent and never that it was permitted. Which meeting takes a motion
+    up is recorded against the motion, and the member who submitted it is shown
+    the meeting and its day
   - Not modelled, and needed before the platform can apply one bylaws clause it
     records: what a space in the building is used for. BRL 9 kap. 14 § lets the
     bylaws limit the vote of a member holding nothing but a garage, a store or
@@ -613,12 +626,12 @@ change it.
     decision in any case. Recording the use would be a change to the apartment
     register, and inventing the answer from a participation share would take a
     vote away on a guess
-  - Pending: the board's screens for arranging a meeting, checking people in and
-    reading the voting register; the notice on a delivery ledger; the link from
-    a motion to the meeting it is taken up at; and real-time voting, for which
-    the vote record exists with no voter recorded so a closed ballot
-    (sluten omröstning) is representable without migrating the table the minutes
-    are built from. Nothing casts a vote yet
+  - Pending: the board's screens for arranging a meeting, issuing its notice,
+    checking people in, reading the voting register and putting a motion to a
+    meeting; and real-time voting, for which the vote record exists with no
+    voter recorded so a closed ballot (sluten omröstning) is representable
+    without migrating the table the minutes are built from. Nothing casts a vote
+    yet
 - [ ] Comments on news items, then group and board chat. Comments first and a
       full discussion forum never: a forum is a product of its own, and a
       cooperative that wants one is better served by an integration with
@@ -658,9 +671,9 @@ change it.
         no recurring date of its own to hold, and the statute's own condition -
         that a member ask the board in writing in time for the item to be taken
         up in the notice - stands either way. It is stated rather than enforced:
-        a late motion is still received, and nothing here records which general
-        meeting takes one up, because that is decided by the notice that states
-        the item and no notice is issued yet
+        a late motion is still received, and which general meeting takes one up
+        is recorded against the motion instead, up until that meeting's notice
+        has been issued
   - [ ] Subletting applications
   - [ ] Key orders
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a

@@ -3,14 +3,42 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
+import {
+  formatLocalDay,
+  localDayOfColumn,
+} from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
-import type { MotionStatus } from "../generated/prisma/enums";
+import type { Prisma } from "../generated/prisma/client";
+import type { MeetingKind, MotionStatus } from "../generated/prisma/enums";
 import {
   type MotionDeadlineView,
   motionDeadlineView,
   readMotionDeadline,
 } from "./motion-deadline";
 import { MotionError, type MotionTextLocation } from "./motion.error";
+
+/**
+ * The general meeting a motion has been put to.
+ *
+ * Named rather than given as an identifier, and it is the member's own view that
+ * decides that: EFL 6 kap. 15 § gives the member the right to have their item
+ * taken up at a general meeting, so "which meeting, and when" is the answer the
+ * right is about - and an identifier a member holds no capability to resolve
+ * would not be an answer at all. Nothing here is a disclosure: what a member is
+ * told is which meeting their own item is on, and the notice states that to them
+ * anyway.
+ */
+export interface MotionMeetingView {
+  id: string;
+  kind: MeetingKind;
+  /** "YYYY-MM-DD": the day the meeting is held. */
+  heldOn: string;
+  /**
+   * Whether the notice has been issued, which is what settles the agenda: once
+   * it has, the item cannot be moved to another meeting or taken off this one.
+   */
+  summoned: boolean;
+}
 
 /** A motion as the member who submitted it reads it back. */
 export interface OwnMotionView {
@@ -22,6 +50,8 @@ export interface OwnMotionView {
   submittedAt: string;
   /** ISO instant, or null while the motion is with the board. */
   closedAt: string | null;
+  /** The meeting the board has put it to, or null while none has. */
+  meeting: MotionMeetingView | null;
 }
 
 /**
@@ -108,6 +138,15 @@ export interface SubmitMotionInput {
  * have an item taken up at a *particular* meeting, not a condition on the
  * association's ability to receive one, so a late motion is taken and the board
  * triages. Nothing here refuses on a date.
+ *
+ * ## The meeting it is taken up at
+ *
+ * {@link setMeeting} is the board's answer to which general meeting deals with
+ * an item, and the notice to that meeting is what settles it: EFL 6 kap. 15 §
+ * conditions the right on the request arriving in time for the item to be taken
+ * up in the notice, and 6 kap. 22 § makes the notice state the matters to be
+ * dealt with. So the link is writable while the meeting is still being arranged
+ * and refused from the moment its notice has been issued.
  *
  * ## Free text
  *
@@ -311,6 +350,116 @@ export class MotionService {
     };
   }
 
+  /**
+   * Records which general meeting takes this item up, or takes that answer back.
+   *
+   * The act EFL 6 kap. 15 § is about. A member's right is to have their item
+   * taken up at a general meeting if the written request reaches the board in
+   * time for it to be taken up in the notice to that meeting, and 6 kap. 22 §
+   * makes the notice state the matters to be dealt with - so this is the board
+   * answering "which meeting", and the notice is what settles the answer.
+   *
+   * Which is why it is refused once that notice has gone out. EFL 6 kap. 25 §
+   * leaves the meeting unable to decide a matter the notice did not take up
+   * without the consent of every member the failure affects, so a motion
+   * attached afterwards would claim the meeting could deal with something the
+   * members were never called to - and one detached afterwards would leave the
+   * platform silent about an item the notice stated. Both are refused, which is
+   * why the meeting being left is checked as well as the one being joined.
+   *
+   * A meeting recorded as held is refused for the same reason one step later. A
+   * withdrawn motion is refused on different ground: the right is the member's
+   * to exercise and taking it back is theirs too.
+   *
+   * One transaction, with the update conditional on the link the caller read. Two
+   * board members putting one item to two meetings therefore produce one link,
+   * and the loser is answered exactly as a read would have answered them.
+   */
+  async setMeeting(
+    motionId: string,
+    meetingId: string | null,
+    actorPersonId: string,
+  ): Promise<QueuedMotionView> {
+    const motion = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.motion.findUnique({
+        where: { id: motionId },
+        select: {
+          id: true,
+          status: true,
+          submittedByPersonId: true,
+          meetingId: true,
+        },
+      });
+      if (existing === null) {
+        throw new MotionError("No such motion.", "motion-not-found");
+      }
+      if (existing.status === "WITHDRAWN") {
+        throw new MotionError(
+          "The member took this motion back, so it is not an item for a meeting.",
+          "motion-withdrawn",
+        );
+      }
+
+      if (existing.meetingId !== null) {
+        await this.requireMeetingOpen(tx, existing.meetingId);
+      }
+      if (meetingId !== null && meetingId !== existing.meetingId) {
+        await this.requireMeetingOpen(tx, meetingId);
+      }
+
+      const { count } = await tx.motion.updateMany({
+        // Conditional on the link the caller read, so a request that moved the
+        // item first is not silently overwritten by this one.
+        where: { id: motionId, meetingId: existing.meetingId },
+        data: { meetingId },
+      });
+      if (count === 0) {
+        throw new MotionError(
+          "This motion has meanwhile been put to a different meeting.",
+          "already-closed",
+        );
+      }
+
+      const updated = await tx.motion.findUniqueOrThrow({
+        where: { id: motionId },
+        select: MOTION_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "MOTION_MEETING_SET",
+          actorPersonId,
+          // The subject stays the member who submitted it, as at
+          // acknowledgement: what the board did with their item has to be
+          // answerable from their own access report.
+          targetPersonId: existing.submittedByPersonId,
+          targetKind: "motion",
+          targetId: motionId,
+          // Which meeting it moved to, or that it moved to none. Never the
+          // motion's own text: the log is append-only and exempt from every
+          // purge.
+          context: { meetingId },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    this.logger.log(
+      meetingId === null
+        ? `Motion ${motionId} is on no meeting`
+        : `Motion ${motionId} put to meeting ${meetingId}`,
+    );
+
+    const submitters = await this.submittersOf([motion]);
+    return {
+      ...toOwnView(motion),
+      closedByPersonId: motion.closedByPersonId,
+      submitter: submitterOf(motion.submittedByPersonId, submitters),
+    };
+  }
+
   /** The deadline the bylaws set, with the date it next falls on. */
   async deadline(now?: Date): Promise<MotionDeadlineView | null> {
     const association = await this.prisma.association.findUnique({
@@ -346,6 +495,43 @@ export class MotionService {
       throw new MotionError(
         "Putting an item to the general meeting is a member's right.",
         "not-a-member",
+      );
+    }
+  }
+
+  /**
+   * Refuses a meeting whose items are no longer the board's to change.
+   *
+   * Read inside the caller's transaction, so the notice cannot be issued between
+   * this check and the write it guards.
+   *
+   * The meeting is read straight from the database rather than through the
+   * meetings module's own service, which keeps this module importing nothing:
+   * the two facts needed here - whether the meeting has been held, and whether
+   * its notice has gone out - are columns, and asking for them through another
+   * module's service would make the motion queue depend on the whole of it.
+   */
+  private async requireMeetingOpen(
+    tx: Prisma.TransactionClient,
+    meetingId: string,
+  ): Promise<void> {
+    const meeting = await tx.meeting.findUnique({
+      where: { id: meetingId },
+      select: { concludedAt: true, notice: { select: { id: true } } },
+    });
+    if (meeting === null) {
+      throw new MotionError("No such general meeting.", "meeting-not-found");
+    }
+    if (meeting.notice !== null) {
+      throw new MotionError(
+        "The notice for that meeting has been issued, so what it deals with is settled.",
+        "meeting-notice-issued",
+      );
+    }
+    if (meeting.concludedAt !== null) {
+      throw new MotionError(
+        "That meeting has been recorded as held.",
+        "meeting-already-held",
       );
     }
   }
@@ -484,6 +670,21 @@ const MOTION_COLUMNS = {
   submittedByPersonId: true,
   closedAt: true,
   closedByPersonId: true,
+  meetingId: true,
+  /*
+   * The meeting itself and not only its identifier, because both views name it.
+   * A real relation, unlike every person reference in this table, so it is
+   * joined rather than read separately - see the schema for why a meeting may
+   * carry a foreign key when a person may not.
+   */
+  meeting: {
+    select: {
+      id: true,
+      kind: true,
+      heldOn: true,
+      notice: { select: { id: true } },
+    },
+  },
 } as const;
 
 interface MotionRecord {
@@ -493,6 +694,12 @@ interface MotionRecord {
   status: MotionStatus;
   submittedAt: Date;
   closedAt: Date | null;
+  meeting: {
+    id: string;
+    kind: MeetingKind;
+    heldOn: Date;
+    notice: { id: string } | null;
+  } | null;
 }
 
 function toOwnView(motion: MotionRecord): OwnMotionView {
@@ -503,6 +710,15 @@ function toOwnView(motion: MotionRecord): OwnMotionView {
     status: motion.status,
     submittedAt: motion.submittedAt.toISOString(),
     closedAt: motion.closedAt?.toISOString() ?? null,
+    meeting:
+      motion.meeting === null
+        ? null
+        : {
+            id: motion.meeting.id,
+            kind: motion.meeting.kind,
+            heldOn: formatLocalDay(localDayOfColumn(motion.meeting.heldOn)),
+            summoned: motion.meeting.notice !== null,
+          },
   };
 }
 

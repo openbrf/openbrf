@@ -29,6 +29,16 @@
       "body": "This account uses an authenticator app, so a sign-in link would skip your second factor. Sign in with your password and your code, or with a passkey.",
       "notRequested": "If you did not try to sign in, you can ignore this message. Nobody gained access."
     },
+    "meetingNotice": {
+      "subject": "{{kind}} on {{date}} - {{association}}",
+      "preview": "{{kind}} on {{date}}",
+      "body": "The board of {{association}} hereby summons the members to a {{kind}}.",
+      "when": "Time: {{date}} at {{time}}",
+      "where": "Place: {{place}}",
+      "digital": "Taking part and voting: {{instructions}}",
+      "agendaHeading": "Matters to be dealt with",
+      "agendaItem": "{{position}}. {{item}}"
+    },
     "moveIn": {
       "subject": "Welcome to {{association}}",
       "heading": "Welcome to your new home",
@@ -2565,7 +2575,7 @@
       "acknowledge": "Record as received",
       "acknowledgeNamed": "Record the motion {{title}} as received",
       "acknowledging": "Recording...",
-      "deadline": "Your bylaws set {{date}} as the deadline for motions. A motion arriving later is still received; the date says whether it was in time for a notice, and nothing here records which meeting takes one up.",
+      "deadline": "Your bylaws set {{date}} as the deadline for motions. A motion arriving later is still received; the date says whether it was in time for a notice, and which meeting takes an item up is recorded against the motion here.",
       "noDeadline": "Your bylaws set no deadline for motions. Record one under Settings if they do."
     },
     "errors": {
