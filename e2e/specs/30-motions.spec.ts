@@ -346,17 +346,29 @@ test.describe("motions to the general meeting", () => {
       await expect(panel).toBeVisible();
       await panel.getByLabel("Månad").fill("1");
       await panel.getByLabel("Dag").fill("31");
-      await panel.getByRole("button", { name: "Spara" }).click();
-
       /*
-       * Read back rather than waiting for the confirmation. "Sparat" is a
-       * state the panel leaves as soon as the settings it saved arrive again,
-       * so whether it is still on screen depends on how quickly that read
-       * answers - it was there after 700ms on one run and gone within 15s on
-       * the next, with the save having succeeded both times. Reloading and
-       * finding the clause on the fields is the durable form of the same
-       * question, and it is the one the member's side depends on.
+       * Wait for the write itself, then read it back.
+       *
+       * Not the confirmation: "Sparat" is a state the panel leaves as soon as
+       * the settings it saved arrive again, so whether it is still on screen
+       * depends on how quickly that read answers - it was there after 700ms on
+       * one run and gone within 15s on the next, with the save having succeeded
+       * both times.
+       *
+       * But reloading with nothing in between races the request instead. A
+       * reload abandons an in-flight one, so on a slow enough run the clause was
+       * never stored and the fields came back empty - which is how this failed
+       * in CI while passing locally. Awaiting the response is the fact the rest
+       * of the test depends on, and it cannot be won or lost by timing.
        */
+      const stored = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/settings/motion-deadline") &&
+          response.request().method() === "PUT",
+      );
+      await panel.getByRole("button", { name: "Spara" }).click();
+      expect((await stored).status()).toBe(200);
+
       await page.reload();
       await expect(panel.getByLabel("Månad")).toHaveValue("1");
       await expect(panel.getByLabel("Dag")).toHaveValue("31");
