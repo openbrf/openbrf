@@ -5,8 +5,8 @@ import { MeetingsController } from "./meetings.controller";
 
 /**
  * The general meeting (foreningsstamma): arranging one, its agenda, who was
- * present and in what capacity, the proxy authorisations a member's vote
- * is exercised under, and what the meeting decided.
+ * present and in what capacity, the proxy authorisations under which somebody
+ * else exercises a member's vote, and what the meeting decided.
  *
  * EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
  * exceptions.

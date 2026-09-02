@@ -591,11 +591,12 @@ change it.
     capacity, the proxy authorisations (fullmakt) a member's vote is exercised
     under by somebody else, and each item's outcome as the counts the chair read
     out.
-    The voting register (röstlängd) is derived when it is read and never stored:
-    every member has one vote, so two apartments are one vote and joint holders
-    of one tenant-ownership have one between them, an assistant (biträde) is on the
-    list and carries none, and a proxy holder's authority is measured against
-    the meeting day rather than against the day it was registered. The four
+    The voting register (röstlängd) is derived when it is read and never
+    stored: every member has one vote, so a member holding two apartments still
+    has one and joint holders of one tenant-ownership have one between them, an
+    assistant (biträde) is on the list and carries none, and a proxy holder's
+    authority is measured against the meeting day rather than against the day
+    it was registered. The four
     bylaws clauses BRL 9 kap. 14 § leaves to the association sit with the
     instance settings, each defaulted to the statutory position - one member per
     proxy holder for a housing cooperative, not the three the general Act

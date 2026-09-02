@@ -5,9 +5,8 @@
 ---
 
 Add the general meeting: the meeting itself, its agenda, who was present and in
-what capacity, the proxy authorisations a member's vote is exercised under by
-somebody else,
-and each item's outcome recorded as counts.
+what capacity, the proxy authorisations under which somebody else exercises a
+member's vote, and each item's outcome recorded as counts.
 
 EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
 exceptions. Four of those six are the association's own bylaws clauses and the

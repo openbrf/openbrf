@@ -156,9 +156,9 @@ const MEETING_COLUMNS = {
 
 /**
  * The general meeting (foreningsstamma): arranging one, its agenda, who was
- * present, the proxy authorisations a member's vote is exercised under by
- * somebody else,
- * and what the meeting decided.
+ * present, the proxy authorisations under which somebody else exercises a
+ * member's vote - representation, never a transfer of the vote and never a
+ * delegation of the meeting's powers - and what the meeting decided.
  *
  * EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
  * exceptions.
