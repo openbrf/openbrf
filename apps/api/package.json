@@ -20,7 +20,7 @@
     "db:seed": "tsc -p tsconfig.build.json && node dist/seed/main.js"
   },
   "dependencies": {
-    "@better-auth/passkey": "^1.7.1",
+    "@better-auth/passkey": "^1.7.2",
     "@fastify/multipart": "^10.1.1",
     "@fastify/static": "^10.1.2",
     "@nestjs/common": "^11.2.3",
@@ -34,12 +34,12 @@
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "aws4fetch": "^1.0.20",
-    "better-auth": "^1.7.1",
+    "better-auth": "^1.7.2",
     "ciphersweet-js": "2.0.6",
     "fastify": "^5.12.1",
     "i18next": "^26.4.0",
-    "nodemailer": "^9.0.5",
-    "pg-boss": "12.28.0",
+    "nodemailer": "^9.1.0",
+    "pg-boss": "12.29.0",
     "prisma": "7.10.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -47,12 +47,12 @@
     "read-excel-file": "^9.3.10",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.2.3",
     "@swc/core": "^1.16.1",
-    "@types/node": "^26.3.0",
+    "@types/node": "^26.4.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
