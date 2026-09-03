@@ -25,7 +25,7 @@
     "@fastify/static": "^10.1.2",
     "@nestjs/common": "^11.2.3",
     "@nestjs/core": "^11.2.3",
-    "@nestjs/platform-fastify": "^11.2.3",
+    "@nestjs/platform-fastify": "^12.0.1",
     "@openbrf/i18n": "workspace:*",
     "@openbrf/plugin-sdk": "workspace:*",
     "@openbrf/shared": "workspace:*",
