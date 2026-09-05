@@ -2293,7 +2293,8 @@
       "imageNotFound": "A picture on this page is no longer stored on this instance.",
       "imageNotPublic": "A picture on this page is not served publicly, so the page would show a broken picture.",
       "pageGone": "That page no longer exists.",
-      "unknown": "That could not be saved just now. Please try again."
+      "unknown": "That could not be saved just now. Please try again.",
+      "pageChanged": "Somebody else saved this page while it was open here. What you have written is still here, and saving again writes it over their version."
     },
     "menu": {
       "heading": "Menu",
@@ -2405,6 +2406,38 @@
         "personalIdentityNumber": "One of the answers carries a personal identity number. Take it out: this page is published to anyone who has its address.",
         "loadFailed": "The facts could not be read just now. Reload the page."
       }
+    },
+    "place": {
+      "page": "Page",
+      "submit": "Place on the page",
+      "working": "Placing",
+      "done": "The block was added at the end of {{page}}. Move it where you want it in the page editor.",
+      "noPages": "There is no page to place the block on yet. Create a page first.",
+      "errors": {
+        "photoConsentRequired": "The page carries a picture showing identifiable people, and the publication consent is confirmed in the page editor. Add the block there instead.",
+        "blocked": "The page could not be saved. Open it in the page editor, which says what is stopping it from being published.",
+        "pageGone": "The page is gone.",
+        "unknown": "The block could not be placed just now.",
+        "pageChanged": "The page changed while this view had it open, and the block was not placed. Try again, and the page is read afresh first."
+      },
+      "newsTeaser": {
+        "title": "Show news on a page",
+        "description": "A news block shows the most recent news on a page of the association's website. What each reader sees is resolved when the page is rendered: a visitor with no account sees the public items, a member sees theirs as well.",
+        "alreadyThere": "That page already carries a news block.",
+        "count": "How many items"
+      },
+      "contactForm": {
+        "title": "Show the contact form on a page",
+        "description": "The form the messages here come from. Its fields are fixed; the page decides where the form sits, and the page editor writes the sentence above it.",
+        "alreadyThere": "That page already carries a contact form."
+      },
+      "issueReportForm": {
+        "title": "Show the issue report form on a page",
+        "description": "The form for reporting a problem, which anybody can send without an account - a neighbour, a passer-by, a tradesman on site. Its fields are fixed and the issue types are read when the page is rendered. The block renders as nothing while public issue reporting is switched off.",
+        "alreadyThere": "That page already carries an issue report form."
+      },
+      "loadFailed": "The pages could not be read just now.",
+      "everyPage": "Every page already carries the block."
     }
   },
   "news": {

@@ -10,6 +10,7 @@ import {
 import type { TranslationKey } from "../i18n/translation-key";
 import { HINT, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { PlaceOnPage } from "../site-admin/PlaceOnPage";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 
@@ -57,7 +58,17 @@ async function read(): Promise<Loaded> {
  * same board work: the two inbound queues an anonymous visitor can put
  * something in.
  */
-export function ContactInboxPanel(): ReactElement {
+export function ContactInboxPanel({
+  canPlaceOnPage = false,
+}: {
+  /**
+   * Whether this panel offers to put the block on a page. Held by the screen
+   * rather than read here: placing writes a page, which is `site:manage`, and a
+   * board member who has this panel without the website must not be offered a
+   * control the server would refuse.
+   */
+  canPlaceOnPage?: boolean;
+}): ReactElement {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -169,6 +180,15 @@ export function ContactInboxPanel(): ReactElement {
       }
     >
       {body}
+
+      {canPlaceOnPage ? (
+        <PlaceOnPage
+          block={{ type: "contactForm" }}
+          titleKey="siteAdmin.place.contactForm.title"
+          descriptionKey="siteAdmin.place.contactForm.description"
+          alreadyThereKey="siteAdmin.place.contactForm.alreadyThere"
+        />
+      ) : null}
     </Panel>
   );
 }

@@ -84,6 +84,8 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
   const canEditAddresses = viewer.capabilities.includes("addressBook:write");
   const canDecideSignup = viewer.capabilities.includes("signupRequest:decide");
   const canConfigureIssues = viewer.capabilities.includes("issues:configure");
+  /* Placing a block on a page is a website write, whoever the panel is for. */
+  const canManageSite = viewer.capabilities.includes("site:manage");
   const canConfigureBookings =
     viewer.capabilities.includes("bookings:configure");
 
@@ -243,11 +245,14 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
                   something in, read by the same circle for the same reason.
                   A capability of its own would have had a grant list identical
                   to this one's. */}
-              {canDecideSignup ? <ContactInboxPanel /> : null}
+              {canDecideSignup ? (
+                <ContactInboxPanel canPlaceOnPage={canManageSite} />
+              ) : null}
 
               <IssueReportingPanel
                 publicFormEnabled={settings.issueReporting.publicFormEnabled}
                 editable={canManage}
+                canPlaceOnPage={canManageSite}
               />
 
               {/* Beside the switch that decides whether the website carries a

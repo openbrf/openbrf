@@ -39,6 +39,7 @@ export type PageWriteReason =
   | "not-found"
   | "invalid-slug"
   | "slug-taken"
+  | "page-changed"
   | "personal-identity-number"
   | "photo-consent-required"
   | "image-not-found"
@@ -56,7 +57,10 @@ export class PageWriteError extends DomainError {
     this.status =
       reason === "not-found"
         ? HttpStatus.NOT_FOUND
-        : reason === "slug-taken"
+        : // A conflict rather than a refusal on the merits: nothing is wrong
+          // with what was sent, somebody else wrote first, and the caller reads
+          // the page again and decides what to do about it.
+          reason === "slug-taken" || reason === "page-changed"
           ? HttpStatus.CONFLICT
           : reason === "invalid-slug"
             ? HttpStatus.BAD_REQUEST
@@ -89,6 +93,13 @@ export interface PageAdminView {
   /** ISO instant, or null while the page has never been published. */
   publishedAt: string | null;
   sortOrder: number;
+  /**
+   * What this copy of the page is, for a caller that means to write it back.
+   *
+   * Sent to a save as `expectedRevision`, which writes only if the page is
+   * still the one that was read. It is not a version anybody displays.
+   */
+  revision: number;
   updatedAt: string;
 }
 
@@ -109,6 +120,26 @@ export interface UpdatePageInput {
    * shows any; see the guardrails below.
    */
   photoConsentConfirmed?: boolean;
+  /**
+   * The page's `revision` as the caller last read it.
+   *
+   * A save carries the whole page, so two callers who each read it and then
+   * wrote would leave the second one's copy standing and the first one's work
+   * gone, with nothing said to either. The page editor and the screens that
+   * place a block on a page are two such callers, and a board with the website
+   * open in one tab and the news screen in another is not an unusual state.
+   *
+   * A counter rather than `updatedAt`, which this was written against first:
+   * that column is stored to the millisecond, so two saves inside one
+   * millisecond carry the same token and the second would match the row it was
+   * meant to be refused against.
+   *
+   * Optional, and absent means what this endpoint has always done: write. That
+   * keeps a caller written before the field existed working rather than failing
+   * on a precondition it does not know about, which for a statutory-adjacent
+   * page would be a worse failure than the one it prevents.
+   */
+  expectedRevision?: number;
 }
 
 const PAGE_COLUMNS = {
@@ -120,6 +151,7 @@ const PAGE_COLUMNS = {
   published: true,
   publishedAt: true,
   sortOrder: true,
+  revision: true,
   updatedAt: true,
 } as const;
 
@@ -228,17 +260,72 @@ export class PagesWriteService {
       });
     }
 
-    const row = await this.prisma.page.update({
-      where: { id },
+    /*
+     * Claimed against the copy the caller read, when they said which. An
+     * updateMany with the timestamp in its where clause is one statement: it
+     * either matches the row as it still stands and writes, or matches nothing
+     * and writes nothing. A read followed by a compare would leave the same gap
+     * between them that the precondition exists to close.
+     */
+    if (input.expectedRevision !== undefined) {
+      const claimed = await this.prisma.page.updateMany({
+        /*
+         * The publication state as well as the revision. The guardrails above
+         * ran against the page this transaction read, and they are skipped for
+         * a draft: a page published between that read and this write would take
+         * content nothing checked. Claiming on it too means such a save is
+         * refused rather than applied - and the caller reads the page again,
+         * where the guardrails will run.
+         */
+        where: {
+          id,
+          revision: input.expectedRevision,
+          published: page.published,
+        },
+        data: {
+          slug: input.slug,
+          title: input.title,
+          content: asJson(input.content),
+          // In the same statement as the content it belongs to, so the next
+          // caller's claim reads a number that moved with the page.
+          revision: { increment: 1 },
+        },
+      });
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+      return toAdminView(await this.require(id));
+    }
+
+    /*
+     * The caller sent no precondition, so this writes. The revision still moves:
+     * it says the page is not the one somebody else read, and a save that left
+     * it alone would let their stale claim match afterwards.
+     */
+    const claimed = await this.prisma.page.updateMany({
+      // No revision to claim on, but the publication state this write was
+      // checked against is still a precondition: without it a caller that sends
+      // no revision could put content past the guardrails onto a page somebody
+      // published in between.
+      where: { id, published: page.published },
       data: {
         slug: input.slug,
         title: input.title,
         content: asJson(input.content),
+        revision: { increment: 1 },
       },
-      select: PAGE_COLUMNS,
     });
+    if (claimed.count === 0) {
+      throw new PageWriteError(
+        "The page changed after it was read.",
+        "page-changed",
+      );
+    }
 
-    return toAdminView(row);
+    return toAdminView(await this.require(id));
   }
 
   /**
@@ -272,8 +359,17 @@ export class PagesWriteService {
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.page.update({
-        where: { id },
+      /*
+       * Claimed against the page the guardrails ran on, above. Publishing is
+       * checked and then written, and a content save landing between those two
+       * would be a save the guardrails never saw - it was checked as a draft,
+       * because that is what the page still was - going public the moment this
+       * write lands. The content save moves the revision, so this claim finds
+       * nothing and the board is told to look again rather than publishing
+       * something nobody read.
+       */
+      const claimed = await tx.page.updateMany({
+        where: { id, revision: page.revision, published: page.published },
         data: {
           published: input.published,
           // Kept once set. It is when the page was first published, and a
@@ -282,7 +378,28 @@ export class PagesWriteService {
             input.published && page.publishedAt === null
               ? new Date()
               : page.publishedAt,
+          /*
+           * The revision moves here as it does on a content save, and for a
+           * sharper reason. A save checks the publication guardrails only when
+           * the page it read was published, so a save that read a draft and
+           * landed after this one would put unchecked content - a personal
+           * identity number, a picture of somebody who has not consented - onto
+           * a page that is now public. Moving the revision makes that save fail
+           * its claim instead.
+           */
+          revision: { increment: 1 },
         },
+      });
+
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+
+      const updated = await tx.page.findUniqueOrThrow({
+        where: { id },
         select: PAGE_COLUMNS,
       });
 
@@ -331,9 +448,29 @@ export class PagesWriteService {
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.page.update({
+      /*
+       * Claimed against the page the guardrails ran on, for the reason
+       * publishing is: this is checked and then written, and a content save
+       * landing between the two would be widened to a new audience without
+       * anything having read it.
+       */
+      const claimed = await tx.page.updateMany({
+        where: { id, revision: page.revision, visibility: page.visibility },
+        // The revision moves for the reason publishing moves it: this decides
+        // who reads the page, and a content save built on the copy from before
+        // it should be told rather than applied.
+        data: { visibility: input.visibility, revision: { increment: 1 } },
+      });
+
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+
+      const updated = await tx.page.findUniqueOrThrow({
         where: { id },
-        data: { visibility: input.visibility },
         select: PAGE_COLUMNS,
       });
 
@@ -597,6 +734,7 @@ function toAdminView(row: {
   published: boolean;
   publishedAt: Date | null;
   sortOrder: number;
+  revision: number;
   updatedAt: Date;
 }): PageAdminView {
   return {
@@ -609,6 +747,7 @@ function toAdminView(row: {
     visibility: row.visibility,
     published: row.published,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    revision: row.revision,
     sortOrder: row.sortOrder,
     updatedAt: row.updatedAt.toISOString(),
   };

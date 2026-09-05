@@ -1,5 +1,6 @@
 import { request as playwrightRequest } from "@playwright/test";
 
+import * as api from "../src/api";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import {
   clearMailbox,
@@ -74,6 +75,11 @@ const PUBLIC_ITEM = {
   slug: `staddag-${suffix}`,
   title: `Städdag ${suffix}`,
   paragraph: `Vi städar gården på lördag, ${suffix}.`,
+} as const;
+/** The page the board puts the news block on, from the news screen. */
+const TEASER_PAGE = {
+  slug: `nyhetssida-${suffix}`,
+  title: `Nyhetssida ${suffix}`,
 } as const;
 
 /*
@@ -315,4 +321,66 @@ test("the website serves the public item to anyone and hides the members' one", 
   } finally {
     await visitor.dispose();
   }
+});
+
+test("the board puts the news block on a page, and the website shows it", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * The half of the block that was never built. A news teaser renders and
+   * validates, and the page editor deliberately does not offer it: placing one
+   * belongs to the screen that owns what it shows, so until now only a direct
+   * call to the API could put it on a page. This drives the board's own route -
+   * the news screen - and then reads the page as a visitor with no account.
+   */
+  // Signs this test's own request context in: the fixture is per test.
+  await ensureRegisterFixture(request);
+
+  const target = await api.createSitePage(request, stack.baseUrl, {
+    slug: TEASER_PAGE.slug,
+    title: TEASER_PAGE.title,
+    blocks: [{ type: "paragraph", runs: [{ text: "Här är det senaste." }] }],
+    visibility: "PUBLIC",
+  });
+  await api.publishSitePage(request, stack.baseUrl, target.id);
+
+  await page.goto(appPath("/sign-in"));
+  await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
+  await page
+    .getByLabel("Lösenord", { exact: true })
+    .fill(ADMINISTRATOR.password);
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+
+  await page.goto(appPath("/admin/site/news"));
+  await page.getByRole("spinbutton", { name: "Antal nyheter" }).fill("3");
+  /*
+   * By role. The select sits inside its own label, so the label's text runs on
+   * into the chosen option and getByLabel does not match it.
+   */
+  await page
+    .getByRole("combobox", { name: "Sida" })
+    .selectOption({ label: TEASER_PAGE.title });
+  await page.getByRole("button", { name: "Placera på sidan" }).click();
+  await expect(
+    page.getByText(`Blocket lades sist på ${TEASER_PAGE.title}`),
+  ).toBeVisible();
+
+  // A second one is not offered, because the page now carries it.
+  await expect(
+    page.getByText("Sidan har redan ett nyhetsblock."),
+  ).toBeVisible();
+
+  /*
+   * The association's own website, at the root. This spec is on the allowlist
+   * in 93-public-site.spec.ts for exactly that reason.
+   */
+  await page.goto(`/${TEASER_PAGE.slug}`);
+  await expect(
+    page.getByRole("heading", { name: TEASER_PAGE.title }),
+  ).toBeVisible();
+  // The paragraph that was already on the page, and the news after it.
+  await expect(page.getByText("Här är det senaste.")).toBeVisible();
+  await expect(page.getByText(PUBLIC_ITEM.title)).toBeVisible();
 });

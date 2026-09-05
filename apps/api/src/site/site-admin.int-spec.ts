@@ -67,6 +67,7 @@ const slugs = {
   missingImage: `site-admin-missing-image-${suffix}`,
   internalImage: `site-admin-internal-image-${suffix}`,
   spare: `site-admin-spare-${suffix}`,
+  concurrent: `site-admin-concurrent-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -119,6 +120,9 @@ interface PageBody {
   published: boolean;
   visibility: "PUBLIC" | "MEMBER";
   content: { blocks: unknown[] };
+  /** What a save's precondition is checked against. */
+  revision: number;
+  updatedAt: string;
 }
 
 function paragraph(text: string) {
@@ -367,6 +371,134 @@ describe("writing a page", () => {
     // behind it.
     const visitor = await inject({ method: "GET", url: `/${slugs.public}` });
     expect(visitor.statusCode).toBe(404);
+  });
+
+  it("refuses a save built on a copy somebody has already written over", async () => {
+    /*
+     * A save carries the whole page, so two callers who each read it and then
+     * wrote would leave the second one's copy standing and the first one's work
+     * gone, with nothing said to either. The page editor and the screens that
+     * place a block on a page are two such callers, and a board with the
+     * website open in one tab and the news screen in another is ordinary.
+     *
+     * The precondition is the page as the caller read it. The first save moves
+     * the revision, so the second one - built on the copy from before it - is
+     * refused rather than applied. A counter rather than a timestamp, because
+     * two saves inside one millisecond carry the same `updatedAt` and the
+     * second would match the row it was meant to be refused against.
+     */
+    const page = await newPage(boardCookie, slugs.concurrent);
+
+    const first = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: "Redigerad i sidredigeraren",
+        content: { blocks: [paragraph("Styrelsens egen text.")] },
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: page.title,
+        content: { blocks: [paragraph("Hej.")] },
+        // The revision from before the first save.
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { reason: string }).reason).toBe("page-changed");
+
+    // And the first caller's work is what the page still says.
+    const stored = await inject({
+      method: "GET",
+      url: `/api/site/pages/${page.id}`,
+      headers: { cookie: boardCookie },
+    });
+    expect((stored.json() as PageBody).title).toBe(
+      "Redigerad i sidredigeraren",
+    );
+
+    await removePage(page.id);
+  });
+
+  it("refuses a save that was checked as a draft and would land on a published page", async () => {
+    /*
+     * The guardrails - no personal identity number, no picture of somebody who
+     * has not consented - run on a save only when the page it read was
+     * published. So a save that read a draft, and was published by somebody
+     * else before it wrote, would put content nothing checked onto a page
+     * anybody can now read. Publishing moves the revision, and the write also
+     * claims the publication state it was checked against, so the save is
+     * refused and the caller reads the page again - where the guardrails run.
+     */
+    const page = await newPage(boardCookie, `${slugs.concurrent}-published`);
+
+    const published = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+    expect(published.statusCode).toBe(201);
+    // Publishing is a write like any other, so the copy read before it is stale.
+    expect((published.json() as PageBody).revision).toBeGreaterThan(
+      page.revision,
+    );
+
+    const stale = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: page.title,
+        content: { blocks: [paragraph("Skrivet mot ett utkast.")] },
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { reason: string }).reason).toBe("page-changed");
+
+    await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: false },
+      headers: { cookie: boardCookie },
+    });
+    await removePage(page.id);
+  });
+
+  it("writes without a precondition, for a caller that sends none", async () => {
+    // The field is optional, and absent means what this endpoint has always
+    // done. A caller written before it existed keeps working.
+    const page = await newPage(boardCookie, `${slugs.concurrent}-open`);
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: "Utan villkor",
+        content: { blocks: [paragraph("Hej igen.")] },
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as PageBody).title).toBe("Utan villkor");
+
+    await removePage(page.id);
   });
 
   it("refuses an address the instance already serves", async () => {

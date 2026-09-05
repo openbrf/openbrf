@@ -23,6 +23,7 @@ interface Fakes {
   page: {
     findMany: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    findUniqueOrThrow: ReturnType<typeof vi.fn>;
     aggregate: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -42,6 +43,7 @@ const DRAFT = {
   published: false,
   publishedAt: null,
   sortOrder: 0,
+  revision: 4,
   updatedAt: new Date("2026-08-29T10:00:00.000Z"),
 };
 
@@ -49,6 +51,12 @@ function build(): Fakes {
   const page = {
     findMany: vi.fn().mockResolvedValue([]),
     findUnique: vi.fn().mockResolvedValue(null),
+    /*
+     * What a claimed write reads back. A conditional update answers with a
+     * count rather than a row, so the service reads the page it just wrote -
+     * and this fake answers with the page as the caller asked for it.
+     */
+    findUniqueOrThrow: vi.fn().mockResolvedValue({ ...DRAFT, published: true }),
     aggregate: vi.fn().mockResolvedValue({ _max: { sortOrder: 3 } }),
     create: vi.fn(async (args: { data: unknown }) => ({
       ...DRAFT,
@@ -112,14 +120,17 @@ describe("what a refusal answers with", () => {
      * here is a compile error rather than a route that quietly answers the
      * wrong thing. The distinction that matters is between the three that are
      * about the request - the address is unusable, the address is taken, the
-     * page is not there - and the four that are about the content: the page
-     * exists and cannot be published as it stands, which is unprocessable and
-     * not missing. A 404 on one of those reads as "no such page".
+     * page is not there, or somebody else wrote first - and the four that are
+     * about the content: the page exists and cannot be published as it stands,
+     * which is unprocessable and not missing. A 404 on one of those reads as
+     * "no such page".
      */
     const expected: Record<PageWriteReason, number> = {
       "not-found": 404,
       "invalid-slug": 400,
       "slug-taken": 409,
+      // Nothing is wrong with what was sent: the page moved underneath it.
+      "page-changed": 409,
       "personal-identity-number": 422,
       "photo-consent-required": 422,
       "image-not-found": 422,
@@ -324,7 +335,9 @@ describe("publishing a page", () => {
       actorPersonId: "person-1",
     });
 
-    const written = page.update.mock.calls[0]?.[0] as {
+    // Through the claimed write, which is what publishing uses so that a save
+    // landing after the guardrails ran cannot be published unread.
+    const written = page.updateMany.mock.calls[0]?.[0] as {
       data: { publishedAt: Date };
     };
     // A republish after a correction does not make it a newer page.
@@ -551,5 +564,58 @@ describe("removing a page", () => {
 
     expect(refusal.reason).toBe("not-found");
     expect(refusal.status).toBe(404);
+  });
+});
+
+describe("a write that was checked and then overtaken", () => {
+  /**
+   * Publishing reads the page, checks it against the guardrails and then
+   * writes. A content save landing between those two is a save nothing read -
+   * it was checked as a draft, because that is what the page still was - and
+   * this write would make it public.
+   *
+   * The write therefore claims the page it validated: its revision and its
+   * publication state. This is asserted here rather than through HTTP because
+   * the window is inside one call, between two statements a request cannot be
+   * interleaved with from outside.
+   */
+  it("refuses the publication and records nothing when the claim finds no row", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+    // Somebody saved between the read above and this write, so the revision
+    // this claim names is gone.
+    fakes.page.updateMany.mockResolvedValue({ count: 0 });
+
+    const refusal = await refusalOf(
+      fakes.service.setPublished("page-1", {
+        published: true,
+        actorPersonId: "person-1",
+      }),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    // The log says a page was published only where one was.
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("claims the revision and the publication state it checked", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+    fakes.page.findUniqueOrThrow.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 5,
+    });
+
+    await fakes.service.setPublished("page-1", {
+      published: true,
+      actorPersonId: "person-1",
+    });
+
+    expect(fakes.page.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "page-1", revision: 4, published: false },
+      }),
+    );
   });
 });

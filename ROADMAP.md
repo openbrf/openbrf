@@ -303,11 +303,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
       later work it will also cover. Site-wide settings stay with an admin
 - [x] The remaining insertable data blocks: document list, board roster,
       association facts and FAQ. These four are the ones that need no feature
-      of their own, only the block and its rendering. The news teaser and the
-      two form blocks render and are validated but no screen offers them yet:
-      placing one belongs to the screen that owns the feature rather than to
-      the page editor, and that half has not been built, so today only a direct
-      call to the API can put one on a page. A document list follows the
+      of their own, only the block and its rendering. The news block and the
+      two form blocks are placed from the screen that owns the feature rather
+      than from the page editor - the news block from the news editor, the contact
+      form from the inbox it fills, the issue report form from the setting that
+      turns public issue reporting on - because what each of them shows is that feature's to
+      decide. The block is appended and the page editor is where it is then
+      moved, and a page already carrying one is not offered a second. A document list follows the
       archive's own audience for whoever is reading, per document and per
       reader: a visitor with no account is shown the public shelf, somebody
       signed in is shown what their own account may open as well, and the

@@ -5,6 +5,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
+import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -30,6 +31,7 @@ import {
   type NewsRecipients,
 } from "./news-api";
 import { NewsItemPanel } from "./NewsItemPanel";
+import { PlaceOnPage } from "./PlaceOnPage";
 
 /**
  * The board's screen for the association's news.
@@ -69,6 +71,22 @@ export interface NewsScreenProps {
   viewer: Viewer;
 }
 
+/**
+ * A count the block schema will accept.
+ *
+ * A number input answers with a string, and with an empty one while somebody is
+ * typing. Clamped rather than validated on submit, so the field never holds a
+ * figure the server would refuse and the board never presses a button that
+ * cannot work.
+ */
+function clampTeaserCount(value: string): number {
+  const asked = Math.trunc(Number(value));
+  if (!Number.isFinite(asked)) {
+    return 1;
+  }
+  return Math.min(Math.max(asked, 1), PAGE_CONTENT_LIMITS.teaserCount);
+}
+
 export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const { t } = useTranslation();
   const formId = useId();
@@ -81,6 +99,13 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const [notEditable, setNotEditable] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  /*
+   * How many items a teaser placed from here shows. It belongs to this screen
+   * rather than to the page editor for the reason the block is placed here at
+   * all: the count is a decision about what the association publishes, which is
+   * what this screen is for.
+   */
+  const [teaserCount, setTeaserCount] = useState(3);
 
   useEffect(() => {
     if (!canManage) {
@@ -279,6 +304,39 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           ) : null}
         </form>
       </Panel>
+
+      {canManage ? (
+        <div className="flex flex-col gap-3">
+          <label className={LABEL} htmlFor="news-teaser-count">
+            {t("siteAdmin.place.newsTeaser.count")}
+            {/*
+              Bounded by the contract the server checks rather than by a number
+              chosen here: the block schema takes an integer from one to
+              PAGE_CONTENT_LIMITS.teaserCount, and a control that let a board
+              ask for more would refuse the placement after they pressed the
+              button rather than before.
+            */}
+            <input
+              id="news-teaser-count"
+              type="number"
+              min={1}
+              max={PAGE_CONTENT_LIMITS.teaserCount}
+              step={1}
+              value={teaserCount}
+              onChange={(event) => {
+                setTeaserCount(clampTeaserCount(event.target.value));
+              }}
+              className={FIELD_DATA}
+            />
+          </label>
+          <PlaceOnPage
+            block={{ type: "newsTeaser", count: teaserCount }}
+            titleKey="siteAdmin.place.newsTeaser.title"
+            descriptionKey="siteAdmin.place.newsTeaser.description"
+            alreadyThereKey="siteAdmin.place.newsTeaser.alreadyThere"
+          />
+        </div>
+      ) : null}
 
       {items === null && !failed ? (
         <p role="status" className="text-body text-ink-muted">

@@ -7,6 +7,7 @@ import type { ApiFailure } from "../api/client";
 import {
   type AdminPage,
   deletePage,
+  fetchPages,
   publishPage,
   previewPage,
   savePage,
@@ -86,6 +87,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "image-not-found": "siteAdmin.errors.imageNotFound",
   "image-not-public": "siteAdmin.errors.imageNotPublic",
   "not-found": "siteAdmin.errors.pageGone",
+  "page-changed": "siteAdmin.errors.pageChanged",
 };
 
 export interface PageEditorProps {
@@ -140,21 +142,50 @@ export function PageEditor({
       setBusy(true);
       setSaved(false);
       const result = await action();
-      setBusy(false);
 
       if (!result.ok) {
         setFailure(result.failure);
         if (result.failure.reason === "photo-consent-required") {
           setConsentAsked(true);
         }
+        /*
+         * Somebody else saved this page while it was open here, so the copy the
+         * next save would claim against is gone. Read the page again and hand
+         * it up, which moves the revision this editor holds while leaving what
+         * the board has written where it is - the component is keyed on the
+         * page's id, so a fresh page object does not remount it.
+         *
+         * That makes the next save possible rather than automatic: it will
+         * write over the other version, and the message beside this says so.
+         * The alternative - refusing until somebody reloads - loses the board's
+         * unsaved work to protect a version they have not seen.
+         */
+        if (result.failure.reason === "page-changed") {
+          const pages = await fetchPages();
+          const fresh = pages.ok
+            ? pages.value.find((one) => one.id === page.id)
+            : undefined;
+          if (fresh !== undefined) {
+            onChanged(fresh);
+          }
+        }
+        /*
+         * Last, so every control stays disabled until the page this editor
+         * holds is the one a save would claim against. Cleared before the
+         * reload, a second press would send the revision that was just refused
+         * and be refused again.
+         */
+        setBusy(false);
         return;
       }
+
+      setBusy(false);
 
       setFailure(null);
       setSaved(true);
       onChanged(result.value);
     },
-    [onChanged],
+    [onChanged, page.id],
   );
 
   const submittable = submittableBlocks(blocks);
@@ -242,7 +273,13 @@ export function PageEditor({
               disabled={busy}
               onClick={() => {
                 void run(async () =>
-                  savePage(page.id, { slug, title, content: body, ...consent }),
+                  savePage(page.id, {
+                    slug,
+                    title,
+                    content: body,
+                    ...consent,
+                    expectedRevision: page.revision,
+                  }),
                 );
               }}
             >
@@ -296,10 +333,22 @@ export function PageEditor({
                       title,
                       content: body,
                       ...consent,
+                      expectedRevision: page.revision,
                     });
                     if (!stored.ok) {
                       return stored;
                     }
+                    /*
+                     * The save moved the revision, so this editor is holding a
+                     * number its own write has spent. Handed up before the
+                     * publication is attempted, because a publish refused on
+                     * the merits - a personal identity number on the page, a
+                     * picture nobody consented to - never reaches the call
+                     * below that would otherwise do it, and the next save would
+                     * then be refused as though somebody else had written the
+                     * page. Nobody else had: this save did.
+                     */
+                    onChanged(stored.value);
                   }
                   return publishPage(page.id, {
                     published: publishing,

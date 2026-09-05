@@ -49,6 +49,13 @@ const updateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   content: contentSchema,
   photoConsentConfirmed: z.boolean().optional(),
+  /*
+   * The page's revision as the caller last read it. A save is the whole page,
+   * so a second writer who read it earlier would put their copy over the first
+   * one's work and neither would be told. Optional, because a caller that does
+   * not send it is asking for the behaviour this endpoint has always had.
+   */
+  expectedRevision: z.int().nonnegative().optional(),
 });
 
 const publishSchema = z.object({
@@ -187,6 +194,9 @@ export class PagesAdminController {
       ...(input.photoConsentConfirmed === undefined
         ? {}
         : { photoConsentConfirmed: input.photoConsentConfirmed }),
+      ...(input.expectedRevision === undefined
+        ? {}
+        : { expectedRevision: input.expectedRevision }),
     });
   }
 
