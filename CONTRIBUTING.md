@@ -69,6 +69,7 @@ Enforced by CI on every PR; the toolchain configs in the repo are the source of 
 - **No hardcoded colors or design values.** Components reference design tokens (`var(--token)`) only - this is what makes the theme engine work. The lint catches raw hex values.
 - **English identifiers** per the language policy and [GLOSSARY.md](GLOSSARY.md).
 - **Comments** state what the code cannot: legal constraints (with statute references), invariants, and non-obvious trade-offs.
+- **The statutory archive's guards stay on.** The member register, the audit log, the termination register and the obligation ledger are append-only by law (EFL 5 kap., via BRL 9 kap.) and by database trigger, and the application connects as a role that cannot switch one off. Two integration suites do disable a guard, because a suite that writes to an append-only table has no other way to remove its own rows; they are named in `scripts/check-statutory-guards.mjs`, which CI runs and which refuses a third. If you need one, add it there with the reason - a bypass that reads as ordinary test cleanup is exactly what the check exists to make deliberate.
 
 ### Git hooks (optional)
 

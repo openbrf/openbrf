@@ -46,6 +46,12 @@ jobs:
       - name: Theme stylesheet is current
         run: pnpm --filter @openbrf/web theme:check
 
+      # The statutory tables are append-only by trigger, and two test suites are
+      # allowed to switch a guard off to clear their own rows. This refuses a
+      # third: the pattern is a line long and reads as ordinary cleanup.
+      - name: No statutory guard is disabled outside the files allowed to
+        run: pnpm lint:guards
+
       - name: Typecheck
         run: pnpm typecheck
 
