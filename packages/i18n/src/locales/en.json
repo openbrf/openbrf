@@ -2294,7 +2294,7 @@
       "imageNotPublic": "A picture on this page is not served publicly, so the page would show a broken picture.",
       "pageGone": "That page no longer exists.",
       "unknown": "That could not be saved just now. Please try again.",
-      "pageChanged": "The page changed after it was loaded. Reload it and make the change again, so nobody else's work is written over."
+      "pageChanged": "Somebody else saved this page while it was open here. What you have written is still here, and saving again writes it over their version."
     },
     "menu": {
       "heading": "Menu",

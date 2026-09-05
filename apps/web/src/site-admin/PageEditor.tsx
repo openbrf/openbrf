@@ -7,6 +7,7 @@ import type { ApiFailure } from "../api/client";
 import {
   type AdminPage,
   deletePage,
+  fetchPages,
   publishPage,
   previewPage,
   savePage,
@@ -148,6 +149,27 @@ export function PageEditor({
         if (result.failure.reason === "photo-consent-required") {
           setConsentAsked(true);
         }
+        /*
+         * Somebody else saved this page while it was open here, so the copy the
+         * next save would claim against is gone. Read the page again and hand
+         * it up, which moves the revision this editor holds while leaving what
+         * the board has written where it is - the component is keyed on the
+         * page's id, so a fresh page object does not remount it.
+         *
+         * That makes the next save possible rather than automatic: it will
+         * write over the other version, and the message beside this says so.
+         * The alternative - refusing until somebody reloads - loses the board's
+         * unsaved work to protect a version they have not seen.
+         */
+        if (result.failure.reason === "page-changed") {
+          const pages = await fetchPages();
+          const fresh = pages.ok
+            ? pages.value.find((one) => one.id === page.id)
+            : undefined;
+          if (fresh !== undefined) {
+            onChanged(fresh);
+          }
+        }
         return;
       }
 
@@ -155,7 +177,7 @@ export function PageEditor({
       setSaved(true);
       onChanged(result.value);
     },
-    [onChanged],
+    [onChanged, page.id],
   );
 
   const submittable = submittableBlocks(blocks);

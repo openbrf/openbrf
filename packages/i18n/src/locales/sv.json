@@ -2294,7 +2294,7 @@
       "imageNotPublic": "En bild på sidan serveras inte öppet, så sidan skulle visa en trasig bild.",
       "pageGone": "Sidan finns inte längre.",
       "unknown": "Det gick inte att spara just nu. Försök igen.",
-      "pageChanged": "Sidan har ändrats sedan den lästes in. Ladda om sidan och gör om ändringen, så skrivs ingen annans arbete över."
+      "pageChanged": "Någon annan sparade sidan medan den var öppen här. Det du har skrivit ligger kvar, och sparar du igen skrivs deras version över."
     },
     "menu": {
       "heading": "Meny",

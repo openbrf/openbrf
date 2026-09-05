@@ -62,6 +62,13 @@ export function PlaceOnPage({
   const [pages, setPages] = useState<AdminPage[] | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   const [reads, setReads] = useState(0);
+  /*
+   * True from a refused placement until the re-read lands. The button is off
+   * for that whole span: while the old pages are still in state, a second press
+   * would send the same superseded copy and be refused for the same reason -
+   * which is the loop the sentence beside it promises is over.
+   */
+  const [refreshing, setRefreshing] = useState(false);
   const [pageId, setPageId] = useState("");
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
@@ -81,6 +88,7 @@ export function PlaceOnPage({
       setReadFailed(!result.ok);
       setPages(result.ok ? result.value : []);
       setPageId(result.ok ? (result.value[0]?.id ?? "") : "");
+      setRefreshing(false);
     });
     return () => {
       active = false;
@@ -133,6 +141,7 @@ export function PlaceOnPage({
        * reason - and the sentence above says the page is read afresh.
        */
       if (result.failure.reason === "page-changed") {
+        setRefreshing(true);
         setReads((count) => count + 1);
       }
       return;
@@ -206,7 +215,7 @@ export function PlaceOnPage({
               onClick={() => {
                 void place();
               }}
-              disabled={placing || alreadyThere}
+              disabled={placing || refreshing || alreadyThere}
               className={SECONDARY_BUTTON}
             >
               {t(

@@ -316,4 +316,52 @@ describe("the editor", () => {
     });
     expect(publishPage).toHaveBeenCalledWith("page-2", { published: true });
   });
+
+  it("reads the page again after somebody else saved it, so the next save can land", async () => {
+    /*
+     * A save claims the copy it read, so once somebody else has written the
+     * editor is holding a revision that will never match again: every retry
+     * would be refused for the same reason, with the board's unsaved text
+     * trapped behind it. It reads the page again and keeps what they wrote,
+     * and the notice says the next save writes over the other version - which
+     * is a decision for the person who can see both.
+     */
+    savePage.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "page-changed" },
+    });
+    /*
+     * The list as it is when the editor opens, and then as it is after somebody
+     * else has saved. Ordered deliberately: with the newer revision on the
+     * first read the editor would hold it from the start, and the assertion
+     * below would pass whether or not the conflict is recovered from.
+     */
+    fetchPages
+      .mockResolvedValueOnce({ ok: true, value: [HOME, DRAFT] })
+      .mockResolvedValue({
+        ok: true,
+        value: [HOME, { ...DRAFT, revision: 9 }],
+      });
+    savePage.mockResolvedValue({ ok: true, value: { ...DRAFT, revision: 10 } });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(
+      await screen.findByText(/Någon annan sparade sidan medan den var öppen/),
+    ).toBeTruthy();
+
+    // The second save carries the revision the re-read brought back.
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(
+        "page-2",
+        expect.objectContaining({ expectedRevision: 9 }),
+      );
+    });
+  });
 });

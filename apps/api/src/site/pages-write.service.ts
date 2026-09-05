@@ -269,7 +269,19 @@ export class PagesWriteService {
      */
     if (input.expectedRevision !== undefined) {
       const claimed = await this.prisma.page.updateMany({
-        where: { id, revision: input.expectedRevision },
+        /*
+         * The publication state as well as the revision. The guardrails above
+         * ran against the page this transaction read, and they are skipped for
+         * a draft: a page published between that read and this write would take
+         * content nothing checked. Claiming on it too means such a save is
+         * refused rather than applied - and the caller reads the page again,
+         * where the guardrails will run.
+         */
+        where: {
+          id,
+          revision: input.expectedRevision,
+          published: page.published,
+        },
         data: {
           slug: input.slug,
           title: input.title,
@@ -293,18 +305,27 @@ export class PagesWriteService {
      * it says the page is not the one somebody else read, and a save that left
      * it alone would let their stale claim match afterwards.
      */
-    const row = await this.prisma.page.update({
-      where: { id },
+    const claimed = await this.prisma.page.updateMany({
+      // No revision to claim on, but the publication state this write was
+      // checked against is still a precondition: without it a caller that sends
+      // no revision could put content past the guardrails onto a page somebody
+      // published in between.
+      where: { id, published: page.published },
       data: {
         slug: input.slug,
         title: input.title,
         content: asJson(input.content),
         revision: { increment: 1 },
       },
-      select: PAGE_COLUMNS,
     });
+    if (claimed.count === 0) {
+      throw new PageWriteError(
+        "The page changed after it was read.",
+        "page-changed",
+      );
+    }
 
-    return toAdminView(row);
+    return toAdminView(await this.require(id));
   }
 
   /**
@@ -348,6 +369,16 @@ export class PagesWriteService {
             input.published && page.publishedAt === null
               ? new Date()
               : page.publishedAt,
+          /*
+           * The revision moves here as it does on a content save, and for a
+           * sharper reason. A save checks the publication guardrails only when
+           * the page it read was published, so a save that read a draft and
+           * landed after this one would put unchecked content - a personal
+           * identity number, a picture of somebody who has not consented - onto
+           * a page that is now public. Moving the revision makes that save fail
+           * its claim instead.
+           */
+          revision: { increment: 1 },
         },
         select: PAGE_COLUMNS,
       });
@@ -399,7 +430,10 @@ export class PagesWriteService {
     const row = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.page.update({
         where: { id },
-        data: { visibility: input.visibility },
+        // For the reason publishing moves it: this decides who reads the page,
+        // and a content save built on the copy from before it should be told
+        // rather than applied.
+        data: { visibility: input.visibility, revision: { increment: 1 } },
         select: PAGE_COLUMNS,
       });
 

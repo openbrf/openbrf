@@ -431,6 +431,54 @@ describe("writing a page", () => {
     await removePage(page.id);
   });
 
+  it("refuses a save that was checked as a draft and would land on a published page", async () => {
+    /*
+     * The guardrails - no personal identity number, no picture of somebody who
+     * has not consented - run on a save only when the page it read was
+     * published. So a save that read a draft, and was published by somebody
+     * else before it wrote, would put content nothing checked onto a page
+     * anybody can now read. Publishing moves the revision, and the write also
+     * claims the publication state it was checked against, so the save is
+     * refused and the caller reads the page again - where the guardrails run.
+     */
+    const page = await newPage(boardCookie, `${slugs.concurrent}-published`);
+
+    const published = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+    expect(published.statusCode).toBe(201);
+    // Publishing is a write like any other, so the copy read before it is stale.
+    expect((published.json() as PageBody).revision).toBeGreaterThan(
+      page.revision,
+    );
+
+    const stale = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: page.title,
+        content: { blocks: [paragraph("Skrivet mot ett utkast.")] },
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { reason: string }).reason).toBe("page-changed");
+
+    await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: false },
+      headers: { cookie: boardCookie },
+    });
+    await removePage(page.id);
+  });
+
   it("writes without a precondition, for a caller that sends none", async () => {
     // The field is optional, and absent means what this endpoint has always
     // done. A caller written before it existed keeps working.
