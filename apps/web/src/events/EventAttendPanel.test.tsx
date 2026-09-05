@@ -481,7 +481,7 @@ describe("nothing to show", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+        screen.getByText("Kalendern kunde inte läsas just nu."),
       ).toBeTruthy();
     });
     // And stops saying it is reading. The read is over, so a loading line under

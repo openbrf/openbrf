@@ -8,6 +8,7 @@ import {
   type Meeting,
   type MeetingSummary,
 } from "../api/meetings";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { MeetingAgendaPanel } from "./MeetingAgendaPanel";
 import { MeetingCheckInPanel } from "./MeetingCheckInPanel";
@@ -264,9 +265,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
       </header>
 
       {meetingsFailed || meetingFailed ? (
-        <Notice tone="danger" live>
-          {t("meetings.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="meetings.loadFailed" onRetry={reload} />
       ) : null}
 
       {/* The names come from the address book, and a meeting is still workable

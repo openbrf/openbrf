@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { CatalogPanel } from "./CatalogPanel";
 import { ConsentPanel } from "./ConsentPanel";
@@ -66,6 +73,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
   const canManage = viewer.capabilities.includes("association:manage");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
+  const currentRead = useRef(0);
   const [pending, setPending] = useState<CatalogPlugin | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installFailed, setInstallFailed] = useState(false);
@@ -91,17 +99,36 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       : { ...EMPTY, ready: true, loadFailed: true };
   }, [canRead]);
 
-  useEffect(() => {
-    let active = true;
+  /**
+   * Reads, and applies the answer only while it is still the newest one.
+   *
+   * One rule for the first read and every re-read, on the precedent
+   * `MotionsScreen` sets. It matters more now than it did: the failure notice
+   * offers a retry, so two reads in flight is a board pressing a button twice
+   * rather than a race nobody could reach, and an older failure landing after a
+   * newer success would put the screen back into the state the reader had just
+   * got out of.
+   */
+  const readInto = useCallback((): void => {
+    const version = ++currentRead.current;
     void read().then((next) => {
-      if (active) {
+      if (version === currentRead.current) {
         setLoaded(next);
       }
     });
-    return () => {
-      active = false;
-    };
   }, [read]);
+
+  useEffect(() => {
+    readInto();
+    /*
+     * Leaving supersedes whatever is in flight, so a response that arrives
+     * after the screen is gone is dropped by the same check that drops a
+     * superseded one. One rule for both.
+     */
+    return () => {
+      currentRead.current += 1;
+    };
+  }, [readInto]);
 
   /**
    * Confirms that the restarted process came back, and with what.
@@ -152,7 +179,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
   const { ready, overview, loadFailed, restartTimedOut } = loaded;
 
   const reload = (): void => {
-    void read().then(setLoaded);
+    readInto();
     setCatalogToken((token) => token + 1);
   };
 
@@ -213,9 +240,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       ) : null}
 
       {loadFailed ? (
-        <Notice tone="danger" live>
-          {t("plugins.errors.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="plugins.errors.loadFailed" onRetry={reload} />
       ) : null}
 
       {!canRead ? (

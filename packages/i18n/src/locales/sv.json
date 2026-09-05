@@ -604,6 +604,7 @@
   },
   "app": {
     "loading": "Laddar",
+    "retry": "Försök igen",
     "housingCooperative": "Bostadsrättsförening"
   },
   "setup": {
@@ -1075,7 +1076,7 @@
     "restartTimedOut": "Programmet kom inte tillbaka inom förväntad tid. Ladda om sidan; om tillägget fortfarande inte finns med, titta i serverloggen.",
     "disabledNotice": "Tillägg är avstängda på den här instansen. Inget kan installeras förrän de slås på igen.",
     "errors": {
-      "loadFailed": "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
+      "loadFailed": "Listan över tillägg kunde inte läsas just nu.",
       "unknown": "Det gick inte just nu. Försök igen.",
       "forbidden": "Ditt konto får inte se den här sidan."
     },
@@ -2010,7 +2011,7 @@
     "title": "Ärenden",
     "intro": "Anmäl ett fel i huset och följ vad som händer med det.",
     "loading": "Hämtar ärendena...",
-    "loadFailed": "Ärendena kunde inte läsas just nu. Ladda om sidan.",
+    "loadFailed": "Ärendena kunde inte läsas just nu.",
     "status": {
       "NEW": "Ny",
       "IN_PROGRESS": "Pågår",
@@ -2473,7 +2474,7 @@
     "title": "Bokningar",
     "intro": "Boka det huset erbjuder, och se vad du har bokat.",
     "loading": "Läser in bokningarna...",
-    "loadFailed": "Bokningarna kunde inte läsas just nu. Ladda om sidan.",
+    "loadFailed": "Bokningarna kunde inte läsas just nu.",
     "until": "till",
     "status": {
       "BOOKED": "Bokad",
@@ -2558,7 +2559,7 @@
     "title": "Motioner till stämman",
     "intro": "Lämna in ett ärende till föreningsstämman och följ vad som händer med det.",
     "loading": "Läser in motionerna...",
-    "loadFailed": "Motionerna kunde inte läsas just nu. Ladda om sidan.",
+    "loadFailed": "Motionerna kunde inte läsas just nu.",
     "status": {
       "SUBMITTED": "Hos styrelsen",
       "ACKNOWLEDGED": "Mottagen",
@@ -2625,7 +2626,7 @@
     "title": "Evenemang",
     "intro": "Det föreningen har på gång, och hur du anmäler dig till det.",
     "loading": "Läser in kalendern...",
-    "loadFailed": "Kalendern kunde inte läsas just nu. Ladda om sidan.",
+    "loadFailed": "Kalendern kunde inte läsas just nu.",
     "until": "till",
     "attend": {
       "title": "På gång",
@@ -2831,7 +2832,7 @@
     "title": "Föreningsstämmor",
     "intro": "Kalla till en föreningsstämma, skriv dagordningen, kalla medlemmarna, pricka av dem, läs röstlängden och anteckna vad stämman beslutade.",
     "loading": "Läser stämmorna...",
-    "loadFailed": "Stämmorna kunde inte läsas just nu. Ladda om sidan.",
+    "loadFailed": "Stämmorna kunde inte läsas just nu.",
     "peopleLoadFailed": "Adressboken kunde inte läsas. Allt som den här stämman redan har finns här, med varje person visad med sin identifierare i stället för med namn; att pricka av någon eller registrera en fullmakt kräver adressboken, så de formulären har ingen att erbjuda.",
     "person": {
       "unknown": "Finns inte i registret:"

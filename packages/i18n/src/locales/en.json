@@ -604,6 +604,7 @@
   },
   "app": {
     "loading": "Loading",
+    "retry": "Try again",
     "housingCooperative": "Housing cooperative"
   },
   "setup": {
@@ -1075,7 +1076,7 @@
     "restartTimedOut": "The application did not come back within the expected time. Reload this page; if the plugin is still not listed, check the server log.",
     "disabledNotice": "Plugins are switched off on this instance. Nothing can be installed until they are switched on again.",
     "errors": {
-      "loadFailed": "The list of plugins could not be read just now. Reload the page.",
+      "loadFailed": "The list of plugins could not be read just now.",
       "unknown": "That could not be done just now. Please try again.",
       "forbidden": "Your account is not allowed to see this page."
     },
@@ -2010,7 +2011,7 @@
     "title": "Issues",
     "intro": "Report a problem with the building, and follow what happens to it.",
     "loading": "Loading the issues...",
-    "loadFailed": "The issues could not be read just now. Reload the page.",
+    "loadFailed": "The issues could not be read just now.",
     "status": {
       "NEW": "New",
       "IN_PROGRESS": "In progress",
@@ -2473,7 +2474,7 @@
     "title": "Bookings",
     "intro": "Book what the house offers, and see what you hold.",
     "loading": "Loading the bookings...",
-    "loadFailed": "The bookings could not be read just now. Reload the page.",
+    "loadFailed": "The bookings could not be read just now.",
     "until": "to",
     "status": {
       "BOOKED": "Booked",
@@ -2558,7 +2559,7 @@
     "title": "Motions to the general meeting",
     "intro": "Put an item to the general meeting, and follow what happens to it.",
     "loading": "Loading the motions...",
-    "loadFailed": "The motions could not be read just now. Reload the page.",
+    "loadFailed": "The motions could not be read just now.",
     "status": {
       "SUBMITTED": "With the board",
       "ACKNOWLEDGED": "Received",
@@ -2625,7 +2626,7 @@
     "title": "Events",
     "intro": "What the association has coming, and how to put your name down for it.",
     "loading": "Loading the calendar...",
-    "loadFailed": "The calendar could not be read just now. Reload the page.",
+    "loadFailed": "The calendar could not be read just now.",
     "until": "to",
     "attend": {
       "title": "Coming up",
@@ -2831,7 +2832,7 @@
     "title": "General meetings",
     "intro": "Arrange a general meeting, write its agenda, summon the members, check them in, read the voting register and record what was decided.",
     "loading": "Reading the meetings...",
-    "loadFailed": "The meetings could not be read just now. Reload the page.",
+    "loadFailed": "The meetings could not be read just now.",
     "peopleLoadFailed": "The address book could not be read. What this meeting already holds is all here, with each person shown by their identifier rather than by name; checking somebody in or registering an authority needs the address book, so those forms have nobody to offer.",
     "person": {
       "unknown": "Not in the register:"

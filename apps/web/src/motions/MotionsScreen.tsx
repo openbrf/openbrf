@@ -16,7 +16,7 @@ import {
   type OwnMotion,
   type QueuedMotion,
 } from "../api/motions";
-import { Notice } from "../ui/Notice";
+import { LoadFailure } from "../ui/LoadFailure";
 import { MotionQueuePanel } from "./MotionQueuePanel";
 import { OwnMotionsPanel } from "./OwnMotionsPanel";
 import { SubmitMotionPanel } from "./SubmitMotionPanel";
@@ -190,9 +190,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       </header>
 
       {loadFailed ? (
-        <Notice tone="danger" live>
-          {t("motions.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="motions.loadFailed" onRetry={reload} />
       ) : null}
 
       {ready ? null : (

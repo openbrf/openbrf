@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -12,7 +18,7 @@ import {
   type QueuedIssue,
   type ReportableIssueType,
 } from "../api/issues";
-import { Notice } from "../ui/Notice";
+import { LoadFailure } from "../ui/LoadFailure";
 import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OwnIssuesPanel } from "./OwnIssuesPanel";
 import { ReportIssuePanel } from "./ReportIssuePanel";
@@ -61,6 +67,7 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
   const canHandle = viewer.capabilities.includes("issues:handle");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
+  const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [types, apartments, own, queue] = await Promise.all([
@@ -84,24 +91,36 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
     };
   }, [canReport, canHandle]);
 
-  useEffect(() => {
-    // The effect owns its own call and drops a response that arrives after the
-    // screen is gone, rather than applying it to a component nobody is looking
-    // at.
-    let active = true;
+  /**
+   * Reads, and applies the answer only while it is still the newest one.
+   *
+   * One rule for the first read and every re-read, on the precedent
+   * `MotionsScreen` sets. It matters more now than it did: the failure notice
+   * offers a retry, so two reads in flight is a board pressing a button twice
+   * rather than a race nobody could reach, and an older failure landing after a
+   * newer success would put the screen back into the state the reader had just
+   * got out of.
+   */
+  const reload = useCallback((): void => {
+    const version = ++currentRead.current;
     void read().then((next) => {
-      if (active) {
+      if (version === currentRead.current) {
         setLoaded(next);
       }
     });
-    return () => {
-      active = false;
-    };
   }, [read]);
 
-  const reload = (): void => {
-    void read().then(setLoaded);
-  };
+  useEffect(() => {
+    reload();
+    /*
+     * Leaving supersedes whatever is in flight, so a response that arrives
+     * after the screen is gone is dropped by the same check that drops a
+     * superseded one. One rule for both.
+     */
+    return () => {
+      currentRead.current += 1;
+    };
+  }, [reload]);
 
   const { ready, types, apartments, own, queue, loadFailed } = loaded;
 
@@ -113,9 +132,7 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
       </header>
 
       {loadFailed ? (
-        <Notice tone="danger" live>
-          {t("issues.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="issues.loadFailed" onRetry={reload} />
       ) : null}
 
       {ready ? null : (
