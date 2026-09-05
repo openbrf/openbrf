@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -362,6 +362,51 @@ describe("the editor", () => {
         "page-2",
         expect.objectContaining({ expectedRevision: 9 }),
       );
+    });
+  });
+
+  it("keeps the controls off until the page it would claim against is the one it holds", async () => {
+    /*
+     * The reload after a conflict is a request like any other. With the buttons
+     * back while it is in flight, a second press sends the revision that was
+     * just refused and is refused again - the same loop the notice says is
+     * over.
+     */
+    let releaseReload: (value: unknown) => void = () => undefined;
+    savePage.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "page-changed" },
+    });
+    fetchPages
+      .mockResolvedValueOnce({ ok: true, value: [HOME, DRAFT] })
+      .mockImplementationOnce(
+        async () =>
+          new Promise((resolve) => {
+            releaseReload = resolve;
+          }),
+      );
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Spara" }).hasAttribute("disabled"),
+      ).toBe(true);
+    });
+
+    await act(async () => {
+      releaseReload({ ok: true, value: [HOME, { ...DRAFT, revision: 9 }] });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Spara" }).hasAttribute("disabled"),
+      ).toBe(false);
     });
   });
 });

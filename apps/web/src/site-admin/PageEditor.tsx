@@ -142,7 +142,6 @@ export function PageEditor({
       setBusy(true);
       setSaved(false);
       const result = await action();
-      setBusy(false);
 
       if (!result.ok) {
         setFailure(result.failure);
@@ -170,8 +169,17 @@ export function PageEditor({
             onChanged(fresh);
           }
         }
+        /*
+         * Last, so every control stays disabled until the page this editor
+         * holds is the one a save would claim against. Cleared before the
+         * reload, a second press would send the revision that was just refused
+         * and be refused again.
+         */
+        setBusy(false);
         return;
       }
+
+      setBusy(false);
 
       setFailure(null);
       setSaved(true);

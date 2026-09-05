@@ -359,8 +359,17 @@ export class PagesWriteService {
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.page.update({
-        where: { id },
+      /*
+       * Claimed against the page the guardrails ran on, above. Publishing is
+       * checked and then written, and a content save landing between those two
+       * would be a save the guardrails never saw - it was checked as a draft,
+       * because that is what the page still was - going public the moment this
+       * write lands. The content save moves the revision, so this claim finds
+       * nothing and the board is told to look again rather than publishing
+       * something nobody read.
+       */
+      const claimed = await tx.page.updateMany({
+        where: { id, revision: page.revision, published: page.published },
         data: {
           published: input.published,
           // Kept once set. It is when the page was first published, and a
@@ -380,6 +389,17 @@ export class PagesWriteService {
            */
           revision: { increment: 1 },
         },
+      });
+
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+
+      const updated = await tx.page.findUniqueOrThrow({
+        where: { id },
         select: PAGE_COLUMNS,
       });
 
@@ -428,12 +448,29 @@ export class PagesWriteService {
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.page.update({
-        where: { id },
-        // For the reason publishing moves it: this decides who reads the page,
-        // and a content save built on the copy from before it should be told
-        // rather than applied.
+      /*
+       * Claimed against the page the guardrails ran on, for the reason
+       * publishing is: this is checked and then written, and a content save
+       * landing between the two would be widened to a new audience without
+       * anything having read it.
+       */
+      const claimed = await tx.page.updateMany({
+        where: { id, revision: page.revision, visibility: page.visibility },
+        // The revision moves for the reason publishing moves it: this decides
+        // who reads the page, and a content save built on the copy from before
+        // it should be told rather than applied.
         data: { visibility: input.visibility, revision: { increment: 1 } },
+      });
+
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+
+      const updated = await tx.page.findUniqueOrThrow({
+        where: { id },
         select: PAGE_COLUMNS,
       });
 
