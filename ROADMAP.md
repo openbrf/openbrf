@@ -430,6 +430,40 @@ Free, open source, and never moved behind a paywall.
       run out; a legal hold, entered against one person with a reason,
       suspends it until the board releases it. Issues and archived documents
       are listed in the data subject access report but not yet purged
+- [ ] Personal data incident register (personuppgiftsincident): an incident is
+      recorded with what it touched and who it reached, and the record states
+      the deadline GDPR art. 33 sets - notification to IMY within 72 hours of
+      discovery - and whether art. 34 also requires telling the people
+      affected. The notification itself goes through IMY's own e-service, so
+      what belongs here is the record, the clock and the evidence that the
+      board decided, not a submission
+- [ ] Record of processing activities (registerförteckning, GDPR art. 30): each
+      processing with its purpose, its legal basis, the categories of personal
+      data and of people, the recipients and the retention. Seeded from what
+      the instance already knows - the statutory registers, the service data
+      and the personal data categories every installed plugin declares - and
+      editable, because a board processes things outside the application too
+- [ ] The privacy notice covers all of GDPR art. 13. The seeded page asks the
+      board for the controller, the data, the purpose, the retention, the
+      rights and the contact; it does not yet ask for the legal basis behind
+      each purpose, the recipients, any transfer to a third country, whether
+      any decision is automated, the data protection officer where the
+      association has appointed one, or the right to complain to IMY
+- [ ] Processor agreements (personuppgiftsbiträdesavtal, GDPR art. 28): the
+      instance hands personal data to an SMTP server, an SMS provider, object
+      storage and every installed plugin. Which agreement covers each is
+      recorded, and the plugin consent step says whether one is in place
+- [ ] What a person asks for about their own data, beyond the access report:
+      erasure ahead of the retention window where no statutory duty keeps the
+      record (GDPR art. 17), an objection to a processing (art. 21) and a
+      restriction of it (art. 18). Recorded against the person with the ground
+      the board relied on, and reaching the screens the processing runs from
+- [ ] Data portability (GDPR art. 20): a machine-readable export of what a
+      person gave the association under the membership contract or under their
+      consent. Separate from the data subject access report, which is a printed
+      document by design and stays one
+- [ ] Purging reaches issues and archived documents. Both are listed in the
+      data subject access report today and neither is erased by the nightly run
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and
@@ -500,10 +534,15 @@ Free, open source, and never moved behind a paywall.
       paths are so far proven against a catalog and packages built inside this
       repository
 
-Every box in this list is ticked. That is the feature set of Core v1, not a
-claim that the result has held a real housing cooperative's data: the opening
-paragraph of this page still says no, and the pilot is the thing that will
-change it.
+Every box in this list is ticked except the data protection obligations above,
+which are the work left in Core v1. They stay in Core v1 and stay free: what an
+association must do to process personal data lawfully is part of the product
+rather than something to pay for, on the same principle that keeps the statutory
+registers there.
+
+A ticked box is the feature set of Core v1, not a claim that the result has held
+a real housing cooperative's data: the opening paragraph of this page still says
+no, and the pilot is the thing that will change it.
 
 ## After v1
 
