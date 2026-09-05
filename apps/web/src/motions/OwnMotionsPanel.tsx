@@ -25,6 +25,14 @@ export interface OwnMotionsPanelProps {
  * A withdrawn motion stays on the list with its date. The record that the member
  * put something to the meeting is theirs, and nothing here deletes a row - the
  * purge does, two years after the motion closed.
+ *
+ * Which meeting takes the item up is stated as soon as the board has answered.
+ * That is the answer the right in EFL 6 kap. 15 § is actually about - it is a
+ * right to have the item taken up at a general meeting - so a member who is told
+ * only that the board received it has been told the smaller half. It is named
+ * and dated rather than given as an identifier, because a member holds no
+ * capability that would resolve one, and the notice states the same meeting to
+ * them anyway.
  */
 export function OwnMotionsPanel({
   motions,
@@ -72,6 +80,15 @@ export function OwnMotionsPanel({
               </div>
 
               <p className="text-small whitespace-pre-line">{motion.body}</p>
+
+              {motion.meeting === null ? null : (
+                <p className="font-data text-small text-ink-muted">
+                  {t("motions.mine.onMeeting", {
+                    kind: t(`meetings.kind.${motion.meeting.kind}`),
+                    date: motion.meeting.heldOn,
+                  })}
+                </p>
+              )}
 
               {motion.status === "SUBMITTED" ? (
                 <div>

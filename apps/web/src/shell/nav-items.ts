@@ -121,6 +121,29 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["motions:submit", "motions:handle"],
   },
   {
+    to: "/meetings",
+    // Under the meetings namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "meetings.navLabel",
+    // One capability and no any-of list, and the contrast with motions above is
+    // the point. There the module has two halves for two audiences - a member
+    // putting an item in, the board working the queue - so an entry gated on
+    // either half alone would hide it from the other. Here every act is the
+    // board's own side of one meeting: arranging it, summoning the members,
+    // checking them in and minuting what was decided. There is no member's half
+    // to be shut out of, because what a member holds at a general meeting is the
+    // right to attend, speak and vote (EFL 6 kap. 2-3 §§) and none of that
+    // happens on this platform - the meeting is in a room or on a call.
+    //
+    // Deliberately not derived from membership, which makes it the opposite of
+    // motions:submit. A member who is also on the board holds it as a board
+    // member, which is the ordinary case. The external property manager holds it
+    // no more than they hold the motions queue: the members' decisions about
+    // their own association are no part of a contractor's work, and the list of
+    // who was in the room is resident data they have no business reading.
+    capability: "meetings:manage",
+  },
+  {
     to: "/news",
     // The reading side's own word for itself, under its own namespace, so the
     // label moves with the feature. The board's writing side is a separate entry

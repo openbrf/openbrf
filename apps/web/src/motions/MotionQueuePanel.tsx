@@ -1,13 +1,15 @@
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { MeetingSummary } from "../api/meetings";
 import {
   acknowledgeMotion,
   type MotionDeadline,
   type MotionSubmitter,
   type QueuedMotion,
+  setMotionMeeting,
 } from "../api/motions";
-import { SECONDARY_BUTTON } from "../ui/controls";
+import { FIELD_DATA, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
@@ -18,6 +20,25 @@ import { MotionStatusChip } from "./MotionStatusChip";
 export interface MotionQueuePanelProps {
   motions: readonly QueuedMotion[];
   deadline: MotionDeadline | null;
+  /**
+   * The meetings an item may be put to, or null where this viewer may not read
+   * them.
+   *
+   * Null and not an empty list, because the two mean different things and the
+   * panel says different things about them. `meetings:manage` is what reads the
+   * meetings, and although the board holds it alongside `motions:handle` today,
+   * a seat granted only the queue would otherwise be shown a control offering
+   * nothing and told the association had arranged no meetings.
+   */
+  meetings: readonly MeetingSummary[] | null;
+  /**
+   * True where the meetings were asked for and the read failed.
+   *
+   * Told apart from the null above because a board reading "the association has
+   * arranged no meeting" after a request that never answered has been told
+   * something about its cooperative that nobody checked.
+   */
+  meetingsFailed: boolean;
   onChanged: () => void;
 }
 
@@ -28,15 +49,34 @@ export interface MotionQueuePanelProps {
  * server returns them in - the queue is worked from the top and the item that has
  * been waiting longest is the one to look at.
  *
- * Acknowledging is the only act on this panel, and it records that the board has
- * received the motion. There is deliberately no reject control: refusing to take
- * up a member's item is not the board's to decide under EFL 6 kap. 15 §, and
- * whether the meeting adopts the proposal is minuted at the meeting rather than
- * here.
+ * Two acts, and neither of them is a decision about the proposal. Acknowledging
+ * records that the board has received the motion. Putting it to a meeting
+ * records which general meeting deals with it. There is deliberately no reject
+ * control: refusing to take up a member's item is not the board's to decide
+ * under EFL 6 kap. 15 §, and whether the meeting adopts the proposal is minuted
+ * at the meeting rather than here.
+ *
+ * ## Which meeting, and until when
+ *
+ * EFL 6 kap. 15 § gives the member the right to have the item taken up at a
+ * general meeting if the written request reaches the board in time for it to go
+ * into the notice to that meeting, and 6 kap. 22 § has that notice state the
+ * matters to be dealt with. So the notice is what settles the answer: a meeting
+ * whose members have been summoned is offered as a destination no longer, and
+ * an item already on such a meeting cannot be moved off it - 6 kap. 25 § leaves
+ * a meeting unable to decide a matter its notice did not take up.
+ *
+ * Both halves of that are the server's rule and the server enforces both, which
+ * is why the refusals are separate sentences. What this panel does is offer only
+ * the meetings the server would accept, so a board is not sent to a control that
+ * can only refuse - and the item's own meeting stays on the list even once
+ * summoned, because otherwise the row would stop saying where the item is.
  */
 export function MotionQueuePanel({
   motions,
   deadline,
+  meetings,
+  meetingsFailed,
   onChanged,
 }: MotionQueuePanelProps): ReactElement {
   const { t } = useTranslation();
@@ -46,9 +86,35 @@ export function MotionQueuePanel({
     setActingOn(null);
     onChanged();
   });
+  const attach = useSaveAction(setMotionMeeting);
 
   const failure =
-    acknowledge.state.kind === "failed" ? acknowledge.state.failure : null;
+    acknowledge.state.kind === "failed"
+      ? acknowledge.state.failure
+      : attach.state.kind === "failed"
+        ? attach.state.failure
+        : null;
+
+  /**
+   * Puts one item on a meeting, or takes it off, and reads the queue again.
+   *
+   * The outcome is deliberately not read. A link written and a link refused both
+   * change what the queue says - the refusal that most needs the fresh answer is
+   * the one lost to another board member who moved the same item, where the row
+   * on screen is already wrong about where the item is.
+   */
+  const putToMeeting = (motionId: string, meetingId: string | null): void => {
+    acknowledge.reset();
+    setActingOn(motionId);
+    void attach
+      .submit({ motionId, meetingId })
+      .then(() => {
+        onChanged();
+      })
+      .finally(() => {
+        setActingOn(null);
+      });
+  };
 
   return (
     <Panel
@@ -107,6 +173,11 @@ export function MotionQueuePanel({
                       acknowledge.state.kind === "saving"
                     }
                     onClick={() => {
+                      // The other act's state is cleared first, so a refusal it
+                      // met does not sit over this one's outcome: the notice
+                      // above shows whichever failure is newest, and a stale one
+                      // would outlive the act that caused it.
+                      attach.reset();
                       setActingOn(motion.id);
                       void acknowledge.submit({ motionId: motion.id });
                     }}
@@ -118,11 +189,160 @@ export function MotionQueuePanel({
                   </button>
                 </div>
               ) : null}
+
+              {/* A withdrawn item is not put to a meeting: the member took it
+                  back, and the server refuses the link for that reason rather
+                  than for one the board can move it out of. */}
+              {meetings === null || motion.status === "WITHDRAWN" ? (
+                <>
+                  {motion.meeting === null ? null : (
+                    <p className={`${HINT} font-data`}>
+                      {t("motions.queue.onMeeting", {
+                        kind: t(`meetings.kind.${motion.meeting.kind}`),
+                        date: motion.meeting.heldOn,
+                      })}
+                    </p>
+                  )}
+                  {/* Which of the two null states this is. A seat that may not
+                      read meetings is offered nothing and that is correct; a
+                      board whose read failed is owed the difference, because
+                      silence here reads as "there is no meeting to put it
+                      to". */}
+                  {meetingsFailed && motion.status !== "WITHDRAWN" ? (
+                    <p className={HINT} role="status">
+                      {t("motions.queue.meetingsUnreadable")}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <MeetingChoice
+                  motion={motion}
+                  meetings={meetings}
+                  busy={
+                    actingOn === motion.id && attach.state.kind === "saving"
+                  }
+                  onChoose={(meetingId) => {
+                    putToMeeting(motion.id, meetingId);
+                  }}
+                />
+              )}
             </li>
           ))}
         </ul>
       )}
     </Panel>
+  );
+}
+
+/**
+ * Which meeting this item is on, as a control the board changes.
+ *
+ * A select rather than a button per meeting, because the answer is one meeting
+ * out of a list and taking it off again is the same answer set back to none -
+ * which is exactly the shape the endpoint has.
+ *
+ * Only the meetings the server would accept are offered: one that has been
+ * summoned may not take another item, and one recorded as held may not either.
+ *
+ * Where the item's own meeting is in either of those states the control is gone
+ * altogether and the row states the meeting instead. That is not the screen
+ * enforcing the rule - the server refuses the change, and each refusal has its
+ * own sentence - but a control that could only be refused is a worse way of
+ * saying so than a sentence. The server checks the meeting being left as well as
+ * the one being joined, which is why leaving a settled meeting is refused too
+ * and why the row must not offer it.
+ */
+function MeetingChoice({
+  motion,
+  meetings,
+  busy,
+  onChoose,
+}: {
+  motion: QueuedMotion;
+  meetings: readonly MeetingSummary[];
+  busy: boolean;
+  onChoose: (meetingId: string | null) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const own = motion.meeting;
+
+  /*
+   * The list's own row for the meeting this item is on. The motion's copy of a
+   * meeting carries whether it has been summoned and not whether it has been
+   * held, and both settle the answer: the server checks the meeting being left
+   * as well as the one being joined, and refuses either state.
+   */
+  const ownSummary =
+    own === null
+      ? null
+      : (meetings.find((meeting) => meeting.id === own.id) ?? null);
+  const held = ownSummary !== null && ownSummary.concludedAt !== null;
+
+  if (own !== null && (own.summoned || held)) {
+    /*
+     * A statement rather than a control. Once the notice has gone out the
+     * meeting may neither take another matter nor give this one up (EFL 6 kap.
+     * 25 §), and once it has been held there is nothing left to decide about it
+     * at all - so a select here could only ever be refused. Two sentences,
+     * because a board reads them differently: a meeting still to be held under a
+     * notice is where the item will be taken up, and one already held is where
+     * it was.
+     */
+    return (
+      <p className={`${HINT} font-data`}>
+        {t(
+          held
+            ? "motions.queue.onHeldMeeting"
+            : "motions.queue.onSummonedMeeting",
+          {
+            kind: t(`meetings.kind.${own.kind}`),
+            date: own.heldOn,
+          },
+        )}
+      </p>
+    );
+  }
+
+  /*
+   * Only the meetings the server would actually accept. A meeting recorded as
+   * held cannot take an item, and neither can one whose members have been
+   * summoned - EFL 6 kap. 25 § leaves a meeting unable to decide a matter its
+   * notice did not take up, so from that moment the answer is settled.
+   *
+   * No exception for the item's own meeting. Reaching here means it is open, and
+   * an open meeting already passes this filter; one in either settled state was
+   * answered above with a sentence, so keeping it here would leave the select
+   * able to move the item off a meeting the server will not let go of.
+   */
+  const offered = meetings.filter(
+    (meeting) => meeting.concludedAt === null && !meeting.summoned,
+  );
+
+  return (
+    <label className={`${LABEL} max-w-96`}>
+      {t("motions.queue.meeting")}
+      {/* The data face, so the options carry the dates on the mono grid
+          DESIGN.md puts register data on. Set on the control rather than on each
+          option, which a browser renders in its own chrome. */}
+      <select
+        className={FIELD_DATA}
+        value={own?.id ?? ""}
+        disabled={busy}
+        onChange={(event) => {
+          onChoose(event.target.value === "" ? null : event.target.value);
+        }}
+      >
+        <option value="">{t("motions.queue.noMeeting")}</option>
+        {offered.map((meeting) => (
+          <option key={meeting.id} value={meeting.id}>
+            {`${t(`meetings.kind.${meeting.kind}`)} ${meeting.heldOn}`}
+          </option>
+        ))}
+      </select>
+      {offered.length === 0 ? (
+        <span className={HINT}>{t("motions.queue.noMeetingsArranged")}</span>
+      ) : null}
+    </label>
   );
 }
 

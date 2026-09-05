@@ -86,6 +86,18 @@ export interface MeetingSummaryView {
   heldOn: string;
   /** ISO instant, or null while the meeting is being arranged. */
   concludedAt: string | null;
+  /**
+   * Whether the notice has been issued.
+   *
+   * The one fact about a meeting that decides what may still be attached to it:
+   * EFL 6 kap. 25 § leaves the meeting unable to decide a matter its notice did
+   * not take up, so from the moment one is issued no motion may be put to that
+   * meeting or taken off it. On the summary rather than only on the full read
+   * because it is what a caller choosing among meetings has to know - the same
+   * fact `MotionMeetingView.summoned` already carries for the one meeting a
+   * motion is on.
+   */
+  summoned: boolean;
   agendaItemCount: number;
 }
 
@@ -161,12 +173,22 @@ export interface RecordDecisionInput {
  */
 type MeetingDbClient = PrismaService | Prisma.TransactionClient;
 
-/** The columns every meeting read selects. */
+/**
+ * The columns every meeting read selects.
+ *
+ * The notice is joined for its existence and never for its contents. Whether one
+ * has been issued is what settles the matters the meeting may deal with (EFL
+ * 6 kap. 22 § with 25 §), so it belongs to every answer that says what a meeting
+ * is - a board choosing which meeting takes a motion up is choosing among the
+ * ones that can still take it, and a list that could not say which those are
+ * would offer a meeting the write then has to refuse.
+ */
 const MEETING_COLUMNS = {
   id: true,
   kind: true,
   heldOn: true,
   concludedAt: true,
+  notice: { select: { id: true } },
 } as const;
 
 /**
@@ -1468,12 +1490,14 @@ function toSummary(meeting: {
   kind: MeetingKind;
   heldOn: Date;
   concludedAt: Date | null;
+  notice: { id: string } | null;
 }): Omit<MeetingSummaryView, "agendaItemCount"> {
   return {
     id: meeting.id,
     kind: meeting.kind,
     heldOn: formatLocalDay(localDayOfColumn(meeting.heldOn)),
     concludedAt: meeting.concludedAt?.toISOString() ?? null,
+    summoned: meeting.notice !== null,
   };
 }
 

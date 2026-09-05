@@ -246,6 +246,49 @@ export async function setMotionDeadline(
   await expectOk(response, "PUT /api/settings/motion-deadline");
 }
 
+/**
+ * The four clauses BRL 9 kap. 14 § leaves to the association's own bylaws.
+ *
+ * Mirrored from the API's own shape. No field is nullable: each clause has a
+ * rule that applies unless the bylaws displace it, so an association that has
+ * recorded nothing is under the statute rather than half-configured.
+ */
+export type MeetingBylaws = {
+  readonly proxyHolderEligibilityWidened: boolean;
+  readonly maxMembersPerProxyHolder: number;
+  readonly storageOnlyVoteLimited: boolean;
+  readonly assistantEligibilityWidened: boolean;
+};
+
+/** The statutory position, which is where a fresh instance sits. */
+export const STATUTORY_MEETING_BYLAWS: MeetingBylaws = {
+  proxyHolderEligibilityWidened: false,
+  maxMembersPerProxyHolder: 1,
+  storageOnlyVoteLimited: false,
+  assistantEligibilityWidened: false,
+};
+
+/**
+ * Records what the bylaws say about the general meeting.
+ *
+ * Over HTTP rather than through the settings panel, for the reason
+ * setMotionDeadline is: a spec restoring the instance afterwards needs the value
+ * changed rather than changed in front of it. All four go together because the
+ * endpoint takes them that way - they are transcribed from one paragraph of the
+ * stadgar. The caller's context has to be signed in as somebody holding
+ * association:manage.
+ */
+export async function setMeetingBylaws(
+  request: APIRequestContext,
+  baseUrl: string,
+  bylaws: MeetingBylaws,
+): Promise<void> {
+  const response = await request.put(`${baseUrl}/api/settings/meeting-bylaws`, {
+    data: bylaws,
+  });
+  await expectOk(response, "PUT /api/settings/meeting-bylaws");
+}
+
 export async function completeSetup(
   request: APIRequestContext,
   baseUrl: string,

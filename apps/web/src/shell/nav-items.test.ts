@@ -61,6 +61,16 @@ describe("the external property manager", () => {
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/events");
   });
 
+  it("is not offered the general meeting, which is the members' own business", () => {
+    // The capability model grants them nothing here: arranging a meeting,
+    // summoning the members and minuting what they decided is the board's own
+    // side of the members' business with their own association, and the list of
+    // who was in the room is resident data. An external contractor is on neither
+    // side of that.
+    expect(PROPERTY_MANAGER).not.toContain("meetings:manage");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/meetings");
+  });
+
   it("is not offered the news, which is addressed to the house", () => {
     // The capability model grants them news:comment no more than it grants them
     // a laundry hour: the board writes a notice to the people who live in the
@@ -149,6 +159,7 @@ describe("the other seats", () => {
         "events:attend",
         "events:manage",
         "motions:handle",
+        "meetings:manage",
       ]),
     ).toEqual([
       "/",
@@ -158,6 +169,7 @@ describe("the other seats", () => {
       "/bookings",
       "/events",
       "/motions",
+      "/meetings",
       "/news",
       "/documents",
     ]);
@@ -200,6 +212,19 @@ describe("the other seats", () => {
     // still hide the calendar from a seat granted only the arranging of it.
     expect(destinations(["events:manage"])).toContain("/events");
     expect(destinations(["events:attend"])).toContain("/events");
+  });
+
+  it("offers the general meeting on the board's capability and on no other", () => {
+    /*
+     * One capability rather than an any-of list, and the contrast with motions
+     * above is what this pins. The right a member holds at a general meeting is
+     * to attend, speak and vote, none of which happens here, so membership opens
+     * no door to this screen - and neither does living in the building.
+     */
+    expect(destinations(["meetings:manage"])).toContain("/meetings");
+    expect(destinations(["motions:submit"])).not.toContain("/meetings");
+    expect(destinations(["motions:handle"])).not.toContain("/meetings");
+    expect(destinations(["residentDirectory:read"])).not.toContain("/meetings");
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {

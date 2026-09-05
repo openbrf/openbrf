@@ -15,6 +15,7 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
+import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { ProfilePanel } from "./ProfilePanel";
 import { RetentionPanel } from "./RetentionPanel";
@@ -269,6 +270,22 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               <MotionDeadlinePanel
                 key={JSON.stringify(settings.motionDeadline)}
                 motionDeadline={settings.motionDeadline}
+                editable={canManage}
+                onSaved={reload}
+              />
+
+              {/* The four clauses BRL 9 kap. 14 § leaves to the association's
+                  own bylaws, beside the motion deadline because they are read
+                  out of the same paragraph of the stadgar. Unlike the deadline
+                  these have no empty state: every one of them has a statutory
+                  rule that applies unless the bylaws displace it, so an
+                  association that has recorded nothing is under the statute
+                  rather than half-configured. Two of the four are checked when a
+                  proxy is registered and two are reported for the meeting to
+                  apply; the panel says which. */}
+              <MeetingBylawsPanel
+                key={JSON.stringify(settings.meetingBylaws)}
+                meetingBylaws={settings.meetingBylaws}
                 editable={canManage}
                 onSaved={reload}
               />
