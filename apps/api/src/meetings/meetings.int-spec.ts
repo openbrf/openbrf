@@ -563,13 +563,21 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     if (prisma !== undefined) {
-      // The attendance lines, the authorities and the agenda cascade from the
-      // meeting; naming them first clears a run that wrote one without the
-      // other.
+      // Every child holds its meeting down: the foreign keys restrict rather
+      // than cascade, so the meeting deletes only once all four are gone.
+      // Decisions and votes go with the agenda items they were recorded
+      // against, and a notice's delivery ledger goes with the notice, which is
+      // the one cascade left inside the meetings module.
+      await prisma.agendaItem.deleteMany({
+        where: { meetingId: { in: createdMeetingIds } },
+      });
       await prisma.meetingAttendance.deleteMany({
         where: { meetingId: { in: createdMeetingIds } },
       });
       await prisma.proxyAuthorisation.deleteMany({
+        where: { meetingId: { in: createdMeetingIds } },
+      });
+      await prisma.meetingNotice.deleteMany({
         where: { meetingId: { in: createdMeetingIds } },
       });
       await prisma.meeting.deleteMany({
@@ -1653,5 +1661,126 @@ describe("what running a meeting records", () => {
     });
     expect(entry?.context).toEqual({ itemCount: 2 });
     expect(JSON.stringify(entry?.context)).not.toContain("laddstolpar");
+  });
+});
+
+describe("what a meeting refuses to be deleted with", () => {
+  /**
+   * The four children hold the meeting down, one at a time.
+   *
+   * Written against the client rather than through the API on purpose: no
+   * endpoint deletes a meeting, so this asserts the guarantee where it now
+   * lives, which is the foreign keys. Each child is created, the delete is
+   * refused, and the child is removed again, so the last delete proves the
+   * refusals were the children and not something else about the row.
+   *
+   * Both layers are asserted, and the second is the one that matters. The
+   * client refuses a delete whose schema says Restrict on its own, before the
+   * statement reaches the database, so an assertion through the client alone
+   * would pass against a database whose foreign keys still cascaded. The raw
+   * DELETE is what asks Postgres: against a cascade it succeeds and takes the
+   * children with it, so the rejection is the database's answer and not the
+   * client's. Which referential action stands there is asserted by name in the
+   * test below this one.
+   */
+  it("refuses the delete while any child stands, and takes it once none does", async () => {
+    const meetingId = await arrangeMeeting();
+
+    const expectRefused = async (): Promise<void> => {
+      await expect(
+        prisma.meeting.delete({ where: { id: meetingId } }),
+      ).rejects.toMatchObject({ code: "P2003" });
+      await expect(
+        prisma.$executeRaw`DELETE FROM "meeting" WHERE "id" = ${meetingId}`,
+      ).rejects.toThrow();
+    };
+
+    await prisma.agendaItem.create({
+      data: { meetingId, position: 1, title: "Faststallande av rostlangden" },
+    });
+    await expectRefused();
+    await prisma.agendaItem.deleteMany({ where: { meetingId } });
+
+    await prisma.meetingAttendance.create({
+      data: {
+        meetingId,
+        personId: soloMember.personId,
+        capacity: "MEMBER",
+        mode: "IN_PERSON",
+      },
+    });
+    await expectRefused();
+    await prisma.meetingAttendance.deleteMany({ where: { meetingId } });
+
+    await prisma.proxyAuthorisation.create({
+      data: {
+        meetingId,
+        memberPersonId: soloMember.personId,
+        proxyHolderPersonId: otherMember.personId,
+        ground: "MEMBER",
+        authorisedOn: new Date(`${AUTHORISED_ON_TEXT}T00:00:00.000Z`),
+        recordedByPersonId: board.personId,
+      },
+    });
+    await expectRefused();
+    await prisma.proxyAuthorisation.deleteMany({ where: { meetingId } });
+
+    await prisma.meetingNotice.create({
+      data: {
+        meetingId,
+        startsAt: new Date(`${MEETING_DAY_TEXT}T17:00:00.000Z`),
+        place: "Foreningslokalen",
+        issuedByPersonId: board.personId,
+      },
+    });
+    await expectRefused();
+    await prisma.meetingNotice.deleteMany({ where: { meetingId } });
+
+    await expect(
+      prisma.meeting.delete({ where: { id: meetingId } }),
+    ).resolves.toMatchObject({ id: meetingId });
+  });
+  /**
+   * The referential actions themselves, read out of the catalogue.
+   *
+   * The test above proves the behaviour; this one says which rule produced it,
+   * and it is what fails if a later migration quietly puts a cascade back. Both
+   * halves are asserted, because two of the cascades inside this module are
+   * deliberate: an agenda item takes its decision and its votes with it, since
+   * replacing an agenda while the meeting is being arranged deletes and
+   * rewrites the items, and a notice takes its delivery ledger.
+   *
+   * `confdeltype` is Postgres's one-character code for the action: `r` for
+   * RESTRICT, `c` for CASCADE.
+   */
+  it("restricts every child of a meeting and cascades only where a delete is a real flow", async () => {
+    const rows = await prisma.$queryRaw<{ conname: string; deltype: string }[]>`
+      SELECT conname, confdeltype::text AS deltype
+      FROM pg_constraint
+      WHERE contype = 'f'
+        AND conname IN (
+          'agenda_item_meetingId_fkey',
+          'meeting_attendance_meetingId_fkey',
+          'proxy_authorisation_meetingId_fkey',
+          'meeting_notice_meetingId_fkey',
+          'motion_meetingId_fkey',
+          'meeting_decision_agendaItemId_fkey',
+          'meeting_vote_agendaItemId_fkey',
+          'meeting_notice_delivery_noticeId_fkey'
+        )
+    `;
+
+    expect(
+      Object.fromEntries(rows.map((row) => [row.conname, row.deltype])),
+    ).toEqual({
+      agenda_item_meetingId_fkey: "r",
+      meeting_attendance_meetingId_fkey: "r",
+      proxy_authorisation_meetingId_fkey: "r",
+      meeting_notice_meetingId_fkey: "r",
+      motion_meetingId_fkey: "r",
+      meeting_decision_agendaItemId_fkey: "c",
+      meeting_vote_agendaItemId_fkey: "c",
+      meeting_notice_delivery_noticeId_fkey: "c",
+    });
   });
 });
