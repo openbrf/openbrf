@@ -343,7 +343,7 @@
           "systemRoles": "System roles",
           "account": "Account",
           "memberRegister": "The member register",
-          "transfers": "Transfers",
+          "transfers": "Grants and transfers",
           "terminations": "Terminations",
           "lienNotes": "Lien notes",
           "reportObligations": "Reporting obligations to the cooperative housing register",
@@ -382,6 +382,7 @@
           "date": "Date",
           "recordedName": "Name as recorded",
           "note": "Note",
+          "transferKind": "Kind",
           "direction": "Direction",
           "price": "Price",
           "agreementReference": "Agreement reference",
@@ -512,6 +513,10 @@
           "MEETING_PROXY_REGISTERED": "Proxy authorisation registered",
           "MEETING_PROXY_WITHDRAWN": "Proxy authorisation withdrawn",
           "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded"
+        },
+        "transferKind": {
+          "GRANT": "Grant",
+          "TRANSFER": "Transfer"
         },
         "reportKind": {
           "GRANT": "Grant",
@@ -1484,7 +1489,7 @@
         "failed": "The lien could not be recorded. Check the creditor and the date."
       },
       "transfers": {
-        "heading": "Transfers",
+        "heading": "Grants and transfers",
         "transferredOn": "Date",
         "from": "From",
         "to": "To",
@@ -1500,7 +1505,7 @@
         "sellerUnknown": "The register does not hold the seller",
         "kindUnrecorded": "Not recorded in the register",
         "grantReportedFromGrant": "Grant: reported within two weeks of the grant itself, and no membership decision is counted.",
-        "none": "No transfers recorded"
+        "none": "No grants or transfers recorded"
       },
       "terminations": {
         "heading": "Terminations",
@@ -1581,7 +1586,7 @@
       "reportedLate_other": "Reported {{count}} days after the deadline",
       "empty": {
         "title": "Nothing to report",
-        "description": "A duty appears here when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
+        "description": "A duty appears here when a grant is recorded, when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
       },
       "record": {
         "open": "Record the report",

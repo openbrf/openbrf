@@ -343,7 +343,7 @@
           "systemRoles": "Systemroller",
           "account": "Konto",
           "memberRegister": "Medlemsförteckningen",
-          "transfers": "Överlåtelser",
+          "transfers": "Upplåtelser och överlåtelser",
           "terminations": "Upphöranden",
           "lienNotes": "Pantnoteringar",
           "reportObligations": "Anmälningsskyldigheter till bostadsrättsregistret",
@@ -382,6 +382,7 @@
           "date": "Datum",
           "recordedName": "Namn som antecknat",
           "note": "Anteckning",
+          "transferKind": "Slag",
           "direction": "Riktning",
           "price": "Pris",
           "agreementReference": "Avtalsreferens",
@@ -512,6 +513,10 @@
           "MEETING_PROXY_REGISTERED": "Fullmakt registrerad",
           "MEETING_PROXY_WITHDRAWN": "Fullmakt återkallad",
           "MEETING_DECISION_RECORDED": "Föreningsstämmans beslut antecknat"
+        },
+        "transferKind": {
+          "GRANT": "Upplåtelse",
+          "TRANSFER": "Överlåtelse"
         },
         "reportKind": {
           "GRANT": "Upplåtelse",
@@ -1484,7 +1489,7 @@
         "failed": "Panten kunde inte registreras. Kontrollera panthavare och datum."
       },
       "transfers": {
-        "heading": "Överlåtelser",
+        "heading": "Upplåtelser och överlåtelser",
         "transferredOn": "Datum",
         "from": "Från",
         "to": "Till",
@@ -1500,7 +1505,7 @@
         "sellerUnknown": "Säljaren finns inte i registret",
         "kindUnrecorded": "Ej angivet i registret",
         "grantReportedFromGrant": "Upplåtelse: anmäls inom två veckor från upplåtelsen, inget medlemskapsbeslut räknas.",
-        "none": "Inga överlåtelser registrerade"
+        "none": "Inga upplåtelser eller överlåtelser registrerade"
       },
       "terminations": {
         "heading": "Upphöranden",
@@ -1581,7 +1586,7 @@
       "reportedLate_other": "Anmäld {{count}} dagar efter sista dagen",
       "empty": {
         "title": "Inget att anmäla",
-        "description": "En skyldighet dyker upp här när ett upphörande registreras, eller när den dag då föreningen beslutade om förvärvarens medlemskap registreras på en övergång."
+        "description": "En skyldighet dyker upp här när en upplåtelse registreras, när ett upphörande registreras, eller när den dag då föreningen beslutade om förvärvarens medlemskap registreras på en övergång."
       },
       "record": {
         "open": "Registrera anmälan",

@@ -96,12 +96,29 @@ const FULL_REPORT: Report = {
       transferId: "transfer-1",
       apartment: "Storgatan 12 1201",
       direction: "acquired",
+      kind: "TRANSFER",
       transferredOn: "2020-03-01",
       // The day the two-week reporting window opened for this transfer, which
       // is not the day the transfer completed.
       membershipDecidedOn: "2020-02-18",
       price: "2950000.00",
       agreementReference: "Overlatelseavtal 2020-7",
+    },
+    {
+      /*
+       * The same person's other apartment, granted to them rather than bought:
+       * an upplatelse has no seller, and so does a transfer whose seller the
+       * register never held, so the document says which it was rather than
+       * leaving the reader to infer it.
+       */
+      transferId: "transfer-2",
+      apartment: "Storgatan 12 1202",
+      direction: "acquired",
+      kind: "GRANT",
+      transferredOn: "2013-01-10",
+      membershipDecidedOn: null,
+      price: null,
+      agreementReference: "Upplatelseavtal 2013-1",
     },
   ],
   terminations: [
@@ -878,7 +895,27 @@ describe("what the document prints", () => {
     renderReport(EMPTY_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    expect(screen.getByText("Överlåtelser")).not.toBeNull();
+    expect(screen.getByText("Upplåtelser och överlåtelser")).not.toBeNull();
     expect(screen.getAllByText("Inget registrerat").length).toBeGreaterThan(5);
+  });
+
+  it("says which of its transfers was a grant", async () => {
+    /*
+     * An upplatelse and a transfer whose seller the register never held both
+     * reach this section with no seller named, and they are different facts
+     * about the person: one says they were the first holder of the
+     * bostadsratt, the other that they bought it from somebody. The document
+     * states which as recorded, and says nothing where the register does not
+     * know - a report that guessed would tell somebody they were granted an
+     * apartment the association only registered a sale of.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const transfers = within(sectionOf("Upplåtelser och överlåtelser"));
+    const grantRow = transfers.getByText("Storgatan 12 1202").closest("tr");
+    expect(grantRow?.textContent).toContain("Upplåtelse");
+    const purchaseRow = transfers.getByText("Storgatan 12 1201").closest("tr");
+    expect(purchaseRow?.textContent).toContain("Överlåtelse");
   });
 });

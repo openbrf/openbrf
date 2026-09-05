@@ -92,6 +92,11 @@ const TERMINATION_KIND_LABEL = {
     "registers.apartment.terminations.kind.BUILDING_TRANSFERRED",
 } as const satisfies Record<TerminationKind, TranslationKey>;
 
+const TRANSFER_KIND_LABEL = {
+  GRANT: "register.person.report.transferKind.GRANT",
+  TRANSFER: "register.person.report.transferKind.TRANSFER",
+} as const satisfies Record<"GRANT" | "TRANSFER", TranslationKey>;
+
 const REGISTER_REPORT_KIND_LABEL = {
   GRANT: "register.person.report.reportKind.GRANT",
   TRANSFER: "register.person.report.reportKind.TRANSFER",
@@ -541,6 +546,7 @@ export function DataSubjectReport({
               empty={report.transfers.length === 0}
               headings={[
                 "register.person.report.field.apartment",
+                "register.person.report.field.transferKind",
                 "register.person.report.field.direction",
                 "register.person.report.field.date",
                 "register.person.report.field.membershipDecidedOn",
@@ -551,6 +557,17 @@ export function DataSubjectReport({
               {report.transfers.map((transfer) => (
                 <tr key={transfer.transferId} className={ROW}>
                   <td className={DATA_CELL}>{transfer.apartment}</td>
+                  {/*
+                    Stated as recorded. A row from before the register asked
+                    says so rather than being printed as either one, because the
+                    document may not tell somebody they were granted a
+                    bostadsratt the association only registered a sale of.
+                  */}
+                  <td className={TEXT_CELL}>
+                    {transfer.kind === null
+                      ? nothing
+                      : t(TRANSFER_KIND_LABEL[transfer.kind])}
+                  </td>
                   <td className={TEXT_CELL}>
                     {t(
                       `register.person.report.direction.${transfer.direction}`,
