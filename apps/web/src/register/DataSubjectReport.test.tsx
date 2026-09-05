@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import "../i18n";
+import i18n from "../i18n";
 import { DataSubjectReport } from "./DataSubjectReport";
 import type { DataSubjectReport as Report } from "./register-api";
 
@@ -869,6 +869,44 @@ describe("what the document prints", () => {
     expect(proxies.getByText("person-nils")).not.toBeNull();
     expect(proxies.getByText("Make, maka eller sambo")).not.toBeNull();
     expect(proxies.getByText("2026-05-02")).not.toBeNull();
+  });
+
+  it("renders the document in the subject's language and the screen in the reader's", async () => {
+    /*
+     * The report is handed to the person it is about, so it is written to them
+     * in the language they told the association to write to them in - the same
+     * rule the server applies to every mail it sends. The screen around it is
+     * addressed to the board member holding the mouse and stays in theirs.
+     *
+     * The reader here is on English and the subject has asked for Swedish, so
+     * one language on the page would fail this whichever of the two it was.
+     */
+    await i18n.changeLanguage("en");
+    try {
+      renderReport({
+        ...FULL_REPORT,
+        person: { ...FULL_REPORT.person, preferredLocale: "sv" },
+      });
+      await screen.findByText("Brf Eksemplet");
+
+      // The document, in the subject's Swedish.
+      expect(screen.getByText("Personen")).not.toBeNull();
+      expect(screen.getByText("Namn")).not.toBeNull();
+
+      // The screen around it, in the reader's English.
+      expect(
+        screen.getByRole("button", { name: "Back to the person" }),
+      ).not.toBeNull();
+
+      /*
+       * Declared on the document rather than on the page, so anything that
+       * speaks a printed page reads it out in the language it is written in.
+       */
+      const document_ = screen.getByText("Personen").closest("article");
+      expect(document_?.getAttribute("lang")).toBe("sv");
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
   });
 
   it("says an empty section is empty rather than leaving a gap", async () => {
