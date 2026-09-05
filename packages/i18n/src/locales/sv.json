@@ -2385,6 +2385,35 @@
         "personalIdentityNumber": "Något av svaren innehåller ett personnummer. Ta bort det: sidan publiceras för var och en som har adressen.",
         "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan."
       }
+    },
+    "place": {
+      "page": "Sida",
+      "submit": "Placera på sidan",
+      "working": "Placerar",
+      "done": "Blocket lades sist på {{page}}. Flytta det där du vill ha det i sidredigeraren.",
+      "noPages": "Det finns ingen sida att placera blocket på ännu. Skapa en sida först.",
+      "errors": {
+        "photoConsentRequired": "Sidan innehåller en bild med identifierbara personer, och den bekräftelsen ges i sidredigeraren. Lägg till blocket där i stället.",
+        "blocked": "Sidan kunde inte sparas. Öppna den i sidredigeraren, som säger vad som hindrar publicering.",
+        "pageGone": "Sidan finns inte längre.",
+        "unknown": "Blocket kunde inte placeras just nu."
+      },
+      "newsTeaser": {
+        "title": "Visa nyheter på en sida",
+        "description": "Ett nyhetsblock visar de senaste nyheterna på en sida i föreningens webbplats. Vad varje läsare ser avgörs när sidan visas: en besökare utan konto ser de publika, en medlem ser sina också.",
+        "alreadyThere": "Sidan har redan ett nyhetsblock.",
+        "count": "Antal nyheter"
+      },
+      "contactForm": {
+        "title": "Visa kontaktformuläret på en sida",
+        "description": "Formuläret som meddelandena här kommer från. Fälten är fasta; sidan bestämmer var formuläret står och sidredigeraren skriver ingressen ovanför det.",
+        "alreadyThere": "Sidan har redan ett kontaktformulär."
+      },
+      "issueReportForm": {
+        "title": "Visa felanmälan på en sida",
+        "description": "Formuläret en förbipasserande anmäler en trasig port med. Fälten är fasta, och ärendetyperna läses när sidan visas. Blocket visas inte alls medan publik felanmälan är avstängd.",
+        "alreadyThere": "Sidan har redan ett felanmälningsformulär."
+      }
     }
   },
   "news": {

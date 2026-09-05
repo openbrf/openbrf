@@ -2385,6 +2385,35 @@
         "personalIdentityNumber": "One of the answers carries a personal identity number. Take it out: this page is published to anyone who has its address.",
         "loadFailed": "The facts could not be read just now. Reload the page."
       }
+    },
+    "place": {
+      "page": "Page",
+      "submit": "Place on the page",
+      "working": "Placing",
+      "done": "The block was added at the end of {{page}}. Move it where you want it in the page editor.",
+      "noPages": "There is no page to place the block on yet. Create a page first.",
+      "errors": {
+        "photoConsentRequired": "The page carries a picture showing identifiable people, and that confirmation is given in the page editor. Add the block there instead.",
+        "blocked": "The page could not be saved. Open it in the page editor, which says what is stopping it from being published.",
+        "pageGone": "The page is gone.",
+        "unknown": "The block could not be placed just now."
+      },
+      "newsTeaser": {
+        "title": "Show news on a page",
+        "description": "A news block shows the most recent news on a page of the association's website. What each reader sees is resolved when the page is rendered: a visitor with no account sees the public items, a member sees theirs as well.",
+        "alreadyThere": "That page already carries a news block.",
+        "count": "How many items"
+      },
+      "contactForm": {
+        "title": "Show the contact form on a page",
+        "description": "The form the messages here come from. Its fields are fixed; the page decides where the form sits, and the page editor writes the sentence above it.",
+        "alreadyThere": "That page already carries a contact form."
+      },
+      "issueReportForm": {
+        "title": "Show the report form on a page",
+        "description": "The form a passer-by reports a broken door with. Its fields are fixed and the issue types are read when the page is rendered. The block renders as nothing while public reporting is switched off.",
+        "alreadyThere": "That page already carries a report form."
+      }
     }
   },
   "news": {

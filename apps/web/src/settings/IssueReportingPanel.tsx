@@ -3,10 +3,19 @@ import { useTranslation } from "react-i18next";
 
 import { saveIssueReporting } from "../api/issues";
 import { Notice } from "../ui/Notice";
+import { PlaceOnPage } from "../site-admin/PlaceOnPage";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 
 export interface IssueReportingPanelProps {
+  /**
+   * Whether this panel offers to put the block on a page. Held by the screen
+   * rather than read here: placing writes a page, which is `site:manage`, and a
+   * board member who has this panel without the website must not be offered a
+   * control the server would refuse.
+   */
+  canPlaceOnPage?: boolean;
+
   publicFormEnabled: boolean;
   onSaved?: (value: { publicFormEnabled: boolean }) => void;
   editable?: boolean;
@@ -27,6 +36,7 @@ export function IssueReportingPanel({
   publicFormEnabled,
   onSaved,
   editable = true,
+  canPlaceOnPage = false,
 }: IssueReportingPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -94,6 +104,22 @@ export function IssueReportingPanel({
           ? t("settings.issueReporting.stateOn")
           : t("settings.issueReporting.stateOff")}
       </p>
+
+      {/*
+        Offered here rather than in the page editor, which is where this block
+        differs from the ones that need no feature behind them: what it asks is
+        fixed and what it shows is the issue types this association has, so the
+        screen that owns public reporting is the one that knows it is worth
+        placing at all.
+      */}
+      {canPlaceOnPage ? (
+        <PlaceOnPage
+          block={{ type: "issueReportForm" }}
+          titleKey="siteAdmin.place.issueReportForm.title"
+          descriptionKey="siteAdmin.place.issueReportForm.description"
+          alreadyThereKey="siteAdmin.place.issueReportForm.alreadyThere"
+        />
+      ) : null}
     </Panel>
   );
 }

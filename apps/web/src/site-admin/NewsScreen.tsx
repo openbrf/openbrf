@@ -30,6 +30,7 @@ import {
   type NewsRecipients,
 } from "./news-api";
 import { NewsItemPanel } from "./NewsItemPanel";
+import { PlaceOnPage } from "./PlaceOnPage";
 
 /**
  * The board's screen for the association's news.
@@ -81,6 +82,13 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const [notEditable, setNotEditable] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  /*
+   * How many items a teaser placed from here shows. It belongs to this screen
+   * rather than to the page editor for the reason the block is placed here at
+   * all: the count is a decision about what the association publishes, which is
+   * what this screen is for.
+   */
+  const [teaserCount, setTeaserCount] = useState(3);
 
   useEffect(() => {
     if (!canManage) {
@@ -279,6 +287,31 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           ) : null}
         </form>
       </Panel>
+
+      {canManage ? (
+        <div className="flex flex-col gap-3">
+          <label className={LABEL} htmlFor="news-teaser-count">
+            {t("siteAdmin.place.newsTeaser.count")}
+            <input
+              id="news-teaser-count"
+              type="number"
+              min={1}
+              max={20}
+              value={teaserCount}
+              onChange={(event) => {
+                setTeaserCount(Number(event.target.value));
+              }}
+              className={FIELD_DATA}
+            />
+          </label>
+          <PlaceOnPage
+            block={{ type: "newsTeaser", count: teaserCount }}
+            titleKey="siteAdmin.place.newsTeaser.title"
+            descriptionKey="siteAdmin.place.newsTeaser.description"
+            alreadyThereKey="siteAdmin.place.newsTeaser.alreadyThere"
+          />
+        </div>
+      ) : null}
 
       {items === null && !failed ? (
         <p role="status" className="text-body text-ink-muted">
