@@ -65,9 +65,11 @@ withholds from the seller on purpose.
 
 This change records the duties and their deadlines. Nothing in it lists which are
 outstanding, tells the board when one falls due, or produces the file a report to
-Lantmäteriet would be made from. The ledger also carries no duty whose window the
-statute runs from the event itself rather than from a separately recorded date -
-an upplåtelse under 3 kap. 2 §, a transfer to somebody already a member or
-outside the membership requirement, and one where the bostadsrätt passed to the
-association under 3 kap. 3 § andra and fjärde styckena - because none of those is
-distinguishable from what an instance records today.
+Lantmäteriet would be made from. Two duties whose window the statute runs from
+the event itself rather than from a separately recorded date are also absent from
+the ledger - a transfer to somebody already a member or outside the membership
+requirement, and one where the bostadsrätt passed to the association under 3 kap.
+3 § andra and fjärde styckena - because neither is distinguishable from what an
+instance records today. The third of those cases, a grant under 3 kap. 2 §, was
+in that list until the register began recording which of its events are grants;
+a grant now opens its obligation on the day of the grant itself.
