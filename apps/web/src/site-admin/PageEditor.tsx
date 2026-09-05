@@ -338,6 +338,17 @@ export function PageEditor({
                     if (!stored.ok) {
                       return stored;
                     }
+                    /*
+                     * The save moved the revision, so this editor is holding a
+                     * number its own write has spent. Handed up before the
+                     * publication is attempted, because a publish refused on
+                     * the merits - a personal identity number on the page, a
+                     * picture nobody consented to - never reaches the call
+                     * below that would otherwise do it, and the next save would
+                     * then be refused as though somebody else had written the
+                     * page. Nobody else had: this save did.
+                     */
+                    onChanged(stored.value);
                   }
                   return publishPage(page.id, {
                     published: publishing,

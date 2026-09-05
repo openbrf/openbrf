@@ -409,4 +409,41 @@ describe("the editor", () => {
       ).toBe(false);
     });
   });
+
+  it("keeps the revision its own save produced when the publication is refused", async () => {
+    /*
+     * Publishing saves the page first, and a publication refused on the merits
+     * - a personal identity number on the page, a picture nobody consented to -
+     * leaves that save standing. The editor must hold the revision the save
+     * produced: otherwise the next save is refused as a conflict and the board
+     * is told somebody else wrote the page, at the moment they are correcting
+     * one that was refused for carrying somebody's personnummer. Nobody else
+     * wrote it. Their own save did.
+     */
+    savePage.mockResolvedValue({ ok: true, value: { ...DRAFT, revision: 3 } });
+    publishPage.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "personal-identity-number" },
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Publicera" }));
+
+    // Refused, and said as the refusal it is.
+    expect(await screen.findByText(/personnummer/i)).toBeTruthy();
+
+    // The next save carries what the first one produced, not what it spent.
+    publishPage.mockResolvedValue({ ok: true, value: DRAFT });
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(
+        "page-2",
+        expect.objectContaining({ expectedRevision: 3 }),
+      );
+    });
+  });
 });
