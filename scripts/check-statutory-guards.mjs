@@ -100,19 +100,37 @@ const SCANNED_EXTENSIONS = [
  * The source with every comment blanked out and everything else where it was.
  *
  * Blanked rather than removed, so a match's offset still points at the line it
- * is on. Strings are kept, because a bypass written in JavaScript is a SQL
+ * is on. Strings are kept, because a bypass written in TypeScript is a SQL
  * string and removing them would leave nothing to find.
  *
- * Reading left to right settles the two orderings that matter: a quote inside a
- * comment cannot open a string, and a comment marker inside a string is not a
- * comment. `--` counts only in `.sql`, since in TypeScript it is a decrement,
- * and `#` counts nowhere - it is a private field in TypeScript and not a
- * comment in PostgreSQL.
+ * A lexer with a stack rather than a scan for the next quote, because a
+ * template literal can hold code and that code can hold another template. A
+ * flat scan ends the outer literal at the first nested backtick, and everything
+ * after it is then read in the wrong state: a `//` inside what is really string
+ * content is taken for a comment, and the rest of that line - a real
+ * `DISABLE TRIGGER` among it - is blanked out and never matched. The failure is
+ * silent and it is in the direction that matters, so the nesting is tracked
+ * rather than approximated.
+ *
+ * Reading left to right settles the orderings: a quote inside a comment cannot
+ * open a string, a comment marker inside a string is not a comment, and a brace
+ * inside a substitution is counted so an object literal does not close it. `--`
+ * counts only in `.sql`, since in TypeScript it is a decrement, and `#` counts
+ * nowhere - it is a private field in TypeScript and not a comment in
+ * PostgreSQL.
  */
 function withoutComments(source, path) {
   const sqlComments = path.endsWith(".sql");
   const out = [...source];
   let index = 0;
+
+  /*
+   * What is open, innermost last. A template literal, or a substitution inside
+   * one with the depth of braces opened since it began - `${ {a: 1} }` closes
+   * on its second brace and not its first.
+   */
+  const open = [];
+  const inTemplate = () => open.at(-1)?.kind === "template";
 
   const blank = (from, to) => {
     for (let at = from; at < to; at += 1) {
@@ -123,8 +141,29 @@ function withoutComments(source, path) {
   };
 
   while (index < source.length) {
+    const character = source[index];
     const two = source.slice(index, index + 2);
 
+    if (inTemplate()) {
+      if (character === "\\") {
+        index += 2;
+        continue;
+      }
+      if (two === "${") {
+        open.push({ kind: "substitution", depth: 0 });
+        index += 2;
+        continue;
+      }
+      if (character === "`") {
+        open.pop();
+        index += 1;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+
+    // Code: the file itself, or a substitution inside a template literal.
     if (two === "/*") {
       const end = source.indexOf("*/", index + 2);
       const stop = end === -1 ? source.length : end + 2;
@@ -141,15 +180,33 @@ function withoutComments(source, path) {
       continue;
     }
 
-    const character = source[index];
-    if (character === "'" || character === '"' || character === "`") {
+    if (character === "`") {
+      open.push({ kind: "template" });
+      index += 1;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
       index += 1;
       while (index < source.length && source[index] !== character) {
-        // A backslash escape, which JavaScript has and SQL does not.
+        // A backslash escape, which TypeScript has and SQL does not.
         index += source[index] === "\\" ? 2 : 1;
       }
       index += 1;
       continue;
+    }
+
+    const enclosing = open.at(-1);
+    if (enclosing?.kind === "substitution") {
+      if (character === "{") {
+        enclosing.depth += 1;
+      } else if (character === "}") {
+        if (enclosing.depth === 0) {
+          open.pop();
+        } else {
+          enclosing.depth -= 1;
+        }
+      }
     }
 
     index += 1;
@@ -210,6 +267,17 @@ const MUST_MATCH = [
     name: "user triggers turned off for the whole session",
     path: "fixture.sql",
     source: "SET session_replication_role = replica;",
+  },
+  {
+    /*
+     * The nesting is what breaks a flat scan. It ends the outer literal at the
+     * inner backtick, reads the `//` that follows as the start of a comment,
+     * and blanks the rest of the line - the statement among it.
+     */
+    name: "a template literal nesting another, before a bypass on the same line",
+    path: "fixture.ts",
+    source:
+      'const sql = `${prefix}${`//`} ALTER TABLE "x" DISABLE TRIGGER "y"`;',
   },
 ];
 
