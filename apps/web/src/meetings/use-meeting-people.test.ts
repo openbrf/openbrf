@@ -84,7 +84,7 @@ describe("the people a meeting names", () => {
       page([row("person-1", "Astrid Lindqvist", "1001")], 1),
     );
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });
@@ -112,7 +112,7 @@ describe("the people a meeting names", () => {
       .mockResolvedValueOnce(page([row("person-2", "Nils", "1002")], 2, 2))
       .mockResolvedValueOnce(page([], 2, 3));
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });
@@ -129,7 +129,7 @@ describe("the people a meeting names", () => {
       .mockResolvedValueOnce(page([row("person-1", "Astrid", "1001")], 99, 1))
       .mockResolvedValueOnce(page([], 99, 2));
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });
@@ -143,7 +143,7 @@ describe("the people a meeting names", () => {
       page([row("person-1", "Astrid", "1001")], 1),
     );
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });
@@ -162,7 +162,7 @@ describe("the people a meeting names", () => {
       ),
     );
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });
@@ -182,7 +182,7 @@ describe("the people a meeting names", () => {
       page([row("person-1", "Astrid Lindqvist", "1001", true)], 1),
     );
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });
@@ -193,10 +193,29 @@ describe("the people a meeting names", () => {
     expect(result.current.find("person-1")?.protectedPersonalData).toBe(true);
   });
 
+  it("reads nothing at all when it is not enabled", () => {
+    /*
+     * The gate the /meetings route needs. That route asks only for a session, so
+     * an account without `meetings:manage` reaches the screen and is rendered no
+     * panels - and the board address book carries every resident's name,
+     * apartment and move dates. Reading it for a screen that renders none of it
+     * is processing without a purpose.
+     */
+    fetchBoardRegister.mockResolvedValue(
+      page([row("person-1", "Astrid Lindqvist", "1001")], 1),
+    );
+
+    const { result } = renderHook(() => useMeetingPeople(false));
+
+    expect(fetchBoardRegister).not.toHaveBeenCalled();
+    expect(result.current.ready).toBe(false);
+    expect(result.current.everyone).toEqual([]);
+  });
+
   it("answers nothing rather than hanging when the book cannot be read", async () => {
     fetchBoardRegister.mockRejectedValue(new Error("no"));
 
-    const { result } = renderHook(() => useMeetingPeople());
+    const { result } = renderHook(() => useMeetingPeople(true));
     await waitFor(() => {
       expect(result.current.ready).toBe(true);
     });

@@ -148,9 +148,14 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "proxy-holder-not-permitted-by-bylaws":
     "meetings.errors.proxyHolderNotPermittedByBylaws",
   "proxy-holder-limit-reached": "meetings.errors.proxyHolderLimitReached",
+  /*
+   * The wire codes say "authority" and stay as they are - they are the API's
+   * contract - while the sentences they become use the glossary's canonical
+   * noun, which is "proxy authorisation".
+   */
   "proxy-authority-not-yet-issued":
-    "meetings.errors.proxyAuthorityNotYetIssued",
-  "proxy-authority-expired": "meetings.errors.proxyAuthorityExpired",
+    "meetings.errors.proxyAuthorisationNotYetIssued",
+  "proxy-authority-expired": "meetings.errors.proxyAuthorisationExpired",
   "proxy-authorisation-not-found": "meetings.errors.proxyAuthorisationNotFound",
 
   "invalid-body": "meetings.errors.invalidBody",

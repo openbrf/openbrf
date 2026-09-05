@@ -119,6 +119,7 @@ const SUMMARY: MeetingSummary = {
   kind: "ORDINARY",
   heldOn: "2027-05-20",
   concludedAt: null,
+  summoned: false,
   agendaItemCount: 1,
 };
 
@@ -175,6 +176,10 @@ const ARRANGING: Meeting = {
 /** The same meeting once the members have been summoned. */
 const SUMMONED: Meeting = {
   ...ARRANGING,
+  // The flag and the notice are one fact on the server, which derives the first
+  // from the second, so a fixture that set only one would describe a state no
+  // read can produce.
+  summoned: true,
   notice: {
     id: "notice-1",
     startsAt: "2027-05-20T17:00:00.000Z",
@@ -527,6 +532,47 @@ describe("the general meeting screen", () => {
     await screen.findByText("Stämmorna kunde inte läsas.");
     expect(screen.getByRole("heading", { name: "Röstlängden" })).toBeTruthy();
     expect(screen.getAllByText("Astrid Lindqvist").length).toBeGreaterThan(0);
+  });
+
+  it("keeps saying the meeting read failed when the list read then succeeds", async () => {
+    /*
+     * The two reads are separate requests and settle in whatever order the
+     * network gives, so one flag between them would let the list clear the
+     * notice the meeting read raised. Here the list is held open and answers
+     * last, which is the order that hides the failure - and the panels would
+     * then show the state from before it with nothing on screen saying so.
+     */
+    const user = userEvent.setup();
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+
+    let answerTheList = (): void => undefined;
+    const slowList = new Promise((resolve) => {
+      answerTheList = () => {
+        resolve({ ok: true, value: [SUMMARY] });
+      };
+    });
+
+    fetchMeetings.mockReturnValueOnce(slowList);
+    fetchMeeting.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    withdrawAttendance.mockResolvedValue({ ok: true, value: ASTRID_PRESENT });
+
+    await user.click(screen.getByRole("button", { name: /^Stryk Astrid/ }));
+    await screen.findByText("Stämmorna kunde inte läsas.");
+
+    // The list answers after the failure, and must not clear it. Waited on by
+    // the control the list panel renders, since the meeting's own name is also
+    // an option in the "kind of meeting" select above it.
+    answerTheList();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /^Öppna Ordinarie/ }),
+      ).toBeTruthy();
+    });
+    expect(screen.getByText("Stämmorna kunde inte läsas.")).toBeTruthy();
   });
 
   it("works with identifiers when the address book cannot be read", async () => {

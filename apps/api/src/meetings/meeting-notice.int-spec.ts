@@ -618,6 +618,44 @@ describe("issuing the notice", () => {
     );
   });
 
+  it("says on the list that a summoned meeting has been summoned", async () => {
+    /*
+     * The one fact about a meeting that decides what may still be attached to
+     * it, on the answer a caller choosing among meetings reads. EFL 6 kap. 25 §
+     * leaves the meeting unable to decide a matter its notice did not take up,
+     * so from the moment the notice is issued no motion may be put to that
+     * meeting - and the day it is held says nothing about whether that has
+     * happened. A list that could not tell the two apart would offer a meeting
+     * every write then has to refuse.
+     */
+    const meetingId = await arrangeMeeting();
+
+    const before = await inject({
+      method: "GET",
+      url: "/api/meetings",
+      headers: { cookie: boardCookie },
+    });
+    expect(before.statusCode).toBe(200);
+    expect(
+      before
+        .json<MeetingSummaryView[]>()
+        .find((meeting) => meeting.id === meetingId)?.summoned,
+    ).toBe(false);
+
+    expect((await issueNotice(meetingId)).statusCode).toBe(201);
+
+    const after = await inject({
+      method: "GET",
+      url: "/api/meetings",
+      headers: { cookie: boardCookie },
+    });
+    expect(
+      after
+        .json<MeetingSummaryView[]>()
+        .find((meeting) => meeting.id === meetingId)?.summoned,
+    ).toBe(true);
+  });
+
   it("refuses a meeting already recorded as held", async () => {
     const meetingId = await arrangeMeeting();
     const held = await inject({

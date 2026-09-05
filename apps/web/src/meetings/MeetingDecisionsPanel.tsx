@@ -187,6 +187,18 @@ function ItemDecision({
   };
 
   const formId = `meeting-decision-${item.id}`;
+  /*
+   * The form is a named group, so the three counts inside it are announced with
+   * the item they belong to.
+   *
+   * One meeting can carry a hundred items, and each renders its own "For",
+   * "Against" and "Abstaining". Without a name on the group a board member
+   * moving between form controls hears three words repeated down the page with
+   * nothing tying a figure to a matter - and these figures are the association's
+   * copy of what the protokoll declares, so one entered against the wrong item
+   * is a wrong minute of a statutory decision.
+   */
+  const headingId = `meeting-decision-heading-${item.id}`;
 
   return (
     <article className="flex flex-col gap-3 rounded-control border border-line bg-page px-3 py-3">
@@ -194,7 +206,9 @@ function ItemDecision({
         <span className="font-data text-data text-ink-muted">
           {item.position}
         </span>
-        <h3 className="text-body font-semibold">{item.title}</h3>
+        <h3 id={headingId} className="text-body font-semibold">
+          {item.title}
+        </h3>
         {recorded === null ? (
           <span className="text-chip text-ink-muted uppercase">
             {t("meetings.decisions.notRecorded")}
@@ -240,6 +254,7 @@ function ItemDecision({
           <form
             id={formId}
             className="flex flex-wrap items-end gap-3"
+            aria-labelledby={headingId}
             onSubmit={onSubmit}
           >
             <label className={LABEL}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   type BoardRow,
@@ -93,14 +93,27 @@ const NONE = new Map<string, MeetingPerson>();
  */
 const MAX_PAGES = 100;
 
-/** Reads the address book once, and answers for the identifiers on a meeting. */
-export function useMeetingPeople(): MeetingPeople {
+/**
+ * Reads the address book once, and answers for the identifiers on a meeting.
+ *
+ * `enabled` is what stops the read happening for somebody who will be shown no
+ * meeting. The route asks only for a session, so an account without
+ * `meetings:manage` reaches the screen, is rendered no panels - and would
+ * otherwise still page the whole board address book, which carries every
+ * resident's name, apartment, move dates and whether their personal data is
+ * protected. Reading personal data for a screen that renders none of it is
+ * processing without a purpose, and the cheapest place not to do it is here.
+ */
+export function useMeetingPeople(enabled: boolean): MeetingPeople {
   const [people, setPeople] =
     useState<ReadonlyMap<string, MeetingPerson>>(NONE);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     const controller = new AbortController();
     let active = true;
 
@@ -161,16 +174,28 @@ export function useMeetingPeople(): MeetingPeople {
       active = false;
       controller.abort();
     };
-  }, []);
+  }, [enabled]);
 
-  return {
-    ready,
-    failed,
-    everyone: [...people.values()].sort((left, right) =>
-      left.name.localeCompare(right.name, "sv"),
-    ),
-    find: (personId) => people.get(personId) ?? null,
-  };
+  /*
+   * Derived once per map rather than once per render.
+   *
+   * The map is written once and never mutated, so both of these are functions of
+   * it alone. Re-sorting the whole register with `localeCompare` on every render
+   * costs more the larger the cooperative, and a new `find` closure each time
+   * changes the identity of the object six panels receive - which re-renders all
+   * six whenever anything on the screen changes.
+   */
+  return useMemo(
+    () => ({
+      ready,
+      failed,
+      everyone: [...people.values()].sort((left, right) =>
+        left.name.localeCompare(right.name, "sv"),
+      ),
+      find: (personId: string) => people.get(personId) ?? null,
+    }),
+    [people, ready, failed],
+  );
 }
 
 /**

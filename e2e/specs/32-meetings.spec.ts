@@ -387,13 +387,26 @@ async function arrangeAndOpen(page: Page, heldOn: string): Promise<string> {
   return ((await created.json()) as { id: string }).id;
 }
 
+/**
+ * The row for the meeting held on this day.
+ *
+ * Found by the machine-readable date rather than by the words on the controls.
+ * Those carry the day as a person reads it - "lordag 20 maj 2028" - which is
+ * right for a screen reader and wrong for a spec: matching it would keep a
+ * second copy of the client's date formatting here, and would break on a locale
+ * change that is no business of this file.
+ */
+function meetingRow(page: Page, heldOn: string) {
+  return page
+    .getByRole("listitem")
+    .filter({ has: page.locator(`time[datetime="${heldOn}"]`) });
+}
+
 /** Opens a meeting already on the list, by the day it is held. */
 async function openMeetingOn(page: Page, heldOn: string): Promise<void> {
   await page.goto(appPath("/meetings"));
-  await page
-    .getByRole("button", {
-      name: `Öppna Ordinarie föreningsstämma den ${heldOn}`,
-    })
+  await meetingRow(page, heldOn)
+    .getByRole("button", { name: /^Öppna/u })
     .click();
   await expect(
     page.getByRole("heading", { name: "Röstlängden" }),
@@ -911,10 +924,8 @@ test.describe("the general meeting", () => {
         /\/api\/meetings\/[^/]+\/conclusion$/u.test(response.url()) &&
         response.request().method() === "POST",
     );
-    await page
-      .getByRole("button", {
-        name: `Anteckna Ordinarie föreningsstämma den ${day} som hållen`,
-      })
+    await meetingRow(page, day)
+      .getByRole("button", { name: /som hållen$/u })
       .click();
     /*
      * 201, which is what Nest answers a POST with unless the route says

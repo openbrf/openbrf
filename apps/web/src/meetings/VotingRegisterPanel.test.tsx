@@ -16,7 +16,7 @@ import { VotingRegisterPanel } from "./VotingRegisterPanel";
  *
  * That one vote shared by two members says so in words. Two names on one row is
  * exactly what a reader would otherwise count as two votes, and BRL 9 kap. 14 §
- * 1 gives joint holders of one bostadsratt one vote between them.
+ * 1 gives joint holders of one tenant-ownership one vote between them.
  *
  * That the count of votes present is not offered as a majority basis. EFL
  * measures an ordinary majority against the votes cast, and somebody present who
@@ -65,6 +65,7 @@ function meetingWith(register: VotingRegister): Meeting {
     kind: "ORDINARY",
     heldOn: "2027-05-20",
     concludedAt: null,
+    summoned: false,
     agendaItemCount: 0,
     agenda: [],
     attendances: [],

@@ -30,10 +30,10 @@ export interface VotingRegisterPanelProps {
  *
  * EFL 6 kap. 3 § gives the vote to the member. BRL 9 kap. 14 § 1 permits a
  * deviation in one case only and it is not this one, so a member holding two
- * apartments has one vote and joint holders of one bostadsratt have one between
- * them. A line naming several members is that second case, and the panel says so
- * in words: two people reading a register that showed one row for two names
- * would otherwise reasonably expect two votes.
+ * apartments has one vote and joint holders of one tenant-ownership have one
+ * between them. A line naming several members is that second case, and the panel
+ * says so in words: two people reading a register that showed one row for two
+ * names would otherwise reasonably expect two votes.
  *
  * A line can name several proxy holders for the same reason. Joint holders are
  * separate members and may each have appointed a different one while both stay

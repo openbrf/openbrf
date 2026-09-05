@@ -8,6 +8,7 @@ import {
   type RepresentativeGround,
   withdrawProxy,
 } from "../api/meetings";
+import { formatEventDay } from "../events/event-calendar";
 import {
   FIELD,
   FIELD_DATA,
@@ -81,7 +82,7 @@ export function MeetingProxyPanel({
   people,
   onChanged,
 }: MeetingProxyPanelProps): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [memberPersonId, setMemberPersonId] = useState("");
   const [proxyHolderPersonId, setProxyHolderPersonId] = useState("");
@@ -281,12 +282,23 @@ export function MeetingProxyPanel({
                     />
                   </p>
 
+                  {/* The signing date on the data face and inside a <time>,
+                      like every other register date: DESIGN.md's mono-grid rule
+                      makes a date in the UI face a defect, and this one is what
+                      EFL 6 kap. 4 § measures the authority's year from. */}
                   <p className={HINT}>
                     {t(`meetings.ground.${authorisation.ground}`)}
                     {" · "}
-                    {t("meetings.proxies.signedOn", {
-                      date: authorisation.authorisedOn,
-                    })}
+                    {t("meetings.proxies.signedOn")}{" "}
+                    <time
+                      dateTime={authorisation.authorisedOn}
+                      className="font-data"
+                    >
+                      {formatEventDay(
+                        authorisation.authorisedOn,
+                        i18n.language,
+                      )}
+                    </time>
                   </p>
 
                   {standing ? (

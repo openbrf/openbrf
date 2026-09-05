@@ -356,6 +356,17 @@ export interface MeetingSummary {
   heldOn: string;
   /** ISO instant, or null while the meeting is being arranged. */
   concludedAt: string | null;
+  /**
+   * Whether the notice has been issued.
+   *
+   * What decides whether anything may still be attached to this meeting: EFL
+   * 6 kap. 25 § leaves it unable to decide a matter its notice did not take up,
+   * so from that moment no motion may be put to it or taken off it. On the
+   * summary because a screen choosing among meetings has to know which of them
+   * can still take an item - offering one that cannot is offering a control
+   * that can only be refused.
+   */
+  summoned: boolean;
   agendaItemCount: number;
 }
 

@@ -40,6 +40,17 @@ interface Loaded {
    * fact about the association, and no capability is a fact about the account.
    */
   meetings: readonly MeetingSummary[] | null;
+  /**
+   * True where the meetings were asked for and the read failed.
+   *
+   * Its own flag rather than the null above, because the two are different
+   * things to tell a board and null cannot say which happened. A seat that may
+   * not read meetings is offered no control and that is correct; a board whose
+   * read failed would otherwise be shown the same screen and told the
+   * association has arranged no meeting - a claim about the cooperative, made
+   * from a request that never answered.
+   */
+  meetingsFailed: boolean;
   loadFailed: boolean;
 }
 
@@ -49,6 +60,7 @@ const EMPTY: Loaded = {
   own: [],
   queue: [],
   meetings: null,
+  meetingsFailed: false,
   loadFailed: false,
 };
 
@@ -130,10 +142,11 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       meetings: meetings?.ok === true ? meetings.value : null,
       /*
        * A meetings read that failed is deliberately not a failed load of this
-       * screen. The queue is what the screen is for and it arrived; what is lost
-       * is the control that puts an item on a meeting, and the panel already
-       * renders that absence as a sentence.
+       * screen: the queue is what the screen is for and it arrived. What is lost
+       * is the control that puts an item on a meeting, and the panel says so in
+       * its own words rather than in this screen's.
        */
+      meetingsFailed: meetings?.ok === false,
       loadFailed: intake?.ok === false || queue?.ok === false,
     };
   }, [canSubmit, canHandle, canReadMeetings]);
@@ -166,7 +179,8 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     };
   }, [reload]);
 
-  const { ready, deadline, own, queue, meetings, loadFailed } = loaded;
+  const { ready, deadline, own, queue, meetings, meetingsFailed, loadFailed } =
+    loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -192,6 +206,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           motions={queue}
           deadline={deadline}
           meetings={meetings}
+          meetingsFailed={meetingsFailed}
           onChanged={reload}
         />
       ) : null}

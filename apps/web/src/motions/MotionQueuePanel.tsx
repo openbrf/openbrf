@@ -9,7 +9,7 @@ import {
   type QueuedMotion,
   setMotionMeeting,
 } from "../api/motions";
-import { FIELD, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
+import { FIELD_DATA, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
@@ -31,6 +31,14 @@ export interface MotionQueuePanelProps {
    * nothing and told the association had arranged no meetings.
    */
   meetings: readonly MeetingSummary[] | null;
+  /**
+   * True where the meetings were asked for and the read failed.
+   *
+   * Told apart from the null above because a board reading "the association has
+   * arranged no meeting" after a request that never answered has been told
+   * something about its cooperative that nobody checked.
+   */
+  meetingsFailed: boolean;
   onChanged: () => void;
 }
 
@@ -68,6 +76,7 @@ export function MotionQueuePanel({
   motions,
   deadline,
   meetings,
+  meetingsFailed,
   onChanged,
 }: MotionQueuePanelProps): ReactElement {
   const { t } = useTranslation();
@@ -164,6 +173,11 @@ export function MotionQueuePanel({
                       acknowledge.state.kind === "saving"
                     }
                     onClick={() => {
+                      // The other act's state is cleared first, so a refusal it
+                      // met does not sit over this one's outcome: the notice
+                      // above shows whichever failure is newest, and a stale one
+                      // would outlive the act that caused it.
+                      attach.reset();
                       setActingOn(motion.id);
                       void acknowledge.submit({ motionId: motion.id });
                     }}
@@ -180,14 +194,26 @@ export function MotionQueuePanel({
                   back, and the server refuses the link for that reason rather
                   than for one the board can move it out of. */}
               {meetings === null || motion.status === "WITHDRAWN" ? (
-                motion.meeting === null ? null : (
-                  <p className={HINT}>
-                    {t("motions.queue.onMeeting", {
-                      kind: t(`meetings.kind.${motion.meeting.kind}`),
-                      date: motion.meeting.heldOn,
-                    })}
-                  </p>
-                )
+                <>
+                  {motion.meeting === null ? null : (
+                    <p className={`${HINT} font-data`}>
+                      {t("motions.queue.onMeeting", {
+                        kind: t(`meetings.kind.${motion.meeting.kind}`),
+                        date: motion.meeting.heldOn,
+                      })}
+                    </p>
+                  )}
+                  {/* Which of the two null states this is. A seat that may not
+                      read meetings is offered nothing and that is correct; a
+                      board whose read failed is owed the difference, because
+                      silence here reads as "there is no meeting to put it
+                      to". */}
+                  {meetingsFailed && motion.status !== "WITHDRAWN" ? (
+                    <p className={HINT} role="status">
+                      {t("motions.queue.meetingsUnreadable")}
+                    </p>
+                  ) : null}
+                </>
               ) : (
                 <MeetingChoice
                   motion={motion}
@@ -243,7 +269,7 @@ function MeetingChoice({
 
   if (own !== null && own.summoned) {
     return (
-      <p className={HINT}>
+      <p className={`${HINT} font-data`}>
         {t("motions.queue.onSummonedMeeting", {
           kind: t(`meetings.kind.${own.kind}`),
           date: own.heldOn,
@@ -252,15 +278,30 @@ function MeetingChoice({
     );
   }
 
+  /*
+   * Only the meetings the server would actually accept. A meeting recorded as
+   * held cannot take an item, and neither can one whose members have been
+   * summoned - EFL 6 kap. 25 § leaves a meeting unable to decide a matter its
+   * notice did not take up, so from that moment the answer is settled.
+   *
+   * The item's own meeting stays on the list whatever state it is in, because
+   * otherwise the control would silently stop saying where the item is and the
+   * row would read as if the board had never answered.
+   */
   const offered = meetings.filter(
-    (meeting) => meeting.concludedAt === null || meeting.id === own?.id,
+    (meeting) =>
+      (meeting.concludedAt === null && !meeting.summoned) ||
+      meeting.id === own?.id,
   );
 
   return (
     <label className={`${LABEL} max-w-96`}>
       {t("motions.queue.meeting")}
+      {/* The data face, so the options carry the dates on the mono grid
+          DESIGN.md puts register data on. Set on the control rather than on each
+          option, which a browser renders in its own chrome. */}
       <select
-        className={FIELD}
+        className={FIELD_DATA}
         value={own?.id ?? ""}
         disabled={busy}
         onChange={(event) => {

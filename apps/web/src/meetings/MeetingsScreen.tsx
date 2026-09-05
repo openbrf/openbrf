@@ -77,6 +77,32 @@ export interface MeetingsScreenProps {
  * landed replaces the fields and a re-read that changed nothing leaves a
  * half-typed correction alone.
  */
+/**
+ * What ties the agenda draft to the answer it was seeded from.
+ *
+ * The titles in their order rather than a revision, because the API carries no
+ * revision: a save that landed changes them, and a re-read that changed nothing
+ * leaves a half-typed row alone.
+ *
+ * Built here rather than inline in the attribute below. A multi-line template
+ * literal inside a JSX attribute is valid TypeScript and defeats the parser the
+ * repository's Semgrep scan uses, which fails the build under --strict on a file
+ * it could only partly read - a scan that quietly skipped code being the thing
+ * that flag exists to prevent.
+ */
+function agendaKeyOf(meeting: Meeting): string {
+  const titles = meeting.agenda.map((item) => item.title).join(" ");
+  return `agenda:${meeting.id}:${titles}`;
+}
+
+/** The same for each decision's draft, keyed on when it was last recorded. */
+function decisionsKeyOf(meeting: Meeting): string {
+  const recorded = meeting.agenda
+    .map((item) => (item.decision === null ? "-" : item.decision.recordedAt))
+    .join(" ");
+  return `decisions:${meeting.id}:${recorded}`;
+}
+
 export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   const { t } = useTranslation();
 
@@ -87,7 +113,19 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  /*
+   * One flag per reader, not one between them.
+   *
+   * Both effects below run on every `refreshes` bump, they are separate requests
+   * and they settle in whatever order the network gives. A single flag lets the
+   * one that succeeded clear the one that failed: if the list answers last, the
+   * danger notice disappears while the panels still show the state from before
+   * the failed meeting read - which is precisely what the comment above says
+   * must not happen, a board at a door reading a stale attendance list and
+   * voting register with nothing on screen saying so.
+   */
+  const [meetingsFailed, setMeetingsFailed] = useState(false);
+  const [meetingFailed, setMeetingFailed] = useState(false);
   /**
    * Bumped to ask for the meetings again without changing what is asked for.
    *
@@ -97,7 +135,13 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
    */
   const [refreshes, setRefreshes] = useState(0);
 
-  const people = useMeetingPeople();
+  /*
+   * Read only for a viewer who will be shown a meeting. The route asks for a
+   * session and nothing more, so an account without the capability reaches this
+   * screen; paging the board address book for it would be reading every
+   * resident's name and apartment for a screen that renders none of them.
+   */
+  const people = useMeetingPeople(canManage);
 
   /**
    * Which read of one meeting is the current one.
@@ -121,9 +165,9 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
       }
       if (result.ok) {
         setMeetings(result.value);
-        setLoadFailed(false);
+        setMeetingsFailed(false);
       } else {
-        setLoadFailed(true);
+        setMeetingsFailed(true);
       }
     });
     return () => {
@@ -144,7 +188,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
       }
       if (result.ok) {
         setMeeting(result.value);
-        setLoadFailed(false);
+        setMeetingFailed(false);
       } else {
         /*
          * The meeting on screen is kept. A failed re-read leaves the board
@@ -152,7 +196,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
          * picture of a moment - and the notice above says the read failed. What
          * must not happen is the panels emptying under somebody at a door.
          */
-        setLoadFailed(true);
+        setMeetingFailed(true);
       }
     });
     /*
@@ -181,6 +225,9 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   const selectMeeting = (meetingId: string): void => {
     if (meetingId !== selectedId) {
       setMeeting(null);
+      // A new meeting is a new read, so whatever the last one failed at is not
+      // a fact about this one.
+      setMeetingFailed(false);
     }
     setSelectedId(meetingId);
   };
@@ -192,7 +239,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
         <p className="text-body text-ink-muted">{t("meetings.intro")}</p>
       </header>
 
-      {loadFailed ? (
+      {meetingsFailed || meetingFailed ? (
         <Notice tone="danger" live>
           {t("meetings.loadFailed")}
         </Notice>
@@ -208,7 +255,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
       ) : null}
 
       {!canManage ? null : meetings === null ? (
-        loadFailed ? null : (
+        meetingsFailed ? null : (
           <p role="status" className="text-body text-ink-muted">
             {t("meetings.loading")}
           </p>
@@ -225,15 +272,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
       {meeting === null ? null : (
         <>
           <MeetingAgendaPanel
-            /*
-             * The draft follows the agenda the server answered with. Keyed on
-             * the titles in their order rather than on a revision the API does
-             * not carry: a save that landed changes them, and a re-read that
-             * changed nothing leaves a half-typed row alone.
-             */
-            key={`agenda:${meeting.id}:${meeting.agenda
-              .map((item) => item.title)
-              .join(" ")}`}
+            key={agendaKeyOf(meeting)}
             meeting={meeting}
             onChanged={reload}
           />
@@ -259,11 +298,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
           <VotingRegisterPanel meeting={meeting} people={people} />
 
           <MeetingDecisionsPanel
-            key={`decisions:${meeting.id}:${meeting.agenda
-              .map((item) =>
-                item.decision === null ? "-" : item.decision.recordedAt,
-              )
-              .join(" ")}`}
+            key={decisionsKeyOf(meeting)}
             meeting={meeting}
             people={people}
             onChanged={reload}

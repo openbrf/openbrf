@@ -1051,7 +1051,7 @@
     },
     "meetingBylaws": {
       "title": "The general meeting, under the bylaws",
-      "description": "The four rules bostadsrattslagen leaves to the association's own bylaws.",
+      "description": "The four rules the Swedish Tenant-Ownership Act leaves to the association's own bylaws.",
       "statutoryNotice": "Every clause here has a rule that applies unless the bylaws displace it, so an association that has recorded nothing is under the statute rather than half-configured. The two about who may be a proxy holder are checked when an authority is registered; the other two are reported to the board and applied by the meeting, because this platform records neither who is anybody's spouse or cohabitant nor what a space in the building is used for.",
       "proxyWidened": "The bylaws let somebody else be a proxy holder",
       "proxyWidenedHint": "Under the statute only the member's spouse or cohabitant or another member may hold a proxy authorisation (BRL 9 kap. 14 §). Checked when an authority is registered.",
@@ -2602,7 +2602,8 @@
       "noMeeting": "No meeting yet",
       "noMeetingsArranged": "The association has arranged no meeting this item could be put to.",
       "onMeeting": "Taken up at the {{kind}} on {{date}}.",
-      "onSummonedMeeting": "Taken up at the {{kind}} on {{date}}. The notice for that meeting has been issued, so the item can no longer be moved."
+      "onSummonedMeeting": "Taken up at the {{kind}} on {{date}}. The notice for that meeting has been issued, so the item can no longer be moved.",
+      "meetingsUnreadable": "The meetings could not be read, so there is none to offer here. Read the screen again."
     },
     "errors": {
       "notAMember": "Putting an item to the general meeting is a member's right, and this account holds no tenant-ownership in the association.",
@@ -2830,7 +2831,7 @@
     "intro": "Arrange a general meeting, write its agenda, summon the members, check them in, read the voting register and record what was decided.",
     "loading": "Reading the meetings...",
     "loadFailed": "The meetings could not be read.",
-    "peopleLoadFailed": "The address book could not be read, so people are shown by their identifier rather than by name. Everything else on this screen still works.",
+    "peopleLoadFailed": "The address book could not be read. What this meeting already holds is all here, with each person shown by their identifier rather than by name; checking somebody in or registering an authority needs the address book, so those forms have nobody to offer.",
     "person": {
       "unknown": "Not in the register:"
     },
@@ -2920,7 +2921,7 @@
       "registered": "The authority has been registered.",
       "empty": "No authority has been registered for this meeting.",
       "actsFor": "acts for",
-      "signedOn": "Signed {{date}}",
+      "signedOn": "Signed",
       "withdraw": "Take it back",
       "withdrawing": "Taking it back...",
       "withdrawNamed": "Take back the authority {{proxyHolder}} holds for {{member}}",
@@ -2953,7 +2954,7 @@
     },
     "register": {
       "title": "The voting register",
-      "descriptionArranging": "One line per vote, worked out from the member register as of the day of the meeting. Nothing here is stored: it is read again every time this screen is.",
+      "descriptionArranging": "One line per vote, worked out from the member register as of the day of the meeting. Nothing here is stored: it is worked out again every time this screen is read.",
       "descriptionHeld": "One line per vote, as the member register stood on the day of the meeting.",
       "votesTotal": "Votes in the association",
       "votesPresent": "Votes present",
@@ -3010,11 +3011,11 @@
       "proxyHolderNotAMember": "Only another member may be a proxy holder, and the member register does not show this person as one on the day of this meeting.",
       "proxyHolderNotPermittedByBylaws": "The bylaws do not let anybody outside the member's spouse or cohabitant or another member hold an authority. Record the clause in settings if they do.",
       "proxyHolderLimitReached": "This person already represents as many members as the bylaws allow at this meeting.",
-      "proxyAuthorityNotYetIssued": "The authority is dated after the day of the meeting. A member cannot have signed on a day that has not arrived.",
-      "proxyAuthorityExpired": "The authority is more than a year older than the meeting. A proxy authorisation is good for at most a year from the day the member signed it (EFL 6 kap. 4 §).",
       "proxyAuthorisationNotFound": "That authority is no longer registered for this meeting. Read the meeting again.",
       "invalidBody": "The form sent something the server could not read. Check the fields and try again.",
-      "unknown": "That could not be done. Try again."
+      "unknown": "That could not be done. Try again.",
+      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after the day of the meeting. A member cannot have signed on a day that has not arrived.",
+      "proxyAuthorisationExpired": "The proxy authorisation is more than a year older than the meeting. One is good for at most a year from the day the member signed it (EFL 6 kap. 4 §)."
     },
     "kind": {
       "ORDINARY": "Ordinary general meeting",

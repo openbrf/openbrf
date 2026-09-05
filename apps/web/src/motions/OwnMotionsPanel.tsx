@@ -82,7 +82,7 @@ export function OwnMotionsPanel({
               <p className="text-small whitespace-pre-line">{motion.body}</p>
 
               {motion.meeting === null ? null : (
-                <p className="text-small text-ink-muted">
+                <p className="font-data text-small text-ink-muted">
                   {t("motions.mine.onMeeting", {
                     kind: t(`meetings.kind.${motion.meeting.kind}`),
                     date: motion.meeting.heldOn,

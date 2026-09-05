@@ -98,6 +98,15 @@ export function MeetingListPanel({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+    /*
+     * The handler as well as the button. Pressing Enter inside either field
+     * submits the form directly, so a disabled control alone would let an empty
+     * day reach the server and come back as a refusal for something the panel
+     * already knows. Every other panel in this module guards both.
+     */
+    if (heldOn.trim() === "") {
+      return;
+    }
     conclude.reset();
     /*
      * The outcome is deliberately not read here beyond the selection above. A
@@ -243,7 +252,7 @@ export function MeetingListPanel({
                     disabled={busy}
                     aria-label={t("meetings.list.openNamed", {
                       kind: t(`meetings.kind.${meeting.kind}`),
-                      date: meeting.heldOn,
+                      date: formatEventDay(meeting.heldOn, i18n.language),
                     })}
                     onClick={() => {
                       onSelect(meeting.id);
@@ -261,7 +270,7 @@ export function MeetingListPanel({
                       disabled={busy}
                       aria-label={t("meetings.list.concludeNamed", {
                         kind: t(`meetings.kind.${meeting.kind}`),
-                        date: meeting.heldOn,
+                        date: formatEventDay(meeting.heldOn, i18n.language),
                       })}
                       onClick={() => {
                         onConclude(meeting.id);

@@ -213,7 +213,10 @@ export function MeetingNoticePanel({
               </label>
             </div>
 
-            <label className="flex items-center gap-2 text-small">
+            {/* min-h-11 is the 44px touch target DESIGN.md sets: the label's
+                own line box is half that, and this is the control that decides
+                whether the notice states how to take part at all. */}
+            <label className="flex min-h-11 items-center gap-2 text-small">
               <input
                 type="checkbox"
                 checked={digital}

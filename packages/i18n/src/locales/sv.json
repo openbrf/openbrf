@@ -2602,7 +2602,8 @@
       "noMeeting": "Ingen stämma än",
       "noMeetingsArranged": "Föreningen har inte planerat in någon stämma som den här punkten kan tas upp på.",
       "onMeeting": "Tas upp på {{kind}} den {{date}}.",
-      "onSummonedMeeting": "Tas upp på {{kind}} den {{date}}. Kallelsen till den stämman är utfärdad, så punkten kan inte längre flyttas."
+      "onSummonedMeeting": "Tas upp på {{kind}} den {{date}}. Kallelsen till den stämman är utfärdad, så punkten kan inte längre flyttas.",
+      "meetingsUnreadable": "Stämmorna kunde inte läsas, så det finns ingen att erbjuda här. Läs om skärmen."
     },
     "errors": {
       "notAMember": "Att lämna in ett ärende till föreningsstämman är en medlems rätt, och det här kontot har ingen bostadsrätt i föreningen.",
@@ -2830,7 +2831,7 @@
     "intro": "Kalla till en föreningsstämma, skriv dagordningen, kalla medlemmarna, pricka av dem, läs röstlängden och anteckna vad stämman beslutade.",
     "loading": "Läser stämmorna...",
     "loadFailed": "Stämmorna kunde inte läsas.",
-    "peopleLoadFailed": "Adressboken kunde inte läsas, så personer visas med sin identifierare i stället för med namn. Allt annat på den här skärmen fungerar ändå.",
+    "peopleLoadFailed": "Adressboken kunde inte läsas. Allt som den här stämman redan har finns här, med varje person visad med sin identifierare i stället för med namn; att pricka av någon eller registrera en fullmakt kräver adressboken, så de formulären har ingen att erbjuda.",
     "person": {
       "unknown": "Finns inte i registret:"
     },
@@ -2920,7 +2921,7 @@
       "registered": "Fullmakten är registrerad.",
       "empty": "Ingen fullmakt är registrerad för den här stämman.",
       "actsFor": "företräder",
-      "signedOn": "Undertecknad {{date}}",
+      "signedOn": "Undertecknad",
       "withdraw": "Återkalla",
       "withdrawing": "Återkallar...",
       "withdrawNamed": "Återkalla fullmakten {{proxyHolder}} har för {{member}}",
@@ -2953,7 +2954,7 @@
     },
     "register": {
       "title": "Röstlängden",
-      "descriptionArranging": "En rad per röst, framräknad ur medlemsförteckningen som den ser ut på stämmans dag. Inget här lagras: den räknas fram varje gång skärmen läses.",
+      "descriptionArranging": "En rad per röst, framräknad ur medlemsförteckningen som den ser ut på stämmans dag. Inget här lagras: den räknas fram på nytt varje gång skärmen läses.",
       "descriptionHeld": "En rad per röst, som medlemsförteckningen såg ut på stämmans dag.",
       "votesTotal": "Röster i föreningen",
       "votesPresent": "Närvarande röster",
@@ -3010,11 +3011,11 @@
       "proxyHolderNotAMember": "Bara en annan medlem får vara ombud, och medlemsförteckningen visar inte den här personen som medlem på stämmans dag.",
       "proxyHolderNotPermittedByBylaws": "Stadgarna tillåter inte någon utanför medlemmens make, maka eller sambo eller en annan medlem att ha fullmakt. Anteckna klausulen i inställningarna om de gör det.",
       "proxyHolderLimitReached": "Den här personen företräder redan så många medlemmar som stadgarna tillåter på den här stämman.",
-      "proxyAuthorityNotYetIssued": "Fullmakten är daterad efter stämmans dag. En medlem kan inte ha skrivit under en dag som inte har kommit.",
-      "proxyAuthorityExpired": "Fullmakten är mer än ett år äldre än stämman. En fullmakt gäller högst ett år från den dag medlemmen skrev under den (EFL 6 kap. 4 §).",
       "proxyAuthorisationNotFound": "Den fullmakten är inte längre registrerad för den här stämman. Läs stämman igen.",
       "invalidBody": "Formuläret skickade något servern inte kunde läsa. Kontrollera fälten och försök igen.",
-      "unknown": "Det gick inte att göra. Försök igen."
+      "unknown": "Det gick inte att göra. Försök igen.",
+      "proxyAuthorisationNotYetIssued": "Fullmakten är daterad efter stämmans dag. En medlem kan inte ha skrivit under en dag som inte har kommit.",
+      "proxyAuthorisationExpired": "Fullmakten är mer än ett år äldre än stämman. En fullmakt gäller högst ett år från den dag medlemmen skrev under den (EFL 6 kap. 4 §)."
     },
     "kind": {
       "ORDINARY": "Ordinarie föreningsstämma",

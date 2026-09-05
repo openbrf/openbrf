@@ -73,6 +73,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     kind: "ORDINARY",
     heldOn: "2027-05-20",
     concludedAt: null,
+    summoned: false,
     agendaItemCount: 0,
     agenda: [],
     attendances: [],
@@ -193,6 +194,41 @@ describe("proxy authorisations", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("will not register an authority with no signing date", async () => {
+    /*
+     * The date is the one field on this panel the statute keys itself to: EFL
+     * 6 kap. 4 § runs the year from the day the member signed, and the server
+     * measures that year against the meeting day. An empty one posted would ask
+     * the server to decide an authority's validity from nothing.
+     *
+     * Both halves, because the panel guards both: the control will not send, and
+     * neither will the handler - pressing Enter inside a field submits the form
+     * directly and would otherwise walk straight past a disabled button.
+     */
+    const user = userEvent.setup();
+    render(
+      <MeetingProxyPanel
+        meeting={meeting()}
+        people={people}
+        onChanged={() => undefined}
+      />,
+    );
+
+    await user.selectOptions(
+      screen.getByLabelText("Medlem som ger fullmakten"),
+      "person-astrid",
+    );
+    await user.selectOptions(screen.getByLabelText("Ombud"), "person-ombud");
+
+    const register = screen.getByRole("button", {
+      name: "Registrera fullmakten",
+    });
+    expect(register.hasAttribute("disabled")).toBe(true);
+
+    await user.type(screen.getByLabelText("Ombud"), "{Enter}");
+    expect(registerProxy).not.toHaveBeenCalled();
+  });
+
   it("reads the meeting again when an authority is refused", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn();
@@ -297,8 +333,16 @@ describe("proxy authorisations", () => {
      * entitled to act for whom at a meeting that has happened - down to the
      * ground it rested on, which is the part a protokoll is written from.
      */
-    expect(screen.getByText(/Make, maka eller sambo/u).textContent).toContain(
-      "Undertecknad 2027-04-01",
+    const line = screen.getByText(/Make, maka eller sambo/u);
+    expect(line.textContent).toContain("Undertecknad");
+    /*
+     * The day the member signed, read from the machine-readable attribute rather
+     * than from the words: the date is rendered localised on the data face, so
+     * the text a reader sees is "torsdag 1 april 2027" and the fact under it is
+     * what a register has to be right about.
+     */
+    expect(line.querySelector("time")?.getAttribute("dateTime")).toBe(
+      "2027-04-01",
     );
   });
 });

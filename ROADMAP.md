@@ -581,7 +581,8 @@ change it.
 **Later, still free and in the core**
 
 - [x] General meetings: the notice (kallelse), the agenda, the voting register,
-      proxies, and the link from a motion to the meeting it is taken up at.
+      the proxy authorisations (fullmakt), and the link from a motion to the
+      meeting it is taken up at.
       Motion intake itself is the Forms item below rather than this one. Postal
       voting is prohibited for a housing cooperative under BRL 9 kap. 14 §, and
       will never be built. Real-time voting is its own item, under the paid

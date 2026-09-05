@@ -60,6 +60,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     kind: "ORDINARY",
     heldOn: "2027-05-20",
     concludedAt: "2027-05-20T19:30:00.000Z",
+    summoned: false,
     agendaItemCount: 1,
     agenda: [
       { id: "item-1", position: 1, title: "Val av styrelse", decision: null },

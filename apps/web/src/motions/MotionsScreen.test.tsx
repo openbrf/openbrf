@@ -54,6 +54,7 @@ const ARRANGED = {
   kind: "ORDINARY" as const,
   heldOn: "2027-05-20",
   concludedAt: null,
+  summoned: false,
   agendaItemCount: 2,
 };
 
@@ -62,6 +63,20 @@ const CONCLUDED = {
   id: "meeting-past",
   heldOn: "2026-05-20",
   concludedAt: "2026-05-20T19:00:00.000Z",
+};
+
+/**
+ * A meeting still to be held whose members have already been summoned.
+ *
+ * The case a filter written on `concludedAt` alone lets through: it is neither
+ * held nor free to take another item, because EFL 6 kap. 25 § leaves a meeting
+ * unable to decide a matter its notice did not take up.
+ */
+const SUMMONED = {
+  ...ARRANGED,
+  id: "meeting-summoned",
+  heldOn: "2027-04-10",
+  summoned: true,
 };
 
 function viewer(capabilities: readonly string[]): Viewer {
@@ -92,7 +107,7 @@ const DEADLINE = { month: 1, day: 31, nextOn: "2027-01-31" };
 beforeEach(() => {
   fetchMeetings.mockReset().mockResolvedValue({
     ok: true,
-    value: [ARRANGED, CONCLUDED],
+    value: [ARRANGED, CONCLUDED, SUMMONED],
   });
   setMotionMeeting.mockReset();
   fetchMotionIntake.mockReset().mockResolvedValue({
@@ -397,11 +412,16 @@ describe("putting an item to a meeting", () => {
       (option) => option.textContent,
     );
 
-    // The meeting still being arranged, and never the one already held: the
-    // server refuses that one, and a control that could only refuse is a worse
-    // way of saying so than not offering it.
+    /*
+     * The meeting still being arranged, and neither of the two the server would
+     * refuse: one recorded as held, and one whose members have been summoned.
+     * A control that could only refuse is a worse way of saying so than not
+     * offering it - and `concludedAt` alone does not tell the summoned one
+     * apart, which is why the summary carries `summoned`.
+     */
     expect(offered).toContain("Ordinarie föreningsstämma 2027-05-20");
     expect(offered).not.toContain("Ordinarie föreningsstämma 2026-05-20");
+    expect(offered).not.toContain("Ordinarie föreningsstämma 2027-04-10");
     // And a way back to no meeting at all, which is the same answer set to none.
     expect(offered).toContain("Ingen stämma än");
   });
@@ -486,6 +506,24 @@ describe("putting an item to a meeting", () => {
     expect(
       screen.getByText(/Kallelsen till den st.mman .r utf.rdad/u),
     ).toBeTruthy();
+  });
+
+  it("says the read failed rather than that no meeting is arranged", async () => {
+    /*
+     * Null meetings mean two different things and the board is owed the right
+     * one. "The association has arranged no meeting" is a claim about the
+     * cooperative; a read that never answered supports no such claim.
+     */
+    fetchMeetings.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    render(<MotionsScreen viewer={viewer(BOARD)} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    await screen.findByText(/Stämmorna kunde inte läsas/u);
+    expect(screen.queryByText(/har inte planerat in någon stämma/u)).toBeNull();
   });
 
   it("offers no control to a board member who may not read the meetings", async () => {
