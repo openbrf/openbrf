@@ -2,7 +2,7 @@
   "name": "openbrf",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": ">=26 <27"
   },
@@ -23,12 +23,12 @@
     "lint:coderabbit": "node scripts/validate-coderabbit-config.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1",
+    "@changesets/cli": "^3.0.2",
     "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.2",
     "ajv": "^8.20.0",
     "eslint-plugin-i18next": "^6.1.5",
-    "oxlint": "^1.80.0",
+    "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2001",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",

@@ -18,15 +18,58 @@ allowBuilds:
   #
   # It rides along as an *optional peer* of better-auth and the Prisma CLI,
   # which pnpm resolves anyway; `ignoredOptionalDependencies` cannot drop it,
-  # as that setting only covers `optionalDependencies`. It is therefore the one
-  # remaining source of a deprecation warning on install: its unmaintained
-  # `prebuild-install` dependency. Both are inert here -- the build script is
-  # refused above and no code path imports the module -- so the warning is
-  # cosmetic until better-auth stops declaring the peer.
+  # as that setting only covers `optionalDependencies`. The copy that lands is
+  # inert -- the build script is refused here and no code path imports the
+  # module -- but it is still a copy, so which version lands is decided under
+  # `overrides` below rather than left to the peer range.
   better-sqlite3: false
+
+# pnpm holds a freshly published version back for a cooling-off period before
+# it will install it. Everything here is a version this repository asked for
+# while it was still inside that window, and pnpm records the exemption itself
+# on the install that took it -- the list is maintained by the tool, not by
+# hand. Entries name an exact version, so an exemption never outlives the
+# release it was granted for.
+minimumReleaseAgeExclude:
+  - "@playwright/test@1.63.0"
+  - "@swc/core-darwin-arm64@1.16.2"
+  - "@swc/core-darwin-x64@1.16.2"
+  - "@swc/core-linux-arm-gnueabihf@1.16.2"
+  - "@swc/core-linux-arm64-gnu@1.16.2"
+  - "@swc/core-linux-arm64-musl@1.16.2"
+  - "@swc/core-linux-ppc64-gnu@1.16.2"
+  - "@swc/core-linux-s390x-gnu@1.16.2"
+  - "@swc/core-linux-x64-gnu@1.16.2"
+  - "@swc/core-linux-x64-musl@1.16.2"
+  - "@swc/core-win32-arm64-msvc@1.16.2"
+  - "@swc/core-win32-ia32-msvc@1.16.2"
+  - "@swc/core-win32-x64-msvc@1.16.2"
+  - "@swc/core@1.16.2"
+  - playwright-core@1.63.0
+  - playwright@1.63.0
+
+# Optional peers whose declared range trails the version this repository runs.
+# Both are optional and neither is loaded here, so the range is a statement
+# about upstream's test matrix rather than about this install.
+peerDependencyRules:
+  allowedVersions:
+    # better-auth ships test helpers built on Vitest and still declares
+    # <= 4. Nothing in this repository imports them.
+    "better-auth>vitest": "5"
+    # The SQLite adapter's peer, held at 12 upstream. See the override below
+    # for why 13 is what gets installed.
+    "better-auth>better-sqlite3": "13"
 
 # Transitive dependency advisories we resolve ahead of the upstream package.
 overrides:
+  # better-sqlite3 12 reaches its prebuilt binary through prebuild-install,
+  # which its author deprecated as unmaintained; 13 dropped the dependency and
+  # is the only reason this pin exists. Nothing here loads better-sqlite3 and
+  # its build script is refused above, so the choice is purely about what the
+  # install prints. Bounded to 13 rather than left open: an override answers
+  # for every copy in the tree, so a major nobody has looked at should not be
+  # able to arrive through it.
+  better-sqlite3: "^13.0.3"
   # GHSA: stack exhaustion when merging recursive object graphs. Reached only
   # through @prisma/config merging our own prisma.config.ts at CLI time, so the
   # practical exposure here is nil, but the fix is free if Prisma's config
@@ -37,7 +80,7 @@ overrides:
   # a plugin registered against one of them does not type-check against the
   # server built from the other: @fastify/static's `reply.sendFile` augments a
   # FastifyReply the application never sees. One copy, the declared one.
-  fastify: "5.12.1"
+  fastify: "5.12.3"
   # GHSA-rgwj-5xj2-c3m3: the compressed MySQL protocol handler inflates a
   # packet with no output cap, so a hostile server can expand a small packet
   # into gigabytes of client memory. Fixed in 3.23.1. The Prisma CLI depends on

@@ -77,20 +77,20 @@
     }
   },
   "devDependencies": {
-    "@module-federation/vite": "1.21.0",
-    "@nestjs/common": "11.2.3",
+    "@module-federation/vite": "1.21.3",
+    "@nestjs/common": "12.0.1",
     "@openbrf/plugin-sdk": "file:../../packages/plugin-sdk",
     "@types/react": "19.2.18",
-    "@vitejs/plugin-react": "6.1.0",
-    "i18next": "26.4.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "i18next": "26.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-i18next": "17.0.12",
+    "react-i18next": "17.0.13",
     "rxjs": "7.8.2",
     "typescript": "7.0.2",
     "vite": "8.2.2"
   },
   "peerDependencies": {
-    "@nestjs/common": "^11.0.0"
+    "@nestjs/common": "^12.0.0"
   }
 }

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 /**
  * Bridging module resolution between the host and an installed plugin
@@ -53,20 +53,42 @@ function hostRequire(): NodeJS.Require {
 }
 
 /**
+ * The node_modules directory an already-resolved file sits in.
+ *
+ * Found by walking up from the file rather than by counting directories down
+ * from the package name: an exports map may point at an entry several levels
+ * deep, and pnpm's store puts each package under a directory of its own.
+ */
+function enclosingModulesDirectory(file: string): string | null {
+  let directory = dirname(file);
+  for (;;) {
+    if (basename(directory) === "node_modules") {
+      return directory;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return null;
+    }
+    directory = parent;
+  }
+}
+
+/**
  * The node_modules directory a package actually resolved from.
  *
  * Derived from where the package really is rather than assembled from a guess
  * about the layout, so it stays right whether the application runs from src,
- * from dist, or from an image where the workspace has been flattened. Scoped
- * packages sit two levels below node_modules, unscoped ones one.
+ * from dist, or from an image where the workspace has been flattened.
+ *
+ * The entry is what gets resolved, not `${packageName}/package.json`. A
+ * package that ships as ESM has no reason to list its manifest in its exports
+ * map, and @nestjs/common does not: asking for the manifest is a question it
+ * answers with an error, and an error here reads as "the host has no such
+ * package", which is the one answer that must never be wrong.
  */
 function modulesDirectoryOf(packageName: string): string | null {
   try {
-    // A package.json path is stable to resolve; a package's main entry may be
-    // exports-mapped to a file several directories deep.
-    const manifest = hostRequire().resolve(`${packageName}/package.json`);
-    const depth = packageName.startsWith("@") ? 2 : 1;
-    return resolve(dirname(manifest), ...Array<string>(depth).fill(".."));
+    return enclosingModulesDirectory(hostRequire().resolve(packageName));
   } catch {
     return null;
   }
@@ -197,7 +219,10 @@ export function findResolutionConflicts(
   const resolver = hostRequire();
 
   for (const packageName of packages) {
-    const specifier = `${packageName}/package.json`;
+    // The entry, for the reason given at modulesDirectoryOf: an ESM package
+    // need not export its manifest, and the entry is in any case the file the
+    // plugin's own require would load.
+    const specifier = packageName;
 
     let hostPath: string;
     try {

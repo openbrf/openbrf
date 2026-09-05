@@ -1,7 +1,4 @@
-import fastifyMultipart, {
-  type FastifyMultipartOptions,
-  type MultipartFields,
-} from "@fastify/multipart";
+import fastifyMultipart, { type MultipartFields } from "@fastify/multipart";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { FastifyRequest } from "fastify";
 
@@ -43,22 +40,7 @@ export async function registerMultipart(
   app: NestFastifyApplication,
   env: Env,
 ): Promise<void> {
-  /*
-   * The plugin is cast onto the register signature it is in fact written for.
-   *
-   * Two copies of the Fastify type declarations are resolved in this tree -
-   * @nestjs/platform-fastify depends on 5.11.3 while this package depends on
-   * 5.12.1 - so a plugin declared against one copy's FastifyPluginCallback is
-   * not assignable to the other copy's register(). The declarations are
-   * identical in shape and the plugin is the same object at runtime, which the
-   * upload integration test exercises end to end.
-   */
-  const register = app.register.bind(app) as (
-    plugin: unknown,
-    options: FastifyMultipartOptions,
-  ) => Promise<unknown>;
-
-  await register(fastifyMultipart, {
+  await app.register(fastifyMultipart, {
     limits: {
       fileSize: env.OPENBRF_MAX_UPLOAD_BYTES,
       // One file and a handful of fields. An endpoint here takes a single

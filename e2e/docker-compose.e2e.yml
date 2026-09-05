@@ -21,7 +21,7 @@ services:
       - "127.0.0.1:${E2E_DB_PORT:-5442}:5432"
 
   mailpit:
-    image: axllent/mailpit@sha256:c6cf0b06eb516a0b80a8a5251f945c131e6beb8396112964404f62856487f5bd
+    image: axllent/mailpit@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365
     restart: unless-stopped
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"

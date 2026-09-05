@@ -65,7 +65,7 @@ jobs:
       - name: Run Semgrep
         env:
           # renovate: datasource=docker depName=semgrep/semgrep
-          SEMGREP_IMAGE: semgrep/semgrep:1.174.0@sha256:f1f7b71861c7b28b6e0f661225a2c4f58a484f5d0f182465c6d6b3b22f972ade
+          SEMGREP_IMAGE: semgrep/semgrep:1.176.1@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823
         run: |
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
