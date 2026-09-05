@@ -9,7 +9,7 @@ Record a grant (upplåtelse) as the event it is, and raise the reporting obligat
 A grant of a tenant-ownership was stored as a transfer with no seller, which is
 also what a transfer out of a hand the register never held looks like - and a
 register that began part way through a building's life is full of those. The two
-were the same row, so the platform could not raise the reporting duty Lag
+were the same row, so the platform could not raise the reporting obligation Lag
 (2026:484) 3 kap. 2 § lays on the association for the first without risking it on
 the second, and the apartment register printed "Upplåtelse" for both.
 
@@ -26,13 +26,15 @@ ones whose membership decision could never be recorded - and that decision is
 the day their own reporting window opens.
 
 The obligation ledger gains `GRANT`. Its window opens on the day of the grant
-itself - the one duty in that chapter that needs no second date recorded first -
+itself - the one obligation in that chapter that needs no second date
+recorded first -
 so it is entered by the transaction that records the grant rather than by a later
 act, which is the rule the ledger already held for the other two. The database
 checks the transfer's own kind against the obligation's, so a transfer cannot be
 put on the grant's clock or the other way round.
 
-A row written before the column existed carries no kind and takes no duty.
+A row written before the column existed carries no kind and takes no
+obligation.
 Nothing derives one: what such a row was is not recorded anywhere, and a guess
 in a statutory register is a statement nobody made.
 

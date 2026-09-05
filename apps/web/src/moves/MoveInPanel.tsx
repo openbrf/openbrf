@@ -323,7 +323,13 @@ export function MoveInPanel({
                 />
                 {t("moves.transfer.record")}
               </label>
-              <p className={HINT}>{t("moves.transfer.hint")}</p>
+              {/*
+                Its own sentence rather than the move-out's. That one says "for
+                a sale", which is what a move-out records and only half of what
+                a move-in can: the first holder of a bostadsratt is not buying
+                it from anybody.
+              */}
+              <p className={HINT}>{t("moves.transfer.hintIn")}</p>
             </div>
 
             {recordTransfer ? (

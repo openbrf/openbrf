@@ -335,7 +335,7 @@
         "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
-        "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
+        "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, upplåtelserna, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
         "section": {
           "person": "Personen",
           "residencies": "Boenden",
@@ -1669,6 +1669,7 @@
     "transfer": {
       "record": "Registrera överlåtelse",
       "hint": "Vid försäljning: avtalets datum, motparten och en hänvisning till var avtalet finns.",
+      "hintIn": "Vid upplåtelse eller försäljning: avtalets datum, vad som registreras, motparten om det finns en, och en hänvisning till var avtalet finns.",
       "kind": "Vad registreras",
       "kindTransfer": "Överlåtelse - bostadsrätten byter innehavare",
       "kindGrant": "Upplåtelse - föreningen upplåter bostadsrätten",

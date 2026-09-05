@@ -335,7 +335,7 @@
         "standing": "Still standing",
         "nothing": "Nothing recorded",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
-        "twoTiers": "Service data is erased on the purge date below. The member register, transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
+        "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
           "person": "The person",
           "residencies": "Residencies",
@@ -1669,6 +1669,7 @@
     "transfer": {
       "record": "Record a transfer",
       "hint": "For a sale: the date of the agreement, the other party, and a reference to where the agreement is filed.",
+      "hintIn": "For a grant or a sale: the date of the agreement, which event is being recorded, the other party where there is one, and a reference to where the agreement is filed.",
       "kind": "What is being recorded",
       "kindTransfer": "Transfer - the tenant-ownership changes hands",
       "kindGrant": "Grant - the association grants the tenant-ownership",
