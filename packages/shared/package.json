@@ -16,13 +16,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "oxlint": "^1.80.0",
+    "oxlint": "^1.81.0",
     "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
