@@ -892,6 +892,18 @@ describe("what the document prints", () => {
       // The document, in the subject's Swedish.
       expect(screen.getByText("Personen")).not.toBeNull();
       expect(screen.getByText("Namn")).not.toBeNull();
+      /*
+       * Including what an empty cell says. The placeholder that fills a table
+       * cell is built once, at the top of the component, and dropped into fifty
+       * of them, so it is the one string in the document that can be left on
+       * the reader's translator with every label around it still looking right.
+       * It was, until this assertion existed.
+       *
+       * Asserted as the absence of the English, because the Swedish placeholder
+       * comes from the fields as well, and those take the document's translator
+       * whatever this one does.
+       */
+      expect(screen.queryByText("Nothing recorded")).toBeNull();
 
       // The screen around it, in the reader's English.
       expect(

@@ -334,7 +334,12 @@ export function DataSubjectReport({
     [i18n, screenT, subjectLocale],
   );
 
-  const nothing = screenT("register.person.report.nothing");
+  /*
+   * The document's translator, because every one of the fifty-odd places this
+   * is dropped into is a cell inside the document. It is the reader's language
+   * only until the report arrives, and nothing renders before that.
+   */
+  const nothing = t("register.person.report.nothing");
 
   return (
     <div className="flex flex-col gap-5">
