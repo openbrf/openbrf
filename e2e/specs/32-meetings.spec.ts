@@ -254,8 +254,10 @@ async function createMembers(
       role: "MEMBER",
       movedInOn: HELD_FROM,
       transfer: {
+        // A first holder on an apartment nobody has held: an upplatelse.
+        kind: "GRANT",
         transferredOn: HELD_FROM,
-        agreementReference: `OVL-2026-${apartment.number}`,
+        agreementReference: `UPL-2026-${apartment.number}`,
       },
     });
     return personId;

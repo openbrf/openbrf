@@ -580,7 +580,35 @@ model Transfer {
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
 
-  /// Null for the first grant of a tenant-ownership (upplatelse).
+  /// Whether this row is an upplatelse or an overgang. See {@link TransferKind}.
+  ///
+  /// Null only on rows written before the column existed. Nothing derives a kind
+  /// for those: a grant and a transfer with an unrecorded seller look the same
+  /// from the outside, and writing a guess into a statutory register is the one
+  /// thing this table may not do.
+  ///
+  /// Required of every new row by the `transfer_states_what_it_is` trigger
+  /// (20260912230000_transfer_write_guards), which also refuses an update that
+  /// takes a recorded kind away. A trigger rather than a CHECK because the rule
+  /// is about the difference between the old row and the new one: a NOT VALID
+  /// CHECK exempts a grandfathered row only until something writes to it, and
+  /// PostgreSQL then refuses the update - which is what stopped a legacy
+  /// transfer from ever having its membership decision recorded. The agreement
+  /// reference was written the same way and moved into the same trigger.
+  ///
+  /// A second CHECK (`transfer_grant_has_no_seller`) refuses a GRANT that names
+  /// a previous holder: at a grant the right comes into being, so there is
+  /// nobody for it to pass from, and such a row is a transfer that has been
+  /// mislabelled.
+  kind TransferKind?
+
+  /// The previous holder. Null for a grant, which has none, and null too where
+  /// the register does not hold whoever the bostadsratt came from - which is
+  /// why `kind` and not this column says which of the two a row is.
+  ///
+  /// A previous holder rather than a seller: an overgang can be a gift or an
+  /// inheritance as readily as a sale, and the register records that somebody
+  /// held it before rather than that money changed hands.
   fromPersonId String?
   fromPerson   Person? @relation("TransferFromPerson", fields: [fromPersonId], references: [id], onDelete: Restrict)
 
@@ -627,16 +655,21 @@ model Transfer {
   /// once uploads exist, because a cooperative that files its agreements on
   /// paper still needs it.
   ///
-  /// Nullable in Prisma but not free: a CHECK constraint requires one of this
-  /// and agreementDocumentPath to hold at least one non-whitespace character,
-  /// so an uploaded agreement satisfies the same requirement without a second
-  /// migration. Prisma has no syntax for a CHECK, so it lives in
-  /// 20260828170000_transfer_agreement_reference_required and is tightened to
-  /// the full whitespace set in
-  /// 20260828180000_transfer_agreement_reference_non_whitespace. Added NOT
-  /// VALID because a row written before it has no reference to be found and
+  /// Nullable in Prisma but not free: one of this and agreementDocumentPath has
+  /// to hold at least one non-whitespace character, so an uploaded agreement
+  /// satisfies the same requirement without a second migration.
+  ///
+  /// A row written before the requirement has no reference to be found, and
   /// inventing one would be a statement in a statutory register that nobody
-  /// made.
+  /// made, so such a row is left as it is. That was a NOT VALID CHECK
+  /// (20260828170000, tightened in 20260828180000) until it turned out that
+  /// NOT VALID exempts a row only until something writes to it: PostgreSQL
+  /// checks the whole new row on UPDATE, so the exempt rows were the ones the
+  /// board could never correct. The rule is now the
+  /// `transfer_states_what_it_is` trigger in
+  /// 20260912230000_transfer_write_guards, which requires a reference on insert
+  /// and refuses an update that removes one, and leaves a row that never had
+  /// one updatable.
   agreementReference String?
 
   /// The reporting obligation this transfer opened, once its window has a
@@ -781,25 +814,58 @@ model Termination {
 
 /// Which register event a reporting obligation is about.
 ///
-/// Two values, because two of the three duties Lag (2026:484) 3 kap. lays on
-/// the association are computable from what this database records:
+/// The three duties Lag (2026:484) 3 kap. lays on the association, each with its
+/// own paragraph and its own day to count the two weeks from:
 ///
-///   TRANSFER, an overgang under 3 kap. 3 §. Its window runs from the day the
+///   GRANT, a grant (upplatelse) under 3 kap. 2 §. Its window runs "inom tva
+///   veckor fran upplatelsen", so it opens on the grant itself - `transferredOn`
+///   on the Transfer row, which is the day of the grant and needs no second
+///   date.
+///
+///   TRANSFER, a transfer (overgang) under 3 kap. 3 §. Its window runs from the day the
 ///   association decided on membership, which is a date of its own on
 ///   {@link Transfer}.
 ///
 ///   TERMINATION, a bostadsratt having ceased under 3 kap. 4 §. Its window runs
 ///   from the day it ceased, which is `Termination.tookEffectOn`.
 ///
-/// What is deliberately absent is the third duty, the upplatelse of 3 kap. 2 §,
-/// whose window runs "inom tva veckor fran upplatelsen". A grant is recorded
-/// here as a Transfer with a null `fromPersonId`, and that is also what a
-/// transfer whose seller the register does not hold looks like, so the two are
-/// not separable from what is recorded today. Adding a GRANT value before they
-/// are would put a deadline on the wrong statutory paragraph.
+/// GRANT was absent until `Transfer.kind` existed, and for a reason worth
+/// keeping: a grant used to be recorded as a Transfer with a null
+/// `fromPersonId`, which is also what a transfer whose seller the register does
+/// not hold looks like. The two were not separable, and a deadline on the wrong
+/// paragraph is worse than none. The kind is now recorded, so they are.
+///
+/// A row written before that column existed carries no kind, and no obligation
+/// is derived from one: what it was is not recorded, and the platform does not
+/// guess in a statutory register.
 enum RegisterReportKind {
+  GRANT
   TRANSFER
   TERMINATION
+}
+
+/// Which register event a Transfer row is.
+///
+/// Bostadsrattslagen distinguishes the two, and so does the register they are
+/// reported to. An upplatelse (BRL 4 kap.) is the association granting a
+/// bostadsratt for the first time, and it has no seller because there is nobody
+/// to sell it: the right comes into being. An overgang (BRL 6 kap.) is that
+/// right passing from one holder to another.
+///
+/// One table for both, because the apartment register lists them as one history
+/// of who has held the apartment, and BRL 9 kap. 10 § has the lagenhets-
+/// forteckning state the upplatelse alongside the transfers. What was missing
+/// was the word for which of the two a row is.
+///
+/// Recorded rather than derived from `fromPersonId` being null. A transfer whose
+/// seller the register does not hold - the register began part way through the
+/// building's life, and it usually did - has a null seller too, and looks
+/// identical. That ambiguity cost the platform a statutory duty: an upplatelse
+/// is reportable under Lag (2026:484) 3 kap. 2 § on its own clock, and nothing
+/// could tell which rows were upplatelser.
+enum TransferKind {
+  GRANT
+  TRANSFER
 }
 
 /// One dated duty to report a register event to the cooperative housing
@@ -884,12 +950,20 @@ model RegisterReportObligation {
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
 
-  /// The transfer this obligation reports, when `kind` is TRANSFER.
+  /// The register event this obligation reports, when `kind` is GRANT or
+  /// TRANSFER.
   ///
-  /// Unique: one anmalan per overgang, so a second row would be a second
-  /// deadline for one report, and nothing here can take either of them out
-  /// again. A CHECK in 20260910100000 requires exactly the reference that
-  /// matches `kind` and refuses the other.
+  /// Both live on {@link Transfer}: a grant is a row with no seller and a kind
+  /// of GRANT, and the two are reported under different paragraphs from
+  /// different days, so which one this obligation is about is `kind` rather
+  /// than anything reachable through this column.
+  ///
+  /// Unique: one reporting obligation per event, so a second row would be a
+  /// second deadline
+  /// for one report, and nothing here can take either of them out again. The
+  /// CHECK in 20260910100000, widened in 20260912220000, requires exactly the
+  /// reference that matches `kind` and refuses the other, and a trigger checks
+  /// the transfer's own kind against this row's.
   transferId String?   @unique
   transfer   Transfer? @relation(fields: [transferId], references: [id], onDelete: Restrict)
 

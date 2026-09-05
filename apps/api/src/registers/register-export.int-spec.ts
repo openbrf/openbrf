@@ -355,10 +355,18 @@ beforeAll(async () => {
     data: {
       id: TRANSFER_ID,
       apartmentId: apartments.transferred,
+      /*
+       * An overgang whose seller the register does not hold - the shape a grant
+       * used to be indistinguishable from. It has to be one here rather than a
+       * grant, because the suite records a membership decision on it, and an
+       * upplatelse is reported from the day of the grant instead (Lag
+       * (2026:484) 3 kap. 2 §).
+       */
+      kind: "TRANSFER",
       fromPersonId: null,
       toPersonId: actors.holder.personId,
       transferredOn: new Date("2024-03-01T00:00:00.000Z"),
-      agreementReference: `Upplatelseavtal ${suffix}`,
+      agreementReference: `Overlatelseavtal ${suffix}`,
     },
   });
 

@@ -219,7 +219,7 @@ export type TerminationKind =
  * spelled out for the reason the one above it is: the report prints this to the
  * person it is about.
  */
-export type RegisterReportKind = "TRANSFER" | "TERMINATION";
+export type RegisterReportKind = "GRANT" | "TRANSFER" | "TERMINATION";
 
 /**
  * Every audit action an entry on the report can carry.
@@ -356,6 +356,12 @@ export interface DataSubjectReport {
     transferId: string;
     apartment: string;
     direction: "acquired" | "relinquished";
+    /**
+     * A grant (upplatelse) or a transfer (overgang), and null on a row recorded
+     * before the register asked which. Two different events about this person:
+     * one says they were the first holder, the other that they bought.
+     */
+    kind: "GRANT" | "TRANSFER" | null;
     transferredOn: string;
     /** The day the association decided on the acquirer's membership, or null. */
     membershipDecidedOn: string | null;

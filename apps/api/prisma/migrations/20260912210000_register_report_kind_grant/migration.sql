@@ -1,0 +1,14 @@
+-- The obligation ledger gains the upplatelse.
+--
+-- Lag (2026:484) 3 kap. 2 §: "En anmalan for registrering av upplatelse ska
+-- goras av bostadsrattsforeningen. Anmalan for registrering av upplatelse ska
+-- goras inom tva veckor fran upplatelsen." The association owes the report, and
+-- the two weeks run from the grant itself rather than from a separately
+-- recorded date - which is why this duty needed no new column, only a way to
+-- tell an upplatelse from an overgang. 20260912200000_transfer_kind is that.
+--
+-- Alone in its own migration because PostgreSQL will not let a value added to
+-- an enum be used in the same transaction that added it, and the next migration
+-- puts 'GRANT' in a CHECK constraint. Prisma runs each migration file in one
+-- transaction, so the split is the boundary that makes the constraint legal.
+ALTER TYPE "RegisterReportKind" ADD VALUE 'GRANT' BEFORE 'TRANSFER';

@@ -154,14 +154,23 @@ test("moving someone in writes the register and welcomes them in their own langu
     .check();
   await panel.getByLabel("Inflyttningsdatum").fill(MOVED_IN_ON);
 
-  await panel.getByRole("checkbox", { name: "Registrera överlåtelse" }).check();
+  await panel
+    .getByRole("checkbox", { name: "Registrera upplåtelse eller överlåtelse" })
+    .check();
   await panel.getByLabel("Avtalsdatum").fill(MOVED_IN_ON);
-  // Nobody has ever held this apartment - it was claimed for this run - so the
-  // transfer is the first grant. That is the default the select offers, and
-  // leaving it is the whole assertion.
+  /*
+   * Nobody has ever held this apartment - it was claimed for this run - so this
+   * is the association granting the bostadsratt, and the board says so. It used
+   * to be inferred from leaving the previous-holder picker empty, which is also
+   * what a sale out of a hand the register does not hold looks like.
+   */
+  await panel
+    .getByLabel("Vad registreras")
+    .selectOption({ label: "Upplåtelse - föreningen upplåter bostadsrätten" });
+  // A grant has no previous holder, so the field is not offered at all.
   await expect(
     panel.getByRole("combobox", { name: "Tidigare innehavare" }),
-  ).toHaveValue("");
+  ).toHaveCount(0);
   await panel.getByLabel("Pris").fill("2450000");
   await panel
     .getByLabel("Avtalshänvisning")
@@ -179,8 +188,9 @@ test("moving someone in writes the register and welcomes them in their own langu
   await expect(
     panel.getByText("En post skrevs i medlemsförteckningen."),
   ).toBeVisible();
+  // Named for the event that was recorded, which is the grant and not a sale.
   await expect(
-    panel.getByText("Överlåtelsen registrerades i lägenhetsförteckningen."),
+    panel.getByText("Upplåtelsen registrerades i lägenhetsförteckningen."),
   ).toBeVisible();
   await expect(
     panel.getByText("Ett välkomstmejl skickades, på mottagarens eget språk."),

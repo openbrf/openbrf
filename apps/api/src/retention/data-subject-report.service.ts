@@ -292,6 +292,7 @@ export class DataSubjectReportService {
       orderBy: [{ transferredOn: "asc" }],
       select: {
         id: true,
+        kind: true,
         toPersonId: true,
         transferredOn: true,
         membershipDecidedOn: true,
@@ -689,6 +690,7 @@ export class DataSubjectReportService {
         apartment: `${transfer.apartment.address.street} ${transfer.apartment.address.number} ${transfer.apartment.number}`,
         direction:
           transfer.toPersonId === personId ? "acquired" : "relinquished",
+        kind: transfer.kind,
         transferredOn: toIsoDate(transfer.transferredOn) ?? "",
         // Decimal through its own toString: a price rendered through a float
         // would round in a document that states what an apartment sold for.

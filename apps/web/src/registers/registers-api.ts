@@ -101,6 +101,15 @@ export interface ApartmentRegisterTransfer {
    * asserts that a deadline has been missed.
    */
   membershipDecidedOn: string | null;
+  /**
+   * An upplatelse (BRL 4 kap.) or an overgang (6 kap.), and null on a row the
+   * register recorded before it said which.
+   *
+   * Mirrors `ApartmentRegisterTransfer` on the server. The screen needs it
+   * because a missing seller means one thing on a grant and another on a
+   * transfer, and because only an overgang has a membership decision to record.
+   */
+  kind: "GRANT" | "TRANSFER" | null;
   fromName: string | null;
   toName: string;
   price: string | null;
@@ -258,7 +267,7 @@ export function recordPropertyDesignation(input: {
  */
 
 /** Which register event a duty is about. */
-export type RegisterReportKind = "TRANSFER" | "TERMINATION";
+export type RegisterReportKind = "GRANT" | "TRANSFER" | "TERMINATION";
 
 /** Where one duty stands today. */
 export type RegisterReportState = "reported" | "overdue" | "due";

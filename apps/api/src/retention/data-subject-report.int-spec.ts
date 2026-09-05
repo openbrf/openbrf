@@ -414,6 +414,7 @@ beforeAll(async () => {
     data: {
       id: ACQUIRED_TRANSFER_ID,
       apartmentId,
+      kind: "TRANSFER",
       toPersonId: subject.personId,
       transferredOn: new Date("2020-03-01"),
       // Before the transfer, which is the ordinary order: the board approves
@@ -435,6 +436,7 @@ beforeAll(async () => {
     data: {
       id: RELINQUISHED_TRANSFER_ID,
       apartmentId,
+      kind: "TRANSFER",
       fromPersonId: subject.personId,
       toPersonId: ACQUIRER_PERSON_ID,
       transferredOn: new Date("2026-02-01"),
