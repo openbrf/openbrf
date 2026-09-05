@@ -1669,7 +1669,7 @@
     "transfer": {
       "record": "Registrera överlåtelse",
       "recordIn": "Registrera upplåtelse eller överlåtelse",
-      "hint": "Vid försäljning: avtalets datum, motparten och en hänvisning till var avtalet finns.",
+      "hint": "Vid överlåtelse: avtalets datum, den nya innehavaren och en hänvisning till var avtalet finns.",
       "hintIn": "Vid upplåtelse eller överlåtelse: avtalets datum, vad som registreras, den tidigare innehavaren om registret har någon, och en hänvisning till var avtalet finns.",
       "kind": "Vad registreras",
       "kindTransfer": "Överlåtelse - bostadsrätten byter innehavare",

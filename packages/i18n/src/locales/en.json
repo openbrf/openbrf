@@ -1669,7 +1669,7 @@
     "transfer": {
       "record": "Record a transfer",
       "recordIn": "Record a grant or a transfer",
-      "hint": "For a sale: the date of the agreement, the other party, and a reference to where the agreement is filed.",
+      "hint": "For a transfer: the date of the agreement, the new holder, and a reference to where the agreement is filed.",
       "hintIn": "For a grant or a transfer: the date of the agreement, which event is being recorded, the previous holder where the register has one, and a reference to where the agreement is filed.",
       "kind": "What is being recorded",
       "kindTransfer": "Transfer - the tenant-ownership changes hands",

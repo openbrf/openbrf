@@ -87,6 +87,14 @@ export function MoveInPanel({
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
   const [result, setResult] = useState<MoveInResult | null>(null);
+  /*
+   * The kind this move-in was submitted with, kept beside its answer. The
+   * select stays usable while the request is in flight, so reading it back
+   * afterwards could tell a board that a transfer was recorded when the server
+   * recorded a grant - and which of the two it was decides the paragraph the
+   * report is made under.
+   */
+  const [recordedKind, setRecordedKind] = useState<TransferKind | null>(null);
   const [apartmentNumber, setApartmentNumber] = useState("");
 
   useEffect(() => {
@@ -161,6 +169,7 @@ export function MoveInPanel({
     const chosen = apartmentOptions.find(
       (apartment) => apartment.id === apartmentId,
     );
+    const submittedKind = transferKind;
     const response = await moveIn({
       personId: person.personId,
       apartmentId,
@@ -169,12 +178,12 @@ export function MoveInPanel({
       transfer: recordTransfer
         ? {
             transferredOn,
-            kind: transferKind,
+            kind: submittedKind,
             // A grant has no seller: there is no holder before it for the
             // bostadsratt to pass from. The server refuses one that names a
             // seller, and the field is not offered for a grant either.
             fromPersonId:
-              transferKind === "GRANT" || fromPersonId === ""
+              submittedKind === "GRANT" || fromPersonId === ""
                 ? null
                 : fromPersonId,
             price: price.trim() === "" ? null : price.trim(),
@@ -189,6 +198,7 @@ export function MoveInPanel({
       return;
     }
     setApartmentNumber(chosen?.number ?? "");
+    setRecordedKind(submittedKind);
     setResult(response.value);
     onMoved();
   };
@@ -479,7 +489,7 @@ export function MoveInPanel({
                 own record now says happened.
               */}
               {t(
-                transferKind === "GRANT"
+                recordedKind === "GRANT"
                   ? "moves.transfer.recordedGrant"
                   : "moves.transfer.recordedTransfer",
               )}

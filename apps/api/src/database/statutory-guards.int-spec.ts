@@ -702,6 +702,15 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
       }),
     ).rejects.toThrow(/OPENBRF_TRANSFER_RECORD/);
 
+    // And removed, which is the third way to stop the ledger's row from
+    // describing the event it names.
+    await expect(
+      prisma.transfer.update({
+        where: { id: GRANT_TRANSFER_ID },
+        data: { kind: null },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_RECORD/);
+
     // And the row is untouched, which is what makes the refusal meaningful.
     const transfer = await prisma.transfer.findUniqueOrThrow({
       where: { id: GRANT_TRANSFER_ID },

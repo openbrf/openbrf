@@ -597,13 +597,18 @@ model Transfer {
   /// reference was written the same way and moved into the same trigger.
   ///
   /// A second CHECK (`transfer_grant_has_no_seller`) refuses a GRANT that names
-  /// one: the association is not a party the register holds, and a grant with a
-  /// seller is a transfer that has been mislabelled.
+  /// a previous holder: at a grant the right comes into being, so there is
+  /// nobody for it to pass from, and such a row is a transfer that has been
+  /// mislabelled.
   kind TransferKind?
 
-  /// The seller. Null for an upplatelse, which has none, and null too where the
-  /// register does not hold whoever sold - which is why `kind` and not this
-  /// column says which of the two a row is.
+  /// The previous holder. Null for a grant, which has none, and null too where
+  /// the register does not hold whoever the bostadsratt came from - which is
+  /// why `kind` and not this column says which of the two a row is.
+  ///
+  /// A previous holder rather than a seller: an overgang can be a gift or an
+  /// inheritance as readily as a sale, and the register records that somebody
+  /// held it before rather than that money changed hands.
   fromPersonId String?
   fromPerson   Person? @relation("TransferFromPerson", fields: [fromPersonId], references: [id], onDelete: Restrict)
 
@@ -953,7 +958,8 @@ model RegisterReportObligation {
   /// different days, so which one this obligation is about is `kind` rather
   /// than anything reachable through this column.
   ///
-  /// Unique: one anmalan per event, so a second row would be a second deadline
+  /// Unique: one reporting obligation per event, so a second row would be a
+  /// second deadline
   /// for one report, and nothing here can take either of them out again. The
   /// CHECK in 20260910100000, widened in 20260912220000, requires exactly the
   /// reference that matches `kind` and refuses the other, and a trigger checks

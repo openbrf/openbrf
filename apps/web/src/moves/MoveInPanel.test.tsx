@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -180,4 +180,60 @@ it("names the event it recorded, not the other one", async () => {
   expect(
     screen.queryByText("Överlåtelsen registrerades i lägenhetsförteckningen."),
   ).toBeNull();
+});
+it("names the kind it submitted, not the one on screen when the answer lands", async () => {
+  /*
+   * The select stays usable while the request is in flight. Reading it back
+   * afterwards would let a board that changed their mind mid-request be told a
+   * transfer was recorded when the server recorded a grant - and which of the
+   * two it was decides the paragraph the report is made under and the day its
+   * two weeks run from.
+   */
+  let release: (value: unknown) => void = () => undefined;
+  moveIn.mockImplementationOnce(
+    async () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+
+  const session = userEvent.setup();
+  await openTransferFields(session);
+
+  await session.selectOptions(
+    screen.getByLabelText(/Vad registreras/),
+    "GRANT",
+  );
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-04-07");
+  await session.type(
+    screen.getByLabelText(/Avtalshänvisning/),
+    "UPL-2026-1201",
+  );
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  // The board changes the select while the move-in is still on its way.
+  await session.selectOptions(
+    screen.getByLabelText(/Vad registreras/),
+    "TRANSFER",
+  );
+
+  await act(async () => {
+    release({
+      ok: true,
+      value: {
+        residencyId: "residency-1",
+        memberRegisterEntryRecorded: true,
+        transferId: "transfer-1",
+        welcomeEmailSent: true,
+      },
+    });
+  });
+
+  expect(
+    await screen.findByText(
+      "Upplåtelsen registrerades i lägenhetsförteckningen.",
+    ),
+  ).toBeTruthy();
 });

@@ -33,10 +33,10 @@ act, which is the rule the ledger already held for the other two. The database
 checks the transfer's own kind against the obligation's, so a transfer cannot be
 put on the grant's clock or the other way round.
 
-A row written before the column existed carries no kind and takes no
-obligation.
-Nothing derives one: what such a row was is not recorded anywhere, and a guess
-in a statutory register is a statement nobody made.
+A row written before the column existed starts without a kind, and nothing
+derives one for it: what such a row was is not recorded anywhere, and a guess in
+a statutory register is a statement nobody made. A board that knows may record
+it, and while it stays absent that row raises no reporting obligation.
 
 The screens follow. The move-in panel asks which event is being recorded and
 offers the previous holder only for a transfer; the apartment register prints
