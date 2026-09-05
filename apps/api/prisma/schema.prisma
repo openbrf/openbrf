@@ -3449,6 +3449,17 @@ enum MeetingNoticeDeliveryStatus {
 /// The association's own act rather than personal data, so it carries no
 /// retention window and appears in no data subject access report. Who attended
 /// it does, and that is MeetingAttendance.
+///
+/// ## Nothing deletes a meeting, and the database now says so
+///
+/// No endpoint removes one, and the agenda, the attendance lines, the
+/// authorisations and the notice all restrict rather than cascade, so a delete
+/// is refused for as long as any of them exists. Before that it was prose:
+/// every child cascaded, and one `delete` would have taken the running order,
+/// the list the votes were counted from, the authorisations behind them and the
+/// document that summoned the members, leaving nothing to say the meeting had
+/// been held. The motions link already restricted, which is the ground the
+/// children now stand on.
 model Meeting {
   id String @id @default(cuid())
 
@@ -3490,14 +3501,20 @@ model Meeting {
 /// The board's own writing, stored as written and never translated, like every
 /// other piece of the association's content (decision 59).
 ///
-/// Cascades from the meeting, because an item says what it is only through the
-/// meeting it is on - the argument an occurrence makes about its series. What
-/// stops a meeting the members have dealt with from taking its agenda anywhere
-/// is that nothing deletes a meeting.
+/// Restricts the meeting rather than cascading from it, on the ground
+/// `Motion.meetingId` states: nothing deletes a meeting, and restricting is what
+/// keeps that true rather than leaving it a promise the database does not hold.
+/// An agenda is the list the members were summoned to deal with, so a delete
+/// that took it silently would take the evidence of what a meeting was for.
+///
+/// The agenda's own rows are still replaced wholesale while the meeting is being
+/// arranged - `MeetingService.setAgenda` deletes and rewrites them in one
+/// transaction, refused once a notice has been issued. That is a delete naming
+/// the items, not a cascade, and it is unaffected by this.
 model AgendaItem {
   id        String  @id @default(cuid())
   meetingId String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
 
   /// The running order, one-based, as a board writes an agenda.
   position Int
@@ -3630,7 +3647,12 @@ model MeetingDecision {
 model MeetingAttendance {
   id        String  @id @default(cuid())
   meetingId String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// Restricts the meeting rather than cascading from it, on the ground
+  /// `Motion.meetingId` states. A cascade would let one delete remove the list
+  /// the votes were counted from, and this table is exactly the part of the
+  /// meeting the section above says is kept because the protokoll needs it.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
 
   /// Who was there. A plain column and not a relation, for the reason
   /// MeetingDecision.recordedByPersonId is one.
@@ -3739,7 +3761,12 @@ model MeetingAttendance {
 model ProxyAuthorisation {
   id        String  @id @default(cuid())
   meetingId String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// Restricts the meeting rather than cascading from it, on the ground
+  /// `Motion.meetingId` states. An authorisation is what let somebody else
+  /// exercise a member's vote, so it is part of the answer to why the count
+  /// came out as it did.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
 
   /// The member whose right this authorises somebody else to exercise. A plain
   /// reference outside the registers.
@@ -3929,8 +3956,13 @@ model MeetingNotice {
   id String @id @default(cuid())
 
   /// One notice per meeting. See the model comment.
+  ///
+  /// Restricts the meeting rather than cascading from it, on the ground
+  /// `Motion.meetingId` states. The notice is what summoned the members and
+  /// what settles the agenda they may be asked to decide (EFL 6 kap. 22 § and
+  /// 25 §), and the delivery ledger below hangs off it.
   meetingId String  @unique
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Restrict)
 
   /// When the meeting begins, as the notice states it.
   ///

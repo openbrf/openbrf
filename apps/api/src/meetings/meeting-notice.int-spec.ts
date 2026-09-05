@@ -470,8 +470,12 @@ afterAll(async () => {
       await prisma.motion.deleteMany({
         where: { id: { in: createdMotionIds } },
       });
-      // The notice and its ledger cascade from the meeting; naming them first
-      // clears a run that wrote one without the other.
+      // Every child holds its meeting down: the foreign keys restrict rather
+      // than cascade, so the meeting deletes only once the agenda and the
+      // notice are gone. The notice's delivery ledger goes with the notice.
+      await prisma.agendaItem.deleteMany({
+        where: { meetingId: { in: createdMeetingIds } },
+      });
       await prisma.meetingNotice.deleteMany({
         where: { meetingId: { in: createdMeetingIds } },
       });

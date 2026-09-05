@@ -872,10 +872,10 @@ afterAll(async () => {
             where: { submittedByPersonId: { in: personIds } },
           }),
         /*
-         * The attendance lines and the authorities go with the meeting, which
-         * cascades, and both are removed first anyway: a run that failed part
-         * way through may have written one without the other, and a delete
-         * naming the rows is what clears that case.
+         * The attendance lines and the authorities hold the meeting down: both
+         * foreign keys restrict, so the meeting deletes only after they do.
+         * This suite writes no agenda and no notice, which are the meeting's
+         * other two children.
          */
         () => prisma.meetingAttendance.deleteMany({ where: { meetingId } }),
         () => prisma.proxyAuthorisation.deleteMany({ where: { meetingId } }),
