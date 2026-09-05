@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  better-sqlite3: '>=13.0.3'
+  better-sqlite3: ^13.0.3
   deepmerge-ts: '>=8.0.0'
   fastify: 5.12.3
   mysql2: ^3.23.1
@@ -2394,7 +2394,7 @@ packages:
       '@sveltejs/kit': ^2.0.0
       '@tanstack/react-start': ^1.0.0
       '@tanstack/solid-start': ^1.0.0
-      better-sqlite3: '>=13.0.3'
+      better-sqlite3: ^13.0.3
       drizzle-kit: '>=0.31.4 || >=1.0.0-beta.1'
       drizzle-orm: ^0.45.2 || >=1.0.0-rc.1 <2.0.0
       mongodb: ^6.0.0 || ^7.0.0
@@ -3661,7 +3661,7 @@ packages:
     engines: {node: ^20.19 || ^22.12 || >=24.0}
     hasBin: true
     peerDependencies:
-      better-sqlite3: '>=13.0.3'
+      better-sqlite3: ^13.0.3
       typescript: '>=5.4.0'
     peerDependenciesMeta:
       better-sqlite3:

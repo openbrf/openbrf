@@ -66,8 +66,10 @@ overrides:
   # which its author deprecated as unmaintained; 13 dropped the dependency and
   # is the only reason this pin exists. Nothing here loads better-sqlite3 and
   # its build script is refused above, so the choice is purely about what the
-  # install prints.
-  better-sqlite3: ">=13.0.3"
+  # install prints. Bounded to 13 rather than left open: an override answers
+  # for every copy in the tree, so a major nobody has looked at should not be
+  # able to arrive through it.
+  better-sqlite3: "^13.0.3"
   # GHSA: stack exhaustion when merging recursive object graphs. Reached only
   # through @prisma/config merging our own prisma.config.ts at CLI time, so the
   # practical exposure here is nil, but the fix is free if Prisma's config
