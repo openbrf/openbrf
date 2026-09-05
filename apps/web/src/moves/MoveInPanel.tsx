@@ -16,7 +16,12 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { moveIn, type MoveInResult, type MoveRole } from "./moves-api";
+import {
+  moveIn,
+  type MoveInResult,
+  type MoveRole,
+  type TransferKind,
+} from "./moves-api";
 import { failureMessage } from "./move-errors";
 import { PersonSearch, type PersonOption } from "./PersonSearch";
 
@@ -68,6 +73,13 @@ export function MoveInPanel({
   const [role, setRole] = useState<MoveRole>("MEMBER");
   const [movedInOn, setMovedInOn] = useState("");
   const [recordTransfer, setRecordTransfer] = useState(false);
+  /*
+   * Which register event is being recorded, and the default is the common one.
+   * An upplatelse happens once in an apartment's life and a sale happens every
+   * few years, so the form opens on the transfer and the board says so when it
+   * is the other.
+   */
+  const [transferKind, setTransferKind] = useState<TransferKind>("TRANSFER");
   const [transferredOn, setTransferredOn] = useState("");
   const [fromPersonId, setFromPersonId] = useState("");
   const [price, setPrice] = useState("");
@@ -75,6 +87,14 @@ export function MoveInPanel({
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
   const [result, setResult] = useState<MoveInResult | null>(null);
+  /*
+   * The kind this move-in was submitted with, kept beside its answer. The
+   * select stays usable while the request is in flight, so reading it back
+   * afterwards could tell a board that a transfer was recorded when the server
+   * recorded a grant - and which of the two it was decides the paragraph the
+   * report is made under.
+   */
+  const [recordedKind, setRecordedKind] = useState<TransferKind | null>(null);
   const [apartmentNumber, setApartmentNumber] = useState("");
 
   useEffect(() => {
@@ -149,6 +169,7 @@ export function MoveInPanel({
     const chosen = apartmentOptions.find(
       (apartment) => apartment.id === apartmentId,
     );
+    const submittedKind = transferKind;
     const response = await moveIn({
       personId: person.personId,
       apartmentId,
@@ -157,7 +178,14 @@ export function MoveInPanel({
       transfer: recordTransfer
         ? {
             transferredOn,
-            fromPersonId: fromPersonId === "" ? null : fromPersonId,
+            kind: submittedKind,
+            // A grant has no seller: there is no holder before it for the
+            // bostadsratt to pass from. The server refuses one that names a
+            // seller, and the field is not offered for a grant either.
+            fromPersonId:
+              submittedKind === "GRANT" || fromPersonId === ""
+                ? null
+                : fromPersonId,
             price: price.trim() === "" ? null : price.trim(),
             agreementReference: agreementReference.trim(),
           }
@@ -170,6 +198,7 @@ export function MoveInPanel({
       return;
     }
     setApartmentNumber(chosen?.number ?? "");
+    setRecordedKind(submittedKind);
     setResult(response.value);
     onMoved();
   };
@@ -302,9 +331,15 @@ export function MoveInPanel({
                   }}
                   className="size-5 accent-trust"
                 />
-                {t("moves.transfer.record")}
+                {t("moves.transfer.recordIn")}
               </label>
-              <p className={HINT}>{t("moves.transfer.hint")}</p>
+              {/*
+                Its own sentence rather than the move-out's. That one says "for
+                a sale", which is what a move-out records and only half of what
+                a move-in can: the first holder of a bostadsratt is not buying
+                it from anybody.
+              */}
+              <p className={HINT}>{t("moves.transfer.hintIn")}</p>
             </div>
 
             {recordTransfer ? (
@@ -323,26 +358,55 @@ export function MoveInPanel({
                   />
                 </label>
 
-                <label className={LABEL} htmlFor="move-in-from-person">
-                  {t("moves.transfer.fromPerson")}
+                <label className={LABEL} htmlFor="move-in-transfer-kind">
+                  {t("moves.transfer.kind")}
                   <select
-                    id="move-in-from-person"
-                    value={fromPersonId}
+                    id="move-in-transfer-kind"
+                    value={transferKind}
                     onChange={(event) => {
-                      setFromPersonId(event.target.value);
+                      setTransferKind(event.target.value as TransferKind);
                     }}
                     className={FIELD}
                   >
-                    <option value="">
-                      {t("moves.transfer.fromPersonNone")}
+                    <option value="TRANSFER">
+                      {t("moves.transfer.kindTransfer")}
                     </option>
-                    {holderOptions.map((holder) => (
-                      <option key={holder.personId} value={holder.personId}>
-                        {holder.name}
-                      </option>
-                    ))}
+                    <option value="GRANT">
+                      {t("moves.transfer.kindGrant")}
+                    </option>
                   </select>
                 </label>
+                <p className={HINT}>{t("moves.transfer.kindHint")}</p>
+
+                {/*
+                 * Offered only for an overgang. A grant has no seller, so a
+                 * field asking for one would invite an answer the register
+                 * refuses - and the empty option used to read "upplatelse",
+                 * which is what made the two indistinguishable in the first
+                 * place.
+                 */}
+                {transferKind === "TRANSFER" ? (
+                  <label className={LABEL} htmlFor="move-in-from-person">
+                    {t("moves.transfer.fromPerson")}
+                    <select
+                      id="move-in-from-person"
+                      value={fromPersonId}
+                      onChange={(event) => {
+                        setFromPersonId(event.target.value);
+                      }}
+                      className={FIELD}
+                    >
+                      <option value="">
+                        {t("moves.transfer.fromPersonNone")}
+                      </option>
+                      {holderOptions.map((holder) => (
+                        <option key={holder.personId} value={holder.personId}>
+                          {holder.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
 
                 <label className={LABEL} htmlFor="move-in-price">
                   {t("moves.transfer.price")}
@@ -418,7 +482,17 @@ export function MoveInPanel({
           ) : null}
           {result.transferId === null ? null : (
             <p className="text-small text-ink-muted">
-              {t("moves.transfer.recorded")}
+              {/*
+                Named for the event that was recorded. A board that chose an
+                upplatelse and is told a transfer was registered would have to
+                open the register to find out which of the two the association's
+                own record now says happened.
+              */}
+              {t(
+                recordedKind === "GRANT"
+                  ? "moves.transfer.recordedGrant"
+                  : "moves.transfer.recordedTransfer",
+              )}
             </p>
           )}
           <p className="text-small text-ink-muted">

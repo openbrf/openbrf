@@ -1,7 +1,9 @@
-import { Body, Controller, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { actingPersonId } from "../registers/acting-person";
 import {
   type MoveInResult,
   type MoveOutResult,
@@ -26,7 +28,15 @@ const moveInSchema = z.object({
   role: z.enum(["MEMBER", "RESIDENT"]),
   movedInOn: isoDate,
   transfer: transferSchema
-    .extend({ fromPersonId: z.string().min(1).nullish() })
+    .extend({
+      /*
+       * Stated, never inferred from the absence of a seller. An upplatelse and
+       * an overgang whose seller the register never held look the same on this
+       * table, and only the first opens the duty in Lag (2026:484) 3 kap. 2 §.
+       */
+      kind: z.enum(["GRANT", "TRANSFER"]),
+      fromPersonId: z.string().min(1).nullish(),
+    })
     .optional(),
 });
 
@@ -49,9 +59,13 @@ export class MoveController {
   constructor(private readonly moves: MoveService) {}
 
   @Post("move-in")
-  async moveIn(@Body() body: unknown): Promise<MoveInResult> {
+  async moveIn(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<MoveInResult> {
     const input = moveInSchema.parse(body);
     return this.moves.moveIn({
+      actorPersonId: actingPersonId(request),
       personId: input.personId,
       apartmentId: input.apartmentId,
       role: input.role,
@@ -63,6 +77,7 @@ export class MoveController {
               transferredOn: input.transfer.transferredOn,
               price: input.transfer.price,
               agreementReference: input.transfer.agreementReference,
+              kind: input.transfer.kind,
               fromPersonId: input.transfer.fromPersonId,
             },
     });

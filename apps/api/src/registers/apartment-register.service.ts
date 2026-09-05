@@ -3,7 +3,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma, TerminationKind } from "../generated/prisma/client";
+import type {
+  Prisma,
+  TerminationKind,
+  TransferKind,
+} from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
 import { RegisterReportMailerService } from "./register-report-mailer.service";
@@ -49,6 +53,7 @@ export type ApartmentRegisterErrorReason =
   | "lien-already-released"
   | "transfer-not-found"
   | "membership-decision-already-recorded"
+  | "membership-decision-on-a-grant"
   | "date-not-a-calendar-date"
   | "date-in-the-future"
   | "association-not-set-up";
@@ -66,6 +71,7 @@ const ERROR_STATUS = {
   "lien-already-released": 409,
   "transfer-not-found": 404,
   "membership-decision-already-recorded": 409,
+  "membership-decision-on-a-grant": 409,
   "date-not-a-calendar-date": 400,
   "date-in-the-future": 400,
   "association-not-set-up": 409,
@@ -108,6 +114,16 @@ export interface ApartmentRegisterLien {
 
 export interface ApartmentRegisterTransfer {
   id: string;
+  /**
+   * Whether this is an upplatelse (BRL 4 kap.) or an overgang (6 kap.), or null
+   * on a row written before the register recorded which.
+   *
+   * On the view because the two are reported to the cooperative housing
+   * register under different paragraphs and only one of them takes a membership
+   * decision. A screen that could not tell them apart would offer to record a
+   * date the server refuses.
+   */
+  kind: "GRANT" | "TRANSFER" | null;
   transferredOn: string;
   /**
    * The day the association decided on the acquirer's membership, which is the
@@ -526,12 +542,31 @@ export class ApartmentRegisterService {
   }): Promise<ApartmentRegisterTransfer> {
     const existing = await this.prisma.transfer.findUnique({
       where: { id: input.transferId },
-      select: { id: true, apartmentId: true, membershipDecidedOn: true },
+      select: {
+        id: true,
+        apartmentId: true,
+        kind: true,
+        membershipDecidedOn: true,
+      },
     });
     if (existing === null) {
       throw new ApartmentRegisterError(
         "No such transfer.",
         "transfer-not-found",
+      );
+    }
+    /*
+     * An upplatelse is reported on its own day (Lag (2026:484) 3 kap. 2 §), and
+     * its duty was entered when it was recorded. A membership decision date on
+     * one would be a second window on a second paragraph for one event, and the
+     * ledger would refuse the row it produced - after this transaction had
+     * already written the date into the register. Refused here instead, where
+     * the board can read why.
+     */
+    if (existing.kind === "GRANT") {
+      throw new ApartmentRegisterError(
+        "An upplatelse is reported from the day of the grant.",
+        "membership-decision-on-a-grant",
       );
     }
     if (existing.membershipDecidedOn !== null) {
@@ -563,6 +598,7 @@ export class ApartmentRegisterService {
         select: {
           id: true,
           transferredOn: true,
+          kind: true,
           membershipDecidedOn: true,
           price: true,
           agreementReference: true,
@@ -646,6 +682,57 @@ export class ApartmentRegisterService {
   }
 
   /**
+   * Enters the duty an upplatelse opens, inside the caller's transaction.
+   *
+   * Lag (2026:484) 3 kap. 2 § makes the association report a grant within two
+   * weeks of the grant itself. Unlike an overgang, there is no second date to
+   * wait for: the window opens on the day the bostadsratt was granted, which is
+   * the transfer row's own `transferredOn`. So the duty is entered by the
+   * transaction that records the grant, and there is no later act that could
+   * enter it instead.
+   *
+   * That transaction belongs to the move flow, which is where an upplatelse is
+   * recorded - the first holder moving in. Public for that one caller, and it
+   * takes the transaction client rather than opening one, so the duty commits
+   * with the register event or neither does. The reasoning is the ledger's own,
+   * in {@link enterObligation}.
+   *
+   * The board is told by {@link notifyBoardOfObligation}, after the caller's
+   * transaction has committed, which is the same ordering every other duty in
+   * this ledger uses and for the same reason.
+   */
+  async enterGrantObligation(
+    tx: Prisma.TransactionClient,
+    input: {
+      actorPersonId: string;
+      apartmentId: string;
+      transferId: string;
+      /** The day of the upplatelse, as the transfer row records it. */
+      grantedOn: Date;
+    },
+  ): Promise<{ id: string }> {
+    return this.enterObligation(tx, {
+      actorPersonId: input.actorPersonId,
+      kind: "GRANT",
+      apartmentId: input.apartmentId,
+      transferId: input.transferId,
+      triggeredOn: input.grantedOn,
+    });
+  }
+
+  /**
+   * Tells the board that a reporting window has opened, after the transaction
+   * that opened it has committed.
+   *
+   * Public for the move flow, which enters a grant's duty itself. Everything
+   * else in this service reaches the same notice through
+   * {@link enqueueBoardNotice}, which this is.
+   */
+  async notifyBoardOfObligation(obligationId: string): Promise<void> {
+    await this.enqueueBoardNotice(obligationId);
+  }
+
+  /**
    * Enters one duty in the obligation ledger, inside the caller's transaction.
    *
    * Private and takes the transaction client rather than the service's own, so
@@ -672,12 +759,13 @@ export class ApartmentRegisterService {
       /** The day the statutory window opened, as a date column value. */
       triggeredOn: Date;
     } & (
+      | { kind: "GRANT"; transferId: string }
       | { kind: "TRANSFER"; transferId: string }
       | { kind: "TERMINATION"; terminationId: string }
     ),
   ): Promise<{
     id: string;
-    kind: "TRANSFER" | "TERMINATION";
+    kind: "GRANT" | "TRANSFER" | "TERMINATION";
     triggeredOn: Date;
     dueOn: Date;
   }> {
@@ -685,7 +773,7 @@ export class ApartmentRegisterService {
       data: {
         kind: input.kind,
         apartmentId: input.apartmentId,
-        transferId: input.kind === "TRANSFER" ? input.transferId : null,
+        transferId: input.kind === "TERMINATION" ? null : input.transferId,
         terminationId:
           input.kind === "TERMINATION" ? input.terminationId : null,
         triggeredOn: input.triggeredOn,
@@ -897,6 +985,7 @@ export class ApartmentRegisterService {
           select: {
             id: true,
             transferredOn: true,
+            kind: true,
             membershipDecidedOn: true,
             price: true,
             agreementReference: true,
@@ -1025,6 +1114,7 @@ function toLien(lien: {
  */
 function toTransfer(transfer: {
   id: string;
+  kind: TransferKind | null;
   transferredOn: Date;
   membershipDecidedOn: Date | null;
   price: { toString: () => string } | null;
@@ -1035,6 +1125,7 @@ function toTransfer(transfer: {
 }): ApartmentRegisterTransfer {
   return {
     id: transfer.id,
+    kind: transfer.kind,
     transferredOn: isoDate(transfer.transferredOn) ?? "",
     membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
     fromName:

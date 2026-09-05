@@ -80,6 +80,17 @@ export interface ReportTransfer {
   apartment: string;
   /** Whether this person acquired the tenant-ownership or gave it up. */
   direction: "acquired" | "relinquished";
+  /**
+   * Whether the association granted the tenant-ownership (an upplatelse, BRL
+   * 4 kap.) or it changed hands (an overgang, 6 kap.), and null on a row
+   * recorded before the register asked.
+   *
+   * On the report because the two are different events about this person: one
+   * says they were the first holder, the other that they bought from somebody.
+   * Both are stated as recorded and neither is inferred from the absence of a
+   * seller, which is what made them the same row until the column existed.
+   */
+  kind: "GRANT" | "TRANSFER" | null;
   transferredOn: string;
   /**
    * The day the association decided on the acquirer's membership, or null.
@@ -149,7 +160,7 @@ export interface ReportTermination {
 export interface ReportRegisterReportObligation {
   obligationId: string;
   /** Which register event the report is about. */
-  kind: "TRANSFER" | "TERMINATION";
+  kind: "GRANT" | "TRANSFER" | "TERMINATION";
   apartment: string;
   /** The day the statutory two-week window opened. */
   triggeredOn: string;

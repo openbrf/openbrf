@@ -96,6 +96,7 @@
       "lateNotice": "Lantmäteriet may order a late report in under penalty of a fine, so the date is the deadline and not a target. The reporting queue lists this duty and every other one still outstanding.",
       "action": "Open the reporting queue",
       "event": {
+        "GRANT": "A grant",
         "TRANSFER": "A transfer",
         "TERMINATION": "A termination"
       }
@@ -334,7 +335,7 @@
         "standing": "Still standing",
         "nothing": "Nothing recorded",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
-        "twoTiers": "Service data is erased on the purge date below. The member register, transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
+        "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
           "person": "The person",
           "residencies": "Residencies",
@@ -342,7 +343,7 @@
           "systemRoles": "System roles",
           "account": "Account",
           "memberRegister": "The member register",
-          "transfers": "Transfers",
+          "transfers": "Grants and transfers",
           "terminations": "Terminations",
           "lienNotes": "Lien notes",
           "reportObligations": "Reporting obligations to the cooperative housing register",
@@ -381,6 +382,7 @@
           "date": "Date",
           "recordedName": "Name as recorded",
           "note": "Note",
+          "transferKind": "Kind",
           "direction": "Direction",
           "price": "Price",
           "agreementReference": "Agreement reference",
@@ -512,7 +514,12 @@
           "MEETING_PROXY_WITHDRAWN": "Proxy authorisation withdrawn",
           "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded"
         },
+        "transferKind": {
+          "GRANT": "Grant",
+          "TRANSFER": "Transfer"
+        },
         "reportKind": {
+          "GRANT": "Grant",
           "TRANSFER": "Transfer",
           "TERMINATION": "Termination"
         },
@@ -1483,7 +1490,7 @@
         "failed": "The lien could not be recorded. Check the creditor and the date."
       },
       "transfers": {
-        "heading": "Transfers",
+        "heading": "Grants and transfers",
         "transferredOn": "Date",
         "from": "From",
         "to": "To",
@@ -1496,7 +1503,10 @@
         "membershipFailed": "The membership decision date could not be recorded. The date cannot be in the future, and a transfer that already carries one is not overwritten.",
         "noAgreement": "No agreement reference recorded",
         "firstGrant": "First grant",
-        "none": "No transfers recorded"
+        "sellerUnknown": "The register does not hold the seller",
+        "kindUnrecorded": "Not recorded in the register",
+        "grantReportedFromGrant": "Grant: reported within two weeks of the grant itself, and no membership decision is counted.",
+        "none": "No grants or transfers recorded"
       },
       "terminations": {
         "heading": "Terminations",
@@ -1559,6 +1569,7 @@
         "reportedOn": "Reported"
       },
       "event": {
+        "GRANT": "Grant",
         "TRANSFER": "Transfer",
         "TERMINATION": "Termination"
       },
@@ -1576,7 +1587,7 @@
       "reportedLate_other": "Reported {{count}} days after the deadline",
       "empty": {
         "title": "Nothing to report",
-        "description": "A duty appears here when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
+        "description": "A duty appears here when a grant is recorded, when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
       },
       "record": {
         "open": "Record the report",
@@ -1658,15 +1669,23 @@
     },
     "transfer": {
       "record": "Record a transfer",
-      "hint": "For a sale: the date of the agreement, the other party, and a reference to where the agreement is filed.",
+      "recordIn": "Record a grant or a transfer",
+      "hint": "For a transfer: the date of the agreement, the new holder, and a reference to where the agreement is filed.",
+      "hintIn": "For a grant or a transfer: the date of the agreement, which event is being recorded, the previous holder where the register has one, and a reference to where the agreement is filed.",
+      "kind": "What is being recorded",
+      "kindTransfer": "Transfer - the tenant-ownership changes hands",
+      "kindGrant": "Grant - the association grants the tenant-ownership",
+      "kindHint": "A grant is the association's own act (BRL 4 kap.) and is reported to the cooperative housing register within two weeks of the grant itself. A transfer is counted from the day the association decided on membership, or from the transfer where the acquirer is already a member or falls outside the membership requirement.",
       "transferredOn": "Agreement date",
       "fromPerson": "Previous holder",
-      "fromPersonNone": "First grant - no previous holder",
+      "fromPersonNone": "The register does not hold the previous holder",
       "toPerson": "New holder",
       "price": "Price",
       "agreementReference": "Agreement reference",
-      "agreementReferenceHint": "Required: a case number, or where the paper copy is filed. It is printed in the apartment register extract, which states one for every transfer.",
+      "agreementReferenceHint": "Required: a case number, or where the paper copy is filed. It is printed in the apartment register extract, which states one for every grant and every transfer.",
       "recorded": "The transfer was recorded in the apartment register.",
+      "recordedGrant": "The grant was recorded in the apartment register.",
+      "recordedTransfer": "The transfer was recorded in the apartment register.",
       "changePerson": "Choose somebody else"
     },
     "errors": {
@@ -1678,7 +1697,8 @@
       "movedOutBeforeMovedIn": "A move-out cannot be earlier than the move-in.",
       "transferPersonNotFound": "The other party to the transfer is not in the register. Add them first.",
       "transferPersonRequired": "Choose the new holder, or turn off recording a transfer.",
-      "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every transfer, and a transfer cannot be removed once recorded.",
+      "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every grant and every transfer, and the record cannot be removed once written.",
+      "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },

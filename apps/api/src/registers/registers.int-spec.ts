@@ -414,6 +414,7 @@ beforeAll(async () => {
   await prisma.transfer.create({
     data: {
       apartmentId: apartments.held,
+      kind: "TRANSFER",
       fromPersonId: actors.formerMember.personId,
       toPersonId: actors.member.personId,
       transferredOn: new Date("2019-06-01T00:00:00.000Z"),
@@ -427,6 +428,10 @@ beforeAll(async () => {
       {
         id: UNDECIDED_TRANSFER_ID,
         apartmentId: apartments.other,
+        // An overgang whose seller the register does not hold, which is the
+        // row a grant used to be indistinguishable from. It is the one the
+        // board is asked to record a membership decision on.
+        kind: "TRANSFER",
         fromPersonId: null,
         toPersonId: actors.protectedMember.personId,
         transferredOn: new Date("2021-02-01T00:00:00.000Z"),
@@ -438,6 +443,7 @@ beforeAll(async () => {
       {
         id: REFUSED_TRANSFER_ID,
         apartmentId: apartments.other,
+        kind: "TRANSFER",
         fromPersonId: actors.protectedMember.personId,
         toPersonId: actors.resident.personId,
         transferredOn: new Date("2022-05-01T00:00:00.000Z"),
@@ -1378,6 +1384,9 @@ describe("recording a termination", () => {
  * repaired later, which is why it is recordable now and not with the reporting
  * screen.
  */
+/** Thrown to roll a probe transaction back once it has proved its point. */
+class Rollback extends Error {}
+
 describe("recording the membership decision behind a transfer", () => {
   it("is refused for a resident", async () => {
     const response = await inject({
@@ -1391,6 +1400,64 @@ describe("recording the membership decision behind a transfer", () => {
     });
 
     expect(response.statusCode).toBe(403);
+  });
+
+  it("records it on a transfer written before the register asked what kind it was", async () => {
+    /*
+     * The rows the requirements were made NOT VALID for, and the ones this act
+     * exists for: a transfer entered before the register asked for an agreement
+     * reference or for the kind of event it was. Nothing derives either, so
+     * they stay absent - and a NOT VALID CHECK exempted such a row only until
+     * something wrote to it. PostgreSQL checks the whole new row on UPDATE, so
+     * recording the membership decision on one was refused on a constraint
+     * about a different column, and the deadline in Lag (2026:484) 3 kap. 3 §
+     * andra stycket could never be raised for it.
+     *
+     * The row is made by removing the guard inside a transaction that is rolled
+     * back, because there is no other way to write what a migration wrote
+     * before the guard existed. The drop is transactional and this worker has a
+     * database to itself.
+     */
+    const legacyId = `${suffix}-legacy-transfer`;
+    await prisma
+      .$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "transfer" DROP CONSTRAINT IF EXISTS "transfer_grant_has_no_seller"',
+        );
+        await tx.$executeRawUnsafe(
+          'DROP TRIGGER "transfer_states_what_it_is" ON "transfer"',
+        );
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "transfer" ("id", "apartmentId", "toPersonId", "transferredOn")
+         VALUES ($1, $2, $3, DATE '2013-04-01')`,
+          legacyId,
+          apartments.other,
+          actors.member.personId,
+        );
+
+        const decided = await tx.$executeRawUnsafe(
+          `UPDATE "transfer" SET "membershipDecidedOn" = DATE '2013-03-11' WHERE "id" = $1`,
+          legacyId,
+        );
+        expect(decided).toBe(1);
+
+        const [row] = await tx.$queryRawUnsafe<{ kind: string | null }[]>(
+          `SELECT "kind" FROM "transfer" WHERE "id" = $1`,
+          legacyId,
+        );
+        // Still nothing about what kind of event it was, which is the point: the
+        // update repaired what the board knows and invented nothing else.
+        expect(row?.kind).toBeNull();
+
+        throw new Rollback();
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof Rollback)) {
+          throw error;
+        }
+      });
+
+    expect(await prisma.transfer.count({ where: { id: legacyId } })).toBe(0);
   });
 
   it("records it on the transfer and writes the audit entry", async () => {

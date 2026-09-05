@@ -752,7 +752,14 @@ change it.
     event it is computed from, so the register write itself fails rather than
     leaving a deadline unrecorded. The two weeks are stated in the database as
     well as in the service, so no writer can enter a window that is not the
-    statutory fourteen days, and each duty carries its own audit entry. A
+    statutory fourteen days, and each duty carries its own audit entry. A grant
+    (upplåtelse) is recorded as the event it is rather than inferred from a
+    transfer with no seller, which is what a transfer out of a hand the register
+    never held looks like too: the board states which of the two it is when it
+    records the move, the database refuses a grant that names a seller, and the
+    duty 3 kap. 2 § lays on the association is entered on the day of the grant by
+    the transaction that records it - the one reporting window that opens with no
+    second date having to be recorded first. A
     person's own duties are on their data subject access report, reached through
     the register events already on it. The board reads those duties on a screen
     of its own that groups them by what is owed, what has passed its statutory
@@ -781,14 +788,17 @@ change it.
     and area, the association's postal address and its counts of buildings,
     dwellings and premises, a co-holder's share of one bostadsrätt, a holder's
     civil status, and a lienholder's identifier, address and priority number -
-    together with why each is absent. The ledger also carries no duty whose
-    window the statute runs from the event itself rather than from a separately
-    recorded date: an upplåtelse (3 kap. 2 §), a transfer to somebody already a
-    member or outside the membership requirement, and one where the bostadsrätt
-    passed to the association (3 kap. 3 § andra and fjärde styckena). None of
-    those is distinguishable from what the platform records today, and the
+    together with why each is absent. Two duties whose window the
+    statute runs from the event itself rather than from a separately recorded
+    date are still absent: a transfer to somebody already a member or outside
+    the membership requirement, and one where the bostadsrätt passed to the
+    association (3 kap. 3 § andra and fjärde styckena). Neither is
+    distinguishable from what the platform records today - both look like a
+    transfer whose membership decision has not been recorded yet - and the
     statute also assigns some reports to a juridical person rather than to the
-    association. A registered överlåtelse that is later hävd or återgången is a
+    association. The grant of 3 kap. 2 § was the third of those and is no
+    longer among them: the register records which of its events are grants, so
+    that duty is raised on the day of the grant itself. A registered överlåtelse that is later hävd or återgången is a
     further anmälan (3 kap. 3 § tredje stycket) with nothing recording it
   - Not modelled, and needed before a report can be rendered: Förordning
     (2026:898) 2 kap. 4 § andra stycket reports fastighetsbeteckning together
