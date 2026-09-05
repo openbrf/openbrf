@@ -72,4 +72,4 @@ requirement, and one where the bostadsrätt passed to the association under 3 ka
 3 § andra and fjärde styckena - because neither is distinguishable from what an
 instance records today. The third of those cases, a grant under 3 kap. 2 §, was
 in that list until the register began recording which of its events are grants;
-a grant now opens its obligation on the day of the grant itself.
+a grant now opens its reporting obligation on the day of the grant itself.
