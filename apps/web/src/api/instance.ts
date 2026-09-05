@@ -1,4 +1,5 @@
 import { apiRequest, apiUpload, type ApiResult } from "./client";
+import type { MeetingBylaws } from "./meetings";
 
 /**
  * The instance's own endpoints, one function per route.
@@ -80,6 +81,20 @@ export interface InstanceSettings {
    * open.
    */
   motionDeadline: { month: number; day: number } | null;
+  /**
+   * What the bylaws say about the general meeting, in the four places BRL 9 kap.
+   * 14 § leaves the rule to them.
+   *
+   * Never null, unlike the deadline above, and the difference is the statute
+   * rather than a modelling choice: each of these clauses has a rule that
+   * applies unless the bylaws displace it, so an association that has recorded
+   * nothing is under the statute rather than half-configured.
+   *
+   * The shape is mirrored from the meetings module's own wire type rather than
+   * declared twice, because the same four clauses travel with every meeting the
+   * board reads and two declarations of them could drift.
+   */
+  meetingBylaws: MeetingBylaws;
 }
 
 export interface Viewer {
@@ -234,6 +249,20 @@ export function saveSelfSignup(input: {
   enabled: boolean;
 }): Promise<ApiResult<{ enabled: boolean }>> {
   return apiRequest("PUT", "/api/settings/self-signup", input);
+}
+
+/**
+ * Records what the association's bylaws say about the general meeting.
+ *
+ * All four clauses at once and never one of them, because the endpoint takes
+ * them that way: they are transcribed together from one paragraph of the
+ * stadgar, and a form that saved them one at a time would let an instance sit in
+ * a state the bylaws do not describe.
+ */
+export function saveMeetingBylaws(
+  input: MeetingBylaws,
+): Promise<ApiResult<{ meetingBylaws: MeetingBylaws }>> {
+  return apiRequest("PUT", "/api/settings/meeting-bylaws", input);
 }
 
 export function saveOwnProfile(input: {

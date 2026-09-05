@@ -98,6 +98,16 @@ const SETTINGS: InstanceSettings = {
   // The clause a cooperative's own bylaws set. Null here, which is the ordinary
   // state of an instance whose bylaws say nothing about motions.
   motionDeadline: null,
+  // The four clauses about the general meeting, at the statutory position. Never
+  // null, unlike the deadline above: each of them has a rule that applies unless
+  // the bylaws displace it, so this is what an instance that has recorded
+  // nothing is under rather than an unconfigured state.
+  meetingBylaws: {
+    proxyHolderEligibilityWidened: false,
+    maxMembersPerProxyHolder: 1,
+    storageOnlyVoteLimited: false,
+    assistantEligibilityWidened: false,
+  },
 };
 
 function viewerWith(capabilities: string[]): Viewer {

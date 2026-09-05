@@ -18,10 +18,54 @@ import { failureMessageKey } from "../ui/save-state";
  * that no year has in the panel's own words, which are not the words to use to a
  * member writing a motion.
  */
+
+/**
+ * The reasons the motions module refuses with.
+ *
+ * Mirrored from the API's own union rather than imported, like every other wire
+ * shape in this client, and written out in full rather than left as `string`:
+ * the map below is checked against it with `satisfies`, so a reason the server
+ * gains and this client has no sentence for is a compile error here rather than
+ * "something went wrong" on a board member's screen.
+ *
+ * That check is what a map typed only as `Record<string, TranslationKey>` does
+ * not give. Such a map compiles with a reason missing and falls through to the
+ * unknown sentence at runtime, which is a defect nothing surfaces until somebody
+ * meets it.
+ */
+export type MotionReason =
+  | "not-a-member"
+  | "motion-not-found"
+  | "already-closed"
+  | "motion-withdrawn"
+  | "meeting-not-found"
+  | "meeting-already-held"
+  | "meeting-notice-issued"
+  | "meeting-changed-meanwhile"
+  | "personal-identity-number";
+
 const MOTION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-a-member": "motions.errors.notAMember",
   "motion-not-found": "motions.errors.motionNotFound",
   "already-closed": "motions.errors.alreadyClosed",
+  /*
+   * An item the member took back, which is not the same as one the board has
+   * closed. It refuses being put to a meeting for a reason that is the member's
+   * decision rather than a state the board can move it out of, so the sentence
+   * says so instead of inviting another attempt.
+   */
+  "motion-withdrawn": "motions.errors.motionWithdrawn",
+  /*
+   * The three refusals the meeting link meets. Separate sentences because the
+   * board's next act differs in each: a meeting that is gone means reading the
+   * list again, one already held means choosing another, and one whose notice
+   * has gone out cannot take the item at all - EFL 6 kap. 25 § leaves a meeting
+   * unable to decide a matter its notice did not take up, so attaching an item
+   * afterwards would claim it could.
+   */
+  "meeting-not-found": "motions.errors.meetingNotFound",
+  "meeting-already-held": "motions.errors.meetingAlreadyHeld",
+  "meeting-notice-issued": "motions.errors.meetingNoticeIssued",
   /*
    * Deliberately not folded into the sentence above it. The board loses this
    * one to another board member who moved the same item, and the motion is
@@ -32,7 +76,7 @@ const MOTION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "meeting-changed-meanwhile": "motions.errors.meetingChangedMeanwhile",
   "personal-identity-number": "motions.errors.personalIdentityNumber",
   "invalid-body": "motions.errors.invalidBody",
-};
+} satisfies Record<MotionReason | "invalid-body", TranslationKey>;
 
 /**
  * The sentence for a refusal from this module.

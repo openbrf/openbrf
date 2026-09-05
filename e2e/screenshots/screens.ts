@@ -246,6 +246,26 @@ const CLEANING = {
 } as const;
 
 /**
+ * The general meeting the three meeting screens are photographed against.
+ *
+ * Held here rather than inline because all three entries name it: the board
+ * arranges it and summons the members to it, checks somebody in, and reads the
+ * voting register that follows from the check-in.
+ *
+ * The day is computed rather than written down, for the reason the cleaning day
+ * is: a date fixed here would pass into the past, and the day of a meeting is
+ * what decides who has a vote at it - so a walk run a year from now would
+ * photograph a register read against a day nobody is a member on. Far enough
+ * ahead that the notice is a summons to something rather than a record of it.
+ */
+const MEETING = {
+  heldOn: dayFromToday(60),
+  agendaItem: "Val av styrelse för det kommande verksamhetsåret",
+  startsAt: "18:00",
+  place: "Föreningslokalen, Storgatan 12",
+} as const;
+
+/**
  * The notice the news screens are photographed against.
  *
  * Held here rather than inline because six entries name it: the board writes it
@@ -1118,5 +1138,108 @@ export const SCREENS: readonly Screen[] = [
     // come back. The first date of the two, which is the one they took.
     waitFor: { text: RESIDENT.name },
     capture: { panel: "Styrelsens kalender" },
+  },
+
+  // --- the general meeting ----------------------------------------------------
+  // Three screens in one order, because each photographs what the one above it
+  // did: the board arranges a meeting, writes its agenda and summons the members
+  // to it; then checks a member in; then reads the voting register that follows
+  // from that check-in. Nothing is arranged before the first of them - the wizard
+  // seeds no meetings, and arranging one is where this module starts.
+  //
+  // The administrator throughout, and that is the capability rather than a
+  // convenience: meetings:manage is the board's and is not derived from
+  // membership, because what a member holds at a general meeting is the right to
+  // attend, speak and vote and none of that happens on this platform. There is
+  // no member's half of this screen to photograph.
+  {
+    /*
+     * The meeting as the board arranges it: the day, the running order, and the
+     * notice that summons the members.
+     *
+     * The whole page, because what this screen is about is the order the panels
+     * come in - a board reads down it from arranging the meeting to reading the
+     * register, and a single card would say nothing about that.
+     *
+     * The notice is issued last and deliberately: issuing it settles the matters
+     * the meeting deals with (EFL 6 kap. 22 § with 25 §), so a picture taken
+     * before it would show a form where the record now stands.
+     */
+    name: "meetings-board",
+    as: "administrator",
+    goto: appPath("/meetings"),
+    prepare: [
+      { fill: { label: "Dag då den hålls" }, value: MEETING.heldOn },
+      { click: { button: "Planera in stämman" } },
+      // The panels below appear only once the new meeting has been read back,
+      // and the agenda's first field is what says they did.
+      { see: { label: "Punkt 1" } },
+      { fill: { label: "Punkt 1" }, value: MEETING.agendaItem },
+      { click: { button: "Spara dagordningen" } },
+      { fill: { label: "Börjar" }, value: MEETING.startsAt },
+      { fill: { label: "Plats" }, value: MEETING.place },
+      { click: { button: "Utfärda kallelsen" } },
+    ],
+    /*
+     * The place as the notice states it back, which exists only once the summons
+     * has been written and the meeting read again. Not the confirmation beside
+     * it: that is a state the panel leaves the moment the re-read lands, so
+     * whether it is still up is a race with a request that answers in a few
+     * hundred milliseconds.
+     */
+    waitFor: { text: MEETING.place },
+    capture: "page",
+  },
+  {
+    /*
+     * Checking a member in: the list EFL 6 kap. 27 § has drawn up at the
+     * meeting.
+     *
+     * The tenant-owner rather than the resident, and that is the statute rather
+     * than a choice: EFL 6 kap. 2-3 §§ give the right to attend and the vote to
+     * a member, so the resident persona would be photographed being refused.
+     *
+     * The card on its own, because this is the act rather than the screen.
+     */
+    name: "meetings-check-in",
+    as: "administrator",
+    goto: appPath("/meetings"),
+    prepare: [
+      { click: { button: /^Öppna Ordinarie/ } },
+      { see: { label: "Vem som är närvarande" } },
+      /*
+       * By the whole of the option's text. The picker writes the apartment
+       * beside the name - two households share a surname often enough that the
+       * number is what tells them apart - and Playwright matches an option label
+       * exactly.
+       */
+      {
+        select: { combobox: "Vem som är närvarande" },
+        option: `${MEMBER.name} (${MEMBER.apartmentNumber})`,
+      },
+      { click: { button: "Anteckna som närvarande" } },
+    ],
+    // The control that strikes her off again, which arrives with the re-read of
+    // the meeting rather than with the click.
+    waitFor: { button: `Stryk ${MEMBER.name} från förteckningen` },
+    capture: { panel: "Avprickning" },
+  },
+  {
+    /*
+     * The voting register (röstlängden), with the check-in above it in it.
+     *
+     * It is derived from the member register, the residencies, the attendance
+     * lines and the standing authorities every time the meeting is read, and it
+     * is never stored - so this is a picture of a computation rather than of a
+     * table, and it is only worth taking once somebody has been checked in.
+     */
+    name: "meetings-voting-register",
+    as: "administrator",
+    goto: appPath("/meetings"),
+    prepare: [{ click: { button: /^Öppna Ordinarie/ } }],
+    // The vote the entry above put in the room, which exists only once the
+    // register has been derived from the attendance line that entry wrote.
+    waitFor: { text: "Rösten närvarande" },
+    capture: { panel: "Röstlängden" },
   },
 ];

@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { fetchMeetings, type MeetingSummary } from "../api/meetings";
 import {
   fetchMotionIntake,
   fetchMotionQueue,
@@ -30,6 +31,15 @@ interface Loaded {
   deadline: MotionDeadline | null;
   own: readonly OwnMotion[];
   queue: readonly QueuedMotion[];
+  /**
+   * The meetings an item may be put to, or null where this viewer may not read
+   * them.
+   *
+   * Null rather than an empty list where the capability is absent, because the
+   * queue panel says different things about the two: no meetings arranged is a
+   * fact about the association, and no capability is a fact about the account.
+   */
+  meetings: readonly MeetingSummary[] | null;
   loadFailed: boolean;
 }
 
@@ -38,6 +48,7 @@ const EMPTY: Loaded = {
   deadline: null,
   own: [],
   queue: [],
+  meetings: null,
   loadFailed: false,
 };
 
@@ -72,6 +83,14 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
 
   const canSubmit = viewer.capabilities.includes("motions:submit");
   const canHandle = viewer.capabilities.includes("motions:handle");
+  /*
+   * Which meeting deals with an item is a fact about a meeting, so the list is
+   * read with the capability that answers for meetings rather than with the one
+   * that answers for the queue. The board holds both; a seat granted only the
+   * queue reads the items and is offered no meeting to put them on, which is the
+   * honest answer rather than an empty control.
+   */
+  const canReadMeetings = viewer.capabilities.includes("meetings:manage");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   /**
@@ -87,9 +106,10 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
   const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
-    const [intake, queue] = await Promise.all([
+    const [intake, queue, meetings] = await Promise.all([
       canSubmit ? fetchMotionIntake() : null,
       canHandle ? fetchMotionQueue() : null,
+      canHandle && canReadMeetings ? fetchMeetings() : null,
     ]);
 
     return {
@@ -107,9 +127,16 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
             : null,
       own: intake?.ok === true ? intake.value.motions : [],
       queue: queue?.ok === true ? queue.value.motions : [],
+      meetings: meetings?.ok === true ? meetings.value : null,
+      /*
+       * A meetings read that failed is deliberately not a failed load of this
+       * screen. The queue is what the screen is for and it arrived; what is lost
+       * is the control that puts an item on a meeting, and the panel already
+       * renders that absence as a sentence.
+       */
       loadFailed: intake?.ok === false || queue?.ok === false,
     };
-  }, [canSubmit, canHandle]);
+  }, [canSubmit, canHandle, canReadMeetings]);
 
   /**
    * Reads, and applies the answer only while it is still the newest one.
@@ -139,7 +166,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     };
   }, [reload]);
 
-  const { ready, deadline, own, queue, loadFailed } = loaded;
+  const { ready, deadline, own, queue, meetings, loadFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -164,6 +191,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
         <MotionQueuePanel
           motions={queue}
           deadline={deadline}
+          meetings={meetings}
           onChanged={reload}
         />
       ) : null}

@@ -736,11 +736,30 @@ async function request<T>(path: string, options?: RequestOptions): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * The largest page the address book endpoint answers with.
+ *
+ * Mirrored from the endpoint's own bound rather than imported, like every other
+ * wire constant in this client. A caller asking for more is refused, so this is
+ * the fewest requests a reader that needs the whole book can get away with.
+ */
+export const REGISTER_MAX_PAGE_SIZE = 100;
+
 export interface RegisterQuery {
   addressId?: string;
   filter: RegisterFilter;
   search?: string;
   page: number;
+  /**
+   * How many rows one page carries. The endpoint's own default when absent.
+   *
+   * Stated only by a reader that needs the book as a whole rather than a page of
+   * it - the meetings screen writes a name beside each identifier the voting
+   * register names, and every extra page is another request between a board
+   * member and the door. The screens that page the register for a person to read
+   * leave it alone, because a page there is what somebody scrolls.
+   */
+  pageSize?: number;
 }
 
 function queryString(query: RegisterQuery): string {
@@ -753,6 +772,9 @@ function queryString(query: RegisterQuery): string {
     params.set("search", query.search.trim());
   }
   params.set("page", String(query.page));
+  if (query.pageSize !== undefined) {
+    params.set("pageSize", String(query.pageSize));
+  }
   return params.toString();
 }
 

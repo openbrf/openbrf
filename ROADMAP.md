@@ -580,15 +580,16 @@ change it.
 
 **Later, still free and in the core**
 
-- [ ] General meetings: the notice (kallelse), the agenda, the voting register,
-      proxies, real-time voting, and the link from a motion to the meeting it is
-      taken up at. Motion intake itself is the Forms item below rather than this
-      one. Postal voting is prohibited for a housing cooperative under BRL 9 kap.
-      14 §, and will never be built.
-  - Landed: the meeting itself, its agenda, who was present and in what
-    capacity, the proxy authorisations (fullmakt) under which somebody else
-    exercises a member's vote, and each item's outcome beside the vote counts
-    it was declared on.
+- [x] General meetings: the notice (kallelse), the agenda, the voting register,
+      proxies, and the link from a motion to the meeting it is taken up at.
+      Motion intake itself is the Forms item below rather than this one. Postal
+      voting is prohibited for a housing cooperative under BRL 9 kap. 14 §, and
+      will never be built. Real-time voting is its own item, under the paid
+      modules.
+  - The meeting itself, its agenda, who was present and in what capacity, the
+    proxy authorisations (fullmakt) under which somebody else exercises a
+    member's vote, and each item's outcome beside the vote counts it was
+    declared on.
     The voting register (röstlängd) is derived when it is read and never
     stored: every member has one vote, so a member holding two apartments still
     has one and joint holders of one tenant-ownership have one between them, an
@@ -616,6 +617,39 @@ change it.
     notice was sent and never that it was permitted. Which meeting takes a motion
     up is recorded against the motion, and the member who submitted it is shown
     the meeting and its day
+  - The board's own screens for all of it, on one destination behind one
+    capability: arranging a meeting and writing its running order, issuing the
+    notice and reading the delivery ledger that names every member it did not
+    reach, registering a proxy authorisation and having it refused against the
+    association's own bylaws, checking people in as member, proxy holder or
+    assistant, reading the voting register, recording that the meeting was held
+    and minuting each item's outcome beside the counts it was declared on. The
+    state of the meeting decides which panels are forms and which are records,
+    and both facts come from the server: issuing the notice fixes the agenda,
+    and recording the meeting as held closes check-in and opens the decisions.
+    Every act discards its own answer and reads the meeting again, because the
+    voting register is derived from the member register, the residencies, the
+    attendance lines and the authorities together and no write answers with it.
+    The four bylaws clauses are recorded on the settings screen, each opening at
+    the statutory position rather than at a blank, and the panel says which two
+    the platform checks and which two the meeting applies. The meetings API
+    answers with identifiers and never with names, so the screens read the
+    address book for them and print the identifier itself where the register no
+    longer holds the person
+  - The end-to-end suite that drives all of it through a browser against the
+    production image, with the shared register fixture behind it: three members
+    on three tenant-ownerships are three votes, and the resident who lives in one
+    of those apartments without holding it is refused at check-in with the rule
+    named rather than being quietly absent from the register. A proxy
+    authorisation registered for an absent member puts no vote in the room until
+    the proxy holder is checked in as one, which is the distinction the whole
+    module rests on. A second authority for the same proxy holder is refused
+    against the association's own clause, accepted once an administrator has
+    widened it in settings, and the instance is put back afterwards. Issuing the
+    notice takes the agenda's form away and says which rule is holding, a motion
+    put to a meeting reaches the member who submitted it, and a decision is
+    refused until the meeting has been recorded as held and then minuted with the
+    counts the chair declared
   - Not modelled, and needed before the platform can apply one bylaws clause it
     records: what a space in the building is used for. BRL 9 kap. 14 § lets the
     bylaws limit the vote of a member holding nothing but a garage, a store or
@@ -626,12 +660,6 @@ change it.
     decision in any case. Recording the use would be a change to the apartment
     register, and inventing the answer from a participation share would take a
     vote away on a guess
-  - Pending: the board's screens for arranging a meeting, issuing its notice,
-    checking people in, reading the voting register and putting a motion to a
-    meeting; and real-time voting, for which the vote record exists with no
-    voter recorded so a closed ballot (sluten omröstning) is representable
-    without migrating the table the minutes are built from. Nothing casts a vote
-    yet
 - [ ] Comments on news items, then group and board chat. Comments first and a
       full discussion forum never: a forum is a product of its own, and a
       cooperative that wants one is better served by an integration with
@@ -790,6 +818,22 @@ the same public plugin API that is available to anyone.
       what surrounds the screen rather than the view itself: Apteo-hosted
       pairing of a screen to a housing cooperative, remote configuration and
       unattended updates of the player
+- [ ] Real-time voting at a general meeting: a member casts their vote from
+      their own device while the meeting is running, and the chair reads the
+      tally. Paid because a vote at a general meeting has to be attributable to
+      the member who cast it to a standard a contested decision survives, and
+      that is BankID or Freja above - an identity provider Apteo holds the
+      contract with. What core does without it is what a chair declares: the
+      outcome and the counts, minuted against each item.
+      The vote record already exists with a nullable voter, so a closed ballot
+      (sluten omröstning) needs no migration - and a closed ballot is the
+      meeting's own procedure rather than a right anybody may demand, since the
+      word does not occur in lagen om ekonomiska föreningar at all. One vote per
+      membership with joint holdings merged, and the bylaws rules gate who may
+      cast on whose behalf, exactly as the voting register already has it.
+      Postal voting is a different thing and is prohibited outright for a
+      housing cooperative (BRL 9 kap. 14 §, excepting EFL 6 kap. 6 §). Nothing
+      casts a vote today
 - [ ] Premium themes
 - [ ] Advanced finances: everything that carries a charge or a fee out of
       Open BRF and into somewhere else - posting to Fortnox and Visma,

@@ -30,6 +30,7 @@ const fetchMotionIntake = vi.fn();
 const fetchMotionQueue = vi.fn();
 const acknowledgeMotion = vi.fn();
 const withdrawMotion = vi.fn();
+const setMotionMeeting = vi.fn();
 
 vi.mock("../api/motions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/motions")>()),
@@ -37,7 +38,31 @@ vi.mock("../api/motions", async (importOriginal) => ({
   fetchMotionQueue: () => fetchMotionQueue(),
   acknowledgeMotion: (input: unknown) => acknowledgeMotion(input),
   withdrawMotion: (input: unknown) => withdrawMotion(input),
+  setMotionMeeting: (input: unknown) => setMotionMeeting(input),
 }));
+
+const fetchMeetings = vi.fn();
+
+vi.mock("../api/meetings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/meetings")>()),
+  fetchMeetings: () => fetchMeetings(),
+}));
+
+/** Two meetings: one still being arranged, one whose members are summoned. */
+const ARRANGED = {
+  id: "meeting-spring",
+  kind: "ORDINARY" as const,
+  heldOn: "2027-05-20",
+  concludedAt: null,
+  agendaItemCount: 2,
+};
+
+const CONCLUDED = {
+  ...ARRANGED,
+  id: "meeting-past",
+  heldOn: "2026-05-20",
+  concludedAt: "2026-05-20T19:00:00.000Z",
+};
 
 function viewer(capabilities: readonly string[]): Viewer {
   return {
@@ -57,11 +82,19 @@ const OWN_MOTION = {
   status: "SUBMITTED" as const,
   submittedAt: "2027-01-20T09:00:00.000Z",
   closedAt: null,
+  // With the board and on no meeting yet, which is where every motion starts:
+  // which meeting takes it up is the board's answer and it has not given one.
+  meeting: null,
 };
 
 const DEADLINE = { month: 1, day: 31, nextOn: "2027-01-31" };
 
 beforeEach(() => {
+  fetchMeetings.mockReset().mockResolvedValue({
+    ok: true,
+    value: [ARRANGED, CONCLUDED],
+  });
+  setMotionMeeting.mockReset();
   fetchMotionIntake.mockReset().mockResolvedValue({
     ok: true,
     value: { deadline: DEADLINE, motions: [OWN_MOTION] },
@@ -343,6 +376,127 @@ describe("the board", () => {
 
     expect(screen.queryByText("Maja Medlem")).toBeNull();
     expect(screen.getByText(/Skyddade personuppgifter/)).not.toBeNull();
+  });
+});
+
+describe("putting an item to a meeting", () => {
+  /*
+   * EFL 6 kap. 15 § gives the member the right to have the item taken up at a
+   * general meeting if the request reaches the board in time to go into the
+   * notice, and 6 kap. 22 § has the notice state the matters to be dealt with.
+   * So the board answers "which meeting", and the notice settles the answer.
+   */
+  const BOARD = ["motions:handle", "meetings:manage"];
+
+  it("offers the meetings the server would accept, and no others", async () => {
+    render(<MotionsScreen viewer={viewer(BOARD)} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    const choice = await screen.findByLabelText("Tas upp på");
+    const offered = [...choice.querySelectorAll("option")].map(
+      (option) => option.textContent,
+    );
+
+    // The meeting still being arranged, and never the one already held: the
+    // server refuses that one, and a control that could only refuse is a worse
+    // way of saying so than not offering it.
+    expect(offered).toContain("Ordinarie föreningsstämma 2027-05-20");
+    expect(offered).not.toContain("Ordinarie föreningsstämma 2026-05-20");
+    // And a way back to no meeting at all, which is the same answer set to none.
+    expect(offered).toContain("Ingen stämma än");
+  });
+
+  it("records which meeting takes the item up", async () => {
+    const user = userEvent.setup();
+    setMotionMeeting.mockResolvedValue({
+      ok: true,
+      value: {
+        ...OWN_MOTION,
+        submitter: {
+          kind: "member",
+          personId: "person-maja",
+          name: "Maja Medlem",
+        },
+        closedByPersonId: null,
+        meeting: {
+          id: ARRANGED.id,
+          kind: "ORDINARY",
+          heldOn: ARRANGED.heldOn,
+          summoned: false,
+        },
+      },
+    });
+
+    render(<MotionsScreen viewer={viewer(BOARD)} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    await user.selectOptions(
+      await screen.findByLabelText("Tas upp på"),
+      ARRANGED.id,
+    );
+
+    await waitFor(() => {
+      expect(setMotionMeeting).toHaveBeenCalledWith({
+        motionId: OWN_MOTION.id,
+        meetingId: ARRANGED.id,
+      });
+    });
+    // The queue is read again rather than the write's answer being believed:
+    // another board member may have moved the same item in the meantime.
+    await waitFor(() => {
+      expect(fetchMotionQueue.mock.calls.length).toBeGreaterThan(1);
+    });
+  });
+
+  it("states the meeting instead of a control once the notice has gone out", async () => {
+    fetchMotionQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        deadline: DEADLINE,
+        motions: [
+          {
+            ...OWN_MOTION,
+            submitter: {
+              kind: "member",
+              personId: "person-maja",
+              name: "Maja Medlem",
+            },
+            closedByPersonId: null,
+            meeting: {
+              id: ARRANGED.id,
+              kind: "ORDINARY",
+              heldOn: ARRANGED.heldOn,
+              summoned: true,
+            },
+          },
+        ],
+      },
+    });
+
+    render(<MotionsScreen viewer={viewer(BOARD)} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    /*
+     * A meeting cannot decide a matter its notice did not take up (EFL 6 kap.
+     * 25 §), so the item can no longer be moved off or on. The server refuses
+     * the change; the row says where the item is rather than offering a select
+     * that could only be set back to the value it already had.
+     */
+    expect(screen.queryByLabelText("Tas upp på")).toBeNull();
+    expect(
+      screen.getByText(/Kallelsen till den st.mman .r utf.rdad/u),
+    ).toBeTruthy();
+  });
+
+  it("offers no control to a board member who may not read the meetings", async () => {
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    // Which meeting deals with an item is a fact about a meeting, so it is read
+    // with the capability that answers for meetings. A seat granted only the
+    // queue is offered no control rather than an empty one.
+    expect(fetchMeetings).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Tas upp på")).toBeNull();
   });
 });
 

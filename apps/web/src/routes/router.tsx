@@ -17,6 +17,7 @@ import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { IssuesRoute } from "./IssuesRoute";
+import { MeetingsRoute } from "./MeetingsRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
 import { MotionsRoute } from "./MotionsRoute";
 import { NewsReaderRoute } from "./NewsReaderRoute";
@@ -316,6 +317,23 @@ const motionsRoute = createRoute({
 });
 
 /**
+ * The general meeting. Signed in here, capabilities inside the screen.
+ *
+ * Its own destination rather than a screen under motions, although a motion is
+ * taken up at a meeting: the two are different acts by different people. Motions
+ * is where a member puts an item and the board reads what arrived; this is where
+ * the board arranges the meeting itself, summons the members to it, checks them
+ * in and minutes what was decided. One capability answers for the whole of this
+ * screen, so unlike the routes above there are no halves inside it.
+ */
+const meetingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/meetings",
+  beforeLoad: requireSession,
+  component: MeetingsRoute,
+});
+
+/**
  * The association's news as the house reads it. Signed in here, capabilities
  * inside the screen.
  *
@@ -446,6 +464,7 @@ const routeTree = rootRoute.addChildren([
   bookingsRoute,
   eventsRoute,
   motionsRoute,
+  meetingsRoute,
   newsRoute,
   documentsRoute,
   newsAdminRoute,
