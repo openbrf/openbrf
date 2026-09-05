@@ -39,12 +39,17 @@ export function LoadFailure({
 
   return (
     <Notice tone="danger">
-      <div className="flex flex-wrap items-center gap-3">
+      {/*
+        A span rather than a div: Notice renders its children inside one, and a
+        div there is markup no parser is obliged to keep in the shape it was
+        written in. Flex applies to a span as readily.
+      */}
+      <span className="flex flex-wrap items-center gap-3">
         <span>{t(messageKey)}</span>
         <button type="button" onClick={onRetry} className={SECONDARY_BUTTON}>
           {t("app.retry")}
         </button>
-      </div>
+      </span>
     </Notice>
   );
 }

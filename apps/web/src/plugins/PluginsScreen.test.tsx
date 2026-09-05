@@ -364,8 +364,60 @@ describe("a failed read", () => {
     fetchPlugins.mockResolvedValue({ ok: true, value: OVERVIEW });
     await userEvent.click(retry);
 
-    // The list this time, and the sentence gone with it.
-    expect(await waitFor(() => installedHeading())).toBeTruthy();
+    /*
+     * Waited for by an assertion that throws while the heading is absent.
+     * waitFor only retries on a throw, so a query answering null would settle
+     * on the first attempt and assert against the screen as it was before the
+     * retry landed.
+     */
+    await waitFor(() => {
+      expect(installedHeading()).toBeTruthy();
+    });
+    expect(
+      screen.queryByText("Listan över tillägg kunde inte läsas just nu."),
+    ).toBeNull();
+  });
+
+  it("keeps the newer answer when a slow failure lands after it", async () => {
+    /*
+     * Two reads in flight is what the retry makes reachable: a board presses the
+     * button twice, and the first of the two is still on its way when the second
+     * answers. If the older answer were applied when it arrived, the screen
+     * would go back to the failure the reader had just got out of.
+     */
+    let releaseSlow: (value: unknown) => void = () => undefined;
+    fetchPlugins
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      })
+      .mockImplementationOnce(
+        async () =>
+          new Promise((resolve) => {
+            releaseSlow = resolve;
+          }),
+      )
+      .mockResolvedValue({ ok: true, value: OVERVIEW });
+
+    renderScreen(["association:read", "association:manage"]);
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    // The slow read, and then the one that overtakes it.
+    await userEvent.click(retry);
+    await userEvent.click(retry);
+    await waitFor(() => {
+      expect(installedHeading()).toBeTruthy();
+    });
+
+    // The slow one finally answers, with the failure, and is dropped.
+    await act(async () => {
+      releaseSlow({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      });
+    });
+
+    expect(installedHeading()).toBeTruthy();
     expect(
       screen.queryByText("Listan över tillägg kunde inte läsas just nu."),
     ).toBeNull();
