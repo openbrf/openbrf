@@ -184,7 +184,23 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   }, [canManage, refreshes]);
 
   useEffect(() => {
-    if (selectedId === null) {
+    /*
+     * The capability as well as the selection.
+     *
+     * Nothing can reach this without it today: the list panel is the only thing
+     * that selects a meeting and it is not rendered without the capability, and
+     * the route reads the viewer once, so a session cannot lose it while the
+     * screen is mounted. The guard is here so that stays a property of this
+     * screen rather than of the route that happens to render it - and the API
+     * refuses every one of these calls regardless, which is what actually keeps
+     * the data out of a browser that may not have it.
+     *
+     * It stops the read and clears nothing. What is on screen is derived during
+     * render instead, where the panels are gated on the same flag: clearing
+     * state from here would be an effect starting a second render to undo the
+     * first, which is what the lint rule against it is about.
+     */
+    if (!canManage || selectedId === null) {
       // Nothing to read, and nothing to clear: the meeting on screen is dropped
       // by whatever changed the selection, not by this effect.
       return;
@@ -215,7 +231,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
     return () => {
       currentRead.current += 1;
     };
-  }, [selectedId, refreshes]);
+  }, [canManage, selectedId, refreshes]);
 
   const reload = (): void => {
     setRefreshes((count) => count + 1);
@@ -277,7 +293,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
         />
       )}
 
-      {meeting === null ? null : (
+      {!canManage || meeting === null ? null : (
         <>
           <MeetingAgendaPanel
             key={agendaKeyOf(meeting)}

@@ -2603,7 +2603,7 @@
       "noMeetingsArranged": "Föreningen har inte planerat in någon stämma som den här punkten kan tas upp på.",
       "onMeeting": "Tas upp på {{kind}} den {{date}}.",
       "onSummonedMeeting": "Tas upp på {{kind}} den {{date}}. Kallelsen till den stämman är utfärdad, så punkten kan inte längre flyttas.",
-      "meetingsUnreadable": "Stämmorna kunde inte läsas, så det finns ingen att erbjuda här. Läs om skärmen.",
+      "meetingsUnreadable": "Stämmorna kunde inte läsas just nu, så det finns ingen att erbjuda här. Ladda om sidan.",
       "onHeldMeeting": "Togs upp på {{kind}} den {{date}}, som är antecknad som hållen."
     },
     "errors": {
@@ -2831,7 +2831,7 @@
     "title": "Föreningsstämmor",
     "intro": "Kalla till en föreningsstämma, skriv dagordningen, kalla medlemmarna, pricka av dem, läs röstlängden och anteckna vad stämman beslutade.",
     "loading": "Läser stämmorna...",
-    "loadFailed": "Stämmorna kunde inte läsas.",
+    "loadFailed": "Stämmorna kunde inte läsas just nu. Ladda om sidan.",
     "peopleLoadFailed": "Adressboken kunde inte läsas. Allt som den här stämman redan har finns här, med varje person visad med sin identifierare i stället för med namn; att pricka av någon eller registrera en fullmakt kräver adressboken, så de formulären har ingen att erbjuda.",
     "person": {
       "unknown": "Finns inte i registret:"

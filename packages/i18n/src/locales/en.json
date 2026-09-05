@@ -2603,7 +2603,7 @@
       "noMeetingsArranged": "The association has arranged no meeting this item could be put to.",
       "onMeeting": "Taken up at the {{kind}} on {{date}}.",
       "onSummonedMeeting": "Taken up at the {{kind}} on {{date}}. The notice for that meeting has been issued, so the item can no longer be moved.",
-      "meetingsUnreadable": "The meetings could not be read, so there is none to offer here. Read the screen again.",
+      "meetingsUnreadable": "The meetings could not be read just now, so there is none to offer here. Reload the page.",
       "onHeldMeeting": "Taken up at the {{kind}} on {{date}}, which has been recorded as held."
     },
     "errors": {
@@ -2831,7 +2831,7 @@
     "title": "General meetings",
     "intro": "Arrange a general meeting, write its agenda, summon the members, check them in, read the voting register and record what was decided.",
     "loading": "Reading the meetings...",
-    "loadFailed": "The meetings could not be read.",
+    "loadFailed": "The meetings could not be read just now. Reload the page.",
     "peopleLoadFailed": "The address book could not be read. What this meeting already holds is all here, with each person shown by their identifier rather than by name; checking somebody in or registering an authority needs the address book, so those forms have nobody to offer.",
     "person": {
       "unknown": "Not in the register:"

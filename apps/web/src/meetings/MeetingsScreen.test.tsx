@@ -529,7 +529,7 @@ describe("the general meeting screen", () => {
      * thing the server said is still a true picture of a moment, and the notice
      * says the read failed.
      */
-    await screen.findByText("Stämmorna kunde inte läsas.");
+    await screen.findByText(/Stämmorna kunde inte läsas/u);
     expect(screen.getByRole("heading", { name: "Röstlängden" })).toBeTruthy();
     expect(screen.getAllByText("Astrid Lindqvist").length).toBeGreaterThan(0);
   });
@@ -561,7 +561,7 @@ describe("the general meeting screen", () => {
     withdrawAttendance.mockResolvedValue({ ok: true, value: ASTRID_PRESENT });
 
     await user.click(screen.getByRole("button", { name: /^Stryk Astrid/ }));
-    await screen.findByText("Stämmorna kunde inte läsas.");
+    await screen.findByText(/Stämmorna kunde inte läsas/u);
 
     // The list answers after the failure, and must not clear it. Waited on by
     // the control the list panel renders, since the meeting's own name is also
@@ -572,7 +572,37 @@ describe("the general meeting screen", () => {
         screen.getByRole("button", { name: /^Öppna Ordinarie/ }),
       ).toBeTruthy();
     });
-    expect(screen.getByText("Stämmorna kunde inte läsas.")).toBeTruthy();
+    expect(screen.getByText(/Stämmorna kunde inte läsas/u)).toBeTruthy();
+  });
+
+  it("shows no meeting once the capability is gone", async () => {
+    /*
+     * The screen's own guard rather than the route's. Nothing can reach this
+     * state today - the route reads the viewer once, so a session cannot lose
+     * the capability while the screen is mounted, and the list panel that
+     * selects a meeting is not rendered without it. What this pins is that the
+     * property belongs to this component: rendered for a viewer who may not
+     * manage meetings, it shows none, whatever it had read before.
+     *
+     * The API refuses every one of these calls in any case, which is what
+     * actually keeps the data out of a browser that may not have it.
+     */
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <MeetingsScreen viewer={viewer(["meetings:manage"])} />,
+    );
+    await openTheMeeting(user);
+    expect(screen.getByRole("heading", { name: "Röstlängden" })).toBeTruthy();
+
+    rerender(<MeetingsScreen viewer={viewer(["motions:handle"])} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Röstlängden" })).toBeNull();
+    });
+    expect(screen.queryByRole("heading", { name: "Avprickning" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Föreningens stämmor" }),
+    ).toBeNull();
   });
 
   it("works with identifiers when the address book cannot be read", async () => {
