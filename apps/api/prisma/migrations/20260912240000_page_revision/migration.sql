@@ -1,0 +1,22 @@
+-- What a page save is claimed against.
+--
+-- A save carries the whole page, so two callers who each read it and then wrote
+-- would leave the second one's copy standing and the first one's work gone. The
+-- save takes the copy the caller read and writes only if the page is still that
+-- one, which is what this column is.
+--
+-- It was `updatedAt` first, and that is not sound. `@updatedAt` is stored as
+-- TIMESTAMP(3), so two saves that land inside one millisecond produce the same
+-- value: the second writer's token would still match the row it was meant to be
+-- refused against, on exactly the concurrency the precondition exists to refuse.
+-- A counter cannot repeat, whatever the clock does.
+--
+-- Starts at 1 for every page already here. The number means nothing on its own -
+-- it is not a version anybody reads - so there is nothing to reconstruct for a
+-- page written before the column existed, and no reason to leave it null.
+--
+-- Service tier: a page is the association's own writing, and this column is
+-- bookkeeping about a save rather than anything the register holds. No
+-- append-only guard and no REVOKE in harden-runtime-role.sql, because neither
+-- holds for the website.
+ALTER TABLE "page" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 1;

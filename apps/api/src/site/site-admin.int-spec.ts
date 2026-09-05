@@ -121,6 +121,7 @@ interface PageBody {
   visibility: "PUBLIC" | "MEMBER";
   content: { blocks: unknown[] };
   /** What a save's precondition is checked against. */
+  revision: number;
   updatedAt: string;
 }
 
@@ -381,8 +382,10 @@ describe("writing a page", () => {
      * website open in one tab and the news screen in another is ordinary.
      *
      * The precondition is the page as the caller read it. The first save moves
-     * `updatedAt`, so the second one - built on the copy from before it - is
-     * refused rather than applied.
+     * the revision, so the second one - built on the copy from before it - is
+     * refused rather than applied. A counter rather than a timestamp, because
+     * two saves inside one millisecond carry the same `updatedAt` and the
+     * second would match the row it was meant to be refused against.
      */
     const page = await newPage(boardCookie, slugs.concurrent);
 
@@ -393,7 +396,7 @@ describe("writing a page", () => {
         slug: page.slug,
         title: "Redigerad i sidredigeraren",
         content: { blocks: [paragraph("Styrelsens egen text.")] },
-        expectedUpdatedAt: page.updatedAt,
+        expectedRevision: page.revision,
       },
       headers: { cookie: boardCookie },
     });
@@ -406,8 +409,8 @@ describe("writing a page", () => {
         slug: page.slug,
         title: page.title,
         content: { blocks: [paragraph("Hej.")] },
-        // The copy from before the first save.
-        expectedUpdatedAt: page.updatedAt,
+        // The revision from before the first save.
+        expectedRevision: page.revision,
       },
       headers: { cookie: boardCookie },
     });

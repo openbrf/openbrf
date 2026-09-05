@@ -88,8 +88,17 @@ export function PlaceOnPage({
   }, [reads]);
 
   const chosen = pages?.find((page) => page.id === pageId) ?? null;
-  const alreadyThere =
-    chosen?.content.blocks.some((one) => one.type === block.type) ?? false;
+  const carries = (page: AdminPage): boolean =>
+    page.content.blocks.some((one) => one.type === block.type);
+  const alreadyThere = chosen === null ? false : carries(chosen);
+  /*
+   * Said once, rather than left for a board to discover by choosing each page
+   * in turn. The pages stay in the list: a page that vanished from a picker is
+   * a question nobody on this screen can answer, while a page that is there and
+   * says why is an answer.
+   */
+  const everyPageCarriesIt =
+    pages !== null && pages.length > 0 && pages.every(carries);
 
   const place = async (): Promise<void> => {
     if (chosen === null) {
@@ -109,7 +118,7 @@ export function PlaceOnPage({
        * had saved in the meantime - the board's own prose, silently, from a
        * screen that is not the page editor.
        */
-      expectedUpdatedAt: chosen.updatedAt,
+      expectedRevision: chosen.revision,
     });
 
     setPlacing(false);
@@ -117,6 +126,15 @@ export function PlaceOnPage({
       setFailure(
         REASONS[result.failure.reason] ?? "siteAdmin.place.errors.unknown",
       );
+      /*
+       * Somebody wrote first, so this control is holding a page that no longer
+       * exists in that shape. Read them again, or pressing the button a second
+       * time would send the same superseded copy and be refused for the same
+       * reason - and the sentence above says the page is read afresh.
+       */
+      if (result.failure.reason === "page-changed") {
+        setReads((count) => count + 1);
+      }
       return;
     }
     /*
@@ -174,7 +192,11 @@ export function PlaceOnPage({
             </select>
           </label>
 
-          {alreadyThere ? (
+          {everyPageCarriesIt ? (
+            <p className="text-small text-ink-muted">
+              {t("siteAdmin.place.everyPage")}
+            </p>
+          ) : alreadyThere ? (
             <p className="text-small text-ink-muted">{t(alreadyThereKey)}</p>
           ) : null}
 

@@ -141,6 +141,8 @@ export interface AdminPage {
   published: boolean;
   publishedAt: string | null;
   sortOrder: number;
+  /** What this copy is, for a save that means to write it back. */
+  revision: number;
   updatedAt: string;
 }
 
@@ -157,14 +159,14 @@ export interface PageEdit {
   content: { blocks: PageBlock[] };
   photoConsentConfirmed?: boolean;
   /**
-   * The page as this caller last read it, as `updatedAt`.
+   * The page's revision as this caller last read it.
    *
    * A save carries the whole page, so two callers who each read it and then
    * wrote would leave the second one's copy standing and the first one's work
    * gone. Sending it asks the server to write only if the page is still the one
    * that was read, and to answer `page-changed` if it is not.
    */
-  expectedUpdatedAt?: string;
+  expectedRevision?: number;
 }
 
 /** A stored picture, as the editor refers to it. */

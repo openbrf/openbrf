@@ -92,6 +92,7 @@ const HOME: AdminPage = {
   published: true,
   publishedAt: "2026-08-29T09:00:00.000Z",
   sortOrder: 0,
+  revision: 2,
   updatedAt: "2026-08-29T09:00:00.000Z",
 };
 
@@ -310,7 +311,7 @@ describe("the editor", () => {
         },
         // The copy the editor is holding: the save writes only if the page is
         // still the one it read, so a second writer cannot be written over.
-        expectedUpdatedAt: "2026-08-29T09:00:00.000Z",
+        expectedRevision: 2,
       });
     });
     expect(publishPage).toHaveBeenCalledWith("page-2", { published: true });

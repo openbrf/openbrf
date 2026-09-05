@@ -93,6 +93,13 @@ export interface PageAdminView {
   /** ISO instant, or null while the page has never been published. */
   publishedAt: string | null;
   sortOrder: number;
+  /**
+   * What this copy of the page is, for a caller that means to write it back.
+   *
+   * Sent to a save as `expectedRevision`, which writes only if the page is
+   * still the one that was read. It is not a version anybody displays.
+   */
+  revision: number;
   updatedAt: string;
 }
 
@@ -114,7 +121,7 @@ export interface UpdatePageInput {
    */
   photoConsentConfirmed?: boolean;
   /**
-   * The page as the caller last read it, as `updatedAt`.
+   * The page's `revision` as the caller last read it.
    *
    * A save carries the whole page, so two callers who each read it and then
    * wrote would leave the second one's copy standing and the first one's work
@@ -122,12 +129,17 @@ export interface UpdatePageInput {
    * place a block on a page are two such callers, and a board with the website
    * open in one tab and the news screen in another is not an unusual state.
    *
+   * A counter rather than `updatedAt`, which this was written against first:
+   * that column is stored to the millisecond, so two saves inside one
+   * millisecond carry the same token and the second would match the row it was
+   * meant to be refused against.
+   *
    * Optional, and absent means what this endpoint has always done: write. That
    * keeps a caller written before the field existed working rather than failing
    * on a precondition it does not know about, which for a statutory-adjacent
    * page would be a worse failure than the one it prevents.
    */
-  expectedUpdatedAt?: string;
+  expectedRevision?: number;
 }
 
 const PAGE_COLUMNS = {
@@ -139,6 +151,7 @@ const PAGE_COLUMNS = {
   published: true,
   publishedAt: true,
   sortOrder: true,
+  revision: true,
   updatedAt: true,
 } as const;
 
@@ -254,13 +267,16 @@ export class PagesWriteService {
      * and writes nothing. A read followed by a compare would leave the same gap
      * between them that the precondition exists to close.
      */
-    if (input.expectedUpdatedAt !== undefined) {
+    if (input.expectedRevision !== undefined) {
       const claimed = await this.prisma.page.updateMany({
-        where: { id, updatedAt: new Date(input.expectedUpdatedAt) },
+        where: { id, revision: input.expectedRevision },
         data: {
           slug: input.slug,
           title: input.title,
           content: asJson(input.content),
+          // In the same statement as the content it belongs to, so the next
+          // caller's claim reads a number that moved with the page.
+          revision: { increment: 1 },
         },
       });
       if (claimed.count === 0) {
@@ -272,12 +288,18 @@ export class PagesWriteService {
       return toAdminView(await this.require(id));
     }
 
+    /*
+     * The caller sent no precondition, so this writes. The revision still moves:
+     * it says the page is not the one somebody else read, and a save that left
+     * it alone would let their stale claim match afterwards.
+     */
     const row = await this.prisma.page.update({
       where: { id },
       data: {
         slug: input.slug,
         title: input.title,
         content: asJson(input.content),
+        revision: { increment: 1 },
       },
       select: PAGE_COLUMNS,
     });
@@ -641,6 +663,7 @@ function toAdminView(row: {
   published: boolean;
   publishedAt: Date | null;
   sortOrder: number;
+  revision: number;
   updatedAt: Date;
 }): PageAdminView {
   return {
@@ -653,6 +676,7 @@ function toAdminView(row: {
     visibility: row.visibility,
     published: row.published,
     publishedAt: row.publishedAt?.toISOString() ?? null,
+    revision: row.revision,
     sortOrder: row.sortOrder,
     updatedAt: row.updatedAt.toISOString(),
   };

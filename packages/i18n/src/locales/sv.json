@@ -2433,10 +2433,11 @@
       },
       "issueReportForm": {
         "title": "Visa felanmälningsformuläret på en sida",
-        "description": "Felanmälningsformuläret som en förbipasserande anmäler en trasig port med. Fälten är fasta, och ärendetyperna läses när sidan visas. Blocket visas inte alls medan publik felanmälan är avstängd.",
+        "description": "Formuläret för felanmälan, som vem som helst kan skicka in utan konto - en granne, en förbipasserande, en hantverkare på plats. Fälten är fasta och ärendetyperna läses när sidan visas. Blocket visas inte alls medan publik felanmälan är avstängd.",
         "alreadyThere": "Sidan har redan ett felanmälningsformulär."
       },
-      "loadFailed": "Sidorna kunde inte läsas just nu."
+      "loadFailed": "Sidorna kunde inte läsas just nu.",
+      "everyPage": "Alla sidor har redan blocket."
     }
   },
   "news": {

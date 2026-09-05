@@ -2433,10 +2433,11 @@
       },
       "issueReportForm": {
         "title": "Show the issue report form on a page",
-        "description": "The issue report form a passer-by reports a broken door with. Its fields are fixed and the issue types are read when the page is rendered. The block renders as nothing while public issue reporting is switched off.",
+        "description": "The form for reporting a problem, which anybody can send without an account - a neighbour, a passer-by, a tradesman on site. Its fields are fixed and the issue types are read when the page is rendered. The block renders as nothing while public issue reporting is switched off.",
         "alreadyThere": "That page already carries an issue report form."
       },
-      "loadFailed": "The pages could not be read just now."
+      "loadFailed": "The pages could not be read just now.",
+      "everyPage": "Every page already carries the block."
     }
   },
   "news": {

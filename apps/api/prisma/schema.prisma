@@ -1783,6 +1783,24 @@ model Page {
   /// document.
   menuItems MenuItem[] @relation("PageMenuItems")
 
+  /// What a save is claimed against, so two writers cannot overwrite each other.
+  ///
+  /// A save carries the whole page, so a caller who read it, waited, and then
+  /// wrote would put their copy over anything saved in between. The caller
+  /// sends the revision it read and the write matches on it, so the second one
+  /// is refused rather than applied.
+  ///
+  /// A counter and not `updatedAt`, which is what this was first written
+  /// against. `@updatedAt` is stored to the millisecond, and two saves inside
+  /// one millisecond produce the same value - so the second writer's token
+  /// would still match the row it was meant to be refused against, on exactly
+  /// the concurrency this exists to refuse. A counter cannot repeat.
+  ///
+  /// Incremented by the writer rather than by the database, in the same
+  /// statement as the content, because a trigger would put the increment
+  /// outside the claim that reads it.
+  revision Int @default(1)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

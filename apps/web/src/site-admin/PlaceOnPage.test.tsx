@@ -38,6 +38,7 @@ function page(overrides: Partial<AdminPage>): AdminPage {
     published: true,
     publishedAt: "2026-08-01T09:00:00.000Z",
     sortOrder: 1,
+    revision: 4,
     updatedAt: "2026-08-01T09:00:00.000Z",
     ...overrides,
   };
@@ -92,12 +93,18 @@ it("appends the block and keeps what the page already carried", async () => {
 });
 
 it("does not offer a second one to a page that already carries it", async () => {
+  /*
+   * The page stays in the list and says why it is not on offer. Leaving it out
+   * would be a page missing from a picker for a reason nothing on this screen
+   * states, which is a question a board cannot answer from here.
+   */
   fetchPages.mockResolvedValue({
     ok: true,
     value: [
       page({
         content: { version: 1, blocks: [{ type: "newsTeaser", count: 5 }] },
       }),
+      page({ id: "page-2", slug: "styrelsen", title: "Styrelsen" }),
     ],
   });
 
@@ -111,6 +118,40 @@ it("does not offer a second one to a page that already carries it", async () => 
       .getByRole("button", { name: "Placera på sidan" })
       .hasAttribute("disabled"),
   ).toBe(true);
+
+  // The other page is on offer, which is what makes the first one's sentence a
+  // statement about that page rather than about the control.
+  await userEvent.selectOptions(
+    screen.getByRole("combobox", { name: "Sida" }),
+    "page-2",
+  );
+  expect(
+    screen
+      .getByRole("button", { name: "Placera på sidan" })
+      .hasAttribute("disabled"),
+  ).toBe(false);
+});
+
+it("says so once when every page already carries it", async () => {
+  // Rather than leaving a board to discover it by choosing each page in turn.
+  fetchPages.mockResolvedValue({
+    ok: true,
+    value: [
+      page({
+        content: { version: 1, blocks: [{ type: "newsTeaser", count: 5 }] },
+      }),
+      page({
+        id: "page-2",
+        slug: "styrelsen",
+        title: "Styrelsen",
+        content: { version: 1, blocks: [{ type: "newsTeaser", count: 3 }] },
+      }),
+    ],
+  });
+
+  renderControl();
+
+  expect(await screen.findByText("Alla sidor har redan blocket.")).toBeTruthy();
 });
 
 it("says where the picture confirmation is given rather than asking for it here", async () => {
@@ -135,7 +176,7 @@ it("says where the picture confirmation is given rather than asking for it here"
   ).toBeTruthy();
 });
 
-it("sends the copy it read, so a placement cannot write over an edit", async () => {
+it("sends the revision it read, so a placement cannot write over an edit", async () => {
   /*
    * A save carries the whole page. Without the precondition a placement would
    * put the blocks this control fetched over whatever the page editor had saved
@@ -155,9 +196,9 @@ it("sends the copy it read, so a placement cannot write over an edit", async () 
   });
   const [, edit] = savePage.mock.calls[0] as [
     string,
-    { expectedUpdatedAt?: string },
+    { expectedRevision?: number },
   ];
-  expect(edit.expectedUpdatedAt).toBe("2026-08-01T09:00:00.000Z");
+  expect(edit.expectedRevision).toBe(4);
 });
 
 it("says the page moved rather than reporting a placement that did not happen", async () => {

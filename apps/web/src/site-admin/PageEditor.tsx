@@ -248,7 +248,7 @@ export function PageEditor({
                     title,
                     content: body,
                     ...consent,
-                    expectedUpdatedAt: page.updatedAt,
+                    expectedRevision: page.revision,
                   }),
                 );
               }}
@@ -303,7 +303,7 @@ export function PageEditor({
                       title,
                       content: body,
                       ...consent,
-                      expectedUpdatedAt: page.updatedAt,
+                      expectedRevision: page.revision,
                     });
                     if (!stored.ok) {
                       return stored;
