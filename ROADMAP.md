@@ -436,14 +436,14 @@ Free, open source, and never moved behind a paywall.
       became aware of the breach separately from the date it was entered. It
       documents the facts, the effects and the remedial action art. 33(5)
       requires, and it records two decisions with their grounds: whether IMY
-      is notified without undue delay and within 72 hours, or not because the
-      breach is unlikely to result in a risk to the people concerned
-      (art. 33(1)), and whether the people affected are told (art. 34(1)) or
-      not under one of the exceptions in art. 34(3). A notification made after
-      72 hours carries the reasons for the delay, and the record holds them.
-      The notification itself goes through IMY's own e-service, so what
-      belongs here is the record, the clock and the evidence of the decision,
-      not a submission
+      is notified without undue delay and, where feasible, within 72 hours,
+      or not because the breach is unlikely to result in a risk to the people
+      concerned (art. 33(1)), and whether the people affected are told
+      (art. 34(1)) or not under one of the exceptions in art. 34(3). A
+      notification made after 72 hours carries the reasons for the delay, and
+      the record holds them. The notification itself goes through IMY's own
+      e-service, so what belongs here is the record, the clock and the
+      evidence of the decision, not a submission
 - [ ] Record of processing activities (registerförteckning, GDPR art. 30): the
       controller's contact details and, where there is one, the joint
       controller's and the data protection officer's (art. 30(1)(a)), and each
@@ -479,10 +479,13 @@ Free, open source, and never moved behind a paywall.
       personal data outside the instance, and the consent step asks whether it
       does and to whom. Which agreement covers each processor is recorded
 - [ ] What a person asks for about their own data, beyond the access report:
-      erasure ahead of the retention window where no statutory duty keeps the
-      record (GDPR art. 17), an objection to a processing (art. 21) and a
-      restriction of it (art. 18). Recorded against the person with the ground
-      the board relied on, and reaching the screens the processing runs from
+      erasure ahead of the retention window (GDPR art. 17) where none of the
+      exceptions in art. 17(3) applies, which for a cooperative means no
+      statutory duty to keep the record and no legal claim, the ground a
+      legal hold records; an objection to a processing (art. 21); and a
+      restriction of it (art. 18). Recorded against the person with the
+      ground the board relied on, and reaching the screens the processing
+      runs from
 - [ ] Data portability (GDPR art. 20): a machine-readable export of what a
       person gave the association under the membership contract or under their
       consent, handed to the person, who transmits it: a direct transfer to
@@ -492,14 +495,14 @@ Free, open source, and never moved behind a paywall.
       printed document by design and stays one
 - [ ] Purging reaches issues and the document archive, both service tier; the
       statutory registers and the audit log stay exempt as before. An issue or
-      a document is anonymised rather than deleted: the link to the person and
-      the personal data on the row go, the record stays. An issue's own
-      description is free text the reporter wrote and is not rewritten: it is
-      the record of the problem and of its handling, which the issue exists
-      for, and a person it names who asks for erasure makes a request under
-      art. 17, handled as the box on erasure, objection and restriction above
-      says. Both are listed in the data subject access report today and
-      neither is reached by the nightly run
+      a document is detached from the person rather than deleted: the link to
+      the person and the personal data on the row go, the record stays. An
+      issue's own description is free text the reporter wrote and is not
+      rewritten: it is the record of the problem and of its handling, which
+      the issue exists for, and a person it names who asks for erasure makes
+      a request under art. 17, handled as the box on erasure, objection and
+      restriction above says. Both are listed in the data subject access
+      report today and neither is reached by the nightly run
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and
