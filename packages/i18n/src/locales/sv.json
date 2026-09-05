@@ -1668,20 +1668,23 @@
     },
     "transfer": {
       "record": "Registrera överlåtelse",
+      "recordIn": "Registrera upplåtelse eller överlåtelse",
       "hint": "Vid försäljning: avtalets datum, motparten och en hänvisning till var avtalet finns.",
-      "hintIn": "Vid upplåtelse eller försäljning: avtalets datum, vad som registreras, motparten om det finns en, och en hänvisning till var avtalet finns.",
+      "hintIn": "Vid upplåtelse eller överlåtelse: avtalets datum, vad som registreras, den tidigare innehavaren om registret har någon, och en hänvisning till var avtalet finns.",
       "kind": "Vad registreras",
       "kindTransfer": "Överlåtelse - bostadsrätten byter innehavare",
       "kindGrant": "Upplåtelse - föreningen upplåter bostadsrätten",
       "kindHint": "En upplåtelse är föreningens egen (BRL 4 kap.) och anmäls till bostadsrättsregistret inom två veckor från upplåtelsen. En överlåtelse räknas från dagen föreningen beslutade om medlemskap, eller från överlåtelsen om förvärvaren redan är medlem eller inte omfattas av medlemskapskravet.",
       "transferredOn": "Avtalsdatum",
       "fromPerson": "Tidigare innehavare",
-      "fromPersonNone": "Säljaren finns inte i registret",
+      "fromPersonNone": "Den tidigare innehavaren finns inte i registret",
       "toPerson": "Ny innehavare",
       "price": "Pris",
       "agreementReference": "Avtalshänvisning",
-      "agreementReferenceHint": "Obligatorisk: ett ärendenummer, eller var pappersexemplaret förvaras. Den skrivs ut i utdraget ur lägenhetsförteckningen, som anger en för varje överlåtelse.",
+      "agreementReferenceHint": "Obligatorisk: ett ärendenummer, eller var pappersexemplaret förvaras. Den skrivs ut i utdraget ur lägenhetsförteckningen, som anger en för varje upplåtelse och varje överlåtelse.",
       "recorded": "Överlåtelsen registrerades i lägenhetsförteckningen.",
+      "recordedGrant": "Upplåtelsen registrerades i lägenhetsförteckningen.",
+      "recordedTransfer": "Överlåtelsen registrerades i lägenhetsförteckningen.",
       "changePerson": "Välj någon annan"
     },
     "errors": {
@@ -1693,7 +1696,7 @@
       "movedOutBeforeMovedIn": "Utflyttningen kan inte ligga före inflyttningen.",
       "transferPersonNotFound": "Motparten i överlåtelsen finns inte i registret. Lägg till personen först.",
       "transferPersonRequired": "Välj den nya innehavaren, eller stäng av registrering av överlåtelse.",
-      "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje överlåtelse, och en överlåtelse går inte att ta bort när den väl är registrerad.",
+      "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje upplåtelse och varje överlåtelse, och posten går inte att ta bort när den väl är registrerad.",
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }

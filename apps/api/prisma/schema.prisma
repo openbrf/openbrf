@@ -945,12 +945,19 @@ model RegisterReportObligation {
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
 
-  /// The transfer this obligation reports, when `kind` is TRANSFER.
+  /// The register event this obligation reports, when `kind` is GRANT or
+  /// TRANSFER.
   ///
-  /// Unique: one anmalan per overgang, so a second row would be a second
-  /// deadline for one report, and nothing here can take either of them out
-  /// again. A CHECK in 20260910100000 requires exactly the reference that
-  /// matches `kind` and refuses the other.
+  /// Both live on {@link Transfer}: a grant is a row with no seller and a kind
+  /// of GRANT, and the two are reported under different paragraphs from
+  /// different days, so which one this obligation is about is `kind` rather
+  /// than anything reachable through this column.
+  ///
+  /// Unique: one anmalan per event, so a second row would be a second deadline
+  /// for one report, and nothing here can take either of them out again. The
+  /// CHECK in 20260910100000, widened in 20260912220000, requires exactly the
+  /// reference that matches `kind` and refuses the other, and a trigger checks
+  /// the transfer's own kind against this row's.
   transferId String?   @unique
   transfer   Transfer? @relation(fields: [transferId], references: [id], onDelete: Restrict)
 

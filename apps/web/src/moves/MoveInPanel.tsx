@@ -321,7 +321,7 @@ export function MoveInPanel({
                   }}
                   className="size-5 accent-trust"
                 />
-                {t("moves.transfer.record")}
+                {t("moves.transfer.recordIn")}
               </label>
               {/*
                 Its own sentence rather than the move-out's. That one says "for
@@ -472,7 +472,17 @@ export function MoveInPanel({
           ) : null}
           {result.transferId === null ? null : (
             <p className="text-small text-ink-muted">
-              {t("moves.transfer.recorded")}
+              {/*
+                Named for the event that was recorded. A board that chose an
+                upplatelse and is told a transfer was registered would have to
+                open the register to find out which of the two the association's
+                own record now says happened.
+              */}
+              {t(
+                transferKind === "GRANT"
+                  ? "moves.transfer.recordedGrant"
+                  : "moves.transfer.recordedTransfer",
+              )}
             </p>
           )}
           <p className="text-small text-ink-muted">

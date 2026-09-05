@@ -97,7 +97,9 @@ async function openTransferFields(session: ReturnType<typeof userEvent.setup>) {
   await session.click(
     await screen.findByRole("button", { name: CHOOSE_PERSON }),
   );
-  await session.click(screen.getByLabelText(/Registrera överlåtelse/));
+  await session.click(
+    screen.getByLabelText(/Registrera upplåtelse eller överlåtelse/),
+  );
 }
 
 it("offers the previous holder for a transfer and not for a grant", async () => {
@@ -147,4 +149,35 @@ it("sends the kind the board chose", async () => {
       }),
     }),
   );
+});
+it("names the event it recorded, not the other one", async () => {
+  /*
+   * The board chose an upplatelse; being told a transfer was registered would
+   * leave them opening the apartment register to find out which of the two the
+   * association's own record says happened.
+   */
+  const session = userEvent.setup();
+  await openTransferFields(session);
+
+  await session.selectOptions(
+    screen.getByLabelText(/Vad registreras/),
+    "GRANT",
+  );
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-04-07");
+  await session.type(
+    screen.getByLabelText(/Avtalshänvisning/),
+    "UPL-2026-1201",
+  );
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  expect(
+    await screen.findByText(
+      "Upplåtelsen registrerades i lägenhetsförteckningen.",
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.queryByText("Överlåtelsen registrerades i lägenhetsförteckningen."),
+  ).toBeNull();
 });

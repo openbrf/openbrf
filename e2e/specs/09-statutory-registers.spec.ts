@@ -519,7 +519,15 @@ test("an upplatelse takes its own deadline into the reporting queue", async ({
     }),
   ).toBeVisible();
 
-  const row = page.getByRole("row").filter({ hasText: apartment.number });
+  /*
+   * By the whole designation rather than the number. Every address in the
+   * fixture numbers its apartments the same way, so another spec's grant on the
+   * same number at a different street is a second row here - which is itself a
+   * sign the duty is being raised generally rather than only for this fixture.
+   */
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: designationOf(apartment) });
   await expect(row).toContainText("Upplåtelse");
   // The day of the grant, and the fourteenth day after it.
   await expect(row).toContainText(HELD_FROM);
