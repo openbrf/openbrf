@@ -11,11 +11,13 @@
  * to an append-only table cannot otherwise remove its own rows, and they are
  * named below. Nothing else in the tree may: the pattern reads as ordinary test
  * cleanup, it is a line long, and copied into a service or a migration it would
- * quietly make a statutory table editable. That is a defect a reviewer has to
- * spot rather than one anything refuses, which is what this check changes.
+ * quietly make a statutory table editable - a register the association is
+ * required to retain would become one anybody holding the owner's credentials
+ * can rewrite. That is a defect a reviewer has to spot rather than one anything
+ * refuses, which is what this check changes.
  *
- * Prose about the guards is expected and is not a finding. Comment lines are
- * skipped, and so is documentation: what is scanned is code.
+ * Prose about the guards is expected and is not a finding: comments are removed
+ * before anything is matched, and documentation is not scanned at all.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -25,11 +27,17 @@ import { fileURLToPath } from "node:url";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * The two files allowed to switch a guard off, and why each one is.
+ * The files allowed to switch a guard off, and why each one is.
  *
  * Both disable one named trigger, on one table, and put it back in a finally.
  * An entry here is a decision to be argued for in review: adding a third means
- * saying why the suite cannot asserts its way around the table instead.
+ * saying why the suite cannot assert its way around the table instead.
+ *
+ * The list is checked in both directions. An entry naming a file that is gone
+ * is an error, and so is one whose file no longer disables anything: an
+ * exemption nothing is using is one the next edit to that file inherits without
+ * anybody deciding to give it, and a statutory table would become editable with
+ * no finding raised.
  */
 const ALLOWED = new Map([
   [
@@ -45,23 +53,36 @@ const ALLOWED = new Map([
 ]);
 
 /**
- * What a bypass looks like.
+ * This file states the patterns, so it necessarily contains them. Skipped by
+ * path rather than by an entry in ALLOWED, which is a list of files permitted
+ * to disable a guard - this one never touches a database.
+ */
+const SELF = "scripts/check-statutory-guards.mjs";
+
+/**
+ * What a bypass looks like, matched against source with its comments removed.
  *
  * DISABLE TRIGGER is the direct one. session_replication_role is the indirect
  * one: set to replica, a session runs with user triggers off, which is how a
  * restore normally loads data and would take every guard down at once. Dropping
- * a guard by name is the third - a trigger a test created itself has a name of
- * its own and is not matched.
+ * a guard by name is the third.
+ *
+ * All three tolerate a line break inside the statement, because SQL is written
+ * across lines as readily as on one and a per-line matcher would miss
+ * `DROP TRIGGER\n  member_register_entry_append_only\n  ON ...`. The drop
+ * pattern is bounded by the statement terminator and by a length, so it cannot
+ * join a trigger dropped in one statement to a guard named in a later one - a
+ * trigger a suite created itself has a name of its own and is not matched.
  */
 const PATTERNS = [
-  { name: "DISABLE TRIGGER", expression: /\bdisable\s+trigger\b/i },
+  { name: "DISABLE TRIGGER", expression: /\bdisable\s+trigger\b/gi },
   {
     name: "session_replication_role",
-    expression: /\bsession_replication_role\b/i,
+    expression: /\bsession_replication_role\b/gi,
   },
   {
     name: "DROP TRIGGER on a guard",
-    expression: /\bdrop\s+trigger\b[^\n]*(_append_only|_no_truncate)/i,
+    expression: /\bdrop\s+trigger\b[^;]{0,200}?(_append_only|_no_truncate)/gi,
   },
 ];
 
@@ -76,15 +97,168 @@ const SCANNED_EXTENSIONS = [
 ];
 
 /**
- * A line that only talks about a bypass.
+ * The source with every comment blanked out and everything else where it was.
  *
- * Comment markers for the four languages scanned: `//` and `*` for TypeScript
- * and JavaScript, `--` for SQL, `#` for anything shell-flavoured that ends up
- * with one of these extensions.
+ * Blanked rather than removed, so a match's offset still points at the line it
+ * is on. Strings are kept, because a bypass written in JavaScript is a SQL
+ * string and removing them would leave nothing to find.
+ *
+ * Reading left to right settles the two orderings that matter: a quote inside a
+ * comment cannot open a string, and a comment marker inside a string is not a
+ * comment. `--` counts only in `.sql`, since in TypeScript it is a decrement,
+ * and `#` counts nowhere - it is a private field in TypeScript and not a
+ * comment in PostgreSQL.
  */
-function isComment(line) {
-  return /^\s*(\/\/|\*|\/\*|--|#)/.test(line);
+function withoutComments(source, path) {
+  const sqlComments = path.endsWith(".sql");
+  const out = [...source];
+  let index = 0;
+
+  const blank = (from, to) => {
+    for (let at = from; at < to; at += 1) {
+      if (out[at] !== "\n") {
+        out[at] = " ";
+      }
+    }
+  };
+
+  while (index < source.length) {
+    const two = source.slice(index, index + 2);
+
+    if (two === "/*") {
+      const end = source.indexOf("*/", index + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      blank(index, stop);
+      index = stop;
+      continue;
+    }
+
+    if (two === "//" || (sqlComments && two === "--")) {
+      const end = source.indexOf("\n", index);
+      const stop = end === -1 ? source.length : end;
+      blank(index, stop);
+      index = stop;
+      continue;
+    }
+
+    const character = source[index];
+    if (character === "'" || character === '"' || character === "`") {
+      index += 1;
+      while (index < source.length && source[index] !== character) {
+        // A backslash escape, which JavaScript has and SQL does not.
+        index += source[index] === "\\" ? 2 : 1;
+      }
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return out.join("");
 }
+
+/** Every bypass in one file's source, with the line each is on. */
+function findBypasses(source, path) {
+  const scanned = withoutComments(source, path);
+  const findings = [];
+
+  for (const pattern of PATTERNS) {
+    pattern.expression.lastIndex = 0;
+    let match = pattern.expression.exec(scanned);
+    while (match !== null) {
+      findings.push({
+        path,
+        line: scanned.slice(0, match.index).split("\n").length,
+        pattern: pattern.name,
+      });
+      match = pattern.expression.exec(scanned);
+    }
+  }
+
+  return findings.sort((left, right) => left.line - right.line);
+}
+
+/**
+ * What the scanner has to catch, and what it has to leave alone.
+ *
+ * Checked on every run, here rather than in a test file: `scripts/` is not a
+ * workspace package and no test runner reaches it, and a detector nothing
+ * exercises is one that can quietly stop detecting. Every entry in the first
+ * list is a shape that got past an earlier version of this check.
+ */
+const MUST_MATCH = [
+  {
+    name: "a disabled trigger in a SQL string",
+    path: "fixture.ts",
+    source:
+      'await tx.$executeRawUnsafe(`ALTER TABLE "x" DISABLE TRIGGER "y"`);',
+  },
+  {
+    name: "executable code after a block comment on the same line",
+    path: "fixture.ts",
+    source:
+      '/* cleanup */ await tx.$executeRawUnsafe(\'ALTER TABLE "x" DISABLE TRIGGER "y"\');',
+  },
+  {
+    name: "a guard dropped across several lines",
+    path: "fixture.sql",
+    source:
+      'DROP TRIGGER\n  member_register_entry_append_only\n  ON "member_register_entry";',
+  },
+  {
+    name: "user triggers turned off for the whole session",
+    path: "fixture.sql",
+    source: "SET session_replication_role = replica;",
+  },
+];
+
+const MUST_NOT_MATCH = [
+  {
+    name: "prose about a bypass in a line comment",
+    path: "fixture.ts",
+    source: "// the owner can ALTER TABLE ... DISABLE TRIGGER and walk past it",
+  },
+  {
+    name: "prose about a bypass in a SQL comment",
+    path: "fixture.sql",
+    source:
+      "-- separate from the owner so that DISABLE TRIGGER is out of reach",
+  },
+  {
+    name: "a trigger the suite created itself, dropped by its own name",
+    path: "fixture.ts",
+    source:
+      'await tx.$executeRawUnsafe(`DROP TRIGGER ${REFUSE_INSERTS} ON "register_report_obligation"`);',
+  },
+  {
+    name: "one statement dropping its own trigger and a later one naming a guard",
+    path: "fixture.sql",
+    source:
+      'DROP TRIGGER refuse_inserts ON "x";\nCREATE TRIGGER member_register_entry_append_only BEFORE UPDATE ON "y" FOR EACH ROW EXECUTE FUNCTION openbrf_forbid_mutation();',
+  },
+];
+
+function selfTest() {
+  const broken = [
+    ...MUST_MATCH.filter(
+      (fixture) => findBypasses(fixture.source, fixture.path).length === 0,
+    ).map((fixture) => `missed: ${fixture.name}`),
+    ...MUST_NOT_MATCH.filter(
+      (fixture) => findBypasses(fixture.source, fixture.path).length > 0,
+    ).map((fixture) => `false positive: ${fixture.name}`),
+  ];
+
+  if (broken.length > 0) {
+    console.error(
+      "This check no longer does what it says. Its own fixtures fail:\n" +
+        broken.map((line) => `  ${line}`).join("\n"),
+    );
+    process.exit(1);
+  }
+}
+
+selfTest();
 
 /*
  * Tracked files and untracked ones that are not ignored, so a file added in the
@@ -107,17 +281,11 @@ const tracked = execFileSync(
     SCANNED_EXTENSIONS.some((extension) => path.endsWith(extension)),
   );
 
-/**
- * This file states the patterns, so it necessarily contains them. Skipped by
- * path rather than by an entry in ALLOWED, which is a list of files permitted
- * to disable a guard - this one never touches a database.
- */
-const SELF = "scripts/check-statutory-guards.mjs";
-
 const findings = [];
+const exercised = new Set();
 
 for (const path of tracked) {
-  if (ALLOWED.has(path) || path === SELF) {
+  if (path === SELF) {
     continue;
   }
 
@@ -129,21 +297,20 @@ for (const path of tracked) {
     continue;
   }
 
-  contents.split("\n").forEach((line, index) => {
-    if (isComment(line)) {
-      return;
-    }
-    for (const pattern of PATTERNS) {
-      if (pattern.expression.test(line)) {
-        findings.push({ path, line: index + 1, pattern: pattern.name });
-      }
-    }
-  });
+  const found = findBypasses(contents, path);
+  if (found.length === 0) {
+    continue;
+  }
+  if (ALLOWED.has(path)) {
+    exercised.add(path);
+    continue;
+  }
+  findings.push(...found);
 }
 
 if (findings.length > 0) {
   console.error(
-    "A statutory archive guard is switched off outside the two files allowed to:",
+    "A statutory archive guard is switched off outside the files allowed to:",
   );
   for (const finding of findings) {
     console.error(`  ${finding.path}:${finding.line}  ${finding.pattern}`);
@@ -158,12 +325,18 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
-const unused = [...ALLOWED.keys()].filter((path) => !tracked.includes(path));
-if (unused.length > 0) {
+const stale = [...ALLOWED.keys()].filter((path) => !exercised.has(path));
+if (stale.length > 0) {
   console.error(
-    `The allowlist names files that are gone: ${unused.join(", ")}. Remove ` +
-      "them, so the list stays a statement about the tree rather than a record " +
-      "of one.",
+    "The allowlist carries exemptions nothing is using:\n" +
+      stale
+        .map(
+          (path) =>
+            `  ${path} - ${tracked.includes(path) ? "no longer disables a guard" : "is gone"}`,
+        )
+        .join("\n") +
+      "\n\nRemove them. An exemption nothing is using is one the next edit to\n" +
+      "that file inherits without anybody deciding to give it.",
   );
   process.exit(1);
 }
