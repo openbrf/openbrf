@@ -1667,7 +1667,7 @@
       "kind": "Vad registreras",
       "kindTransfer": "Överlåtelse - bostadsrätten byter innehavare",
       "kindGrant": "Upplåtelse - föreningen upplåter bostadsrätten",
-      "kindHint": "En upplåtelse är föreningens egen (BRL 4 kap.) och anmäls till bostadsrättsregistret inom två veckor från upplåtelsen. En överlåtelse räknas i stället från dagen föreningen beslutade om medlemskap.",
+      "kindHint": "En upplåtelse är föreningens egen (BRL 4 kap.) och anmäls till bostadsrättsregistret inom två veckor från upplåtelsen. En överlåtelse räknas från dagen föreningen beslutade om medlemskap, eller från överlåtelsen om förvärvaren redan är medlem eller inte omfattas av medlemskapskravet.",
       "transferredOn": "Avtalsdatum",
       "fromPerson": "Tidigare innehavare",
       "fromPersonNone": "Säljaren finns inte i registret",

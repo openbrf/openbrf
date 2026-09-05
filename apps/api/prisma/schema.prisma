@@ -585,10 +585,16 @@ model Transfer {
   /// Null only on rows written before the column existed. Nothing derives a kind
   /// for those: a grant and a transfer with an unrecorded seller look the same
   /// from the outside, and writing a guess into a statutory register is the one
-  /// thing this table may not do. A CHECK requires a kind on every new row
-  /// (`transfer_kind_recorded`, added NOT VALID in
-  /// 20260912200000_transfer_kind, which is the shape `agreementReference`
-  /// already uses for the same reason).
+  /// thing this table may not do.
+  ///
+  /// Required of every new row by the `transfer_states_what_it_is` trigger
+  /// (20260912230000_transfer_write_guards), which also refuses an update that
+  /// takes a recorded kind away. A trigger rather than a CHECK because the rule
+  /// is about the difference between the old row and the new one: a NOT VALID
+  /// CHECK exempts a grandfathered row only until something writes to it, and
+  /// PostgreSQL then refuses the update - which is what stopped a legacy
+  /// transfer from ever having its membership decision recorded. The agreement
+  /// reference was written the same way and moved into the same trigger.
   ///
   /// A second CHECK (`transfer_grant_has_no_seller`) refuses a GRANT that names
   /// one: the association is not a party the register holds, and a grant with a
@@ -644,16 +650,21 @@ model Transfer {
   /// once uploads exist, because a cooperative that files its agreements on
   /// paper still needs it.
   ///
-  /// Nullable in Prisma but not free: a CHECK constraint requires one of this
-  /// and agreementDocumentPath to hold at least one non-whitespace character,
-  /// so an uploaded agreement satisfies the same requirement without a second
-  /// migration. Prisma has no syntax for a CHECK, so it lives in
-  /// 20260828170000_transfer_agreement_reference_required and is tightened to
-  /// the full whitespace set in
-  /// 20260828180000_transfer_agreement_reference_non_whitespace. Added NOT
-  /// VALID because a row written before it has no reference to be found and
+  /// Nullable in Prisma but not free: one of this and agreementDocumentPath has
+  /// to hold at least one non-whitespace character, so an uploaded agreement
+  /// satisfies the same requirement without a second migration.
+  ///
+  /// A row written before the requirement has no reference to be found, and
   /// inventing one would be a statement in a statutory register that nobody
-  /// made.
+  /// made, so such a row is left as it is. That was a NOT VALID CHECK
+  /// (20260828170000, tightened in 20260828180000) until it turned out that
+  /// NOT VALID exempts a row only until something writes to it: PostgreSQL
+  /// checks the whole new row on UPDATE, so the exempt rows were the ones the
+  /// board could never correct. The rule is now the
+  /// `transfer_states_what_it_is` trigger in
+  /// 20260912230000_transfer_write_guards, which requires a reference on insert
+  /// and refuses an update that removes one, and leaves a row that never had
+  /// one updatable.
   agreementReference String?
 
   /// The reporting obligation this transfer opened, once its window has a

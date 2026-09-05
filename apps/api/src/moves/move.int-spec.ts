@@ -435,6 +435,13 @@ describe("an upplatelse and an overgang are different events", () => {
    */
   it("puts the grant's own day on the ledger, fourteen days ahead", async () => {
     const grantedOn = "2026-04-07";
+    /*
+     * A different day from the grant, deliberately. Lag (2026:484) 3 kap. 2 §
+     * counts from the upplatelse and not from the day anybody took possession,
+     * and with one date for both the assertion below would pass against a
+     * service that used the wrong one.
+     */
+    const movedInOn = "2026-05-02";
     const response = await inject({
       method: "POST",
       url: "/api/moves/move-in",
@@ -442,7 +449,7 @@ describe("an upplatelse and an overgang are different events", () => {
         personId: actors.grantee.personId,
         apartmentId: apartments.granted,
         role: "MEMBER",
-        movedInOn: grantedOn,
+        movedInOn,
         transfer: {
           kind: "GRANT",
           transferredOn: grantedOn,
@@ -471,6 +478,9 @@ describe("an upplatelse and an overgang are different events", () => {
     expect(obligation.kind).toBe("GRANT");
     // The day of the upplatelse itself, and not the day anybody moved in.
     expect(obligation.triggeredOn.toISOString().slice(0, 10)).toBe(grantedOn);
+    expect(obligation.triggeredOn.toISOString().slice(0, 10)).not.toBe(
+      movedInOn,
+    );
     // "inom tva veckor", which the table also states as a CHECK.
     expect(obligation.dueOn.toISOString().slice(0, 10)).toBe("2026-04-21");
   });

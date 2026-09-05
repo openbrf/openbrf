@@ -1667,7 +1667,7 @@
       "kind": "What is being recorded",
       "kindTransfer": "Transfer - the tenant-ownership changes hands",
       "kindGrant": "Grant - the association grants the tenant-ownership",
-      "kindHint": "A grant is the association's own act (BRL 4 kap.) and is reported to the cooperative housing register within two weeks of the grant itself. A transfer is counted from the day the association decided on membership instead.",
+      "kindHint": "A grant is the association's own act (BRL 4 kap.) and is reported to the cooperative housing register within two weeks of the grant itself. A transfer is counted from the day the association decided on membership, or from the transfer where the acquirer is already a member or falls outside the membership requirement.",
       "transferredOn": "Agreement date",
       "fromPerson": "Previous holder",
       "fromPersonNone": "The register does not hold the seller",

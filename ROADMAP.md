@@ -752,8 +752,8 @@ change it.
     event it is computed from, so the register write itself fails rather than
     leaving a deadline unrecorded. The two weeks are stated in the database as
     well as in the service, so no writer can enter a window that is not the
-    statutory fourteen days, and each duty carries its own audit entry. An
-    upplåtelse is recorded as the event it is rather than inferred from a
+    statutory fourteen days, and each duty carries its own audit entry. A grant
+    (upplåtelse) is recorded as the event it is rather than inferred from a
     transfer with no seller, which is what a transfer out of a hand the register
     never held looks like too: the board states which of the two it is when it
     records the move, the database refuses a grant that names a seller, and the
@@ -796,9 +796,9 @@ change it.
     distinguishable from what the platform records today - both look like a
     transfer whose membership decision has not been recorded yet - and the
     statute also assigns some reports to a juridical person rather than to the
-    association. The upplåtelse of 3 kap. 2 § was the third of those and is no
+    association. The grant of 3 kap. 2 § was the third of those and is no
     longer among them: the register records which of its events are grants, so
-    that duty is raised on the day of the grant. A registered överlåtelse that is later hävd or återgången is a
+    that duty is raised on the day of the grant itself. A registered överlåtelse that is later hävd or återgången is a
     further anmälan (3 kap. 3 § tredje stycket) with nothing recording it
   - Not modelled, and needed before a report can be rendered: Förordning
     (2026:898) 2 kap. 4 § andra stycket reports fastighetsbeteckning together
