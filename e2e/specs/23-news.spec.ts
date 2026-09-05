@@ -354,10 +354,14 @@ test("the board puts the news block on a page, and the website shows it", async 
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
   await page.goto(appPath("/admin/site/news"));
-  await page.getByLabel("Antal nyheter").fill("3");
-  await page.getByLabel("Sida", { exact: true }).selectOption({
-    label: TEASER_PAGE.title,
-  });
+  await page.getByRole("spinbutton", { name: "Antal nyheter" }).fill("3");
+  /*
+   * By role. The select sits inside its own label, so the label's text runs on
+   * into the chosen option and getByLabel does not match it.
+   */
+  await page
+    .getByRole("combobox", { name: "Sida" })
+    .selectOption({ label: TEASER_PAGE.title });
   await page.getByRole("button", { name: "Placera på sidan" }).click();
   await expect(
     page.getByText(`Blocket lades sist på ${TEASER_PAGE.title}`),
