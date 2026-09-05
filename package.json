@@ -19,8 +19,9 @@
     "changeset": "changeset",
     "hooks:install": "git config core.hooksPath .githooks",
     "fixtures:build": "node scripts/build-fixture-catalog.mjs",
-    "verify": "turbo run lint typecheck test build && pnpm format:check && pnpm --filter @openbrf/web theme:check && pnpm lint:coderabbit",
-    "lint:coderabbit": "node scripts/validate-coderabbit-config.mjs"
+    "verify": "turbo run lint typecheck test build && pnpm format:check && pnpm --filter @openbrf/web theme:check && pnpm lint:coderabbit && pnpm lint:guards",
+    "lint:coderabbit": "node scripts/validate-coderabbit-config.mjs",
+    "lint:guards": "node scripts/check-statutory-guards.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.2",
