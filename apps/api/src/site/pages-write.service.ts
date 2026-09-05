@@ -39,6 +39,7 @@ export type PageWriteReason =
   | "not-found"
   | "invalid-slug"
   | "slug-taken"
+  | "page-changed"
   | "personal-identity-number"
   | "photo-consent-required"
   | "image-not-found"
@@ -56,7 +57,10 @@ export class PageWriteError extends DomainError {
     this.status =
       reason === "not-found"
         ? HttpStatus.NOT_FOUND
-        : reason === "slug-taken"
+        : // A conflict rather than a refusal on the merits: nothing is wrong
+          // with what was sent, somebody else wrote first, and the caller reads
+          // the page again and decides what to do about it.
+          reason === "slug-taken" || reason === "page-changed"
           ? HttpStatus.CONFLICT
           : reason === "invalid-slug"
             ? HttpStatus.BAD_REQUEST
@@ -109,6 +113,21 @@ export interface UpdatePageInput {
    * shows any; see the guardrails below.
    */
   photoConsentConfirmed?: boolean;
+  /**
+   * The page as the caller last read it, as `updatedAt`.
+   *
+   * A save carries the whole page, so two callers who each read it and then
+   * wrote would leave the second one's copy standing and the first one's work
+   * gone, with nothing said to either. The page editor and the screens that
+   * place a block on a page are two such callers, and a board with the website
+   * open in one tab and the news screen in another is not an unusual state.
+   *
+   * Optional, and absent means what this endpoint has always done: write. That
+   * keeps a caller written before the field existed working rather than failing
+   * on a precondition it does not know about, which for a statutory-adjacent
+   * page would be a worse failure than the one it prevents.
+   */
+  expectedUpdatedAt?: string;
 }
 
 const PAGE_COLUMNS = {
@@ -226,6 +245,31 @@ export class PagesWriteService {
         content: input.content,
         photoConsentConfirmed: input.photoConsentConfirmed === true,
       });
+    }
+
+    /*
+     * Claimed against the copy the caller read, when they said which. An
+     * updateMany with the timestamp in its where clause is one statement: it
+     * either matches the row as it still stands and writes, or matches nothing
+     * and writes nothing. A read followed by a compare would leave the same gap
+     * between them that the precondition exists to close.
+     */
+    if (input.expectedUpdatedAt !== undefined) {
+      const claimed = await this.prisma.page.updateMany({
+        where: { id, updatedAt: new Date(input.expectedUpdatedAt) },
+        data: {
+          slug: input.slug,
+          title: input.title,
+          content: asJson(input.content),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+      return toAdminView(await this.require(id));
     }
 
     const row = await this.prisma.page.update({

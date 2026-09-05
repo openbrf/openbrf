@@ -156,6 +156,15 @@ export interface PageEdit {
   title: string;
   content: { blocks: PageBlock[] };
   photoConsentConfirmed?: boolean;
+  /**
+   * The page as this caller last read it, as `updatedAt`.
+   *
+   * A save carries the whole page, so two callers who each read it and then
+   * wrote would leave the second one's copy standing and the first one's work
+   * gone. Sending it asks the server to write only if the page is still the one
+   * that was read, and to answer `page-changed` if it is not.
+   */
+  expectedUpdatedAt?: string;
 }
 
 /** A stored picture, as the editor refers to it. */

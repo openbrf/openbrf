@@ -6,6 +6,7 @@ import type { AdminPage, PageBlock } from "../api/site";
 import { fetchPages, savePage } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, LABEL, SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 
 /**
@@ -37,6 +38,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "image-not-found": "siteAdmin.place.errors.blocked",
   "image-not-public": "siteAdmin.place.errors.blocked",
   "not-found": "siteAdmin.place.errors.pageGone",
+  "page-changed": "siteAdmin.place.errors.pageChanged",
 };
 
 export interface PlaceOnPageProps {
@@ -58,6 +60,8 @@ export function PlaceOnPage({
 }: PlaceOnPageProps): ReactElement {
   const { t } = useTranslation();
   const [pages, setPages] = useState<AdminPage[] | null>(null);
+  const [readFailed, setReadFailed] = useState(false);
+  const [reads, setReads] = useState(0);
   const [pageId, setPageId] = useState("");
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
@@ -69,13 +73,19 @@ export function PlaceOnPage({
       if (!active) {
         return;
       }
+      /*
+       * A failed read is said as one. Answering it with an empty list would put
+       * "there is no page to place this on yet" in front of a board whose site
+       * has a dozen, and the sentence they would act on is the wrong one.
+       */
+      setReadFailed(!result.ok);
       setPages(result.ok ? result.value : []);
       setPageId(result.ok ? (result.value[0]?.id ?? "") : "");
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [reads]);
 
   const chosen = pages?.find((page) => page.id === pageId) ?? null;
   const alreadyThere =
@@ -93,6 +103,13 @@ export function PlaceOnPage({
       slug: chosen.slug,
       title: chosen.title,
       content: { blocks: [...chosen.content.blocks, block] },
+      /*
+       * The copy this control read. A save carries the whole page, so without
+       * this a placement would write its own copy over whatever the page editor
+       * had saved in the meantime - the board's own prose, silently, from a
+       * screen that is not the page editor.
+       */
+      expectedUpdatedAt: chosen.updatedAt,
     });
 
     setPlacing(false);
@@ -120,13 +137,22 @@ export function PlaceOnPage({
       <h3 className="text-title text-ink">{t(titleKey)}</h3>
       <p className="text-small text-ink-muted">{t(descriptionKey)}</p>
 
-      {pages !== null && pages.length === 0 ? (
+      {readFailed ? (
+        <LoadFailure
+          messageKey="siteAdmin.place.loadFailed"
+          onRetry={() => {
+            setReads((count) => count + 1);
+          }}
+        />
+      ) : null}
+
+      {!readFailed && pages !== null && pages.length === 0 ? (
         <p className="text-small text-ink-muted">
           {t("siteAdmin.place.noPages")}
         </p>
       ) : null}
 
-      {pages === null || pages.length === 0 ? null : (
+      {readFailed || pages === null || pages.length === 0 ? null : (
         <>
           <label className={LABEL} htmlFor={`place-${block.type}`}>
             {t("siteAdmin.place.page")}

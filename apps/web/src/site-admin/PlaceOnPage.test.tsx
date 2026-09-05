@@ -131,6 +131,75 @@ it("says where the picture confirmation is given rather than asking for it here"
   );
 
   expect(
-    await screen.findByText(/bekräftelsen ges i sidredigeraren/),
+    await screen.findByText(/publiceringssamtycket bekräftas i sidredigeraren/),
+  ).toBeTruthy();
+});
+
+it("sends the copy it read, so a placement cannot write over an edit", async () => {
+  /*
+   * A save carries the whole page. Without the precondition a placement would
+   * put the blocks this control fetched over whatever the page editor had saved
+   * in between - the board's own prose, silently, from a screen that is not the
+   * page editor. The server writes only if the page is still the one that was
+   * read.
+   */
+  savePage.mockResolvedValue({ ok: true, value: page({}) });
+
+  renderControl();
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Placera på sidan" }),
+  );
+
+  await waitFor(() => {
+    expect(savePage).toHaveBeenCalled();
+  });
+  const [, edit] = savePage.mock.calls[0] as [
+    string,
+    { expectedUpdatedAt?: string },
+  ];
+  expect(edit.expectedUpdatedAt).toBe("2026-08-01T09:00:00.000Z");
+});
+
+it("says the page moved rather than reporting a placement that did not happen", async () => {
+  savePage.mockResolvedValue({
+    ok: false,
+    failure: { status: 409, reason: "page-changed" },
+  });
+
+  renderControl();
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Placera på sidan" }),
+  );
+
+  expect(
+    await screen.findByText(/Sidan ändrades medan den här vyn hade den öppen/),
+  ).toBeTruthy();
+});
+
+it("reports a failed read as one, and reads again when asked", async () => {
+  /*
+   * Answering a failed read with an empty list would tell a board with a dozen
+   * pages that they have none and should create one - the wrong sentence, and
+   * the one they would act on.
+   */
+  fetchPages.mockResolvedValueOnce({
+    ok: false,
+    failure: { status: 500, reason: "unexpected" },
+  });
+
+  renderControl();
+
+  expect(
+    await screen.findByText("Sidorna kunde inte läsas just nu."),
+  ).toBeTruthy();
+  expect(
+    screen.queryByText(/Det finns ingen sida att placera blocket på/),
+  ).toBeNull();
+
+  fetchPages.mockResolvedValue({ ok: true, value: [page({})] });
+  await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+  expect(
+    await screen.findByRole("button", { name: "Placera på sidan" }),
   ).toBeTruthy();
 });

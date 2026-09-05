@@ -2293,7 +2293,8 @@
       "imageNotFound": "En bild på sidan finns inte längre lagrad på den här instansen.",
       "imageNotPublic": "En bild på sidan serveras inte öppet, så sidan skulle visa en trasig bild.",
       "pageGone": "Sidan finns inte längre.",
-      "unknown": "Det gick inte att spara just nu. Försök igen."
+      "unknown": "Det gick inte att spara just nu. Försök igen.",
+      "pageChanged": "Sidan har ändrats sedan den lästes in. Ladda om sidan och gör om ändringen, så skrivs ingen annans arbete över."
     },
     "menu": {
       "heading": "Meny",
@@ -2413,10 +2414,11 @@
       "done": "Blocket lades sist på {{page}}. Flytta det där du vill ha det i sidredigeraren.",
       "noPages": "Det finns ingen sida att placera blocket på ännu. Skapa en sida först.",
       "errors": {
-        "photoConsentRequired": "Sidan innehåller en bild med identifierbara personer, och den bekräftelsen ges i sidredigeraren. Lägg till blocket där i stället.",
+        "photoConsentRequired": "Sidan innehåller en bild med identifierbara personer, och publiceringssamtycket bekräftas i sidredigeraren. Lägg till blocket där i stället.",
         "blocked": "Sidan kunde inte sparas. Öppna den i sidredigeraren, som säger vad som hindrar publicering.",
         "pageGone": "Sidan finns inte längre.",
-        "unknown": "Blocket kunde inte placeras just nu."
+        "unknown": "Blocket kunde inte placeras just nu.",
+        "pageChanged": "Sidan ändrades medan den här vyn hade den öppen, och blocket placerades inte. Försök igen, så läses sidan om först."
       },
       "newsTeaser": {
         "title": "Visa nyheter på en sida",
@@ -2430,10 +2432,11 @@
         "alreadyThere": "Sidan har redan ett kontaktformulär."
       },
       "issueReportForm": {
-        "title": "Visa felanmälan på en sida",
-        "description": "Formuläret en förbipasserande anmäler en trasig port med. Fälten är fasta, och ärendetyperna läses när sidan visas. Blocket visas inte alls medan publik felanmälan är avstängd.",
+        "title": "Visa felanmälningsformuläret på en sida",
+        "description": "Felanmälningsformuläret som en förbipasserande anmäler en trasig port med. Fälten är fasta, och ärendetyperna läses när sidan visas. Blocket visas inte alls medan publik felanmälan är avstängd.",
         "alreadyThere": "Sidan har redan ett felanmälningsformulär."
-      }
+      },
+      "loadFailed": "Sidorna kunde inte läsas just nu."
     }
   },
   "news": {

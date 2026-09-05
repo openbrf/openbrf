@@ -308,6 +308,9 @@ describe("the editor", () => {
             },
           ],
         },
+        // The copy the editor is holding: the save writes only if the page is
+        // still the one it read, so a second writer cannot be written over.
+        expectedUpdatedAt: "2026-08-29T09:00:00.000Z",
       });
     });
     expect(publishPage).toHaveBeenCalledWith("page-2", { published: true });

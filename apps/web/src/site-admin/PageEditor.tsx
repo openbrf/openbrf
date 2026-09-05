@@ -86,6 +86,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "image-not-found": "siteAdmin.errors.imageNotFound",
   "image-not-public": "siteAdmin.errors.imageNotPublic",
   "not-found": "siteAdmin.errors.pageGone",
+  "page-changed": "siteAdmin.errors.pageChanged",
 };
 
 export interface PageEditorProps {
@@ -242,7 +243,13 @@ export function PageEditor({
               disabled={busy}
               onClick={() => {
                 void run(async () =>
-                  savePage(page.id, { slug, title, content: body, ...consent }),
+                  savePage(page.id, {
+                    slug,
+                    title,
+                    content: body,
+                    ...consent,
+                    expectedUpdatedAt: page.updatedAt,
+                  }),
                 );
               }}
             >
@@ -296,6 +303,7 @@ export function PageEditor({
                       title,
                       content: body,
                       ...consent,
+                      expectedUpdatedAt: page.updatedAt,
                     });
                     if (!stored.ok) {
                       return stored;

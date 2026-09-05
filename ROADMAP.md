@@ -306,8 +306,8 @@ non-goal: page titles, and no sitemap or metadata machinery.
       of their own, only the block and its rendering. The news teaser and the
       two form blocks are placed from the screen that owns the feature rather
       than from the page editor - the teaser from the news editor, the contact
-      form from the inbox it fills, the report form from the setting that turns
-      public reporting on - because what each of them shows is that feature's to
+      form from the inbox it fills, the issue report form from the setting that
+      turns public issue reporting on - because what each of them shows is that feature's to
       decide. The block is appended and the page editor is where it is then
       moved, and a page already carrying one is not offered a second. A document list follows the
       archive's own audience for whoever is reading, per document and per

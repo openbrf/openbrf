@@ -2293,7 +2293,8 @@
       "imageNotFound": "A picture on this page is no longer stored on this instance.",
       "imageNotPublic": "A picture on this page is not served publicly, so the page would show a broken picture.",
       "pageGone": "That page no longer exists.",
-      "unknown": "That could not be saved just now. Please try again."
+      "unknown": "That could not be saved just now. Please try again.",
+      "pageChanged": "The page changed after it was loaded. Reload it and make the change again, so nobody else's work is written over."
     },
     "menu": {
       "heading": "Menu",
@@ -2413,10 +2414,11 @@
       "done": "The block was added at the end of {{page}}. Move it where you want it in the page editor.",
       "noPages": "There is no page to place the block on yet. Create a page first.",
       "errors": {
-        "photoConsentRequired": "The page carries a picture showing identifiable people, and that confirmation is given in the page editor. Add the block there instead.",
+        "photoConsentRequired": "The page carries a picture showing identifiable people, and the publication consent is confirmed in the page editor. Add the block there instead.",
         "blocked": "The page could not be saved. Open it in the page editor, which says what is stopping it from being published.",
         "pageGone": "The page is gone.",
-        "unknown": "The block could not be placed just now."
+        "unknown": "The block could not be placed just now.",
+        "pageChanged": "The page changed while this view had it open, and the block was not placed. Try again, and the page is read afresh first."
       },
       "newsTeaser": {
         "title": "Show news on a page",
@@ -2430,10 +2432,11 @@
         "alreadyThere": "That page already carries a contact form."
       },
       "issueReportForm": {
-        "title": "Show the report form on a page",
-        "description": "The form a passer-by reports a broken door with. Its fields are fixed and the issue types are read when the page is rendered. The block renders as nothing while public reporting is switched off.",
-        "alreadyThere": "That page already carries a report form."
-      }
+        "title": "Show the issue report form on a page",
+        "description": "The issue report form a passer-by reports a broken door with. Its fields are fixed and the issue types are read when the page is rendered. The block renders as nothing while public issue reporting is switched off.",
+        "alreadyThere": "That page already carries an issue report form."
+      },
+      "loadFailed": "The pages could not be read just now."
     }
   },
   "news": {

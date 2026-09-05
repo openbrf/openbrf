@@ -112,14 +112,17 @@ describe("what a refusal answers with", () => {
      * here is a compile error rather than a route that quietly answers the
      * wrong thing. The distinction that matters is between the three that are
      * about the request - the address is unusable, the address is taken, the
-     * page is not there - and the four that are about the content: the page
-     * exists and cannot be published as it stands, which is unprocessable and
-     * not missing. A 404 on one of those reads as "no such page".
+     * page is not there, or somebody else wrote first - and the four that are
+     * about the content: the page exists and cannot be published as it stands,
+     * which is unprocessable and not missing. A 404 on one of those reads as
+     * "no such page".
      */
     const expected: Record<PageWriteReason, number> = {
       "not-found": 404,
       "invalid-slug": 400,
       "slug-taken": 409,
+      // Nothing is wrong with what was sent: the page moved underneath it.
+      "page-changed": 409,
       "personal-identity-number": 422,
       "photo-consent-required": 422,
       "image-not-found": 422,
