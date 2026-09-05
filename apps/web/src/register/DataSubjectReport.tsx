@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
@@ -248,6 +249,34 @@ function day(instant: string | null): string | null {
   return instant === null ? null : instant.slice(0, 10);
 }
 
+/**
+ * The translator the document renders through, which is the subject's and not
+ * the reader's.
+ *
+ * The screen around it stays in the language of whoever is at the keyboard -
+ * the heading, the two buttons and anything said about the fetch are addressed
+ * to the board member. The document is addressed to the person it is about and
+ * is handed to them, so it renders in the language they told the association to
+ * write to them in, exactly as the server's own correspondence does
+ * (`I18nService.translatorFor`, which every mail and message goes through).
+ *
+ * A context rather than a prop, because the parts that print a label are
+ * generic and used dozens of times: threading a translator through every
+ * Section, Field and Rows would put the same argument on every call and leave
+ * the one that forgot it silently rendering the wrong language.
+ */
+const DocumentTranslation = createContext<TFunction | undefined>(undefined);
+
+function useDocumentTranslation(): TFunction {
+  const t = useContext(DocumentTranslation);
+  if (t === undefined) {
+    throw new Error(
+      "A part of the access report rendered outside the document.",
+    );
+  }
+  return t;
+}
+
 export interface DataSubjectReportProps {
   personId: string;
   /** Back to the person the report is about. */
@@ -258,7 +287,7 @@ export function DataSubjectReport({
   personId,
   onClose,
 }: DataSubjectReportProps): ReactElement {
-  const { t } = useTranslation();
+  const { t: screenT, i18n } = useTranslation();
   /*
    * The report replaces the whole view, so the button that opened it unmounts
    * in the same commit and the browser drops focus to the document body - the
@@ -293,6 +322,23 @@ export function DataSubjectReport({
     };
   }, [personId]);
 
+  /*
+   * `t` is the document's translator from here down, so every label below the
+   * header comes out in the subject's language. Until the report arrives there
+   * is no subject to ask, and nothing is rendered through it either.
+   */
+  const subjectLocale = report?.person.preferredLocale;
+  const t = useMemo(
+    () =>
+      subjectLocale === undefined ? screenT : i18n.getFixedT(subjectLocale),
+    [i18n, screenT, subjectLocale],
+  );
+
+  /*
+   * The document's translator, because every one of the fifty-odd places this
+   * is dropped into is a cell inside the document. It is the reader's language
+   * only until the report arrives, and nothing renders before that.
+   */
   const nothing = t("register.person.report.nothing");
 
   return (
@@ -300,15 +346,15 @@ export function DataSubjectReport({
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
           <h1 ref={heading} tabIndex={-1} className="text-display">
-            {t("register.person.report.heading")}
+            {screenT("register.person.report.heading")}
           </h1>
           <p className="max-w-2xl text-body text-ink-muted">
-            {t("register.person.report.logged")}
+            {screenT("register.person.report.logged")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={onClose} className={SECONDARY_BUTTON}>
-            {t("register.person.report.back")}
+            {screenT("register.person.report.back")}
           </button>
           <button
             type="button"
@@ -318,773 +364,796 @@ export function DataSubjectReport({
             disabled={report === null}
             className={SECONDARY_BUTTON}
           >
-            {t("register.person.report.print")}
+            {screenT("register.person.report.print")}
           </button>
         </div>
       </header>
 
       <p className="text-small text-ink-muted print:hidden">
-        {t("register.person.report.printHint")}
+        {screenT("register.person.report.printHint")}
       </p>
 
       {failed ? (
         <Notice tone="danger" live>
-          {t("register.person.report.failed")}
+          {screenT("register.person.report.failed")}
         </Notice>
       ) : null}
 
       {report === null && !failed ? (
         <p role="status" className="text-body text-ink-muted">
-          {t("register.person.report.loading")}
+          {screenT("register.person.report.loading")}
         </p>
       ) : null}
 
       {report === null ? null : (
-        <article {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
-          <header className="flex flex-col gap-1">
-            <h2 className="text-headline">{report.housingCooperative.name}</h2>
-            {report.housingCooperative.organizationNumber === null ? null : (
-              <p className={STAMP}>
-                {`${t("register.person.report.organizationNumber")} ${
-                  report.housingCooperative.organizationNumber
-                }`}
+        /*
+         * `lang` on the document and not on the page: the screen around it is
+         * still the reader's language, and a printed page whose language is
+         * declared wrong is read out wrong by anything that speaks it.
+         */
+        <DocumentTranslation.Provider value={t}>
+          <article
+            {...DOCUMENT_ATTRIBUTE}
+            lang={report.person.preferredLocale}
+            className={DOCUMENT}
+          >
+            <header className="flex flex-col gap-1">
+              <h2 className="text-headline">
+                {report.housingCooperative.name}
+              </h2>
+              {report.housingCooperative.organizationNumber === null ? null : (
+                <p className={STAMP}>
+                  {`${t("register.person.report.organizationNumber")} ${
+                    report.housingCooperative.organizationNumber
+                  }`}
+                </p>
+              )}
+              <p className="text-title">
+                {t("register.person.report.heading")}
               </p>
-            )}
-            <p className="text-title">{t("register.person.report.heading")}</p>
-            <p className="text-body text-ink">
-              {`${report.person.firstName} ${report.person.lastName}`}
+              <p className="text-body text-ink">
+                {`${report.person.firstName} ${report.person.lastName}`}
+              </p>
+            </header>
+
+            {/*
+             * Said on the document itself. Somebody handed this should be able to
+             * see which half of what it lists is erased on the date below and
+             * which half the law requires the association to keep.
+             */}
+            <p className="text-small text-ink-muted">
+              {t("register.person.report.twoTiers")}
             </p>
-          </header>
 
-          {/*
-           * Said on the document itself. Somebody handed this should be able to
-           * see which half of what it lists is erased on the date below and
-           * which half the law requires the association to keep.
-           */}
-          <p className="text-small text-ink-muted">
-            {t("register.person.report.twoTiers")}
-          </p>
-
-          <Section titleKey="register.person.report.section.person">
-            <dl className={FIELD_GRID}>
-              <Field
-                labelKey="register.person.report.field.name"
-                value={`${report.person.firstName} ${report.person.lastName}`}
-              />
-              <Field
-                labelKey="register.person.report.field.postalAddress"
-                value={
-                  [
-                    report.person.postalAddress.street,
-                    report.person.postalAddress.postalCode,
-                    report.person.postalAddress.city,
-                  ]
-                    .filter((part): part is string => part !== null)
-                    .join(", ") || null
-                }
-              />
-              <Field
-                labelKey="register.person.report.field.alternativeAddress"
-                value={report.person.alternativePostalAddress}
-              />
-              <Field
-                labelKey="register.person.report.field.email"
-                value={report.person.email}
-              />
-              <Field
-                labelKey="register.person.report.field.phone"
-                value={report.person.phone}
-              />
-              <Field
-                labelKey="register.person.report.field.personalIdentityNumber"
-                value={report.person.personalIdentityNumber}
-              />
-              <Field
-                labelKey="register.person.report.field.protectedPersonalData"
-                value={t(
-                  report.person.protectedPersonalData
-                    ? "register.person.report.yes"
-                    : "register.person.report.no",
-                )}
-              />
-              <Field
-                labelKey="register.person.report.field.preferredLocale"
-                value={report.person.preferredLocale}
-              />
-              <Field
-                labelKey="register.person.report.field.recordedAt"
-                value={day(report.person.recordedAt)}
-              />
-            </dl>
-          </Section>
-
-          <Section titleKey="register.person.report.section.residencies">
-            <Rows
-              empty={report.residencies.length === 0}
-              headings={[
-                "register.person.report.field.apartment",
-                "register.person.report.field.role",
-                "register.person.report.field.movedIn",
-                "register.person.report.field.movedOut",
-                "register.person.report.field.purgeOn",
-              ]}
-            >
-              {report.residencies.map((residency) => (
-                <tr key={residency.residencyId} className={ROW}>
-                  <td className={DATA_CELL}>
-                    {`${residency.addressLabel} ${residency.apartmentNumber}`}
-                  </td>
-                  <td className={TEXT_CELL}>{t(ROLE_LABEL[residency.role])}</td>
-                  <td className={DATA_CELL}>
-                    {residency.movedInOn ?? nothing}
-                  </td>
-                  <td className={DATA_CELL}>
-                    {residency.movedOutOn ?? nothing}
-                  </td>
-                  <td className={DATA_CELL}>{residency.purgeOn ?? nothing}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
-
-          <Section titleKey="register.person.report.section.boardPositions">
-            <Rows
-              empty={report.boardPositions.length === 0}
-              headings={[
-                "register.person.report.field.position",
-                "register.person.report.field.elected",
-                "register.person.report.field.ended",
-              ]}
-            >
-              {report.boardPositions.map((position) => (
-                <tr
-                  key={`${position.position}-${position.electedOn ?? ""}`}
-                  className={ROW}
-                >
-                  <td className={TEXT_CELL}>
-                    {t(POSITION_LABEL[position.position])}
-                  </td>
-                  <td className={DATA_CELL}>{position.electedOn ?? nothing}</td>
-                  <td className={DATA_CELL}>{position.endedOn ?? nothing}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
-
-          <Section titleKey="register.person.report.section.systemRoles">
-            {report.systemRoles.length === 0 ? (
-              <Empty />
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {report.systemRoles.map((role) => (
-                  <li key={role} className={FIELD_TEXT}>
-                    {t(SYSTEM_ROLE_LABEL[role])}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-
-          <Section titleKey="register.person.report.section.account">
-            {report.account === null ? (
-              <Empty />
-            ) : (
+            <Section titleKey="register.person.report.section.person">
               <dl className={FIELD_GRID}>
                 <Field
-                  labelKey="register.person.report.field.email"
-                  value={report.account.email}
+                  labelKey="register.person.report.field.name"
+                  value={`${report.person.firstName} ${report.person.lastName}`}
                 />
                 <Field
-                  labelKey="register.person.report.field.twoFactor"
+                  labelKey="register.person.report.field.postalAddress"
+                  value={
+                    [
+                      report.person.postalAddress.street,
+                      report.person.postalAddress.postalCode,
+                      report.person.postalAddress.city,
+                    ]
+                      .filter((part): part is string => part !== null)
+                      .join(", ") || null
+                  }
+                />
+                <Field
+                  labelKey="register.person.report.field.alternativeAddress"
+                  value={report.person.alternativePostalAddress}
+                />
+                <Field
+                  labelKey="register.person.report.field.email"
+                  value={report.person.email}
+                />
+                <Field
+                  labelKey="register.person.report.field.phone"
+                  value={report.person.phone}
+                />
+                <Field
+                  labelKey="register.person.report.field.personalIdentityNumber"
+                  value={report.person.personalIdentityNumber}
+                />
+                <Field
+                  labelKey="register.person.report.field.protectedPersonalData"
                   value={t(
-                    report.account.twoFactorEnabled
+                    report.person.protectedPersonalData
                       ? "register.person.report.yes"
                       : "register.person.report.no",
                   )}
                 />
                 <Field
+                  labelKey="register.person.report.field.preferredLocale"
+                  value={report.person.preferredLocale}
+                />
+                <Field
                   labelKey="register.person.report.field.recordedAt"
-                  value={day(report.account.createdAt)}
+                  value={day(report.person.recordedAt)}
                 />
               </dl>
-            )}
-          </Section>
+            </Section>
 
-          <Section titleKey="register.person.report.section.memberRegister">
-            <Rows
-              empty={report.memberRegisterEntries.length === 0}
-              headings={[
-                "register.person.report.field.event",
-                "register.person.report.field.date",
-                "register.person.report.field.apartment",
-                "register.person.report.field.recordedName",
-                "register.person.report.field.note",
-              ]}
-            >
-              {report.memberRegisterEntries.map((entry) => (
-                <tr key={entry.entryId} className={ROW}>
-                  <td className={TEXT_CELL}>
-                    {t(`register.person.report.event.${entry.eventType}`)}
-                  </td>
-                  <td className={DATA_CELL}>{entry.eventOn}</td>
-                  <td className={DATA_CELL}>{entry.apartment ?? nothing}</td>
-                  <td className={TEXT_CELL}>{entry.recordedName}</td>
-                  <td className={TEXT_CELL}>{entry.note ?? nothing}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.residencies">
+              <Rows
+                empty={report.residencies.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.role",
+                  "register.person.report.field.movedIn",
+                  "register.person.report.field.movedOut",
+                  "register.person.report.field.purgeOn",
+                ]}
+              >
+                {report.residencies.map((residency) => (
+                  <tr key={residency.residencyId} className={ROW}>
+                    <td className={DATA_CELL}>
+                      {`${residency.addressLabel} ${residency.apartmentNumber}`}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(ROLE_LABEL[residency.role])}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {residency.movedInOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {residency.movedOutOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {residency.purgeOn ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.transfers">
-            <Rows
-              empty={report.transfers.length === 0}
-              headings={[
-                "register.person.report.field.apartment",
-                "register.person.report.field.direction",
-                "register.person.report.field.date",
-                "register.person.report.field.membershipDecidedOn",
-                "register.person.report.field.price",
-                "register.person.report.field.agreementReference",
-              ]}
-            >
-              {report.transfers.map((transfer) => (
-                <tr key={transfer.transferId} className={ROW}>
-                  <td className={DATA_CELL}>{transfer.apartment}</td>
-                  <td className={TEXT_CELL}>
-                    {t(
-                      `register.person.report.direction.${transfer.direction}`,
+            <Section titleKey="register.person.report.section.boardPositions">
+              <Rows
+                empty={report.boardPositions.length === 0}
+                headings={[
+                  "register.person.report.field.position",
+                  "register.person.report.field.elected",
+                  "register.person.report.field.ended",
+                ]}
+              >
+                {report.boardPositions.map((position) => (
+                  <tr
+                    key={`${position.position}-${position.electedOn ?? ""}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>
+                      {t(POSITION_LABEL[position.position])}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {position.electedOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>{position.endedOn ?? nothing}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.systemRoles">
+              {report.systemRoles.length === 0 ? (
+                <Empty />
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {report.systemRoles.map((role) => (
+                    <li key={role} className={FIELD_TEXT}>
+                      {t(SYSTEM_ROLE_LABEL[role])}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+
+            <Section titleKey="register.person.report.section.account">
+              {report.account === null ? (
+                <Empty />
+              ) : (
+                <dl className={FIELD_GRID}>
+                  <Field
+                    labelKey="register.person.report.field.email"
+                    value={report.account.email}
+                  />
+                  <Field
+                    labelKey="register.person.report.field.twoFactor"
+                    value={t(
+                      report.account.twoFactorEnabled
+                        ? "register.person.report.yes"
+                        : "register.person.report.no",
                     )}
-                  </td>
-                  <td className={DATA_CELL}>{transfer.transferredOn}</td>
-                  <td className={DATA_CELL}>
-                    {transfer.membershipDecidedOn ?? nothing}
-                  </td>
-                  <td className={DATA_CELL}>{transfer.price ?? nothing}</td>
-                  <td className={DATA_CELL}>
-                    {transfer.agreementReference ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+                  />
+                  <Field
+                    labelKey="register.person.report.field.recordedAt"
+                    value={day(report.account.createdAt)}
+                  />
+                </dl>
+              )}
+            </Section>
 
-          <Section titleKey="register.person.report.section.terminations">
-            <Rows
-              empty={report.terminations.length === 0}
-              headings={[
-                "register.person.report.field.apartment",
-                "register.person.report.field.terminationKind",
-                "register.person.report.field.tookEffectOn",
-                "register.person.report.field.terminationReference",
-              ]}
-            >
-              {report.terminations.map((termination) => (
-                <tr key={termination.terminationId} className={ROW}>
-                  <td className={DATA_CELL}>{termination.apartment}</td>
-                  <td className={TEXT_CELL}>
-                    {t(TERMINATION_KIND_LABEL[termination.kind])}
-                  </td>
-                  <td className={DATA_CELL}>{termination.tookEffectOn}</td>
-                  <td className={TEXT_CELL}>{termination.reference}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.memberRegister">
+              <Rows
+                empty={report.memberRegisterEntries.length === 0}
+                headings={[
+                  "register.person.report.field.event",
+                  "register.person.report.field.date",
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.recordedName",
+                  "register.person.report.field.note",
+                ]}
+              >
+                {report.memberRegisterEntries.map((entry) => (
+                  <tr key={entry.entryId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      {t(`register.person.report.event.${entry.eventType}`)}
+                    </td>
+                    <td className={DATA_CELL}>{entry.eventOn}</td>
+                    <td className={DATA_CELL}>{entry.apartment ?? nothing}</td>
+                    <td className={TEXT_CELL}>{entry.recordedName}</td>
+                    <td className={TEXT_CELL}>{entry.note ?? nothing}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.lienNotes">
-            <Rows
-              empty={report.lienNotes.length === 0}
-              headings={[
-                "register.person.report.field.apartment",
-                "register.person.report.field.creditor",
-                "register.person.report.field.amount",
-                "register.person.report.field.noted",
-                "register.person.report.field.released",
-              ]}
-            >
-              {report.lienNotes.map((lienNote) => (
-                <tr key={lienNote.lienNoteId} className={ROW}>
-                  <td className={DATA_CELL}>{lienNote.apartment}</td>
-                  <td className={TEXT_CELL}>{lienNote.creditor}</td>
-                  <td className={DATA_CELL}>{lienNote.amount ?? nothing}</td>
-                  <td className={DATA_CELL}>{lienNote.notedOn}</td>
-                  <td className={DATA_CELL}>
-                    {lienNote.releasedOn ??
-                      t("register.person.report.standing")}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.transfers">
+              <Rows
+                empty={report.transfers.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.direction",
+                  "register.person.report.field.date",
+                  "register.person.report.field.membershipDecidedOn",
+                  "register.person.report.field.price",
+                  "register.person.report.field.agreementReference",
+                ]}
+              >
+                {report.transfers.map((transfer) => (
+                  <tr key={transfer.transferId} className={ROW}>
+                    <td className={DATA_CELL}>{transfer.apartment}</td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        `register.person.report.direction.${transfer.direction}`,
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>{transfer.transferredOn}</td>
+                    <td className={DATA_CELL}>
+                      {transfer.membershipDecidedOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>{transfer.price ?? nothing}</td>
+                    <td className={DATA_CELL}>
+                      {transfer.agreementReference ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.reportObligations">
-            <Rows
-              empty={report.registerReportObligations.length === 0}
-              headings={[
-                "register.person.report.field.apartment",
-                "register.person.report.field.event",
-                "register.person.report.field.triggeredOn",
-                "register.person.report.field.dueOn",
-              ]}
-            >
-              {report.registerReportObligations.map((obligation) => (
-                <tr key={obligation.obligationId} className={ROW}>
-                  <td className={DATA_CELL}>{obligation.apartment}</td>
-                  <td className={TEXT_CELL}>
-                    {t(REGISTER_REPORT_KIND_LABEL[obligation.kind])}
-                  </td>
-                  <td className={DATA_CELL}>{obligation.triggeredOn}</td>
-                  <td className={DATA_CELL}>{obligation.dueOn}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.terminations">
+              <Rows
+                empty={report.terminations.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.terminationKind",
+                  "register.person.report.field.tookEffectOn",
+                  "register.person.report.field.terminationReference",
+                ]}
+              >
+                {report.terminations.map((termination) => (
+                  <tr key={termination.terminationId} className={ROW}>
+                    <td className={DATA_CELL}>{termination.apartment}</td>
+                    <td className={TEXT_CELL}>
+                      {t(TERMINATION_KIND_LABEL[termination.kind])}
+                    </td>
+                    <td className={DATA_CELL}>{termination.tookEffectOn}</td>
+                    <td className={TEXT_CELL}>{termination.reference}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.consents">
-            <Rows
-              empty={report.publicationConsents.length === 0}
-              headings={[
-                "register.person.report.field.scope",
-                "register.person.report.field.granted",
-                "register.person.report.field.withdrawn",
-                "register.person.report.field.note",
-              ]}
-            >
-              {report.publicationConsents.map((consent) => (
-                <tr
-                  key={`${consent.scope}-${consent.grantedOn}`}
-                  className={ROW}
-                >
-                  <td className={TEXT_CELL}>
-                    {t(CONSENT_SCOPE_LABEL[consent.scope])}
-                  </td>
-                  <td className={DATA_CELL}>{day(consent.grantedOn)}</td>
-                  <td className={DATA_CELL}>
-                    {day(consent.withdrawnOn) ?? nothing}
-                  </td>
-                  <td className={TEXT_CELL}>{consent.note ?? nothing}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.lienNotes">
+              <Rows
+                empty={report.lienNotes.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.creditor",
+                  "register.person.report.field.amount",
+                  "register.person.report.field.noted",
+                  "register.person.report.field.released",
+                ]}
+              >
+                {report.lienNotes.map((lienNote) => (
+                  <tr key={lienNote.lienNoteId} className={ROW}>
+                    <td className={DATA_CELL}>{lienNote.apartment}</td>
+                    <td className={TEXT_CELL}>{lienNote.creditor}</td>
+                    <td className={DATA_CELL}>{lienNote.amount ?? nothing}</td>
+                    <td className={DATA_CELL}>{lienNote.notedOn}</td>
+                    <td className={DATA_CELL}>
+                      {lienNote.releasedOn ??
+                        t("register.person.report.standing")}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.legalHolds">
-            <Rows
-              empty={report.legalHolds.length === 0}
-              headings={[
-                "register.person.report.field.reason",
-                "register.person.report.field.placed",
-                "register.person.report.field.released",
-              ]}
-            >
-              {report.legalHolds.map((hold) => (
-                <tr key={hold.holdId} className={ROW}>
-                  <td className={TEXT_CELL}>{hold.reason}</td>
-                  <td className={DATA_CELL}>{day(hold.placedAt)}</td>
-                  <td className={DATA_CELL}>
-                    {day(hold.releasedAt) ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.reportObligations">
+              <Rows
+                empty={report.registerReportObligations.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.event",
+                  "register.person.report.field.triggeredOn",
+                  "register.person.report.field.dueOn",
+                ]}
+              >
+                {report.registerReportObligations.map((obligation) => (
+                  <tr key={obligation.obligationId} className={ROW}>
+                    <td className={DATA_CELL}>{obligation.apartment}</td>
+                    <td className={TEXT_CELL}>
+                      {t(REGISTER_REPORT_KIND_LABEL[obligation.kind])}
+                    </td>
+                    <td className={DATA_CELL}>{obligation.triggeredOn}</td>
+                    <td className={DATA_CELL}>{obligation.dueOn}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.issues">
-            <Rows
-              empty={report.issues.length === 0}
-              headings={[
-                "register.person.report.field.type",
-                "register.person.report.field.status",
-                "register.person.report.field.date",
-                "register.person.report.field.location",
-                "register.person.report.field.description",
-                "register.person.report.field.photographs",
-              ]}
-            >
-              {report.issues.map((issue) => (
-                <tr key={issue.issueId} className={ROW}>
-                  <td className={TEXT_CELL}>{issue.typeName}</td>
-                  <td className={TEXT_CELL}>
-                    {t(ISSUE_STATUS_LABEL[issue.status])}
-                  </td>
-                  <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
-                  <td className={TEXT_CELL}>{issue.location ?? nothing}</td>
-                  {/* Line breaks kept, as the motion and comment bodies
+            <Section titleKey="register.person.report.section.consents">
+              <Rows
+                empty={report.publicationConsents.length === 0}
+                headings={[
+                  "register.person.report.field.scope",
+                  "register.person.report.field.granted",
+                  "register.person.report.field.withdrawn",
+                  "register.person.report.field.note",
+                ]}
+              >
+                {report.publicationConsents.map((consent) => (
+                  <tr
+                    key={`${consent.scope}-${consent.grantedOn}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>
+                      {t(CONSENT_SCOPE_LABEL[consent.scope])}
+                    </td>
+                    <td className={DATA_CELL}>{day(consent.grantedOn)}</td>
+                    <td className={DATA_CELL}>
+                      {day(consent.withdrawnOn) ?? nothing}
+                    </td>
+                    <td className={TEXT_CELL}>{consent.note ?? nothing}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.legalHolds">
+              <Rows
+                empty={report.legalHolds.length === 0}
+                headings={[
+                  "register.person.report.field.reason",
+                  "register.person.report.field.placed",
+                  "register.person.report.field.released",
+                ]}
+              >
+                {report.legalHolds.map((hold) => (
+                  <tr key={hold.holdId} className={ROW}>
+                    <td className={TEXT_CELL}>{hold.reason}</td>
+                    <td className={DATA_CELL}>{day(hold.placedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(hold.releasedAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.issues">
+              <Rows
+                empty={report.issues.length === 0}
+                headings={[
+                  "register.person.report.field.type",
+                  "register.person.report.field.status",
+                  "register.person.report.field.date",
+                  "register.person.report.field.location",
+                  "register.person.report.field.description",
+                  "register.person.report.field.photographs",
+                ]}
+              >
+                {report.issues.map((issue) => (
+                  <tr key={issue.issueId} className={ROW}>
+                    <td className={TEXT_CELL}>{issue.typeName}</td>
+                    <td className={TEXT_CELL}>
+                      {t(ISSUE_STATUS_LABEL[issue.status])}
+                    </td>
+                    <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
+                    <td className={TEXT_CELL}>{issue.location ?? nothing}</td>
+                    {/* Line breaks kept, as the motion and comment bodies
                       below keep them and as both issue panels already do.
                       A report is the person's own words handed back to
                       them, and a description written as a list of
                       observations reads as one sentence once the breaks
                       collapse. */}
-                  <td className={TEXT_CELL}>
-                    <span className="block whitespace-pre-line">
-                      {issue.description}
-                    </span>
-                  </td>
-                  <td className={DATA_CELL}>{String(issue.photographs)}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {issue.description}
+                      </span>
+                    </td>
+                    <td className={DATA_CELL}>{String(issue.photographs)}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.documents">
-            <Rows
-              empty={report.documents.length === 0}
-              headings={[
-                "register.person.report.field.documentTitle",
-                "register.person.report.field.binder",
-                "register.person.report.field.audience",
-                "register.person.report.field.filed",
-              ]}
-            >
-              {report.documents.map((document) => (
-                <tr key={document.documentId} className={ROW}>
-                  <td className={TEXT_CELL}>{document.title}</td>
-                  <td className={TEXT_CELL}>{document.category}</td>
-                  <td className={TEXT_CELL}>
-                    {t(DOCUMENT_AUDIENCE_LABEL[document.audience])}
-                  </td>
-                  <td className={DATA_CELL}>{day(document.filedAt)}</td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.documents">
+              <Rows
+                empty={report.documents.length === 0}
+                headings={[
+                  "register.person.report.field.documentTitle",
+                  "register.person.report.field.binder",
+                  "register.person.report.field.audience",
+                  "register.person.report.field.filed",
+                ]}
+              >
+                {report.documents.map((document) => (
+                  <tr key={document.documentId} className={ROW}>
+                    <td className={TEXT_CELL}>{document.title}</td>
+                    <td className={TEXT_CELL}>{document.category}</td>
+                    <td className={TEXT_CELL}>
+                      {t(DOCUMENT_AUDIENCE_LABEL[document.audience])}
+                    </td>
+                    <td className={DATA_CELL}>{day(document.filedAt)}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.bookings">
-            <Rows
-              empty={report.bookings.length === 0}
-              headings={[
-                "register.person.report.field.resource",
-                "register.person.report.field.status",
-                "register.person.report.field.apartment",
-                "register.person.report.field.starts",
-                "register.person.report.field.ends",
-                "register.person.report.field.erasableFrom",
-              ]}
-            >
-              {report.bookings.map((booking) => (
-                <tr key={booking.bookingId} className={ROW}>
-                  <td className={TEXT_CELL}>{booking.resourceName}</td>
-                  <td className={TEXT_CELL}>
-                    {t(BOOKING_STATUS_LABEL[booking.status])}
-                  </td>
-                  <td className={DATA_CELL}>{booking.apartment ?? nothing}</td>
-                  <td className={DATA_CELL}>{day(booking.startsAt)}</td>
-                  <td className={DATA_CELL}>{day(booking.endsAt)}</td>
-                  {/*
-                   * The row's own retention date and not the one at the foot of
-                   * the document: a booking is purged a year after it ended,
-                   * whether or not the person who made it still lives here.
-                   *
-                   * The earliest such date rather than the day it goes, because
-                   * the legal hold in the retention section below suspends every
-                   * purge for this person. A column promising an erasure while
-                   * one stands would be telling the person a date that is not
-                   * going to happen.
-                   */}
-                  <td className={DATA_CELL}>
-                    {booking.erasableFrom ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.bookings">
+              <Rows
+                empty={report.bookings.length === 0}
+                headings={[
+                  "register.person.report.field.resource",
+                  "register.person.report.field.status",
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.starts",
+                  "register.person.report.field.ends",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.bookings.map((booking) => (
+                  <tr key={booking.bookingId} className={ROW}>
+                    <td className={TEXT_CELL}>{booking.resourceName}</td>
+                    <td className={TEXT_CELL}>
+                      {t(BOOKING_STATUS_LABEL[booking.status])}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {booking.apartment ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>{day(booking.startsAt)}</td>
+                    <td className={DATA_CELL}>{day(booking.endsAt)}</td>
+                    {/*
+                     * The row's own retention date and not the one at the foot of
+                     * the document: a booking is purged a year after it ended,
+                     * whether or not the person who made it still lives here.
+                     *
+                     * The earliest such date rather than the day it goes, because
+                     * the legal hold in the retention section below suspends every
+                     * purge for this person. A column promising an erasure while
+                     * one stands would be telling the person a date that is not
+                     * going to happen.
+                     */}
+                    <td className={DATA_CELL}>
+                      {booking.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.motions">
-            <Rows
-              empty={report.motions.length === 0}
-              headings={[
-                "register.person.report.field.motionTitle",
-                "register.person.report.field.status",
-                "register.person.report.field.submitted",
-                "register.person.report.field.closed",
-                "register.person.report.field.erasableFrom",
-              ]}
-            >
-              {report.motions.map((motion) => (
-                <tr key={motion.motionId} className={ROW}>
-                  {/* The title and the proposal both: this is the person's own
+            <Section titleKey="register.person.report.section.motions">
+              <Rows
+                empty={report.motions.length === 0}
+                headings={[
+                  "register.person.report.field.motionTitle",
+                  "register.person.report.field.status",
+                  "register.person.report.field.submitted",
+                  "register.person.report.field.closed",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.motions.map((motion) => (
+                  <tr key={motion.motionId} className={ROW}>
+                    {/* The title and the proposal both: this is the person's own
                       writing, and the fullest answer art. 15 can give about it
                       is the words they used. A summary would be the association
                       paraphrasing them back to themselves. */}
-                  <td className={TEXT_CELL}>
-                    <span className="font-semibold">{motion.title}</span>
-                    <span className="block whitespace-pre-line">
-                      {motion.body}
-                    </span>
-                  </td>
-                  <td className={TEXT_CELL}>
-                    {t(MOTION_STATUS_LABEL[motion.status])}
-                  </td>
-                  <td className={DATA_CELL}>{day(motion.submittedAt)}</td>
-                  <td className={DATA_CELL}>
-                    {day(motion.closedAt) ?? nothing}
-                  </td>
-                  {/*
-                   * The row's own retention date, two years after the motion was
-                   * closed, on the same reasoning the bookings column above
-                   * carries - and absent while the motion is open, because there
-                   * is no closing date to count from and the association is still
-                   * processing it.
-                   */}
-                  <td className={DATA_CELL}>
-                    {motion.erasableFrom ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+                    <td className={TEXT_CELL}>
+                      <span className="font-semibold">{motion.title}</span>
+                      <span className="block whitespace-pre-line">
+                        {motion.body}
+                      </span>
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(MOTION_STATUS_LABEL[motion.status])}
+                    </td>
+                    <td className={DATA_CELL}>{day(motion.submittedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(motion.closedAt) ?? nothing}
+                    </td>
+                    {/*
+                     * The row's own retention date, two years after the motion was
+                     * closed, on the same reasoning the bookings column above
+                     * carries - and absent while the motion is open, because there
+                     * is no closing date to count from and the association is still
+                     * processing it.
+                     */}
+                    <td className={DATA_CELL}>
+                      {motion.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.eventSignups">
-            <Rows
-              empty={report.eventSignups.length === 0}
-              headings={[
-                "register.person.report.field.eventTitle",
-                "register.person.report.field.date",
-                "register.person.report.field.signedUp",
-                "register.person.report.field.withdrawn",
-                "register.person.report.field.calledOff",
-                "register.person.report.field.erasableFrom",
-              ]}
-            >
-              {report.eventSignups.map((signup) => (
-                <tr key={signup.signupId} className={ROW}>
-                  <td className={TEXT_CELL}>{signup.eventTitle}</td>
-                  {/*
-                   * The date the server stated, printed as it arrived. Reading it
-                   * off the instant here would name the day before for anything
-                   * starting in the first hours of the morning.
-                   */}
-                  <td className={DATA_CELL}>{signup.on}</td>
-                  <td className={DATA_CELL}>{day(signup.signedUpAt)}</td>
-                  {/*
-                   * A withdrawal is a date and not an absence, which is what
-                   * lets this document tell somebody who stood down from
-                   * somebody who never signed up.
-                   */}
-                  <td className={DATA_CELL}>
-                    {signup.withdrawnOn === null
-                      ? nothing
-                      : day(signup.withdrawnOn)}
-                  </td>
-                  <td className={TEXT_CELL}>
-                    {t(
-                      signup.calledOff
-                        ? "register.person.report.yes"
-                        : "register.person.report.no",
-                    )}
-                  </td>
-                  <td className={DATA_CELL}>
-                    {signup.erasableFrom ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.eventSignups">
+              <Rows
+                empty={report.eventSignups.length === 0}
+                headings={[
+                  "register.person.report.field.eventTitle",
+                  "register.person.report.field.date",
+                  "register.person.report.field.signedUp",
+                  "register.person.report.field.withdrawn",
+                  "register.person.report.field.calledOff",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.eventSignups.map((signup) => (
+                  <tr key={signup.signupId} className={ROW}>
+                    <td className={TEXT_CELL}>{signup.eventTitle}</td>
+                    {/*
+                     * The date the server stated, printed as it arrived. Reading it
+                     * off the instant here would name the day before for anything
+                     * starting in the first hours of the morning.
+                     */}
+                    <td className={DATA_CELL}>{signup.on}</td>
+                    <td className={DATA_CELL}>{day(signup.signedUpAt)}</td>
+                    {/*
+                     * A withdrawal is a date and not an absence, which is what
+                     * lets this document tell somebody who stood down from
+                     * somebody who never signed up.
+                     */}
+                    <td className={DATA_CELL}>
+                      {signup.withdrawnOn === null
+                        ? nothing
+                        : day(signup.withdrawnOn)}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        signup.calledOff
+                          ? "register.person.report.yes"
+                          : "register.person.report.no",
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {signup.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.newsComments">
-            <Rows
-              empty={report.newsComments.length === 0}
-              headings={[
-                "register.person.report.field.newsItem",
-                "register.person.report.field.written",
-                "register.person.report.field.comment",
-                "register.person.report.field.hidden",
-                "register.person.report.field.erasableFrom",
-              ]}
-            >
-              {report.newsComments.map((comment) => (
-                <tr key={comment.commentId} className={ROW}>
-                  <td className={TEXT_CELL}>{comment.newsTitle}</td>
-                  <td className={DATA_CELL}>{day(comment.writtenAt)}</td>
-                  {/*
-                   * In full, and whether or not it was hidden. What somebody
-                   * wrote is the personal data this section is about, and a
-                   * moderated comment is still their words.
-                   *
-                   * Line breaks kept, as the motion body above keeps them. A
-                   * comment runs to a couple of paragraphs and this is a printed
-                   * document, so collapsing the newlines would hand its subject
-                   * a run-on paragraph that is not what they wrote.
-                   */}
-                  <td className={TEXT_CELL}>
-                    <span className="block whitespace-pre-line">
-                      {comment.body}
-                    </span>
-                  </td>
-                  <td className={TEXT_CELL}>
-                    {t(
-                      comment.hidden
-                        ? "register.person.report.yes"
-                        : "register.person.report.no",
-                    )}
-                  </td>
-                  <td className={DATA_CELL}>
-                    {comment.erasableFrom ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.newsComments">
+              <Rows
+                empty={report.newsComments.length === 0}
+                headings={[
+                  "register.person.report.field.newsItem",
+                  "register.person.report.field.written",
+                  "register.person.report.field.comment",
+                  "register.person.report.field.hidden",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.newsComments.map((comment) => (
+                  <tr key={comment.commentId} className={ROW}>
+                    <td className={TEXT_CELL}>{comment.newsTitle}</td>
+                    <td className={DATA_CELL}>{day(comment.writtenAt)}</td>
+                    {/*
+                     * In full, and whether or not it was hidden. What somebody
+                     * wrote is the personal data this section is about, and a
+                     * moderated comment is still their words.
+                     *
+                     * Line breaks kept, as the motion body above keeps them. A
+                     * comment runs to a couple of paragraphs and this is a printed
+                     * document, so collapsing the newlines would hand its subject
+                     * a run-on paragraph that is not what they wrote.
+                     */}
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {comment.body}
+                      </span>
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        comment.hidden
+                          ? "register.person.report.yes"
+                          : "register.person.report.no",
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {comment.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          {/*
-           * Attendance at a general meeting, and the two things this section
-           * says that "present" does not: in what capacity, and whether the
-           * board struck the line off again.
-           *
-           * No erasure column, unlike the four sections above it, and the
-           * absence is deliberate rather than a heading nobody filled in.
-           * Nothing purges a line of the meeting's record: the voting register
-           * (rostlangd) is taken into or appended to the protokoll under EFL
-           * 6 kap. 39 §, which 40 § has kept safely. So this sits with the
-           * register sections - kept because the law requires the record, and
-           * printed because exemption from erasure is not exemption from
-           * access.
-           */}
-          <Section titleKey="register.person.report.section.meetingAttendances">
-            <Rows
-              empty={report.meetingAttendances.length === 0}
-              headings={[
-                "register.person.report.field.meeting",
-                "register.person.report.field.date",
-                "register.person.report.field.capacity",
-                "register.person.report.field.attendanceMode",
-                "register.person.report.field.broughtBy",
-                "register.person.report.field.withdrawn",
-              ]}
-            >
-              {report.meetingAttendances.map((attendance) => (
-                <tr key={attendance.attendanceId} className={ROW}>
-                  <td className={TEXT_CELL}>
-                    {t(MEETING_KIND_LABEL[attendance.meetingKind])}
-                  </td>
-                  <td className={DATA_CELL}>{attendance.meetingHeldOn}</td>
-                  <td className={TEXT_CELL}>
-                    {t(ATTENDANCE_CAPACITY_LABEL[attendance.capacity])}
-                  </td>
-                  <td className={TEXT_CELL}>
-                    {t(ATTENDANCE_MODE_LABEL[attendance.mode])}
-                  </td>
-                  {/*
-                   * The identifier of the member or proxy holder an assistant
-                   * came with, and never their name. They are a third party on
-                   * a document the association hands over, which is the same
-                   * judgement the audit log's two person columns are printed
-                   * under.
-                   */}
-                  <td className={DATA_CELL}>
-                    {attendance.onBehalfOfPersonId ?? nothing}
-                  </td>
-                  <td className={DATA_CELL}>
-                    {day(attendance.withdrawnAt) ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            {/*
+             * Attendance at a general meeting, and the two things this section
+             * says that "present" does not: in what capacity, and whether the
+             * board struck the line off again.
+             *
+             * No erasure column, unlike the four sections above it, and the
+             * absence is deliberate rather than a heading nobody filled in.
+             * Nothing purges a line of the meeting's record: the voting register
+             * (rostlangd) is taken into or appended to the protokoll under EFL
+             * 6 kap. 39 §, which 40 § has kept safely. So this sits with the
+             * register sections - kept because the law requires the record, and
+             * printed because exemption from erasure is not exemption from
+             * access.
+             */}
+            <Section titleKey="register.person.report.section.meetingAttendances">
+              <Rows
+                empty={report.meetingAttendances.length === 0}
+                headings={[
+                  "register.person.report.field.meeting",
+                  "register.person.report.field.date",
+                  "register.person.report.field.capacity",
+                  "register.person.report.field.attendanceMode",
+                  "register.person.report.field.broughtBy",
+                  "register.person.report.field.withdrawn",
+                ]}
+              >
+                {report.meetingAttendances.map((attendance) => (
+                  <tr key={attendance.attendanceId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      {t(MEETING_KIND_LABEL[attendance.meetingKind])}
+                    </td>
+                    <td className={DATA_CELL}>{attendance.meetingHeldOn}</td>
+                    <td className={TEXT_CELL}>
+                      {t(ATTENDANCE_CAPACITY_LABEL[attendance.capacity])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(ATTENDANCE_MODE_LABEL[attendance.mode])}
+                    </td>
+                    {/*
+                     * The identifier of the member or proxy holder an assistant
+                     * came with, and never their name. They are a third party on
+                     * a document the association hands over, which is the same
+                     * judgement the audit log's two person columns are printed
+                     * under.
+                     */}
+                    <td className={DATA_CELL}>
+                      {attendance.onBehalfOfPersonId ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(attendance.withdrawnAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          {/*
-           * Written authorities for a proxy holder (fullmakt) naming this
-           * person, on either side of them. The role column is what makes the
-           * section answer for both, exactly as it does on the audit log below.
-           */}
-          <Section titleKey="register.person.report.section.proxyAuthorisations">
-            <Rows
-              empty={report.proxyAuthorisations.length === 0}
-              headings={[
-                "register.person.report.field.meeting",
-                "register.person.report.field.date",
-                "register.person.report.field.role",
-                "register.person.report.field.counterpart",
-                "register.person.report.field.proxyGround",
-                "register.person.report.field.authorised",
-                "register.person.report.field.withdrawn",
-              ]}
-            >
-              {report.proxyAuthorisations.map((authorisation) => (
-                <tr key={authorisation.authorisationId} className={ROW}>
-                  <td className={TEXT_CELL}>
-                    {t(MEETING_KIND_LABEL[authorisation.meetingKind])}
-                  </td>
-                  <td className={DATA_CELL}>{authorisation.meetingHeldOn}</td>
-                  <td className={TEXT_CELL}>
-                    {t(
-                      `register.person.report.proxyRole.${authorisation.role}`,
-                    )}
-                  </td>
-                  <td className={DATA_CELL}>
-                    {authorisation.counterpartPersonId}
-                  </td>
-                  <td className={TEXT_CELL}>
-                    {t(PROXY_GROUND_LABEL[authorisation.ground])}
-                  </td>
-                  <td className={DATA_CELL}>{authorisation.authorisedOn}</td>
-                  <td className={DATA_CELL}>
-                    {day(authorisation.withdrawnAt) ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            {/*
+             * Written authorities for a proxy holder (fullmakt) naming this
+             * person, on either side of them. The role column is what makes the
+             * section answer for both, exactly as it does on the audit log below.
+             */}
+            <Section titleKey="register.person.report.section.proxyAuthorisations">
+              <Rows
+                empty={report.proxyAuthorisations.length === 0}
+                headings={[
+                  "register.person.report.field.meeting",
+                  "register.person.report.field.date",
+                  "register.person.report.field.role",
+                  "register.person.report.field.counterpart",
+                  "register.person.report.field.proxyGround",
+                  "register.person.report.field.authorised",
+                  "register.person.report.field.withdrawn",
+                ]}
+              >
+                {report.proxyAuthorisations.map((authorisation) => (
+                  <tr key={authorisation.authorisationId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      {t(MEETING_KIND_LABEL[authorisation.meetingKind])}
+                    </td>
+                    <td className={DATA_CELL}>{authorisation.meetingHeldOn}</td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        `register.person.report.proxyRole.${authorisation.role}`,
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {authorisation.counterpartPersonId}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(PROXY_GROUND_LABEL[authorisation.ground])}
+                    </td>
+                    <td className={DATA_CELL}>{authorisation.authorisedOn}</td>
+                    <td className={DATA_CELL}>
+                      {day(authorisation.withdrawnAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.audit">
-            <Rows
-              empty={report.auditEntries.length === 0}
-              headings={[
-                "register.person.report.field.action",
-                "register.person.report.field.at",
-                "register.person.report.field.about",
-                "register.person.report.field.detail",
-              ]}
-            >
-              {report.auditEntries.map((entry) => (
-                <tr key={entry.entryId} className={ROW}>
-                  <td className={TEXT_CELL}>
-                    {t(AUDIT_ACTION_LABEL[entry.action])}
-                  </td>
-                  <td className={DATA_CELL}>{day(entry.at)}</td>
-                  <td className={TEXT_CELL}>
-                    {t(`register.person.report.auditRole.${entry.role}`)}
-                  </td>
-                  <td className={DATA_CELL}>
-                    {contextLine(entry.context) ?? nothing}
-                  </td>
-                </tr>
-              ))}
-            </Rows>
-          </Section>
+            <Section titleKey="register.person.report.section.audit">
+              <Rows
+                empty={report.auditEntries.length === 0}
+                headings={[
+                  "register.person.report.field.action",
+                  "register.person.report.field.at",
+                  "register.person.report.field.about",
+                  "register.person.report.field.detail",
+                ]}
+              >
+                {report.auditEntries.map((entry) => (
+                  <tr key={entry.entryId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      {t(AUDIT_ACTION_LABEL[entry.action])}
+                    </td>
+                    <td className={DATA_CELL}>{day(entry.at)}</td>
+                    <td className={TEXT_CELL}>
+                      {t(`register.person.report.auditRole.${entry.role}`)}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {contextLine(entry.context) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
 
-          <Section titleKey="register.person.report.section.retention">
-            <dl className={FIELD_GRID}>
-              <Field
-                labelKey="register.person.report.field.retentionDays"
-                value={String(report.retention.daysAfterMoveOut)}
-              />
-              <Field
-                labelKey="register.person.report.field.purgeOn"
-                value={report.retention.purgeOn}
-              />
-              <Field
-                labelKey="register.person.report.field.onLegalHold"
-                value={t(
-                  report.retention.onLegalHold
-                    ? "register.person.report.yes"
-                    : "register.person.report.no",
-                )}
-              />
-            </dl>
-          </Section>
+            <Section titleKey="register.person.report.section.retention">
+              <dl className={FIELD_GRID}>
+                <Field
+                  labelKey="register.person.report.field.retentionDays"
+                  value={String(report.retention.daysAfterMoveOut)}
+                />
+                <Field
+                  labelKey="register.person.report.field.purgeOn"
+                  value={report.retention.purgeOn}
+                />
+                <Field
+                  labelKey="register.person.report.field.onLegalHold"
+                  value={t(
+                    report.retention.onLegalHold
+                      ? "register.person.report.yes"
+                      : "register.person.report.no",
+                  )}
+                />
+              </dl>
+            </Section>
 
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-            <p className={STAMP}>
-              {t("register.person.report.stamp", {
-                date: report.generatedOn,
-              })}
-            </p>
-            <p className="text-small text-ink-muted">
-              {t("register.person.report.logged")}
-            </p>
-          </footer>
-        </article>
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+              <p className={STAMP}>
+                {t("register.person.report.stamp", {
+                  date: report.generatedOn,
+                })}
+              </p>
+              <p className="text-small text-ink-muted">
+                {t("register.person.report.logged")}
+              </p>
+            </footer>
+          </article>
+        </DocumentTranslation.Provider>
       )}
     </div>
   );
@@ -1122,7 +1191,7 @@ function Section({
   titleKey: TranslationKey;
   children: ReactNode;
 }): ReactElement {
-  const { t } = useTranslation();
+  const t = useDocumentTranslation();
 
   return (
     <section className={SECTION}>
@@ -1146,7 +1215,7 @@ function Field({
   labelKey: TranslationKey;
   value: string | null;
 }): ReactElement {
-  const { t } = useTranslation();
+  const t = useDocumentTranslation();
 
   return (
     <div className="flex flex-col gap-1">
@@ -1159,7 +1228,7 @@ function Field({
 }
 
 function Empty(): ReactElement {
-  const { t } = useTranslation();
+  const t = useDocumentTranslation();
 
   return (
     <p className="text-body text-ink-muted">
@@ -1178,7 +1247,7 @@ function Rows({
   headings: readonly TranslationKey[];
   children: ReactNode;
 }): ReactElement {
-  const { t } = useTranslation();
+  const t = useDocumentTranslation();
 
   if (empty) {
     return <Empty />;
