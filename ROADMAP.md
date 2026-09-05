@@ -479,13 +479,16 @@ Free, open source, and never moved behind a paywall.
       personal data outside the instance, and the consent step asks whether it
       does and to whom. Which agreement covers each processor is recorded
 - [ ] What a person asks for about their own data, beyond the access report:
-      erasure ahead of the retention window (GDPR art. 17) where none of the
-      exceptions in art. 17(3) applies, which for a cooperative means no
-      statutory duty to keep the record and no legal claim, the ground a
-      legal hold records; an objection to a processing (art. 21); and a
-      restriction of it (art. 18). Recorded against the person with the
-      ground the board relied on, and reaching the screens the processing
-      runs from
+      erasure ahead of the retention window on one of the grounds in GDPR
+      art. 17(1), such as data no longer needed for its purpose, a consent
+      withdrawn with no other basis left or an objection nothing overrides,
+      and only where none of the exceptions in art. 17(3) applies, which for
+      a cooperative means no statutory duty to keep the record and no legal
+      claim, the ground a legal hold records; an objection to a processing
+      (art. 21); and a restriction of it (art. 18). Recorded against the
+      person with the ground the board relied on - for an erasure, the
+      art. 17(1) ground and the art. 17(3) assessment - and reaching the
+      screens the processing runs from
 - [ ] Data portability (GDPR art. 20): a machine-readable export of what a
       person gave the association under the membership contract or under their
       consent, handed to the person, who transmits it: a direct transfer to
