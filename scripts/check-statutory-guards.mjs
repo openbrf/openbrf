@@ -187,10 +187,23 @@ function withoutComments(source, path) {
     }
 
     if (character === "'" || character === '"') {
+      /*
+       * PostgreSQL's E'...' takes backslash escapes and a plain '...' does not,
+       * so which one this is decides whether a backslash before the delimiter
+       * ends the string. Reading it wrong desynchronises the scanner, and here
+       * that produces a finding rather than hiding one: the text after the
+       * string gets read as code, and prose about a bypass in a comment is
+       * reported as one.
+       */
+      const backslashEscapes =
+        !sqlComments ||
+        (character === "'" &&
+          /[Ee]/.test(source[index - 1] ?? "") &&
+          !/[A-Za-z0-9_$]/.test(source[index - 2] ?? ""));
+
       index += 1;
       while (index < source.length) {
-        if (source[index] === "\\" && !sqlComments) {
-          // A backslash escape, which TypeScript has and SQL does not.
+        if (source[index] === "\\" && backslashEscapes) {
           index += 2;
           continue;
         }
@@ -329,6 +342,16 @@ const MUST_NOT_MATCH = [
     path: "fixture.ts",
     source:
       'await tx.$executeRawUnsafe(`DROP TRIGGER ${REFUSE_INSERTS} ON "register_report_obligation"`);',
+  },
+  {
+    /*
+     * E'...' honours a backslash escape and '...' does not. Reading the escaped
+     * quote as the end of the string leaves the scanner one delimiter out, and
+     * the comment below is then read as code and reported.
+     */
+    name: "an escape string with an escaped delimiter, before prose about a bypass",
+    path: "fixture.sql",
+    source: 'SELECT E\'it\\\'s\';\n-- ALTER TABLE "x" DISABLE TRIGGER "y";',
   },
   {
     name: "one statement dropping its own trigger and a later one naming a guard",
