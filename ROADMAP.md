@@ -436,15 +436,18 @@ Free, open source, and never moved behind a paywall.
       became aware of the breach separately from the date it was entered. It
       documents the facts, the effects and the remedial action art. 33(5)
       requires, and it records two decisions with their grounds: whether IMY
-      is notified within 72 hours or not because the breach is unlikely to
-      result in a risk to the people concerned (art. 33(1)), and whether the
-      people affected are told (art. 34(1)) or not under one of the exceptions
-      in art. 34(3). The notification itself goes through IMY's own e-service,
-      so what belongs here is the record, the clock and the evidence of the
-      decision, not a submission
+      is notified without undue delay and within 72 hours, or not because the
+      breach is unlikely to result in a risk to the people concerned
+      (art. 33(1)), and whether the people affected are told (art. 34(1)) or
+      not under one of the exceptions in art. 34(3). A notification made after
+      72 hours carries the reasons for the delay, and the record holds them.
+      The notification itself goes through IMY's own e-service, so what
+      belongs here is the record, the clock and the evidence of the decision,
+      not a submission
 - [ ] Record of processing activities (registerförteckning, GDPR art. 30): the
-      controller's and the data protection officer's contact details
-      (art. 30(1)(a)), and each processing with its purpose, its legal basis,
+      controller's contact details and, where there is one, the joint
+      controller's and the data protection officer's (art. 30(1)(a)), and each
+      processing with its purpose, its legal basis,
       the categories of personal data and of people, the recipients, any
       transfer to a third country with its safeguards (art. 30(1)(e)), the
       retention and a general description of the security measures
@@ -458,11 +461,12 @@ Free, open source, and never moved behind a paywall.
       retention, the rights and the contact; it does not yet ask for the legal
       basis behind each purpose, the legitimate interest where that is the
       basis (art. 13(1)(d)), the recipients, any transfer to a third country,
-      whether any decision is automated, the data protection officer where the
-      association has appointed one, the right to withdraw a consent
-      (art. 13(2)(c)), whether giving the data is a statutory or a contractual
-      requirement and what follows from not giving it (art. 13(2)(e)), or the
-      right to complain to IMY
+      whether any decision is automated and, where one is, the logic involved
+      and what it means for the person (art. 13(2)(f)), the data protection
+      officer where the association has appointed one, the right to withdraw
+      a consent (art. 13(2)(c)), whether giving the data is a statutory or a
+      contractual requirement and what follows from not giving it
+      (art. 13(2)(e)), or the right to complain to IMY
 - [ ] Processor agreements (personuppgiftsbiträdesavtal, GDPR art. 28): a
       recipient of personal data is classified before any agreement is asked
       for - a processor, no processor because it runs on the association's own
@@ -490,9 +494,12 @@ Free, open source, and never moved behind a paywall.
       statutory registers and the audit log stay exempt as before. An issue or
       a document is anonymised rather than deleted: the link to the person and
       the personal data on the row go, the record stays. An issue's own
-      description is free text the reporter wrote and is not rewritten. Both
-      are listed in the data subject access report today and neither is
-      reached by the nightly run
+      description is free text the reporter wrote and is not rewritten: it is
+      the record of the problem and of its handling, which the issue exists
+      for, and a person it names who asks for erasure makes a request under
+      art. 17, handled as the box on erasure, objection and restriction above
+      says. Both are listed in the data subject access report today and
+      neither is reached by the nightly run
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and
