@@ -84,6 +84,14 @@ export interface MeetingsScreenProps {
  * revision: a save that landed changes them, and a re-read that changed nothing
  * leaves a half-typed row alone.
  *
+ * Serialised rather than joined with a separator. A title may contain anything a
+ * board types, spaces included, so joining on one lets two different running
+ * orders produce the same key - ["Val av styrelse", "Arvode"] and
+ * ["Val av", "styrelse Arvode"] are the same string joined on a space. React
+ * would then not remount the panel, and a draft of the old agenda would sit on
+ * top of an answer that had changed. The item ids travel with the titles so a
+ * reordering is a different key even where the words are identical.
+ *
  * Built here rather than inline in the attribute below. A multi-line template
  * literal inside a JSX attribute is valid TypeScript and defeats the parser the
  * repository's Semgrep scan uses, which fails the build under --strict on a file
@@ -91,16 +99,16 @@ export interface MeetingsScreenProps {
  * that flag exists to prevent.
  */
 function agendaKeyOf(meeting: Meeting): string {
-  const titles = meeting.agenda.map((item) => item.title).join(" ");
-  return `agenda:${meeting.id}:${titles}`;
+  return `agenda:${meeting.id}:${JSON.stringify(
+    meeting.agenda.map((item) => [item.id, item.title]),
+  )}`;
 }
 
 /** The same for each decision's draft, keyed on when it was last recorded. */
 function decisionsKeyOf(meeting: Meeting): string {
-  const recorded = meeting.agenda
-    .map((item) => (item.decision === null ? "-" : item.decision.recordedAt))
-    .join(" ");
-  return `decisions:${meeting.id}:${recorded}`;
+  return `decisions:${meeting.id}:${JSON.stringify(
+    meeting.agenda.map((item) => [item.id, item.decision?.recordedAt ?? null]),
+  )}`;
 }
 
 export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {

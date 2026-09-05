@@ -508,6 +508,46 @@ describe("putting an item to a meeting", () => {
     ).toBeTruthy();
   });
 
+  it("states a meeting already held instead of offering to move the item", async () => {
+    /*
+     * The server checks the meeting being left as well as the one being joined,
+     * and refuses one that has been recorded as held - so a select here could
+     * only move the item off a meeting the server will not let go of.
+     *
+     * The motion's own copy of a meeting carries `summoned` and not
+     * `concludedAt`, which is why the panel reads that state from the list.
+     */
+    fetchMotionQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        deadline: DEADLINE,
+        motions: [
+          {
+            ...OWN_MOTION,
+            submitter: {
+              kind: "member",
+              personId: "person-maja",
+              name: "Maja Medlem",
+            },
+            closedByPersonId: null,
+            meeting: {
+              id: CONCLUDED.id,
+              kind: "ORDINARY",
+              heldOn: CONCLUDED.heldOn,
+              summoned: false,
+            },
+          },
+        ],
+      },
+    });
+
+    render(<MotionsScreen viewer={viewer(BOARD)} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    await screen.findByText(/som är antecknad som hållen/u);
+    expect(screen.queryByLabelText("Tas upp på")).toBeNull();
+  });
+
   it("says the read failed rather than that no meeting is arranged", async () => {
     /*
      * Null meetings mean two different things and the board is owed the right

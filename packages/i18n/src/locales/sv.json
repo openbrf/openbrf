@@ -2603,7 +2603,8 @@
       "noMeetingsArranged": "Föreningen har inte planerat in någon stämma som den här punkten kan tas upp på.",
       "onMeeting": "Tas upp på {{kind}} den {{date}}.",
       "onSummonedMeeting": "Tas upp på {{kind}} den {{date}}. Kallelsen till den stämman är utfärdad, så punkten kan inte längre flyttas.",
-      "meetingsUnreadable": "Stämmorna kunde inte läsas, så det finns ingen att erbjuda här. Läs om skärmen."
+      "meetingsUnreadable": "Stämmorna kunde inte läsas, så det finns ingen att erbjuda här. Läs om skärmen.",
+      "onHeldMeeting": "Togs upp på {{kind}} den {{date}}, som är antecknad som hållen."
     },
     "errors": {
       "notAMember": "Att lämna in ett ärende till föreningsstämman är en medlems rätt, och det här kontot har ingen bostadsrätt i föreningen.",

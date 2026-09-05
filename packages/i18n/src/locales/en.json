@@ -2603,7 +2603,8 @@
       "noMeetingsArranged": "The association has arranged no meeting this item could be put to.",
       "onMeeting": "Taken up at the {{kind}} on {{date}}.",
       "onSummonedMeeting": "Taken up at the {{kind}} on {{date}}. The notice for that meeting has been issued, so the item can no longer be moved.",
-      "meetingsUnreadable": "The meetings could not be read, so there is none to offer here. Read the screen again."
+      "meetingsUnreadable": "The meetings could not be read, so there is none to offer here. Read the screen again.",
+      "onHeldMeeting": "Taken up at the {{kind}} on {{date}}, which has been recorded as held."
     },
     "errors": {
       "notAMember": "Putting an item to the general meeting is a member's right, and this account holds no tenant-ownership in the association.",

@@ -243,15 +243,14 @@ export function MotionQueuePanel({
  *
  * Only the meetings the server would accept are offered: one that has been
  * summoned may not take another item, and one recorded as held may not either.
- * The item's own meeting is offered whatever state it is in, because otherwise
- * the control would silently stop saying where the item is - and the row would
- * read as if the board had never answered.
  *
- * Once the item's own meeting has been summoned the control is gone altogether
- * and the row states the meeting instead. That is not the screen enforcing the
- * rule - the server refuses the change, and the refusal has its own sentence -
- * but a select that could only be set back to the value it already had would be
- * a control offering nothing.
+ * Where the item's own meeting is in either of those states the control is gone
+ * altogether and the row states the meeting instead. That is not the screen
+ * enforcing the rule - the server refuses the change, and each refusal has its
+ * own sentence - but a control that could only be refused is a worse way of
+ * saying so than a sentence. The server checks the meeting being left as well as
+ * the one being joined, which is why leaving a settled meeting is refused too
+ * and why the row must not offer it.
  */
 function MeetingChoice({
   motion,
@@ -267,13 +266,39 @@ function MeetingChoice({
   const { t } = useTranslation();
   const own = motion.meeting;
 
-  if (own !== null && own.summoned) {
+  /*
+   * The list's own row for the meeting this item is on. The motion's copy of a
+   * meeting carries whether it has been summoned and not whether it has been
+   * held, and both settle the answer: the server checks the meeting being left
+   * as well as the one being joined, and refuses either state.
+   */
+  const ownSummary =
+    own === null
+      ? null
+      : (meetings.find((meeting) => meeting.id === own.id) ?? null);
+  const held = ownSummary !== null && ownSummary.concludedAt !== null;
+
+  if (own !== null && (own.summoned || held)) {
+    /*
+     * A statement rather than a control. Once the notice has gone out the
+     * meeting may neither take another matter nor give this one up (EFL 6 kap.
+     * 25 §), and once it has been held there is nothing left to decide about it
+     * at all - so a select here could only ever be refused. Two sentences,
+     * because a board reads them differently: a meeting still to be held under a
+     * notice is where the item will be taken up, and one already held is where
+     * it was.
+     */
     return (
       <p className={`${HINT} font-data`}>
-        {t("motions.queue.onSummonedMeeting", {
-          kind: t(`meetings.kind.${own.kind}`),
-          date: own.heldOn,
-        })}
+        {t(
+          held
+            ? "motions.queue.onHeldMeeting"
+            : "motions.queue.onSummonedMeeting",
+          {
+            kind: t(`meetings.kind.${own.kind}`),
+            date: own.heldOn,
+          },
+        )}
       </p>
     );
   }
@@ -284,14 +309,13 @@ function MeetingChoice({
    * summoned - EFL 6 kap. 25 § leaves a meeting unable to decide a matter its
    * notice did not take up, so from that moment the answer is settled.
    *
-   * The item's own meeting stays on the list whatever state it is in, because
-   * otherwise the control would silently stop saying where the item is and the
-   * row would read as if the board had never answered.
+   * No exception for the item's own meeting. Reaching here means it is open, and
+   * an open meeting already passes this filter; one in either settled state was
+   * answered above with a sentence, so keeping it here would leave the select
+   * able to move the item off a meeting the server will not let go of.
    */
   const offered = meetings.filter(
-    (meeting) =>
-      (meeting.concludedAt === null && !meeting.summoned) ||
-      meeting.id === own?.id,
+    (meeting) => meeting.concludedAt === null && !meeting.summoned,
   );
 
   return (
