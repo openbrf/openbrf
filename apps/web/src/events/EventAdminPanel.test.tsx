@@ -718,7 +718,7 @@ describe("a list that could not be read", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+        screen.getByText("Kalendern kunde inte läsas just nu."),
       ).toBeTruthy();
     });
     // The read is over, so a loading line under the notice would go on saying
@@ -763,7 +763,7 @@ describe("a list that could not be read", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+        screen.getByText("Kalendern kunde inte läsas just nu."),
       ).toBeTruthy();
     });
 
@@ -774,7 +774,7 @@ describe("a list that could not be read", () => {
       expect(screen.getByText("Läser kalendern...")).toBeTruthy();
     });
     expect(
-      screen.queryByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+      screen.queryByText("Kalendern kunde inte läsas just nu."),
     ).toBeNull();
 
     // Answered, so the test leaves no read in flight and the list it was
@@ -805,7 +805,7 @@ describe("a list that could not be read", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Kalendern kunde inte läsas just nu. Ladda om sidan."),
+        screen.getByText("Kalendern kunde inte läsas just nu."),
       ).toBeTruthy();
     });
     expect(

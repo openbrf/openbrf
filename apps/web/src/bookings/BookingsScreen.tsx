@@ -11,7 +11,7 @@ import {
   type OwnBooking,
 } from "../api/bookings";
 import type { Viewer } from "../api/instance";
-import { Notice } from "../ui/Notice";
+import { LoadFailure } from "../ui/LoadFailure";
 import { BookingBoardPanel } from "./BookingBoardPanel";
 import { BookSlotPanel } from "./BookSlotPanel";
 import { OwnBookingsPanel } from "./OwnBookingsPanel";
@@ -138,9 +138,7 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
       </header>
 
       {loadFailed ? (
-        <Notice tone="danger" live>
-          {t("bookings.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="bookings.loadFailed" onRetry={reload} />
       ) : null}
 
       {ready ? null : (

@@ -9,6 +9,7 @@ import {
 } from "../api/events";
 import { formatTimeOfDay } from "../bookings/booking-calendar";
 import { HINT, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -169,9 +170,12 @@ export function EventAttendPanel(): ReactElement {
       description={t("events.attend.description")}
       notice={
         loadFailed ? (
-          <Notice tone="danger" live>
-            {t("events.loadFailed")}
-          </Notice>
+          <LoadFailure
+            messageKey="events.loadFailed"
+            onRetry={() => {
+              setRefreshes((count) => count + 1);
+            }}
+          />
         ) : failure !== null ? (
           <Notice tone="danger" live>
             {t(eventFailureKey(failure))}

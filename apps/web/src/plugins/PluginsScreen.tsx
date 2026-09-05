@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { CatalogPanel } from "./CatalogPanel";
 import { ConsentPanel } from "./ConsentPanel";
@@ -213,9 +214,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       ) : null}
 
       {loadFailed ? (
-        <Notice tone="danger" live>
-          {t("plugins.errors.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="plugins.errors.loadFailed" onRetry={reload} />
       ) : null}
 
       {!canRead ? (

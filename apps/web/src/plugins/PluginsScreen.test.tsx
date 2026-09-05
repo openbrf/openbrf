@@ -233,9 +233,7 @@ describe("confirming the consent", () => {
     });
     expect(fetchPlugins.mock.calls.length).toBe(readsBefore);
     expect(
-      screen.queryByText(
-        "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
-      ),
+      screen.queryByText("Listan över tillägg kunde inte läsas just nu."),
     ).toBeNull();
   });
 });
@@ -341,11 +339,35 @@ describe("a failed read", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(
-          "Listan över tillägg kunde inte läsas just nu. Ladda om sidan.",
-        ),
+        screen.getByText("Listan över tillägg kunde inte läsas just nu."),
       ).toBeTruthy();
     });
     expect(installedHeading()).toBeNull();
+  });
+
+  it("reads again when the board asks, without reloading the page", async () => {
+    /*
+     * The screen is a dead end otherwise: the list never arrived, so none of
+     * the controls that would have re-read it are on the page. What every
+     * screen said instead was "reload the page", which is a browser action for
+     * a moment's trouble on one request and throws away the route and any panel
+     * that was open on the way there.
+     */
+    fetchPlugins.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    renderScreen(["association:read", "association:manage"]);
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    fetchPlugins.mockResolvedValue({ ok: true, value: OVERVIEW });
+    await userEvent.click(retry);
+
+    // The list this time, and the sentence gone with it.
+    expect(await waitFor(() => installedHeading())).toBeTruthy();
+    expect(
+      screen.queryByText("Listan över tillägg kunde inte läsas just nu."),
+    ).toBeNull();
   });
 });

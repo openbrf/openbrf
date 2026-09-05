@@ -266,9 +266,7 @@ describe("a read that fails", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(
-          "Bokningarna kunde inte läsas just nu. Ladda om sidan.",
-        ),
+        screen.getByText("Bokningarna kunde inte läsas just nu."),
       ).toBeTruthy();
     });
   });

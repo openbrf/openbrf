@@ -36,6 +36,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { formatEventDay } from "./event-calendar";
@@ -290,9 +291,12 @@ export function EventAdminPanel(): ReactElement {
       description={t("events.manage.description")}
       notice={
         loadFailed ? (
-          <Notice tone="danger" live>
-            {t("events.loadFailed")}
-          </Notice>
+          <LoadFailure
+            messageKey="events.loadFailed"
+            onRetry={() => {
+              setRefreshes((count) => count + 1);
+            }}
+          />
         ) : failure !== null ? (
           <Notice tone="danger" live>
             {t(eventFailureKey(failure))}

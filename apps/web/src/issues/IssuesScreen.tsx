@@ -12,7 +12,7 @@ import {
   type QueuedIssue,
   type ReportableIssueType,
 } from "../api/issues";
-import { Notice } from "../ui/Notice";
+import { LoadFailure } from "../ui/LoadFailure";
 import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OwnIssuesPanel } from "./OwnIssuesPanel";
 import { ReportIssuePanel } from "./ReportIssuePanel";
@@ -113,9 +113,7 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
       </header>
 
       {loadFailed ? (
-        <Notice tone="danger" live>
-          {t("issues.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="issues.loadFailed" onRetry={reload} />
       ) : null}
 
       {ready ? null : (
