@@ -188,9 +188,29 @@ function withoutComments(source, path) {
 
     if (character === "'" || character === '"') {
       index += 1;
-      while (index < source.length && source[index] !== character) {
-        // A backslash escape, which TypeScript has and SQL does not.
-        index += source[index] === "\\" ? 2 : 1;
+      while (index < source.length) {
+        if (source[index] === "\\" && !sqlComments) {
+          // A backslash escape, which TypeScript has and SQL does not.
+          index += 2;
+          continue;
+        }
+        if (source[index] === character) {
+          /*
+           * SQL escapes a delimiter by doubling it - 'it''s', "od""d" - so a
+           * pair is content and not the end. Handled explicitly rather than
+           * left to the parity of closing and reopening on the two halves,
+           * which comes out at the same place today and is an accident to rely
+           * on: an unterminated string or an odd delimiter would put the
+           * scanner inside a phantom string, and everything it swallowed there
+           * would go unmatched.
+           */
+          if (sqlComments && source[index + 1] === character) {
+            index += 2;
+            continue;
+          }
+          break;
+        }
+        index += 1;
       }
       index += 1;
       continue;
@@ -267,6 +287,17 @@ const MUST_MATCH = [
     name: "user triggers turned off for the whole session",
     path: "fixture.sql",
     source: "SET session_replication_role = replica;",
+  },
+  {
+    /*
+     * A doubled delimiter is SQL's escape for one, so the string does not end
+     * there and the statement after it is code. Both halves of the pair are
+     * consumed as content now; before that it came out right by parity alone.
+     */
+    name: "a statement after a SQL string with a doubled quote in it",
+    path: "fixture.sql",
+    source:
+      "SELECT 'it''s'; ALTER TABLE \"member_register_entry\" DISABLE TRIGGER \"member_register_entry_append_only\";",
   },
   {
     /*
