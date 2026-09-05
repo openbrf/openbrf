@@ -16,7 +16,7 @@ export interface RegisterReportObligationMailProps {
    * the recipient's own language: a kind rendered by the sender would be in
    * whichever language the board member who recorded the event reads.
    */
-  kind: "TRANSFER" | "TERMINATION";
+  kind: "GRANT" | "TRANSFER" | "TERMINATION";
   /** Address and apartment number, as the apartment register designates it. */
   designation: string;
   /** The day the statutory window opened. */

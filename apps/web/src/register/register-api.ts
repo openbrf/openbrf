@@ -219,7 +219,7 @@ export type TerminationKind =
  * spelled out for the reason the one above it is: the report prints this to the
  * person it is about.
  */
-export type RegisterReportKind = "TRANSFER" | "TERMINATION";
+export type RegisterReportKind = "GRANT" | "TRANSFER" | "TERMINATION";
 
 /**
  * Every audit action an entry on the report can carry.

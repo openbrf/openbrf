@@ -16,7 +16,12 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { moveIn, type MoveInResult, type MoveRole } from "./moves-api";
+import {
+  moveIn,
+  type MoveInResult,
+  type MoveRole,
+  type TransferKind,
+} from "./moves-api";
 import { failureMessage } from "./move-errors";
 import { PersonSearch, type PersonOption } from "./PersonSearch";
 
@@ -68,6 +73,13 @@ export function MoveInPanel({
   const [role, setRole] = useState<MoveRole>("MEMBER");
   const [movedInOn, setMovedInOn] = useState("");
   const [recordTransfer, setRecordTransfer] = useState(false);
+  /*
+   * Which register event is being recorded, and the default is the common one.
+   * An upplatelse happens once in an apartment's life and a sale happens every
+   * few years, so the form opens on the transfer and the board says so when it
+   * is the other.
+   */
+  const [transferKind, setTransferKind] = useState<TransferKind>("TRANSFER");
   const [transferredOn, setTransferredOn] = useState("");
   const [fromPersonId, setFromPersonId] = useState("");
   const [price, setPrice] = useState("");
@@ -157,7 +169,14 @@ export function MoveInPanel({
       transfer: recordTransfer
         ? {
             transferredOn,
-            fromPersonId: fromPersonId === "" ? null : fromPersonId,
+            kind: transferKind,
+            // A grant has no seller: there is no holder before it for the
+            // bostadsratt to pass from. The server refuses one that names a
+            // seller, and the field is not offered for a grant either.
+            fromPersonId:
+              transferKind === "GRANT" || fromPersonId === ""
+                ? null
+                : fromPersonId,
             price: price.trim() === "" ? null : price.trim(),
             agreementReference: agreementReference.trim(),
           }
@@ -323,26 +342,55 @@ export function MoveInPanel({
                   />
                 </label>
 
-                <label className={LABEL} htmlFor="move-in-from-person">
-                  {t("moves.transfer.fromPerson")}
+                <label className={LABEL} htmlFor="move-in-transfer-kind">
+                  {t("moves.transfer.kind")}
                   <select
-                    id="move-in-from-person"
-                    value={fromPersonId}
+                    id="move-in-transfer-kind"
+                    value={transferKind}
                     onChange={(event) => {
-                      setFromPersonId(event.target.value);
+                      setTransferKind(event.target.value as TransferKind);
                     }}
                     className={FIELD}
                   >
-                    <option value="">
-                      {t("moves.transfer.fromPersonNone")}
+                    <option value="TRANSFER">
+                      {t("moves.transfer.kindTransfer")}
                     </option>
-                    {holderOptions.map((holder) => (
-                      <option key={holder.personId} value={holder.personId}>
-                        {holder.name}
-                      </option>
-                    ))}
+                    <option value="GRANT">
+                      {t("moves.transfer.kindGrant")}
+                    </option>
                   </select>
                 </label>
+                <p className={HINT}>{t("moves.transfer.kindHint")}</p>
+
+                {/*
+                 * Offered only for an overgang. A grant has no seller, so a
+                 * field asking for one would invite an answer the register
+                 * refuses - and the empty option used to read "upplatelse",
+                 * which is what made the two indistinguishable in the first
+                 * place.
+                 */}
+                {transferKind === "TRANSFER" ? (
+                  <label className={LABEL} htmlFor="move-in-from-person">
+                    {t("moves.transfer.fromPerson")}
+                    <select
+                      id="move-in-from-person"
+                      value={fromPersonId}
+                      onChange={(event) => {
+                        setFromPersonId(event.target.value);
+                      }}
+                      className={FIELD}
+                    >
+                      <option value="">
+                        {t("moves.transfer.fromPersonNone")}
+                      </option>
+                      {holderOptions.map((holder) => (
+                        <option key={holder.personId} value={holder.personId}>
+                          {holder.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
 
                 <label className={LABEL} htmlFor="move-in-price">
                   {t("moves.transfer.price")}

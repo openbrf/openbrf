@@ -64,6 +64,8 @@ const PROBE_TERMINATION_ID = id("probe-termination");
  * register_report_obligation_matches_its_event refuses.
  */
 const UNDECIDED_TRANSFER_ID = id("undecided-transfer");
+/** An upplatelse, whose window opens on the day of the grant itself. */
+const GRANT_TRANSFER_ID = id("granted-transfer");
 
 /**
  * A role for the privilege suite, made per run.
@@ -132,6 +134,9 @@ beforeAll(async () => {
     data: {
       id: TRANSFER_ID,
       apartmentId: APARTMENT_ID,
+      // An overgang: it carries a membership decision, which an upplatelse
+      // never takes.
+      kind: "TRANSFER",
       toPersonId: PERSON_ID,
       transferredOn: new Date("2019-06-01"),
       /*
@@ -153,10 +158,21 @@ beforeAll(async () => {
     data: {
       id: UNDECIDED_TRANSFER_ID,
       apartmentId: APARTMENT_ID,
+      kind: "TRANSFER",
       fromPersonId: PERSON_ID,
       toPersonId: PERSON_ID,
       transferredOn: new Date("2022-03-01"),
       agreementReference: `Overlatelseavtal ${UNDECIDED_TRANSFER_ID}`,
+    },
+  });
+  await prisma.transfer.create({
+    data: {
+      id: GRANT_TRANSFER_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "GRANT",
+      toPersonId: PERSON_ID,
+      transferredOn: new Date("2022-01-15"),
+      agreementReference: `Upplatelseavtal ${GRANT_TRANSFER_ID}`,
     },
   });
   await prisma.lienNote.create({
@@ -662,6 +678,63 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
         },
       }),
     ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
+  });
+
+  it("refuses a grant's deadline on a transfer that is not one", async () => {
+    /*
+     * The two paragraphs count from different days: 3 kap. 2 § from the
+     * upplatelse itself, 3 kap. 3 § andra stycket from the membership decision.
+     * A row calling itself a GRANT while naming an overgang would take the
+     * transfer's own date as the day of a grant that never happened - and the
+     * apartment and the fourteen days would both check out.
+     */
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("grant-on-a-transfer"),
+          kind: "GRANT",
+          apartmentId: APARTMENT_ID,
+          transferId: UNDECIDED_TRANSFER_ID,
+          triggeredOn: new Date("2022-03-01"),
+          dueOn: new Date("2022-03-15"),
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
+  });
+
+  it("refuses a transfer's deadline on an upplatelse", async () => {
+    // And the other way round, because an upplatelse reported under 3 kap. 3 §
+    // would wait for a membership decision that an upplatelse never takes.
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("transfer-on-a-grant"),
+          kind: "TRANSFER",
+          apartmentId: APARTMENT_ID,
+          transferId: GRANT_TRANSFER_ID,
+          triggeredOn: new Date("2022-01-15"),
+          dueOn: new Date("2022-01-29"),
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
+  });
+
+  it("counts a grant's two weeks from the day of the upplatelse", async () => {
+    // The accepting half: the same row with the grant's own date is written,
+    // which is what makes the two refusals above about the paragraph rather
+    // than about the table refusing everything.
+    const obligation = await prisma.registerReportObligation.create({
+      data: {
+        id: id("granted-window"),
+        kind: "GRANT",
+        apartmentId: APARTMENT_ID,
+        transferId: GRANT_TRANSFER_ID,
+        triggeredOn: new Date("2022-01-15"),
+        dueOn: new Date("2022-01-29"),
+      },
+      select: { kind: true },
+    });
+    expect(obligation.kind).toBe("GRANT");
   });
 
   it("leaves a reference to no event at all to the foreign key", async () => {

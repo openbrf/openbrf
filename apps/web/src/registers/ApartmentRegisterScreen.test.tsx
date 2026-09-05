@@ -96,6 +96,7 @@ const MASKED: ApartmentRegisterExtract = {
       transfers: [
         {
           id: "transfer-1",
+          kind: "TRANSFER",
           transferredOn: "2019-06-01",
           membershipDecidedOn: "2019-05-14",
           fromName: "Karin Ohman",
@@ -109,6 +110,9 @@ const MASKED: ApartmentRegisterExtract = {
           // extract has to say so. Its membership decision date is absent for
           // the same reason, which is what the screen offers to record.
           id: "transfer-0",
+          // And before the register recorded which kind of event a row was, so
+          // it says neither, which is a third thing from a grant.
+          kind: null,
           transferredOn: "2014-03-02",
           membershipDecidedOn: null,
           fromName: null,
@@ -617,5 +621,63 @@ describe("register completeness", () => {
     expect(recordPropertyDesignation).toHaveBeenCalledWith({
       propertyDesignation: null,
     });
+  });
+
+  it("tells a grant from a transfer whose seller the register never held", async () => {
+    /*
+     * Both arrive with no seller and they are different events. An upplatelse
+     * is the association's own act (BRL 4 kap.) and is reported to the
+     * cooperative housing register two weeks from the grant itself; an overgang
+     * out of a hand the register does not hold is reported from a membership
+     * decision the board records separately.
+     *
+     * The screen printed "Upplatelse" for every seller-less row, which said the
+     * association had granted a bostadsratt it may only have registered a sale
+     * of - and offered to record a decision date on a grant, which the server
+     * refuses.
+     */
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: [
+          {
+            ...MASKED.rows[0],
+            transfers: [
+              {
+                id: "transfer-grant",
+                kind: "GRANT",
+                transferredOn: "2013-01-10",
+                membershipDecidedOn: null,
+                fromName: null,
+                toName: "Karin Ohman",
+                price: null,
+                agreementReference: "Upplatelseavtal 2013-1",
+              },
+              {
+                id: "transfer-unknown-seller",
+                kind: "TRANSFER",
+                transferredOn: "2016-04-01",
+                membershipDecidedOn: null,
+                fromName: null,
+                toName: "Anna Lindqvist",
+                price: null,
+                agreementReference: "Overlatelseavtal 2016-9",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+
+    expect(await screen.findByText(/Upplåtelse →/)).toBeTruthy();
+    expect(screen.getByText(/Säljaren finns inte i registret →/)).toBeTruthy();
+
+    // One decision control, on the transfer, and none on the grant.
+    expect(screen.getAllByLabelText(/Medlemskap beslutat/)).toHaveLength(1);
+    expect(
+      screen.getByText(/anmäls inom två veckor från upplåtelsen/),
+    ).toBeTruthy();
   });
 });

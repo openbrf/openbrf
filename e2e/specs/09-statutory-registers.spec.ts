@@ -164,9 +164,13 @@ async function ensureSigrid(
     role: "MEMBER",
     movedInOn: HELD_FROM,
     transfer: {
+      // The association granting the bostadsratt, which is what a first holder
+      // moving into a new apartment is: BRL 4 kap. and no seller. It is also
+      // what opens the reporting duty the queue test below reads.
+      kind: "GRANT",
       transferredOn: HELD_FROM,
       price: "1875000",
-      agreementReference: `OVL-2026-${apartment.number}`,
+      agreementReference: `UPL-2026-${apartment.number}`,
     },
   });
 
@@ -486,4 +490,38 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await expect(
     page.getByText("Förteckningen kunde inte läsas just nu."),
   ).toBeVisible();
+});
+test("an upplatelse takes its own deadline into the reporting queue", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * The duty Lag (2026:484) 3 kap. 2 § lays on the association: an anmalan of
+   * an upplatelse "inom tva veckor fran upplatelsen". Unlike an overgang, whose
+   * window opens on a membership decision the board records afterwards, this
+   * one opens on the day of the grant - so the deadline exists from the moment
+   * the grant is recorded, and the queue is where the board reads it.
+   *
+   * The fixture above records exactly that: a first holder with no seller, on
+   * an apartment nobody has held, stated as a grant.
+   */
+  const { apartment } = await ensureSigrid(request);
+
+  await signInAsAdmin(page);
+  await page.goto(appPath("/registers/reports"));
+
+  // Levelled, because the screen states its name twice: once as the page's own
+  // heading and once as the stamp on the printable document.
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Anmälningar till bostadsrättsregistret",
+    }),
+  ).toBeVisible();
+
+  const row = page.getByRole("row").filter({ hasText: apartment.number });
+  await expect(row).toContainText("Upplåtelse");
+  // The day of the grant, and the fourteenth day after it.
+  await expect(row).toContainText(HELD_FROM);
+  await expect(row).toContainText("2026-05-15");
 });

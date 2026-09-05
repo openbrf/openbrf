@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 
 import { localDayNow } from "../bookings/booking-calendar";
@@ -29,6 +30,7 @@ import {
 import {
   type ApartmentRegisterExtract,
   type ApartmentRegisterRow,
+  type ApartmentRegisterTransfer,
   type TerminationKind,
   fetchApartmentRegister,
   fetchOwnApartmentRegister,
@@ -126,6 +128,29 @@ const TERMINATION_KINDS: TerminationKind[] = [
   "GENERAL_MEETING_DECISION",
   "BUILDING_TRANSFERRED",
 ];
+
+/**
+ * Who the tenant-ownership came from, in words.
+ *
+ * A missing name means three different things, and the register now records
+ * which. An upplatelse has no seller because the right comes into being; an
+ * overgang whose seller the register never held has one the document cannot
+ * name; and a row written before the kind was recorded says neither. Printing
+ * "Upplatelse" for all three - which is what this screen did - states the
+ * association granted a bostadsratt it may only have registered a sale of.
+ */
+function fromSide(transfer: ApartmentRegisterTransfer, t: TFunction): string {
+  if (transfer.fromName !== null) {
+    return transfer.fromName;
+  }
+  if (transfer.kind === "GRANT") {
+    return t("registers.apartment.transfers.firstGrant");
+  }
+  if (transfer.kind === "TRANSFER") {
+    return t("registers.apartment.transfers.sellerUnknown");
+  }
+  return t("registers.apartment.transfers.kindUnrecorded");
+}
 
 export function ApartmentRegisterScreen(): ReactElement {
   const { t } = useTranslation();
@@ -825,9 +850,7 @@ function ApartmentEntry({
                 </span>
                 <span className="text-body text-ink">
                   {t("registers.apartment.transfers.parties", {
-                    from:
-                      transfer.fromName ??
-                      t("registers.apartment.transfers.firstGrant"),
+                    from: fromSide(transfer, t),
                     to: transfer.toName,
                   })}
                 </span>
@@ -857,7 +880,15 @@ function ApartmentEntry({
                   with no such decision at all and a register must not call one
                   of those a gap.
                 */}
-                {transfer.membershipDecidedOn === null ? (
+                {transfer.kind === "GRANT" ? (
+                  // An upplatelse takes no membership decision: its report is
+                  // due two weeks from the grant itself (Lag (2026:484) 3 kap.
+                  // 2 §), and the duty was entered when it was recorded. Stated
+                  // rather than offered, because the server refuses the date.
+                  <span className="text-small text-ink-muted">
+                    {t("registers.apartment.transfers.grantReportedFromGrant")}
+                  </span>
+                ) : transfer.membershipDecidedOn === null ? (
                   canWrite ? (
                     <MembershipDecisionControl
                       transferId={transfer.id}

@@ -308,6 +308,7 @@ beforeAll(async () => {
   await prisma.transfer.create({
     data: {
       apartmentId: apartmentId(String(personIds.indexOf(people.archived))),
+      kind: "TRANSFER",
       toPersonId: people.archived,
       transferredOn: MOVED_IN,
       agreementReference: `OVL-2010-${suffix}`,

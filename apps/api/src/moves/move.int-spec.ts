@@ -76,6 +76,12 @@ const apartments = {
   raceB: `mv-apartment-h-${suffix}`,
   /** Moved out of twice, the second against a precondition already stale. */
   stale: `mv-apartment-i-${suffix}`,
+  /** Granted for the first time: an upplatelse, with the duty it opens. */
+  granted: `mv-apartment-j-${suffix}`,
+  /** A grant refused because it names a seller. */
+  refusedGrant: `mv-apartment-k-${suffix}`,
+  /** A transfer whose seller the register does not hold. */
+  unknownSeller: `mv-apartment-l-${suffix}`,
 };
 
 const actors = {
@@ -91,6 +97,21 @@ const actors = {
   buyer: {
     personId: `mv-buyer-${suffix}`,
     email: `mv-buyer-${suffix}@exempel.se`,
+  },
+  /** Takes an upplatelse: the first holder of a bostadsratt. */
+  grantee: {
+    personId: `mv-grantee-${suffix}`,
+    email: `mv-grantee-${suffix}@exempel.se`,
+  },
+  /** A grant that names a seller is refused before this person moves in. */
+  refusedGrantee: {
+    personId: `mv-refused-${suffix}`,
+    email: `mv-refused-${suffix}@exempel.se`,
+  },
+  /** Buys from somebody the register does not hold. */
+  unknownBuyer: {
+    personId: `mv-unknown-${suffix}`,
+    email: `mv-unknown-${suffix}@exempel.se`,
   },
   /** Sells to the buyer. */
   seller: {
@@ -262,6 +283,21 @@ beforeAll(async () => {
     preferredLocale: "en",
   });
   await createPerson({
+    personId: actors.grantee.personId,
+    firstName: "Gunilla",
+    email: actors.grantee.email,
+  });
+  await createPerson({
+    personId: actors.refusedGrantee.personId,
+    firstName: "Rune",
+    email: actors.refusedGrantee.email,
+  });
+  await createPerson({
+    personId: actors.unknownBuyer.personId,
+    firstName: "Ulla",
+    email: actors.unknownBuyer.email,
+  });
+  await createPerson({
     personId: actors.seller.personId,
     firstName: "Sara",
     email: actors.seller.email,
@@ -382,6 +418,140 @@ describe("who may move someone in or out", () => {
   });
 });
 
+describe("an upplatelse and an overgang are different events", () => {
+  /**
+   * The distinction this suite exists for, and what it costs to get wrong.
+   *
+   * A grant (upplatelse, BRL 4 kap.) and a transfer out of a hand the register
+   * never held (overgang, 6 kap.) both arrive with no seller, and they were the
+   * same row until `Transfer.kind`. Only the first is reportable to the
+   * cooperative housing register on the day it happened - Lag (2026:484) 3 kap.
+   * 2 §, "inom tva veckor fran upplatelsen" - while a transfer's window opens on
+   * a membership decision that is recorded later or not at all (3 kap. 3 §).
+   *
+   * So the assertions here are about which duty each one opens, not about a
+   * label: a grant takes a deadline dated the day of the grant, and a transfer
+   * with no seller takes none until somebody records the decision.
+   */
+  it("puts the grant's own day on the ledger, fourteen days ahead", async () => {
+    const grantedOn = "2026-04-07";
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.grantee.personId,
+        apartmentId: apartments.granted,
+        role: "MEMBER",
+        movedInOn: grantedOn,
+        transfer: {
+          kind: "GRANT",
+          transferredOn: grantedOn,
+          agreementReference: `Upplatelse ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const { transferId } = JSON.parse(response.body) as {
+      transferId: string | null;
+    };
+
+    const transfer = await prisma.transfer.findUniqueOrThrow({
+      where: { id: transferId ?? "" },
+      select: { kind: true, fromPersonId: true },
+    });
+    expect(transfer.kind).toBe("GRANT");
+    expect(transfer.fromPersonId).toBeNull();
+
+    const obligation = await prisma.registerReportObligation.findFirstOrThrow({
+      where: { transferId: transferId ?? "" },
+      select: { kind: true, triggeredOn: true, dueOn: true },
+    });
+    expect(obligation.kind).toBe("GRANT");
+    // The day of the upplatelse itself, and not the day anybody moved in.
+    expect(obligation.triggeredOn.toISOString().slice(0, 10)).toBe(grantedOn);
+    // "inom tva veckor", which the table also states as a CHECK.
+    expect(obligation.dueOn.toISOString().slice(0, 10)).toBe("2026-04-21");
+  });
+
+  it("refuses a grant that names a seller", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.refusedGrantee.personId,
+        apartmentId: apartments.refusedGrant,
+        role: "MEMBER",
+        movedInOn: "2026-04-08",
+        transfer: {
+          kind: "GRANT",
+          fromPersonId: actors.seller.personId,
+          transferredOn: "2026-04-08",
+          agreementReference: `Upplatelse med saljare ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    // The right comes into being at an upplatelse; there is nobody for it to
+    // pass from. A row like this would put an overgang on 3 kap. 2 §'s clock.
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "grant-has-no-seller",
+    );
+    expect(
+      await prisma.transfer.count({
+        where: { apartmentId: apartments.refusedGrant },
+      }),
+    ).toBe(0);
+  });
+
+  it("leaves a transfer with an unrecorded seller without a deadline", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.unknownBuyer.personId,
+        apartmentId: apartments.unknownSeller,
+        role: "MEMBER",
+        movedInOn: "2026-04-09",
+        transfer: {
+          kind: "TRANSFER",
+          transferredOn: "2026-04-09",
+          agreementReference: `Overlatelse utan saljare ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const { transferId } = JSON.parse(response.body) as {
+      transferId: string | null;
+    };
+
+    const transfer = await prisma.transfer.findUniqueOrThrow({
+      where: { id: transferId ?? "" },
+      select: { kind: true, fromPersonId: true },
+    });
+    expect(transfer.kind).toBe("TRANSFER");
+    expect(transfer.fromPersonId).toBeNull();
+
+    /*
+     * No deadline, and that is the point of recording the kind. This row looks
+     * exactly like the grant above on every column but `kind`, and before it
+     * existed the platform could not tell them apart - so it raised the duty
+     * for neither. 3 kap. 3 § andra stycket counts this one's two weeks from a
+     * membership decision, which the board records separately and has not.
+     */
+    expect(
+      await prisma.registerReportObligation.count({
+        where: { transferId: transferId ?? "" },
+      }),
+    ).toBe(0);
+  });
+});
+
 describe("moving in", () => {
   it("creates the residency, writes the register entry and welcomes the person in their own language", async () => {
     const sent: CapturedMail[] = [];
@@ -399,6 +569,7 @@ describe("moving in", () => {
           role: "MEMBER",
           movedInOn: "2026-03-01",
           transfer: {
+            kind: "TRANSFER",
             fromPersonId: actors.seller.personId,
             transferredOn: "2026-02-14",
             price: "3450000.00",
@@ -538,12 +709,14 @@ describe("moving in", () => {
     try {
       await Promise.all([
         moves.moveIn({
+          actorPersonId: actors.board.personId,
           personId: actors.racer.personId,
           apartmentId: apartments.raceA,
           role: "MEMBER",
           movedInOn: "2025-01-01",
         }),
         moves.moveIn({
+          actorPersonId: actors.board.personId,
           personId: actors.racer.personId,
           apartmentId: apartments.raceB,
           role: "MEMBER",
@@ -581,7 +754,11 @@ describe("moving in", () => {
         apartmentId: apartments.raceA,
         role: "MEMBER",
         movedInOn: "2026-04-01",
-        transfer: { transferredOn: "2026-03-20", agreementReference: "   " },
+        transfer: {
+          kind: "TRANSFER",
+          transferredOn: "2026-03-20",
+          agreementReference: "   ",
+        },
       },
       headers: { cookie: await signIn(actors.board.email) },
     });
@@ -693,6 +870,9 @@ describe("moving in", () => {
         const transfer = await tx.transfer.create({
           data: {
             apartmentId: apartments.raceB,
+            // Stated because the table now requires it of every new row, and
+            // this test is about the reference rather than about the kind.
+            kind: "TRANSFER",
             toPersonId: actors.leaver.personId,
             transferredOn: new Date("2026-03-20T00:00:00.000Z"),
             agreementReference: "\u200B",
@@ -893,6 +1073,7 @@ describe("moving out", () => {
 
     try {
       const moveIn = await moves.moveIn({
+        actorPersonId: actors.board.personId,
         personId: actors.stale.personId,
         apartmentId: apartments.stale,
         role: "MEMBER",
@@ -959,6 +1140,7 @@ describe("when the mail server is refusing", () => {
 
     try {
       const moveIn = await moves.moveIn({
+        actorPersonId: actors.board.personId,
         personId: actors.mover.personId,
         apartmentId: apartments.outage,
         role: "MEMBER",
@@ -1057,6 +1239,7 @@ describe("the board's move-out reminder", () => {
       await moves.startBoardReminderWorker();
 
       await moves.moveIn({
+        actorPersonId: actors.board.personId,
         personId: actors.leaver.personId,
         apartmentId: apartments.reminder,
         role: "RESIDENT",

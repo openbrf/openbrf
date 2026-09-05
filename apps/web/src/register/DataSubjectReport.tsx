@@ -93,6 +93,7 @@ const TERMINATION_KIND_LABEL = {
 } as const satisfies Record<TerminationKind, TranslationKey>;
 
 const REGISTER_REPORT_KIND_LABEL = {
+  GRANT: "register.person.report.reportKind.GRANT",
   TRANSFER: "register.person.report.reportKind.TRANSFER",
   TERMINATION: "register.person.report.reportKind.TERMINATION",
 } as const satisfies Record<RegisterReportKind, TranslationKey>;

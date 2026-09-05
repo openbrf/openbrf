@@ -149,7 +149,7 @@ export interface ReportTermination {
 export interface ReportRegisterReportObligation {
   obligationId: string;
   /** Which register event the report is about. */
-  kind: "TRANSFER" | "TERMINATION";
+  kind: "GRANT" | "TRANSFER" | "TERMINATION";
   apartment: string;
   /** The day the statutory two-week window opened. */
   triggeredOn: string;

@@ -414,6 +414,7 @@ beforeAll(async () => {
   await prisma.transfer.create({
     data: {
       apartmentId: apartments.held,
+      kind: "TRANSFER",
       fromPersonId: actors.formerMember.personId,
       toPersonId: actors.member.personId,
       transferredOn: new Date("2019-06-01T00:00:00.000Z"),
@@ -427,6 +428,10 @@ beforeAll(async () => {
       {
         id: UNDECIDED_TRANSFER_ID,
         apartmentId: apartments.other,
+        // An overgang whose seller the register does not hold, which is the
+        // row a grant used to be indistinguishable from. It is the one the
+        // board is asked to record a membership decision on.
+        kind: "TRANSFER",
         fromPersonId: null,
         toPersonId: actors.protectedMember.personId,
         transferredOn: new Date("2021-02-01T00:00:00.000Z"),
@@ -438,6 +443,7 @@ beforeAll(async () => {
       {
         id: REFUSED_TRANSFER_ID,
         apartmentId: apartments.other,
+        kind: "TRANSFER",
         fromPersonId: actors.protectedMember.personId,
         toPersonId: actors.resident.personId,
         transferredOn: new Date("2022-05-01T00:00:00.000Z"),

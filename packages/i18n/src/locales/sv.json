@@ -96,6 +96,7 @@
       "lateNotice": "Lantmäteriet kan förelägga föreningen att göra en försenad anmälan vid vite, så datumet är en sista dag och inte ett mål. Anmälningskön visar den här skyldigheten och alla andra som återstår.",
       "action": "Öppna anmälningskön",
       "event": {
+        "GRANT": "En upplåtelse",
         "TRANSFER": "En övergång",
         "TERMINATION": "Ett upphörande"
       }
@@ -513,6 +514,7 @@
           "MEETING_DECISION_RECORDED": "Föreningsstämmans beslut antecknat"
         },
         "reportKind": {
+          "GRANT": "Upplåtelse",
           "TRANSFER": "Överlåtelse",
           "TERMINATION": "Upphörande"
         },
@@ -1495,6 +1497,9 @@
         "membershipFailed": "Beslutsdatumet för medlemskapet kunde inte registreras. Datumet kan inte ligga i framtiden, och en överlåtelse som redan har ett datum skrivs inte över.",
         "noAgreement": "Ingen avtalshänvisning registrerad",
         "firstGrant": "Upplåtelse",
+        "sellerUnknown": "Säljaren finns inte i registret",
+        "kindUnrecorded": "Ej angivet i registret",
+        "grantReportedFromGrant": "Upplåtelse: anmäls inom två veckor från upplåtelsen, inget medlemskapsbeslut räknas.",
         "none": "Inga överlåtelser registrerade"
       },
       "terminations": {
@@ -1558,6 +1563,7 @@
         "reportedOn": "Anmäld"
       },
       "event": {
+        "GRANT": "Upplåtelse",
         "TRANSFER": "Övergång",
         "TERMINATION": "Upphörande"
       },
@@ -1658,9 +1664,13 @@
     "transfer": {
       "record": "Registrera överlåtelse",
       "hint": "Vid försäljning: avtalets datum, motparten och en hänvisning till var avtalet finns.",
+      "kind": "Vad registreras",
+      "kindTransfer": "Överlåtelse - bostadsrätten byter innehavare",
+      "kindGrant": "Upplåtelse - föreningen upplåter bostadsrätten",
+      "kindHint": "En upplåtelse är föreningens egen (BRL 4 kap.) och anmäls till bostadsrättsregistret inom två veckor från upplåtelsen. En överlåtelse räknas i stället från dagen föreningen beslutade om medlemskap.",
       "transferredOn": "Avtalsdatum",
       "fromPerson": "Tidigare innehavare",
-      "fromPersonNone": "Upplåtelse - ingen tidigare innehavare",
+      "fromPersonNone": "Säljaren finns inte i registret",
       "toPerson": "Ny innehavare",
       "price": "Pris",
       "agreementReference": "Avtalshänvisning",
@@ -1678,6 +1688,7 @@
       "transferPersonNotFound": "Motparten i överlåtelsen finns inte i registret. Lägg till personen först.",
       "transferPersonRequired": "Välj den nya innehavaren, eller stäng av registrering av överlåtelse.",
       "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje överlåtelse, och en överlåtelse går inte att ta bort när den väl är registrerad.",
+      "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

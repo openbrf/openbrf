@@ -28,7 +28,11 @@ export type MoveErrorReason =
   | "already-moved-out"
   | "moved-out-before-moved-in"
   | "transfer-person-not-found"
-  | "transfer-reference-required";
+  | "transfer-reference-required"
+  | "grant-has-no-seller";
+
+/** An upplatelse under BRL 4 kap., or an overgang under 6 kap. */
+export type TransferKind = "GRANT" | "TRANSFER";
 
 export interface TransferInput {
   /** ISO calendar date. */
@@ -43,7 +47,16 @@ export interface MoveInInput {
   apartmentId: string;
   role: MoveRole;
   movedInOn: string;
-  transfer?: TransferInput & { fromPersonId?: string | null };
+  transfer?: TransferInput & {
+    /**
+     * Which register event this is. An upplatelse (GRANT) is the association
+     * granting the bostadsratt for the first time; an overgang (TRANSFER) is it
+     * changing hands. Stated rather than inferred from a missing seller, which
+     * both of them can have.
+     */
+    kind: TransferKind;
+    fromPersonId?: string | null;
+  };
 }
 
 export interface MoveInResult {

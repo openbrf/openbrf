@@ -182,6 +182,9 @@ async function ensureTenantOwner(request: APIRequestContext): Promise<string> {
     role: "MEMBER",
     movedInOn: MEMBER.heldFrom,
     transfer: {
+      // The first grant, which is what the comment above already called it and
+      // what the register now records rather than infers from a missing seller.
+      kind: "GRANT",
       transferredOn: MEMBER.heldFrom,
       price: MEMBER.price,
       agreementReference: MEMBER.agreementReference,

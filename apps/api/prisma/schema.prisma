@@ -580,7 +580,24 @@ model Transfer {
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
 
-  /// Null for the first grant of a tenant-ownership (upplatelse).
+  /// Whether this row is an upplatelse or an overgang. See {@link TransferKind}.
+  ///
+  /// Null only on rows written before the column existed. Nothing derives a kind
+  /// for those: a grant and a transfer with an unrecorded seller look the same
+  /// from the outside, and writing a guess into a statutory register is the one
+  /// thing this table may not do. A CHECK requires a kind on every new row
+  /// (`transfer_kind_recorded`, added NOT VALID in
+  /// 20260912200000_transfer_kind, which is the shape `agreementReference`
+  /// already uses for the same reason).
+  ///
+  /// A second CHECK (`transfer_grant_has_no_seller`) refuses a GRANT that names
+  /// one: the association is not a party the register holds, and a grant with a
+  /// seller is a transfer that has been mislabelled.
+  kind TransferKind?
+
+  /// The seller. Null for an upplatelse, which has none, and null too where the
+  /// register does not hold whoever sold - which is why `kind` and not this
+  /// column says which of the two a row is.
   fromPersonId String?
   fromPerson   Person? @relation("TransferFromPerson", fields: [fromPersonId], references: [id], onDelete: Restrict)
 
@@ -781,8 +798,12 @@ model Termination {
 
 /// Which register event a reporting obligation is about.
 ///
-/// Two values, because two of the three duties Lag (2026:484) 3 kap. lays on
-/// the association are computable from what this database records:
+/// The three duties Lag (2026:484) 3 kap. lays on the association, each with its
+/// own paragraph and its own day to count the two weeks from:
+///
+///   GRANT, an upplatelse under 3 kap. 2 §. Its window runs "inom tva veckor
+///   fran upplatelsen", so it opens on the grant itself - `transferredOn` on the
+///   Transfer row, which is the day of the upplatelse and needs no second date.
 ///
 ///   TRANSFER, an overgang under 3 kap. 3 §. Its window runs from the day the
 ///   association decided on membership, which is a date of its own on
@@ -791,15 +812,43 @@ model Termination {
 ///   TERMINATION, a bostadsratt having ceased under 3 kap. 4 §. Its window runs
 ///   from the day it ceased, which is `Termination.tookEffectOn`.
 ///
-/// What is deliberately absent is the third duty, the upplatelse of 3 kap. 2 §,
-/// whose window runs "inom tva veckor fran upplatelsen". A grant is recorded
-/// here as a Transfer with a null `fromPersonId`, and that is also what a
-/// transfer whose seller the register does not hold looks like, so the two are
-/// not separable from what is recorded today. Adding a GRANT value before they
-/// are would put a deadline on the wrong statutory paragraph.
+/// GRANT was absent until `Transfer.kind` existed, and for a reason worth
+/// keeping: a grant used to be recorded as a Transfer with a null
+/// `fromPersonId`, which is also what a transfer whose seller the register does
+/// not hold looks like. The two were not separable, and a deadline on the wrong
+/// paragraph is worse than none. The kind is now recorded, so they are.
+///
+/// A row written before that column existed carries no kind, and no obligation
+/// is derived from one: what it was is not recorded, and the platform does not
+/// guess in a statutory register.
 enum RegisterReportKind {
+  GRANT
   TRANSFER
   TERMINATION
+}
+
+/// Which register event a Transfer row is.
+///
+/// Bostadsrattslagen distinguishes the two, and so does the register they are
+/// reported to. An upplatelse (BRL 4 kap.) is the association granting a
+/// bostadsratt for the first time, and it has no seller because there is nobody
+/// to sell it: the right comes into being. An overgang (BRL 6 kap.) is that
+/// right passing from one holder to another.
+///
+/// One table for both, because the apartment register lists them as one history
+/// of who has held the apartment, and BRL 9 kap. 10 § has the lagenhets-
+/// forteckning state the upplatelse alongside the transfers. What was missing
+/// was the word for which of the two a row is.
+///
+/// Recorded rather than derived from `fromPersonId` being null. A transfer whose
+/// seller the register does not hold - the register began part way through the
+/// building's life, and it usually did - has a null seller too, and looks
+/// identical. That ambiguity cost the platform a statutory duty: an upplatelse
+/// is reportable under Lag (2026:484) 3 kap. 2 § on its own clock, and nothing
+/// could tell which rows were upplatelser.
+enum TransferKind {
+  GRANT
+  TRANSFER
 }
 
 /// One dated duty to report a register event to the cooperative housing

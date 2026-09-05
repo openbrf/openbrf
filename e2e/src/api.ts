@@ -441,6 +441,15 @@ export type TransferInput = {
   readonly agreementReference: string;
 };
 
+/**
+ * An upplatelse (BRL 4 kap.) or an overgang (6 kap.).
+ *
+ * Stated on every move-in that records one, because the two look the same on
+ * the register otherwise and only the first opens the duty in Lag (2026:484)
+ * 3 kap. 2 §.
+ */
+export type TransferKind = "GRANT" | "TRANSFER";
+
 export type MoveInResult = {
   readonly residencyId: string;
   readonly memberRegisterEntryRecorded: boolean;
@@ -465,7 +474,10 @@ export async function moveIn(
     role: "MEMBER" | "RESIDENT";
     /** ISO calendar date. */
     movedInOn: string;
-    transfer?: TransferInput & { fromPersonId?: string | null };
+    transfer?: TransferInput & {
+      kind: TransferKind;
+      fromPersonId?: string | null;
+    };
   },
 ): Promise<MoveInResult> {
   const response = await request.post(`${baseUrl}/api/moves/move-in`, {

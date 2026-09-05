@@ -5,7 +5,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { ResidencyRole } from "../generated/prisma/enums";
+import type { ResidencyRole, TransferKind } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
@@ -15,6 +15,7 @@ import {
   moveInMail,
   moveOutMail,
 } from "../mail/templates";
+import { ApartmentRegisterService } from "../registers/apartment-register.service";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
@@ -58,7 +59,8 @@ export type MoveErrorReason =
   | "already-moved-out"
   | "moved-out-before-moved-in"
   | "transfer-person-not-found"
-  | "transfer-reference-required";
+  | "transfer-reference-required"
+  | "grant-has-no-seller";
 
 /**
  * The status each refusal answers with.
@@ -75,6 +77,7 @@ const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
   "already-moved-out": 409,
   "moved-out-before-moved-in": 409,
   "transfer-reference-required": 400,
+  "grant-has-no-seller": 400,
 };
 
 export class MoveError extends DomainError {
@@ -105,17 +108,31 @@ export interface TransferInput {
 }
 
 export interface MoveInInput {
+  /**
+   * The board member making the move. Named because a move-in can open a
+   * statutory reporting duty, and every entry in that ledger says who opened
+   * it - an obligation with no actor would look like evidence of nobody.
+   */
+  actorPersonId: string;
   personId: string;
   apartmentId: string;
   role: ResidencyRole;
   /** ISO calendar date. */
   movedInOn: string;
   /**
-   * Records the transfer this move-in is the result of. The person moving in is
-   * the acquirer; `fromPersonId` names the seller, or is omitted for the first
-   * grant of a tenant-ownership (upplatelse).
+   * Records the register event this move-in is the result of. The person moving
+   * in is the acquirer.
+   *
+   * `kind` says which event it is, and it is stated rather than inferred. An
+   * upplatelse has no seller, but so does an overgang whose seller the register
+   * never held, and only the first is reportable under Lag (2026:484) 3 kap. 2 §
+   * on the day it happened. `fromPersonId` names the seller where there is one
+   * the register holds.
    */
-  transfer?: TransferInput & { fromPersonId?: string | null };
+  transfer?: TransferInput & {
+    kind: TransferKind;
+    fromPersonId?: string | null;
+  };
 }
 
 export interface MoveInResult {
@@ -166,6 +183,15 @@ export class MoveService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly mail: MailService,
     private readonly jobs: JobQueueService,
+    /*
+     * The apartment register, for the one duty a move-in opens by itself. An
+     * upplatelse is reportable to the cooperative housing register on the day
+     * it happened (Lag (2026:484) 3 kap. 2 §), so its deadline is written by
+     * the transaction that records the grant - and that transaction is here.
+     * Every other duty in that ledger is opened by an act on the register
+     * screen and entered there.
+     */
+    private readonly apartmentRegister: ApartmentRegisterService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -294,13 +320,50 @@ export class MoveService implements OnModuleInit {
           ? null
           : await this.recordTransfer(tx, {
               apartmentId: apartment.id,
+              kind: input.transfer.kind,
               fromPersonId: input.transfer.fromPersonId ?? null,
               toPersonId: person.id,
               transfer: input.transfer,
             });
 
-      return { residency, memberRegisterEntryRecorded, transferId };
+      /*
+       * An upplatelse is reportable to the cooperative housing register within
+       * two weeks of the upplatelse itself (Lag (2026:484) 3 kap. 2 §), so
+       * unlike an overgang there is no later date to wait for and no later act
+       * to enter the duty. It is written here, by the transaction that records
+       * the grant, on the ledger's own rule: a deadline is never left to a scan
+       * that runs afterwards, because a scan that misses one misses it silently.
+       */
+      const obligationId =
+        transferId === null || input.transfer?.kind !== "GRANT"
+          ? null
+          : (
+              await this.apartmentRegister.enterGrantObligation(tx, {
+                actorPersonId: input.actorPersonId,
+                apartmentId: apartment.id,
+                transferId,
+                grantedOn: parseDate(input.transfer.transferredOn),
+              })
+            ).id;
+
+      return {
+        residency,
+        memberRegisterEntryRecorded,
+        transferId,
+        obligationId,
+      };
     });
+
+    /*
+     * After the commit, and best effort, for the reason the register screen's
+     * own writes give: the deadline is the part that cannot be reconstructed
+     * and it has committed by now, while a notice that never went out is still
+     * visible on the queue screen. Failing the move-in here would report a
+     * written register as a failure.
+     */
+    if (result.obligationId !== null) {
+      await this.apartmentRegister.notifyBoardOfObligation(result.obligationId);
+    }
 
     // Best effort, and deliberately so: the residency and the register entry
     // have committed by now, and the ENTRY row cannot be taken back. Letting a
@@ -457,6 +520,10 @@ export class MoveService implements OnModuleInit {
           ? null
           : await this.recordTransfer(tx, {
               apartmentId: residency.apartment.id,
+              // Always an overgang: the person moving out is the seller, so
+              // this is BRL 6 kap. and never 4 kap. There is nothing for the
+              // caller to state.
+              kind: "TRANSFER",
               fromPersonId: person.id,
               toPersonId: input.transfer.toPersonId,
               transfer: input.transfer,
@@ -636,11 +703,26 @@ export class MoveService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     input: {
       apartmentId: string;
+      kind: TransferKind;
       fromPersonId: string | null;
       toPersonId: string;
       transfer: TransferInput;
     },
   ): Promise<string> {
+    /*
+     * A grant naming a seller is a transfer that has been mislabelled, and the
+     * label is what decides which paragraph of Lag (2026:484) 3 kap. its report
+     * is made under and which day the two weeks run from. The same rule is a
+     * CHECK on the table (`transfer_grant_has_no_seller`); this is the half
+     * that answers the board rather than the driver.
+     */
+    if (input.kind === "GRANT" && input.fromPersonId !== null) {
+      throw new MoveError(
+        "An upplatelse has no seller.",
+        "grant-has-no-seller",
+      );
+    }
+
     // Refused rather than stored as null. The apartment register extract has to
     // state a reference for every transfer it lists, and this row is one the
     // database will not let anyone delete, so a transfer with nothing to point
@@ -658,6 +740,7 @@ export class MoveService implements OnModuleInit {
     const transfer = await tx.transfer.create({
       data: {
         apartmentId: input.apartmentId,
+        kind: input.kind,
         fromPersonId: input.fromPersonId,
         toPersonId: input.toPersonId,
         transferredOn: parseDate(input.transfer.transferredOn),
