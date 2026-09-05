@@ -28,8 +28,8 @@ The plugin contract's peer range moves to NestJS 12, and the reference plugin
 fixture with it. A plugin still built against NestJS 11 has to move with it:
 the host provides the copy a plugin resolves, so a plugin declaring the older
 peer now conflicts with the host it would be installed into, and one carrying
-its own copy is refused at install by the identity check. Rebuild against
-`@nestjs/common` 12 and widen the peer range to `^12.0.0`.
+its own copy is skipped at boot by the identity check rather than registered.
+Rebuild against `@nestjs/common` 12 and widen the peer range to `^12.0.0`.
 
 Nodemailer 10 carries its own type declarations, so the separate `@types`
 package is gone. `better-sqlite3` - which arrives as an optional peer, is never
