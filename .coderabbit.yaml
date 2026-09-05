@@ -102,10 +102,12 @@ reviews:
         Migrations are forward-only and reviewed for safety, not style.
 
         Flag anything that would weaken the statutory archive: the tables
-        member_register_entry and audit_log_entry must never accept UPDATE or
-        DELETE, and transfer and lien_note must never accept DELETE. Those
-        guards are BEFORE UPDATE OR DELETE triggers plus a statement-level
-        TRUNCATE trigger plus revoked privileges. Removing, renaming or
+        member_register_entry, audit_log_entry, termination and
+        register_report_obligation must never accept UPDATE or DELETE, and
+        transfer and lien_note must never accept DELETE. Those guards are a
+        row-level BEFORE UPDATE OR DELETE trigger (BEFORE DELETE alone on the
+        two that stay updatable) plus a statement-level TRUNCATE trigger plus
+        revoked privileges. Removing, renaming or
         disabling any of them, or adding a table to the statutory tier without
         the matching guards, is a defect. The Swedish Economic Associations Act
         (EFL 5 kap., via BRL 9 kap.) requires the member register to be
@@ -123,9 +125,10 @@ reviews:
     - path: "apps/api/prisma/schema.prisma"
       instructions: >-
         This schema carries a two-tier model that must not be blurred. The
-        statutory tier (MemberRegisterEntry, Transfer, LienNote, AuditLogEntry
-        and the confidential apartment register fields) is append-only and
-        exempt from purging. The service tier carries a computed purge date.
+        statutory tier (MemberRegisterEntry, Transfer, LienNote, Termination,
+        RegisterReportObligation, AuditLogEntry and the confidential apartment
+        register fields) is append-only and exempt from purging. The service
+        tier carries a computed purge date.
 
         Flag: a new field holding personal data that is not encrypted and blind
         indexed when it should be (email, phone and personal identity number
@@ -216,14 +219,16 @@ reviews:
         would collide across runs, and flag a test that leaves rows behind.
 
         The append-only statutory tier is the exception, and rows left there
-        must NOT be flagged. audit_log_entry, member_register_entry, transfer
-        and lien_note are protected by table-wide BEFORE UPDATE OR DELETE
-        triggers, so a suite cannot delete its own rows without an ALTER that
-        turns the guard off for every connection, including a concurrent run of
-        another suite. Leaving those rows is therefore the required behaviour
-        and the law's, not an oversight: the Swedish Economic Associations Act
-        (EFL 5 kap., via BRL 9 kap.) requires the register to be retained. Any
-        suite that writes to one of the four leaves its rows behind on purpose.
+        must NOT be flagged. audit_log_entry, member_register_entry,
+        termination and register_report_obligation are protected by table-wide
+        BEFORE UPDATE OR DELETE triggers, and transfer and lien_note by BEFORE
+        DELETE ones, so a suite cannot delete its own rows without an ALTER
+        that turns the guard off for every connection, including a concurrent
+        run of another suite. Leaving those rows is therefore the required
+        behaviour and the law's, not an oversight: the Swedish Economic
+        Associations Act (EFL 5 kap., via BRL 9 kap.) requires the register to
+        be retained. Any suite that writes to one of the six leaves its rows
+        behind on purpose.
         What such a suite owes instead is assertions that select on a per-run or
         per-record identifier rather than on a count of the whole table, so flag
         that if it is missing. Do not propose deleting the entries, disabling
