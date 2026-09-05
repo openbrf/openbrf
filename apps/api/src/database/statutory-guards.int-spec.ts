@@ -680,6 +680,36 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
     ).rejects.toThrow(/OPENBRF_REPORT_OBLIGATION_EVENT/);
   });
 
+  it("refuses a recorded kind being restated", async () => {
+    /*
+     * The reporting obligation is computed from the kind and the ledger that
+     * holds it refuses UPDATE and DELETE. A grant's duty names Lag (2026:484)
+     * 3 kap. 2 § and opens on the day of the grant; a transfer's names 3 kap.
+     * 3 § and opens on the membership decision. Let the kind move afterwards
+     * and the ledger states the wrong paragraph and the wrong day for good.
+     */
+    await expect(
+      prisma.transfer.update({
+        where: { id: GRANT_TRANSFER_ID },
+        data: { kind: "TRANSFER" },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_RECORD/);
+
+    await expect(
+      prisma.transfer.update({
+        where: { id: UNDECIDED_TRANSFER_ID },
+        data: { kind: "GRANT" },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_RECORD/);
+
+    // And the row is untouched, which is what makes the refusal meaningful.
+    const transfer = await prisma.transfer.findUniqueOrThrow({
+      where: { id: GRANT_TRANSFER_ID },
+      select: { kind: true },
+    });
+    expect(transfer.kind).toBe("GRANT");
+  });
+
   it("refuses a grant's deadline on a transfer that is not one", async () => {
     /*
      * The two paragraphs count from different days: 3 kap. 2 § from the

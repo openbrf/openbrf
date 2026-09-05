@@ -25,14 +25,23 @@
 --
 --   On INSERT, both. A new transfer states its kind and carries a reference.
 --
---   On UPDATE, neither may be removed. A row that has a kind cannot go back to
---   having none, and a row that has a reference cannot be blanked. A row that
---   arrived without either keeps whatever it has and is updatable, which is the
---   grandfathering both constraints intended.
+--   On UPDATE, neither may be removed. A row that has a reference cannot be
+--   blanked, and a recorded kind cannot be changed at all - not back to null and
+--   not to the other value. A row that arrived without either keeps whatever it
+--   has and is updatable, which is the grandfathering both constraints intended.
 --
--- Recording what a legacy row was is allowed - null to a value is a correction
--- somebody is making rather than a guess the platform is making, and the
--- platform still never makes one.
+-- The kind is fixed rather than merely non-null because the reporting
+-- obligation is computed from it and that ledger is append-only. A grant's duty
+-- names 3 kap. 2 § and opens on `transferredOn`; a transfer's names 3 kap. 3 §
+-- and opens on `membershipDecidedOn`. Let the kind move afterwards and the row
+-- in the ledger states the wrong paragraph and the wrong day, with no way to
+-- correct it: the ledger refuses UPDATE and DELETE, so the mistake would stand
+-- as the association's record of what it owed and when.
+--
+-- Recording what a legacy row was is still allowed - null to a value is a
+-- correction somebody is making rather than a guess the platform is making, and
+-- the platform still never makes one. Such a row has no duty in the ledger to
+-- contradict, because a kind was not known when it was written.
 --
 -- P0001 with a marker, for the reason 20260827123837 gives about the archive
 -- guards: anything in SQLSTATE class 23 is rewritten by Prisma into a generic
@@ -63,7 +72,7 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW."kind" IS NULL THEN
       RAISE EXCEPTION
-        'OPENBRF_TRANSFER_RECORD: a transfer states whether it is an upplatelse or an overgang, because only the first is reported under Lag (2026:484) 3 kap. 2 §'
+        'OPENBRF_TRANSFER_RECORD: a row states whether it is a grant (upplatelse) or a transfer (overgang), because only a grant is reported under Lag (2026:484) 3 kap. 2 §'
         USING ERRCODE = 'raise_exception';
     END IF;
 
@@ -76,9 +85,9 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF OLD."kind" IS NOT NULL AND NEW."kind" IS NULL THEN
+  IF OLD."kind" IS NOT NULL AND NEW."kind" IS DISTINCT FROM OLD."kind" THEN
     RAISE EXCEPTION
-      'OPENBRF_TRANSFER_RECORD: a transfer that states which register event it is may not stop stating it'
+      'OPENBRF_TRANSFER_RECORD: a row that states which register event it is may not restate it, because the reporting obligation computed from it cannot be corrected'
       USING ERRCODE = 'raise_exception';
   END IF;
 

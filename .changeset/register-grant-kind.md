@@ -4,7 +4,7 @@
 "@openbrf/i18n": minor
 ---
 
-Record a grant (upplåtelse) as the event it is, and raise the duty it opens.
+Record a grant (upplåtelse) as the event it is, and raise the reporting obligation it opens.
 
 A grant of a tenant-ownership was stored as a transfer with no seller, which is
 also what a transfer out of a hand the register never held looks like - and a

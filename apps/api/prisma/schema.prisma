@@ -812,11 +812,12 @@ model Termination {
 /// The three duties Lag (2026:484) 3 kap. lays on the association, each with its
 /// own paragraph and its own day to count the two weeks from:
 ///
-///   GRANT, an upplatelse under 3 kap. 2 §. Its window runs "inom tva veckor
-///   fran upplatelsen", so it opens on the grant itself - `transferredOn` on the
-///   Transfer row, which is the day of the upplatelse and needs no second date.
+///   GRANT, a grant (upplatelse) under 3 kap. 2 §. Its window runs "inom tva
+///   veckor fran upplatelsen", so it opens on the grant itself - `transferredOn`
+///   on the Transfer row, which is the day of the grant and needs no second
+///   date.
 ///
-///   TRANSFER, an overgang under 3 kap. 3 §. Its window runs from the day the
+///   TRANSFER, a transfer (overgang) under 3 kap. 3 §. Its window runs from the day the
 ///   association decided on membership, which is a date of its own on
 ///   {@link Transfer}.
 ///
