@@ -143,6 +143,10 @@ REVOKE DELETE ON public."lien_note" FROM openbrf_app;
 -- tenant-ownership that has ceased has no later state to reach, so a
 -- termination is as strictly append-only as the member register.
 REVOKE UPDATE, DELETE ON public."termination" FROM openbrf_app;
+-- A registered overlatelse having been havd or gone back to the seller, on the
+-- same reading. The event has happened and there is no later state for the row
+-- to reach; the transfer it undoes keeps its own record and its own UPDATE.
+REVOKE UPDATE, DELETE ON public."transfer_reversal" FROM openbrf_app;
 -- The obligation ledger, on the same reading as the termination above it. A row
 -- states a statutory deadline: the event it reports cannot change, and neither
 -- can the date Lag (2026:484) 3 kap. runs the two weeks from, so there is no

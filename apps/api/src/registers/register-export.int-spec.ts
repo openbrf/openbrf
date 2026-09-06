@@ -545,7 +545,13 @@ describe("a duty whose fortnight has run out", () => {
     const recorded = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
-      payload: { transferId: TRANSFER_ID, membershipDecidedOn: day(0) },
+      payload: {
+        transferId: TRANSFER_ID,
+        // The ordinary case of Lag (2026:484) 3 kap. 3 §, which is the one that
+        // runs its two weeks from the day the board decided on membership.
+        basis: "MEMBERSHIP_DECISION",
+        membershipDecidedOn: day(0),
+      },
       headers: { cookie },
     });
     expect(recorded.statusCode).toBe(200);
@@ -909,7 +915,7 @@ describe("the notice that a window has opened", () => {
       select: { reportObligation: { select: { dueOn: true } } },
     });
     expect(
-      termination?.reportObligation?.dueOn.toISOString().slice(0, 10),
+      termination?.reportObligation?.dueOn?.toISOString().slice(0, 10),
     ).toBe(day(8));
   });
 
