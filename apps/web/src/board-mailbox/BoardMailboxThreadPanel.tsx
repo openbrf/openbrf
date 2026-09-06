@@ -1,11 +1,17 @@
 import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
-import { useState, type FormEvent, type ReactElement } from "react";
+import {
+  useCallback,
+  useState,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
   type BoardMailboxMember,
   type BoardMailboxMessage,
   type BoardMailboxThread,
+  fetchBoardMailboxThread,
   releaseBoardMailboxThread,
   replyToBoardMailboxThread,
   setBoardMailboxThreadClosed,
@@ -48,6 +54,21 @@ const DELIVERY_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "reply-sending-interrupted": "boardMailbox.delivery.interrupted",
 };
 
+/**
+ * Pages read back from a thread's newest one, and which thread they came from.
+ *
+ * `of` is the thread object the rows were read against, compared by identity: a
+ * fresh read of the same thread is a different object, and its pages are a
+ * different conversation as far as this is concerned.
+ */
+interface EarlierPages {
+  rows: readonly BoardMailboxMessage[];
+  cursor: string | null;
+  of: BoardMailboxThread | null;
+}
+
+const NO_EARLIER: EarlierPages = { rows: [], cursor: null, of: null };
+
 export interface BoardMailboxThreadPanelProps {
   thread: BoardMailboxThread;
   /** Called after any change, so the screen can re-read the inbox. */
@@ -70,6 +91,45 @@ export function BoardMailboxThreadPanel({
 }: BoardMailboxThreadPanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+
+  /*
+   * The pages read back from the newest one.
+   *
+   * Held against the thread they were read for, and read during render rather
+   * than cleared by an effect: the panel is given a new thread after every act
+   * on it, that answer starts at the newest page again, and messages kept from
+   * an older page would sit above a conversation rebuilt underneath them. What
+   * belongs to a previous thread is simply not what is shown. It also puts a
+   * board member who has just answered back at the end of the conversation,
+   * which is where the next thing happens.
+   */
+  const [read, setRead] = useState<EarlierPages>(NO_EARLIER);
+  const [readingEarlier, setReadingEarlier] = useState(false);
+  const earlier = read.of === thread ? read : NO_EARLIER;
+
+  const cursor = earlier.of === null ? thread.olderCursor : earlier.cursor;
+  const shown = [...earlier.rows, ...thread.messages];
+
+  const readEarlier = useCallback((): void => {
+    if (cursor === null) {
+      return;
+    }
+    setReadingEarlier(true);
+    void fetchBoardMailboxThread(thread.id, cursor).then((page) => {
+      setReadingEarlier(false);
+      if (!page.ok) {
+        return;
+      }
+      setRead((held) => ({
+        rows: [
+          ...page.value.messages,
+          ...(held.of === thread ? held.rows : []),
+        ],
+        cursor: page.value.olderCursor,
+        of: thread,
+      }));
+    });
+  }, [cursor, thread]);
 
   const take = useSaveAction(takeBoardMailboxThread, onChanged);
   const release = useSaveAction(releaseBoardMailboxThread, onChanged);
@@ -189,17 +249,35 @@ export function BoardMailboxThreadPanel({
       */}
       <Notice tone="info">{t("boardMailbox.thread.untrusted")}</Notice>
 
-      {thread.messageCount > thread.messages.length ? (
-        <p className="text-small text-ink-muted">
-          {t("boardMailbox.thread.olderNotShown", {
-            shown: thread.messages.length,
-            total: thread.messageCount,
-          })}
-        </p>
-      ) : null}
+      {/*
+        A control and not only a line saying how much is missing. How long a
+        thread runs is decided by whoever writes to the board, and the start of
+        a conversation is the part that says what was asked - so the page before
+        this one is a press away rather than out of reach.
+      */}
+      {cursor === null ? null : (
+        <span className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={readingEarlier}
+            onClick={readEarlier}
+            className={QUIET_BUTTON}
+          >
+            {readingEarlier
+              ? t("boardMailbox.thread.readingEarlier")
+              : t("boardMailbox.thread.readEarlier")}
+          </button>
+          <span className="text-small text-ink-muted">
+            {t("boardMailbox.thread.olderNotShown", {
+              shown: shown.length,
+              total: thread.messageCount,
+            })}
+          </span>
+        </span>
+      )}
 
       <ul className="flex flex-col gap-3">
-        {thread.messages.map((message) => (
+        {shown.map((message) => (
           <li key={message.id}>
             <Message message={message} />
           </li>

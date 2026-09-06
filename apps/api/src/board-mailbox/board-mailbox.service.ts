@@ -124,13 +124,24 @@ export interface BoardMailboxThreadView extends BoardMailboxThreadSummary {
    * when the thread is longer than that; `messageCount` says how long it is.
    */
   messages: BoardMailboxMessageView[];
+  /**
+   * What to ask for to read the page before this one, or null at the beginning
+   * of the conversation. The id of the oldest message on this page: the next
+   * page is the messages older than it.
+   */
+  olderCursor: string | null;
 }
 
-/** The inbox, and whether it is all of it. */
+/** The inbox, and how to read past it. */
 export interface BoardMailboxThreadList {
   threads: BoardMailboxThreadSummary[];
   /** Whether the mailbox holds threads this page does not list. */
   more: boolean;
+  /**
+   * What to ask for to read the next page, or null when this is the last of
+   * them. The id of the last thread on this page.
+   */
+  nextCursor: string | null;
 }
 
 /**
@@ -201,13 +212,23 @@ export class BoardMailboxService {
    */
   async listThreads(filter?: {
     status?: BoardMailboxThreadStatus;
+    /** The `nextCursor` of the page before this one. */
+    after?: string;
   }): Promise<BoardMailboxThreadList> {
     // One row past the bound, which is what says there is a row past it. It is
     // dropped again below rather than shown.
+    //
+    // The id is on the ordering as well as on the cursor. Two threads can share
+    // a status and a last-message time, and a page boundary that falls between
+    // them has to fall in the same place every time it is asked for, or a thread
+    // is listed twice or not at all.
     const rows = await this.prisma.boardMailboxThread.findMany({
       where: filter?.status === undefined ? {} : { status: filter.status },
-      orderBy: [{ status: "asc" }, { lastMessageAt: "asc" }],
+      orderBy: [{ status: "asc" }, { lastMessageAt: "asc" }, { id: "asc" }],
       take: MAX_THREADS_LISTED + 1,
+      ...(filter?.after === undefined
+        ? {}
+        : { cursor: { id: filter.after }, skip: 1 }),
       select: {
         ...THREAD_SELECT,
         _count: { select: { messages: true } },
@@ -229,25 +250,41 @@ export class BoardMailboxService {
         })),
       ),
       more,
+      nextCursor: more ? (threads[threads.length - 1]?.id ?? null) : null,
     };
   }
 
   /**
    * One thread, in the order it was said.
    *
-   * Its newest {@link MAX_MESSAGES_READ} messages, read newest first and turned
-   * back the right way round below. A thread as long as that is one a
-   * correspondent made long, and the end of it is the part being answered.
+   * A page at a time from the newest end, so a board member opening a long
+   * conversation lands where it is rather than at its beginning, and the
+   * messages before that page are one press away rather than quietly missing.
+   * `olderCursor` is what asks for the page before this one.
+   *
+   * Read newest first and turned back the right way round below, because the
+   * page wanted is the last {@link MAX_MESSAGES_READ} and a database counts from
+   * the end it is ordered by.
+   *
+   * @param before The `olderCursor` of the page after this one. Omitted for the
+   *   newest page, which is what opening a thread reads.
    */
-  async readThread(threadId: string): Promise<BoardMailboxThreadView> {
+  async readThread(
+    threadId: string,
+    before?: string,
+  ): Promise<BoardMailboxThreadView> {
     const thread = await this.prisma.boardMailboxThread.findUnique({
       where: { id: threadId },
       select: {
         ...THREAD_SELECT,
         _count: { select: { messages: true } },
         messages: {
-          orderBy: { occurredAt: "desc" },
-          take: MAX_MESSAGES_READ,
+          // The id on the ordering for the reason it is on the inbox's: two
+          // messages can share an instant, and a page boundary between them has
+          // to fall in the same place each time it is asked for.
+          orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+          take: MAX_MESSAGES_READ + 1,
+          ...(before === undefined ? {} : { cursor: { id: before }, skip: 1 }),
           select: MESSAGE_SELECT,
         },
       },
@@ -262,12 +299,18 @@ export class BoardMailboxService {
       ...thread.messages.map((message) => message.sentByPersonId),
     ]);
 
+    const older = thread.messages.length > MAX_MESSAGES_READ;
+    const page = older
+      ? thread.messages.slice(0, MAX_MESSAGES_READ)
+      : thread.messages;
+
     return {
       ...(await this.toSummary(thread, people)),
       messageCount: thread._count.messages,
-      messages: [...thread.messages]
+      messages: [...page]
         .reverse()
         .map((message) => toMessageView(message, people)),
+      olderCursor: older ? (page[page.length - 1]?.id ?? null) : null,
     };
   }
 

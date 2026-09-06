@@ -38,17 +38,31 @@ interface Loaded {
   ready: boolean;
   status: BoardMailboxStatus | null;
   threads: readonly BoardMailboxThreadSummary[];
-  /** Whether the mailbox holds threads the list above does not show. */
-  moreThreads: boolean;
+  /** What to ask for to read the next page, or null when there is none. */
+  nextCursor: string | null;
   thread: BoardMailboxThread | null;
   loadFailed: boolean;
 }
+
+/**
+ * Pages read past the first, and which load they were read against.
+ *
+ * `of` is compared by identity: a fresh read of the inbox is a different object,
+ * and the pages appended to the one before it are a different list.
+ */
+interface AppendedPages {
+  rows: readonly BoardMailboxThreadSummary[];
+  cursor: string | null;
+  of: Loaded | null;
+}
+
+const NO_APPENDED: AppendedPages = { rows: [], cursor: null, of: null };
 
 const EMPTY: Loaded = {
   ready: false,
   status: null,
   threads: [],
-  moreThreads: false,
+  nextCursor: null,
   thread: null,
   loadFailed: false,
 };
@@ -88,7 +102,7 @@ export function BoardMailboxScreen(): ReactElement {
       ready: true,
       status: status.ok ? status.value : null,
       threads: threads.ok ? threads.value.threads : [],
-      moreThreads: threads.ok && threads.value.more,
+      nextCursor: threads.ok ? threads.value.nextCursor : null,
       thread: thread?.ok === true ? thread.value : null,
       loadFailed: !status.ok || !threads.ok || thread?.ok === false,
     };
@@ -132,7 +146,41 @@ export function BoardMailboxScreen(): ReactElement {
     reload();
   });
 
-  const { ready, status, threads, moreThreads, thread, loadFailed } = loaded;
+  const { ready, status, threads, nextCursor, thread, loadFailed } = loaded;
+
+  /*
+   * The pages read past the first one.
+   *
+   * Held against the load they belong to and read during render rather than
+   * cleared by an effect: every act on a thread and every collection re-reads
+   * the inbox from its start, and a page appended to a list rebuilt underneath
+   * it would show the same threads twice. What belongs to a previous load is
+   * simply not what is listed.
+   */
+  const [pages, setPages] = useState<AppendedPages>(NO_APPENDED);
+  const [readingMore, setReadingMore] = useState(false);
+  const appended = pages.of === loaded ? pages : NO_APPENDED;
+
+  const cursor = appended.of === null ? nextCursor : appended.cursor;
+  const listed = [...threads, ...appended.rows];
+
+  const readMore = useCallback((): void => {
+    if (cursor === null) {
+      return;
+    }
+    setReadingMore(true);
+    void fetchBoardMailboxThreads(cursor).then((page) => {
+      setReadingMore(false);
+      if (!page.ok) {
+        return;
+      }
+      setPages((held) => ({
+        rows: [...(held.of === loaded ? held.rows : []), ...page.value.threads],
+        cursor: page.value.nextCursor,
+        of: loaded,
+      }));
+    });
+  }, [cursor, loaded]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -209,19 +257,14 @@ export function BoardMailboxScreen(): ReactElement {
         <Panel
           title={t("boardMailbox.inbox.title")}
           description={t("boardMailbox.inbox.description")}
-          notice={
-            moreThreads ? (
-              <Notice tone="warn">{t("boardMailbox.inbox.more")}</Notice>
-            ) : null
-          }
         >
-          {threads.length === 0 ? (
+          {listed.length === 0 ? (
             <p className="text-body text-ink-muted">
               {t("boardMailbox.inbox.empty")}
             </p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {threads.map((summary) => (
+              {listed.map((summary) => (
                 <li key={summary.id}>
                   <button
                     type="button"
@@ -258,6 +301,25 @@ export function BoardMailboxScreen(): ReactElement {
                 </li>
               ))}
             </ul>
+          )}
+
+          {/*
+            A control and not only a warning. The inbox is read a page at a time
+            because how many threads there are is decided outside the
+            association, and a bound with nothing behind it would put the
+            conversations the board has finished with out of reach altogether.
+          */}
+          {cursor === null ? null : (
+            <button
+              type="button"
+              disabled={readingMore}
+              onClick={readMore}
+              className={SECONDARY_BUTTON}
+            >
+              {readingMore
+                ? t("boardMailbox.inbox.reading")
+                : t("boardMailbox.inbox.more")}
+            </button>
           )}
         </Panel>
       )}

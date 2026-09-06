@@ -9,6 +9,7 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MediaError, MediaService } from "../media/media.service";
 import { BoardMailboxError } from "./board-mailbox.error";
+import { COLLECTION_REFUSALS } from "./board-mailbox-delivery";
 import {
   loadBoardMailboxSettings,
   mailboxFingerprint,
@@ -404,19 +405,57 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     if (listings.length === 0) {
       return new Set();
     }
-    const rows = await this.prisma.boardMailboxMessage.findMany({
-      where: {
-        sourceUid: {
-          in: listings.map((listing) => `${prefix}:${listing.uid}`),
-        },
-      },
-      select: { sourceUid: true },
-    });
-    return new Set(
-      rows
+    const uids = listings.map((listing) => `${prefix}:${listing.uid}`);
+
+    // Both ledgers, because both answer the same question. A letter is held
+    // either because it became a message or because it was read and refused,
+    // and a collection that asked only the first would fetch every refused
+    // letter again on every run.
+    const [stored, ignored] = await Promise.all([
+      this.prisma.boardMailboxMessage.findMany({
+        where: { sourceUid: { in: uids } },
+        select: { sourceUid: true },
+      }),
+      this.prisma.boardMailboxIgnoredMessage.findMany({
+        where: { sourceUid: { in: uids } },
+        select: { sourceUid: true },
+      }),
+    ]);
+
+    return new Set([
+      ...stored
         .map((row) => row.sourceUid)
         .filter((uid): uid is string => uid !== null),
-    );
+      ...ignored.map((row) => row.sourceUid),
+    ]);
+  }
+
+  /**
+   * Records that a message was read and will not be stored.
+   *
+   * Which is what stops it being fetched again. Without it a letter the
+   * collector can do nothing with is read in full on every run for as long as
+   * the mailbox keeps it, and - since the per-run bound counts fetches - enough
+   * of them at the head of the mailbox stop the collection before it reaches the
+   * mail behind them, so the board goes on receiving nothing while the mailbox
+   * fills.
+   *
+   * Written only for a refusal that cannot change its mind. `createMany` with
+   * `skipDuplicates`, so two runs that read the same letter do not fight over
+   * it, and a write that does not land is logged rather than raised: the letter
+   * stays in the mailbox either way, which is where it was.
+   */
+  private async ignoreMessage(uid: string, reason: string): Promise<void> {
+    try {
+      await this.prisma.boardMailboxIgnoredMessage.createMany({
+        data: [{ sourceUid: uid, reason }],
+        skipDuplicates: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Board mailbox: a message that cannot be stored could not be marked as read: ${failureName(error)}`,
+      );
+    }
   }
 
   /** One letter: fetch it, read it, store it. */
@@ -476,6 +515,11 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       this.logger.warn(
         "Board mailbox: a message carried no usable sender address and was left in the mailbox.",
       );
+      // Recorded as read, because no later run will read it differently: the
+      // bytes in the mailbox do not change, and a letter fetched afresh every
+      // five minutes for nothing is what spends the per-run bound that the mail
+      // behind it needs.
+      await this.ignoreMessage(uid, COLLECTION_REFUSALS.noSenderAddress);
       return "skipped";
     }
 

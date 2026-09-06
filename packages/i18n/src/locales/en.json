@@ -2170,7 +2170,8 @@
       "empty": "Nothing has been written to the board's address.",
       "summary_one": "From {{sender}}. One message.",
       "summary_other": "From {{sender}}. {{count}} messages.",
-      "more": "This is the part of the inbox that is still owed something. Older conversations the board has finished with are not listed here."
+      "more": "Show older conversations",
+      "reading": "Reading..."
     },
     "thread": {
       "from": "From {{sender}} ({{email}}).",
@@ -2189,7 +2190,9 @@
       "replyGoesTo": "Goes to {{email}}.",
       "replyRemaining_one": "One character left.",
       "replyRemaining_other": "{{count}} characters left.",
-      "olderNotShown": "The last {{shown}} of {{total}} messages on this conversation."
+      "olderNotShown": "Showing the last {{shown}} of {{total}} messages on this conversation.",
+      "readEarlier": "Show earlier messages",
+      "readingEarlier": "Reading..."
     },
     "message": {
       "received": "Received",

@@ -2170,7 +2170,8 @@
       "empty": "Ingenting har skrivits till styrelsens adress.",
       "summary_one": "Från {{sender}}. Ett meddelande.",
       "summary_other": "Från {{sender}}. {{count}} meddelanden.",
-      "more": "Det här är den del av inkorgen som fortfarande väntar på något. Äldre konversationer som styrelsen är klar med listas inte här."
+      "more": "Visa äldre konversationer",
+      "reading": "Läser..."
     },
     "thread": {
       "from": "Från {{sender}} ({{email}}).",
@@ -2189,7 +2190,9 @@
       "replyGoesTo": "Går till {{email}}.",
       "replyRemaining_one": "Ett tecken kvar.",
       "replyRemaining_other": "{{count}} tecken kvar.",
-      "olderNotShown": "De {{shown}} senaste av {{total}} meddelanden i den här konversationen."
+      "olderNotShown": "Visar de {{shown}} senaste av {{total}} meddelanden i den här konversationen.",
+      "readEarlier": "Visa tidigare meddelanden",
+      "readingEarlier": "Läser..."
     },
     "message": {
       "received": "Inkommet",

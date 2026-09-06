@@ -42,3 +42,30 @@ export const REPLY_DELIVERY_FAILURES = {
 
 export type ReplyDeliveryFailure =
   (typeof REPLY_DELIVERY_FAILURES)[keyof typeof REPLY_DELIVERY_FAILURES];
+
+/**
+ * Why a collected message was read and then left.
+ *
+ * Its own list beside the delivery codes above, and read by nothing on a screen:
+ * this one is written into the ledger of messages the collector will not store,
+ * so a letter it can do nothing with is not fetched again on every run for as
+ * long as the mailbox keeps it. A code rather than prose here for the reason the
+ * others are: what could be quoted is a header a stranger wrote.
+ *
+ * Only reasons that cannot change. A message this instance would store if it ran
+ * again - one too large to fetch, one a retrieval failed on - is not written
+ * here at all, because a row saying so would make a temporary refusal permanent.
+ */
+export const COLLECTION_REFUSALS = {
+  /**
+   * The message carried no address to answer.
+   *
+   * Every thread's correspondent column is an address a reply goes back to, so a
+   * letter with no readable From header has nothing to open a thread with, and
+   * no later run will find one: the bytes in the mailbox do not change.
+   */
+  noSenderAddress: "no-sender-address",
+} as const;
+
+export type CollectionRefusal =
+  (typeof COLLECTION_REFUSALS)[keyof typeof COLLECTION_REFUSALS];

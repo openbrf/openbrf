@@ -82,13 +82,17 @@ export interface BoardMailboxThreadSummary {
 
 export interface BoardMailboxThread extends BoardMailboxThreadSummary {
   messages: BoardMailboxMessage[];
+  /** What to ask for to read the page before this one. Null at the beginning. */
+  olderCursor: string | null;
 }
 
-/** The inbox, and whether it is all of it. */
+/** The inbox, and how to read past it. */
 export interface BoardMailboxThreadList {
   threads: BoardMailboxThreadSummary[];
   /** Whether the mailbox holds threads this page does not list. */
   more: boolean;
+  /** What to ask for to read the next page. Null on the last of them. */
+  nextCursor: string | null;
 }
 
 export interface BoardMailboxStatus {
@@ -111,18 +115,23 @@ export function fetchBoardMailboxStatus(): Promise<
   return apiRequest("GET", "/api/board-mailbox/status");
 }
 
-export function fetchBoardMailboxThreads(): Promise<
-  ApiResult<BoardMailboxThreadList>
-> {
-  return apiRequest("GET", "/api/board-mailbox/threads");
+export function fetchBoardMailboxThreads(
+  after?: string,
+): Promise<ApiResult<BoardMailboxThreadList>> {
+  const query =
+    after === undefined ? "" : `?after=${encodeURIComponent(after)}`;
+  return apiRequest("GET", `/api/board-mailbox/threads${query}`);
 }
 
 export function fetchBoardMailboxThread(
   threadId: string,
+  before?: string,
 ): Promise<ApiResult<BoardMailboxThread>> {
+  const query =
+    before === undefined ? "" : `?before=${encodeURIComponent(before)}`;
   return apiRequest(
     "GET",
-    `/api/board-mailbox/threads/${encodeURIComponent(threadId)}`,
+    `/api/board-mailbox/threads/${encodeURIComponent(threadId)}${query}`,
   );
 }
 

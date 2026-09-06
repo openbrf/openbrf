@@ -230,8 +230,8 @@ export async function listBoardMailboxThreads(
 ): Promise<readonly BoardMailboxThreadRow[]> {
   const response = await request.get(`${baseUrl}/api/board-mailbox/threads`);
   await expectOk(response, "GET /api/board-mailbox/threads");
-  // The inbox is a bounded page and says whether it is all of it. This suite
-  // never fills it, so the rows are the whole of what the board would see.
+  // The inbox is a bounded page with a continuation behind it. This suite never
+  // fills a page, so the rows are the whole of what the board would see.
   const body = (await response.json()) as {
     readonly threads: readonly BoardMailboxThreadRow[];
   };

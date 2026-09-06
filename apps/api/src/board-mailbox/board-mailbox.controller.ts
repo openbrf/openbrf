@@ -25,6 +25,18 @@ const replySchema = z.object({
 const closedSchema = z.object({ closed: z.boolean() });
 
 /**
+ * A page cursor, which is always an id this API issued.
+ *
+ * Bounded and shaped rather than passed through: it reaches a query as a cursor,
+ * and the only values that mean anything there are ones a previous page
+ * answered with.
+ */
+const cursorSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/)
+  .optional();
+
+/**
  * The acting principal, or a fault.
  *
  * The global guard attaches one to every route that is not @Public(), so
@@ -76,17 +88,35 @@ export class BoardMailboxController {
     return this.mailbox.status();
   }
 
+  /**
+   * The inbox, a page at a time.
+   *
+   * `after` is the `nextCursor` the page before this one answered with. Bounded
+   * as an id rather than taken as free text, so a value that never came from
+   * here is refused before it reaches a query.
+   */
   @Get("threads")
   async listThreads(
     @Query("status") status?: string,
+    @Query("after") after?: string,
   ): Promise<BoardMailboxThreadList> {
     const filter = z.enum(STATUSES).optional().parse(status);
-    return this.mailbox.listThreads({ status: filter });
+    const cursor = cursorSchema.parse(after);
+    return this.mailbox.listThreads({ status: filter, after: cursor });
   }
 
+  /**
+   * One thread, a page at a time from its newest end.
+   *
+   * `before` is the `olderCursor` the page after this one answered with; without
+   * it the answer is the newest page, which is what opening a thread reads.
+   */
   @Get("threads/:id")
-  async readThread(@Param("id") id: string): Promise<BoardMailboxThreadView> {
-    return this.mailbox.readThread(id);
+  async readThread(
+    @Param("id") id: string,
+    @Query("before") before?: string,
+  ): Promise<BoardMailboxThreadView> {
+    return this.mailbox.readThread(id, cursorSchema.parse(before));
   }
 
   @Post("threads/:id/take")

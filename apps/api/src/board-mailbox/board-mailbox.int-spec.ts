@@ -274,6 +274,7 @@ interface ThreadBody {
   subject: string;
   correspondent: { email: string; name: string | null };
   status: "NEW" | "TAKEN" | "ANSWERED" | "CLOSED";
+  olderCursor?: string | null;
   takenBy:
     | { kind: "member"; personId: string; name: string }
     | { kind: "protected"; personId: string }
@@ -311,11 +312,16 @@ async function listThreads(cookie: string): Promise<ThreadBody[]> {
     headers: { cookie },
   });
   expect(response.statusCode, response.body).toBe(200);
-  // The inbox is bounded and says whether it is all of it. Nothing this suite
-  // creates comes near the bound, so a page that says there is more is a fault
-  // in the bound rather than in the test.
-  const body = response.json() as { threads: ThreadBody[]; more: boolean };
+  // The inbox is a bounded page and says how to read the next one. Nothing this
+  // suite creates comes near the bound, so a page offering a continuation is a
+  // fault in the bound rather than in the test.
+  const body = response.json() as {
+    threads: ThreadBody[];
+    more: boolean;
+    nextCursor: string | null;
+  };
   expect(body.more).toBe(false);
+  expect(body.nextCursor).toBeNull();
   return body.threads;
 }
 
@@ -529,6 +535,13 @@ afterAll(async () => {
       where: { subject: { contains: suffix } },
     }),
   );
+  // The ledger of letters read and not stored outlives the threads, so this run
+  // takes its own rows with it. Every identifier it wrote carries the suffix.
+  await step(() =>
+    prisma.boardMailboxIgnoredMessage.deleteMany({
+      where: { sourceUid: { contains: suffix } },
+    }),
+  );
   await step(() =>
     prisma.association.update({
       where: { id: 1 },
@@ -723,10 +736,10 @@ describe("collecting the mailbox", () => {
     }
   });
 
-  it("leaves a message with no readable sender in the mailbox", async () => {
+  it("leaves a message with no readable sender in the mailbox, and reads it once", async () => {
     const server = await serveMailbox([
       {
-        uid: "uid-headless",
+        uid: `uid-headless-${suffix}`,
         raw: [
           `Subject: Ingen avsandare ${suffix}`,
           "Message-ID: <headless@utanfor.example>",
@@ -749,6 +762,15 @@ describe("collecting the mailbox", () => {
       expect(
         threads.some((thread) => thread.subject.startsWith("Ingen avsandare")),
       ).toBe(false);
+
+      // And the next run does not fetch it again. Nothing about the letter will
+      // ever change, so a collection that read it afresh every five minutes
+      // would spend the per-run bound on it for as long as the mailbox kept it -
+      // and enough of these at the head of a mailbox stop the run before it
+      // reaches the mail behind them, which is the board receiving nothing.
+      const again = await collector.collect();
+      expect(again.skipped).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
     } finally {
       await server.close();
     }
@@ -942,6 +964,68 @@ describe("working a thread", () => {
     expect(entries[0]?.actorPersonId).toBe(boardMember.personId);
     expect(entries[0]?.targetPersonId).toBeNull();
     expect(entries[0]?.targetKind).toBe("boardMailboxThread");
+  });
+
+  it("reads a conversation back a page at a time", async () => {
+    const thread = await collectedThread(`Bakat ${suffix}`);
+
+    // Five messages written straight onto the thread. The page bound is far
+    // above that, so what is under test is the continuation itself rather than
+    // the bound: a cursor has to answer with the messages older than it, in
+    // order, and with nothing on either side of them.
+    const written = await Promise.all(
+      [1, 2, 3, 4, 5].map(async (n) =>
+        prisma.boardMailboxMessage.create({
+          data: {
+            threadId: thread.id,
+            direction: "INBOUND" as const,
+            body: `Meddelande ${String(n)}`,
+            occurredAt: new Date(`2026-02-0${String(n)}T09:00:00.000Z`),
+            sourceUid: `uid-page-${suffix}-${String(n)}`,
+          },
+          select: { id: true },
+        }),
+      ),
+    );
+
+    const whole = await readThread(boardCookie, thread.id);
+    const ids = (whole.messages ?? []).map((message) => message.id);
+    // The letter that opened the thread, and the five written onto it.
+    expect(ids).toHaveLength(written.length + 1);
+    // Nothing is behind a conversation this short.
+    expect(whole.olderCursor).toBeNull();
+
+    // Asking for what is before the fourth message answers with the three
+    // before it, in the same order, and stops there. The ids are read out of
+    // the answer above rather than assumed: where the collected letter falls
+    // among the five depends on the Date header it carried, and the cursor's
+    // contract is about the order the thread is read in rather than about that.
+    const page = await inject({
+      method: "GET",
+      url: `/api/board-mailbox/threads/${thread.id}?before=${ids[3] ?? ""}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(page.statusCode, page.body).toBe(200);
+    const earlier = page.json() as ThreadBody;
+    expect((earlier.messages ?? []).map((message) => message.id)).toStrictEqual(
+      ids.slice(0, 3),
+    );
+    // And the count is the whole conversation, not the page.
+    expect(earlier.messageCount).toBe(written.length + 1);
+  });
+
+  it("refuses a cursor that this API did not issue", async () => {
+    const thread = await collectedThread(`Falsk ${suffix}`);
+
+    const page = await inject({
+      method: "GET",
+      url: `/api/board-mailbox/threads/${thread.id}?before=${encodeURIComponent("' OR 1=1 --")}`,
+      headers: { cookie: boardCookie },
+    });
+
+    // Shaped before it reaches a query. A cursor is always an id this API
+    // answered with, and nothing else is one.
+    expect(page.statusCode).toBe(400);
   });
 
   it("does not name a board member with protected personal data", async () => {

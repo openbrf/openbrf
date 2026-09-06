@@ -35,6 +35,12 @@ thread is service tier: it appears in the data subject access report for the
 address it is with, it is erased two years after the last message on it, and a
 legal hold against the person whose address that is suspends the erasure.
 
+The inbox and a conversation are both read a page at a time, the inbox from the
+end that is still owed something and a thread from its newest message, with the
+page before each one a press away. How much there is to read is decided by how
+much mail is sent to an address the association publishes, which is not a number
+this instance chooses.
+
 The board's screen is behind `boardMailbox:handle`, which the external property
 manager deliberately does not hold. Where the mail is collected from, and with
 which credentials, is an administrator's setting beside SMTP.

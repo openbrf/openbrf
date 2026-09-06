@@ -350,7 +350,19 @@ describe("readMessage", () => {
     // takes that promise: an exception here would end the whole collection, and
     // because nothing is deleted from the mailbox it would end every collection
     // after it as well.
-    expect(() => readMessage(raw(...lines))).not.toThrow();
+    const message = readMessage(raw(...lines));
+
+    // And the letter still arrives. Not throwing is half of what the cap has to
+    // do: a message silently emptied is what this file calls the worst of the
+    // three outcomes, so the degradation is pinned here rather than left to be
+    // replaced by an empty body that would pass the line above.
+    expect(message.subject).toBe("Djupt");
+    expect(message.fromAddress).toBe("sender@example.test");
+    // The raw text of the level the walk stopped at, which is what a multipart
+    // read as one text part is. Not "Hej": the part that holds it sits past the
+    // cap and is never reached.
+    expect(message.text).toContain("multipart/mixed");
+    expect(message.text.length).toBeGreaterThan(0);
   });
 
   it("answers null for a message with no readable sender", () => {

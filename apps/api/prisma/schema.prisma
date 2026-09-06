@@ -4503,3 +4503,38 @@ model BoardMailboxAttachment {
   @@index([messageId, sortOrder])
   @@map("board_mailbox_attachment")
 }
+
+/// A message in the mailbox that was read and will never be stored.
+///
+/// Nothing is deleted from the mailbox, so what this instance holds is decided
+/// by what it remembers having seen. A letter it stored is remembered by the
+/// identifier on its own row; a letter it read and could not store had no row to
+/// be remembered by, so it was fetched again on every run - and once the per-run
+/// bound counts fetches rather than rows, fifty of those at the head of the
+/// mailbox stop a collection before it reaches the mail behind them. This is the
+/// row that remembers one: the identifier, and why it was left.
+///
+/// Only for a letter that nothing will ever change about. A message too large to
+/// fetch is not here - it is never read, so it costs a listing line and no more -
+/// and neither is one a retrieval failed on, because that is a mailbox having a
+/// bad minute and the next run should try it again.
+///
+/// No personal data. The identifier is the mailbox's own opaque string behind a
+/// fingerprint of the credentials it was seen under, and the reason is a code
+/// this module writes. So it is outside every purge scope and outside the data
+/// subject access report: there is no person to key it to, which is the same
+/// reason the thread purge names no subject.
+model BoardMailboxIgnoredMessage {
+  id String @id @default(cuid())
+
+  /// The POP3 identifier, under the same mailbox fingerprint a stored message
+  /// carries, so that one lookup answers for both.
+  sourceUid String @unique
+
+  /// Why it will not be stored, as a code. See `board-mailbox-delivery.ts`.
+  reason String
+
+  createdAt DateTime @default(now())
+
+  @@map("board_mailbox_ignored_message")
+}
