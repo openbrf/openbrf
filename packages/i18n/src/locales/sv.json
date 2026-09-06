@@ -67,6 +67,11 @@
       "body": "{{sender}} skrev till föreningen den {{receivedAt}} genom kontaktformuläret på webbplatsen. Svara till {{email}}.",
       "action": "Öppna meddelandena"
     },
+    "boardMailboxReply": {
+      "subject": "Sv: {{subject}}",
+      "heading": "Svar från styrelsen i {{association}}",
+      "footer": "Det här svaret kommer från {{association}}. Svara på meddelandet, eller skriv till {{address}}, så når det hela styrelsen."
+    },
     "news": {
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} har publicerat en nyhet.",
@@ -355,6 +360,7 @@
           "motions": "Motioner",
           "eventSignups": "Anmälningar till evenemang",
           "newsComments": "Nyhetskommentarer",
+          "boardMailbox": "Korrespondens med styrelsens brevlåda",
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
           "audit": "Granskningsloggen",
@@ -414,6 +420,8 @@
           "starts": "Börjar",
           "ends": "Slutar",
           "erasableFrom": "Gallras tidigast",
+          "subject": "Ämne",
+          "message": "Meddelande",
           "newsItem": "Nyhet",
           "written": "Skriven",
           "comment": "Kommentar",
@@ -447,6 +455,10 @@
         "direction": {
           "acquired": "Förvärvad",
           "relinquished": "Överlåten"
+        },
+        "boardMailbox": {
+          "received": "Inkommet till föreningen",
+          "answered": "Besvarat av styrelsen"
         },
         "action": {
           "PROTECTED_DATA_REVEALED": "Skyddade uppgifter visades",
@@ -808,6 +820,21 @@
         "heading": "E-posten fungerar",
         "body": "Det här meddelandet skickades av {{association}} via {{host}} för att visa att e-postinställningarna fungerar. Inbjudningar och inloggningslänkar kommer fram till mottagarna."
       }
+    },
+    "boardMailbox": {
+      "title": "Styrelsens gemensamma brevlåda",
+      "description": "Adressen styrelsen publicerar, och brevlådan som den här instansen hämtar den från. Allt som kommer dit blir en konversation som varje styrelseplats ser och kan svara på.",
+      "address": "Styrelsens adress",
+      "addressHint": "Adressen de boende skriver till. Svar som styrelsen skickar går att svara på till den.",
+      "host": "E-postserver (POP3)",
+      "port": "Port",
+      "user": "Användarnamn till brevlådan",
+      "password": "Lösenord till brevlådan",
+      "passwordKept": "Ett lösenord är sparat. Lämna fältet tomt för att behålla det.",
+      "passwordClear": "Ta bort det sparade lösenordet",
+      "secure": "Krypterad anslutning (implicit TLS, oftast port 995)",
+      "configured": "Brevlådan är inställd. Instansen hämtar den var femte minut, och styrelsen kan hämta den från sin egen skärm.",
+      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är."
     },
     "sms": {
       "title": "Sms",
@@ -2104,6 +2131,84 @@
     "errors": {
       "forbidden": "Ditt konto får inte göra det.",
       "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
+  "boardMailbox": {
+    "navLabel": "Styrelsens post",
+    "title": "Styrelsens gemensamma brevlåda",
+    "intro": "Det som har skrivits till styrelsens egen adress. Varje plats ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
+    "loading": "Läser brevlådan...",
+    "loadFailed": "Styrelsens brevlåda kunde inte läsas just nu.",
+    "notAllowed": "Styrelsens brevlåda läses av styrelsen.",
+    "status": {
+      "NEW": "Ny",
+      "TAKEN": "Omhändertagen",
+      "ANSWERED": "Besvarad",
+      "CLOSED": "Avslutad"
+    },
+    "member": {
+      "protected": "en styrelseledamot",
+      "unknown": "någon som inte längre finns på den här instansen"
+    },
+    "mailbox": {
+      "title": "Brevlådan",
+      "address": "Hämtas från {{address}}.",
+      "noAddress": "Ingen adress är registrerad.",
+      "notConfigured": "Den här instansen hämtar ingen brevlåda, så ingenting kommer in här. En administratör ställer in det under inställningar.",
+      "schedule": "Hämtas var femte minut. Hämta nu om någon precis har skrivit och du väntar på det.",
+      "collect": "Hämta nu",
+      "collecting": "Hämtar...",
+      "collected_one": "Ett nytt brev hämtades.",
+      "collected_other": "{{count}} nya brev hämtades."
+    },
+    "inbox": {
+      "title": "Inkorgen",
+      "description": "Det som väntar först, och den längsta väntan först inom det.",
+      "empty": "Ingenting har skrivits till styrelsens adress.",
+      "summary_one": "Från {{sender}}. Ett meddelande.",
+      "summary_other": "Från {{sender}}. {{count}} meddelanden."
+    },
+    "thread": {
+      "from": "Från {{sender}} ({{email}}).",
+      "untrusted": "Det här kom utifrån föreningen. Namnet och adressen är vad avsändaren har skrivit, och ingenting har kontrollerats mot registret - så behandla en begäran om att ändra ett kontonummer eller att lämna ut uppgifter som ett brev från en främling.",
+      "nobodyHasIt": "Ingen har tagit hand om det här än.",
+      "heldBy": "{{name}} tar hand om det här.",
+      "take": "Ta hand om det",
+      "release": "Lämna tillbaka",
+      "close": "Markera som klar",
+      "reopen": "Öppna igen",
+      "closedNoReply": "Styrelsen har antecknat att den är klar med det här. Öppna konversationen igen för att svara.",
+      "replyLabel": "Ditt svar",
+      "reply": "Skicka svaret",
+      "replying": "Skickar...",
+      "replyQueued": "Svaret är antecknat på konversationen och är på väg.",
+      "replyGoesTo": "Går till {{email}}."
+    },
+    "message": {
+      "received": "Inkommet",
+      "sentBy": "Besvarat av {{name}}",
+      "fromHtml": "Meddelandet skickades som formaterad post. Det som följer är dess text.",
+      "truncated": "Meddelandet var längre än vad den här instansen sparar och har kortats.",
+      "attachmentsDropped_one": "En bilaga kom med som den här instansen inte sparar.",
+      "attachmentsDropped_other": "{{count}} bilagor kom med som den här instansen inte sparar."
+    },
+    "delivery": {
+      "pending": "Svaret ligger i kö och har inte gått i väg än.",
+      "sent": "Svaret togs emot av e-postservern.",
+      "mailNotConfigured": "Svaret gick inte i väg: den här instansen har ingen e-postserver inställd.",
+      "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
+      "threadGone": "Svaret gick inte i väg: konversationen hann gallras.",
+      "interrupted": "Svaret gavs upp innan det gick i väg.",
+      "unknown": "Svaret gick inte i väg."
+    },
+    "errors": {
+      "threadNotFound": "Den här konversationen finns inte längre.",
+      "threadClosed": "Konversationen är avslutad. Öppna den igen för att svara.",
+      "notConfigured": "Ingen brevlåda är inställd för styrelsens adress. En administratör ställer in det under inställningar.",
+      "unreachable": "Brevlådan svarade inte. Kontrollera servernamnet och porten under inställningar.",
+      "signInRefused": "Brevlådan avvisade inloggningen. Kontrollera användarnamnet och lösenordet under inställningar.",
+      "emptyReply": "Skriv något innan du skickar svaret.",
+      "unknown": "Det gick inte. Försök igen."
     }
   },
   "documents": {

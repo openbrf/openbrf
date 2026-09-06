@@ -967,6 +967,65 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
+            {/*
+             * The board's shared mailbox.
+             *
+             * One row per message rather than per conversation, because the
+             * personal data is what was written: a section that listed a subject
+             * line and a count would say the association holds correspondence
+             * without saying what it holds. Both directions, because what the
+             * board answered is as much about this person as what was asked.
+             *
+             * The section's own heading says the association holds this
+             * correspondence with the address rather than that this person sent
+             * it, which is the only claim the mailbox can support - a From header
+             * is written by whoever sent the message and nothing checks it.
+             */}
+            <Section titleKey="register.person.report.section.boardMailbox">
+              <Rows
+                empty={report.boardMailboxThreads.length === 0}
+                headings={[
+                  "register.person.report.field.subject",
+                  "register.person.report.field.direction",
+                  "register.person.report.field.date",
+                  "register.person.report.field.message",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.boardMailboxThreads.flatMap((thread) =>
+                  thread.messages.map((message, position) => (
+                    <tr
+                      key={`${thread.threadId}-${String(position)}`}
+                      className={ROW}
+                    >
+                      <td className={TEXT_CELL}>{thread.subject}</td>
+                      <td className={TEXT_CELL}>
+                        {t(
+                          message.direction === "INBOUND"
+                            ? "register.person.report.boardMailbox.received"
+                            : "register.person.report.boardMailbox.answered",
+                        )}
+                      </td>
+                      <td className={DATA_CELL}>{day(message.occurredAt)}</td>
+                      {/*
+                       * In full, with its line breaks kept, exactly as the news
+                       * comment below keeps them: what somebody wrote is the
+                       * personal data this section is about, and this is a
+                       * printed document where a run-on paragraph is not what
+                       * they wrote.
+                       */}
+                      <td className={TEXT_CELL}>
+                        <span className="block whitespace-pre-line">
+                          {message.body}
+                        </span>
+                      </td>
+                      <td className={DATA_CELL}>{thread.erasableFrom}</td>
+                    </tr>
+                  )),
+                )}
+              </Rows>
+            </Section>
+
             <Section titleKey="register.person.report.section.newsComments">
               <Rows
                 empty={report.newsComments.length === 0}

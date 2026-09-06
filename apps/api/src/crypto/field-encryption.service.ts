@@ -35,6 +35,9 @@ export type EncryptedFieldId =
   | "issue.reporterEmail"
   | "association.smtpPassword"
   | "association.smsGatewayToken"
+  | "association.boardMailboxPop3Password"
+  | "boardMailboxThread.correspondentName"
+  | "boardMailboxThread.correspondentEmail"
   | "importSession.rows";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
@@ -150,6 +153,47 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
     indexed: false,
     fastHash: true,
     normalize: () => null,
+  },
+  // The password for the mailbox the board's address is collected from. The
+  // SMTP password's argument, unchanged: read back by primary key alone, so no
+  // index.
+  "association.boardMailboxPop3Password": {
+    table: "association",
+    field: "boardMailboxPop3Password",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  /*
+   * Who wrote to the board's shared mailbox, as the envelope said.
+   *
+   * Not register content and never treated as one: mail is untrusted input from
+   * outside the association, so this is an assertion by whoever sent it rather
+   * than an identity. It is held encrypted because it is how the board answers,
+   * and for nothing else. The display name carries no index, because nothing
+   * searches by a string the sender chose.
+   *
+   * The address carries one for two reasons, and neither of them is
+   * attribution. A board reading its inbox has to see that two letters are one
+   * conversation rather than two strangers - the contact form's own argument -
+   * and the association has to be able to answer, starting from a person's own
+   * record, what it holds about them and which of it a legal hold preserves.
+   * Reading the index the other way, from a thread to a name on a screen, is
+   * exactly what this module does not do.
+   */
+  "boardMailboxThread.correspondentName": {
+    table: "board_mailbox_thread",
+    field: "correspondentName",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  "boardMailboxThread.correspondentEmail": {
+    table: "board_mailbox_thread",
+    field: "correspondentEmail",
+    indexed: true,
+    fastHash: true,
+    normalize: (value) => emptyToNull(normalizeEmail(value)),
   },
   // An uploaded member list, held between the mapping and apply steps of an
   // import. Not indexed: nothing searches an upload, and the value is a whole

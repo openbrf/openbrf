@@ -136,6 +136,50 @@ export interface SmtpSettingsView {
 }
 
 /**
+ * The mailbox the board's own address is collected from, as the settings screen
+ * renders it.
+ *
+ * Beside the SMTP block and shaped like it, because it is the same kind of
+ * setting answered by the same person: where this instance's correspondence goes
+ * out, and where it comes in. What is done with the mail once it is here is the
+ * board's and is gated by `boardMailbox:handle` instead.
+ *
+ * The password is never returned, for the reason the SMTP one is not: it is a
+ * secret held encrypted at rest, and a settings screen that renders it back
+ * turns every administrator's browser session into a way to read it.
+ */
+export interface BoardMailboxSettingsView {
+  /** The address the board publishes as its own. */
+  address: string | null;
+  host: string | null;
+  port: number | null;
+  /** Implicit TLS, which is what port 995 offers. */
+  secure: boolean;
+  user: string | null;
+  passwordSet: boolean;
+  /**
+   * Whether this instance can collect the mailbox at all.
+   *
+   * Stricter than the SMTP block's own test, which asks only for a host and a
+   * sender: a mail server with no user name is a real configuration for an
+   * outbound relay on a private network, and a mailbox nobody signs in to is not
+   * a mailbox. Half a configuration is reported as none rather than as a
+   * connection that will fail with a protocol error nobody can read.
+   */
+  configured: boolean;
+}
+
+export interface BoardMailboxInput {
+  address: string | null;
+  host: string | null;
+  port: number | null;
+  secure: boolean;
+  user: string | null;
+  /** Undefined keeps the stored password; null clears it. */
+  password?: string | null;
+}
+
+/**
  * How the instance sends text messages, as the settings screen renders it.
  *
  * The gateway credential is never returned, for the reason the SMTP password is
@@ -161,6 +205,7 @@ export interface InstanceSettings {
   housingCooperative: HousingCooperativeSettings;
   branding: BrandingSettings;
   smtp: SmtpSettingsView;
+  boardMailbox: BoardMailboxSettingsView;
   sms: SmsSettingsView;
   retention: { daysAfterMoveOut: number };
   selfSignup: { enabled: boolean };
@@ -281,6 +326,19 @@ export class SettingsService {
         passwordSet: association.smtpPasswordCipher !== null,
         configured:
           association.smtpHost !== null && association.smtpFromAddress !== null,
+      },
+      boardMailbox: {
+        address: association.boardMailboxAddress,
+        host: association.boardMailboxPop3Host,
+        port: association.boardMailboxPop3Port,
+        secure: association.boardMailboxPop3Secure,
+        user: association.boardMailboxPop3User,
+        passwordSet: association.boardMailboxPop3PasswordCipher !== null,
+        configured:
+          association.boardMailboxAddress !== null &&
+          association.boardMailboxPop3Host !== null &&
+          association.boardMailboxPop3User !== null &&
+          association.boardMailboxPop3PasswordCipher !== null,
       },
       sms: {
         driver: association.smsDriver,
@@ -547,6 +605,58 @@ export class SettingsService {
 
     const settings = await this.read();
     return settings.smtp;
+  }
+
+  /**
+   * Stores the mailbox the board's address is collected from.
+   *
+   * The SMTP block's shape, including the three states its password field has:
+   * undefined keeps what is stored, null or an empty string clears it, and a
+   * string replaces it. A form that silently meant two different things by
+   * "empty" would be a trap, and this one holds a credential for a mailbox
+   * carrying the association's correspondence.
+   */
+  async updateBoardMailbox(
+    input: BoardMailboxInput,
+  ): Promise<BoardMailboxSettingsView> {
+    await this.requireAssociation();
+
+    const passwordCipher =
+      input.password === undefined
+        ? undefined
+        : input.password === null || input.password === ""
+          ? null
+          : (
+              await this.encryption.encrypt(
+                "association.boardMailboxPop3Password",
+                input.password,
+              )
+            ).cipher;
+
+    await this.prisma.association.update({
+      where: { id: 1 },
+      data: {
+        boardMailboxAddress: input.address,
+        boardMailboxPop3Host: input.host,
+        boardMailboxPop3Port: input.port,
+        boardMailboxPop3Secure: input.secure,
+        boardMailboxPop3User: input.user,
+        // Left out of the update entirely when undefined, so saving the rest of
+        // the form does not silently wipe a password the screen never showed.
+        ...(passwordCipher === undefined
+          ? {}
+          : { boardMailboxPop3PasswordCipher: passwordCipher }),
+      },
+    });
+
+    // The host and the address the board publishes. The password is a secret and
+    // the mailbox user name is close enough to one that it has no business in a
+    // log line either - the SMTP block's own rule.
+    this.logger.log(
+      `Updated board mailbox settings: host=${input.host ?? "none"}, address=${input.address ?? "none"}`,
+    );
+
+    return (await this.read()).boardMailbox;
   }
 
   /**

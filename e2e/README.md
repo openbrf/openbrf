@@ -207,6 +207,29 @@ personal identity number is refused, the refusal reaches the screen as a
 sentence, and the sentence does not carry the number. The spec publishes a notice
 of its own and asks for no mailing, so it leaves the mailbox alone.
 
+`35-board-mailbox.spec.ts` drives the board's shared mailbox, and it is the only
+spec in this package that exercises mail in both directions. Mailpit stands in
+for an association's mail provider twice over: the application relays through its
+SMTP port as every other spec's mail does, and collects from its POP3 port, which
+the overlay turns on with `MP_POP3_AUTH`. An inbound letter is put into the
+mailbox through mailpit's own send API rather than through anything in the
+product - the application has no test-only endpoint and gains none here - so what
+is under test is the path a real letter takes: a message sitting in a mailbox and
+an instance that collects it. Collection is driven from the board's own "collect
+now" control rather than by waiting out the five-minute schedule, which is the
+product's control and not this suite's. The spec then asserts the whole of the
+round trip through the interface: the conversation appears with the sender the
+envelope named, a board member takes it on and the screen says who has it, the
+answer is written and sent, and the answer arrives in mailpit as real mail. Three
+properties follow it. Collecting the same mailbox again brings nothing in twice,
+which is the unique identifier doing its work against a real constraint. A
+resident is offered neither the destination nor the screen. And none of it
+reaches the association's website, which is read as a visitor from the street
+would read it - through the public surface rather than the application - so the
+spec needs no place on the root-navigation allowlist in `93-public-site`. Last,
+the access report answers for correspondence with a resident's own registered
+address, which is the one place the platform goes from a person to a thread.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on

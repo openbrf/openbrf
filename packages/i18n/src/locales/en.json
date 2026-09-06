@@ -67,6 +67,11 @@
       "body": "{{sender}} wrote to the association on {{receivedAt}} through the contact form on the website. Answer to {{email}}.",
       "action": "Open the messages"
     },
+    "boardMailboxReply": {
+      "subject": "Re: {{subject}}",
+      "heading": "A reply from the board of {{association}}",
+      "footer": "This reply comes from {{association}}. Reply to this message, or write to {{address}}, and it reaches the whole board."
+    },
     "news": {
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} has published a news item.",
@@ -355,6 +360,7 @@
           "motions": "Motions",
           "eventSignups": "Event sign-ups",
           "newsComments": "News comments",
+          "boardMailbox": "Correspondence with the board's mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
@@ -414,6 +420,8 @@
           "starts": "Starts",
           "ends": "Ends",
           "erasableFrom": "Erasable from",
+          "subject": "Subject",
+          "message": "Message",
           "newsItem": "News item",
           "written": "Written",
           "comment": "Comment",
@@ -447,6 +455,10 @@
         "direction": {
           "acquired": "Acquired",
           "relinquished": "Relinquished"
+        },
+        "boardMailbox": {
+          "received": "Received by the association",
+          "answered": "Answered by the board"
         },
         "action": {
           "PROTECTED_DATA_REVEALED": "Protected data revealed",
@@ -808,6 +820,21 @@
         "heading": "Email works",
         "body": "This message was sent by {{association}} through {{host}} to prove that the email settings work. Invitations and sign-in links will reach their recipients."
       }
+    },
+    "boardMailbox": {
+      "title": "The board's shared mailbox",
+      "description": "The address the board publishes, and the mailbox this instance collects it from. Everything that arrives there becomes a conversation every board seat can see and answer.",
+      "address": "The board's address",
+      "addressHint": "The address residents write to. Answers the board sends can be replied to at it.",
+      "host": "Mail server (POP3)",
+      "port": "Port",
+      "user": "Mailbox user name",
+      "password": "Mailbox password",
+      "passwordKept": "A password is stored. Leave this empty to keep it.",
+      "passwordClear": "Remove the stored password",
+      "secure": "Encrypted connection (implicit TLS, usually port 995)",
+      "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
+      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is."
     },
     "sms": {
       "title": "Text messages",
@@ -2104,6 +2131,84 @@
     "errors": {
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
+    }
+  },
+  "boardMailbox": {
+    "navLabel": "The board's mail",
+    "title": "The board's shared mailbox",
+    "intro": "What has been written to the board's own address. Every seat sees the same inbox, one of you takes a letter on, and the answer stays here as a record of what the association was asked.",
+    "loading": "Reading the mailbox...",
+    "loadFailed": "The board's mailbox could not be read just now.",
+    "notAllowed": "The board's mailbox is read by the board.",
+    "status": {
+      "NEW": "New",
+      "TAKEN": "Taken",
+      "ANSWERED": "Answered",
+      "CLOSED": "Closed"
+    },
+    "member": {
+      "protected": "a board member",
+      "unknown": "somebody who is no longer on this instance"
+    },
+    "mailbox": {
+      "title": "The mailbox",
+      "address": "Collected from {{address}}.",
+      "noAddress": "No address has been recorded.",
+      "notConfigured": "This instance is not collecting any mailbox, so nothing arrives here. An administrator sets it up under settings.",
+      "schedule": "Collected every five minutes. Collect it now if somebody has just written and you are waiting for it.",
+      "collect": "Collect now",
+      "collecting": "Collecting...",
+      "collected_one": "One new letter was collected.",
+      "collected_other": "{{count}} new letters were collected."
+    },
+    "inbox": {
+      "title": "The inbox",
+      "description": "What is waiting first, and the longest wait first within that.",
+      "empty": "Nothing has been written to the board's address.",
+      "summary_one": "From {{sender}}. One message.",
+      "summary_other": "From {{sender}}. {{count}} messages."
+    },
+    "thread": {
+      "from": "From {{sender}} ({{email}}).",
+      "untrusted": "This arrived from outside the association. The name and the address are what the sender wrote, and nothing here has been checked against the register - so treat a request to change an account number or to hand out information the way you would treat a letter from a stranger.",
+      "nobodyHasIt": "Nobody has taken this on yet.",
+      "heldBy": "{{name}} is dealing with this.",
+      "take": "Take it on",
+      "release": "Put it back",
+      "close": "Mark as finished",
+      "reopen": "Reopen",
+      "closedNoReply": "The board has recorded itself finished with this. Reopen it to answer again.",
+      "replyLabel": "Your answer",
+      "reply": "Send the answer",
+      "replying": "Sending...",
+      "replyQueued": "The answer has been recorded on the conversation and is on its way.",
+      "replyGoesTo": "Goes to {{email}}."
+    },
+    "message": {
+      "received": "Received",
+      "sentBy": "Answered by {{name}}",
+      "fromHtml": "This message was sent as formatted mail. What follows is its text.",
+      "truncated": "The message was longer than this instance keeps and has been cut.",
+      "attachmentsDropped_one": "One attachment arrived that this instance does not store.",
+      "attachmentsDropped_other": "{{count}} attachments arrived that this instance does not store."
+    },
+    "delivery": {
+      "pending": "The answer is queued and has not gone out yet.",
+      "sent": "The answer was accepted by the mail server.",
+      "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
+      "refused": "The answer did not go out: the mail server refused it.",
+      "threadGone": "The answer did not go out: the conversation was erased first.",
+      "interrupted": "The answer was given up on before it went out.",
+      "unknown": "The answer did not go out."
+    },
+    "errors": {
+      "threadNotFound": "This conversation no longer exists.",
+      "threadClosed": "The conversation is closed. Reopen it to answer.",
+      "notConfigured": "No mailbox is set up for the board's address. An administrator sets it up under settings.",
+      "unreachable": "The mailbox did not answer. Check the server name and the port under settings.",
+      "signInRefused": "The mailbox refused the sign-in. Check the user name and the password under settings.",
+      "emptyReply": "Write something before sending the answer.",
+      "unknown": "That did not work. Try again."
     }
   },
   "documents": {

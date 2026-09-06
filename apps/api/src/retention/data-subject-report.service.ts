@@ -12,9 +12,11 @@ import { computeEventSignupPurgeDate } from "../events/event-signup-retention";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { resolveRegisterEvents } from "../registers/membership-periods";
+import { computeBoardMailboxPurgeDate } from "../board-mailbox/board-mailbox-retention";
 import type {
   DataSubjectReport,
   ReportAuditEntry,
+  ReportBoardMailboxThread,
   ReportMeetingAttendance,
   ReportNewsComment,
   ReportPostalAddress,
@@ -60,6 +62,7 @@ const SECTIONS = [
   "motions",
   "eventSignups",
   "newsComments",
+  "boardMailboxThreads",
   "meetingAttendances",
   "proxyAuthorisations",
   "auditEntries",
@@ -530,6 +533,65 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Correspondence in the board's shared mailbox that this person's own
+     * address is with.
+     *
+     * Reached through the address rather than through a person reference, and
+     * that is deliberate rather than a workaround for a missing column: a thread
+     * carries the address an envelope asserted and the module never resolves it
+     * to anybody, because a From header is a claim rather than an identity. This
+     * runs the lookup one way only - from the person's own registered address
+     * outward - which is the association answering for data it holds rather than
+     * attributing a letter to somebody. `ReportBoardMailboxThread` says the same
+     * thing in the words the document prints.
+     *
+     * The blind index has to be computed rather than compared: CipherSweet
+     * derives a distinct key per table and field, so the address index stored on
+     * the person and the one stored on a thread are not comparable, and the match
+     * is made by indexing this person's plaintext address under the mailbox
+     * table's own label. A person the purge has already cleared has no address
+     * left to match, which is the erasure working rather than a gap.
+     */
+    const personEmail =
+      person.emailCipher === null
+        ? null
+        : await this.encryption.decrypt("person.email", person.emailCipher);
+
+    const boardMailboxIndex =
+      personEmail === null
+        ? null
+        : await this.encryption.computeIndex(
+            "boardMailboxThread.correspondentEmail",
+            personEmail,
+          );
+
+    const boardMailboxThreads =
+      boardMailboxIndex === null
+        ? []
+        : await tx.boardMailboxThread.findMany({
+            where: { correspondentEmailIndex: boardMailboxIndex },
+            orderBy: [{ lastMessageAt: "desc" }],
+            select: {
+              id: true,
+              subject: true,
+              status: true,
+              createdAt: true,
+              lastMessageAt: true,
+              messages: {
+                orderBy: { occurredAt: "asc" },
+                select: {
+                  direction: true,
+                  body: true,
+                  bodyFromHtml: true,
+                  bodyTruncated: true,
+                  occurredAt: true,
+                  _count: { select: { attachments: true } },
+                },
+              },
+            },
+          });
+
+    /*
      * Every line on which this person was recorded as present at a general
      * meeting, the ones the board struck off again included. `personId` is a
      * plain column and not a relation, for the reason `bookedByPersonId` is, so
@@ -624,10 +686,7 @@ export class DataSubjectReportService {
           city: person.postalCity,
         },
         alternativePostalAddress: person.alternativePostalAddress,
-        email:
-          person.emailCipher === null
-            ? null
-            : await this.encryption.decrypt("person.email", person.emailCipher),
+        email: personEmail,
         phone:
           person.phoneCipher === null
             ? null
@@ -825,6 +884,43 @@ export class DataSubjectReportService {
           computeEventSignupPurgeDate(signup.occurrence.endsAt),
         ),
       })),
+      boardMailboxThreads: boardMailboxThreads.map(
+        (thread): ReportBoardMailboxThread => ({
+          threadId: thread.id,
+          // The address the report was matched on, which is this person's own
+          // and is already printed at the top of the document.
+          correspondentEmail: personEmail ?? "",
+          subject: thread.subject,
+          status: thread.status,
+          // In full, both directions. What was written to the association and
+          // what it answered are both personal data about the person this
+          // document is for, and a report that gave the question without the
+          // answer would be the half that is easier to produce rather than the
+          // half that was asked for.
+          messages: thread.messages.map((message) => ({
+            direction: message.direction,
+            body: message.body,
+            bodyFromHtml: message.bodyFromHtml,
+            bodyTruncated: message.bodyTruncated,
+            attachments: message._count.attachments,
+            occurredAt: message.occurredAt.toISOString(),
+          })),
+          startedAt: thread.createdAt.toISOString(),
+          lastMessageAt: thread.lastMessageAt.toISOString(),
+          /*
+           * Derived here rather than stored, exactly as the booking's and the
+           * comment's are: a shorter retention window moves every pending date
+           * by that act alone, and this document has to state the date that will
+           * actually apply.
+           *
+           * The earliest date the purge can reach the thread rather than the
+           * date it goes on, because a legal hold suspends the purge.
+           */
+          erasableFrom: computeBoardMailboxPurgeDate(
+            thread.lastMessageAt,
+          ).toISOString(),
+        }),
+      ),
       newsComments: newsComments.map((comment): ReportNewsComment => ({
         commentId: comment.id,
         newsTitle: comment.news.title,

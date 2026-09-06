@@ -83,6 +83,7 @@ const EMPTY_REPORT: Report = {
   motions: [],
   eventSignups: [],
   newsComments: [],
+  boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
   auditEntries: [],

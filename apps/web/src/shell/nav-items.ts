@@ -60,6 +60,13 @@ const ENTRIES: readonly NavEntry[] = [
   },
   { to: "/settings", labelKey: "nav.settings" },
   {
+    to: "/board-mailbox",
+    // Under the module's own namespace rather than nav, because the label is
+    // that module's word for itself and moves with it.
+    labelKey: "boardMailbox.navLabel",
+    capability: "boardMailbox:handle",
+  },
+  {
     to: "/issues",
     // Under the issues namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
