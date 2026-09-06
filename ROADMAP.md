@@ -811,11 +811,17 @@ no, and the pilot is the thing that will change it.
       attachments go through the ordinary upload path and are identified from
       their own bytes rather than from the type the sender declared; and the
       sender is the address the envelope asserted and is never resolved to a
-      person in the register, so a letter signed with a member's name is a
-      letter signed with a member's name and confers nothing. A thread is
-      service tier: it appears in the data subject access report for the address
-      it is with, it is erased two years after the last thing said in it, and a
-      legal hold against the person whose address that is suspends the erasure.
+      person in the register on any screen, so a letter signed with a member's
+      name is a letter signed with a member's name and confers nothing. A thread
+      is service tier: it is erased two years after the last thing said in it, a
+      legal hold against the person whose address it is with suspends the
+      erasure, and it appears in one data subject access report - the one
+      belonging to the person the register held that address for, alone, at the
+      moment the letter arrived. An address two residents of the same apartment
+      both gave the association identifies neither of them, and a thread with no
+      identified correspondent is in no report, because the document that
+      demonstrates the association handles personal data properly is the last
+      place to guess.
       Two boundaries are worth stating rather than discovering. The mailbox is
       authenticated with a user name and a password, which is what the hosts a
       Swedish housing cooperative buys a domain from offer, so a provider that

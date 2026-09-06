@@ -54,11 +54,19 @@ import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
  *
  * It is not attributed to anybody. The From address is an assertion by whoever
  * sent it and this platform cannot check it, so a thread records an address and
- * a display name and never a person in the register - see the model comment on
- * BoardMailboxThread. It is not markup either: the body is stored as text and an
- * HTML part is converted as it is read, so nothing markup-shaped is ever
- * persisted. And an attachment's declared type is not believed: every file goes
- * through the ordinary upload path, which identifies it from its own bytes.
+ * a display name, and nothing in the product turns one into a person on a
+ * screen - see the model comment on BoardMailboxThread.
+ *
+ * A thread opened from an address exactly one person in the register holds does
+ * record that person, and that is a different claim: it decides whose data
+ * subject access report the letter belongs in, is read by that report and by
+ * nothing else, and says whose data the association is answering for rather
+ * than who wrote.
+ *
+ * It is not markup either: the body is stored as text and an HTML part is
+ * converted as it is read, so nothing markup-shaped is ever persisted. And an
+ * attachment's declared type is not believed: every file goes through the
+ * ordinary upload path, which identifies it from its own bytes.
  */
 
 /** Queue the collection runs on. */
@@ -527,6 +535,17 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       "boardMailboxThread.correspondentEmail",
       parsed.fromAddress,
     );
+    /*
+     * The same address indexed a second time, under the register's own field
+     * label, because that is the only form in which the register can be asked
+     * about it: CipherSweet derives a distinct key per table and field, so the
+     * index stored on a thread and the index stored on a person are not
+     * comparable values.
+     */
+    const personEmailIndex = await this.encryption.computeIndex(
+      "person.email",
+      parsed.fromAddress,
+    );
     const name =
       parsed.fromName === null
         ? null
@@ -556,6 +575,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         const threadId = await this.threadFor(tx, {
           inReplyTo: parsed.inReplyTo,
           emailIndex: address.index,
+          personEmailIndex,
           emailCipher: address.cipher,
           nameCipher: name?.cipher ?? null,
           subject: parsed.subject,
@@ -622,6 +642,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     input: {
       inReplyTo: string | null;
       emailIndex: string | null;
+      personEmailIndex: string | null;
       emailCipher: string;
       nameCipher: string | null;
       subject: string;
@@ -678,11 +699,56 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         correspondentEmailCipher: input.emailCipher,
         correspondentEmailIndex: input.emailIndex,
         correspondentNameCipher: input.nameCipher,
+        /*
+         * Asked once, here, and never again: the answer is who held the address
+         * when the letter arrived, and a thread that later gained a link, or
+         * lost one, would be answering about a register that has moved on. A
+         * reply joining the thread above does not revisit it for the same
+         * reason.
+         */
+        correspondentPersonId: await this.identifiedCorrespondent(
+          tx,
+          input.personEmailIndex,
+        ),
         lastMessageAt: input.occurredAt,
       },
       select: { id: true },
     });
     return created.id;
+  }
+
+  /**
+   * The person in the register this address belonged to, where exactly one did.
+   *
+   * Not attribution and not a check on the sender: anybody can put anybody's
+   * address in a From header, and this answers a narrower question the
+   * association is obliged to answer anyway - whose data subject access report
+   * this letter belongs in. That report is a disclosure, so the only safe
+   * answer is an unambiguous one.
+   *
+   * Two rows are read rather than one, because everything turns on whether a
+   * second exists. `Person.emailIndex` is indexed and not unique, and a
+   * household that gave the association one address is the ordinary way it comes
+   * to be held twice; reporting such a thread to either resident would hand each
+   * of them the other's correspondence with the board. Two holders, none, or an
+   * address the register never held all answer the same way: nobody, and a
+   * thread nobody was established to be is in no automatic disclosure.
+   */
+  private async identifiedCorrespondent(
+    tx: Prisma.TransactionClient,
+    personEmailIndex: string | null,
+  ): Promise<string | null> {
+    if (personEmailIndex === null) {
+      return null;
+    }
+
+    const persons = await tx.person.findMany({
+      where: { emailIndex: personEmailIndex },
+      select: { id: true },
+      take: 2,
+    });
+
+    return persons.length === 1 ? (persons[0]?.id ?? null) : null;
   }
 
   /**

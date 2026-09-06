@@ -31,9 +31,10 @@ body is stored as text and an HTML part is converted as it is read, so no markup
 is ever kept; attachments go through the ordinary upload path and are identified
 from their own bytes rather than from the declared type; and the sender is the
 address the envelope asserted, never resolved to a person in the register. A
-thread is service tier: it appears in the data subject access report for the
-address it is with, it is erased two years after the last message on it, and a
-legal hold against the person whose address that is suspends the erasure.
+thread is service tier: it is erased two years after the last message on it, a
+legal hold against the person whose address it is with suspends the erasure, and
+it appears in the data subject access report of the person the address was
+established to belong to when the letter arrived.
 
 The inbox and a thread are both read a page at a time, the inbox from the
 end that is still owed something and a thread from its newest message, with the

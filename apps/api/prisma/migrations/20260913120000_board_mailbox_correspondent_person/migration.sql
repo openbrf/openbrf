@@ -1,0 +1,38 @@
+-- The person a thread in the board's mailbox was established to be with.
+--
+-- The access report used to find a person's correspondence by indexing their
+-- current address and matching threads on it. "Person.emailIndex" carries no
+-- unique constraint and a thread records no period over which an address
+-- belonged to anybody, so that match answered "whoever holds this address now"
+-- rather than "whoever this letter came from". Two ordinary situations gave the
+-- wrong answer: a household that gave the association one address, where each
+-- resident's report carried the other's letters to the board; and an address
+-- recorded later for somebody else, where the new holder's report carried the
+-- previous holder's. Both put correspondence into the document the association
+-- produces to show it handles personal data properly.
+--
+-- So identification moves off the report and onto the thread. The collector
+-- writes this column as a letter arrives, and only where exactly one person in
+-- the register carried the address at that moment; the report asks for threads
+-- carrying the link and nothing else. Null is the ordinary answer - an address
+-- the register does not hold, one two people share - and a null link is a thread
+-- in no automatic disclosure.
+--
+-- Null for every thread collected before this migration, and it cannot be
+-- otherwise: CipherSweet derives a distinct key per table and field, so the
+-- index on a person and the index on a thread are not comparable in SQL, and
+-- backfilling would mean decrypting every address in the table to ask the very
+-- question that produced the wrong answers above. Those threads stay out of the
+-- report until the correspondent writes again.
+--
+-- The legal hold is deliberately left on the address index. A hold that keeps a
+-- thread which turns out to be somebody else's holds data past its window; one
+-- that releases a thread it should have kept destroys evidence the association
+-- undertook to preserve.
+ALTER TABLE "board_mailbox_thread" ADD COLUMN "correspondentPersonId" TEXT;
+
+-- The access report's lookup. No foreign key, for the reason "takenByPersonId"
+-- carries none: service-tier data has to stay purgeable without a referential
+-- action either rewriting this row or vetoing the erasure of the person it
+-- names.
+CREATE INDEX "board_mailbox_thread_correspondentPersonId_idx" ON "board_mailbox_thread"("correspondentPersonId");
