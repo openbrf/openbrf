@@ -98,7 +98,16 @@ export interface ProcessorDescriptor {
   state: ProcessorAgreementState;
 }
 
-function stateOf(row: OpenAgreementRow | undefined): ProcessorAgreementState {
+/**
+ * What a recipient's row says about it, as the screens read it.
+ *
+ * Exported because the plugin screen asks the same question of the same rows:
+ * a second spelling of this mapping would let the two screens disagree about
+ * one recipient, and a new agreement status would have to be added twice.
+ */
+export function stateOf(
+  row: OpenAgreementRow | undefined,
+): ProcessorAgreementState {
   if (row === undefined) {
     return "notRecorded";
   }

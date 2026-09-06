@@ -11,6 +11,7 @@ import type {
 } from "../generated/prisma/enums";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import { lockLegalHold } from "../retention/legal-hold-lock";
+import { lockDataSubjectRequests } from "./data-subject-request-lock";
 import { DataSubjectRequestError } from "./data-subject-request.error";
 import {
   toDataSubjectRequestView,
@@ -170,30 +171,36 @@ export class DataSubjectRequestService {
       }
     }
 
-    /*
-     * One live request of a kind at a time. Two open erasure requests would
-     * make "granted" ambiguous - the purge reads the oldest, and a board
-     * closing one would look like closing the person's request - and the
-     * question the board is answering is whether this person's erasure stands,
-     * not how many times they asked.
-     */
-    const open = await this.prisma.dataSubjectRequest.findFirst({
-      where: {
-        personId: input.personId,
-        kind: input.kind,
-        closedAt: null,
-        OR: [{ decision: null }, { decision: "GRANTED" }],
-      },
-      select: { id: true },
-    });
-    if (open !== null) {
-      throw new DataSubjectRequestError(
-        "This person already has a request of that kind open.",
-        "already-open",
-      );
-    }
-
     return this.prisma.$transaction(async (tx) => {
+      await lockDataSubjectRequests(tx, input.personId);
+
+      /*
+       * One live request of a kind at a time. Two open erasure requests would
+       * make "granted" ambiguous - the purge reads the oldest, and a board
+       * closing one would look like closing the person's request - and the
+       * question the board is answering is whether this person's erasure
+       * stands, not how many times they asked.
+       *
+       * Read inside the transaction and under the lock, because the check that
+       * counts is the one taken with the rows held: two recordings arriving
+       * together would otherwise both read no open request and both create one.
+       */
+      const open = await tx.dataSubjectRequest.findFirst({
+        where: {
+          personId: input.personId,
+          kind: input.kind,
+          closedAt: null,
+          OR: [{ decision: null }, { decision: "GRANTED" }],
+        },
+        select: { id: true },
+      });
+      if (open !== null) {
+        throw new DataSubjectRequestError(
+          "This person already has a request of that kind open.",
+          "already-open",
+        );
+      }
+
       const row = await tx.dataSubjectRequest.create({
         data: {
           personId: input.personId,
@@ -236,10 +243,10 @@ export class DataSubjectRequestService {
   /**
    * Grants or refuses a request.
    *
-   * Both locks, in the order every writer in the product takes them - hold,
-   * then residency - so that what this reads about the person is still true
-   * when it commits. A hold placed while the board was deciding has to win, and
-   * so does a move-in.
+   * Three locks, in the order every writer in the product takes them - the
+   * person's own requests, then hold, then residency - so that what this reads
+   * about the person is still true when it commits. A hold placed while the
+   * board was deciding has to win, and so does a move-in.
    */
   async decide(
     requestId: string,
@@ -297,6 +304,7 @@ export class DataSubjectRequestService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await lockDataSubjectRequests(tx, existing.personId);
       await lockLegalHold(tx, existing.personId);
       await lockResidencyTransitions(tx, existing.personId);
 
@@ -381,16 +389,28 @@ export class DataSubjectRequestService {
     input: { reason?: string | null; actorPersonId: string },
   ): Promise<DataSubjectRequestView> {
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.dataSubjectRequest.findUnique({
+      /*
+       * Whose requests these are, so the lock has a key. Read first and then
+       * read again under the lock: the count `clearFlagIfLast` takes below
+       * decides whether a person's art. 18(2) restriction stays in force, and
+       * a grant committing beside it would otherwise have its flag cleared.
+       */
+      const owner = await tx.dataSubjectRequest.findUnique({
         where: { id: requestId },
-        select: REQUEST_SELECT,
+        select: { personId: true },
       });
-      if (row === null) {
+      if (owner === null) {
         throw new DataSubjectRequestError(
           "There is no such request.",
           "request-not-found",
         );
       }
+      await lockDataSubjectRequests(tx, owner.personId);
+
+      const row = await tx.dataSubjectRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        select: REQUEST_SELECT,
+      });
       if (row.closedAt !== null) {
         throw new DataSubjectRequestError(
           "This request is already closed.",

@@ -344,7 +344,7 @@ export class PersonService {
 
     const pendingInvitation = person.invitations[0];
     const requests = person.dataSubjectRequests.map((row) =>
-      toDataSubjectRequestView(row, new Date()),
+      toDataSubjectRequestView(row, now),
     );
 
     return {

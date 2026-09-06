@@ -1,3 +1,5 @@
+import type { PrismaService } from "../database/prisma.service";
+
 /**
  * What the delivery ledger records when a copy did not go out.
  *
@@ -45,3 +47,31 @@ export const DELIVERY_FAILURES = {
    */
   recipientObjected: "recipient-objected",
 } as const;
+
+/**
+ * Whether the person has told the association to stop, as of this instant.
+ *
+ * Both channels ask this and both ask it twice - before the delivery row is
+ * claimed and again once the claim is held - so it is one function rather than
+ * four copies of the same two columns. A control recorded between the two asks
+ * is what the second one exists to catch: the claim marks the row SENT, and
+ * without the second ask the message would go out after the member had asked
+ * the association not to send it.
+ *
+ * Nullish rather than strict: a row read without these columns selected means
+ * "nothing recorded", not "objecting to everything".
+ */
+export async function objectionStands(
+  prisma: PrismaService,
+  personId: string,
+): Promise<boolean> {
+  const person = await prisma.person.findUnique({
+    where: { id: personId },
+    select: { communicationObjectionAt: true, processingRestrictedAt: true },
+  });
+  return (
+    person != null &&
+    (person.communicationObjectionAt != null ||
+      person.processingRestrictedAt != null)
+  );
+}

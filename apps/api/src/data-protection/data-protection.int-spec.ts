@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
@@ -203,12 +204,33 @@ beforeAll(async () => {
     },
   });
 
+  /*
+   * With an address recorded, because the breach reminder is addressed to the
+   * board members the register can reach: a person row with no cipher is not
+   * somebody this channel reaches, and the reminder case below asserts that one
+   * actually goes out.
+   */
+  const encryption = app.get(FieldEncryptionService);
+  for (const actor of [board, resident]) {
+    const email = await encryption.encrypt("person.email", actor.email);
+    await prisma.person.create({
+      data: {
+        id: actor.personId,
+        firstName: "Person",
+        lastName: `Dataskydd${suffix}`,
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+      },
+    });
+  }
   await prisma.person.createMany({
-    data: personIds.map((id) => ({
-      id,
-      firstName: "Person",
-      lastName: `Dataskydd${suffix}`,
-    })),
+    data: personIds
+      .filter((id) => id !== board.personId && id !== resident.personId)
+      .map((id) => ({
+        id,
+        firstName: "Person",
+        lastName: `Dataskydd${suffix}`,
+      })),
   });
 
   await prisma.boardPosition.create({
@@ -277,6 +299,22 @@ afterAll(async () => {
         () =>
           prisma.personalDataBreach.deleteMany({
             where: { recordedByPersonId: { in: personIds } },
+          }),
+        /*
+         * Service tier, and none of the six append-only statutory tables, so
+         * the suite deletes its own rows. `processorKey` is derived from the
+         * instance's configuration and carries no run suffix, so a row left
+         * open here would make the second run against the same database read
+         * "hosting" as already recorded.
+         */
+        () =>
+          prisma.processorAgreement.deleteMany({
+            where: {
+              OR: [
+                { recordedByPersonId: { in: personIds } },
+                { endedByPersonId: { in: personIds } },
+              ],
+            },
           }),
         () =>
           prisma.boardPosition.deleteMany({
@@ -517,8 +555,15 @@ describe("breaches", () => {
         discoveredAt: view.discoveredAt,
       });
 
-      // The one board member this suite created, with an address.
-      expect(sent).toBeGreaterThanOrEqual(0);
+      /*
+       * At least the one board member this suite created, who has an address.
+       * The two cases beside this one assert zero, so a reminder that reached
+       * nobody would otherwise pass all three and the board would lose its
+       * 72-hour warning with every test still green. Not an exact count: the
+       * predicate reads every active board position in the database, and this
+       * suite does not own them all.
+       */
+      expect(sent).toBeGreaterThanOrEqual(1);
     });
 
     it("sends nothing once the breach has been decided", async () => {

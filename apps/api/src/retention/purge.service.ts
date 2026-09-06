@@ -741,23 +741,12 @@ function isEligible(
     return false;
   }
   /*
-   * Somebody who never lived here has no move-out to anchor a purge date on, so
-   * the scheduled job leaves them alone. A granted request is a different
-   * authority: it names this person, and their contact details and account are
-   * service data whether or not they ever held a residency.
+   * Asked before the residencies, because none of these depends on one. A
+   * granted request moves the cutoff and lifts the requirement of a past
+   * residency; it lifts nothing else, so a hold placed after the grant still
+   * refuses here - and it has to refuse for somebody who never held a
+   * residency too, whose data a hold is just as capable of preserving.
    */
-  if (person.residencies.length === 0) {
-    return onRequest;
-  }
-  if (
-    person.residencies.some(
-      (residency) =>
-        residency.movedOutOn === null ||
-        residency.movedOutOn.getTime() > cutoff.getTime(),
-    )
-  ) {
-    return false;
-  }
   if (
     person.boardPositions.some(
       (position) =>
@@ -766,5 +755,21 @@ function isEligible(
   ) {
     return false;
   }
-  return person.systemRoles.length === 0 && person.legalHolds.length === 0;
+  if (person.systemRoles.length > 0 || person.legalHolds.length > 0) {
+    return false;
+  }
+  /*
+   * Somebody who never lived here has no move-out to anchor a purge date on, so
+   * the scheduled job leaves them alone. A granted request is a different
+   * authority: it names this person, and their contact details and account are
+   * service data whether or not they ever held a residency.
+   */
+  if (person.residencies.length === 0) {
+    return onRequest;
+  }
+  return !person.residencies.some(
+    (residency) =>
+      residency.movedOutOn === null ||
+      residency.movedOutOn.getTime() > cutoff.getTime(),
+  );
 }

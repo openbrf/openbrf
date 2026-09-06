@@ -327,12 +327,18 @@ export class EventSignupPurgeService implements OnModuleInit {
         },
         select: { id: true },
       });
-      const effectiveCutoff = request === null ? cutoff : now;
-
+      /*
+       * A granted erasure drops the bound rather than moving it to now, for the
+       * reason `booking-purge.service.ts` gives: a sign-up to a future date is
+       * the ordinary content of this table, and the scan already matched every
+       * sign-up of theirs however recent.
+       */
       const { count } = await tx.eventSignup.deleteMany({
         where: {
           personId,
-          occurrence: { endsAt: { lte: effectiveCutoff } },
+          ...(request === null
+            ? { occurrence: { endsAt: { lte: cutoff } } }
+            : {}),
         },
       });
       if (count === 0) {

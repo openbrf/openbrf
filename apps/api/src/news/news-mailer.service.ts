@@ -14,7 +14,7 @@ import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { newsMail } from "../mail/templates";
 import { readPageContent, textBlocksOnly } from "../site/page-content";
 import { teaserOf } from "../site/site-news.service";
-import { DELIVERY_FAILURES } from "./news-delivery";
+import { DELIVERY_FAILURES, objectionStands } from "./news-delivery";
 
 /**
  * Mailing a published news item to the members, as a background job.
@@ -254,20 +254,7 @@ export class NewsMailerService implements OnModuleInit {
      * saying not to try. So the objection is answered before the row is
      * claimed, and the row is failed with its own code from PENDING.
      */
-    const objecting = await this.prisma.person.findUnique({
-      where: { id: delivery.personId },
-      select: {
-        communicationObjectionAt: true,
-        processingRestrictedAt: true,
-      },
-    });
-    // Nullish rather than strict: a row read without these columns selected
-    // means "nothing recorded", not "objecting to everything".
-    if (
-      objecting != null &&
-      (objecting.communicationObjectionAt != null ||
-        objecting.processingRestrictedAt != null)
-    ) {
+    if (await objectionStands(this.prisma, delivery.personId)) {
       await this.prisma.newsDelivery.updateMany({
         where: { id: delivery.id, channel: "EMAIL", status: "PENDING" },
         data: {
@@ -284,6 +271,24 @@ export class NewsMailerService implements OnModuleInit {
     });
     if (claimed.count === 0) {
       return "skipped";
+    }
+
+    /*
+     * Asked again, now that this worker holds the row. An objection recorded
+     * between the read above and the claim would otherwise be overtaken by it,
+     * and the message would go out after the member had asked the association
+     * to stop - so the row is failed with the same code and nothing is sent.
+     */
+    if (await objectionStands(this.prisma, delivery.personId)) {
+      await this.prisma.newsDelivery.updateMany({
+        where: { id: delivery.id, channel: "EMAIL", status: "SENT" },
+        data: {
+          status: "FAILED",
+          sentAt: null,
+          failureReason: DELIVERY_FAILURES.recipientObjected,
+        },
+      });
+      return "failed";
     }
 
     const person = await this.prisma.person.findUnique({

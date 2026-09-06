@@ -29,6 +29,7 @@ export class BreachError extends DomainError {
       | "delay-reasons-required"
       | "already-decided"
       | "not-decided"
+      | "already-closed"
       | "already-subject",
   ) {
     super(message);
@@ -37,6 +38,7 @@ export class BreachError extends DomainError {
         ? HttpStatus.NOT_FOUND
         : reason === "already-decided" ||
             reason === "not-decided" ||
+            reason === "already-closed" ||
             reason === "already-subject"
           ? HttpStatus.CONFLICT
           : HttpStatus.BAD_REQUEST;

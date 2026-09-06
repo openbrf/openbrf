@@ -198,7 +198,6 @@ export class AddressBookService {
                 firstName: true,
                 lastName: true,
                 protectedPersonalData: true,
-                processingRestrictedAt: true,
               },
             },
           },
@@ -432,7 +431,13 @@ export class AddressBookService {
       firstName: string;
       lastName: string;
       protectedPersonalData: boolean;
-      processingRestrictedAt?: Date | null;
+      /*
+       * Required, not optional. The second line of defence below reads the
+       * boolean derived from it, so a projection that stopped selecting the
+       * column has to fail here rather than derive `false` and let a restricted
+       * person into the neighbours' directory.
+       */
+      processingRestrictedAt: Date | null;
       emailCipher?: string | null;
       phoneCipher?: string | null;
       boardPositions: {

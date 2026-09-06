@@ -455,6 +455,7 @@
           "decisionGround": "The board's reasons",
           "decidedAt": "Decided",
           "executedAt": "Carried out",
+          "closedAt": "Closed",
           "closeReason": "Closed because",
           "breachDiscovered": "Discovered",
           "breachData": "What the breach touched",
@@ -525,6 +526,7 @@
           "MOTION_SUBMITTED": "Motion submitted",
           "MOTION_ACKNOWLEDGED": "Motion recorded as received",
           "MOTION_WITHDRAWN": "Motion withdrawn",
+          "MOTION_MEETING_SET": "Motion put to a general meeting",
           "EVENT_SIGNUP_MADE": "Event sign-up made",
           "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn",
           "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded",
@@ -533,6 +535,7 @@
           "MEETING_ARRANGED": "General meeting arranged",
           "MEETING_HELD": "General meeting recorded as held",
           "MEETING_AGENDA_SET": "Agenda set",
+          "MEETING_NOTICE_ISSUED": "Notice of the general meeting issued",
           "MEETING_ATTENDANCE_RECORDED": "Recorded as present at the general meeting",
           "MEETING_ATTENDANCE_WITHDRAWN": "Struck off the list of those present",
           "MEETING_PROXY_REGISTERED": "Proxy authorisation registered",
@@ -3395,7 +3398,8 @@
     },
     "processors": {
       "seed": {
-        "localDisk": "The association's own storage on the instance's disk. Nobody outside receives the files, so there is no processor here."
+        "localDisk": "The association's own storage on the instance's disk. Nobody outside receives the files, so there is no processor here.",
+        "pluginLocal": "The plugin runs inside the instance and passes no personal data on."
       },
       "title": "Recipients of personal data",
       "description": "Who receives data, how each is classified and what agreement covers them.",

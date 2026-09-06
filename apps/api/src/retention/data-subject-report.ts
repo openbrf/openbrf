@@ -80,10 +80,23 @@ export interface ReportDataSubjectRequest {
   /** The art. 12(3) month, derived from the request date. */
   dueOn: string | null;
   ground: string;
-  /** The art. 17(1) ground an erasure rests on. */
-  erasureGround: string | null;
+  /**
+   * The art. 17(1) ground an erasure rests on.
+   *
+   * The Prisma enum spelled out, like `kind` and `decision` beside it, and not
+   * `string`. The browser declares the same closed set, and a producer typed
+   * wider lets a new enum member reach a consumer that has no case for it while
+   * both builds stay green.
+   */
+  erasureGround:
+    | "NO_LONGER_NECESSARY"
+    | "CONSENT_WITHDRAWN"
+    | "OBJECTION_UPHELD"
+    | "UNLAWFUL_PROCESSING"
+    | "LEGAL_OBLIGATION_TO_ERASE"
+    | null;
   /** The art. 17(3) assessment recorded with the decision. */
-  erasureException: string | null;
+  erasureException: "NONE" | "LEGAL_OBLIGATION_TO_KEEP" | "LEGAL_CLAIMS" | null;
   decision: "GRANTED" | "REFUSED" | null;
   decisionGround: string | null;
   decidedAt: string | null;

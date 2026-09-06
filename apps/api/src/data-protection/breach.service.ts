@@ -316,6 +316,7 @@ export class BreachService {
         id: true,
         discoveredAt: true,
         decidedAt: true,
+        imyNotifiedAt: true,
         delayReasons: true,
       },
     });
@@ -355,10 +356,22 @@ export class BreachService {
     );
 
     const discoveredAt = input.discoveredAt ?? existing.discoveredAt;
+    /*
+     * The values the row will hold, not the ones this call names. An omitted
+     * field leaves the stored one standing, so reading `null` for it would let
+     * a later act clear the reasons off a notification the record already says
+     * was made after the bound.
+     */
     assertDelayReasons({
       discoveredAt,
-      imyNotifiedAt: input.imyNotifiedAt ?? null,
-      delayReasons: input.delayReasons ?? existing.delayReasons,
+      imyNotifiedAt:
+        input.imyNotifiedAt === undefined
+          ? existing.imyNotifiedAt
+          : input.imyNotifiedAt,
+      delayReasons:
+        input.delayReasons === undefined
+          ? existing.delayReasons
+          : input.delayReasons,
     });
 
     return this.prisma.$transaction(async (tx) => {
@@ -434,7 +447,13 @@ export class BreachService {
   ): Promise<BreachView> {
     const existing = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
-      select: { id: true, discoveredAt: true, decidedAt: true },
+      select: {
+        id: true,
+        discoveredAt: true,
+        decidedAt: true,
+        imyNotifiedAt: true,
+        delayReasons: true,
+      },
     });
     if (existing === null) {
       throw new BreachError("There is no such breach.", "breach-not-found");
@@ -476,10 +495,18 @@ export class BreachService {
       );
     }
 
+    // The values the row will hold, for the reason `update` gives: a decision
+    // that omits either field decides about what is already recorded.
     assertDelayReasons({
       discoveredAt: existing.discoveredAt,
-      imyNotifiedAt: input.imyNotifiedAt ?? null,
-      delayReasons: input.delayReasons ?? null,
+      imyNotifiedAt:
+        input.imyNotifiedAt === undefined
+          ? existing.imyNotifiedAt
+          : input.imyNotifiedAt,
+      delayReasons:
+        input.delayReasons === undefined
+          ? existing.delayReasons
+          : input.delayReasons,
     });
 
     const now = new Date();
@@ -597,10 +624,23 @@ export class BreachService {
     await this.requireBreach(breachId);
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.personalDataBreachSubject.updateMany({
+      const { count } = await tx.personalDataBreachSubject.updateMany({
         where: { breachId, personId },
         data: { informedAt: new Date() },
       });
+      if (count === 0) {
+        /*
+         * Nobody by that id is recorded as a subject of this breach. The audit
+         * entry below is append-only and outside every purge, so writing it
+         * here would assert an art. 34 communication about data this breach
+         * never reached, on a row the association could not afterwards
+         * withdraw.
+         */
+        throw new BreachError(
+          "That person is not a subject of this breach.",
+          "person-not-found",
+        );
+      }
 
       // The subject is the person, so their own access report shows that the
       // association told them about a breach that reached their data.
@@ -634,6 +674,17 @@ export class BreachService {
         "not-decided",
       );
     }
+    if (existing.closedAt !== null) {
+      /*
+       * Closing twice would rewrite who finished with the breach and when. The
+       * first closure is the fact the record holds, and a second board member
+       * clicking the same button a moment later is what this refuses.
+       */
+      throw new BreachError(
+        "This breach has already been closed.",
+        "already-closed",
+      );
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const row = await tx.personalDataBreach.update({
@@ -656,12 +707,20 @@ export class BreachService {
     });
   }
 
-  private async requireBreach(
-    breachId: string,
-  ): Promise<{ id: string; discoveredAt: Date; decidedAt: Date | null }> {
+  private async requireBreach(breachId: string): Promise<{
+    id: string;
+    discoveredAt: Date;
+    decidedAt: Date | null;
+    closedAt: Date | null;
+  }> {
     const row = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
-      select: { id: true, discoveredAt: true, decidedAt: true },
+      select: {
+        id: true,
+        discoveredAt: true,
+        decidedAt: true,
+        closedAt: true,
+      },
     });
     if (row === null) {
       throw new BreachError("There is no such breach.", "breach-not-found");

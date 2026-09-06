@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PluginAdminService } from "./plugin-admin.service";
-import { PluginConsentMismatchError } from "./plugin.errors";
+import {
+  PluginConsentMismatchError,
+  PluginRecipientRequiredError,
+} from "./plugin.errors";
 
 /**
  * The consent gate in front of an install.
@@ -58,6 +61,12 @@ function build() {
     { record: recordProcessor } as never,
     { seedPlugin: vi.fn(async () => undefined) } as never,
     { read: async () => FACTS } as never,
+    // The association's language for the note the instance writes on a plugin
+    // that hands nothing to anybody.
+    {
+      association: { findUnique: async () => ({ defaultLocale: "sv" }) },
+    } as never,
+    { translatorFor: () => (key: string) => key } as never,
   );
   return { service, consent, recordProcessor };
 }
@@ -244,8 +253,17 @@ describe("what the consent step records about the recipient", () => {
   });
 
   it("refuses to record a recipient nobody named", async () => {
-    // art. 30(1)(d) asks who receives the data. "Somewhere outside" is not an
-    // answer a record can carry.
+    /*
+     * art. 30(1)(d) asks who receives the data. "Somewhere outside" is not an
+     * answer a record can carry.
+     *
+     * The error class and not just "it threw": five different failures reach
+     * this path, and a bare assertion would stay green if the recipient stopped
+     * being required and something else refused the install instead. Nothing is
+     * classified either, and nothing is consented: the answer is refused before
+     * the first write, so a rejected install leaves no consent row behind
+     * claiming an install that never happened.
+     */
     await expect(
       service.install(
         {
@@ -256,7 +274,10 @@ describe("what the consent step records about the recipient", () => {
         },
         null,
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow(PluginRecipientRequiredError);
+
+    expect(recordProcessor).not.toHaveBeenCalled();
+    expect(consent).not.toHaveBeenCalled();
   });
 
   it("records a processor with the recipient the board named", async () => {

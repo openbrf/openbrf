@@ -393,6 +393,27 @@ export class SettingsService {
     };
 
     const association = await this.prisma.$transaction(async (tx) => {
+      /*
+       * Read in the same transaction that writes, so the entry can name the
+       * fields that changed rather than the fields that ended up with a value.
+       * Clearing the officer's email is the act the log most needs to be able
+       * to show: an appointment that ended leaves every field null, and an
+       * entry listing nothing would be an accountability record of a removal
+       * nobody can see.
+       */
+      const before = await tx.association.findUniqueOrThrow({
+        where: { id: 1 },
+        select: {
+          controllerContactEmail: true,
+          controllerPostalAddress: true,
+          dataProtectionOfficerName: true,
+          dataProtectionOfficerEmail: true,
+          dataProtectionOfficerPhone: true,
+          jointControllerName: true,
+          jointControllerContact: true,
+        },
+      });
+
       const updated = await tx.association.update({ where: { id: 1 }, data });
 
       await this.audit.record(
@@ -401,11 +422,14 @@ export class SettingsService {
           actorPersonId: input.actorPersonId,
           targetKind: "association",
           targetId: String(updated.id),
-          // Which fields were recorded, never their values: an address copied
-          // into the append-only log would outlive a correction to it.
+          // Which fields changed, never their values: an address copied into
+          // the append-only log would outlive a correction to it.
           context: {
             fields: Object.entries(data)
-              .filter(([, value]) => value !== null)
+              .filter(
+                ([field, value]) =>
+                  value !== before[field as keyof typeof before],
+              )
               .map(([field]) => field),
           },
         },

@@ -69,8 +69,14 @@ const updateSchema = z.object({
   description: z.string().trim().min(1).max(4000).optional(),
   occurredAt: z.iso.datetime().nullable().optional(),
   discoveredAt: z.iso.datetime().optional(),
-  personalDataCategories: z.array(z.enum(PERSONAL_DATA_CATEGORIES)).optional(),
-  dataSubjectCategories: z.array(z.enum(DATA_SUBJECT_CATEGORIES)).optional(),
+  personalDataCategories: z
+    .array(z.enum(PERSONAL_DATA_CATEGORIES))
+    .max(PERSONAL_DATA_CATEGORIES.length)
+    .optional(),
+  dataSubjectCategories: z
+    .array(z.enum(DATA_SUBJECT_CATEGORIES))
+    .max(DATA_SUBJECT_CATEGORIES.length)
+    .optional(),
   dataDescription: z.string().trim().min(1).max(2000).optional(),
   affectedCount: z.number().int().min(0).nullable().optional(),
   effects: z.string().trim().min(1).max(2000).optional(),

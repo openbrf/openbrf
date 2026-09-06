@@ -124,7 +124,7 @@ export class PrivacyNoticeService {
   async appendMissing(actorPersonId: string): Promise<PrivacyNoticeCoverage> {
     const page = await this.prisma.page.findUnique({
       where: { slug: PRIVACY_NOTICE_SLUG },
-      select: { id: true, content: true },
+      select: { id: true },
     });
     if (page === null) {
       throw new PrivacyNoticeError();
@@ -140,7 +140,6 @@ export class PrivacyNoticeService {
     }
 
     const t = await this.translator();
-    const existing = readPageContent(page.content);
     const added: PageBlock[] = [
       ...missing.map((section): PageBlock => ({
         type: "heading",
@@ -153,6 +152,22 @@ export class PrivacyNoticeService {
     ];
 
     await this.prisma.$transaction(async (tx) => {
+      /*
+       * Read again here, and this read is the one the write composes on. The
+       * board edits this page in the site editor, and a save landing between
+       * the read above and this write would otherwise be composed away: the
+       * blocks it had just saved would be replaced by the older snapshot plus
+       * the appended headings, with no error and nothing to recover from. The
+       * page is the association's own art. 13 notice, so leaving every existing
+       * block byte for byte as it was means reading it at the moment of the
+       * write.
+       */
+      const current = await tx.page.findUniqueOrThrow({
+        where: { id: page.id },
+        select: { content: true },
+      });
+      const existing = readPageContent(current.content);
+
       await tx.page.update({
         where: { id: page.id },
         data: {

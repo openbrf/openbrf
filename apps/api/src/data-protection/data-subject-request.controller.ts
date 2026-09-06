@@ -12,7 +12,9 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { actingPersonId } from "../registers/acting-person";
+import { statutoryDate } from "../registers/statutory-date";
 import type { DataSubjectRequestView } from "./data-subject-request";
+import { DataSubjectRequestError } from "./data-subject-request.error";
 import { DataSubjectRequestService } from "./data-subject-request.service";
 
 /**
@@ -87,8 +89,7 @@ export class DataSubjectRequestController {
     return this.requests.record({
       personId,
       kind: input.kind,
-      // A date column: the day the person asked, not the moment it was typed.
-      requestedOn: new Date(`${input.requestedOn}T00:00:00.000Z`),
+      requestedOn: requestedOnColumn(input.requestedOn, new Date()),
       ground: input.ground,
       erasureGround: input.erasureGround ?? null,
       issueId: input.issueId ?? null,
@@ -125,4 +126,32 @@ export class DataSubjectRequestController {
       actorPersonId: actingPersonId(request),
     });
   }
+}
+
+/**
+ * The day the person asked, as a date column.
+ *
+ * A date column: the day they asked, not the moment it was typed. A day that
+ * has not arrived is refused, because the art. 12(3) month runs from it and a
+ * request dated forward would carry a deadline the association has not started
+ * counting towards.
+ *
+ * The comparison is the association's calendar and not UTC, which is the whole
+ * reason it goes through `statutory-date.ts`: between local midnight and the
+ * UTC date change, comparing instants answers a question about hours where the
+ * question is about days.
+ */
+function requestedOnColumn(text: string, now: Date): Date {
+  const parsed = statutoryDate(text, now);
+  if (parsed.ok) {
+    return parsed.column;
+  }
+  throw new DataSubjectRequestError(
+    parsed.problem === "date-not-a-calendar-date"
+      ? "That is not a calendar date."
+      : "A request cannot have been made on a day that has not arrived.",
+    parsed.problem === "date-not-a-calendar-date"
+      ? "date-not-a-calendar-date"
+      : "requested-in-future",
+  );
 }

@@ -222,30 +222,25 @@ export class ProcessingActivityService {
   ): Promise<void> {
     const sourceKey = pluginProcessorKey(pluginId);
 
-    const existing = await this.prisma.processingActivity.findUnique({
+    /*
+     * One statement rather than a read and then a write. Two installs arriving
+     * together would both read no row and the second `create` would fail on the
+     * unique key, leaving the art. 30 record without the processing an
+     * installed plugin performs.
+     */
+    await this.prisma.processingActivity.upsert({
       where: { sourceKey },
-      select: { id: true, updatedByPersonId: true },
-    });
-
-    if (existing === null) {
-      await this.prisma.processingActivity.create({
-        data: {
-          sourceKey,
-          source: "PLUGIN",
-          name: input.name,
-          purpose: input.name,
-          legalBasis: "LEGITIMATE_INTEREST",
-          dataSubjectCategories: ["member", "resident"],
-          personalDataCategories: input.personalDataCategories,
-          retention: "",
-        },
-      });
-      return;
-    }
-
-    await this.prisma.processingActivity.update({
-      where: { sourceKey },
-      data: {
+      create: {
+        sourceKey,
+        source: "PLUGIN",
+        name: input.name,
+        purpose: input.name,
+        legalBasis: "LEGITIMATE_INTEREST",
+        dataSubjectCategories: ["member", "resident"],
+        personalDataCategories: input.personalDataCategories,
+        retention: "",
+      },
+      update: {
         endedAt: null,
         personalDataCategories: input.personalDataCategories,
       },
@@ -346,8 +341,16 @@ export class ProcessingActivityService {
            * The row stops following the instance's settings from here. That is
            * the point of the column: a board that has written its own wording
            * should never find it replaced by a background job.
+           *
+           * Only where the payload changes something. A `PUT` carrying no
+           * fields would otherwise detach a seeded row from the instance's
+           * configuration without altering a word of it, and the record would
+           * quietly stop following a changed storage driver or a new third
+           * country transfer while the board remained answerable for it under
+           * art. 5(2).
            */
-          updatedByPersonId: input.actorPersonId,
+          updatedByPersonId:
+            changed.length === 0 ? undefined : input.actorPersonId,
         },
         select: ACTIVITY_SELECT,
       });

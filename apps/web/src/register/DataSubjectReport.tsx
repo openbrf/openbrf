@@ -227,6 +227,7 @@ const AUDIT_ACTION_LABEL = {
   MOTION_SUBMITTED: "register.person.report.action.MOTION_SUBMITTED",
   MOTION_ACKNOWLEDGED: "register.person.report.action.MOTION_ACKNOWLEDGED",
   MOTION_WITHDRAWN: "register.person.report.action.MOTION_WITHDRAWN",
+  MOTION_MEETING_SET: "register.person.report.action.MOTION_MEETING_SET",
   EVENT_SIGNUP_MADE: "register.person.report.action.EVENT_SIGNUP_MADE",
   EVENT_SIGNUP_WITHDRAWN:
     "register.person.report.action.EVENT_SIGNUP_WITHDRAWN",
@@ -238,6 +239,7 @@ const AUDIT_ACTION_LABEL = {
   MEETING_ARRANGED: "register.person.report.action.MEETING_ARRANGED",
   MEETING_HELD: "register.person.report.action.MEETING_HELD",
   MEETING_AGENDA_SET: "register.person.report.action.MEETING_AGENDA_SET",
+  MEETING_NOTICE_ISSUED: "register.person.report.action.MEETING_NOTICE_ISSUED",
   MEETING_ATTENDANCE_RECORDED:
     "register.person.report.action.MEETING_ATTENDANCE_RECORDED",
   MEETING_ATTENDANCE_WITHDRAWN:
@@ -1193,6 +1195,7 @@ export function DataSubjectReport({
                   "register.person.report.field.erasureException",
                   "register.person.report.field.decidedAt",
                   "register.person.report.field.executedAt",
+                  "register.person.report.field.closedAt",
                   "register.person.report.field.closeReason",
                 ]}
               >
@@ -1235,6 +1238,9 @@ export function DataSubjectReport({
                     </td>
                     <td className={DATA_CELL}>
                       {day(request.executedAt) ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(request.closedAt) ?? nothing}
                     </td>
                     <td className={TEXT_CELL}>
                       {request.closeReason ?? nothing}

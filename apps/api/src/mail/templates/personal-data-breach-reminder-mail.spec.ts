@@ -94,6 +94,23 @@ describe("the breach reminder", () => {
     expect(rendered.subject).toContain("Felskickad medlemslista");
     // The register is behind the link; the mail is a pointer to it.
     expect(rendered.text).toContain("/data-protection");
+
+    /*
+     * The "nothing else" half, asserted as absence. `breachReminderMail` takes
+     * no prop carrying these, so the values the record holds are what the body
+     * is checked against: a later prop that appended the data description or
+     * the affected count would then trip this case rather than pass it, and the
+     * worst details of a breach would not reach a mailbox unnoticed.
+     */
+    const body = `${rendered.subject}\n${rendered.text}`;
+    for (const withheld of [
+      "medlemsregistret",
+      "personnummer",
+      "e-postadresser",
+      "42",
+    ]) {
+      expect(body).not.toContain(withheld);
+    }
   });
 
   it("says a decision is still owed, so the reminder reads as one", async () => {

@@ -455,6 +455,7 @@
           "decisionGround": "Styrelsens skäl",
           "decidedAt": "Beslutad",
           "executedAt": "Verkställd",
+          "closedAt": "Avslutad",
           "closeReason": "Avslutad därför att",
           "breachDiscovered": "Upptäckt",
           "breachData": "Vad incidenten omfattade",
@@ -525,6 +526,7 @@
           "MOTION_SUBMITTED": "Motion inlämnad",
           "MOTION_ACKNOWLEDGED": "Motion antecknad som mottagen",
           "MOTION_WITHDRAWN": "Motion återkallad",
+          "MOTION_MEETING_SET": "Motion hänförd till en föreningsstämma",
           "EVENT_SIGNUP_MADE": "Anmälan till evenemang gjordes",
           "EVENT_SIGNUP_WITHDRAWN": "Anmälan till evenemang återkallades",
           "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades",
@@ -533,6 +535,7 @@
           "MEETING_ARRANGED": "Föreningsstämma inplanerad",
           "MEETING_HELD": "Föreningsstämma noterad som hållen",
           "MEETING_AGENDA_SET": "Dagordning fastställd",
+          "MEETING_NOTICE_ISSUED": "Kallelse till föreningsstämma utfärdad",
           "MEETING_ATTENDANCE_RECORDED": "Antecknad som närvarande vid föreningsstämman",
           "MEETING_ATTENDANCE_WITHDRAWN": "Struken från förteckningen över närvarande",
           "MEETING_PROXY_REGISTERED": "Fullmakt registrerad",
@@ -3395,7 +3398,8 @@
     },
     "processors": {
       "seed": {
-        "localDisk": "Föreningens egen lagring på instansens disk. Ingen utomstående tar emot filerna, så det finns inget personuppgiftsbiträde här."
+        "localDisk": "Föreningens egen lagring på instansens disk. Ingen utomstående tar emot filerna, så det finns inget personuppgiftsbiträde här.",
+        "pluginLocal": "Tillägget körs inuti instansen och skickar inga personuppgifter vidare."
       },
       "title": "Mottagare av personuppgifter",
       "description": "Vem som tar emot uppgifter, hur var och en är klassificerad och vilket avtal som gäller.",

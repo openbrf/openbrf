@@ -2,6 +2,32 @@ import { HttpStatus } from "@nestjs/common";
 
 import { DomainError } from "../http/domain-error";
 
+/** Why a request about somebody's own data was refused. */
+export type DataSubjectRequestReason =
+  // Not there.
+  | "person-not-found"
+  | "issue-not-found"
+  | "request-not-found"
+  // Contradicts itself.
+  | "date-not-a-calendar-date"
+  | "requested-in-future"
+  | "erasure-ground-required"
+  | "ground-not-applicable"
+  | "issue-kind-inconsistent"
+  | "erasure-exception-required"
+  | "exception-inconsistent"
+  | "exception-not-applicable"
+  | "decision-ground-required"
+  // Describes a state the person is in.
+  | "already-open"
+  | "already-decided"
+  | "already-closed"
+  | "currently-resident"
+  | "on-legal-hold"
+  | "board-position-current"
+  | "system-role-current"
+  | "processing-restricted";
+
 /**
  * A request about somebody's own data could not be recorded, decided or closed.
  *
@@ -25,28 +51,7 @@ export class DataSubjectRequestError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      // Not there.
-      | "person-not-found"
-      | "issue-not-found"
-      | "request-not-found"
-      // Contradicts itself.
-      | "erasure-ground-required"
-      | "ground-not-applicable"
-      | "issue-kind-inconsistent"
-      | "erasure-exception-required"
-      | "exception-inconsistent"
-      | "exception-not-applicable"
-      | "decision-ground-required"
-      // Describes a state the person is in.
-      | "already-open"
-      | "already-decided"
-      | "already-closed"
-      | "currently-resident"
-      | "on-legal-hold"
-      | "board-position-current"
-      | "system-role-current"
-      | "processing-restricted",
+    readonly reason: DataSubjectRequestReason,
   ) {
     super(message);
     this.status = NOT_FOUND.has(reason)
@@ -57,13 +62,13 @@ export class DataSubjectRequestError extends DomainError {
   }
 }
 
-const NOT_FOUND = new Set([
+const NOT_FOUND = new Set<DataSubjectRequestReason>([
   "person-not-found",
   "issue-not-found",
   "request-not-found",
 ]);
 
-const CONFLICT = new Set([
+const CONFLICT = new Set<DataSubjectRequestReason>([
   "already-open",
   "already-decided",
   "already-closed",

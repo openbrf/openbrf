@@ -233,6 +233,35 @@ describe("choosing who a run erases for", () => {
     ]);
   });
 
+  it("tells a hold, a restriction and a granted erasure apart", async () => {
+    /*
+     * The three arms of the scan in one run. A hold and a restriction withhold
+     * the person however old their rows are; a granted erasure reaches them
+     * however recent, because bringing the purge forward is what the board
+     * granted. Asserted together because the query tells the three apart by
+     * shape, and one of them silently answering for another is exactly what
+     * would not show up in a test that exercised only two.
+     */
+    const { service } = build({
+      comments: [
+        expiredCommentFor("held"),
+        expiredCommentFor("restricted"),
+        // Written this morning, and erasable all the same.
+        {
+          authorPersonId: "requested",
+          createdAt: new Date("2027-06-01T08:00:00.000Z"),
+        },
+      ],
+      heldPersonIds: ["held"],
+      restrictedPersonIds: ["restricted"],
+      erasureRequestedPersonIds: ["requested"],
+    });
+
+    await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
+      "requested",
+    ]);
+  });
+
   it("leaves out comments whose window has not run out", async () => {
     const { service } = build({
       comments: [

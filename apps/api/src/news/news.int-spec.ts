@@ -110,6 +110,7 @@ const slugs = {
   scanned: `news-scanned-${suffix}`,
   notProse: `news-not-prose-${suffix}`,
   draft: `news-draft-${suffix}`,
+  objected: `news-objected-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -554,6 +555,17 @@ describe("who a mailing would reach", () => {
   });
 });
 
+/** How many members a mailing would reach, as the board is shown it. */
+async function recipientCount(): Promise<number> {
+  const response = await inject({
+    method: "GET",
+    url: "/api/news/recipients",
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode).toBe(200);
+  return (response.json() as { count: number }).count;
+}
+
 describe("a member who has objected", () => {
   it("is not counted and not addressed", async () => {
     /*
@@ -564,26 +576,37 @@ describe("a member who has objected", () => {
      * member excluded only at the send would be counted as addressed and then
      * reported as a failure.
      */
+    const before = await recipientCount();
+
     await prisma.person.update({
       where: { id: member.personId },
       data: { communicationObjectionAt: new Date("2026-03-01T00:00:00.000Z") },
     });
 
     try {
-      const response = await inject({
-        method: "GET",
-        url: "/api/news/recipients",
+      // The endpoint's own answer, and one fewer than before: the board is
+      // shown a count that excludes them, rather than the query merely being
+      // capable of excluding them.
+      expect(await recipientCount()).toBe(before - 1);
+
+      // And the ledger the job works from agrees, which is the half a count
+      // cannot show. A member excluded only at the send would have a row here.
+      const item = await createNews(boardCookie, slugs.objected);
+      const published = await inject({
+        method: "POST",
+        url: `/api/news/${item.id}/publish`,
+        payload: { published: true, visibility: "MEMBER", sendEmail: true },
         headers: { cookie: boardCookie },
       });
-      const counted = await prisma.person.count({
-        where: {
-          id: member.personId,
-          communicationObjectionAt: null,
-        },
-      });
+      expect(published.statusCode).toBe(201);
 
-      expect(response.statusCode).toBe(200);
-      expect(counted).toBe(0);
+      const ledger = await prisma.newsDelivery.findMany({
+        where: { newsId: item.id },
+        select: { personId: true },
+      });
+      expect(ledger.some((one) => one.personId === member.personId)).toBe(
+        false,
+      );
     } finally {
       await prisma.person.update({
         where: { id: member.personId },

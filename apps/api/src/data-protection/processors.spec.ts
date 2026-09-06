@@ -167,6 +167,40 @@ describe("currentProcessors", () => {
     });
   });
 
+  it("names a gateway that will not parse as a URL as it is written", () => {
+    /*
+     * A recipient left out of the record is worse than one named awkwardly, so
+     * `hostOf` answers with the configured value rather than dropping the row.
+     * The address has to be non-blank to reach that branch at all, because a
+     * blank one is classified as no provider before a descriptor is built.
+     */
+    const descriptors = currentProcessors(
+      facts({ smsDriver: "http-gateway", smsGatewayUrl: "sms-gateway" }),
+      [],
+    );
+
+    expect(
+      descriptors.find((descriptor) => descriptor.processorKey === "sms"),
+    ).toMatchObject({ processorKind: "SMS", identity: "sms-gateway" });
+  });
+
+  it("falls back to the row's own id for a recipient with no counterparty", () => {
+    // The board recorded the classification and left the name for later. The
+    // record still has to be able to point at the row it is describing.
+    const descriptors = currentProcessors(facts(), [
+      row({
+        processorKey: "external:clx1",
+        classification: "INDEPENDENT_CONTROLLER",
+        status: null,
+        counterparty: null,
+      }),
+    ]);
+
+    expect(
+      descriptors.find((descriptor) => descriptor.processorKind === "EXTERNAL"),
+    ).toMatchObject({ processorKey: "external:clx1", identity: "clx1" });
+  });
+
   it("lists a board-recorded recipient by its counterparty", () => {
     const descriptors = currentProcessors(facts(), [
       row({

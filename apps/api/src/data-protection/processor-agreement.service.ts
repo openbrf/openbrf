@@ -16,6 +16,7 @@ import {
   type ProcessorAgreementState,
   type ProcessorDescriptor,
   type ProcessorFacts,
+  stateOf,
 } from "./processors";
 
 export class ProcessorAgreementError extends DomainError {
@@ -151,7 +152,7 @@ export class ProcessorAgreementService {
    */
   async record(
     processorKey: string,
-    input: ProcessorAgreementInput & { actorPersonId: string },
+    input: ProcessorAgreementInput & { actorPersonId: string | null },
     facts: ProcessorFacts,
   ): Promise<ProcessorView> {
     const parsed = parseProcessorKey(processorKey);
@@ -180,7 +181,7 @@ export class ProcessorAgreementService {
 
   /** Records a recipient the board knows about and the instance cannot see. */
   async recordExternal(
-    input: ProcessorAgreementInput & { actorPersonId: string },
+    input: ProcessorAgreementInput & { actorPersonId: string | null },
     facts: ProcessorFacts,
   ): Promise<ProcessorView> {
     assertConsistent(input);
@@ -189,42 +190,52 @@ export class ProcessorAgreementService {
      * The key is derived from the row's own id, so a board-recorded recipient
      * is addressable like any other and its classification can be replaced the
      * same way. Written in two steps because the id does not exist until the
-     * row does.
+     * row does, and both steps and the audit entry commit together: a row left
+     * open under the placeholder key would appear on the board screen as a
+     * recipient called "external:pending", which is a false entry in the
+     * art. 28 record.
      */
-    const created = await this.prisma.processorAgreement.create({
-      data: {
-        processorKind: "EXTERNAL",
-        processorKey: "external:pending",
-        classification: input.classification,
-        status: input.status ?? null,
-        counterparty: input.counterparty ?? null,
-        reference: input.reference ?? null,
-        signedOn: input.signedOn ?? null,
-        termsConfirmed: input.termsConfirmed ?? null,
-        subProcessorsAuthorised: input.subProcessorsAuthorised ?? null,
-        subProcessorNote: input.subProcessorNote ?? null,
-        note: input.note ?? null,
-        recordedByPersonId: input.actorPersonId,
-      },
-      select: { id: true },
-    });
+    const created = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.processorAgreement.create({
+        data: {
+          processorKind: "EXTERNAL",
+          processorKey: "external:pending",
+          classification: input.classification,
+          status: input.status ?? null,
+          counterparty: input.counterparty ?? null,
+          reference: input.reference ?? null,
+          signedOn: input.signedOn ?? null,
+          termsConfirmed: input.termsConfirmed ?? null,
+          subProcessorsAuthorised: input.subProcessorsAuthorised ?? null,
+          subProcessorNote: input.subProcessorNote ?? null,
+          note: input.note ?? null,
+          recordedByPersonId: input.actorPersonId,
+        },
+        select: { id: true },
+      });
 
-    await this.prisma.processorAgreement.update({
-      where: { id: created.id },
-      data: { processorKey: externalProcessorKey(created.id) },
-    });
+      await tx.processorAgreement.update({
+        where: { id: row.id },
+        data: { processorKey: externalProcessorKey(row.id) },
+      });
 
-    await this.audit.record({
-      action: "PROCESSOR_AGREEMENT_RECORDED",
-      actorPersonId: input.actorPersonId,
-      targetKind: "processorAgreement",
-      targetId: created.id,
-      context: {
-        processorKind: "EXTERNAL",
-        classification: input.classification,
-        status: input.status ?? null,
-        replaced: false,
-      },
+      await this.audit.record(
+        {
+          action: "PROCESSOR_AGREEMENT_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "processorAgreement",
+          targetId: row.id,
+          context: {
+            processorKind: "EXTERNAL",
+            classification: input.classification,
+            status: input.status ?? null,
+            replaced: false,
+          },
+        },
+        tx,
+      );
+
+      return row;
     });
 
     const listed = await this.list(facts);
@@ -249,7 +260,7 @@ export class ProcessorAgreementService {
   ): Promise<void> {
     const existing = await this.prisma.processorAgreement.findUnique({
       where: { id: agreementId },
-      select: { id: true, endedAt: true },
+      select: { id: true },
     });
     if (existing === null) {
       throw new ProcessorAgreementError(
@@ -257,22 +268,28 @@ export class ProcessorAgreementService {
         "agreement-not-found",
       );
     }
-    if (existing.endedAt !== null) {
-      throw new ProcessorAgreementError(
-        "That record is already closed.",
-        "already-ended",
-      );
-    }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.processorAgreement.update({
-        where: { id: agreementId },
+      /*
+       * Still open is asked as part of the write, not before it. The `endedAt`
+       * this sets bounds the period the row describes, and a second request
+       * passing a pre-read guard would move that bound and rewrite who closed
+       * the record.
+       */
+      const { count } = await tx.processorAgreement.updateMany({
+        where: { id: agreementId, endedAt: null },
         data: {
           endedAt: new Date(),
           endReason: reason,
           endedByPersonId: actorPersonId,
         },
       });
+      if (count === 0) {
+        throw new ProcessorAgreementError(
+          "That record is already closed.",
+          "already-ended",
+        );
+      }
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_ENDED",
@@ -294,16 +311,7 @@ export class ProcessorAgreementService {
       if (row.processorKind !== "PLUGIN") {
         continue;
       }
-      states.set(
-        row.processorKey.slice("plugin:".length),
-        row.classification === "NOT_A_PROCESSOR"
-          ? "notAProcessor"
-          : row.classification === "INDEPENDENT_CONTROLLER"
-            ? "independentController"
-            : row.status === "IN_PLACE"
-              ? "inPlace"
-              : "pending",
-      );
+      states.set(row.processorKey.slice("plugin:".length), stateOf(row));
     }
 
     return states;
@@ -362,23 +370,24 @@ export class ProcessorAgreementService {
   private async write(
     processorKey: string,
     processorKind: ProcessorKind,
-    input: ProcessorAgreementInput & { actorPersonId: string },
+    input: ProcessorAgreementInput & { actorPersonId: string | null },
     facts: ProcessorFacts,
   ): Promise<ProcessorView> {
-    const replacedId = await this.prisma.processorAgreement
-      .findFirst({
-        where: { processorKey, endedAt: null },
-        select: { id: true },
-      })
-      .then((row) => row?.id ?? null);
+    let replaced = false;
 
     await this.prisma.$transaction(async (tx) => {
-      if (replacedId !== null) {
-        await tx.processorAgreement.update({
-          where: { id: replacedId },
-          data: { endedAt: new Date(), endReason: "replaced" },
-        });
-      }
+      /*
+       * Closed by the query rather than by an id read beforehand. One open row
+       * per recipient is what `list` and `forPlugins` read the record through,
+       * and two requests passing the same pre-read guard would leave two - a
+       * dated record that says the association agreed two different things with
+       * one recipient over the same period.
+       */
+      const closed = await tx.processorAgreement.updateMany({
+        where: { processorKey, endedAt: null },
+        data: { endedAt: new Date(), endReason: "replaced" },
+      });
+      replaced = closed.count > 0;
 
       const created = await tx.processorAgreement.create({
         data: {
@@ -393,6 +402,13 @@ export class ProcessorAgreementService {
           subProcessorsAuthorised: input.subProcessorsAuthorised ?? null,
           subProcessorNote: input.subProcessorNote ?? null,
           note: input.note ?? null,
+          /*
+           * Null where the instance answered rather than a board member, which
+           * is what the command-line install is. `seed` tells an
+           * instance-authored row from a board-authored one by this column, so
+           * an empty string here would read as board-authored and the row would
+           * outlive the configuration it describes.
+           */
           recordedByPersonId: input.actorPersonId,
         },
         select: { id: true },
@@ -414,7 +430,7 @@ export class ProcessorAgreementService {
             signedOn: input.signedOn?.toISOString().slice(0, 10) ?? null,
             termsConfirmed: input.termsConfirmed ?? null,
             subProcessorsAuthorised: input.subProcessorsAuthorised ?? null,
-            replaced: replacedId !== null,
+            replaced,
           },
         },
         tx,
@@ -443,6 +459,7 @@ export class ProcessorAgreementService {
 function assertConsistent(input: ProcessorAgreementInput): void {
   for (const value of [
     input.counterparty,
+    input.reference,
     input.note,
     input.subProcessorNote,
   ]) {

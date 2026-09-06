@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import type { TFunction } from "i18next";
 import {
   isSupportedApiVersion,
   type PluginPermission,
@@ -9,6 +10,8 @@ import {
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { PrismaService } from "../database/prisma.service";
+import { I18nService } from "../i18n/i18n.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
 import { ProcessorAgreementService } from "../data-protection/processor-agreement.service";
 import { ProcessorFactsService } from "../data-protection/processor-facts.service";
@@ -162,6 +165,8 @@ export class PluginAdminService {
     private readonly processors: ProcessorAgreementService,
     private readonly processing: ProcessingActivityService,
     private readonly facts: ProcessorFactsService,
+    private readonly prisma: PrismaService,
+    private readonly i18n: I18nService,
   ) {}
 
   /**
@@ -181,50 +186,59 @@ export class PluginAdminService {
     const facts = await this.facts.read();
 
     if (!answer.sendsPersonalDataOutside) {
+      /*
+       * The instance's own answer rather than the board's, so it is written in
+       * the association's language and not the acting user's: the note is
+       * stored once and read later by whoever opens the art. 28 record.
+       */
+      const t = await this.translator();
       await this.processors.record(
         pluginProcessorKey(pluginId),
         {
           classification: "NOT_A_PROCESSOR",
-          note:
-            answer.note ??
-            "Tillägget körs inuti instansen och skickar inga personuppgifter vidare.",
-          actorPersonId: context.actorPersonId ?? "",
+          note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
+          actorPersonId: context.actorPersonId,
         },
         facts,
       );
       return;
     }
 
-    const recipient = answer.recipient ?? answer.counterparty;
-    if (recipient === undefined || recipient.trim() === "") {
-      throw new PluginRecipientRequiredError();
-    }
+    const recipient = requiredRecipient(answer);
+    // One default, read four times below. Two spellings that drifted apart
+    // would send `record` a classification and processor-only fields that
+    // disagree, and `assertConsistent` would refuse it for a reason the board
+    // cannot act on.
+    const classification = answer.classification ?? "PROCESSOR";
+    const asProcessor = classification === "PROCESSOR";
 
     await this.processors.record(
       pluginProcessorKey(pluginId),
       {
-        classification: answer.classification ?? "PROCESSOR",
-        status:
-          (answer.classification ?? "PROCESSOR") === "PROCESSOR"
-            ? (answer.status ?? "PENDING")
-            : null,
+        classification,
+        status: asProcessor ? (answer.status ?? "PENDING") : null,
         counterparty: answer.counterparty ?? recipient,
         reference: answer.reference ?? null,
         signedOn: answer.signedOn == null ? null : new Date(answer.signedOn),
-        termsConfirmed:
-          (answer.classification ?? "PROCESSOR") === "PROCESSOR"
-            ? (answer.termsConfirmed ?? null)
-            : null,
-        subProcessorsAuthorised:
-          (answer.classification ?? "PROCESSOR") === "PROCESSOR"
-            ? (answer.subProcessorsAuthorised ?? null)
-            : null,
+        termsConfirmed: asProcessor ? (answer.termsConfirmed ?? null) : null,
+        subProcessorsAuthorised: asProcessor
+          ? (answer.subProcessorsAuthorised ?? null)
+          : null,
         subProcessorNote: answer.subProcessorNote ?? null,
         note: answer.note ?? null,
-        actorPersonId: context.actorPersonId ?? "",
+        actorPersonId: context.actorPersonId,
       },
       facts,
     );
+  }
+
+  /** The association's own language: the record is one document it keeps. */
+  private async translator(): Promise<TFunction> {
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: { defaultLocale: true },
+    });
+    return this.i18n.translatorFor(association?.defaultLocale);
   }
 
   async overview(): Promise<PluginsOverview> {
@@ -352,6 +366,18 @@ export class PluginAdminService {
      * where running the command is the consent and the declaration was printed
      * first - the catalog entry is what was shown.
      */
+    /*
+     * Before the first write, and it needs nothing from the database. The
+     * recipient check used to run after the consent row was committed, so a
+     * board that ticked "sends personal data outside" and named nobody was
+     * answered 400 with a consent row already persisted: the instance then
+     * claimed a consent that produced no install, no processing activity in the
+     * art. 30 record and no classification in the art. 28 one.
+     */
+    if (request.processorAgreement?.sendsPersonalDataOutside === true) {
+      requiredRecipient(request.processorAgreement);
+    }
+
     await this.registry.consent({
       id: entry.id,
       packageName: entry.packageName,
@@ -540,4 +566,21 @@ function sameDeclaration(
   const sortedLeft = [...left].sort();
   const sortedRight = [...right].sort();
   return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+/**
+ * The recipient the board named, or the refusal for having named nobody.
+ *
+ * GDPR art. 30(1)(d) asks who receives the data, so "somewhere outside" is not
+ * an answer a record can carry. Asked before anything is written and again
+ * where the row is built, from one definition, so the two cannot disagree.
+ */
+function requiredRecipient(
+  answer: NonNullable<InstallRequest["processorAgreement"]>,
+): string {
+  const recipient = answer.recipient ?? answer.counterparty;
+  if (recipient === undefined || recipient.trim() === "") {
+    throw new PluginRecipientRequiredError();
+  }
+  return recipient;
 }

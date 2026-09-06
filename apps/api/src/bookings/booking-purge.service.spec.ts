@@ -228,6 +228,35 @@ describe("choosing who a run erases for", () => {
     ]);
   });
 
+  it("tells a hold, a restriction and a granted erasure apart", async () => {
+    /*
+     * The three arms of the scan in one run. A hold and a restriction withhold
+     * the person however old their rows are; a granted erasure reaches them
+     * however recent, because bringing the purge forward is what the board
+     * granted. Asserted together because the query tells the three apart by
+     * shape, and one of them silently answering for another is exactly what
+     * would not show up in a test that exercised only two.
+     */
+    const { service } = build({
+      bookings: [
+        expiredBookingFor("held"),
+        expiredBookingFor("restricted"),
+        // Ends well after this run, and erasable all the same.
+        {
+          bookedByPersonId: "requested",
+          endsAt: new Date("2027-12-24T10:00:00.000Z"),
+        },
+      ],
+      heldPersonIds: ["held"],
+      restrictedPersonIds: ["restricted"],
+      erasureRequestedPersonIds: ["requested"],
+    });
+
+    await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
+      "requested",
+    ]);
+  });
+
   it("reaches people behind a run's worth of held people", async () => {
     /*
      * The starvation case, and the reason the holds are excluded by the query

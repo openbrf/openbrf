@@ -59,8 +59,15 @@ export class DataProtectionOverviewService {
       (breach) => breachState(breach, now) === "overdue",
     ).length;
 
+    /*
+     * Bounds that are still running. An expired bound is the most overdue
+     * breach, which `overdue` above already counts: presenting it here as the
+     * next deadline would put a past instant where the board looks for the
+     * clock that has yet to run out.
+     */
     const deadlines = breaches
       .map((breach) => computeBreachDeadline(breach.discoveredAt).getTime())
+      .filter((deadline) => deadline > now.getTime())
       .sort((left, right) => left - right);
 
     return {

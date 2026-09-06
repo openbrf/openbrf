@@ -335,10 +335,18 @@ export class BookingPurgeService implements OnModuleInit {
         select: { id: true },
       });
 
+      /*
+       * A granted erasure drops the bound rather than moving it to now. The
+       * scan matches every booking of theirs "however recent", so deleting only
+       * the ones that have already ended would leave a booking dated next month
+       * behind - and `PurgeService` closes the request the same night, so
+       * nothing would ever come back for it while the audit entry reported the
+       * erasure as carried out.
+       */
       const { count } = await tx.booking.deleteMany({
         where: {
           bookedByPersonId: personId,
-          endsAt: { lte: request === null ? cutoff : now },
+          ...(request === null ? { endsAt: { lte: cutoff } } : {}),
         },
       });
       if (count === 0) {

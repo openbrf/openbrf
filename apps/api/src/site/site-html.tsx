@@ -688,13 +688,27 @@ function renderControllerContact(
   if (controller.officer !== null) {
     rows.push({
       label: chrome.t("site.controllerContact.officer"),
-      value: [controller.officer.name, controller.officer.email]
+      value: [
+        controller.officer.name,
+        controller.officer.email,
+        controller.officer.phone,
+      ]
         .filter((part): part is string => part !== null && part !== "")
         .join(", "),
     });
   }
 
-  if (rows.length === 0) {
+  /*
+   * The association's name and organization number exist on every instance, so
+   * counting the rows cannot tell a configured block from an empty one. What
+   * makes this block worth printing is a way to reach whoever answers for the
+   * processing: an address, an email, or an appointed officer.
+   */
+  if (
+    controller.postalAddress === null &&
+    controller.contactEmail === null &&
+    controller.officer === null
+  ) {
     return null;
   }
 

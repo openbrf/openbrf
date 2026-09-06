@@ -145,6 +145,20 @@ export class BreachReminderService implements OnModuleInit {
       }
     }
 
+    if (sent === 0) {
+      /*
+       * The reminder was owed and reached nobody: either no board member has an
+       * address recorded, or every address failed. The three no-ops above
+       * return before this point, so reaching it with a count of zero is the
+       * one case that is not ordinary - and the worker discards the count, so
+       * without this line nothing records that the association's 72-hour
+       * warning was not delivered.
+       */
+      this.logger.warn(
+        `Breach reminder for breach ${breach.id} reached no board member.`,
+      );
+    }
+
     return sent;
   }
 }

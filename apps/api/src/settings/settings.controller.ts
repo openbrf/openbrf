@@ -110,18 +110,31 @@ const MAX_RETENTION_DAYS = 3650;
  * Every field optional and nullable: an association that has appointed no data
  * protection officer has none to record, and clearing a field is how a board
  * says an appointment ended.
+ *
+ * The two addresses are checked as addresses, because the privacy notice prints
+ * them as the way to reach whoever answers for the processing under art. 13.
+ * Blank still clears: the empty string is what the form sends for a field a
+ * board has emptied, and `blankToNull` turns it into no value recorded.
  */
+const clearableEmail = z
+  .string()
+  .trim()
+  .max(200)
+  .refine((value) => value === "" || z.email().safeParse(value).success)
+  .nullable()
+  .optional();
+
 const dataProtectionContactsSchema = z.object({
   controller: z
     .object({
-      contactEmail: z.string().trim().max(200).nullable().optional(),
+      contactEmail: clearableEmail,
       postalAddress: z.string().trim().max(500).nullable().optional(),
     })
     .optional(),
   officer: z
     .object({
       name: z.string().trim().max(200).nullable().optional(),
-      email: z.string().trim().max(200).nullable().optional(),
+      email: clearableEmail,
       phone: z.string().trim().max(50).nullable().optional(),
     })
     .optional(),
