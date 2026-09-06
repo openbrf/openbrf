@@ -92,6 +92,19 @@ interface AmountValue {
   toFixed: (places: number) => string;
 }
 
+/**
+ * A submitted amount in the shape `toFixed(2)` writes, so the two can be
+ * compared without this module knowing what carries the stored value.
+ *
+ * The controller's own pattern is `^\d{1,12}(\.\d{1,2})?$`, so there is a
+ * whole part, at most two decimals, and nothing else to handle. `BigInt` drops
+ * a leading zero the pattern permits, which `toFixed` does not write.
+ */
+function twoDecimals(amount: string): string {
+  const [whole, fraction = ""] = amount.split(".");
+  return `${String(BigInt(whole ?? "0"))}.${fraction.padEnd(2, "0")}`;
+}
+
 interface ChargeRecord {
   id: string;
   personId: string | null;
@@ -976,7 +989,17 @@ function changedFields(
   ) {
     fields.push("chargedOn");
   }
-  if (next.amount !== undefined && charge.amount.toFixed(2) !== next.amount) {
+  /*
+   * Compared as values and not as text. The controller accepts one or two
+   * decimal places or none at all, so a form posting the unchanged amount back
+   * as "450" against a stored 450.00 differs on every character and on no
+   * value - and the entry would name a field the correction did not move,
+   * which is what this function exists to prevent.
+   */
+  if (
+    next.amount !== undefined &&
+    charge.amount.toFixed(2) !== twoDecimals(next.amount)
+  ) {
     fields.push("amount");
   }
   if (next.reason !== undefined && charge.reason !== next.reason) {

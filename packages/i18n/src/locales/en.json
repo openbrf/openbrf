@@ -3012,7 +3012,7 @@
     "queue": {
       "title": "Key orders",
       "description": "What the households have asked for, the ones waiting longest first.",
-      "charges": "Recording a handover says a key went to a named person on a day. What it costs the member is a charge, recorded with the association's other charges and not here.",
+      "charges": "Recording a handover says a key went to a named person on a day. What it costs is a charge on the member or the apartment, recorded with the association's other charges and not here.",
       "empty": "Nobody has ordered a key or a tag.",
       "orderedBy": "From",
       "ordererProtected": "Protected personal data: ask the register.",

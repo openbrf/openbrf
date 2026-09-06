@@ -3012,7 +3012,7 @@
     "queue": {
       "title": "Nyckelbeställningar",
       "description": "Vad hushållen har begärt, den som väntat längst först.",
-      "charges": "Att anteckna en utlämning säger att en nyckel gick till en namngiven person en viss dag. Vad den kostar medlemmen är en debitering, som antecknas med föreningens övriga debiteringar och inte här.",
+      "charges": "Att anteckna en utlämning säger att en nyckel gick till en namngiven person en viss dag. Vad den kostar är en debitering på medlemmen eller på lägenheten, som antecknas med föreningens övriga debiteringar och inte här.",
       "empty": "Ingen har beställt nyckel eller tagg.",
       "orderedBy": "Från",
       "ordererProtected": "Skyddade personuppgifter: fråga registret.",

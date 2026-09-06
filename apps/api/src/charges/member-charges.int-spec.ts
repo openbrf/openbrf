@@ -766,6 +766,38 @@ describe("correcting and removing", () => {
     await prisma.memberCharge.delete({ where: { id: chargeId } });
   });
 
+  it("does not name the amount when only how it was written changed", async () => {
+    const created = await recordCharge(
+      chargeOn({ amount: "450.00", reason: `Tvattstuga ${suffix}` }),
+    );
+    const chargeId = created.json<DebitingListRow>().chargeId;
+
+    const corrected = await inject({
+      method: "POST",
+      url: `/api/member-charges/${chargeId}/correct`,
+      // The same sum written with no decimals, which the controller accepts,
+      // and one field that did move. The amount differs on every character and
+      // on no value, so an entry naming it would be false.
+      payload: {
+        chargedOn: "2026-03-05",
+        amount: "450",
+        reason: `Tvattstuga ${suffix} rattad`,
+        vatTreatment: "EXEMPT",
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(corrected.statusCode).toBe(200);
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "MEMBER_CHARGE_CORRECTED", targetId: chargeId },
+      select: { context: true },
+    });
+    expect(entry?.context).toEqual({ fields: ["reason"] });
+
+    await prisma.memberCharge.delete({ where: { id: chargeId } });
+  });
+
   it("orders a correction behind a removal of the same charge", async () => {
     /*
      * A correction reads the charge and carries over every field the board left

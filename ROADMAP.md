@@ -856,10 +856,10 @@ no, and the pilot is the thing that will change it.
         which the motion queue has no equivalent of - refusing to take up a
         member's item is not the board's to decide under EFL 6 kap. 15 §, and
         refusing a household a fourth tag to the bike room plainly is. What a
-        key costs the member is deliberately not here: that is a charge, with
-        its own amount, date, VAT treatment and export to whoever keeps the
-        association's books, and a second place recording a sum would be a
-        second answer to what the member owes. The handover is its own audit
+        key costs is deliberately not here: that is a charge, put on the member
+        or on the apartment, with its own amount, date, VAT treatment and export
+        to whoever keeps the association's books, and a second place recording a
+        sum would be a second answer to what is owed. The handover is its own audit
         action, so once the order has been purged the association can still
         answer that somebody was given a key to the building on a day
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
