@@ -63,11 +63,14 @@ export interface IssuePurgeRunSummary {
  * its photographs stay: they are the association's own record of a problem with
  * its building, and the person who reported it having gone does not make the
  * damp patch less real. This is the same detachment the residency purge
- * performs, reached from the other end - and it is a detachment rather than an
- * anonymisation, because the description is free text somebody wrote and may
- * name a neighbour. A person named in one makes an art. 17 request, which the
- * board decides; a job rewriting prose on a schedule would be the association
- * quietly editing its own history.
+ * performs, reached from the other end.
+ *
+ * What is left is still personal data, and the word for it is a detachment
+ * rather than anything stronger: the description is free text somebody wrote
+ * and may name a neighbour, so Recital 26 has nothing to say about a row that
+ * still identifies somebody. A person named in one makes an art. 17 request,
+ * which the board decides; a job rewriting prose on a schedule would be the
+ * association quietly editing its own history.
  *
  * ## The clock
  *

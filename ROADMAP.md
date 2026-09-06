@@ -25,7 +25,13 @@ publication guardrails inside the write path, arranges the menu a visitor finds
 them through, and answers a broker from the facts it has recorded. A page can
 also carry the blocks that draw on the instance's own data: the document list,
 the board roster, the association facts, a FAQ and the association's calendar.
-The project is not ready to hold your housing cooperative's data.
+What a board has to do to process personal data lawfully is on the instance too,
+on a screen of its own: the record of processing activities seeded from what the
+instance already knows, the breach register with the clock art. 33 sets running
+from discovery, each recipient of personal data classified before an agreement
+is asked for, the privacy notice measured against what art. 13 requires, and the
+requests a person makes about their own data answered inside the month art. 12
+allows. The project is not ready to hold your housing cooperative's data.
 
 This page exists so anyone who finds the repository can see honestly how far
 along it is. It is updated as work lands, in the same pull request that lands
@@ -430,23 +436,24 @@ Free, open source, and never moved behind a paywall.
       nightly and erases contact details, the account and unaccepted
       invitations once the retention window on somebody's last residency has
       run out; a legal hold, entered against one person with a reason,
-      suspends it until the board releases it. Issues and archived documents
-      are listed in the data subject access report but not yet purged
-- [ ] Personal data breach register (personuppgiftsincident): a breach is
+      suspends it until the board releases it, and so does a restriction the
+      person themselves asked for under art. 18
+- [x] Personal data breach register (personuppgiftsincident): a breach is
       recorded with what it touched and who it reached. The clock GDPR art. 33
       sets runs from discovery, so the record carries the date the board
-      became aware of the breach separately from the date it was entered. It
-      documents the facts, the effects and the remedial action art. 33(5)
-      requires, and it records two decisions with their grounds: whether IMY
-      is notified without undue delay and, where feasible, within 72 hours,
-      or not because the breach is unlikely to result in a risk to the people
-      concerned (art. 33(1)), and whether the people affected are told
-      (art. 34(1)) or not under one of the exceptions in art. 34(3). A
-      notification made after 72 hours carries the reasons for the delay, and
-      the record holds them. The notification itself goes through IMY's own
+      became aware of the breach separately from the date it was entered, and
+      the board is mailed when a day of the 72 hours is left. It documents the
+      facts, the effects and the remedial action art. 33(5) requires, and it
+      records two decisions with their grounds: whether IMY is notified
+      without undue delay and, where feasible, within 72 hours, or not because
+      the breach is unlikely to result in a risk to the people concerned
+      (art. 33(1)), and whether the people affected are told (art. 34(1)) or
+      not under one of the exceptions in art. 34(3). A notification made after
+      72 hours carries the reasons for the delay, and the record refuses to
+      close without them. The notification itself goes through IMY's own
       e-service, so what belongs here is the record, the clock and the
       evidence of the decision, not a submission
-- [ ] Record of processing activities (registerförteckning, GDPR art. 30): the
+- [x] Record of processing activities (registerförteckning, GDPR art. 30): the
       controller's contact details and, where there is one, the joint
       controller's and the data protection officer's (art. 30(1)(a)), and each
       processing with its purpose, its legal basis,
@@ -458,18 +465,21 @@ Free, open source, and never moved behind a paywall.
       every installed plugin declares, and the contact details, transfers and
       security measures the instance can state truthfully - and editable,
       because a board processes things outside the application too
-- [ ] The privacy notice asks for everything GDPR art. 13 requires. The seeded
+- [x] The privacy notice asks for everything GDPR art. 13 requires. The seeded
       page asks the board for the controller, the data, the purpose, the
-      retention, the rights and the contact; it does not yet ask for the legal
-      basis behind each purpose, the legitimate interest where that is the
-      basis (art. 13(1)(d)), the recipients, any transfer to a third country,
+      retention, the rights and the contact, and now for the legal basis
+      behind each purpose, the legitimate interest where that is the basis
+      (art. 13(1)(d)), the recipients, any transfer to a third country,
       whether any decision is automated and, where one is, the logic involved
       and what it means for the person (art. 13(2)(f)), the data protection
       officer where the association has appointed one, the right to withdraw
       a consent (art. 13(2)(c)), whether giving the data is a statutory or a
       contractual requirement and what follows from not giving it
-      (art. 13(2)(e)), or the right to complain to IMY
-- [ ] Processor agreements (personuppgiftsbiträdesavtal, GDPR art. 28): a
+      (art. 13(2)(e)), and the right to complain to IMY. The controller's own
+      contact details are a block the page reads from the instance rather than
+      something the board retypes, and the screen names the headings the
+      published page has not answered yet
+- [x] Processor agreements (personuppgiftsbiträdesavtal, GDPR art. 28): a
       recipient of personal data is classified before any agreement is asked
       for - a processor, no processor because it runs on the association's own
       infrastructure or inside the instance, or an independent controller.
@@ -480,7 +490,7 @@ Free, open source, and never moved behind a paywall.
       no processor there. A plugin needs an agreement only when it sends
       personal data outside the instance, and the consent step asks whether it
       does and to whom. Which agreement covers each processor is recorded
-- [ ] What a person asks for about their own data, beyond the access report:
+- [x] What a person asks for about their own data, beyond the access report:
       erasure ahead of the retention window on one of the grounds in GDPR
       art. 17(1), such as data no longer needed for its purpose, a consent
       withdrawn with no other basis left or an objection nothing overrides,
@@ -489,16 +499,19 @@ Free, open source, and never moved behind a paywall.
       claim, the ground a legal hold records; an objection to a processing
       (art. 21); and a restriction of it (art. 18). Recorded against the
       person with the ground the board relied on - for an erasure, the
-      art. 17(1) ground and the art. 17(3) assessment - and reaching the
-      screens the processing runs from
-- [ ] Data portability (GDPR art. 20): a machine-readable export of what a
+      art. 17(1) ground and the art. 17(3) assessment - answered within the
+      month art. 12(3) allows, and reaching the screens the processing runs
+      from: an objection stops the news mail and the text message, a granted
+      erasure brings the nightly purge forward, and a restriction stops every
+      purge from touching the person at all
+- [x] Data portability (GDPR art. 20): a machine-readable export of what a
       person gave the association under the membership contract or under their
       consent, handed to the person, who transmits it: a direct transfer to
       another controller (art. 20(2)) is required only where technically
       feasible, and no receiving standard exists between housing-cooperative
       platforms. Separate from the data subject access report, which is a
       printed document by design and stays one
-- [ ] Purging reaches issues and the document archive, both service tier; the
+- [x] Purging reaches issues and the document archive, both service tier; the
       statutory registers and the audit log stay exempt as before. An issue or
       a document is detached from the person rather than deleted: the link to
       the person and the personal data on the row go, the record stays. An
@@ -506,8 +519,9 @@ Free, open source, and never moved behind a paywall.
       rewritten: it is the record of the problem and of its handling, which
       the issue exists for, and a person it names who asks for erasure makes
       a request under art. 17, handled as the box on erasure, objection and
-      restriction above says. Both are listed in the data subject access
-      report today and neither is reached by the nightly run
+      restriction above says. A report filed through the public form is keyed
+      to nobody, so no person's clock reaches it and it is detached on one of
+      its own, a year after the board closed it
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and
@@ -578,9 +592,9 @@ Free, open source, and never moved behind a paywall.
       paths are so far proven against a catalog and packages built inside this
       repository
 
-Every box in this list is ticked except the data protection obligations above,
-which are the work left in Core v1. They stay in Core v1 and stay free: what an
-association must do to process personal data lawfully is part of the product
+Every box in this list is ticked. The data protection obligations above were
+the work left in Core v1; they stayed in Core v1 and stayed free, because what
+an association must do to process personal data lawfully is part of the product
 rather than something to pay for, on the same principle that keeps the statutory
 registers there.
 

@@ -28,9 +28,15 @@ import { z } from "zod";
  *   dropped, because a body quietly stripped of part of itself is the one
  *   answer a write path must not give.
  *
- * A block type is added to both of those and to renderBlock in site-html.tsx in
- * one change. That pairing is what makes an unknown block safe: it renders as
- * nothing rather than as something this version cannot vouch for.
+ * A block type is added in one change to four places, and the compiler only
+ * catches the first two: the PageBlock union below, renderBlock in
+ * site-html.tsx, submittedContentSchema, and readBlock. The last two are
+ * switches over a string, so a type left out of either is not an error - it is
+ * a block the write path refuses, or one that vanishes on every read while the
+ * write that stored it succeeded.
+ *
+ * That is also what makes an unknown block safe: it renders as nothing rather
+ * than as something this version cannot vouch for.
  */
 
 /**

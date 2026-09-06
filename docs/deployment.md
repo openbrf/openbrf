@@ -179,6 +179,41 @@ A named volume inherits the image's ownership and needs nothing else. A bind
 mount does not: `chown` the host directory to uid 1000 first, or the container
 refuses to start and says so.
 
+## What the configuration says about processors
+
+The association is the controller for the personal data on the instance
+(GDPR art. 4(7)). What the deployment decides is who else touches it, and the
+data protection screen reads the answer from this configuration rather than
+asking the board to remember it:
+
+- **The SMTP server.** A mailbox provider sending on the association's behalf
+  is a processor and needs an agreement under art. 28. An SMTP server the
+  association runs itself is not a separate recipient at all.
+- **The SMS provider.** The same, and an instance with none configured has no
+  recipient there to classify.
+- **File storage.** `local` keeps uploads on the instance's own volume and adds
+  nobody; S3-compatible object storage is a recipient, and which one is read
+  from the endpoint.
+- **The host.** Whoever runs the server the container runs on is a processor
+  too, and the instance cannot know who that is - the board records it.
+
+Each of those appears on the data protection screen as a recipient to be
+classified, with the agreement recorded against it. Changing the configuration
+changes what the screen asks about; it never silently reclassifies a recipient
+the board has already decided on.
+
+## The nightly purge
+
+Service-tier personal data is erased on the retention policy's clock by jobs
+that run between 03:07 and 03:53, each on a minute of its own so they do not
+wake together on one connection pool. They are ordinary queue jobs: an instance
+that was down overnight runs them when it comes back, and nothing is lost by a
+run that was interrupted, because every one of them computes what is due from
+the data rather than from a flag.
+
+The statutory registers and the audit log are outside all of it, and the
+database refuses to update or delete a row in either.
+
 ## Plugins and themes
 
 `OPENBRF_CATALOG_URL` points at the curated catalog. While the catalog
