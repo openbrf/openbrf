@@ -254,6 +254,35 @@ export class NewsSmsService implements OnModuleInit {
     delivery: { id: string; personId: string },
     message: { association: string; title: string; articleUrl: string },
   ): Promise<"sent" | "failed" | "skipped"> {
+    /*
+     * Read before the claim, for the reason the mailer beside this gives: a
+     * claim marks the row SENT, and an objection is the person saying not to
+     * try rather than an attempt that failed.
+     */
+    const objecting = await this.prisma.person.findUnique({
+      where: { id: delivery.personId },
+      select: {
+        communicationObjectionAt: true,
+        processingRestrictedAt: true,
+      },
+    });
+    // Nullish rather than strict: a row read without these columns selected
+    // means "nothing recorded", not "objecting to everything".
+    if (
+      objecting != null &&
+      (objecting.communicationObjectionAt != null ||
+        objecting.processingRestrictedAt != null)
+    ) {
+      await this.prisma.newsDelivery.updateMany({
+        where: { id: delivery.id, channel: "SMS", status: "PENDING" },
+        data: {
+          status: "FAILED",
+          failureReason: DELIVERY_FAILURES.recipientObjected,
+        },
+      });
+      return "failed";
+    }
+
     const claimed = await this.prisma.newsDelivery.updateMany({
       where: { id: delivery.id, channel: "SMS", status: "PENDING" },
       data: { status: "SENT", sentAt: new Date() },

@@ -30,4 +30,18 @@ export const DELIVERY_FAILURES = {
   noPhoneNumber: "no-phone-number",
   /** The mailing was given up on before it reached this row. */
   interrupted: "mailing-interrupted",
+  /**
+   * The person objected, or asked for a restriction, after the snapshot was
+   * taken.
+   *
+   * The snapshot doctrine is that a published item mails the members it named
+   * at publish, whatever changed afterwards - which is what makes a correction
+   * and a retry reach nobody twice. This is its one documented exception. An
+   * objection under GDPR art. 21 leaves no room to send: the association would
+   * be processing on a legitimate interest the person has objected to and that
+   * it has already decided not to defend. So the row fails with a code rather
+   * than going out, and the board's delivery report counts it as a failure -
+   * which it is, in the only sense that matters here.
+   */
+  recipientObjected: "recipient-objected",
 } as const;

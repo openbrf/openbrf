@@ -554,6 +554,45 @@ describe("who a mailing would reach", () => {
   });
 });
 
+describe("a member who has objected", () => {
+  it("is not counted and not addressed", async () => {
+    /*
+     * A news mailing rests on a legitimate interest (GDPR art. 6(1)(f)), which
+     * is exactly what art. 21 lets a person object to. The exclusion is in the
+     * snapshot rather than at the send, so the count the board is shown before
+     * it publishes and the ledger the job works from agree by construction: a
+     * member excluded only at the send would be counted as addressed and then
+     * reported as a failure.
+     */
+    await prisma.person.update({
+      where: { id: member.personId },
+      data: { communicationObjectionAt: new Date("2026-03-01T00:00:00.000Z") },
+    });
+
+    try {
+      const response = await inject({
+        method: "GET",
+        url: "/api/news/recipients",
+        headers: { cookie: boardCookie },
+      });
+      const counted = await prisma.person.count({
+        where: {
+          id: member.personId,
+          communicationObjectionAt: null,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(counted).toBe(0);
+    } finally {
+      await prisma.person.update({
+        where: { id: member.personId },
+        data: { communicationObjectionAt: null },
+      });
+    }
+  });
+});
+
 describe("publishing with the mailing asked for", () => {
   it("claims it once, snapshots the members, and records both acts", async () => {
     const item = await createNews(boardCookie, slugs.mailed);

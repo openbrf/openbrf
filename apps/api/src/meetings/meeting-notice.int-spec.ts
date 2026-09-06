@@ -559,6 +559,48 @@ describe("issuing the notice", () => {
     );
   });
 
+  it("summons a member who has objected and one whose processing is restricted", async () => {
+    /*
+     * The exemption, asserted rather than assumed.
+     *
+     * A summons is not a mailing the association chose to send: EFL 6 kap.
+     * 21-22 §§, applied by BRL 9 kap. 14 §, requires it, so it rests on GDPR
+     * art. 6(1)(c) - and art. 21 reaches only art. 6(1)(e) and (f). A
+     * restriction does not reach it either, because art. 18(2) allows what is
+     * needed to protect somebody else's rights, and the other members have a
+     * right to a lawfully convened meeting.
+     *
+     * A member left out of this ledger is a meeting that was not lawfully
+     * convened, which is a defect in the meeting and not in a mailing.
+     */
+    await prisma.person.update({
+      where: { id: author.personId },
+      data: { communicationObjectionAt: new Date("2026-03-01T00:00:00.000Z") },
+    });
+    await prisma.person.update({
+      where: { id: other.personId },
+      data: { processingRestrictedAt: new Date("2026-03-01T00:00:00.000Z") },
+    });
+
+    try {
+      const meetingId = await arrangeMeeting(["Stammans oppnande"]);
+      const notice = (await issueNotice(meetingId)).json<MeetingNoticeView>();
+
+      const ledger = await ownLedger(notice.id);
+      expect(ledger.map((row) => row.personId)).toContain(author.personId);
+      expect(ledger.map((row) => row.personId)).toContain(other.personId);
+    } finally {
+      await prisma.person.update({
+        where: { id: author.personId },
+        data: { communicationObjectionAt: null },
+      });
+      await prisma.person.update({
+        where: { id: other.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
   /**
    * The time is stated and the day is the meeting's.
    *

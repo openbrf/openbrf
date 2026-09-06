@@ -245,6 +245,39 @@ export class NewsMailerService implements OnModuleInit {
     delivery: { id: string; personId: string },
     message: { title: string; teaser: string; articleUrl: string },
   ): Promise<"sent" | "failed" | "skipped"> {
+    /*
+     * Read before the claim, and this is the one thing that is.
+     *
+     * A claim marks the row SENT, so anything read afterwards can only fail it.
+     * That is right for an address that has gone - the association tried and
+     * could not reach them - and wrong for an objection, which is the person
+     * saying not to try. So the objection is answered before the row is
+     * claimed, and the row is failed with its own code from PENDING.
+     */
+    const objecting = await this.prisma.person.findUnique({
+      where: { id: delivery.personId },
+      select: {
+        communicationObjectionAt: true,
+        processingRestrictedAt: true,
+      },
+    });
+    // Nullish rather than strict: a row read without these columns selected
+    // means "nothing recorded", not "objecting to everything".
+    if (
+      objecting != null &&
+      (objecting.communicationObjectionAt != null ||
+        objecting.processingRestrictedAt != null)
+    ) {
+      await this.prisma.newsDelivery.updateMany({
+        where: { id: delivery.id, channel: "EMAIL", status: "PENDING" },
+        data: {
+          status: "FAILED",
+          failureReason: DELIVERY_FAILURES.recipientObjected,
+        },
+      });
+      return "failed";
+    }
+
     const claimed = await this.prisma.newsDelivery.updateMany({
       where: { id: delivery.id, channel: "EMAIL", status: "PENDING" },
       data: { status: "SENT", sentAt: new Date() },
