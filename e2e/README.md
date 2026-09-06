@@ -218,7 +218,7 @@ is under test is the path a real letter takes: a message sitting in a mailbox an
 an instance that collects it. Collection is driven from the board's own "collect
 now" control rather than by waiting out the five-minute schedule, which is the
 product's control and not this suite's. The spec then asserts the whole of the
-round trip through the interface: the conversation appears with the sender the
+round trip through the interface: the thread appears with the sender the
 envelope named, a board member takes it on and the screen says who has it, the
 answer is written and sent, and the answer arrives in mailpit as real mail. Three
 properties follow it. Collecting the same mailbox again brings nothing in twice,

@@ -773,7 +773,7 @@ no, and the pilot is the thing that will change it.
         rather than quietly missing
   - [ ] Group and board chat
 - [x] Shared board mailbox: mail sent to the address the board publishes
-      arrives in the application as a conversation every board member can see,
+      arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
       answer goes out from here and stays on the thread as the record of what
       the association was asked and what it said. What makes a board address get
