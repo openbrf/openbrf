@@ -30,6 +30,7 @@ export const BOARD_PERSON_FIELDS = {
   firstName: true,
   lastName: true,
   protectedPersonalData: true,
+  processingRestrictedAt: true,
   emailCipher: true,
   phoneCipher: true,
 } as const;
@@ -47,6 +48,7 @@ export const RESIDENT_PERSON_FIELDS = {
   firstName: true,
   lastName: true,
   protectedPersonalData: true,
+  processingRestrictedAt: true,
 } as const;
 
 export const APARTMENT_FIELDS = {

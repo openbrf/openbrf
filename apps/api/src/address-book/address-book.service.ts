@@ -198,6 +198,7 @@ export class AddressBookService {
                 firstName: true,
                 lastName: true,
                 protectedPersonalData: true,
+                processingRestrictedAt: true,
               },
             },
           },
@@ -431,6 +432,7 @@ export class AddressBookService {
       firstName: string;
       lastName: string;
       protectedPersonalData: boolean;
+      processingRestrictedAt?: Date | null;
       emailCipher?: string | null;
       phoneCipher?: string | null;
       boardPositions: {
@@ -447,6 +449,7 @@ export class AddressBookService {
       firstName: input.person.firstName,
       lastName: input.person.lastName,
       protectedPersonalData: input.person.protectedPersonalData,
+      processingRestricted: input.person.processingRestrictedAt != null,
       apartment: input.apartment,
       role: input.role,
       movedInOn: input.movedInOn,

@@ -32,6 +32,7 @@ import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
 import { RegistersModule } from "./registers/registers.module";
+import { DataProtectionModule } from "./data-protection/data-protection.module";
 import { RetentionModule } from "./retention/retention.module";
 import { RolesModule } from "./roles/roles.module";
 import { SettingsModule } from "./settings/settings.module";
@@ -71,6 +72,7 @@ import { ThemesModule } from "./themes/themes.module";
     IssuesModule,
     DocumentsModule,
     RetentionModule,
+    DataProtectionModule,
     ContactModule,
     NewsModule,
     BoardModule,

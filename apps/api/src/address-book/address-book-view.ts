@@ -64,6 +64,7 @@ export type AddressBookSign =
   | "MEMBER"
   | "RESIDENT"
   | "PROTECTED"
+  | "RESTRICTED"
   | "MOVED_OUT";
 
 /** The apartment a row sits on, or null for a person without one. */
@@ -131,6 +132,8 @@ export interface AddressBookRecord {
   firstName: string;
   lastName: string;
   protectedPersonalData: boolean;
+  /** A restriction of processing stands (GDPR art. 18). */
+  processingRestricted: boolean;
   apartment: AddressBookApartment | null;
   role: ResidencyRole | null;
   movedInOn: Date | null;
@@ -210,7 +213,11 @@ export function isVisibleToResidents(
 export function signsFor(
   record: Pick<
     AddressBookRecord,
-    "boardPositions" | "role" | "protectedPersonalData" | "movedOutOn"
+    | "boardPositions"
+    | "role"
+    | "protectedPersonalData"
+    | "processingRestricted"
+    | "movedOutOn"
   >,
   today: Date,
 ): AddressBookSign[] {
@@ -232,6 +239,15 @@ export function signsFor(
   }
   if (record.protectedPersonalData) {
     signs.push("PROTECTED");
+  }
+  /*
+   * A restriction under GDPR art. 18. The board still sees the person, because
+   * art. 18(2) permits storage and because the board has to be able to handle
+   * the request - but what it may do with the row has changed, and a sign is
+   * how the register says so before somebody starts a mailing.
+   */
+  if (record.processingRestricted) {
+    signs.push("RESTRICTED");
   }
   if (hasMovedOut(record.movedOutOn, today)) {
     signs.push("MOVED_OUT");

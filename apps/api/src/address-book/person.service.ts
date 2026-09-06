@@ -10,6 +10,10 @@ import type {
   SystemRoleType,
 } from "../generated/prisma/enums";
 import type { LegalHoldView } from "../retention/legal-hold.service";
+import {
+  toDataSubjectRequestView,
+  type DataSubjectRequestView,
+} from "../data-protection/data-subject-request";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -127,6 +131,25 @@ export interface PersonDetail {
    * the retention module; only its current state travels here.
    */
   legalHold: LegalHoldView | null;
+  /**
+   * What this person has asked about their own data (GDPR art. 17, 18, 21).
+   *
+   * Beside the hold and the purge date for the same reason they are beside each
+   * other: the three are one answer to "what happens to this person's data, and
+   * when". A board member reading a purge date without the request that brought
+   * it forward, or the restriction that suspended it, would be reading a
+   * promise the instance is not keeping.
+   */
+  dataSubjectRequests: DataSubjectRequestView[];
+  /** Dated, so the panel can say since when. Null means none stands. */
+  communicationObjectionAt: string | null;
+  processingRestrictedAt: string | null;
+  /** The granted erasure the next nightly run will carry out, or null. */
+  erasureRequest: {
+    requestId: string;
+    requestedOn: string | null;
+    decidedAt: string | null;
+  } | null;
 }
 
 export interface CreatePersonInput {
@@ -204,6 +227,8 @@ export class PersonService {
         personalIdentityNumberCipher: true,
         protectedPersonalData: true,
         preferredLocale: true,
+        communicationObjectionAt: true,
+        processingRestrictedAt: true,
         systemRoles: { select: { role: true } },
         boardPositions: {
           orderBy: [{ electedOn: "desc" }],
@@ -246,6 +271,28 @@ export class PersonService {
             grantedAt: true,
             withdrawnAt: true,
             note: true,
+          },
+        },
+        dataSubjectRequests: {
+          orderBy: [{ requestedOn: "desc" }, { createdAt: "desc" }],
+          select: {
+            id: true,
+            personId: true,
+            kind: true,
+            requestedOn: true,
+            ground: true,
+            erasureGround: true,
+            issueId: true,
+            decision: true,
+            erasureException: true,
+            decisionGround: true,
+            decidedAt: true,
+            decidedByPersonId: true,
+            executedAt: true,
+            closedAt: true,
+            closeReason: true,
+            closedByPersonId: true,
+            recordedByPersonId: true,
           },
         },
         legalHolds: {
@@ -296,6 +343,9 @@ export class PersonService {
         };
 
     const pendingInvitation = person.invitations[0];
+    const requests = person.dataSubjectRequests.map((row) =>
+      toDataSubjectRequestView(row, new Date()),
+    );
 
     return {
       personId: person.id,
@@ -356,6 +406,12 @@ export class PersonService {
       },
       publicationConsents: consentStateFor(person.publicationConsents),
       legalHold: standingHold(person.legalHolds),
+      dataSubjectRequests: requests,
+      communicationObjectionAt:
+        person.communicationObjectionAt?.toISOString() ?? null,
+      processingRestrictedAt:
+        person.processingRestrictedAt?.toISOString() ?? null,
+      erasureRequest: standingErasure(requests),
     };
   }
 
@@ -629,6 +685,34 @@ export class PersonService {
  * and the history belongs on the data subject access report, where it explains
  * a gap in the erasure record.
  */
+/**
+ * The granted erasure the next nightly run will carry out, or null.
+ *
+ * Granted and not yet executed or closed - the same three conditions the purge
+ * itself selects on, so the person panel and the job cannot disagree about
+ * whether an erasure is coming.
+ */
+function standingErasure(requests: readonly DataSubjectRequestView[]): {
+  requestId: string;
+  requestedOn: string | null;
+  decidedAt: string | null;
+} | null {
+  const standing = requests.find(
+    (request) =>
+      request.kind === "ERASURE" &&
+      request.decision === "GRANTED" &&
+      request.executedAt === null &&
+      request.closedAt === null,
+  );
+  return standing === undefined
+    ? null
+    : {
+        requestId: standing.requestId,
+        requestedOn: standing.requestedOn,
+        decidedAt: standing.decidedAt,
+      };
+}
+
 function standingHold(
   holds: readonly {
     id: string;
