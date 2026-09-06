@@ -503,13 +503,30 @@ describe("breaches", () => {
       }),
     ]);
 
+    /*
+     * Exactly one, in either order. Whoever takes the lock first reads a state
+     * that passes; whoever takes it second reads what the first committed and
+     * meets the rule. If `cleared` went first the reasons are blank and the
+     * discovery date is about to move back, and if `movedBack` went first the
+     * notification is already late - so the second is refused either way.
+     *
+     * Asserted as a count rather than as a loop over whatever was refused: the
+     * interleaving this guards against is the one where both writers validate
+     * against the row as it was, and that interleaving is two 200s. A loop over
+     * an empty list is what a regression would look like.
+     */
     const refused = [movedBack, cleared].filter(
       (response) => response.statusCode !== 200,
     );
-    for (const response of refused) {
-      expect(reasonOf(response)).toBe("delay-reasons-required");
+    expect(refused).toHaveLength(1);
+    const loser = refused[0];
+    if (loser === undefined) {
+      throw new Error("The length assertion above guarantees one.");
     }
+    expect(reasonOf(loser)).toBe("delay-reasons-required");
 
+    // And the state neither order may leave behind, asserted whatever the row
+    // ended up holding rather than only where it is already wrong.
     const row = await prisma.personalDataBreach.findUniqueOrThrow({
       where: { id: view.breachId },
       select: {
@@ -522,9 +539,7 @@ describe("breaches", () => {
       row.imyNotifiedAt !== null &&
       row.imyNotifiedAt.getTime() >
         row.discoveredAt.getTime() + 72 * 60 * 60 * 1000;
-    if (late) {
-      expect((row.delayReasons ?? "").trim()).not.toBe("");
-    }
+    expect(late && (row.delayReasons ?? "").trim() === "").toBe(false);
   });
 
   it("records the notification instant the row holds, not the one the decision omitted", async () => {
