@@ -85,6 +85,15 @@ const SETTINGS: InstanceSettings = {
     passwordSet: true,
     configured: true,
   },
+  boardMailbox: {
+    address: null,
+    host: null,
+    port: null,
+    secure: true,
+    user: null,
+    passwordSet: false,
+    configured: false,
+  },
   sms: {
     driver: null,
     gatewayUrl: null,

@@ -660,6 +660,32 @@ export interface DataSubjectReport {
    * above - a comment goes a year after it was written, and a legal hold defers
    * that date without ever advancing it.
    */
+  /**
+   * Correspondence the association holds with this person's own address.
+   *
+   * Matched on the address rather than on a person reference, and the wording of
+   * the section says so: the board's mailbox records the address an envelope
+   * asserted and never resolves one to somebody in the register, so what this
+   * answers is what the association holds under this address - not a claim that
+   * this person wrote it.
+   */
+  boardMailboxThreads: {
+    threadId: string;
+    correspondentEmail: string;
+    subject: string;
+    status: "NEW" | "TAKEN" | "ANSWERED" | "CLOSED";
+    messages: {
+      direction: "INBOUND" | "OUTBOUND";
+      body: string;
+      bodyFromHtml: boolean;
+      bodyTruncated: boolean;
+      attachments: number;
+      occurredAt: string;
+    }[];
+    startedAt: string;
+    lastMessageAt: string;
+    erasableFrom: string;
+  }[];
   newsComments: {
     commentId: string;
     newsTitle: string;

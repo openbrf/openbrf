@@ -9,6 +9,7 @@ import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { AddressesPanel } from "./AddressesPanel";
 import { ApartmentsPanel } from "./ApartmentsPanel";
+import { BoardMailboxPanel } from "./BoardMailboxPanel";
 import { BookableResourcesPanel } from "./BookableResourcesPanel";
 import { BrandingPanel } from "./BrandingPanel";
 import { ContactInboxPanel } from "./ContactInboxPanel";
@@ -207,6 +208,13 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               <SmtpPanel
                 key={`smtp-${settings.smtp.host ?? ""}-${String(settings.smtp.passwordSet)}`}
                 value={settings.smtp}
+                editable={canManage}
+                onSaved={reload}
+              />
+
+              <BoardMailboxPanel
+                key={`board-mailbox-${settings.boardMailbox.host ?? ""}-${String(settings.boardMailbox.passwordSet)}`}
+                value={settings.boardMailbox}
                 editable={canManage}
                 onSaved={reload}
               />

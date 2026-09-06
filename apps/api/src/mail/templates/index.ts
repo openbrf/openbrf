@@ -2,6 +2,8 @@ export { boardMoveOutReminderMail } from "./board-move-out-reminder.template";
 export type { BoardMoveOutReminderMailProps } from "./board-move-out-reminder.template";
 export { bookingCancellationMail } from "./booking-cancellation.template";
 export type { BookingCancellationMailProps } from "./booking-cancellation.template";
+export { boardMailboxReplyMail } from "./board-mailbox-reply.template";
+export type { BoardMailboxReplyMailProps } from "./board-mailbox-reply.template";
 export { bookingConfirmationMail } from "./booking-confirmation.template";
 export type { BookingConfirmationMailProps } from "./booking-confirmation.template";
 export type { BookingMailMode, BookingMailPeriod } from "./booking-period";

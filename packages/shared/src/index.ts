@@ -20,6 +20,7 @@ export type {
   DataSubjectCategory,
   PersonalDataCategory,
 } from "./data-protection.ts";
+export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
   isValidPersonalIdentityNumber,

@@ -23,6 +23,7 @@ import {
   MIN_MEMBERS_PER_PROXY_HOLDER,
 } from "../meetings/meeting-bylaws";
 import {
+  type BoardMailboxSettingsView,
   type BrandingSettings,
   type HousingCooperativeSettings,
   type DataProtectionContacts,
@@ -74,6 +75,29 @@ const smtpSchema = z.object({
  * that answers this call holds the member register, and this is the one setting
  * that tells it to dial somewhere.
  */
+/**
+ * The mailbox the board's own address is collected from.
+ *
+ * The SMTP schema's shape. The address is validated as one because it is what a
+ * reply carries in Reply-To, and an address that is not one would send every
+ * answer the board writes into a header no mail server can act on.
+ */
+const boardMailboxSchema = z.object({
+  address: z.email().max(320).nullable(),
+  host: z.string().min(1).max(255).nullable(),
+  port: z.coerce.number().int().min(1).max(65535).nullable(),
+  secure: z.boolean(),
+  /**
+   * Bounded below as the host is, and for the same reason: the mailbox counts as
+   * configured when this is set, and an empty string would set it. A mailbox
+   * nobody signs in to is not a mailbox, and one recorded as configured offers
+   * the board a collection that can only fail.
+   */
+  user: z.string().min(1).max(255).nullable(),
+  /** Omit to keep the stored password; null or "" to clear it. */
+  password: z.string().max(200).nullish(),
+});
+
 const smsSchema = z.object({
   driver: z
     .string()
@@ -351,6 +375,23 @@ export class SettingsWriteController {
     @Req() request: RequestWithPrincipal,
   ): Promise<{ sentTo: string; host: string }> {
     return this.settings.sendTestMessage(requirePersonId(request));
+  }
+
+  /**
+   * Where the board's own address is collected from.
+   *
+   * Here rather than on the board mailbox controller, and that split is the
+   * decision. Credentials for a mail server are instance configuration, which is
+   * an administrator's by the same argument that keeps the SMTP settings and the
+   * retention policy here; what the board holds is the correspondence itself,
+   * behind `boardMailbox:handle`. A board that could write these fields could
+   * point the instance at any mailbox on the internet it had a password for.
+   */
+  @Put("board-mailbox")
+  async updateBoardMailbox(
+    @Body() body: unknown,
+  ): Promise<BoardMailboxSettingsView> {
+    return this.settings.updateBoardMailbox(boardMailboxSchema.parse(body));
   }
 
   @Put("sms")

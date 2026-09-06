@@ -116,6 +116,19 @@ export const stack = {
   /** Reachable from the app container, not from the host. */
   smtpHost: "mailpit",
   smtpPort: 1025,
+  /**
+   * The mailbox the board's address is collected from, as the application
+   * reaches it: inside the compose network, never from the host.
+   *
+   * Mailpit speaks POP3 as well as SMTP, so the same container stands in for
+   * both halves of an association's mail provider - which is what lets the board
+   * mailbox spec drive a real protocol rather than a stub. The credentials are
+   * the ones the overlay gives the container.
+   */
+  pop3Host: "mailpit",
+  pop3Port: 1110,
+  pop3User: "styrelsen",
+  pop3Password: "brevladelosen",
 } as const;
 
 /**

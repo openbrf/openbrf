@@ -80,6 +80,19 @@ describe("the external property manager", () => {
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/news");
   });
 
+  it("is never offered the board's own correspondence", () => {
+    /*
+     * The strongest form of decision 11 in this list. What arrives at the
+     * board's address is whatever a resident, a bank or an authority chose to
+     * write to their association, and a contractor engaged to fix the building
+     * has no business reading it - which is also why the issue queue they do
+     * read is a separate module: an issue is a report about the house, and a
+     * letter to the board is not.
+     */
+    expect(PROPERTY_MANAGER).not.toContain("boardMailbox:handle");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/board-mailbox");
+  });
+
   it("reaches issues without holding the reporting capability", () => {
     // They handle the association's issues; they do not live in the building,
     // so they never hold issues:report. An entry gated on that alone would hide
@@ -90,6 +103,21 @@ describe("the external property manager", () => {
 });
 
 describe("the other seats", () => {
+  it("offers the board's mailbox on the board's capability and on no other", () => {
+    /*
+     * One capability rather than an any-of list. Every resident may write to the
+     * board; none of them may read what the neighbours wrote, so neither living
+     * here nor holding the tenant-ownership opens this door - and handling issue
+     * reports does not either.
+     */
+    expect(destinations(["boardMailbox:handle"])).toContain("/board-mailbox");
+    expect(destinations(["issues:handle"])).not.toContain("/board-mailbox");
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/board-mailbox",
+    );
+    expect(destinations(["motions:submit"])).not.toContain("/board-mailbox");
+  });
+
   it("offers a resident who is not a member everything but motions", () => {
     /*
      * The capabilities a resident actually holds, and motions:submit is not among
@@ -161,11 +189,13 @@ describe("the other seats", () => {
         "motions:handle",
         "meetings:manage",
         "dataProtection:manage",
+        "boardMailbox:handle",
       ]),
     ).toEqual([
       "/",
       "/plugins",
       "/settings",
+      "/board-mailbox",
       "/issues",
       "/bookings",
       "/events",

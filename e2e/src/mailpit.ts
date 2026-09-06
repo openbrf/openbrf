@@ -121,6 +121,44 @@ export async function expectNoMessage(
   }
 }
 
+/**
+ * Puts a message into the mailbox the instance collects from.
+ *
+ * The inbound half of the board mailbox has no external mail server in this
+ * stack, and this is how it is driven without inventing a test-only endpoint in
+ * the application: mailpit's own send API accepts a message and stores it, and
+ * the application then collects it over POP3 exactly as it would collect from an
+ * association's provider. Nothing in the product knows this happened - what is
+ * under test is the real path, from a message sitting in a mailbox to a thread
+ * on the board's screen.
+ *
+ * The message is composed by mailpit rather than by this suite, which is
+ * deliberate: a fixture assembled here would be this repository reading its own
+ * output, and what the parser has to survive is somebody else's.
+ */
+export async function deliverToMailbox(message: {
+  readonly from: { readonly address: string; readonly name?: string };
+  readonly to: string;
+  readonly subject: string;
+  readonly text: string;
+}): Promise<void> {
+  const response = await fetch(`${stack.mailpitUrl}/api/v1/send`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      From: { Email: message.from.address, Name: message.from.name ?? "" },
+      To: [{ Email: message.to }],
+      Subject: message.subject,
+      Text: message.text,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `mailpit refused the inbound message: ${String(response.status)}`,
+    );
+  }
+}
+
 /** Pulls the one absolute URL out of an email body that matches a path. */
 export function linkFrom(text: string, path: string): string {
   // The whole path is escaped, not only its slashes: a path holding ".", "?"

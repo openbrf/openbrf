@@ -50,6 +50,38 @@ export interface SmtpSettings {
   configured: boolean;
 }
 
+/**
+ * The mailbox the board's own address is collected from.
+ *
+ * Beside the SMTP block because it is the same kind of setting - where this
+ * instance's correspondence goes out, and where it comes in - and changed by the
+ * same capability. What is done with the mail once it is here is the board's,
+ * behind a capability of its own.
+ */
+export interface BoardMailboxSettings {
+  /** The address the board publishes as its own. */
+  address: string | null;
+  host: string | null;
+  port: number | null;
+  /** Implicit TLS, which is what port 995 offers. */
+  secure: boolean;
+  user: string | null;
+  /** Whether a password is stored. The password itself never leaves the API. */
+  passwordSet: boolean;
+  /** Whether this instance can collect the mailbox at all. */
+  configured: boolean;
+}
+
+export interface BoardMailboxInput {
+  address: string | null;
+  host: string | null;
+  port: number | null;
+  secure: boolean;
+  user: string | null;
+  /** Undefined keeps the stored password; null clears it. */
+  password?: string | null;
+}
+
 /** How the instance sends text messages. */
 export interface SmsSettings {
   /** Which driver is selected, or null while the instance sends no SMS. */
@@ -66,6 +98,7 @@ export interface InstanceSettings {
   housingCooperative: HousingCooperativeSettings;
   branding: BrandingSettings;
   smtp: SmtpSettings;
+  boardMailbox: BoardMailboxSettings;
   sms: SmsSettings;
   retention: { daysAfterMoveOut: number };
   selfSignup: { enabled: boolean };
@@ -237,6 +270,12 @@ export function sendSmtpTest(): Promise<
   ApiResult<{ sentTo: string; host: string }>
 > {
   return apiRequest("POST", "/api/settings/smtp/test");
+}
+
+export function saveBoardMailbox(
+  input: BoardMailboxInput,
+): Promise<ApiResult<BoardMailboxSettings>> {
+  return apiRequest("PUT", "/api/settings/board-mailbox", input);
 }
 
 export function saveSms(input: SmsInput): Promise<ApiResult<SmsSettings>> {

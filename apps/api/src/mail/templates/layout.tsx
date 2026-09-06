@@ -38,8 +38,17 @@ export interface MailLayoutProps {
   /** Shown in the client's inbox preview line. */
   preview: string;
   heading: string;
-  /** Recipient's display name, for the greeting. */
-  recipientName: string;
+  /**
+   * Recipient's display name, for the greeting.
+   *
+   * Optional, because one message this instance sends goes to somebody it holds
+   * no record of: the board's answer to a letter in its shared mailbox, whose
+   * correspondent is an address an envelope asserted. Omitted, the greeting line
+   * is left out altogether rather than filled with a placeholder - a letter that
+   * opens by addressing somebody as "recipient" reads as machinery, and the
+   * point of that particular message is that a person answered.
+   */
+  recipientName?: string;
   children: ReactNode;
 }
 
@@ -108,16 +117,18 @@ export function MailLayout({
             {heading}
           </Text>
 
-          <Text
-            style={{
-              color: COLORS.ink,
-              fontSize: "15px",
-              lineHeight: 1.55,
-              margin: "0 0 16px 0",
-            }}
-          >
-            {t("email.common.greeting", { name: recipientName })}
-          </Text>
+          {recipientName === undefined ? null : (
+            <Text
+              style={{
+                color: COLORS.ink,
+                fontSize: "15px",
+                lineHeight: 1.55,
+                margin: "0 0 16px 0",
+              }}
+            >
+              {t("email.common.greeting", { name: recipientName })}
+            </Text>
+          )}
 
           {children}
 

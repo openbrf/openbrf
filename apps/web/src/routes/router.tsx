@@ -16,6 +16,7 @@ import { DocumentsRoute } from "./DocumentsRoute";
 import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
+import { BoardMailboxRoute } from "./BoardMailboxRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
@@ -265,6 +266,21 @@ const siteMenuRoute = createRoute({
  * them would put a second destination in the navigation for the same subject,
  * and the screen already renders what this account is entitled to.
  */
+/**
+ * The board's shared mailbox. Signed in here, the capability inside the screen.
+ *
+ * A route without a thread parameter, because a thread is not something to link
+ * to: the work is triage - reading down what is waiting, opening one, answering
+ * it, going back - and nothing about one conversation is addressable from
+ * outside the board.
+ */
+const boardMailboxRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/board-mailbox",
+  beforeLoad: requireSession,
+  component: BoardMailboxRoute,
+});
+
 const issuesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/issues",
@@ -512,6 +528,7 @@ const routeTree = rootRoute.addChildren([
   siteAdminRoute,
   siteMenuRoute,
   issuesRoute,
+  boardMailboxRoute,
   bookingsRoute,
   eventsRoute,
   motionsRoute,

@@ -26,9 +26,20 @@ services:
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      # Turns on the POP3 server, which is how the board mailbox spec proves the
+      # inbound half against a real protocol rather than a stub. The application
+      # collects from mailpit:1110 exactly as it would collect from an
+      # association's own provider - the settings it is given are the ordinary
+      # ones, so the path under test is the real one.
+      #
+      # The credentials are the suite's, like everything else in stack.env: this
+      # stack listens on loopback only and its volumes are destroyed at the start
+      # of every run.
+      MP_POP3_AUTH: "styrelsen:brevladelosen"
     ports:
-      # The HTTP API the suite reads messages from. Its SMTP port stays inside
-      # the compose network, where the application reaches it as mailpit:1025.
+      # The HTTP API the suite reads messages from, and posts an inbound message
+      # to. Its SMTP port stays inside the compose network, where the application
+      # reaches it as mailpit:1025, and so does its POP3 port on 1110.
       - "127.0.0.1:${E2E_MAILPIT_PORT:-8125}:8025"
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]

@@ -132,6 +132,7 @@ const SETTINGS_PANELS = [
   ["settings-addresses", "Adresser"],
   ["settings-apartments", "Lägenheter"],
   ["settings-email", "E-post"],
+  ["settings-board-mailbox", "Styrelsens gemensamma brevlåda"],
   ["settings-appearance", "Utseende"],
   ["settings-retention", "Gallring"],
   ["settings-self-signup", "Ansökningar om konto"],
@@ -1442,5 +1443,34 @@ export const SCREENS: readonly Screen[] = [
     ],
     waitFor: { panel: "Dataskyddskontakter" },
     capture: { panel: "Dataskyddskontakter" },
+  },
+  {
+    /*
+     * The board's shared mailbox, empty and not yet collecting.
+     *
+     * Empty for the reason the contact inbox above is: nothing in this walk can
+     * put a letter in it. What arrives here comes from a mailbox at the
+     * association's own provider, which a fresh instance has not been given -
+     * and the settings that would give it one are an administrator's, on the
+     * card photographed above.
+     *
+     * That makes this the honest picture of the screen rather than a poor one.
+     * It is what a board sees on the day it first opens the destination: an
+     * inbox with nothing in it, and a notice saying plainly that the instance is
+     * collecting nothing yet, which is the difference between "nobody has
+     * written" and "we are not listening" - the one distinction this screen
+     * exists to make when it is empty.
+     *
+     * The whole page, because both halves of that are the point: the state of
+     * the mailbox above, and the inbox it feeds below.
+     */
+    name: "board-mailbox",
+    as: "administrator",
+    goto: appPath("/board-mailbox"),
+    // The sentence that only exists once the inbox's own read has come back. A
+    // heading is rendered before it, so waiting for one would photograph the
+    // screen mid-load.
+    waitFor: { text: "Ingenting har skrivits till styrelsens adress." },
+    capture: "page",
   },
 ];

@@ -3,7 +3,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
-import { lockLegalHold } from "./legal-hold-lock";
+import { lockLegalHold, lockLegalHoldRegistry } from "./legal-hold-lock";
 
 /**
  * A legal hold could not be placed or released.
@@ -132,6 +132,14 @@ export class LegalHoldService {
 
     const view = await this.prisma.$transaction(async (tx) => {
       await lockLegalHold(tx, input.personId);
+      /*
+       * And the registry, for the reader that cannot name this person.
+       * Everything erased on a person's own key is ordered against this
+       * placement by the line above; the board mailbox is erased on an address
+       * an envelope asserted, discovers the person by scanning, and so has no
+       * key of this person's to take. See `legal-hold-lock.ts`.
+       */
+      await lockLegalHoldRegistry(tx);
 
       const open = await tx.legalHold.findFirst({
         where: { personId: input.personId, releasedAt: null },
