@@ -1,4 +1,9 @@
-import type { DataSubjectReport } from "../retention/data-subject-report";
+import type { TFunction } from "i18next";
+
+import type {
+  DataSubjectReport,
+  ReportDataSubjectRequest,
+} from "../retention/data-subject-report";
 
 /**
  * What a person may take with them under GDPR art. 20, projected from the
@@ -64,8 +69,26 @@ export interface DataPortabilityExport {
   motions: DataSubjectReport["motions"];
   eventSignups: DataSubjectReport["eventSignups"];
   newsComments: DataSubjectReport["newsComments"];
-  /** What they have asked about their own data, and what was decided. */
-  dataSubjectRequests: DataSubjectReport["dataSubjectRequests"];
+  /**
+   * What they have asked about their own data.
+   *
+   * What they asked and why, and not what the board answered. A decision, its
+   * ground and the dates it carries are the association's own account, which
+   * this file excludes for the same reason it excludes a board's note and a
+   * breach record. The access report carries all of it.
+   */
+  dataSubjectRequests: PortableDataSubjectRequest[];
+}
+
+/** One request, narrowed to what the person themselves supplied. */
+export interface PortableDataSubjectRequest {
+  requestId: string;
+  kind: ReportDataSubjectRequest["kind"];
+  requestedOn: string | null;
+  ground: string;
+  erasureGround: ReportDataSubjectRequest["erasureGround"];
+  /** The issue whose description names them, where that is what it was about. */
+  issueId: string | null;
 }
 
 /**
@@ -75,11 +98,12 @@ export interface DataPortabilityExport {
  * In the file itself rather than only on the screen that produced it, because
  * the file outlives the screen: somebody opening it a year later should be able
  * to tell what it is and what it is not.
+ *
+ * In the recipient's own language, like every other prose the product hands a
+ * person. The article citation beside it stays as it is: "GDPR art. 20" is a
+ * legal identifier and reads the same in both.
  */
-export const TRANSMISSION_NOTE =
-  "Handed to you to transmit yourself. A direct transfer to another " +
-  "controller under art. 20(2) applies where technically feasible, and no " +
-  "receiving standard exists between housing cooperative platforms.";
+export const TRANSMISSION_NOTE_KEY = "dataProtection.portability.transmission";
 
 /**
  * Narrows the access report to what art. 20 covers.
@@ -92,13 +116,14 @@ export const TRANSMISSION_NOTE =
  */
 export function toDataPortabilityExport(
   report: DataSubjectReport,
+  t: TFunction,
 ): DataPortabilityExport {
   return {
     about: {
       right: "GDPR art. 20",
       generatedOn: report.generatedOn,
       association: report.housingCooperative.name,
-      transmission: TRANSMISSION_NOTE,
+      transmission: t(TRANSMISSION_NOTE_KEY),
     },
     person: {
       personId: report.person.personId,
@@ -118,6 +143,13 @@ export function toDataPortabilityExport(
     motions: report.motions,
     eventSignups: report.eventSignups,
     newsComments: report.newsComments,
-    dataSubjectRequests: report.dataSubjectRequests,
+    dataSubjectRequests: report.dataSubjectRequests.map((request) => ({
+      requestId: request.requestId,
+      kind: request.kind,
+      requestedOn: request.requestedOn,
+      ground: request.ground,
+      erasureGround: request.erasureGround,
+      issueId: request.issueId,
+    })),
   };
 }

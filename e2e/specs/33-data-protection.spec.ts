@@ -495,19 +495,26 @@ test.describe("the board's own data protection records", () => {
     await page
       .getByRole("combobox", { name: "Vad personen begär" })
       .selectOption("ERASURE");
-    await page
-      .getByLabel("Personens egen grund")
-      .fill("Jag vill inte finnas kvar hos föreningen.");
+    /*
+     * Unique to this run, because nothing deletes a data-subject request and no
+     * endpoint removes one. On an OPENBRF_E2E_REUSE_STACK run the panel also
+     * shows the previous run's request against this shared fixture person, and
+     * an unscoped assertion on the state would match two rows and fail strict
+     * mode. Every assertion below reads the row carrying this ground.
+     */
+    const ground = `Jag vill inte finnas kvar hos föreningen. ${String(Date.now())}`;
+    await page.getByLabel("Personens egen grund").fill(ground);
     await page
       .getByRole("combobox", { name: "Grund enligt art. 17.1" })
       .selectOption("NO_LONGER_NECESSARY");
     await page.getByRole("button", { name: "Spara", exact: true }).click();
 
     // Recorded, waiting, and carrying the day art. 12(3) gives the board.
-    await expect(page.getByText("Väntar på svar")).toBeVisible();
-    await expect(page.getByText(/Ska besvaras senast/)).toBeVisible();
+    const requestRow = rowFor(page, ground);
+    await expect(requestRow.getByText("Väntar på svar")).toBeVisible();
+    await expect(requestRow.getByText(/Ska besvaras senast/)).toBeVisible();
 
-    await page.getByRole("button", { name: "Fatta beslut" }).click();
+    await requestRow.getByRole("button", { name: "Fatta beslut" }).click();
     await page
       .getByRole("combobox", { name: "Beslut", exact: true })
       .selectOption("GRANTED");
@@ -537,7 +544,7 @@ test.describe("the board's own data protection records", () => {
       .fill("Medlemsförteckningen får inte gallras.");
     await page.getByRole("button", { name: "Spara", exact: true }).click();
 
-    await expect(page.getByText("Avslagen")).toBeVisible();
+    await expect(requestRow.getByText("Avslagen")).toBeVisible();
   });
 
   test("a resident takes what they gave the association with them", async ({

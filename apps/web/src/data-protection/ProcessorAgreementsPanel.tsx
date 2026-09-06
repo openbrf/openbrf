@@ -206,11 +206,21 @@ function ClassifyForm({
           // Only a processor has an agreement to describe; the other two
           // classifications refuse these fields outright.
           status: isProcessor ? status : null,
-          counterparty: counterparty === "" ? null : counterparty,
+          /*
+           * Cleared with the field that carried it. Each of these is hidden by
+           * the classification the board has just chosen, and sending the value
+           * it held under the previous one would record a counterparty for a
+           * recipient the board has said is nobody's processor, or a note the
+           * screen no longer shows anybody.
+           */
+          counterparty:
+            classification === "NOT_A_PROCESSOR" || counterparty === ""
+              ? null
+              : counterparty,
           signedOn: isProcessor && signedOn !== "" ? signedOn : null,
           termsConfirmed: isProcessor ? termsConfirmed : null,
           subProcessorsAuthorised: isProcessor ? subProcessorsAuthorised : null,
-          note: note === "" ? null : note,
+          note: isProcessor || note === "" ? null : note,
         });
       }}
     >

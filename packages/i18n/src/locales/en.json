@@ -982,7 +982,8 @@
         "action": "Download my data",
         "working": "Preparing...",
         "failed": "Your data could not be prepared just now."
-      }
+      },
+      "exportFileName": "my-data"
     },
     "security": {
       "title": "Sign-in and security",
@@ -1204,9 +1205,9 @@
       "contactEmail": "Email to the association",
       "postalAddress": "Postal address",
       "officerHint": "A housing cooperative rarely needs a data protection officer (art. 37(1)). Leave the fields empty if the association has appointed none.",
-      "officerName": "Officer's name",
-      "officerEmail": "Officer's email",
-      "officerPhone": "Officer's telephone",
+      "officerName": "Data protection officer's name",
+      "officerEmail": "Data protection officer's email",
+      "officerPhone": "Data protection officer's telephone",
       "jointHint": "Joint controllership (art. 26) is unusual in a housing cooperative. Fill in both fields or neither.",
       "jointName": "Joint controller",
       "jointContact": "The joint controller's contact details",
@@ -3377,6 +3378,8 @@
       "seeded": "Follows the instance's settings until the board edits the row.",
       "retentionPrefix": "Kept:",
       "recipientsPrefix": "Recipients:",
+      "dataSubjectsPrefix": "Data subjects:",
+      "personalDataPrefix": "Personal data:",
       "thirdCountry": "Data may be transferred outside the EU and the EEA.",
       "controller": {
         "name": "Controller",
@@ -3513,6 +3516,34 @@
       "append": "Add the missing headings",
       "appending": "Adding...",
       "appendFailed": "The headings could not be added just now."
+    },
+    "portability": {
+      "transmission": "Handed to you to transmit yourself. A direct transfer to another controller under art. 20(2) applies where technically feasible, and no receiving standard exists between housing cooperative platforms."
+    },
+    "categories": {
+      "personalData": {
+        "name": "Name",
+        "apartment": "Apartment",
+        "residency": "Residency",
+        "email": "Email address",
+        "phone": "Telephone number",
+        "postalAddress": "Postal address",
+        "personalIdentityNumber": "Personal identity number",
+        "account": "Account and sessions",
+        "financial": "Charges and payments",
+        "health": "Health",
+        "photograph": "Photograph",
+        "freeText": "Free text",
+        "auditTrail": "Audit trail"
+      },
+      "dataSubject": {
+        "member": "Members",
+        "resident": "Residents",
+        "formerResident": "Former residents",
+        "boardMember": "Board members",
+        "applicant": "Applicants",
+        "external": "People outside the association"
+      }
     }
   }
 }

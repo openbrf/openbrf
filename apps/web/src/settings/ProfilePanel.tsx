@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { localDayNow } from "../bookings/booking-calendar";
 import { exportOwnData, saveOwnProfile } from "../api/instance";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import {
@@ -69,7 +70,9 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = `mina-uppgifter-${new Date().toISOString().slice(0, 10)}.json`;
+    // The viewer's own language, like every other word on this screen, and the
+    // association's calendar day rather than the browser's UTC one.
+    link.download = `${t("settings.profile.exportFileName")}-${localDayNow()}.json`;
     link.click();
     URL.revokeObjectURL(url);
     setDownloading(false);

@@ -10,8 +10,10 @@ import {
   type ErasureException,
   type ErasureGround,
 } from "../api/data-protection";
+import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, LABEL } from "../ui/controls";
+import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 
 export interface DataSubjectRequestsSectionProps {
@@ -226,12 +228,12 @@ function RequestRow({
       ) : null}
 
       {close.state.kind === "failed" ? (
-        <p className="text-small text-warn" role="status">
+        <Notice tone="danger" live>
           {t(
             REASON[close.state.failure.reason ?? ""] ??
               "register.person.requests.reasons.unknown",
           )}
-        </p>
+        </Notice>
       ) : null}
     </li>
   );
@@ -246,9 +248,15 @@ function RecordForm({
 }): ReactElement {
   const { t } = useTranslation();
   const [kind, setKind] = useState<DataSubjectRequestKind>("ERASURE");
-  const [requestedOn, setRequestedOn] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  /*
+   * The association's calendar day, not the browser's UTC one. `requestedOn`
+   * is the recorded fact about when the person asked and the art. 12(3) month
+   * is derived from it, and between local midnight and the UTC date change
+   * `toISOString` answers yesterday - which would date the request a day early
+   * and take a day off the deadline. The same Stockholm calendar the API
+   * validates the date against.
+   */
+  const [requestedOn, setRequestedOn] = useState(() => localDayNow());
   const [ground, setGround] = useState("");
   const [erasureGround, setErasureGround] = useState<ErasureGround>(
     "NO_LONGER_NECESSARY",
@@ -375,12 +383,12 @@ function RecordForm({
       </div>
 
       {save.state.kind === "failed" ? (
-        <p className="text-small text-warn" role="status">
+        <Notice tone="danger" live>
           {t(
             REASON[save.state.failure.reason ?? ""] ??
               "register.person.requests.reasons.unknown",
           )}
-        </p>
+        </Notice>
       ) : null}
     </form>
   );
@@ -482,12 +490,12 @@ function DecideForm({
       </div>
 
       {save.state.kind === "failed" ? (
-        <p className="text-small text-warn" role="status">
+        <Notice tone="danger" live>
           {t(
             REASON[save.state.failure.reason ?? ""] ??
               "register.person.requests.reasons.unknown",
           )}
-        </p>
+        </Notice>
       ) : null}
     </form>
   );

@@ -101,6 +101,29 @@ export function ProcessingActivitiesPanel({
               )}
             </div>
             <p className={HINT}>{activity.purpose}</p>
+            {/*
+             * The two the article names, in the record the article asks for.
+             * art. 30(1)(c) has the record state the categories of data
+             * subjects and the categories of personal data, so a screen that
+             * shows the purpose and the legal basis without them shows a record
+             * the board cannot check against the article.
+             */}
+            <p className={HINT}>
+              {t("dataProtection.processing.dataSubjectsPrefix")}{" "}
+              {activity.dataSubjectCategories
+                .map((category) =>
+                  t(`dataProtection.categories.dataSubject.${category}`),
+                )
+                .join(", ")}
+            </p>
+            <p className={HINT}>
+              {t("dataProtection.processing.personalDataPrefix")}{" "}
+              {activity.personalDataCategories
+                .map((category) =>
+                  t(`dataProtection.categories.personalData.${category}`),
+                )
+                .join(", ")}
+            </p>
             <p className={HINT}>
               {t("dataProtection.processing.retentionPrefix")}{" "}
               {activity.retention}

@@ -2,6 +2,7 @@ import { Controller, HttpCode, Post, Req } from "@nestjs/common";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { I18nService } from "../i18n/i18n.service";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import {
   toDataPortabilityExport,
@@ -30,7 +31,10 @@ import {
 @Controller("api/data-portability")
 @RequireCapability("self:manage")
 export class DataPortabilityController {
-  constructor(private readonly reports: DataSubjectReportService) {}
+  constructor(
+    private readonly reports: DataSubjectReportService,
+    private readonly i18n: I18nService,
+  ) {}
 
   @Post("mine")
   @HttpCode(200)
@@ -42,8 +46,15 @@ export class DataPortabilityController {
       throw new Error("The authorization guard did not attach a principal.");
     }
 
+    const report = await this.reports.portable(principal.personId);
+    /*
+     * The recipient's own language and not the request's. The file is theirs
+     * and outlives the screen that produced it, and the locale the register
+     * holds for them is what every other thing the product sends them uses.
+     */
     return toDataPortabilityExport(
-      await this.reports.portable(principal.personId),
+      report,
+      this.i18n.translatorFor(report.person.preferredLocale),
     );
   }
 }

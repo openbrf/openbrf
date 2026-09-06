@@ -982,7 +982,8 @@
         "action": "Hämta mina uppgifter",
         "working": "Hämtar...",
         "failed": "Uppgifterna kunde inte hämtas just nu."
-      }
+      },
+      "exportFileName": "mina-uppgifter"
     },
     "security": {
       "title": "Inloggning och säkerhet",
@@ -3377,6 +3378,8 @@
       "seeded": "Följer instansens inställningar tills styrelsen ändrar raden.",
       "retentionPrefix": "Bevaras:",
       "recipientsPrefix": "Mottagare:",
+      "dataSubjectsPrefix": "Registrerade:",
+      "personalDataPrefix": "Personuppgifter:",
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
       "controller": {
         "name": "Personuppgiftsansvarig",
@@ -3513,6 +3516,34 @@
       "append": "Lägg till rubrikerna som saknas",
       "appending": "Lägger till...",
       "appendFailed": "Rubrikerna kunde inte läggas till just nu."
+    },
+    "portability": {
+      "transmission": "Överlämnad till dig att föra vidare själv. En direkt överföring till en annan personuppgiftsansvarig enligt art. 20.2 gäller när det är tekniskt möjligt, och det finns ingen mottagande standard mellan plattformar för bostadsrättsföreningar."
+    },
+    "categories": {
+      "personalData": {
+        "name": "Namn",
+        "apartment": "Lägenhet",
+        "residency": "Boende",
+        "email": "E-postadress",
+        "phone": "Telefonnummer",
+        "postalAddress": "Postadress",
+        "personalIdentityNumber": "Personnummer",
+        "account": "Konto och sessioner",
+        "financial": "Avgifter och betalningar",
+        "health": "Hälsa",
+        "photograph": "Fotografi",
+        "freeText": "Fritext",
+        "auditTrail": "Loggade händelser"
+      },
+      "dataSubject": {
+        "member": "Medlemmar",
+        "resident": "Boende",
+        "formerResident": "Tidigare boende",
+        "boardMember": "Styrelseledamöter",
+        "applicant": "Sökande",
+        "external": "Personer utanför föreningen"
+      }
     }
   }
 }

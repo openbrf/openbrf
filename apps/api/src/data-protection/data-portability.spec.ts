@@ -1,7 +1,11 @@
+import type { TFunction } from "i18next";
 import { describe, expect, it } from "vitest";
 
 import type { DataSubjectReport } from "../retention/data-subject-report";
-import { TRANSMISSION_NOTE, toDataPortabilityExport } from "./data-portability";
+import {
+  TRANSMISSION_NOTE_KEY,
+  toDataPortabilityExport,
+} from "./data-portability";
 
 /**
  * What art. 20 covers, and what it does not.
@@ -62,7 +66,23 @@ const REPORT = {
   meetingAttendances: [{ attendanceId: "attendance-1" }],
   proxyAuthorisations: [{ authorisationId: "authorisation-1" }],
   auditEntries: [{ entryId: "audit-1" }],
-  dataSubjectRequests: [{ requestId: "request-1" }],
+  dataSubjectRequests: [
+    {
+      requestId: "request-1",
+      kind: "ERASURE",
+      requestedOn: "2026-09-01",
+      ground: "Jag vill inte längre finnas kvar.",
+      erasureGround: "NO_LONGER_NECESSARY",
+      issueId: null,
+      // The association's own answer, which the export must not carry.
+      decision: "REFUSED",
+      decisionGround: "Bostadsrätten är inte överlåten.",
+      decidedAt: "2026-09-03T09:00:00.000Z",
+      executedAt: null,
+      closedAt: "2026-09-03T09:00:00.000Z",
+      closeReason: "Avslagen.",
+    },
+  ],
   personalDataBreaches: [{ breachId: "breach-1" }],
   retention: {
     daysAfterMoveOut: 365,
@@ -71,9 +91,37 @@ const REPORT = {
   },
 } as unknown as DataSubjectReport;
 
+/**
+ * The key back rather than a sentence, so the cases assert which key the file
+ * carries and not one locale's wording of it.
+ */
+const t = ((key: string) => key) as unknown as TFunction;
+
+/** Every section name on the access report, as the type declares them. */
+const REPORT_SECTIONS = new Set(Object.keys(REPORT));
+
+/**
+ * Asserts a name is a section the report really has before asserting the export
+ * leaves it out.
+ *
+ * A string that matches nothing asserts nothing: rename a section on
+ * `DataSubjectReport`, carry the new name into the projection by mistake, and a
+ * bare `toBeUndefined` would stay green while statutory register content
+ * started travelling in a file a browser downloads.
+ */
+function expectLeftOnTheReport(
+  exported: Record<string, unknown>,
+  sections: readonly string[],
+): void {
+  for (const section of sections) {
+    expect(REPORT_SECTIONS).toContain(section);
+    expect(exported[section]).toBeUndefined();
+  }
+}
+
 describe("what the export carries", () => {
   it("gives back what the person provided under a consent or a contract", () => {
-    const exported = toDataPortabilityExport(REPORT);
+    const exported = toDataPortabilityExport(REPORT, t);
 
     expect(exported.person.email).toBe("astrid@exempel.se");
     expect(exported.residencies).toHaveLength(1);
@@ -88,10 +136,10 @@ describe("what the export carries", () => {
 
   it("says what it is and why it is a file rather than a transfer", () => {
     // In the file itself, because the file outlives the screen that made it.
-    const exported = toDataPortabilityExport(REPORT);
+    const exported = toDataPortabilityExport(REPORT, t);
 
     expect(exported.about.right).toBe("GDPR art. 20");
-    expect(exported.about.transmission).toBe(TRANSMISSION_NOTE);
+    expect(exported.about.transmission).toBe(TRANSMISSION_NOTE_KEY);
     expect(exported.about.association).toBe("Brf Eksemplet");
   });
 });
@@ -103,12 +151,12 @@ describe("what the export leaves on the access report", () => {
      * register, the apartment register and everything hanging off them are kept
      * because the law requires it - which is also why no erasure reaches them.
      */
-    const exported = toDataPortabilityExport(REPORT) as unknown as Record<
+    const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
       string,
       unknown
     >;
 
-    for (const section of [
+    expectLeftOnTheReport(exported, [
       "memberRegisterEntries",
       "transfers",
       "terminations",
@@ -116,25 +164,40 @@ describe("what the export leaves on the access report", () => {
       "registerReportObligations",
       "meetingAttendances",
       "proxyAuthorisations",
-    ]) {
-      expect(exported[section]).toBeUndefined();
-    }
+    ]);
   });
 
   it("carries nothing the association wrote about the person", () => {
     // A board's note, a hold, an audit trail and a breach record are the
     // association's own account. Art. 15 shows them; art. 20 does not give
     // them back, because the person never provided them.
-    const exported = toDataPortabilityExport(REPORT) as unknown as Record<
+    const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
       string,
       unknown
     >;
 
-    expect(exported["legalHolds"]).toBeUndefined();
-    expect(exported["auditEntries"]).toBeUndefined();
-    expect(exported["personalDataBreaches"]).toBeUndefined();
-    expect(exported["boardPositions"]).toBeUndefined();
-    expect(exported["systemRoles"]).toBeUndefined();
+    expectLeftOnTheReport(exported, [
+      "legalHolds",
+      "auditEntries",
+      "personalDataBreaches",
+      "boardPositions",
+      "systemRoles",
+    ]);
+
+    // And the board's own answer, on a section the export does carry: the
+    // request is the person's, the decision on it is the association's.
+    const request = toDataPortabilityExport(REPORT, t)
+      .dataSubjectRequests[0] as Record<string, unknown> | undefined;
+    for (const field of [
+      "decision",
+      "decisionGround",
+      "decidedAt",
+      "executedAt",
+      "closedAt",
+      "closeReason",
+    ]) {
+      expect(request?.[field]).toBeUndefined();
+    }
   });
 
   it("carries no personal identity number, although the person gave it", () => {
@@ -144,7 +207,7 @@ describe("what the export leaves on the access report", () => {
      * throughout is that it leaves the register only through the audited
      * reveal, never into a file a browser downloads.
      */
-    const serialised = JSON.stringify(toDataPortabilityExport(REPORT));
+    const serialised = JSON.stringify(toDataPortabilityExport(REPORT, t));
 
     expect(serialised).not.toContain("19850101-0017");
     expect(serialised).not.toContain("personalIdentityNumber");

@@ -1,3 +1,8 @@
+import type {
+  DataSubjectCategory,
+  PersonalDataCategory,
+} from "@openbrf/shared";
+
 import { apiRequest, type ApiResult } from "./client";
 
 /**
@@ -115,8 +120,13 @@ export interface ProcessingActivityView {
   purpose: string;
   legalBasis: LegalBasis;
   legalBasisNote: string | null;
-  dataSubjectCategories: string[];
-  personalDataCategories: string[];
+  /*
+   * The shared vocabulary and not `string[]`, because the screen renders each
+   * of them through a translation key: a value outside the list would be a key
+   * that does not exist, and the type is what says so at build time.
+   */
+  dataSubjectCategories: DataSubjectCategory[];
+  personalDataCategories: PersonalDataCategory[];
   recipients: string | null;
   thirdCountryTransfer: boolean;
   thirdCountrySafeguards: string | null;

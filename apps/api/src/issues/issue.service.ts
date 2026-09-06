@@ -293,7 +293,7 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const existing = await this.prisma.issue.findUnique({
       where: { id: issueId },
-      select: { id: true },
+      select: { id: true, closedAt: true },
     });
     if (existing === null) {
       throw new IssueError("No such issue.", "issue-not-found");
@@ -310,8 +310,14 @@ export class IssueService {
          * clock on a public-form report has to run on: detaching a reporter
          * from a neighbouring issue is an update, so a clock reading updatedAt
          * would push its own purge date away every night the purge ran.
+         *
+         * Set on the move into DONE and not on every request that names it.
+         * A board member clicking twice, or a retry, would otherwise put a new
+         * date on an issue nobody reopened, and a clock that resets when
+         * somebody presses the same button again is not a clock: the reporter's
+         * contact details would be kept past the window the policy states.
          */
-        closedAt: status === "DONE" ? new Date() : null,
+        closedAt: status === "DONE" ? (existing.closedAt ?? new Date()) : null,
       },
       include: ISSUE_INCLUDE,
     });

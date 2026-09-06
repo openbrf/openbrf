@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { I18nService } from "../i18n/i18n.service";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
@@ -275,10 +276,22 @@ describe("exporting your own data", () => {
     });
 
     const exported = response.json<DataPortabilityExport>();
+    // The article citation is a legal identifier and reads the same in both
+    // languages; the sentence beside it does not.
     expect(exported.about.right).toBe("GDPR art. 20");
-    // Art. 20(2) applies where technically feasible, and Recital 68 creates no
-    // obligation to build a compatible system.
-    expect(exported.about.transmission).toContain("art. 20(2)");
+    /*
+     * Art. 20(2) applies where technically feasible, and Recital 68 creates no
+     * obligation to build a compatible system. Asserted in the recipient's own
+     * language, which is what the file is written in: the fixture person's
+     * locale is the register's, and the Swedish record cites the paragraph the
+     * Swedish way.
+     */
+    expect(exported.about.transmission).toBe(
+      app.get(I18nService).translatorFor(exported.person.preferredLocale)(
+        "dataProtection.portability.transmission",
+      ),
+    );
+    expect(exported.about.transmission).toContain("art. 20");
   });
 
   it("writes an entry naming the person as both actor and subject", async () => {
