@@ -1,5 +1,8 @@
 import { Module } from "@nestjs/common";
 
+import { BreachReminderService } from "./breach-reminder.service";
+import { BreachService } from "./breach.service";
+import { DataProtectionController } from "./data-protection.controller";
 import { DataSubjectRequestController } from "./data-subject-request.controller";
 import { DataSubjectRequestService } from "./data-subject-request.service";
 
@@ -27,8 +30,8 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
  * processing when an instance is first configured.
  */
 @Module({
-  controllers: [DataSubjectRequestController],
-  providers: [DataSubjectRequestService],
+  controllers: [DataProtectionController, DataSubjectRequestController],
+  providers: [BreachService, BreachReminderService, DataSubjectRequestService],
   exports: [DataSubjectRequestService],
 })
 export class DataProtectionModule {}

@@ -61,6 +61,12 @@
       "body": "{{name}} moved out of apartment {{apartment}} on {{movedOutOn}}. Service data is scheduled for erasure on {{purgeOn}}.",
       "action": "Open the address book"
     },
+    "breachReminder": {
+      "subject": "A personal data breach is awaiting your decision: {{title}}",
+      "heading": "A personal data breach is awaiting a decision",
+      "body": "The association became aware of {{title}} on {{discoveredAt}}. IMY is notified without undue delay and, where feasible, within 72 hours of that, which falls on {{notifyBy}} - unless the board finds the breach unlikely to result in a risk to the people concerned. Nothing has been decided yet.",
+      "action": "Open the data protection records"
+    },
     "contactSubmission": {
       "subject": "{{sender}} has written to the association",
       "heading": "A message from the website",

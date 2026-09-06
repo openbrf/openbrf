@@ -61,6 +61,12 @@
       "body": "{{name}} flyttade ut från lägenhet {{apartment}} den {{movedOutOn}}. Tjänstedata är schemalagd för gallring {{purgeOn}}.",
       "action": "Öppna adressboken"
     },
+    "breachReminder": {
+      "subject": "En personuppgiftsincident väntar på beslut: {{title}}",
+      "heading": "En personuppgiftsincident väntar på beslut",
+      "body": "Föreningen fick kännedom om {{title}} den {{discoveredAt}}. IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från dess, vilket infaller {{notifyBy}} - om inte styrelsen bedömer att incidenten sannolikt inte medför någon risk för de registrerade. Något beslut är ännu inte fattat.",
+      "action": "Öppna dataskyddsuppgifterna"
+    },
     "contactSubmission": {
       "subject": "{{sender}} har skrivit till föreningen",
       "heading": "Ett meddelande från webbplatsen",
