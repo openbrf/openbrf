@@ -16,13 +16,22 @@ export interface RegisterReportObligationMailProps {
    * the recipient's own language: a kind rendered by the sender would be in
    * whichever language the board member who recorded the event reads.
    */
-  kind: "GRANT" | "TRANSFER" | "TERMINATION";
+  kind: "GRANT" | "TRANSFER" | "TERMINATION" | "TRANSFER_REVERSAL";
   /** Address and apartment number, as the apartment register designates it. */
   designation: string;
-  /** The day the statutory window opened. */
+  /** The day the statutory window opened, or the day the duty otherwise arose. */
   triggeredOn: Date;
-  /** The day it closes. */
-  dueOn: Date;
+  /**
+   * The day it closes, or null where the section imposing the duty sets no
+   * period.
+   *
+   * Lag (2026:484) 3 kap. 3 § tredje stycket says the association "ska anmala"
+   * that a registered overlatelse has been havd or gone back to the seller, and
+   * names no period; every other reporting sentence in the chapter says "inom
+   * tva veckor". The message then states the duty and the day it arose and
+   * stops, on a sentence of its own, rather than printing a deadline nobody set.
+   */
+  dueOn: Date | null;
 }
 
 /**
@@ -67,12 +76,22 @@ export const registerReportObligationMail: MailTemplate<RegisterReportObligation
               margin: "0 0 8px 0",
             }}
           >
-            {t("email.registerReportObligation.body", {
-              event: t(`email.registerReportObligation.event.${props.kind}`),
-              apartment: props.designation,
-              triggeredOn: formatDate(props.triggeredOn),
-              dueOn: formatDate(props.dueOn),
-            })}
+            {props.dueOn === null
+              ? t("email.registerReportObligation.bodyUndated", {
+                  event: t(
+                    `email.registerReportObligation.event.${props.kind}`,
+                  ),
+                  apartment: props.designation,
+                  triggeredOn: formatDate(props.triggeredOn),
+                })
+              : t("email.registerReportObligation.body", {
+                  event: t(
+                    `email.registerReportObligation.event.${props.kind}`,
+                  ),
+                  apartment: props.designation,
+                  triggeredOn: formatDate(props.triggeredOn),
+                  dueOn: formatDate(props.dueOn),
+                })}
           </Text>
 
           <Text
@@ -83,7 +102,16 @@ export const registerReportObligationMail: MailTemplate<RegisterReportObligation
               margin: "0 0 8px 0",
             }}
           >
-            {t("email.registerReportObligation.lateNotice")}
+            {/*
+              The fine 3 kap. 10 § allows is for a late anmalan "for registrering
+              av upplatelse eller overgang" or of a bostadsratt having ceased. A
+              reversal under 3 kap. 3 § tredje stycket is none of those and has
+              no deadline to be late against, so the sentence about a vite is not
+              sent with it.
+            */}
+            {props.dueOn === null
+              ? t("email.registerReportObligation.noDeadlineNotice")
+              : t("email.registerReportObligation.lateNotice")}
           </Text>
 
           <MailAction

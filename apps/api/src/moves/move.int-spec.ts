@@ -481,8 +481,10 @@ describe("an upplatelse and an overgang are different events", () => {
     expect(obligation.triggeredOn.toISOString().slice(0, 10)).not.toBe(
       movedInOn,
     );
-    // "inom tva veckor", which the table also states as a CHECK.
-    expect(obligation.dueOn.toISOString().slice(0, 10)).toBe("2026-04-21");
+    // "inom tva veckor", which the table also states as a CHECK. Not null: the
+    // deadline is nullable only for the one duty 3 kap. sets no period for, and
+    // an upplatelse is not it.
+    expect(obligation.dueOn?.toISOString().slice(0, 10)).toBe("2026-04-21");
   });
 
   it("refuses a grant that names a seller", async () => {

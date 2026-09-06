@@ -138,6 +138,55 @@ describe("daysUntilDue", () => {
   });
 });
 
+describe("a duty the statute sets no deadline for", () => {
+  /*
+   * Lag (2026:484) 3 kap. 3 § tredje stycket: "Bostadsrattsforeningen ska anmala
+   * om en overlatelse som har registrerats har havts eller atergatt till
+   * saljaren utan att talan vackts i domstol." It names no period, where 2 §,
+   * the rest of 3 § and 4 § each say "inom tva veckor". A deadline read into it
+   * by analogy would be a statutory date nobody enacted, on a ledger row nothing
+   * can correct.
+   */
+
+  it("is outstanding rather than due or overdue", () => {
+    expect(
+      reportState({
+        dueOn: null,
+        reportedOn: null,
+        now: afternoon("2027-06-18"),
+      }),
+    ).toBe("outstanding");
+  });
+
+  it("stays outstanding however much time passes", () => {
+    // The state a "due" reading would flip on. A duty with no deadline cannot
+    // become late, and 3 kap. 10 §'s vite does not reach this anmalan.
+    expect(
+      reportState({
+        dueOn: null,
+        reportedOn: null,
+        now: afternoon("2099-01-01"),
+      }),
+    ).toBe("outstanding");
+  });
+
+  it("becomes reported once somebody states the anmalan was made", () => {
+    expect(
+      reportState({
+        dueOn: null,
+        reportedOn: column("2027-07-01"),
+        now: afternoon("2027-07-02"),
+      }),
+    ).toBe("reported");
+  });
+
+  it("has no day count at all", () => {
+    // Null and not zero. Zero renders as "due today" on the queue, which would
+    // state a deadline of today for a duty that has none.
+    expect(daysUntilDue(null, afternoon("2027-06-18"))).toBeNull();
+  });
+});
+
 describe("compareByDeadline", () => {
   it("puts the earliest deadline first, so an overdue duty leads", () => {
     const rows = [
@@ -160,6 +209,35 @@ describe("compareByDeadline", () => {
     const rows = [
       { id: "second", dueOn: column("2027-06-01") },
       { id: "first", dueOn: column("2027-06-01") },
+    ];
+
+    expect([...rows].sort(compareByDeadline).map((row) => row.id)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  it("puts an undated duty after every dated one", () => {
+    // However far off the dated deadline is. Nothing about a duty with no
+    // deadline is closer to a fine than one with a date, so it must not lead the
+    // list a board works from the top.
+    const rows = [
+      { id: "undated", dueOn: null },
+      { id: "far", dueOn: column("2099-01-01") },
+      { id: "near", dueOn: column("2027-05-01") },
+    ];
+
+    expect([...rows].sort(compareByDeadline).map((row) => row.id)).toEqual([
+      "near",
+      "far",
+      "undated",
+    ]);
+  });
+
+  it("orders two undated duties by identifier, so two reads agree", () => {
+    const rows = [
+      { id: "second", dueOn: null },
+      { id: "first", dueOn: null },
     ];
 
     expect([...rows].sort(compareByDeadline).map((row) => row.id)).toEqual([

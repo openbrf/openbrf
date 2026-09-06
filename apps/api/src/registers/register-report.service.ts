@@ -114,13 +114,21 @@ export interface RegisterReportDuty {
   apartmentId: string;
   /** Address and apartment number, as the apartment register designates it. */
   designation: string;
-  /** The register event the report is about. Exactly one of the two is set. */
+  /** The register event the report is about. Exactly one of the three is set. */
   transferId: string | null;
   terminationId: string | null;
-  /** The day the statutory window opened. */
+  reversalId: string | null;
+  /** The day the statutory window opened, or the day the duty otherwise arose. */
   triggeredOn: string;
-  /** The day it closes: `triggeredOn` plus fourteen days. */
-  dueOn: string;
+  /**
+   * The day it closes: `triggeredOn` plus fourteen days.
+   *
+   * Null on the one duty the statute sets no period for - a registered
+   * overlatelse having been havd or gone back to the seller, Lag (2026:484)
+   * 3 kap. 3 § tredje stycket. The screen states it as owed without a day rather
+   * than rendering an empty cell in a deadline column.
+   */
+  dueOn: string | null;
   state: ReportState;
   /**
    * Calendar days from today to the deadline. Zero on the last day of the
@@ -130,8 +138,11 @@ export interface RegisterReportDuty {
    * state cannot disagree: both come from the same clock on the same read, and a
    * browser whose own clock is a day out would otherwise render a duty as due
    * with "1 day overdue" beside it.
+   *
+   * Null where `dueOn` is. A count of days towards a deadline that was never set
+   * is the one number this must not produce.
    */
-  daysUntilDue: number;
+  daysUntilDue: number | null;
   /**
    * The day the anmalan was stated to have reached Lantmateriet, or null.
    *
@@ -143,11 +154,48 @@ export interface RegisterReportDuty {
   reportedOn: string | null;
 }
 
+/**
+ * An overgang the association does not report, and who does.
+ *
+ * Lag (2026:484) 3 kap. 3 § forsta stycket: "En overgang till en sadan juridisk
+ * person som avses i 6 kap. 1 § andra stycket bostadsrattslagen (1991:614) ska
+ * dock anmalas for registrering av den juridiska personen." That is a juridical
+ * person which acquired the bostadsratt at an executive sale or a forced sale
+ * under BRL 8 kap. and held a lien in it then.
+ *
+ * On the queue and deliberately not in the ledger. A ledger row would be a
+ * deadline the association does not owe, on a table nothing can correct, and the
+ * board could never discharge it - recording a report made is a board member
+ * stating that they made one. But an overgang that simply vanishes from every
+ * screen is worse than one that says whose duty it is: a board that has recorded
+ * the case and then sees nothing has no way to tell that from having forgotten
+ * to record it.
+ *
+ * Read from the transfer rather than the ledger, and carrying no personal data,
+ * so this service still reads no person row - which is what makes that property
+ * of the queue structural rather than a promise.
+ */
+export interface RegisterReportElsewhere {
+  transferId: string;
+  apartmentId: string;
+  /** Address and apartment number, as the apartment register designates it. */
+  designation: string;
+  /** The day of the overgang, which is what the juridical person reports from. */
+  transferredOn: string;
+}
+
 export interface RegisterReportQueue {
   /** The association's calendar day the states were computed against. */
   generatedOn: string;
-  counts: { overdue: number; due: number; reported: number };
+  counts: {
+    overdue: number;
+    due: number;
+    outstanding: number;
+    reported: number;
+  };
   duties: RegisterReportDuty[];
+  /** Overgangar the statute assigns to somebody else. See the type above. */
+  reportedElsewhere: RegisterReportElsewhere[];
 }
 
 /**
@@ -190,6 +238,7 @@ export class RegisterReportService {
         apartmentId: true,
         transferId: true,
         terminationId: true,
+        reversalId: true,
         triggeredOn: true,
         dueOn: true,
         apartment: {
@@ -204,6 +253,28 @@ export class RegisterReportService {
     const reported = await this.reportedDays(
       obligations.map((obligation) => obligation.id),
     );
+
+    /*
+     * The overgangar the statute puts on somebody else. A separate read because
+     * they are not in the ledger and must not be: see RegisterReportElsewhere.
+     * Ordered by the day of the overgang and then by id, so the list is stable
+     * across reads the way the duties above it are.
+     */
+    const elsewhere = await this.prisma.transfer.findMany({
+      where: { reportBasis: "LIENHOLDING_JURIDICAL_PERSON" },
+      orderBy: [{ transferredOn: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        apartmentId: true,
+        transferredOn: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
+    });
 
     /*
      * Ordered twice, and both are load-bearing. The database orders by dueOn so
@@ -225,8 +296,9 @@ export class RegisterReportService {
           designation: `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`,
           transferId: obligation.transferId,
           terminationId: obligation.terminationId,
+          reversalId: obligation.reversalId,
           triggeredOn: isoDate(obligation.triggeredOn) ?? "",
-          dueOn: isoDate(obligation.dueOn) ?? "",
+          dueOn: isoDate(obligation.dueOn),
           state: reportState({
             dueOn: obligation.dueOn,
             reportedOn: reportedOn === null ? null : new Date(reportedOn),
@@ -249,9 +321,17 @@ export class RegisterReportService {
       counts: {
         overdue: duties.filter((duty) => duty.state === "overdue").length,
         due: duties.filter((duty) => duty.state === "due").length,
+        outstanding: duties.filter((duty) => duty.state === "outstanding")
+          .length,
         reported: duties.filter((duty) => duty.state === "reported").length,
       },
       duties,
+      reportedElsewhere: elsewhere.map((transfer) => ({
+        transferId: transfer.id,
+        apartmentId: transfer.apartmentId,
+        designation: `${transfer.apartment.address.street} ${transfer.apartment.address.number} ${transfer.apartment.number}`,
+        transferredOn: isoDate(transfer.transferredOn) ?? "",
+      })),
     };
   }
 
@@ -286,6 +366,7 @@ export class RegisterReportService {
         apartmentId: true,
         transferId: true,
         terminationId: true,
+        reversalId: true,
         triggeredOn: true,
         dueOn: true,
         apartment: {
@@ -338,10 +419,15 @@ export class RegisterReportService {
         apartmentId: obligation.apartmentId,
         transferId: obligation.transferId,
         terminationId: obligation.terminationId,
+        reversalId: obligation.reversalId,
         // The day stated, which is the whole content of the act, and the two
         // dates it is measured against. Carried here as well as on the ledger
         // row because this entry is the only record of the discharge, and
         // whether it was in time should be answerable from the entry itself.
+        // The deadline is null on the one duty Lag (2026:484) 3 kap. sets no
+        // period for, and the entry states that null rather than leaving the key
+        // out: an absent field would read as an older build that did not write
+        // one.
         reportedOn,
         triggeredOn: isoDate(obligation.triggeredOn),
         dueOn: isoDate(obligation.dueOn),
@@ -355,8 +441,9 @@ export class RegisterReportService {
       designation: `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`,
       transferId: obligation.transferId,
       terminationId: obligation.terminationId,
+      reversalId: obligation.reversalId,
       triggeredOn: isoDate(obligation.triggeredOn) ?? "",
-      dueOn: isoDate(obligation.dueOn) ?? "",
+      dueOn: isoDate(obligation.dueOn),
       state: "reported",
       daysUntilDue: daysUntilDue(obligation.dueOn, now),
       reportedOn,

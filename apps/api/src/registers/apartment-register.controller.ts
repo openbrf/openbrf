@@ -18,6 +18,7 @@ import {
   ApartmentRegisterService,
   type ApartmentRegisterTermination,
   type ApartmentRegisterTransfer,
+  type ApartmentRegisterTransferReversal,
 } from "./apartment-register.service";
 
 const scopeSchema = z.object({
@@ -66,14 +67,67 @@ const terminationSchema = z.object({
   reference: z.string().trim().min(1).max(500),
 });
 
-const membershipDecisionSchema = z.object({
+/**
+ * Which case of Lag (2026:484) 3 kap. 3 § an overgang falls in.
+ *
+ * A literal union rather than the generated enum, for the reason the termination
+ * schema above gives: a schema reading whatever the enum happens to hold widens
+ * silently the day a value is added, and this one states which sentence of a
+ * statute the association is acting under.
+ *
+ * The date is optional here and required by the service, because which of the
+ * two it is depends on the case: the ordinary one runs its window from the
+ * membership decision and the rest run it from the overgang. Stated once, in the
+ * service, so the two cannot disagree - and refused rather than dropped, since a
+ * date silently discarded is a statutory value the board believes it recorded.
+ */
+const reportBasisSchema = z.object({
   transferId: z.string().min(1),
-  membershipDecidedOn: isoDate,
+  basis: z.enum([
+    "MEMBERSHIP_DECISION",
+    "ALREADY_MEMBER",
+    "OUTSIDE_MEMBERSHIP_REQUIREMENT",
+    "TO_THE_ASSOCIATION",
+    "LIENHOLDING_JURIDICAL_PERSON",
+  ]),
+  membershipDecidedOn: isoDate.nullish(),
+});
+
+/**
+ * Recording that a registered overlatelse has been havd or has gone back to the
+ * seller (Lag (2026:484) 3 kap. 3 § tredje stycket).
+ *
+ * The two grounds are a literal union for the same reason, and the reference is
+ * trimmed and non-empty to match the CHECK on the column, as the termination's
+ * is: the service trims before it writes, so a value of spaces would otherwise
+ * reach the database as an empty string and surface as a driver error.
+ */
+const transferReversalSchema = z.object({
+  transferId: z.string().min(1),
+  kind: z.enum(["RESCINDED", "RETURNED_TO_SELLER"]),
+  reversedOn: isoDate,
+  reference: z.string().trim().min(1).max(500),
 });
 
 const propertyDesignationSchema = z.object({
   /** Null clears it, which is how a designation recorded in error is undone. */
   propertyDesignation: z.string().trim().max(200).nullable(),
+});
+
+/**
+ * On what footing the association's buildings stand on their land, and the two
+ * fields Forordning (2026:898) 2 kap. 4 § andra stycket reports on the strength
+ * of one of the three answers.
+ *
+ * Null on the tenure clears it, the way the designation's null does. The two
+ * text fields are nullish so a request that is only correcting the tenure need
+ * not restate them, and the service clears them where the tenure stops being the
+ * one that reports them.
+ */
+const landTenureSchema = z.object({
+  landTenure: z.enum(["OWNERSHIP", "SITE_LEASEHOLD", "OTHER"]).nullable(),
+  taxAssessmentUnitNumber: z.string().trim().max(200).nullish(),
+  propertyType: z.string().trim().max(200).nullish(),
 });
 
 /**
@@ -193,21 +247,47 @@ export class ApartmentRegisterController {
   }
 
   /**
-   * Records the day the association decided on an acquirer's membership.
+   * Records which case of Lag (2026:484) 3 kap. 3 § an overgang falls in, and
+   * with it the day the association decided on membership where that case has
+   * one.
    *
-   * A POST although it sets one field on an existing row: it is the act of
-   * recording a board decision, it is audited, and it is refused if the date is
-   * already there.
+   * A POST although it sets two fields on an existing row: it is the act of
+   * recording a board decision, it is audited, and it is refused if the case is
+   * already stated.
+   *
+   * The route keeps its old path. It is the same act widened - the ordinary case
+   * is what it always recorded - and moving it would break a bookmark on a board
+   * screen for a rename.
    */
   @Post("membership-decision")
   @HttpCode(200)
   @RequireCapability("apartmentRegister:read", "addressBook:write")
-  async recordMembershipDecision(
+  async recordReportBasis(
     @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
   ): Promise<ApartmentRegisterTransfer> {
-    return this.register.recordMembershipDecision({
-      ...membershipDecisionSchema.parse(body),
+    return this.register.recordReportBasis({
+      ...reportBasisSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Records that a registered overlatelse has been havd or has gone back to the
+   * seller.
+   *
+   * Behind the same pair of capabilities as a termination, and for that route's
+   * reason: this writes a row the database will not let anyone update or delete
+   * afterwards.
+   */
+  @Post("transfer-reversals")
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordTransferReversal(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ApartmentRegisterTransferReversal> {
+    return this.register.recordTransferReversal({
+      ...transferReversalSchema.parse(body),
       actorPersonId: actingPersonId(request),
     });
   }
@@ -230,6 +310,32 @@ export class ApartmentRegisterController {
     const { propertyDesignation } = propertyDesignationSchema.parse(body);
     return this.register.recordPropertyDesignation({
       propertyDesignation,
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Records on what footing the association's buildings stand on their land,
+   * and the two fields that answer makes reportable.
+   *
+   * Beside the property designation and not in the settings module, for the
+   * reason that route gives: Forordning (2026:898) 2 kap. 4 § andra stycket
+   * decides on this answer whether the designation is reported at all, so the
+   * two are one register question asked in two places.
+   */
+  @Post("land-tenure")
+  @HttpCode(200)
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordLandTenure(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<{
+    landTenure: "OWNERSHIP" | "SITE_LEASEHOLD" | "OTHER" | null;
+    taxAssessmentUnitNumber: string | null;
+    propertyType: string | null;
+  }> {
+    return this.register.recordLandTenure({
+      ...landTenureSchema.parse(body),
       actorPersonId: actingPersonId(request),
     });
   }

@@ -72,6 +72,7 @@ const EMPTY_REPORT: Report = {
   account: null,
   memberRegisterEntries: [],
   transfers: [],
+  transferReversals: [],
   terminations: [],
   lienNotes: [],
   registerReportObligations: [],
@@ -103,6 +104,9 @@ const FULL_REPORT: Report = {
       // The day the two-week reporting window opened for this transfer, which
       // is not the day the transfer completed.
       membershipDecidedOn: "2020-02-18",
+      // And which case of Lag (2026:484) 3 kap. 3 § it is, which is what says
+      // the day above is the one the window ran from.
+      reportBasis: "MEMBERSHIP_DECISION",
       price: "2950000.00",
       agreementReference: "Overlatelseavtal 2020-7",
     },
@@ -119,8 +123,25 @@ const FULL_REPORT: Report = {
       kind: "GRANT",
       transferredOn: "2013-01-10",
       membershipDecidedOn: null,
+      // An upplatelse is reported under 3 kap. 2 §, which has no cases.
+      reportBasis: null,
       price: null,
       agreementReference: "Upplatelseavtal 2013-1",
+    },
+  ],
+  transferReversals: [
+    {
+      /*
+       * The transfer above, gone back to the seller. On the report in both
+       * directions, unlike the case and the decision date: it is an event about
+       * the transfer itself and states no fact about the other party.
+       */
+      reversalId: "reversal-1",
+      transferId: "transfer-1",
+      apartment: "Storgatan 12 1201",
+      kind: "RETURNED_TO_SELLER",
+      reversedOn: "2020-09-15",
+      reference: "Aterganget avtal 2020-7",
     },
   ],
   terminations: [
@@ -158,6 +179,18 @@ const FULL_REPORT: Report = {
       apartment: "Storgatan 12 1201",
       triggeredOn: "2026-02-01",
       dueOn: "2026-02-15",
+    },
+    {
+      /*
+       * The reversal's own duty. 3 kap. 3 § tredje stycket says the association
+       * "ska anmala" and names no period, where every other reporting sentence
+       * in the chapter says "inom tva veckor", so this row has no last day.
+       */
+      obligationId: "obligation-3",
+      kind: "TRANSFER_REVERSAL",
+      apartment: "Storgatan 12 1201",
+      triggeredOn: "2020-09-15",
+      dueOn: null,
     },
   ],
   housingCooperative: {
@@ -806,19 +839,68 @@ describe("what the document prints", () => {
       .getByText("Anmälningsskyldigheter till bostadsrättsregistret")
       .closest("section")
       ?.querySelectorAll("tbody tr");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows?.[0]?.textContent).toContain("2020-02-18");
     expect(rows?.[0]?.textContent).toContain("2020-03-03");
     expect(rows?.[0]?.textContent).toContain("Överlåtelse");
     expect(rows?.[1]?.textContent).toContain("2026-02-01");
     expect(rows?.[1]?.textContent).toContain("2026-02-15");
     expect(rows?.[1]?.textContent).toContain("Upphörande");
+    // The duty Lag (2026:484) 3 kap. 3 § tredje stycket sets no period for. Its
+    // deadline column says the statute sets none rather than carrying a date
+    // computed from a sentence that names none - and rather than the document's
+    // "not recorded" mark, which would say a deadline exists and was not
+    // written down.
+    expect(rows?.[2]?.textContent).toContain("2020-09-15");
+    expect(rows?.[2]?.textContent).toContain(
+      "Hävd eller återgången överlåtelse",
+    );
+    expect(rows?.[2]?.textContent).not.toContain("2020-09-29");
+    expect(rows?.[2]?.textContent).toContain(
+      i18n.t("register.person.report.noDeadline"),
+    );
+    expect(rows?.[2]?.textContent).not.toContain(
+      i18n.t("register.person.report.nothing"),
+    );
 
     // And the retention sentence that covers them, naming the reports among
     // what no setting and no administrator reaches.
     expect(
       screen.getByText(/anmälningsskyldigheterna till bostadsrättsregistret/),
     ).not.toBeNull();
+  });
+
+  it("prints a transfer reversal as an event of its own", async () => {
+    /*
+     * The overlatelse happened and it went back, and the document has to say
+     * both: a report that replaced the transfer with its reversal would state
+     * that a person never acquired a bostadsratt they did acquire.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const rows = screen
+      .getByText("Hävda och återgångna överlåtelser")
+      .closest("section")
+      ?.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.textContent).toContain("2020-09-15");
+    expect(rows?.[0]?.textContent).toContain("Aterganget avtal 2020-7");
+    // The transfer it undid is still on the document.
+    expect(screen.getByText("Overlatelseavtal 2020-7")).not.toBeNull();
+  });
+
+  it("prints which case of 3 kap. 3 § an acquired transfer falls in", async () => {
+    // A statement about the acquirer - that the board decided on their
+    // membership, or that they were already a member, or that they fall outside
+    // the requirement - so it belongs on their own report.
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const transfer = screen
+      .getByText("Overlatelseavtal 2020-7")
+      .closest("tr")?.textContent;
+    expect(transfer).toContain("Föreningen beslutade om medlemskap");
   });
 
   it("prints the day a transfer's membership was decided", async () => {

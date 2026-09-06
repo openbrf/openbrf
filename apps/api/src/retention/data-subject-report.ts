@@ -107,8 +107,51 @@ export interface ReportTransfer {
    * personal data. The value is on the acquirer's own report, where it belongs.
    */
   membershipDecidedOn: string | null;
+  /**
+   * Which case of Lag (2026:484) 3 kap. 3 § the overgang falls in, or null where
+   * the board has not stated it.
+   *
+   * Personal data about the acquirer, like the decision date above it: the value
+   * says that this person was already a member, or fell outside the membership
+   * requirement, or acquired the bostadsratt as a lienholding juridical person
+   * at an executive sale. Withheld from a `relinquished` transfer for that
+   * reason - the seller's report would otherwise carry a statement about who
+   * bought from them.
+   *
+   * Null on a GRANT, which 3 kap. 2 § reports and that section does not reach.
+   */
+  reportBasis:
+    | "MEMBERSHIP_DECISION"
+    | "ALREADY_MEMBER"
+    | "OUTSIDE_MEMBERSHIP_REQUIREMENT"
+    | "TO_THE_ASSOCIATION"
+    | "LIENHOLDING_JURIDICAL_PERSON"
+    | null;
   price: string | null;
   agreementReference: string | null;
+}
+
+/**
+ * A transfer on this person's report that has been havd or has gone back to the
+ * seller (Lag (2026:484) 3 kap. 3 § tredje stycket).
+ *
+ * Statutory tier and exempt from the purge, like the transfers it belongs to.
+ * Carried in both directions and not only for the acquirer, which is where it
+ * differs from the decision date and the case above: the reversal is an event
+ * about the transfer itself, and both parties were party to it going back. It
+ * holds no fact about the other person that the transfer section does not
+ * already carry.
+ */
+export interface ReportTransferReversal {
+  reversalId: string;
+  /** The transfer this undoes, which is on this report above. */
+  transferId: string;
+  apartment: string;
+  /** Which of the two things tredje stycket names happened. */
+  kind: "RESCINDED" | "RETURNED_TO_SELLER";
+  reversedOn: string;
+  /** The notice, agreement or minute the board recorded. */
+  reference: string;
 }
 
 /**
@@ -151,21 +194,35 @@ export interface ReportTermination {
  * which events are this person's is already answered by those sections. A
  * termination's obligation follows the terminations `terminationsDuringHolding`
  * selected; a transfer's follows the transfers, and only where this person
- * acquired. On a relinquished transfer it is withheld, because `dueOn` less
- * fourteen days is the day the association decided on the acquirer's membership -
- * the value {@link ReportTransfer.membershipDecidedOn} withholds from the seller
- * for that same reason, and a report stating a deadline instead would disclose it
- * by subtraction.
+ * acquired. On a relinquished transfer it is withheld, because `triggeredOn` on
+ * an ordinary overgang is the day the association decided on the acquirer's
+ * membership - the value {@link ReportTransfer.membershipDecidedOn} withholds
+ * from the seller for that same reason, and a report stating the window instead
+ * would disclose it outright.
+ *
+ * A reversal's obligation follows the reversals, which are on both parties'
+ * reports. It discloses nothing the reversal section does not: its `triggeredOn`
+ * is the day the overlatelse went back, which is on that row already, and it has
+ * no deadline to subtract anything from.
  */
 export interface ReportRegisterReportObligation {
   obligationId: string;
   /** Which register event the report is about. */
-  kind: "GRANT" | "TRANSFER" | "TERMINATION";
+  kind: "GRANT" | "TRANSFER" | "TERMINATION" | "TRANSFER_REVERSAL";
   apartment: string;
-  /** The day the statutory two-week window opened. */
+  /** The day the statutory window opened, or the day the duty otherwise arose. */
   triggeredOn: string;
-  /** The day the report falls due: fourteen days after the day above. */
-  dueOn: string;
+  /**
+   * The day the report falls due: fourteen days after the day above, and null
+   * where the section imposing the duty sets no period.
+   *
+   * 3 kap. 3 § tredje stycket says the association "ska anmala" that a
+   * registered overlatelse has been havd or gone back to the seller, and names
+   * no period, where every other reporting sentence in the chapter says "inom
+   * tva veckor". The report states that as an absent deadline rather than a
+   * computed one.
+   */
+  dueOn: string | null;
 }
 
 export interface ReportPublicationConsent {
@@ -627,6 +684,7 @@ export interface DataSubjectReport {
   account: ReportAccount | null;
   memberRegisterEntries: ReportMemberRegisterEntry[];
   transfers: ReportTransfer[];
+  transferReversals: ReportTransferReversal[];
   terminations: ReportTermination[];
   lienNotes: ReportLienNote[];
   registerReportObligations: ReportRegisterReportObligation[];

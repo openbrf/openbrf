@@ -51,6 +51,7 @@ const SECTIONS = [
   "account",
   "memberRegisterEntries",
   "transfers",
+  "transferReversals",
   "terminations",
   "lienNotes",
   "registerReportObligations",
@@ -300,6 +301,7 @@ export class DataSubjectReportService {
         toPersonId: true,
         transferredOn: true,
         membershipDecidedOn: true,
+        reportBasis: true,
         price: true,
         agreementReference: true,
         apartment: {
@@ -310,6 +312,38 @@ export class DataSubjectReportService {
         },
       },
     });
+
+    /*
+     * The transfers on this report that went back, in both directions.
+     *
+     * Keyed on the transfers above rather than on a person column - the table
+     * has none - which is the same reach the obligations below use. Both
+     * directions, unlike the membership decision and the case: a reversal is an
+     * event about the transfer itself and both parties were party to it going
+     * back, and it states no fact about the other person that the transfer
+     * section does not already carry.
+     */
+    const transferIds = transfers.map((transfer) => transfer.id);
+    const transferReversals =
+      transferIds.length === 0
+        ? []
+        : await tx.transferReversal.findMany({
+            where: { transferId: { in: transferIds } },
+            orderBy: [{ reversedOn: "asc" }],
+            select: {
+              id: true,
+              transferId: true,
+              kind: true,
+              reversedOn: true,
+              reference: true,
+              apartment: {
+                select: {
+                  number: true,
+                  address: { select: { street: true, number: true } },
+                },
+              },
+            },
+          });
 
     /*
      * Lien notes reach a person only through the tenant-ownership they held, so
@@ -397,17 +431,29 @@ export class DataSubjectReportService {
     const acquiredTransferIds = transfers
       .filter((transfer) => transfer.toPersonId === personId)
       .map((transfer) => transfer.id);
+    const reportedReversalIds = transferReversals.map(
+      (reversal) => reversal.id,
+    );
     const registerReportObligations =
-      reportedTerminationIds.length === 0 && acquiredTransferIds.length === 0
+      reportedTerminationIds.length === 0 &&
+      acquiredTransferIds.length === 0 &&
+      reportedReversalIds.length === 0
         ? []
         : await tx.registerReportObligation.findMany({
             where: {
               OR: [
                 { terminationId: { in: reportedTerminationIds } },
                 { transferId: { in: acquiredTransferIds } },
+                { reversalId: { in: reportedReversalIds } },
               ],
             },
-            orderBy: [{ dueOn: "asc" }],
+            /*
+             * Nulls last, so the one duty the statute sets no deadline for reads
+             * after the dated ones rather than ahead of them: PostgreSQL sorts
+             * nulls last on ASC by default, and stating it here keeps the report
+             * ordered the way the queue is whatever the default becomes.
+             */
+            orderBy: [{ dueOn: { sort: "asc", nulls: "last" } }],
             select: {
               id: true,
               kind: true,
@@ -765,6 +811,20 @@ export class DataSubjectReportService {
           transfer.toPersonId === personId
             ? toIsoDate(transfer.membershipDecidedOn)
             : null,
+        // Withheld from the seller for the same reason and on the same test.
+        // The value says that the acquirer was already a member, or fell
+        // outside the membership requirement, or is a lienholding juridical
+        // person - each a fact about them and not about the person selling.
+        reportBasis:
+          transfer.toPersonId === personId ? transfer.reportBasis : null,
+      })),
+      transferReversals: transferReversals.map((reversal) => ({
+        reversalId: reversal.id,
+        transferId: reversal.transferId,
+        apartment: `${reversal.apartment.address.street} ${reversal.apartment.address.number} ${reversal.apartment.number}`,
+        kind: reversal.kind,
+        reversedOn: toIsoDate(reversal.reversedOn) ?? "",
+        reference: reversal.reference,
       })),
       terminations: terminations.map((termination) => ({
         terminationId: termination.id,
@@ -789,7 +849,7 @@ export class DataSubjectReportService {
           kind: obligation.kind,
           apartment: `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`,
           triggeredOn: toIsoDate(obligation.triggeredOn) ?? "",
-          dueOn: toIsoDate(obligation.dueOn) ?? "",
+          dueOn: toIsoDate(obligation.dueOn),
         }),
       ),
       publicationConsents: person.publicationConsents.map((consent) => ({
