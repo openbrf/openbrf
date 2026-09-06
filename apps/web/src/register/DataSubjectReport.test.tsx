@@ -81,6 +81,8 @@ const EMPTY_REPORT: Report = {
   documents: [],
   bookings: [],
   motions: [],
+  subletApplications: [],
+  keyOrders: [],
   eventSignups: [],
   newsComments: [],
   meetingAttendances: [],
@@ -254,6 +256,63 @@ const FULL_REPORT: Report = {
       // Still with the board, so there is no closing date to count from.
       closedAt: null,
       erasableFrom: null,
+    },
+  ],
+  subletApplications: [
+    {
+      applicationId: "sublet-1",
+      apartment: "Storgatan 12 1201",
+      periodFrom: "2027-08-01",
+      periodTo: "2028-01-31",
+      reason: "Provbo pa annan ort under ett halvar.",
+      status: "REFUSED",
+      submittedAt: "2027-05-02T09:00:00.000Z",
+      closedAt: "2027-05-20T12:00:00.000Z",
+      decisionNote: "Styrelsen ser inga skal.",
+      // BRL 7 kap. 11 §: the rent tribunal may permit what the board refused.
+      // On the document beside the refusal rather than instead of it, because
+      // the association did not consent and somebody else permitted.
+      tribunalPermittedOn: "2027-06-15",
+      tribunalPermittedUntil: "2028-01-31",
+      /*
+       * Two years after the later of the answer and the end of the period, and
+       * deliberately none of the other dates on this document: the answer came
+       * in May 2027 and the letting runs to the end of January 2028, so the
+       * clock starts when the letting is over.
+       */
+      erasableFrom: "2030-01-31",
+    },
+    {
+      applicationId: "sublet-2",
+      apartment: "Storgatan 12 1201",
+      periodFrom: "2029-02-01",
+      periodTo: "2029-07-31",
+      reason: "Studier pa annan ort.",
+      status: "SUBMITTED",
+      submittedAt: "2028-11-02T09:00:00.000Z",
+      // Still with the board, so there is no closing date to count from.
+      closedAt: null,
+      decisionNote: null,
+      tribunalPermittedOn: null,
+      tribunalPermittedUntil: null,
+      erasableFrom: null,
+    },
+  ],
+  keyOrders: [
+    {
+      orderId: "key-1",
+      apartment: "Storgatan 12 1201",
+      kind: "TAG",
+      quantity: 2,
+      note: "Till cykelrummet.",
+      status: "HANDED_OVER",
+      submittedAt: "2027-02-01T09:00:00.000Z",
+      closedAt: "2027-02-10T12:00:00.000Z",
+      boardNote: "Hamtade i styrelserummet.",
+      // A year after it closed, and shorter than the application above on
+      // purpose: an order for a key is settled when the key is in somebody's
+      // hand.
+      erasableFrom: "2028-02-09",
     },
   ],
   eventSignups: [

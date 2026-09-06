@@ -116,6 +116,25 @@ const MOTION_STATUS_LABEL = {
   WITHDRAWN: "motions.status.WITHDRAWN",
 } as const satisfies Record<string, TranslationKey>;
 
+const SUBLET_STATUS_LABEL = {
+  SUBMITTED: "sublets.status.SUBMITTED",
+  CONSENTED: "sublets.status.CONSENTED",
+  REFUSED: "sublets.status.REFUSED",
+  WITHDRAWN: "sublets.status.WITHDRAWN",
+} as const satisfies Record<string, TranslationKey>;
+
+const KEY_ORDER_STATUS_LABEL = {
+  SUBMITTED: "keyOrders.status.SUBMITTED",
+  HANDED_OVER: "keyOrders.status.HANDED_OVER",
+  DECLINED: "keyOrders.status.DECLINED",
+  WITHDRAWN: "keyOrders.status.WITHDRAWN",
+} as const satisfies Record<string, TranslationKey>;
+
+const KEY_ORDER_KIND_LABEL = {
+  KEY: "keyOrders.kind.KEY",
+  TAG: "keyOrders.kind.TAG",
+} as const satisfies Record<string, TranslationKey>;
+
 /*
  * The general meeting's own vocabulary, under the meetings namespace rather
  * than the report's, on the precedent of the booking status and the motion
@@ -227,6 +246,23 @@ const AUDIT_ACTION_LABEL = {
   MOTION_SUBMITTED: "register.person.report.action.MOTION_SUBMITTED",
   MOTION_ACKNOWLEDGED: "register.person.report.action.MOTION_ACKNOWLEDGED",
   MOTION_WITHDRAWN: "register.person.report.action.MOTION_WITHDRAWN",
+  SUBLET_APPLICATION_SUBMITTED:
+    "register.person.report.action.SUBLET_APPLICATION_SUBMITTED",
+  SUBLET_APPLICATION_REVISED:
+    "register.person.report.action.SUBLET_APPLICATION_REVISED",
+  SUBLET_APPLICATION_WITHDRAWN:
+    "register.person.report.action.SUBLET_APPLICATION_WITHDRAWN",
+  SUBLET_APPLICATION_CONSENTED:
+    "register.person.report.action.SUBLET_APPLICATION_CONSENTED",
+  SUBLET_APPLICATION_REFUSED:
+    "register.person.report.action.SUBLET_APPLICATION_REFUSED",
+  SUBLET_TRIBUNAL_PERMISSION_RECORDED:
+    "register.person.report.action.SUBLET_TRIBUNAL_PERMISSION_RECORDED",
+  KEY_ORDER_PLACED: "register.person.report.action.KEY_ORDER_PLACED",
+  KEY_ORDER_REVISED: "register.person.report.action.KEY_ORDER_REVISED",
+  KEY_ORDER_WITHDRAWN: "register.person.report.action.KEY_ORDER_WITHDRAWN",
+  KEY_ORDER_HANDED_OVER: "register.person.report.action.KEY_ORDER_HANDED_OVER",
+  KEY_ORDER_DECLINED: "register.person.report.action.KEY_ORDER_DECLINED",
   EVENT_SIGNUP_MADE: "register.person.report.action.EVENT_SIGNUP_MADE",
   EVENT_SIGNUP_WITHDRAWN:
     "register.person.report.action.EVENT_SIGNUP_WITHDRAWN",
@@ -914,6 +950,120 @@ export function DataSubjectReport({
                      */}
                     <td className={DATA_CELL}>
                       {motion.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.subletApplications">
+              <Rows
+                empty={report.subletApplications.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.period",
+                  "register.person.report.field.reason",
+                  "register.person.report.field.status",
+                  "register.person.report.field.tribunalPermission",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.subletApplications.map((application) => (
+                  <tr key={application.applicationId} className={ROW}>
+                    <td className={DATA_CELL}>
+                      {application.apartment ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {`${application.periodFrom} - ${application.periodTo}`}
+                    </td>
+                    {/* The person's own words and the association's words about
+                      them, both in full: this is the fullest answer art. 15 can
+                      give, and a summary would be the association paraphrasing
+                      somebody back to themselves. */}
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {application.reason}
+                      </span>
+                      {application.decisionNote === null ? null : (
+                        <span className="block whitespace-pre-line">
+                          {application.decisionNote}
+                        </span>
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(SUBLET_STATUS_LABEL[application.status])}
+                    </td>
+                    {/* What the rent tribunal decided (BRL 7 kap. 11 §). Not the
+                      association's own decision, and on the report all the same:
+                      it was recorded against this person, and what is held about
+                      somebody is what art. 15 asks for. */}
+                    <td className={DATA_CELL}>
+                      {application.tribunalPermittedOn === null
+                        ? nothing
+                        : `${application.tribunalPermittedOn} - ${
+                            application.tribunalPermittedUntil ?? ""
+                          }`}
+                    </td>
+                    {/*
+                     * The row's own retention date, two years after the later of
+                     * the answer and the end of the period applied for - so a
+                     * consent is not erased while the letting it covers is still
+                     * running. Absent while the application is open, because
+                     * there is no closing date to count from.
+                     */}
+                    <td className={DATA_CELL}>
+                      {application.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.keyOrders">
+              <Rows
+                empty={report.keyOrders.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.ordered",
+                  "register.person.report.field.note",
+                  "register.person.report.field.status",
+                  "register.person.report.field.closed",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.keyOrders.map((order) => (
+                  <tr key={order.orderId} className={ROW}>
+                    <td className={DATA_CELL}>{order.apartment ?? nothing}</td>
+                    <td className={DATA_CELL}>
+                      {`${String(order.quantity)} ${t(
+                        KEY_ORDER_KIND_LABEL[order.kind],
+                      )}`}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {order.note ?? nothing}
+                      </span>
+                      {order.boardNote === null ? null : (
+                        <span className="block whitespace-pre-line">
+                          {order.boardNote}
+                        </span>
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(KEY_ORDER_STATUS_LABEL[order.status])}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(order.closedAt) ?? nothing}
+                    </td>
+                    {/*
+                     * A year after the order closed, and shorter than the
+                     * application above it on purpose: an order for a key is
+                     * settled when the key is in somebody's hand. What outlives
+                     * the row is the handover in the entries section, which no
+                     * purge reaches.
+                     */}
+                    <td className={DATA_CELL}>
+                      {order.erasableFrom ?? nothing}
                     </td>
                   </tr>
                 ))}
