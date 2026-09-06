@@ -187,10 +187,19 @@ export class BoardMailboxMailerService implements OnModuleInit {
      * The claim, and everything this file promises rests on it running before
      * anything is handed to a mail server. A row this call does not claim was
      * claimed by another worker and is left alone.
+     *
+     * What the claim writes is the time, and not the outcome. SENT says a mail
+     * server accepted the reply, which nothing here knows yet: writing it now
+     * would mean that a process stopping between this line and the handover
+     * leaves the thread stating that an answer went to a correspondent who never
+     * received one, with nothing left able to correct it - the dead-letter
+     * handler only touches a reply still pending, and a retried job finds the
+     * row claimed and leaves it. Claimed and still pending is what is true in
+     * that window, and it is the state the handler can still resolve.
      */
     const claimed = await this.prisma.boardMailboxMessage.updateMany({
-      where: { id: messageId, deliveryStatus: "PENDING" },
-      data: { deliveryStatus: "SENT", sentAt: new Date() },
+      where: { id: messageId, deliveryStatus: "PENDING", sentAt: null },
+      data: { sentAt: new Date() },
     });
     if (claimed.count === 0) {
       return "skipped";
@@ -237,7 +246,6 @@ export class BoardMailboxMailerService implements OnModuleInit {
         messageId: message.messageId,
         inReplyTo: message.inReplyTo,
       });
-      return "sent";
     } catch (error) {
       await this.fail(
         messageId,
@@ -253,6 +261,26 @@ export class BoardMailboxMailerService implements OnModuleInit {
       );
       return "failed";
     }
+
+    /*
+     * The handover happened, and this is the record of it.
+     *
+     * Outside the block above on purpose: a write that fails here cannot unsend
+     * the reply, and turning it into a delivery failure would put the one thing
+     * on the thread that is certainly untrue. The row stays claimed and pending,
+     * which understates what happened rather than overstating it.
+     */
+    try {
+      await this.prisma.boardMailboxMessage.update({
+        where: { id: messageId },
+        data: { deliveryStatus: "SENT" },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Board mailbox reply ${messageId} was sent but not recorded as sent: ${failureName(error)}`,
+      );
+    }
+    return "sent";
   }
 
   /**
@@ -261,10 +289,11 @@ export class BoardMailboxMailerService implements OnModuleInit {
    * Reached through the dead-letter queue when the retries are spent, so the
    * board reads an answer that stopped rather than one still on its way.
    *
-   * Only a reply still pending is touched. One already claimed was handed to a
-   * mail server, and what happened to it after that is the ledger's own record
-   * rather than this handler's to overwrite - the meeting notice's rule,
-   * unchanged.
+   * Only a reply still pending is touched, which is what a reply is until a mail
+   * server has accepted it. One already recorded as sent or failed has its own
+   * answer and this handler does not overwrite it - the meeting notice's rule,
+   * unchanged. A reply claimed by an attempt that stopped before the handover is
+   * still pending, so this is what resolves it.
    */
   async recordAbandoned(messageId: string): Promise<void> {
     const { count } = await this.prisma.boardMailboxMessage.updateMany({

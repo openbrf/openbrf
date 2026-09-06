@@ -166,6 +166,9 @@ interface CollectJob {
 export class BoardMailboxCollectorService implements OnModuleInit {
   private readonly logger = new Logger(BoardMailboxCollectorService.name);
 
+  /** The collection in flight, which every caller that arrives shares. */
+  private running: Promise<CollectionSummary> | null = null;
+
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
@@ -206,6 +209,30 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    *   a test drives the clock rather than the process's.
    */
   async collect(now: Date = new Date()): Promise<CollectionSummary> {
+    /*
+     * One collection at a time, and everybody waiting on it gets its answer.
+     *
+     * The schedule runs every five minutes and the screen has a button beside
+     * it, so two collections overlapping is ordinary rather than exceptional -
+     * and a mailbox is a single resource: POP3 gives one session an exclusive
+     * lock on it (RFC 1939 section 3), so the second connection is refused and
+     * the board is told its mailbox could not be reached when it was only busy.
+     * The concurrent one is also the expensive one, because each session
+     * retrieves the same letters the other is retrieving.
+     *
+     * Sharing the promise answers both. A caller that arrives while a collection
+     * is running is answered by that collection, which is the answer it would
+     * have computed, and no request can open a second session however many
+     * arrive.
+     */
+    this.running ??= this.collectOnce(now).finally(() => {
+      this.running = null;
+    });
+    return this.running;
+  }
+
+  /** The collection itself. Entered through {@link collect}, never directly. */
+  private async collectOnce(now: Date): Promise<CollectionSummary> {
     const settings = await loadBoardMailboxSettings(
       this.prisma,
       this.encryption,
@@ -249,6 +276,17 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       let collected = 0;
       let alreadyHeld = 0;
       let skipped = 0;
+      /*
+       * What the cap above counts.
+       *
+       * Retrievals, not rows written. A message can be fetched in full and still
+       * leave nothing behind - it was the board's own answer, or it carried no
+       * address to reply to, or the mailbox refused it halfway - and counting
+       * only the stored ones would let a mailbox full of those be downloaded
+       * whole on every run, five minutes apart, for as long as they sit there.
+       * The constant says fetches, and this is what makes that true.
+       */
+      let retrieved = 0;
 
       for (const listing of listings) {
         const uid = `${prefix}:${listing.uid}`;
@@ -256,7 +294,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           alreadyHeld += 1;
           continue;
         }
-        if (collected >= MAX_MESSAGES_PER_COLLECTION) {
+        if (retrieved >= MAX_MESSAGES_PER_COLLECTION) {
           break;
         }
         if (listing.octets > MAX_MESSAGE_BYTES) {
@@ -270,6 +308,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           continue;
         }
 
+        retrieved += 1;
         const stored = await this.collectOne(
           session.retrieve.bind(session),
           listing,
@@ -313,15 +352,42 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * is given one before it is handed to a mail server, precisely so that it can
    * be recognised again - on the way back into a thread, and here.
    */
-  private async isOwnAnswer(messageId: string | null): Promise<boolean> {
+  private async ownAnswerId(messageId: string | null): Promise<string | null> {
     if (messageId === null) {
-      return false;
+      return null;
     }
     const own = await this.prisma.boardMailboxMessage.findFirst({
       where: { messageId, direction: "OUTBOUND" },
       select: { id: true },
     });
-    return own !== null;
+    return own?.id ?? null;
+  }
+
+  /**
+   * Writes the mailbox identifier onto the answer this instance already sent.
+   *
+   * Which is what stops it being fetched again. The identifier is how this
+   * module decides what it holds, so an answer that comes back round and is
+   * recognised only by reading it would be read again on every run for as long
+   * as the mailbox keeps it - and a mailbox that files sent mail keeps it for
+   * good. Recognising it once and saying so leaves the same row, under the same
+   * unique identifier, as a collected letter.
+   *
+   * The write is conditional on the column still being empty, so two runs that
+   * saw the same answer do not fight over it, and a failure to write is not a
+   * reason to store the board's own words back as a question.
+   */
+  private async holdOwnAnswer(id: string, uid: string): Promise<void> {
+    try {
+      await this.prisma.boardMailboxMessage.updateMany({
+        where: { id, sourceUid: null },
+        data: { sourceUid: uid },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Board mailbox: an answer of this instance's own could not be marked as held: ${failureName(error)}`,
+      );
+    }
   }
 
   /**
@@ -374,7 +440,8 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
     const parsed = readMessage(raw);
 
-    if (await this.isOwnAnswer(parsed.messageId)) {
+    const own = await this.ownAnswerId(parsed.messageId);
+    if (own !== null) {
       /*
        * The board's own reply, come back round.
        *
@@ -392,6 +459,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
        * relay. Anything we did not send is not matched by this and is collected
        * normally.
        */
+      await this.holdOwnAnswer(own, uid);
       return "already-held";
     }
 

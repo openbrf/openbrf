@@ -445,7 +445,8 @@
           "broughtBy": "Medtagen av",
           "counterpart": "Motpart",
           "proxyGround": "Grund",
-          "authorised": "Fullmakt daterad"
+          "authorised": "Fullmakt daterad",
+          "attachments": "Bilagor"
         },
         "event": {
           "ENTRY": "Inträde",
@@ -458,7 +459,9 @@
         },
         "boardMailbox": {
           "received": "Inkommet till föreningen",
-          "answered": "Besvarat av styrelsen"
+          "answered": "Besvarat av styrelsen",
+          "bodyTruncated": "Meddelandet var längre än vad föreningen lagrar. Texten ovan är början av det.",
+          "bodyFromHtml": "Meddelandet skickades som en webbsida och texten ovan är utläst ur den, så den är inte meddelandet som det skrevs."
         },
         "action": {
           "PROTECTED_DATA_REVEALED": "Skyddade uppgifter visades",
@@ -823,7 +826,7 @@
     },
     "boardMailbox": {
       "title": "Styrelsens gemensamma brevlåda",
-      "description": "Adressen styrelsen publicerar, och brevlådan som den här instansen hämtar den från. Allt som kommer dit blir en konversation som varje styrelseplats ser och kan svara på.",
+      "description": "Adressen styrelsen publicerar, och brevlådan som den här instansen hämtar den från. Allt som kommer dit blir en konversation som varje styrelseledamot ser och kan svara på.",
       "address": "Styrelsens adress",
       "addressHint": "Adressen de boende skriver till. Svar som styrelsen skickar går att svara på till den.",
       "host": "E-postserver (POP3)",
@@ -2136,7 +2139,7 @@
   "boardMailbox": {
     "navLabel": "Styrelsens post",
     "title": "Styrelsens gemensamma brevlåda",
-    "intro": "Det som har skrivits till styrelsens egen adress. Varje plats ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
+    "intro": "Det som har skrivits till styrelsens egen adress. Varje styrelseledamot ser samma inkorg, en av er tar hand om ett brev, och svaret ligger kvar som ett minne av vad föreningen fick för fråga.",
     "loading": "Läser brevlådan...",
     "loadFailed": "Styrelsens brevlåda kunde inte läsas just nu.",
     "notAllowed": "Styrelsens brevlåda läses av styrelsen.",
@@ -2166,7 +2169,8 @@
       "description": "Det som väntar först, och den längsta väntan först inom det.",
       "empty": "Ingenting har skrivits till styrelsens adress.",
       "summary_one": "Från {{sender}}. Ett meddelande.",
-      "summary_other": "Från {{sender}}. {{count}} meddelanden."
+      "summary_other": "Från {{sender}}. {{count}} meddelanden.",
+      "more": "Det här är den del av inkorgen som fortfarande väntar på något. Äldre konversationer som styrelsen är klar med listas inte här."
     },
     "thread": {
       "from": "Från {{sender}} ({{email}}).",
@@ -2182,7 +2186,10 @@
       "reply": "Skicka svaret",
       "replying": "Skickar...",
       "replyQueued": "Svaret är antecknat på konversationen och är på väg.",
-      "replyGoesTo": "Går till {{email}}."
+      "replyGoesTo": "Går till {{email}}.",
+      "replyRemaining_one": "Ett tecken kvar.",
+      "replyRemaining_other": "{{count}} tecken kvar.",
+      "olderNotShown": "De {{shown}} senaste av {{total}} meddelanden i den här konversationen."
     },
     "message": {
       "received": "Inkommet",

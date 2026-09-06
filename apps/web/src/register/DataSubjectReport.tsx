@@ -989,6 +989,7 @@ export function DataSubjectReport({
                   "register.person.report.field.direction",
                   "register.person.report.field.date",
                   "register.person.report.field.message",
+                  "register.person.report.field.attachments",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1018,7 +1019,35 @@ export function DataSubjectReport({
                         <span className="block whitespace-pre-line">
                           {message.body}
                         </span>
+                        {/*
+                         * What qualifies the copy above, printed rather than
+                         * left out. This document answers what the association
+                         * holds, and a body it abridged or derived from an HTML
+                         * part is not the message as it was written - a reader
+                         * shown the abridgement alone would read it as whole.
+                         */}
+                        {message.bodyTruncated ? (
+                          <span className="block">
+                            {t(
+                              "register.person.report.boardMailbox.bodyTruncated",
+                            )}
+                          </span>
+                        ) : null}
+                        {message.bodyFromHtml ? (
+                          <span className="block">
+                            {t(
+                              "register.person.report.boardMailbox.bodyFromHtml",
+                            )}
+                          </span>
+                        ) : null}
                       </td>
+                      {/*
+                       * The count and not the files. An attachment is held by
+                       * the association whether or not this document can print
+                       * it, and a section that named none of them would state
+                       * the extent of the data wrongly.
+                       */}
+                      <td className={DATA_CELL}>{message.attachments}</td>
                       <td className={DATA_CELL}>{thread.erasableFrom}</td>
                     </tr>
                   )),

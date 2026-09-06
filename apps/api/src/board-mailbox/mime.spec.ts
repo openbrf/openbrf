@@ -299,6 +299,60 @@ describe("readMessage", () => {
     expect(message.inReplyTo).toBe("second@example.test");
   });
 
+  it("keeps an identifier only when it is one", () => {
+    // The value goes back out in the In-Reply-To of the board's answer, inside
+    // brackets this instance writes. One that carries its own bracket, or that
+    // is not a Message-ID at all, makes a header that says something else.
+    const answered = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Message-ID: foo>bar",
+        "In-Reply-To: <not an identifier>",
+        "",
+        "Hej",
+        "",
+      ),
+    );
+
+    expect(answered.messageId).toBeNull();
+    expect(answered.inReplyTo).toBeNull();
+  });
+
+  it("does not fall back to an older reference when the newest is unreadable", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "References: <first@example.test> <second>",
+        "",
+        "Hej",
+        "",
+      ),
+    );
+
+    // The older entry names a message this letter is not a reply to, so the
+    // letter opens its own thread instead of joining that one.
+    expect(message.inReplyTo).toBeNull();
+  });
+
+  it("reads a multipart nested past the cap as text rather than running out of stack", () => {
+    const lines = ["From: <sender@example.test>", "Subject: Djupt"];
+    for (let level = 0; level < 5000; level += 1) {
+      const boundary = `x${String(level)}x`;
+      lines.push(
+        `Content-Type: multipart/mixed; boundary=${boundary}`,
+        "",
+        `--${boundary}`,
+      );
+    }
+    lines.push("Content-Type: text/plain", "", "Hej", "");
+
+    // The module promises never to throw on malformed input, and the collector
+    // takes that promise: an exception here would end the whole collection, and
+    // because nothing is deleted from the mailbox it would end every collection
+    // after it as well.
+    expect(() => readMessage(raw(...lines))).not.toThrow();
+  });
+
   it("answers null for a message with no readable sender", () => {
     const message = readMessage(raw("Subject: Ingen avsandare", "", "Hej", ""));
 
@@ -584,5 +638,37 @@ describe("htmlToText", () => {
 
   it("drops a comment rather than reading it as words", () => {
     expect(htmlToText("<p>Ett<!-- dolt -->Tva</p>")).toBe("EttTva");
+  });
+
+  it("drops a comment that is never closed", () => {
+    expect(htmlToText("<p>Ett<!-- dolt</p>")).toBe("Ett");
+  });
+
+  it("drops a script whose closing tag carries attributes", () => {
+    // A closing tag may carry attributes, which the tokeniser discards. Reading
+    // the element to a closing tag written only as "</script>" ends it too late
+    // and puts the code that follows into the letter as words.
+    expect(htmlToText("<p>Ett</p><script>alert(1)</script foo>")).toBe("Ett");
+    expect(htmlToText("<p>Ett</p><style>a{b:c}</style foo>")).toBe("Ett");
+  });
+
+  it("drops a script that is never closed", () => {
+    expect(htmlToText("<p>Ett</p><script>alert(1)")).toBe("Ett");
+  });
+
+  it("keeps a comparison the sender wrote", () => {
+    // A "<" that no element name follows is a character, not a tag, and the
+    // words after it are the sentence rather than the inside of markup.
+    expect(htmlToText("<p>1 < 2 och 3 > 2</p>")).toBe("1 < 2 och 3 > 2");
+  });
+
+  it("reads an attribute value that holds a closing bracket", () => {
+    expect(htmlToText('<p title="a > b">Ett</p>')).toBe("Ett");
+  });
+
+  it("gives an escaped tag back as the characters it spelled", () => {
+    // The result is text and is handled as text: entity decoding restores the
+    // characters the sender escaped, which is what the sender meant by them.
+    expect(htmlToText("<p>&lt;script&gt;</p>")).toBe("<script>");
   });
 });

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
@@ -118,8 +119,45 @@ export interface BoardMailboxThreadSummary {
 }
 
 export interface BoardMailboxThreadView extends BoardMailboxThreadSummary {
+  /**
+   * The conversation, oldest first. The newest {@link MAX_MESSAGES_READ} of it
+   * when the thread is longer than that; `messageCount` says how long it is.
+   */
   messages: BoardMailboxMessageView[];
 }
+
+/** The inbox, and whether it is all of it. */
+export interface BoardMailboxThreadList {
+  threads: BoardMailboxThreadSummary[];
+  /** Whether the mailbox holds threads this page does not list. */
+  more: boolean;
+}
+
+/**
+ * The most threads one inbox load lists.
+ *
+ * How many rows there are is decided outside the association - it is how much
+ * mail is sent to an address the board publishes, and the collector's own notes
+ * name a mailing list pointed at it as a case to expect - and nothing shrinks
+ * the set for two years, which is the retention. So the query is bounded, and
+ * the order decides what a bound costs: the inbox is ordered by how much is
+ * still owed, so what falls off the end is the far side of CLOSED, which is the
+ * work that is finished. The board is told the list is not all of it.
+ *
+ * Each row costs two decryptions to summarise, which is the other reason not to
+ * read a set nobody here chose the size of.
+ */
+const MAX_THREADS_LISTED = 200;
+
+/**
+ * The most messages one thread shows.
+ *
+ * The newest of them, because a conversation is read at its end and answered
+ * from there. A thread's length is decided by a correspondent, and a body runs
+ * to 20 000 characters, so this is what keeps one open thread from being a
+ * larger read than the whole inbox.
+ */
+const MAX_MESSAGES_READ = 100;
 
 /** What the board is told about its own mailbox configuration. */
 export interface BoardMailboxStatusView {
@@ -128,15 +166,6 @@ export interface BoardMailboxStatusView {
   /** The address the board publishes, when one is set. */
   address: string | null;
 }
-
-/**
- * How much a board member may write in one reply.
- *
- * Generous, and bounded for the reason every free-text field in this product is:
- * a field with no limit is a field somebody can put a file in. A board answering
- * a letter writes paragraphs, not chapters.
- */
-export const MAX_REPLY_CHARACTERS = 20_000;
 
 @Injectable()
 export class BoardMailboxService {
@@ -172,29 +201,44 @@ export class BoardMailboxService {
    */
   async listThreads(filter?: {
     status?: BoardMailboxThreadStatus;
-  }): Promise<BoardMailboxThreadSummary[]> {
-    const threads = await this.prisma.boardMailboxThread.findMany({
+  }): Promise<BoardMailboxThreadList> {
+    // One row past the bound, which is what says there is a row past it. It is
+    // dropped again below rather than shown.
+    const rows = await this.prisma.boardMailboxThread.findMany({
       where: filter?.status === undefined ? {} : { status: filter.status },
       orderBy: [{ status: "asc" }, { lastMessageAt: "asc" }],
+      take: MAX_THREADS_LISTED + 1,
       select: {
         ...THREAD_SELECT,
         _count: { select: { messages: true } },
       },
     });
 
+    const more = rows.length > MAX_THREADS_LISTED;
+    const threads = more ? rows.slice(0, MAX_THREADS_LISTED) : rows;
+
     const people = await this.peopleFor(
       threads.map((thread) => thread.takenByPersonId),
     );
 
-    return Promise.all(
-      threads.map(async (thread) => ({
-        ...(await this.toSummary(thread, people)),
-        messageCount: thread._count.messages,
-      })),
-    );
+    return {
+      threads: await Promise.all(
+        threads.map(async (thread) => ({
+          ...(await this.toSummary(thread, people)),
+          messageCount: thread._count.messages,
+        })),
+      ),
+      more,
+    };
   }
 
-  /** One thread, whole, in the order it was said. */
+  /**
+   * One thread, in the order it was said.
+   *
+   * Its newest {@link MAX_MESSAGES_READ} messages, read newest first and turned
+   * back the right way round below. A thread as long as that is one a
+   * correspondent made long, and the end of it is the part being answered.
+   */
   async readThread(threadId: string): Promise<BoardMailboxThreadView> {
     const thread = await this.prisma.boardMailboxThread.findUnique({
       where: { id: threadId },
@@ -202,7 +246,8 @@ export class BoardMailboxService {
         ...THREAD_SELECT,
         _count: { select: { messages: true } },
         messages: {
-          orderBy: { occurredAt: "asc" },
+          orderBy: { occurredAt: "desc" },
+          take: MAX_MESSAGES_READ,
           select: MESSAGE_SELECT,
         },
       },
@@ -220,9 +265,9 @@ export class BoardMailboxService {
     return {
       ...(await this.toSummary(thread, people)),
       messageCount: thread._count.messages,
-      messages: thread.messages.map((message) =>
-        toMessageView(message, people),
-      ),
+      messages: [...thread.messages]
+        .reverse()
+        .map((message) => toMessageView(message, people)),
     };
   }
 

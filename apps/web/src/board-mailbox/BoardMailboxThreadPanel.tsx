@@ -1,3 +1,4 @@
+import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -21,6 +22,7 @@ import {
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { formatMailboxMoment } from "./board-mailbox-dates";
 import { BoardMailboxStatusChip } from "./BoardMailboxStatusChip";
 
 const THREAD_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -187,6 +189,15 @@ export function BoardMailboxThreadPanel({
       */}
       <Notice tone="info">{t("boardMailbox.thread.untrusted")}</Notice>
 
+      {thread.messageCount > thread.messages.length ? (
+        <p className="text-small text-ink-muted">
+          {t("boardMailbox.thread.olderNotShown", {
+            shown: thread.messages.length,
+            total: thread.messageCount,
+          })}
+        </p>
+      ) : null}
+
       <ul className="flex flex-col gap-3">
         {thread.messages.map((message) => (
           <li key={message.id}>
@@ -203,9 +214,17 @@ export function BoardMailboxThreadPanel({
         <form className="flex flex-col gap-3" onSubmit={onSubmit}>
           <label className={LABEL}>
             {t("boardMailbox.thread.replyLabel")}
+            {/*
+              Bounded here at the number the server takes. A draft the field let
+              the board member finish and the server then refuses is refused
+              after the writing, and a length is not something the screen can
+              explain afterwards: the reply route answers a validation failure
+              with a code this panel has no sentence for.
+            */}
             <textarea
               name="boardMailboxReply"
               rows={6}
+              maxLength={MAX_REPLY_CHARACTERS}
               value={draft}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -213,6 +232,11 @@ export function BoardMailboxThreadPanel({
               className={`${FIELD} py-2`}
             />
           </label>
+          <span className="text-small text-ink-muted">
+            {t("boardMailbox.thread.replyRemaining", {
+              count: MAX_REPLY_CHARACTERS - draft.length,
+            })}
+          </span>
           <span className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
@@ -237,7 +261,7 @@ export function BoardMailboxThreadPanel({
 
 /** One message, in either direction. */
 function Message({ message }: { message: BoardMailboxMessage }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const inbound = message.direction === "INBOUND";
 
   return (
@@ -258,7 +282,7 @@ function Message({ message }: { message: BoardMailboxMessage }): ReactElement {
               })}
         </span>
         <span className="ml-auto font-data text-data text-ink-muted">
-          {message.occurredAt.slice(0, 10)}
+          {formatMailboxMoment(message.occurredAt, i18n.language)}
         </span>
       </div>
 

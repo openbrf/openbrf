@@ -23,6 +23,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { formatMailboxDay } from "./board-mailbox-dates";
 import { BoardMailboxStatusChip } from "./BoardMailboxStatusChip";
 import { BoardMailboxThreadPanel } from "./BoardMailboxThreadPanel";
 
@@ -37,6 +38,8 @@ interface Loaded {
   ready: boolean;
   status: BoardMailboxStatus | null;
   threads: readonly BoardMailboxThreadSummary[];
+  /** Whether the mailbox holds threads the list above does not show. */
+  moreThreads: boolean;
   thread: BoardMailboxThread | null;
   loadFailed: boolean;
 }
@@ -45,6 +48,7 @@ const EMPTY: Loaded = {
   ready: false,
   status: null,
   threads: [],
+  moreThreads: false,
   thread: null,
   loadFailed: false,
 };
@@ -65,7 +69,7 @@ const EMPTY: Loaded = {
  * sentence rather than the form.
  */
 export function BoardMailboxScreen(): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
@@ -83,7 +87,8 @@ export function BoardMailboxScreen(): ReactElement {
     return {
       ready: true,
       status: status.ok ? status.value : null,
-      threads: threads.ok ? threads.value : [],
+      threads: threads.ok ? threads.value.threads : [],
+      moreThreads: threads.ok && threads.value.more,
       thread: thread?.ok === true ? thread.value : null,
       loadFailed: !status.ok || !threads.ok || thread?.ok === false,
     };
@@ -127,7 +132,7 @@ export function BoardMailboxScreen(): ReactElement {
     reload();
   });
 
-  const { ready, status, threads, thread, loadFailed } = loaded;
+  const { ready, status, threads, moreThreads, thread, loadFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -204,6 +209,11 @@ export function BoardMailboxScreen(): ReactElement {
         <Panel
           title={t("boardMailbox.inbox.title")}
           description={t("boardMailbox.inbox.description")}
+          notice={
+            moreThreads ? (
+              <Notice tone="warn">{t("boardMailbox.inbox.more")}</Notice>
+            ) : null
+          }
         >
           {threads.length === 0 ? (
             <p className="text-body text-ink-muted">
@@ -233,7 +243,7 @@ export function BoardMailboxScreen(): ReactElement {
                       </span>
                       <BoardMailboxStatusChip status={summary.status} />
                       <span className="ml-auto font-data text-data text-ink-muted">
-                        {summary.lastMessageAt.slice(0, 10)}
+                        {formatMailboxDay(summary.lastMessageAt, i18n.language)}
                       </span>
                     </span>
                     <span className="text-small text-ink-muted">

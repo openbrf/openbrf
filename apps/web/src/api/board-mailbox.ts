@@ -84,6 +84,13 @@ export interface BoardMailboxThread extends BoardMailboxThreadSummary {
   messages: BoardMailboxMessage[];
 }
 
+/** The inbox, and whether it is all of it. */
+export interface BoardMailboxThreadList {
+  threads: BoardMailboxThreadSummary[];
+  /** Whether the mailbox holds threads this page does not list. */
+  more: boolean;
+}
+
 export interface BoardMailboxStatus {
   configured: boolean;
   address: string | null;
@@ -105,7 +112,7 @@ export function fetchBoardMailboxStatus(): Promise<
 }
 
 export function fetchBoardMailboxThreads(): Promise<
-  ApiResult<BoardMailboxThreadSummary[]>
+  ApiResult<BoardMailboxThreadList>
 > {
   return apiRequest("GET", "/api/board-mailbox/threads");
 }

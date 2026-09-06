@@ -7,8 +7,8 @@
 Add the shared board mailbox: mail to the board's address as a conversation the
 whole board works.
 
-Mail sent to the address the board publishes arrives as a thread every seat can
-see. One board member takes it on, which writes their name onto the row the
+Mail sent to the address the board publishes arrives as a thread every board
+member can see. One board member takes it on, which writes their name onto the row the
 others are reading, and answers it from the application; the answer goes out
 through the instance's own mail server with the board's address in Reply-To, so
 the correspondent's reply lands back on the same thread. The thread stays as the

@@ -85,7 +85,13 @@ const boardMailboxSchema = z.object({
   host: z.string().min(1).max(255).nullable(),
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
-  user: z.string().max(255).nullable(),
+  /**
+   * Bounded below as the host is, and for the same reason: the mailbox counts as
+   * configured when this is set, and an empty string would set it. A mailbox
+   * nobody signs in to is not a mailbox, and one recorded as configured offers
+   * the board a collection that can only fail.
+   */
+  user: z.string().min(1).max(255).nullable(),
   /** Omit to keep the stored password; null or "" to clear it. */
   password: z.string().max(200).nullish(),
 });

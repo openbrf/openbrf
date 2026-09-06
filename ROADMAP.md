@@ -772,8 +772,8 @@ no, and the pilot is the thing that will change it.
         conversation is, and the comments before that page are a press away
         rather than quietly missing
   - [ ] Group and board chat
-- [x] Shared board mailbox (styrelsemail): mail sent to the address the board
-      publishes arrives in the application as a conversation every seat can see,
+- [x] Shared board mailbox: mail sent to the address the board publishes
+      arrives in the application as a conversation every board member can see,
       one board member takes it on where the others can watch it happen, and the
       answer goes out from here and stays on the thread as the record of what
       the association was asked and what it said. What makes a board address get

@@ -4406,7 +4406,11 @@ model BoardMailboxMessage {
   /// reply and on an inbound message that carried In-Reply-To.
   inReplyTo String?
 
-  /// The POP3 identifier this was collected under. Null on an outbound message.
+  /// The POP3 identifier this message was seen in the mailbox under. Set on an
+  /// inbound message when it is collected, and on an outbound one if the
+  /// mailbox files what was sent from it and the collector recognises the answer
+  /// as this instance's own - which is what stops it being fetched again. Null
+  /// until one of those happens.
   sourceUid String? @unique
 
   /// The message, as text.
@@ -4442,6 +4446,11 @@ model BoardMailboxMessage {
   /// words: a rejection quotes the envelope back, and the envelope is an
   /// address. See `board-mailbox-delivery.ts`.
   deliveryFailure String?
+  /// When the reply was claimed for sending, which is a moment before it was
+  /// handed to a mail server. Written by the claim rather than after the
+  /// handover, so that it also marks a reply an attempt is holding: a reply with
+  /// a time here and PENDING beside it is one whose handover has not been
+  /// confirmed, and cleared again when the sending is recorded as failed.
   sentAt          DateTime?
 
   /// When an inbound message reached the association, taken from the envelope's

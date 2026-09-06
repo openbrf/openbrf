@@ -292,6 +292,18 @@ interface ThreadBody {
   }[];
 }
 
+/**
+ * A subject as the local part of a Message-ID.
+ *
+ * The subjects here carry a run suffix behind a space, and a space is outside
+ * the identifier grammar RFC 5322 gives: a header holding one is not a
+ * Message-ID, and the reader answers null for it rather than composing it back
+ * into the board's own In-Reply-To.
+ */
+function identifierOf(subject: string): string {
+  return subject.replaceAll(" ", "-");
+}
+
 async function listThreads(cookie: string): Promise<ThreadBody[]> {
   const response = await inject({
     method: "GET",
@@ -299,7 +311,12 @@ async function listThreads(cookie: string): Promise<ThreadBody[]> {
     headers: { cookie },
   });
   expect(response.statusCode, response.body).toBe(200);
-  return response.json() as ThreadBody[];
+  // The inbox is bounded and says whether it is all of it. Nothing this suite
+  // creates comes near the bound, so a page that says there is more is a fault
+  // in the bound rather than in the test.
+  const body = response.json() as { threads: ThreadBody[]; more: boolean };
+  expect(body.more).toBe(false);
+  return body.threads;
 }
 
 async function readThread(
@@ -504,7 +521,14 @@ afterAll(async () => {
     await run().catch((cause: unknown) => failures.push(cause));
   };
 
-  await step(() => prisma.boardMailboxThread.deleteMany({}));
+  // This run's threads and no others. The database is shared, so an unfiltered
+  // delete would take away what another suite is in the middle of - and every
+  // thread this file makes carries the run suffix in its subject.
+  await step(() =>
+    prisma.boardMailboxThread.deleteMany({
+      where: { subject: { contains: suffix } },
+    }),
+  );
   await step(() =>
     prisma.association.update({
       where: { id: 1 },
@@ -878,7 +902,7 @@ describe("working a thread", () => {
           from: CORRESPONDENT,
           subject,
           body: "En fraga till styrelsen.",
-          messageId: `${subject}@utanfor.example`,
+          messageId: `${identifierOf(subject)}@utanfor.example`,
         }),
       },
     ]);
@@ -1043,7 +1067,7 @@ describe("answering a letter", () => {
           from: CORRESPONDENT,
           subject,
           body: "En fraga.",
-          messageId: `${subject}@utanfor.example`,
+          messageId: `${identifierOf(subject)}@utanfor.example`,
         }),
       },
     ]);
@@ -1199,12 +1223,21 @@ describe("answering a letter", () => {
     ]);
 
     try {
-      const before = await prisma.boardMailboxThread.count();
+      // The threads themselves rather than how many there are. A count is equal
+      // again when one thread was opened and another went away, which is the
+      // outcome this test exists to catch; and scoped to this run, because the
+      // database is shared and another suite's threads move under it.
+      const ours = {
+        where: { subject: { contains: suffix } },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      } as const;
+      const before = await prisma.boardMailboxThread.findMany(ours);
       const summary = await collector.collect();
-      const after = await prisma.boardMailboxThread.count();
+      const after = await prisma.boardMailboxThread.findMany(ours);
 
       expect(summary.collected).toBe(0);
-      expect(after).toBe(before);
+      expect(after).toStrictEqual(before);
     } finally {
       await server.close();
     }
@@ -1237,7 +1270,7 @@ describe("the purge", () => {
           from: correspondent,
           subject: `Gammal ${correspondent}`,
           body: "Ett gammalt brev.",
-          messageId: `aged-${correspondent}@utanfor.example`,
+          messageId: `aged-${correspondent}`,
         }),
       },
     ]);

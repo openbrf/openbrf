@@ -445,7 +445,8 @@
           "broughtBy": "Brought by",
           "counterpart": "Other person",
           "proxyGround": "Ground",
-          "authorised": "Proxy authorisation dated"
+          "authorised": "Proxy authorisation dated",
+          "attachments": "Attachments"
         },
         "event": {
           "ENTRY": "Membership granted",
@@ -458,7 +459,9 @@
         },
         "boardMailbox": {
           "received": "Received by the association",
-          "answered": "Answered by the board"
+          "answered": "Answered by the board",
+          "bodyTruncated": "The message was longer than the association stores. The text above is the beginning of it.",
+          "bodyFromHtml": "The message was sent as a web page and the text above was read out of it, so it is not the message as it was written."
         },
         "action": {
           "PROTECTED_DATA_REVEALED": "Protected data revealed",
@@ -823,7 +826,7 @@
     },
     "boardMailbox": {
       "title": "The board's shared mailbox",
-      "description": "The address the board publishes, and the mailbox this instance collects it from. Everything that arrives there becomes a conversation every board seat can see and answer.",
+      "description": "The address the board publishes, and the mailbox this instance collects it from. Everything that arrives there becomes a conversation every board member can see and answer.",
       "address": "The board's address",
       "addressHint": "The address residents write to. Answers the board sends can be replied to at it.",
       "host": "Mail server (POP3)",
@@ -2136,7 +2139,7 @@
   "boardMailbox": {
     "navLabel": "The board's mail",
     "title": "The board's shared mailbox",
-    "intro": "What has been written to the board's own address. Every seat sees the same inbox, one of you takes a letter on, and the answer stays here as a record of what the association was asked.",
+    "intro": "What has been written to the board's own address. Every board member sees the same inbox, one of you takes a letter on, and the answer stays here as a record of what the association was asked.",
     "loading": "Reading the mailbox...",
     "loadFailed": "The board's mailbox could not be read just now.",
     "notAllowed": "The board's mailbox is read by the board.",
@@ -2166,7 +2169,8 @@
       "description": "What is waiting first, and the longest wait first within that.",
       "empty": "Nothing has been written to the board's address.",
       "summary_one": "From {{sender}}. One message.",
-      "summary_other": "From {{sender}}. {{count}} messages."
+      "summary_other": "From {{sender}}. {{count}} messages.",
+      "more": "This is the part of the inbox that is still owed something. Older conversations the board has finished with are not listed here."
     },
     "thread": {
       "from": "From {{sender}} ({{email}}).",
@@ -2182,7 +2186,10 @@
       "reply": "Send the answer",
       "replying": "Sending...",
       "replyQueued": "The answer has been recorded on the conversation and is on its way.",
-      "replyGoesTo": "Goes to {{email}}."
+      "replyGoesTo": "Goes to {{email}}.",
+      "replyRemaining_one": "One character left.",
+      "replyRemaining_other": "{{count}} characters left.",
+      "olderNotShown": "The last {{shown}} of {{total}} messages on this conversation."
     },
     "message": {
       "received": "Received",

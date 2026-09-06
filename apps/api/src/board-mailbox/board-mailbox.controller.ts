@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
+import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -6,10 +7,9 @@ import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   type BoardMailboxStatusView,
-  type BoardMailboxThreadSummary,
+  type BoardMailboxThreadList,
   type BoardMailboxThreadView,
   BoardMailboxService,
-  MAX_REPLY_CHARACTERS,
 } from "./board-mailbox.service";
 import {
   type CollectionSummary,
@@ -79,7 +79,7 @@ export class BoardMailboxController {
   @Get("threads")
   async listThreads(
     @Query("status") status?: string,
-  ): Promise<BoardMailboxThreadSummary[]> {
+  ): Promise<BoardMailboxThreadList> {
     const filter = z.enum(STATUSES).optional().parse(status);
     return this.mailbox.listThreads({ status: filter });
   }

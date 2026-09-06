@@ -130,7 +130,25 @@ export function readMessage(raw: Buffer): ParsedMessage {
 // Structure.
 // ---------------------------------------------------------------------------
 
-function parsePart(raw: Buffer): MimePart {
+/**
+ * How deep a multipart may nest.
+ *
+ * A part inside a part inside a part is an ordinary letter - written in both
+ * text and HTML, with an attachment, forwarded - and a handful of levels covers
+ * anything a mail client composes. Past that it is not a letter: one level costs
+ * about fifty bytes of input, so a message far inside the size the collector
+ * will fetch encodes thousands of them, and the walk below is recursive, so a
+ * message a stranger only has to send to the board's published address would run
+ * the stack out. That would throw where this file promises never to, and because
+ * nothing is deleted from the mailbox the same letter would end every collection
+ * from then on.
+ *
+ * At the cap the part is read as text, which is the degradation this file
+ * already applies to a multipart it cannot walk for any other reason.
+ */
+const MAX_MULTIPART_DEPTH = 20;
+
+function parsePart(raw: Buffer, depth = 0): MimePart {
   const separator = findHeaderEnd(raw);
   const headerBytes = raw.subarray(0, separator.headerEnd);
   const body = raw.subarray(separator.bodyStart);
@@ -146,19 +164,20 @@ function parsePart(raw: Buffer): MimePart {
       : (rawDisposition.split(";")[0] ?? "").trim().toLowerCase();
 
   const children =
-    contentType.type === "multipart"
-      ? splitMultipart(body, contentType.parameters.get("boundary"))
+    contentType.type === "multipart" && depth < MAX_MULTIPART_DEPTH
+      ? splitMultipart(body, contentType.parameters.get("boundary"), depth + 1)
       : null;
 
   return {
     headers,
     /*
-     * A multipart whose boundary is nowhere in its body is read as one text
-     * part, which is what the module comment promises for structure that cannot
-     * be read. Without this the part stays typed `multipart`, no rule downstream
-     * accepts it as a body, and a letter whose sender's client got the boundary
-     * wrong reaches the board as nothing at all - a message silently emptied,
-     * which is the worst of the three possible outcomes.
+     * A multipart this reader did not walk - because its boundary is nowhere in
+     * its body, or because it nests deeper than the cap above - is read as one
+     * text part, which is what the module comment promises for structure that
+     * cannot be read. Without this the part stays typed `multipart`, no rule
+     * downstream accepts it as a body, and a letter whose sender's client got
+     * the boundary wrong reaches the board as nothing at all - a message
+     * silently emptied, which is the worst of the three possible outcomes.
      *
      * The parameters go with it. A boundary that matched nothing says nothing
      * about the bytes, and a charset declared beside it still does.
@@ -371,6 +390,7 @@ function decodePercent(value: string, charset: string): string {
 function splitMultipart(
   body: Buffer,
   boundary: string | undefined,
+  depth: number,
 ): readonly MimePart[] | null {
   if (boundary === undefined || boundary === "") {
     return null;
@@ -403,7 +423,9 @@ function splitMultipart(
     cursor = next;
   }
 
-  return sections.length === 0 ? null : sections.map((part) => parsePart(part));
+  return sections.length === 0
+    ? null
+    : sections.map((part) => parsePart(part, depth));
 }
 
 /**
@@ -753,17 +775,46 @@ export function displayNameFrom(raw: string): string | null {
 }
 
 /** A Message-ID without its angle brackets, or null. */
+/**
+ * A Message-ID as RFC 5322 section 3.6.4 writes it, without its brackets.
+ *
+ * Both halves are dot-atoms: runs of printable ASCII from a fixed set, joined by
+ * single dots. Held to the grammar rather than taken as whatever stood between
+ * the brackets, because what comes out of here is composed back into the
+ * In-Reply-To and References of the board's own answer. The brackets around it
+ * there are this instance's; the value between them was written by whoever sent
+ * the letter, and a value carrying its own bracket makes a header that says
+ * something the board did not.
+ *
+ * A message whose identifier is outside the grammar keeps none: it opens its own
+ * thread rather than joining one, which is the same answer this module gives to
+ * a message that carried no identifier at all.
+ */
+const ATEXT = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]";
+const DOT_ATOM = `${ATEXT}+(?:\\.${ATEXT}+)*`;
+const MESSAGE_ID = new RegExp(`^${DOT_ATOM}@${DOT_ATOM}$`);
+
+function isIdentifier(value: string): boolean {
+  return value.length <= 500 && MESSAGE_ID.test(value);
+}
+
 function identifierFrom(raw: string): string | null {
   const match = /<([^<>\s]+)>/.exec(raw);
   const value = (match?.[1] ?? raw).trim();
-  return value === "" || value.length > 500 ? null : value;
+  return isIdentifier(value) ? value : null;
 }
 
-/** The newest identifier in a References header, which is what was answered. */
+/**
+ * The newest identifier in a References header, which is what was answered.
+ *
+ * Only the newest. An older entry names a message further back in the same
+ * conversation, so falling through to one when the newest is unreadable would
+ * attach the letter to a message it is not a reply to.
+ */
 function lastIdentifierFrom(raw: string): string | null {
   const matches = [...raw.matchAll(/<([^<>\s]+)>/g)];
   const last = matches[matches.length - 1]?.[1];
-  return last === undefined || last.length > 500 ? null : last;
+  return last !== undefined && isIdentifier(last) ? last : null;
 }
 
 /**
@@ -786,22 +837,59 @@ function dateFrom(raw: string): Date | null {
 // ---------------------------------------------------------------------------
 
 /**
- * An HTML comment, whole.
+ * The delimiters of an HTML comment.
  *
- * Built from a string rather than written as a regular expression literal. The
- * two are the same pattern; the literal form is one the parser behind the
- * security scan reads only as far as the closing delimiter, which leaves the
- * rest of this file unparsed and fails that scan without naming a rule.
+ * Assembled from two pieces rather than written whole. Either sequence in one
+ * literal ends the parse behind the security scan early, which leaves the rest
+ * of this file unread and fails that scan without naming a rule.
  */
-const HTML_COMMENT = new RegExp("<!--[\\s\\S]*?--" + ">", "g");
+const COMMENT_OPEN = "<!" + "--";
+const COMMENT_CLOSE = "--" + ">";
+
+/** Elements whose closing tag ends a line. */
+const BREAK_AFTER = new Set([
+  "blockquote",
+  "div",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "p",
+  "table",
+  "tr",
+]);
+
+/** Elements that are a line break where they stand. */
+const BREAK_AT = new Set(["br", "hr", "li"]);
+
+/** Elements whose content is neither markup nor words. */
+const RAW_TEXT = new Set(["script", "style"]);
 
 /**
  * An HTML part as the words it contains.
  *
- * Not a renderer and not a sanitiser: what comes out carries no tags at all, so
- * there is nothing left that any later reader could interpret as markup. Script
- * and style contents are dropped whole rather than flattened into the text,
- * because their contents are not words the sender wrote to the board.
+ * Not a renderer and not a sanitiser. The reader walks the input once and keeps
+ * only the character data: every tag, comment and declaration is dropped where
+ * it stands, and the content of a script or style element is dropped with it,
+ * because it is not words the sender wrote to the board.
+ *
+ * What comes out is text, and only a reader that treats it as text is correct.
+ * It is not free of angle brackets and cannot be: a letter that writes `&lt;`
+ * means the character, so the entity decoding below puts `<` and `>` back, and
+ * a sender who escaped a whole tag gets back the characters that spelled it.
+ * The result is stored as the message body, which is shown as text and sent on
+ * as text/plain.
+ *
+ * Reading the input rather than rewriting it is what makes that boundary hold.
+ * A pass that deletes tag-shaped substrings has to decide what a tag looks like
+ * in a pattern, and every such pattern is narrower than the tokeniser a browser
+ * runs: a closing tag may carry attributes, an attribute value may hold a `>`,
+ * and a `<` that opens nothing is a character the sender typed. Each of those
+ * is a place where content escapes the filter or text is eaten as if it were
+ * markup, and the reader below has no such gap to write down.
  *
  * The block elements that become line breaks are the ones whose absence would
  * run a letter into one paragraph. Everything else is dropped silently: this is
@@ -809,22 +897,210 @@ const HTML_COMMENT = new RegExp("<!--[\\s\\S]*?--" + ">", "g");
  * one wants the sentences.
  */
 export function htmlToText(html: string): string {
-  const withoutScripts = html
-    .replaceAll(/<script\b[\s\S]*?<\/script\s*>/gi, "")
-    .replaceAll(/<style\b[\s\S]*?<\/style\s*>/gi, "")
-    .replaceAll(HTML_COMMENT, "");
+  const lower = html.toLowerCase();
+  const pieces: string[] = [];
+  let index = 0;
 
-  const broken = withoutScripts
-    .replaceAll(/<br\s*\/?>/gi, "\n")
-    .replaceAll(/<\/(p|div|tr|li|h[1-6]|blockquote|table)\s*>/gi, "\n")
-    .replaceAll(/<(hr|li)\b[^>]*>/gi, "\n");
+  while (index < html.length) {
+    const open = html.indexOf("<", index);
+    if (open === -1) {
+      pieces.push(html.slice(index));
+      break;
+    }
+    pieces.push(html.slice(index, open));
 
-  const stripped = broken.replaceAll(/<[^>]*>/g, "");
+    const markup = readMarkup(html, lower, open);
+    if (markup === null) {
+      // A "<" that opens nothing is the character the sender typed.
+      pieces.push("<");
+      index = open + 1;
+      continue;
+    }
 
-  return normaliseNewlines(decodeEntities(stripped))
+    pieces.push(markup.text);
+    index = markup.end;
+  }
+
+  return normaliseNewlines(decodeEntities(pieces.join("")))
     .replaceAll(/[ \t]+\n/g, "\n")
     .replaceAll(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** What one markup construct contributes to the text, and where it ends. */
+interface Markup {
+  readonly text: string;
+  readonly end: number;
+}
+
+/**
+ * The construct that opens at `open`, or null when the `<` opens nothing.
+ *
+ * `lower` is `html` lowercased once by the caller, so that comparing a name
+ * costs no allocation per tag.
+ */
+function readMarkup(html: string, lower: string, open: number): Markup | null {
+  if (lower.startsWith(COMMENT_OPEN, open)) {
+    return { text: "", end: commentEnd(html, open + COMMENT_OPEN.length) };
+  }
+
+  const second = html.charAt(open + 1);
+
+  if (second === "!" || second === "?") {
+    // A declaration, or a comment written the way no specification allows.
+    return { text: "", end: upToClose(html, open + 2) };
+  }
+
+  if (second === "/") {
+    const closing = readName(lower, open + 2);
+    if (closing === "") {
+      return { text: "", end: upToClose(html, open + 2) };
+    }
+    return {
+      text: BREAK_AFTER.has(closing) ? "\n" : "",
+      end: tagEnd(html, open + 2 + closing.length),
+    };
+  }
+
+  const name = readName(lower, open + 1);
+  if (name === "") {
+    return null;
+  }
+
+  const end = tagEnd(html, open + 1 + name.length);
+  if (RAW_TEXT.has(name)) {
+    return { text: "", end: rawTextEnd(html, lower, end, name) };
+  }
+  return { text: BREAK_AT.has(name) ? "\n" : "", end };
+}
+
+/**
+ * Where the comment whose opening delimiter ended at `from` ends.
+ *
+ * The two shortest comments the specification allows close on the dashes that
+ * opened them, so both are recognised before the closing delimiter is looked
+ * for. A comment that is never closed runs to the end of the input.
+ */
+function commentEnd(html: string, from: number): number {
+  if (html.charAt(from) === ">") {
+    return from + 1;
+  }
+  if (html.startsWith("->", from)) {
+    return from + 2;
+  }
+  const close = html.indexOf(COMMENT_CLOSE, from);
+  return close === -1 ? html.length : close + COMMENT_CLOSE.length;
+}
+
+/** The first `>` at or after `from`, or the end of the input. */
+function upToClose(html: string, from: number): number {
+  const close = html.indexOf(">", from);
+  return close === -1 ? html.length : close + 1;
+}
+
+/**
+ * Where the tag whose name ended at `from` ends.
+ *
+ * A quoted attribute value may hold a `>`, so a quote that follows the `=` is
+ * read to its closing quote instead of being scanned for the end of the tag.
+ * Attributes are otherwise not read: nothing here needs their values.
+ */
+function tagEnd(html: string, from: number): number {
+  let index = from;
+  let afterEquals = false;
+
+  while (index < html.length) {
+    const character = html.charAt(index);
+
+    if (character === ">") {
+      return index + 1;
+    }
+
+    if (character === "=") {
+      afterEquals = true;
+      index += 1;
+      continue;
+    }
+
+    if (afterEquals && (character === '"' || character === "'")) {
+      const close = html.indexOf(character, index + 1);
+      if (close === -1) {
+        return html.length;
+      }
+      index = close + 1;
+      afterEquals = false;
+      continue;
+    }
+
+    if (!isSpace(character)) {
+      afterEquals = false;
+    }
+    index += 1;
+  }
+
+  return html.length;
+}
+
+/**
+ * Where the raw text that began at `from` ends.
+ *
+ * It ends at a closing tag for the same element, whose name the specification
+ * lets be followed by attributes and a solidus before the `>`; a name that runs
+ * on into other letters is not that closing tag. An element that is never
+ * closed holds the rest of the input.
+ */
+function rawTextEnd(
+  html: string,
+  lower: string,
+  from: number,
+  name: string,
+): number {
+  const closing = "</" + name;
+  let index = from;
+
+  while (index < html.length) {
+    const at = lower.indexOf(closing, index);
+    if (at === -1) {
+      return html.length;
+    }
+
+    const after = html.charAt(at + closing.length);
+    if (after === ">" || after === "/" || isSpace(after)) {
+      return tagEnd(html, at + closing.length);
+    }
+    index = at + closing.length;
+  }
+
+  return html.length;
+}
+
+/** The element name at `from` in the lowercased input, or "" if none begins there. */
+function readName(lower: string, from: number): string {
+  let index = from;
+  while (
+    index < lower.length &&
+    isNameCharacter(lower.charAt(index), index === from)
+  ) {
+    index += 1;
+  }
+  return lower.slice(from, index);
+}
+
+function isNameCharacter(character: string, first: boolean): boolean {
+  if (character >= "a" && character <= "z") {
+    return true;
+  }
+  return !first && character >= "0" && character <= "9";
+}
+
+function isSpace(character: string): boolean {
+  return (
+    character === " " ||
+    character === "\t" ||
+    character === "\n" ||
+    character === "\r" ||
+    character === "\f"
+  );
 }
 
 /**
