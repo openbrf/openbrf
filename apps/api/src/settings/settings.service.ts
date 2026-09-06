@@ -6,6 +6,7 @@ import {
 } from "@openbrf/tokens";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -54,7 +55,8 @@ export class SettingsError extends DomainError {
       | "no-email"
       | "no-phone"
       | "motion-deadline-not-a-date"
-      | "proxy-limit-out-of-range",
+      | "proxy-limit-out-of-range"
+      | "joint-controller-incomplete",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
@@ -157,6 +159,13 @@ export interface SmsSettingsView {
   configured: boolean;
 }
 
+/** Who answers for the association's processing (GDPR art. 13, art. 30). */
+export interface DataProtectionContacts {
+  controller: { contactEmail: string | null; postalAddress: string | null };
+  officer: { name: string | null; email: string | null; phone: string | null };
+  jointController: { name: string | null; contact: string | null };
+}
+
 export interface InstanceSettings {
   housingCooperative: HousingCooperativeSettings;
   branding: BrandingSettings;
@@ -166,6 +175,18 @@ export interface InstanceSettings {
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
   issueReporting: { publicFormEnabled: boolean };
+  /**
+   * How the association is reached as controller, and who its data protection
+   * officer is where it has appointed one (GDPR art. 13(1)(a)-(b),
+   * art. 30(1)(a)).
+   *
+   * Read with association:read, because the board answers for the record these
+   * appear in, and written with association:manage like every other instance
+   * setting. Null throughout on a fresh instance: a cooperative that has not
+   * appointed an officer has none, and art. 37(1) rarely requires one of a
+   * housing cooperative.
+   */
+  dataProtectionContacts: DataProtectionContacts;
   /**
    * The deadline the bylaws set for motions to the general meeting, or null when
    * they set none.
@@ -245,6 +266,11 @@ export class SettingsService {
     private readonly media: MediaService,
     private readonly sms: SmsService,
     private readonly i18n: I18nService,
+    /*
+     * One settings write is audited: recording who answers for the
+     * association's processing. See updateDataProtectionContacts.
+     */
+    private readonly audit: AuditLogService,
   ) {}
 
   async read(): Promise<InstanceSettings> {
@@ -303,6 +329,106 @@ export class SettingsService {
       },
       motionDeadline: readMotionDeadline(association),
       meetingBylaws: readMeetingBylaws(association),
+      dataProtectionContacts: {
+        controller: {
+          contactEmail: association.controllerContactEmail,
+          postalAddress: association.controllerPostalAddress,
+        },
+        officer: {
+          name: association.dataProtectionOfficerName,
+          email: association.dataProtectionOfficerEmail,
+          phone: association.dataProtectionOfficerPhone,
+        },
+        jointController: {
+          name: association.jointControllerName,
+          contact: association.jointControllerContact,
+        },
+      },
+    };
+  }
+
+  /**
+   * Records the controller's contact details, the data protection officer and a
+   * joint controller.
+   *
+   * Audited although it is a settings write, and the only one that is. The
+   * others describe how the instance behaves; this records who answers for the
+   * association's processing, which is an act the board is accountable for
+   * under GDPR art. 5(2) - and an officer who was appointed and then quietly
+   * removed is exactly the change a supervisory authority would ask about.
+   *
+   * The joint controller is written both or neither. Art. 30(1)(a) asks for the
+   * contact details beside the name, so a name standing alone is not what the
+   * article requires and is refused rather than stored.
+   */
+  async updateDataProtectionContacts(input: {
+    controller: { contactEmail: string | null; postalAddress: string | null };
+    officer: {
+      name: string | null;
+      email: string | null;
+      phone: string | null;
+    };
+    jointController: { name: string | null; contact: string | null };
+    actorPersonId: string | null;
+  }): Promise<DataProtectionContacts> {
+    await this.requireAssociation();
+
+    const jointName = blankToNull(input.jointController.name);
+    const jointContact = blankToNull(input.jointController.contact);
+    if ((jointName === null) !== (jointContact === null)) {
+      throw new SettingsError(
+        "A joint controller is recorded with its contact details.",
+        "joint-controller-incomplete",
+      );
+    }
+
+    const data = {
+      controllerContactEmail: blankToNull(input.controller.contactEmail),
+      controllerPostalAddress: blankToNull(input.controller.postalAddress),
+      dataProtectionOfficerName: blankToNull(input.officer.name),
+      dataProtectionOfficerEmail: blankToNull(input.officer.email),
+      dataProtectionOfficerPhone: blankToNull(input.officer.phone),
+      jointControllerName: jointName,
+      jointControllerContact: jointContact,
+    };
+
+    const association = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.association.update({ where: { id: 1 }, data });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "association",
+          targetId: String(updated.id),
+          // Which fields were recorded, never their values: an address copied
+          // into the append-only log would outlive a correction to it.
+          context: {
+            fields: Object.entries(data)
+              .filter(([, value]) => value !== null)
+              .map(([field]) => field),
+          },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    return {
+      controller: {
+        contactEmail: association.controllerContactEmail,
+        postalAddress: association.controllerPostalAddress,
+      },
+      officer: {
+        name: association.dataProtectionOfficerName,
+        email: association.dataProtectionOfficerEmail,
+        phone: association.dataProtectionOfficerPhone,
+      },
+      jointController: {
+        name: association.jointControllerName,
+        contact: association.jointControllerContact,
+      },
     };
   }
 
@@ -919,4 +1045,10 @@ function toLogoView(
     width: file.width,
     height: file.height,
   };
+}
+
+/** An empty field is nothing recorded, not a recorded emptiness. */
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed === "" ? null : trimmed;
 }

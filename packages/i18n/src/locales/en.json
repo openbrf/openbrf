@@ -1896,10 +1896,19 @@
       "intro": "The board writes this page. The headings below are what a privacy notice has to answer, and the text under each of them is the association's own.",
       "sections": {
         "controller": "Who is responsible for the personal data",
+        "dataProtectionOfficer": "The association's data protection officer",
         "data": "What personal data the association processes",
         "purpose": "Why the association processes it",
+        "legalBasis": "The legal basis for each purpose",
+        "legitimateInterest": "The legitimate interest the association relies on",
+        "recipients": "Who receives the data",
+        "thirdCountryTransfers": "Transfers outside the EU and the EEA",
         "retention": "How long it is kept",
         "rights": "Your rights",
+        "withdrawConsent": "How to withdraw a consent",
+        "provisionRequirement": "Whether you have to give the data, and what happens if you do not",
+        "automatedDecisions": "Automated decision-making",
+        "complaint": "How to complain to IMY",
         "contact": "How to reach the board"
       }
     },
@@ -1992,6 +2001,14 @@
         "legalPersonsAccepted": "Accepted",
         "legalPersonsRefused": "Not accepted"
       }
+    },
+    "controllerContact": {
+      "heading": "Controller",
+      "name": "Association",
+      "organizationNumber": "Organisation number",
+      "postalAddress": "Postal address",
+      "contactEmail": "Email",
+      "officer": "Data protection officer"
     }
   },
   "signup": {
@@ -2271,7 +2288,8 @@
         "documentList": "Document list",
         "boardRoster": "The board",
         "associationFacts": "The association's facts",
-        "faq": "Questions and answers"
+        "faq": "Questions and answers",
+        "controllerContact": "Controller contact"
       },
       "add": {
         "paragraph": "Add a paragraph",
@@ -2281,7 +2299,8 @@
         "documentList": "Add a document list",
         "boardRoster": "Add the board",
         "associationFacts": "Add the association's facts",
-        "faq": "Add questions and answers"
+        "faq": "Add questions and answers",
+        "controllerContact": "Add the controller's contact details"
       }
     },
     "preview": {

@@ -144,6 +144,9 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
     media as unknown as MediaService,
     sms as unknown as SmsService,
     i18n as unknown as I18nService,
+    // Only the data protection contacts write reaches the log, which these
+    // cases do not exercise.
+    { record: vi.fn(async () => undefined) } as never,
   );
 
   return { service, prisma, mail, sms, i18n, current: () => row };

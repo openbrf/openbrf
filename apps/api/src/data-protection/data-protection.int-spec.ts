@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
 import {
   loadEnvForIntegrationTests,
@@ -17,6 +18,8 @@ import {
 import { BreachReminderService } from "./breach-reminder.service";
 import { DataProtectionSeedService } from "./data-protection-seed.service";
 import { ProcessingActivityService } from "./processing-activity.service";
+import type { DataProtectionOverview } from "./data-protection-overview.service";
+import type { PrivacyNoticeCoverage } from "./privacy-notice.service";
 import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
 import type { ProcessorView } from "./processor-agreement.service";
@@ -943,5 +946,219 @@ describe("processors", () => {
     // Nothing is installed in this suite, so the map is empty rather than
     // absent: a plugin with no classification reads as not recorded.
     expect(states.size).toBe(0);
+  });
+});
+
+describe("privacy notice", () => {
+  async function coverage(): Promise<PrivacyNoticeCoverage> {
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/privacy-notice",
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json<PrivacyNoticeCoverage>();
+  }
+
+  /** The page as stored, so an append can be compared block for block. */
+  async function storedBlocks(): Promise<unknown[]> {
+    const page = await prisma.page.findUnique({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { content: true },
+    });
+    return (page?.content as { blocks?: unknown[] } | null)?.blocks ?? [];
+  }
+
+  it("seeds a notice carrying every art. 13 heading", async () => {
+    await app
+      .get(PagesService)
+      .seedPrivacyNotice(app.get(I18nService).translatorFor("sv"));
+
+    const state = await coverage();
+
+    expect(state.exists).toBe(true);
+    // Fifteen, because that is what art. 13(1) and (2) require between them.
+    expect(state.sections).toHaveLength(15);
+  });
+
+  it("names the headings a notice does not answer", async () => {
+    /*
+     * The check is a check and not a rewrite. A notice is the association's own
+     * account in its own words, so what the product does is compare the
+     * headings against the article and say which questions are unanswered.
+     */
+    const page = await prisma.page.findUnique({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { id: true, content: true },
+    });
+    if (page === null) {
+      return;
+    }
+    const original = page.content;
+
+    await prisma.page.update({
+      where: { id: page.id },
+      data: {
+        content: {
+          version: 1,
+          blocks: [
+            { type: "paragraph", runs: [{ text: "Styrelsen skriver." }] },
+          ],
+        },
+      },
+    });
+
+    try {
+      const state = await coverage();
+      expect(state.sections.every((section) => !section.present)).toBe(true);
+      expect(state.controllerContactBlock).toBe(false);
+    } finally {
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { content: original ?? {} },
+      });
+    }
+  });
+
+  it("appends what is missing and leaves every existing block byte-identical", async () => {
+    const page = await prisma.page.findUnique({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { id: true, content: true },
+    });
+    if (page === null) {
+      return;
+    }
+    const original = page.content;
+
+    // A notice the board has spent an evening on: its own prose, and one of the
+    // fifteen headings answered.
+    await prisma.page.update({
+      where: { id: page.id },
+      data: {
+        content: {
+          version: 1,
+          blocks: [
+            { type: "paragraph", runs: [{ text: "Styrelsens egen ingress." }] },
+            {
+              type: "heading",
+              level: 2,
+              runs: [{ text: "Vem som är personuppgiftsansvarig" }],
+            },
+            { type: "paragraph", runs: [{ text: "Föreningen, se nedan." }] },
+          ],
+        },
+      },
+    });
+
+    try {
+      const before = await storedBlocks();
+
+      const appended = await inject({
+        method: "POST",
+        url: "/api/data-protection/privacy-notice/headings",
+        headers: { cookie: boardCookie },
+      });
+      expect(appended.statusCode).toBe(200);
+
+      const after = await storedBlocks();
+
+      /*
+       * The whole promise of the append: the board's own blocks are untouched,
+       * in their order, and what was added went on the end. Reordering the page
+       * to match the article would move text the board wrote under headings it
+       * did not intend.
+       */
+      expect(after.slice(0, before.length)).toEqual(before);
+      expect(after.length).toBeGreaterThan(before.length);
+
+      const state = appended.json<PrivacyNoticeCoverage>();
+      // Named rather than counted, so a failure says which question is still
+      // unanswered instead of only that one is.
+      expect(
+        state.sections
+          .filter((section) => !section.present)
+          .map((section) => section.section),
+      ).toEqual([]);
+      expect(state.controllerContactBlock).toBe(true);
+
+      // And it wrote no text: every added block is a heading or the contact
+      // block, because the answer under a heading is the board's to write.
+      const added = after.slice(before.length) as { type: string }[];
+      expect(
+        added.every(
+          (block) =>
+            block.type === "heading" || block.type === "controllerContact",
+        ),
+      ).toBe(true);
+    } finally {
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { content: original ?? {} },
+      });
+    }
+  });
+
+  it("records which questions were added and no text", async () => {
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "PRIVACY_NOTICE_HEADINGS_ADDED" },
+      orderBy: [{ createdAt: "desc" }],
+    });
+
+    expect(entry).not.toBeNull();
+    expect(JSON.stringify(entry?.context)).not.toContain("Styrelsens egen");
+  });
+});
+
+describe("overview", () => {
+  it("counts what is waiting, from the same functions the panels use", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/overview",
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const overview = response.json<DataProtectionOverview>();
+
+    /*
+     * Derived rather than stored. A count kept in a column goes wrong exactly
+     * when it matters - the night a deadline passes and nothing recomputes it -
+     * so these are read off the rows every time.
+     */
+    const undecided = await prisma.personalDataBreach.count({
+      where: { decidedAt: null, closedAt: null },
+    });
+    expect(overview.breaches.awaitingDecision).toBe(undecided);
+    expect(overview.processors.notRecorded).toBeGreaterThanOrEqual(0);
+    expect(typeof overview.notice.published).toBe("boolean");
+  });
+
+  it("names the nearest 72-hour bound still running", async () => {
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(1) });
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/overview",
+      headers: { cookie: boardCookie },
+    });
+    const overview = response.json<DataProtectionOverview>();
+
+    expect(overview.breaches.awaitingDecision).toBeGreaterThan(0);
+    expect(overview.breaches.nearestDeadline).not.toBeNull();
+    // No later than this breach's own bound: it is the nearest or something
+    // else is nearer.
+    expect(
+      new Date(overview.breaches.nearestDeadline ?? "").getTime(),
+    ).toBeLessThanOrEqual(new Date(view.imyNotifyBy).getTime());
+  });
+
+  it("is refused to a resident", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/overview",
+      headers: { cookie: residentCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
   });
 });

@@ -228,6 +228,19 @@ export interface AssociationFactsBlock {
   type: "associationFacts";
 }
 
+/**
+ * The association's own contact details as controller, and its data protection
+ * officer where it has appointed one.
+ *
+ * A block rather than text the board types, because GDPR art. 13(1)(a) and (b)
+ * require these on the notice and a typed copy would go stale the day the board
+ * changed them in settings. It renders from the association row, so the notice
+ * and the record of processing say the same thing by construction.
+ */
+export interface ControllerContactBlock {
+  type: "controllerContact";
+}
+
 /** One question the association answers, and its answer. */
 export interface FaqItem {
   /**
@@ -271,6 +284,7 @@ export type PageBlock =
   | DocumentListBlock
   | BoardRosterBlock
   | AssociationFactsBlock
+  | ControllerContactBlock
   | FaqBlock;
 
 export interface PageContent {
@@ -404,6 +418,7 @@ const blockSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("boardRoster") }),
   z.strictObject({ type: z.literal("associationFacts") }),
+  z.strictObject({ type: z.literal("controllerContact") }),
   z.strictObject({
     type: z.literal("faq"),
     items: z
@@ -586,6 +601,7 @@ function blockText(block: PageBlock): string {
     case "documentList":
     case "boardRoster":
     case "associationFacts":
+    case "controllerContact":
       // Nothing of the board's own writing. What these blocks show - a news
       // item's title, an event's, a document's, a board member's name, a
       // recorded fact - is scanned where it is written rather than again on
@@ -621,6 +637,7 @@ function normalize(block: PageBlock): PageBlock | null {
     case "eventCalendar":
     case "boardRoster":
     case "associationFacts":
+    case "controllerContact":
       return block;
     case "documentList": {
       // A binder cleared back to nothing is no binder, not a binder named "".
@@ -745,6 +762,8 @@ function readBlock(entry: unknown): PageBlock | null {
       return { type: "boardRoster" };
     case "associationFacts":
       return { type: "associationFacts" };
+    case "controllerContact":
+      return { type: "controllerContact" };
     case "faq": {
       const items = readFaqItems(block["items"]);
       return items.length === 0 ? null : { type: "faq", items };

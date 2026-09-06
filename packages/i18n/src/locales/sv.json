@@ -1896,10 +1896,19 @@
       "intro": "Styrelsen skriver den här sidan. Rubrikerna nedan är det en integritetspolicy ska svara på, och texten under var och en av dem är föreningens egen.",
       "sections": {
         "controller": "Vem som är personuppgiftsansvarig",
+        "dataProtectionOfficer": "Föreningens dataskyddsombud",
         "data": "Vilka personuppgifter föreningen behandlar",
         "purpose": "Varför föreningen behandlar dem",
+        "legalBasis": "Den rättsliga grunden för varje ändamål",
+        "legitimateInterest": "Vilket berättigat intresse föreningen stödjer sig på",
+        "recipients": "Vilka som tar del av uppgifterna",
+        "thirdCountryTransfers": "Överföring till land utanför EU och EES",
         "retention": "Hur länge de sparas",
         "rights": "Dina rättigheter",
+        "withdrawConsent": "Så återkallar du ett samtycke",
+        "provisionRequirement": "Om du måste lämna uppgifterna, och vad som händer annars",
+        "automatedDecisions": "Automatiserat beslutsfattande",
+        "complaint": "Så klagar du till IMY",
         "contact": "Så når du styrelsen"
       }
     },
@@ -1992,6 +2001,14 @@
         "legalPersonsAccepted": "Godkänns",
         "legalPersonsRefused": "Godkänns inte"
       }
+    },
+    "controllerContact": {
+      "heading": "Personuppgiftsansvarig",
+      "name": "Förening",
+      "organizationNumber": "Organisationsnummer",
+      "postalAddress": "Postadress",
+      "contactEmail": "E-post",
+      "officer": "Dataskyddsombud"
     }
   },
   "signup": {
@@ -2271,7 +2288,8 @@
         "documentList": "Dokumentlista",
         "boardRoster": "Styrelsen",
         "associationFacts": "Föreningens uppgifter",
-        "faq": "Frågor och svar"
+        "faq": "Frågor och svar",
+        "controllerContact": "Personuppgiftsansvarig"
       },
       "add": {
         "paragraph": "Lägg till ett stycke",
@@ -2281,7 +2299,8 @@
         "documentList": "Lägg till en dokumentlista",
         "boardRoster": "Lägg till styrelsen",
         "associationFacts": "Lägg till föreningens uppgifter",
-        "faq": "Lägg till frågor och svar"
+        "faq": "Lägg till frågor och svar",
+        "controllerContact": "Lägg till personuppgiftsansvarig"
       }
     },
     "preview": {

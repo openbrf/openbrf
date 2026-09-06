@@ -5,6 +5,8 @@ import { BreachService } from "./breach.service";
 import { DataProtectionController } from "./data-protection.controller";
 import { DataProtectionSeedService } from "./data-protection-seed.service";
 import { ProcessingActivityService } from "./processing-activity.service";
+import { DataProtectionOverviewService } from "./data-protection-overview.service";
+import { PrivacyNoticeService } from "./privacy-notice.service";
 import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
 import { DataSubjectRequestController } from "./data-subject-request.controller";
@@ -42,6 +44,8 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
     ProcessingActivityService,
     ProcessorFactsService,
     ProcessorAgreementService,
+    PrivacyNoticeService,
+    DataProtectionOverviewService,
     DataProtectionSeedService,
   ],
   exports: [

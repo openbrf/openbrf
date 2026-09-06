@@ -19,6 +19,14 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { actingPersonId } from "../registers/acting-person";
 import { BreachService, type BreachView } from "./breach.service";
 import {
+  DataProtectionOverviewService,
+  type DataProtectionOverview,
+} from "./data-protection-overview.service";
+import {
+  PrivacyNoticeService,
+  type PrivacyNoticeCoverage,
+} from "./privacy-notice.service";
+import {
   ProcessorAgreementService,
   type ProcessorView,
 } from "./processor-agreement.service";
@@ -155,7 +163,27 @@ export class DataProtectionController {
     private readonly processing: ProcessingActivityService,
     private readonly processors: ProcessorAgreementService,
     private readonly facts: ProcessorFactsService,
+    private readonly notice: PrivacyNoticeService,
+    private readonly overview: DataProtectionOverviewService,
   ) {}
+
+  @Get("overview")
+  async readOverview(): Promise<DataProtectionOverview> {
+    return this.overview.read();
+  }
+
+  @Get("privacy-notice")
+  async readPrivacyNoticeCoverage(): Promise<PrivacyNoticeCoverage> {
+    return this.notice.coverage();
+  }
+
+  @Post("privacy-notice/headings")
+  @HttpCode(200)
+  async appendPrivacyNoticeHeadings(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PrivacyNoticeCoverage> {
+    return this.notice.appendMissing(actingPersonId(request));
+  }
 
   @Get("processors")
   async listProcessors(): Promise<ProcessorView[]> {
