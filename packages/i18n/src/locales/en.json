@@ -2170,7 +2170,7 @@
       "empty": "Nothing has been written to the board's address.",
       "summary_one": "From {{sender}}. One message.",
       "summary_other": "From {{sender}}. {{count}} messages.",
-      "more": "Show older conversations",
+      "more": "Show older threads",
       "reading": "Reading..."
     },
     "thread": {
@@ -2186,11 +2186,11 @@
       "replyLabel": "Your answer",
       "reply": "Send the answer",
       "replying": "Sending...",
-      "replyQueued": "The answer has been recorded on the conversation and is on its way.",
+      "replyQueued": "The answer has been recorded on the thread and is on its way.",
       "replyGoesTo": "Goes to {{email}}.",
       "replyRemaining_one": "One character left.",
       "replyRemaining_other": "{{count}} characters left.",
-      "olderNotShown": "Showing the last {{shown}} of {{total}} messages on this conversation.",
+      "olderNotShown": "Showing the last {{shown}} of {{total}} messages on this thread.",
       "readEarlier": "Show earlier messages",
       "readingEarlier": "Reading..."
     },
@@ -2207,13 +2207,13 @@
       "sent": "The answer was accepted by the mail server.",
       "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
       "refused": "The answer did not go out: the mail server refused it.",
-      "threadGone": "The answer did not go out: the conversation was erased first.",
+      "threadGone": "The answer did not go out: the thread was erased first.",
       "interrupted": "The answer was given up on before it went out.",
       "unknown": "The answer did not go out."
     },
     "errors": {
-      "threadNotFound": "This conversation no longer exists.",
-      "threadClosed": "The conversation is closed. Reopen it to answer.",
+      "threadNotFound": "This thread no longer exists.",
+      "threadClosed": "The thread is closed. Reopen it to answer.",
       "notConfigured": "No mailbox is set up for the board's address. An administrator sets it up under settings.",
       "unreachable": "The mailbox did not answer. Check the server name and the port under settings.",
       "signInRefused": "The mailbox refused the sign-in. Check the user name and the password under settings.",

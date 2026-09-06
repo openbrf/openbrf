@@ -16,7 +16,7 @@ import { appPath } from "../src/stack";
  * The shared board mailbox, end to end.
  *
  * The one thing this suite can prove that nothing below it can: that mail sent
- * to the board's address becomes a conversation in the application, that a board
+ * to the board's address becomes a thread in the application, that a board
  * member takes it on and answers it in a browser, and that the answer leaves the
  * instance as real mail. Every layer of that is the deployed image - the POP3
  * client, the MIME reader, the job queue, the outbound path - and the only thing
@@ -190,7 +190,7 @@ async function ensureMailboxFixture(
   return people;
 }
 
-test("mail to the board's address becomes a conversation the board answers", async ({
+test("mail to the board's address becomes a thread the board answers", async ({
   page,
   api: request,
   clientAddress,
@@ -218,7 +218,7 @@ test("mail to the board's address becomes a conversation the board answers", asy
   // The board collects the mailbox, which is the inbound half in one press.
   await page.getByRole("button", { name: "Hämta nu" }).click();
 
-  // The conversation, with the sender the envelope named and the words they
+  // The thread, with the sender the envelope named and the words they
   // wrote. Nothing here was attributed to anybody in the register.
   const row = page.getByRole("button").filter({ hasText: SUBJECT });
   await expect(row.first()).toBeVisible();
@@ -242,7 +242,7 @@ test("mail to the board's address becomes a conversation the board answers", asy
   await page.getByLabel("Ditt svar").fill(ANSWER);
   await page.getByRole("button", { name: "Skicka svaret" }).click();
   await expect(
-    page.getByText("Svaret är antecknat på konversationen och är på väg."),
+    page.getByText("Svaret är antecknat på tråden och är på väg."),
   ).toBeVisible();
 
   /*
@@ -257,7 +257,7 @@ test("mail to the board's address becomes a conversation the board answers", asy
   expect(text).toContain("Vi har beställt en rörmokare");
   expect(message.Subject).toContain(SUBJECT);
 
-  // The conversation records what was asked and what was answered, in order.
+  // The thread records what was asked and what was answered, in order.
   await expect(page.getByText("Inkommet")).toBeVisible();
   await expect(page.getByText(ANSWER)).toBeVisible();
 

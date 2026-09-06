@@ -4,7 +4,7 @@
 "@openbrf/i18n": minor
 ---
 
-Add the shared board mailbox: mail to the board's address as a conversation the
+Add the shared board mailbox: mail to the board's address as a thread the
 whole board works.
 
 Mail sent to the address the board publishes arrives as a thread every board
@@ -35,7 +35,7 @@ thread is service tier: it appears in the data subject access report for the
 address it is with, it is erased two years after the last message on it, and a
 legal hold against the person whose address that is suspends the erasure.
 
-The inbox and a conversation are both read a page at a time, the inbox from the
+The inbox and a thread are both read a page at a time, the inbox from the
 end that is still owed something and a thread from its newest message, with the
 page before each one a press away. How much there is to read is decided by how
 much mail is sent to an address the association publishes, which is not a number

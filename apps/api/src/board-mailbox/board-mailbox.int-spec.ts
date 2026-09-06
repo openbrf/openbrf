@@ -305,24 +305,44 @@ function identifierOf(subject: string): string {
   return subject.replaceAll(" ", "-");
 }
 
+/**
+ * The whole inbox, following the pages.
+ *
+ * Every page and not the first one, because the database is shared: another
+ * suite's threads and any left behind by a run that was interrupted sit in the
+ * same list, and this file's own fixtures are found by subject somewhere in it.
+ * A page bound this suite does not fill today is one it could fill tomorrow, and
+ * a helper that read only the first page would start failing to find a thread
+ * that is there.
+ */
 async function listThreads(cookie: string): Promise<ThreadBody[]> {
-  const response = await inject({
-    method: "GET",
-    url: "/api/board-mailbox/threads",
-    headers: { cookie },
-  });
-  expect(response.statusCode, response.body).toBe(200);
-  // The inbox is a bounded page and says how to read the next one. Nothing this
-  // suite creates comes near the bound, so a page offering a continuation is a
-  // fault in the bound rather than in the test.
-  const body = response.json() as {
-    threads: ThreadBody[];
-    more: boolean;
-    nextCursor: string | null;
-  };
-  expect(body.more).toBe(false);
-  expect(body.nextCursor).toBeNull();
-  return body.threads;
+  const all: ThreadBody[] = [];
+  let after: string | null = null;
+
+  // Bounded, so a cursor that stopped advancing ends the test rather than the
+  // worker: at the page size this is far more inbox than any run builds.
+  for (let page = 0; page < 50; page += 1) {
+    const url: string =
+      after === null
+        ? "/api/board-mailbox/threads"
+        : `/api/board-mailbox/threads?after=${encodeURIComponent(after)}`;
+    const response = await inject({ method: "GET", url, headers: { cookie } });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const body = response.json() as {
+      threads: ThreadBody[];
+      more: boolean;
+      nextCursor: string | null;
+    };
+    all.push(...body.threads);
+    if (!body.more) {
+      return all;
+    }
+    after = body.nextCursor;
+    expect(after).not.toBeNull();
+  }
+
+  throw new Error("The board mailbox inbox did not end within 50 pages.");
 }
 
 async function readThread(
