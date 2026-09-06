@@ -152,6 +152,30 @@ function rowFor(page: Page, name: string) {
   return page.getByRole("listitem").filter({ hasText: name }).first();
 }
 
+/**
+ * What the screen calls each kind of recipient.
+ *
+ * A mail server names itself and so does a bucket, but the association's own
+ * disk and whoever runs the machine have no name the instance can read, and
+ * the panel calls those rows by their kind instead. The spec has to know the
+ * same rule to find them, so it states it once here rather than hard-coding a
+ * label at each use.
+ */
+const PROCESSOR_KIND_LABEL: Record<api.ProcessorRow["processorKind"], string> =
+  {
+    SMTP: "E-postserver",
+    SMS: "SMS-gateway",
+    STORAGE: "Fillagring",
+    HOSTING: "Drift",
+    PLUGIN: "Tillägg",
+    EXTERNAL: "Antecknad av styrelsen",
+  };
+
+/** The name the screen shows for one recipient. */
+function nameOf(processor: api.ProcessorRow): string {
+  return processor.identity ?? PROCESSOR_KIND_LABEL[processor.processorKind];
+}
+
 test.describe("the board's own data protection records", () => {
   test("a breach inside its 72 hours is counted from discovery and decided", async ({
     page,
@@ -321,9 +345,8 @@ test.describe("the board's own data protection records", () => {
         continue;
       }
 
-      await page
-        .getByRole("button", { name: `Klassificera ${processor.identity}` })
-        .click();
+      const name = nameOf(processor);
+      await page.getByRole("button", { name: `Klassificera ${name}` }).click();
 
       /*
        * Storage on the instance's own disk is the one row the instance can
@@ -342,7 +365,7 @@ test.describe("the board's own data protection records", () => {
           .getByLabel("Varför inget avtal behövs")
           .fill("Filerna ligger på föreningens egen disk.");
       } else {
-        await page.getByLabel("Motpart").fill(processor.identity);
+        await page.getByLabel("Motpart").fill(name);
         await page
           .getByRole("combobox", { name: "Avtalets status" })
           .selectOption("PENDING");
@@ -350,7 +373,7 @@ test.describe("the board's own data protection records", () => {
 
       await page.getByRole("button", { name: "Spara", exact: true }).click();
       await expect(
-        rowFor(page, processor.identity).getByText("Ej klassificerad"),
+        rowFor(page, name).getByText("Ej klassificerad"),
       ).toHaveCount(0);
     }
 

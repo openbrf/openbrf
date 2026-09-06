@@ -904,7 +904,8 @@ export type ProcessorRow = {
   readonly processorKey: string;
   readonly processorKind:
     "SMTP" | "SMS" | "STORAGE" | "HOSTING" | "PLUGIN" | "EXTERNAL";
-  readonly identity: string;
+  /** Null where the instance has no name for it; the screen says its kind. */
+  readonly identity: string | null;
   readonly state:
     | "inPlace"
     | "pending"

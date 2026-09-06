@@ -102,7 +102,10 @@ describe("currentProcessors", () => {
     );
 
     expect(storage).toMatchObject({
-      identity: "local disk",
+      // No name: there is no host to read and no bucket to quote, and a
+      // placeholder here would reach a Swedish board as an English word. The
+      // screen calls the row by its kind, in the reader's own language.
+      identity: null,
       seededClassification: "NOT_A_PROCESSOR",
       state: "notRecorded",
     });
@@ -129,7 +132,15 @@ describe("currentProcessors", () => {
   });
 
   it("always lists hosting, because somebody runs the machine", () => {
-    expect(keys(currentProcessors(facts(), []))).toContain("hosting");
+    const descriptors = currentProcessors(facts(), []);
+
+    expect(keys(descriptors)).toContain("hosting");
+    // And with no name, for the same reason the local disk has none: the
+    // instance cannot see who runs the machine it is running on. That row
+    // exists to be answered by the only party who knows.
+    expect(
+      descriptors.find((descriptor) => descriptor.processorKey === "hosting"),
+    ).toMatchObject({ identity: null, seededClassification: null });
   });
 
   it("lists one recipient per installed plugin, named by its package", () => {

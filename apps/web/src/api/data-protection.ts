@@ -161,7 +161,8 @@ export type ProcessorKind =
 export interface ProcessorView {
   processorKey: string;
   processorKind: ProcessorKind;
-  identity: string;
+  /** Null where the instance has no name for the recipient; see the panel. */
+  identity: string | null;
   detail: string | null;
   /** The classification the instance's own configuration already settles. */
   seededClassification: ProcessorClassification | null;

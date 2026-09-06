@@ -64,6 +64,20 @@ export function ProcessorAgreementsPanel({
   const { t } = useTranslation();
   const [open, setOpen] = useState<string | null>(null);
 
+  /**
+   * What the row is called.
+   *
+   * A mail server names itself and so does a bucket, but storage on the
+   * association's own disk and whoever runs the machine have no name the
+   * instance can read. Those rows are called what kind they are, in the
+   * reader's own language: a board looking at its recipients should not find
+   * one of them labelled in English because the server had nothing to put
+   * there.
+   */
+  const nameOf = (processor: ProcessorView): string =>
+    processor.identity ??
+    t(`dataProtection.processors.kind.${processor.processorKind}`);
+
   return (
     <Panel
       title={t("dataProtection.processors.title")}
@@ -77,7 +91,7 @@ export function ProcessorAgreementsPanel({
           >
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="text-body font-semibold">
-                {processor.identity}
+                {nameOf(processor)}
               </span>
               <span className={HINT}>
                 {t(`dataProtection.processors.kind.${processor.processorKind}`)}
@@ -109,7 +123,7 @@ export function ProcessorAgreementsPanel({
                 // Names the recipient, because every row offers the same act
                 // and a screen reader hears one button per row otherwise.
                 aria-label={t("dataProtection.processors.classifyNamed", {
-                  identity: processor.identity,
+                  identity: nameOf(processor),
                 })}
                 onClick={() => {
                   setOpen(

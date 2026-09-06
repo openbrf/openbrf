@@ -75,8 +75,17 @@ export type ProcessorAgreementState =
 export interface ProcessorDescriptor {
   processorKey: string;
   processorKind: ProcessorKind;
-  /** How the recipient is named on screen: a host, a bucket, a package. */
-  identity: string;
+  /**
+   * How the recipient is named on screen: a host, a bucket, a package.
+   *
+   * Null where the instance has no name to give. Storage on the association's
+   * own disk and whoever runs the machine are recipients that exist without
+   * being called anything - there is no host to read and no package to name -
+   * and a placeholder written here would reach a Swedish board as an English
+   * word beside a translated one. The screen says what kind it is instead,
+   * which is the whole of what the instance knows.
+   */
+  identity: string | null;
   /** A second line where there is one, e.g. the region a bucket is signed for. */
   detail: string | null;
   /**
@@ -131,7 +140,7 @@ export function currentProcessors(
   const fixed = (
     key: FixedProcessorKey,
     processorKind: ProcessorKind,
-    identity: string,
+    identity: string | null,
     detail: string | null = null,
     seededClassification: ProcessorClassification | null = null,
   ): void => {
@@ -174,10 +183,10 @@ export function currentProcessors(
       facts.s3Region,
     );
   } else {
-    fixed("storage", "STORAGE", "local disk", null, "NOT_A_PROCESSOR");
+    fixed("storage", "STORAGE", null, null, "NOT_A_PROCESSOR");
   }
 
-  fixed("hosting", "HOSTING", "hosting");
+  fixed("hosting", "HOSTING", null);
 
   for (const plugin of facts.installedPlugins) {
     const key = pluginProcessorKey(plugin.id);
