@@ -113,12 +113,12 @@ const transfers = new Map<
  * not the move flow, which is criterion 8's.
  *
  * The seller of each is recorded as holding that apartment before the day it
- * passes on, so the row is an overgang out of a hand the register holds rather
- * than one naming a seller who never held the bostadsratt. The apartment
+ * passes on, so the row is a transfer out of a hand the register holds rather
+ * than one naming a seller who never held the tenant-ownership. The apartment
  * register takes its holders from the member residencies, so the seller is
- * moved in without a transfer: that records the holding without raising a
- * reporting duty of its own, which is the state a register filled by the
- * initial supply is in and what keeps the queue below about the overgang alone.
+ * moved in with no transfer of their own: that records the holding without
+ * raising a reporting duty, which is the state a register filled by the initial
+ * supply is in and what keeps the queue below about the buyer's transfer alone.
  * A seller per case rather than Sigrid, whose own entry and whose single
  * apartment the documents above are read against.
  */
