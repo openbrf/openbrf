@@ -128,6 +128,43 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["motions:submit", "motions:handle"],
   },
   {
+    to: "/sublets",
+    // Under the sublets namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "sublets.navLabel",
+    // Either half of the module, and the two halves are held by different people
+    // for different reasons - which is what makes this an any-of rather than a
+    // single capability.
+    //
+    // sublets:apply is derived from membership, like motions:submit and for the
+    // same kind of reason: BRL 7 kap. 10 § forsta stycket lets a
+    // bostadsrattshavare let "sin lagenhet" in andra hand with the board's
+    // consent, so the act belongs to whoever holds the tenant-ownership. A
+    // partner, an adult child or a tenant living here is offered nothing here,
+    // and that absence is the statute rather than a decision about screens.
+    //
+    // sublets:handle is the board's, because the same paragraph names the
+    // styrelse as who gives the consent. The external property manager holds
+    // neither.
+    capability: ["sublets:apply", "sublets:handle"],
+  },
+  {
+    to: "/key-orders",
+    // Under the key order namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "keyOrders.navLabel",
+    // Either half, and the deliberate contrast with sublets above. Nothing gives
+    // anybody a right to a key, so keyOrders:place follows living here the way
+    // bookings:book does - a partner, an adult child and a tenant are offered
+    // this destination and not the one above it. keyOrders:handle is the board's,
+    // because it is the association's own property being given out.
+    //
+    // Deliberately not the external property manager, although handing out keys
+    // is plausibly part of what a vicevard does: the queue names residents and
+    // their apartments, which is the address book in another shape.
+    capability: ["keyOrders:place", "keyOrders:handle"],
+  },
+  {
     to: "/meetings",
     // Under the meetings namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
