@@ -86,6 +86,7 @@ const EMPTY_REPORT: Report = {
   keyOrders: [],
   eventSignups: [],
   newsComments: [],
+  boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
   auditEntries: [],
@@ -1139,6 +1140,53 @@ describe("what the document prints", () => {
 
     expect(screen.getByText("Upplåtelser och överlåtelser")).not.toBeNull();
     expect(screen.getAllByText("Inget registrerat").length).toBeGreaterThan(5);
+  });
+
+  it("states the address a mailbox thread is with, and not the registered one", async () => {
+    /*
+     * The two can be spelled differently. This section is found by a blind index
+     * that normalises, so a thread whose envelope said one spelling matches a
+     * person the register holds under another - and what the association is
+     * keeping on the row is the first of them. A document that printed the
+     * registered address back would answer for a value it does not hold, and it
+     * would be doing the one thing this module refuses everywhere else: reading
+     * a correspondent as the person the register knows.
+     */
+    renderReport({
+      ...EMPTY_REPORT,
+      person: { ...EMPTY_REPORT.person, email: "Astrid@Example.TEST" },
+      boardMailboxThreads: [
+        {
+          threadId: "thread-1",
+          correspondentEmail: "astrid@example.test",
+          subject: "Fraga om balkongen",
+          status: "ANSWERED",
+          messages: [
+            {
+              direction: "INBOUND",
+              body: "Far man satta upp en markis?",
+              bodyFromHtml: false,
+              bodyTruncated: false,
+              attachments: 2,
+              occurredAt: "2026-02-01T09:00:00.000Z",
+            },
+          ],
+          startedAt: "2026-02-01T09:00:00.000Z",
+          lastMessageAt: "2026-02-01T09:00:00.000Z",
+          erasableFrom: "2028-02-01",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(sectionOf("Korrespondens med styrelsens brevlåda"));
+    const row = section.getByText("Fraga om balkongen").closest("tr");
+    // The thread's own address, in the spelling the association holds it in.
+    expect(row?.textContent).toContain("astrid@example.test");
+    // How far the board got with it, which it also holds.
+    expect(row?.textContent).toContain("Besvarad");
+    // And the attachment count, which says files are held this cannot print.
+    expect(row?.textContent).toContain("2");
   });
 
   it("says which of its transfers was a grant", async () => {

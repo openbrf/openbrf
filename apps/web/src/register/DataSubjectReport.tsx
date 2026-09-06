@@ -123,6 +123,13 @@ const TRANSFER_REVERSAL_KIND_LABEL = {
   RETURNED_TO_SELLER: "registers.apartment.reversals.kind.RETURNED_TO_SELLER",
 } as const satisfies Record<TransferReversalKind, TranslationKey>;
 
+const BOARD_MAILBOX_STATUS_LABEL = {
+  NEW: "boardMailbox.status.NEW",
+  TAKEN: "boardMailbox.status.TAKEN",
+  ANSWERED: "boardMailbox.status.ANSWERED",
+  CLOSED: "boardMailbox.status.CLOSED",
+} as const satisfies Record<string, TranslationKey>;
+
 const BOOKING_STATUS_LABEL = {
   BOOKED: "bookings.status.BOOKED",
   CANCELLED: "bookings.status.CANCELLED",
@@ -1192,6 +1199,109 @@ export function DataSubjectReport({
                     </td>
                   </tr>
                 ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * The board's shared mailbox.
+             *
+             * One row per message rather than per conversation, because the
+             * personal data is what was written: a section that listed a subject
+             * line and a count would say the association holds correspondence
+             * without saying what it holds. Both directions, because what the
+             * board answered is as much about this person as what was asked.
+             *
+             * The section's own heading says the association holds this
+             * correspondence with the address rather than that this person sent
+             * it, which is the only claim the mailbox can support - a From header
+             * is written by whoever sent the message and nothing checks it.
+             */}
+            <Section titleKey="register.person.report.section.boardMailbox">
+              <Rows
+                empty={report.boardMailboxThreads.length === 0}
+                headings={[
+                  "register.person.report.field.correspondent",
+                  "register.person.report.field.subject",
+                  "register.person.report.field.threadStatus",
+                  "register.person.report.field.direction",
+                  "register.person.report.field.date",
+                  "register.person.report.field.message",
+                  "register.person.report.field.attachments",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.boardMailboxThreads.flatMap((thread) =>
+                  thread.messages.map((message, position) => (
+                    <tr
+                      key={`${thread.threadId}-${String(position)}`}
+                      className={ROW}
+                    >
+                      {/*
+                       * The address the thread is with, as the envelope
+                       * asserted it and as the association holds it. Printed
+                       * because it is the value this section was matched on and
+                       * the one being kept, and the index that matched them
+                       * normalises - so it can be spelled differently from the
+                       * registered address at the top of the document.
+                       */}
+                      <td className={DATA_CELL}>{thread.correspondentEmail}</td>
+                      <td className={TEXT_CELL}>{thread.subject}</td>
+                      {/* How far the board got with it, which is held too. */}
+                      <td className={TEXT_CELL}>
+                        {t(BOARD_MAILBOX_STATUS_LABEL[thread.status])}
+                      </td>
+                      <td className={TEXT_CELL}>
+                        {t(
+                          message.direction === "INBOUND"
+                            ? "register.person.report.boardMailbox.received"
+                            : "register.person.report.boardMailbox.answered",
+                        )}
+                      </td>
+                      <td className={DATA_CELL}>{day(message.occurredAt)}</td>
+                      {/*
+                       * In full, with its line breaks kept, exactly as the news
+                       * comment below keeps them: what somebody wrote is the
+                       * personal data this section is about, and this is a
+                       * printed document where a run-on paragraph is not what
+                       * they wrote.
+                       */}
+                      <td className={TEXT_CELL}>
+                        <span className="block whitespace-pre-line">
+                          {message.body}
+                        </span>
+                        {/*
+                         * What qualifies the copy above, printed rather than
+                         * left out. This document answers what the association
+                         * holds, and a body it abridged or derived from an HTML
+                         * part is not the message as it was written - a reader
+                         * shown the abridgement alone would read it as whole.
+                         */}
+                        {message.bodyTruncated ? (
+                          <span className="block">
+                            {t(
+                              "register.person.report.boardMailbox.bodyTruncated",
+                            )}
+                          </span>
+                        ) : null}
+                        {message.bodyFromHtml ? (
+                          <span className="block">
+                            {t(
+                              "register.person.report.boardMailbox.bodyFromHtml",
+                            )}
+                          </span>
+                        ) : null}
+                      </td>
+                      {/*
+                       * The count and not the files. An attachment is held by
+                       * the association whether or not this document can print
+                       * it, and a section that named none of them would state
+                       * the extent of the data wrongly.
+                       */}
+                      <td className={DATA_CELL}>{message.attachments}</td>
+                      <td className={DATA_CELL}>{thread.erasableFrom}</td>
+                    </tr>
+                  )),
+                )}
               </Rows>
             </Section>
 

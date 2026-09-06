@@ -7,6 +7,7 @@ import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { AuthorizationModule } from "./authorization/authorization.module";
 import { BoardModule } from "./board/board.module";
+import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
 import { BookingsModule } from "./bookings/bookings.module";
 import { ChargesModule } from "./charges/charges.module";
 import { ConfigModule } from "./config/config.module";
@@ -72,6 +73,7 @@ import { ThemesModule } from "./themes/themes.module";
     PackagingModule,
     PluginsModule,
     IssuesModule,
+    BoardMailboxModule,
     DocumentsModule,
     RetentionModule,
     ContactModule,

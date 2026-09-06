@@ -43,3 +43,35 @@ export async function lockLegalHold(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${personId}`}))`;
 }
+
+/**
+ * The lock a transaction takes when it cannot name the person it is racing.
+ *
+ * Every purge above this one is keyed on a person: it is erasing that person's
+ * rows, so it knows the id, takes the key above and reads the hold underneath
+ * it. The board mailbox is not. A thread is keyed on an address an envelope
+ * asserted, and which person that address belongs to - if any - is discovered by
+ * computing each held person's own index and comparing, which answers "nobody"
+ * in the ordinary case. There is then no person to lock on, and a placement for
+ * somebody the scan did not see can commit between the scan and the delete: the
+ * board member is told the person is held, and the correspondence has gone.
+ *
+ * So the key is the registry rather than a row in it. A writer that can name its
+ * person takes this as well as its own, and a reader that cannot name one takes
+ * this alone - which is what lets the two meet at all, since a per-person key
+ * cannot be guessed by a transaction that does not know the person.
+ *
+ * The cost is that placements and address-keyed purges run one at a time. That
+ * is the same trade the per-person key already makes, at a scale that makes it
+ * free: a hold is placed a handful of times in a cooperative's life, the purge
+ * runs once a night, and the two contending means one of them waits for the
+ * other to commit, which is the point.
+ *
+ * Releasing does not take it, for the reason releasing does not take the other:
+ * a release racing a purge lands either way harmlessly.
+ */
+export async function lockLegalHoldRegistry(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"legal-hold:registry"}))`;
+}

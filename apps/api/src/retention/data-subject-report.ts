@@ -471,6 +471,56 @@ export interface ReportMemberCharge {
  * is hidden, for the same reason: a person is entitled to read the words the
  * board struck through, and `hidden` is what says the board did.
  */
+/**
+ * A conversation in the board's shared mailbox that this person's own address is
+ * with.
+ *
+ * The one section of this report reached through an address rather than through
+ * a person reference, and the difference is the point of the note. A thread in
+ * the board's mailbox is not attributed to anybody: the address on it is what an
+ * envelope asserted, and the module never resolves one to a person, because
+ * anyone can write anyone's name in a From header. So a thread is not "this
+ * person's" in the way a booking or a comment is.
+ *
+ * It is still an answer this report owes. The association holds the letter, it
+ * holds the address it came from, and a data subject asking what is held about
+ * them is entitled to the rows their own address matches - which is the
+ * association answering for data rather than a claim about who wrote it. The
+ * lookup runs one way only, from the person's own registered address outward,
+ * and the wording here says so: the report states that the association holds
+ * correspondence with this address, not that this person sent it.
+ */
+export interface ReportBoardMailboxThread {
+  threadId: string;
+  /** The address the correspondence is with, which is this person's own. */
+  correspondentEmail: string;
+  /** The subject as it was received. */
+  subject: string;
+  status: "NEW" | "TAKEN" | "ANSWERED" | "CLOSED";
+  /** Every message in the conversation, in the order it was said. */
+  messages: ReportBoardMailboxMessage[];
+  startedAt: string;
+  lastMessageAt: string;
+  /**
+   * The earliest date the purge can reach the thread. A legal hold suspends the
+   * purge, so this is the earliest date rather than the date it goes on.
+   */
+  erasableFrom: string;
+}
+
+export interface ReportBoardMailboxMessage {
+  /** Whether the association received this message or sent it. */
+  direction: "INBOUND" | "OUTBOUND";
+  /** The message as text. Nothing in that module is ever markup. */
+  body: string;
+  /** Whether the text was derived from an HTML part rather than sent as text. */
+  bodyFromHtml: boolean;
+  bodyTruncated: boolean;
+  /** How many files arrived with it and were kept. */
+  attachments: number;
+  occurredAt: string;
+}
+
 export interface ReportNewsComment {
   commentId: string;
   /** The news item it was written under, as the board titled it. */
@@ -782,6 +832,7 @@ export interface DataSubjectReport {
   eventSignups: ReportEventSignup[];
   memberCharges: ReportMemberCharge[];
   newsComments: ReportNewsComment[];
+  boardMailboxThreads: ReportBoardMailboxThread[];
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];
   auditEntries: ReportAuditEntry[];
