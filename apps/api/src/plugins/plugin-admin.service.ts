@@ -187,7 +187,7 @@ export class PluginAdminService {
           classification: "NOT_A_PROCESSOR",
           note:
             answer.note ??
-            "Tillagget kors inuti instansen och skickar inga personuppgifter vidare.",
+            "Tillägget körs inuti instansen och skickar inga personuppgifter vidare.",
           actorPersonId: context.actorPersonId ?? "",
         },
         facts,

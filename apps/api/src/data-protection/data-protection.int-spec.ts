@@ -731,7 +731,7 @@ describe("record of processing", () => {
       url: "/api/data-protection/processing-activities",
       payload: {
         name: `Nyckelhantering ${suffix}`,
-        purpose: "Hallа reda pa vem som kvitterat vilken nyckel.",
+        purpose: "Halla reda pa vem som kvitterat vilken nyckel.",
         legalBasis: "LEGITIMATE_INTEREST",
         dataSubjectCategories: ["member", "resident"],
         personalDataCategories: ["name", "apartment"],

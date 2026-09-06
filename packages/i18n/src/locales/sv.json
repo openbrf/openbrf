@@ -3395,7 +3395,7 @@
     },
     "processors": {
       "seed": {
-        "localDisk": "Foreningens egen lagring pa instansens disk. Ingen utomstaende tar emot filerna, sa det finns inget personuppgiftsbitrade har."
+        "localDisk": "Föreningens egen lagring på instansens disk. Ingen utomstående tar emot filerna, så det finns inget personuppgiftsbiträde här."
       },
       "title": "Mottagare av personuppgifter",
       "description": "Vem som tar emot uppgifter, hur var och en är klassificerad och vilket avtal som gäller.",
