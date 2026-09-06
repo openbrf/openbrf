@@ -3090,5 +3090,12 @@
       "SPOUSE_OR_COHABITANT": "Make, maka eller sambo",
       "BYLAWS": "Tillåtet enligt stadgarna"
     }
+  },
+  "dataProtection": {
+    "navLabel": "Dataskydd",
+    "title": "Dataskydd",
+    "intro": "Det föreningen ska kunna visa som personuppgiftsansvarig: de personuppgiftsincidenter den har antecknat, registerförteckningen, hur varje mottagare av personuppgifter är klassificerad och vad enskilda har begärt om sina egna uppgifter.",
+    "loading": "Läser dataskyddsuppgifterna...",
+    "loadFailed": "Dataskyddsuppgifterna kunde inte läsas just nu."
   }
 }

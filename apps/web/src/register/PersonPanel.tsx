@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { FIELD, FIELD_DATA, LABEL } from "../ui/controls";
+import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
@@ -144,8 +144,6 @@ type InviteStatus =
 
 const SECONDARY_BUTTON =
   "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-ink";
-const CAUTION_BUTTON =
-  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-warn";
 
 /** A label above a value, the room-side pattern for a read-only field. */
 function Field({

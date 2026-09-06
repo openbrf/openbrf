@@ -3090,5 +3090,12 @@
       "SPOUSE_OR_COHABITANT": "Spouse or cohabitant",
       "BYLAWS": "Permitted by the bylaws"
     }
+  },
+  "dataProtection": {
+    "navLabel": "Data protection",
+    "title": "Data protection",
+    "intro": "What the association has to be able to show as controller: the personal data breaches it has recorded, the record of its processing activities, how every recipient of personal data is classified, and what people have asked about their own data.",
+    "loading": "Reading the data protection records...",
+    "loadFailed": "The data protection records could not be read just now."
   }
 }

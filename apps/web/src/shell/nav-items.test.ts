@@ -160,6 +160,7 @@ describe("the other seats", () => {
         "events:manage",
         "motions:handle",
         "meetings:manage",
+        "dataProtection:manage",
       ]),
     ).toEqual([
       "/",
@@ -170,6 +171,7 @@ describe("the other seats", () => {
       "/events",
       "/motions",
       "/meetings",
+      "/data-protection",
       "/news",
       "/documents",
     ]);
@@ -225,6 +227,23 @@ describe("the other seats", () => {
     expect(destinations(["motions:submit"])).not.toContain("/meetings");
     expect(destinations(["motions:handle"])).not.toContain("/meetings");
     expect(destinations(["residentDirectory:read"])).not.toContain("/meetings");
+  });
+
+  it("offers data protection on the board's capability and on no other", () => {
+    /*
+     * The same shape as the general meeting above, and for the same reason:
+     * these are the association's own records as controller, so there is no
+     * member's half of the screen and living in the building opens no door to
+     * it. The external property manager holds issues:handle and nothing here.
+     */
+    expect(destinations(["dataProtection:manage"])).toContain(
+      "/data-protection",
+    );
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/data-protection",
+    );
+    expect(destinations(["motions:submit"])).not.toContain("/data-protection");
+    expect(destinations(["issues:handle"])).not.toContain("/data-protection");
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {
