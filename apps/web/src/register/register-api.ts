@@ -285,6 +285,17 @@ export type ReportAuditAction =
   | "MOTION_ACKNOWLEDGED"
   | "MOTION_WITHDRAWN"
   | "MOTION_MEETING_SET"
+  | "SUBLET_APPLICATION_SUBMITTED"
+  | "SUBLET_APPLICATION_REVISED"
+  | "SUBLET_APPLICATION_WITHDRAWN"
+  | "SUBLET_APPLICATION_CONSENTED"
+  | "SUBLET_APPLICATION_REFUSED"
+  | "SUBLET_TRIBUNAL_PERMISSION_RECORDED"
+  | "KEY_ORDER_PLACED"
+  | "KEY_ORDER_REVISED"
+  | "KEY_ORDER_WITHDRAWN"
+  | "KEY_ORDER_HANDED_OVER"
+  | "KEY_ORDER_DECLINED"
   | "EVENT_SIGNUP_MADE"
   | "EVENT_SIGNUP_WITHDRAWN"
   | "REGISTER_REPORT_OBLIGATION_RECORDED"
@@ -503,6 +514,59 @@ export interface DataSubjectReport {
     status: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
     submittedAt: string;
     closedAt: string | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Applications this person made for the board's consent to let their apartment
+   * in andra hand (BRL 7 kap. 10 §).
+   *
+   * Purged on a clock of its own, two years after the later of the day it closed
+   * and the day the period applied for ended - so a consent is not erased while
+   * the letting it covers is still running.
+   *
+   * The board's own note is here beside the applicant's reason, because it is a
+   * statement the association made about this person and withholding it would
+   * leave them unable to see what was written down when their request was
+   * refused. So is what the rent tribunal decided (7 kap. 11 §): the association
+   * recorded it against them, and what is held about somebody is what art. 15
+   * asks for, whoever decided it.
+   */
+  subletApplications: {
+    applicationId: string;
+    apartment: string | null;
+    periodFrom: string;
+    periodTo: string;
+    reason: string;
+    status: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
+    submittedAt: string;
+    closedAt: string | null;
+    decisionNote: string | null;
+    tribunalPermittedOn: string | null;
+    tribunalPermittedUntil: string | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Keys and tags this person ordered.
+   *
+   * Purged a year after the order closed, which is a shorter window than the
+   * subletting application above and deliberately so: an order for a key is
+   * settled when the key is in somebody's hand.
+   *
+   * What outlives the row is the audit entry recording the handover, which is in
+   * the entries section below: the log is append-only and exempt from every
+   * purge, so the association can still answer that somebody was given a key to
+   * the building on a day once the order is gone.
+   */
+  keyOrders: {
+    orderId: string;
+    apartment: string | null;
+    kind: "KEY" | "TAG";
+    quantity: number;
+    note: string | null;
+    status: "SUBMITTED" | "HANDED_OVER" | "DECLINED" | "WITHDRAWN";
+    submittedAt: string;
+    closedAt: string | null;
+    boardNote: string | null;
     erasableFrom: string | null;
   }[];
   /**

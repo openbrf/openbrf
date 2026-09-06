@@ -343,6 +343,84 @@ export const CAPABILITIES = [
    * person rather than about the association.
    */
   "dataProtection:manage",
+  /**
+   * Ask the board's consent to let one's own apartment in andra hand
+   * (andrahandsupplatelse), and read one's own applications.
+   *
+   * Derived from membership, like `motions:submit`, and for a statutory reason
+   * rather than a product decision. BRL 7 kap. 10 § forsta stycket: "En
+   * bostadsrattshavare far upplata sin lagenhet i andra hand till nagon annan
+   * for sjalvstandigt brukande endast om styrelsen ger sitt samtycke." The act
+   * is the tenant-owner's, and it is about the apartment they hold - so a
+   * resident who is not a tenant-owner does not hold it: a partner, an adult
+   * child, a tenant already living here on a second-hand contract. What any of
+   * them may do with the flat is a matter between them and the member, and none
+   * of it is this consent.
+   *
+   * Nor does a board seat confer it, for the reason `motions:submit` states: the
+   * act attaches to the tenant-ownership and not to the office.
+   *
+   * The capability is what opens the route. Whether the caller holds the
+   * apartment they name is checked again by `SubletService.apply` against the
+   * register, which is what closes the administrator path: an administrator
+   * holds every capability in this list by definition, and holding a grant is
+   * not holding a tenant-ownership.
+   */
+  "sublets:apply",
+  /**
+   * Work the sublet queue: read the applications, give or refuse the
+   * association's consent, and record what the rent tribunal (hyresnamnden)
+   * decided afterwards.
+   *
+   * The board's, and BRL 7 kap. 10 § names it: the samtycke is the styrelse's to
+   * give. 11 § is the other half - where the board refuses, the tribunal may
+   * permit the letting anyway - and recording that decision is on this
+   * capability because the board is the association's side of that proceeding
+   * and receives the decision, not because the permission is the board's to
+   * give.
+   *
+   * Deliberately not the property manager's, on the issues:report precedent: what
+   * a member does with their own tenant-ownership is the members' business with
+   * their own association, and an external contractor has nothing to do with it.
+   */
+  "sublets:handle",
+  /**
+   * Order a key or a tag (nyckelbestallning) for one's own apartment, and read
+   * one's own orders.
+   *
+   * A resident's, and the contrast with `sublets:apply` above is the point.
+   * Nothing in BRL or EFL gives anybody a right to a key: what the statutes give
+   * a member are rights in the association, and a way in through the front door
+   * is the association's own service to the household living in the apartment. A
+   * partner, an adult child and a tenant need one exactly as a member does, so
+   * this is derived from residency the way `bookings:book` is.
+   *
+   * Which apartment the caller may order for is checked against the register by
+   * `KeyOrderService.place`, so an administrator - every capability, no
+   * residency - has no door here that is theirs.
+   *
+   * Deliberately not granted to the property manager, on the bookings:book
+   * precedent and for the same reason: they handle the association's issues and
+   * do not live in the building.
+   */
+  "keyOrders:place",
+  /**
+   * Work the key order queue: read what the households have asked for, record a
+   * handover, or decline an order.
+   *
+   * The board's, because it is the association's own property being given out
+   * and its building being opened. There is a decline control here where the
+   * motion queue has none, and that is the same distinction read from the
+   * board's end: refusing to take up a member's item is not the board's to
+   * decide under EFL 6 kap. 15 §, and refusing a household a fourth tag to the
+   * bike room plainly is.
+   *
+   * Deliberately not the property manager's, although handing out keys is
+   * plausibly part of what a vicevard does. The queue names residents and their
+   * apartments, and decision 11 keeps that party to issue handling alone: an
+   * order list is the address book in another shape.
+   */
+  "keyOrders:handle",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -419,6 +497,9 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "meetings:manage",
   "events:attend",
   "dataProtection:manage",
+  "sublets:handle",
+  "keyOrders:place",
+  "keyOrders:handle",
 ];
 
 /**
@@ -442,7 +523,10 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
  * stops holding this the day the residency ends rather than when somebody
  * remembers to revoke something.
  */
-const MEMBER_CAPABILITIES: readonly Capability[] = ["motions:submit"];
+const MEMBER_CAPABILITIES: readonly Capability[] = [
+  "motions:submit",
+  "sublets:apply",
+];
 
 /**
  * The property manager is an external party with access to issue handling
@@ -461,6 +545,7 @@ const RESIDENT_CAPABILITIES: readonly Capability[] = [
   "news:comment",
   "bookings:book",
   "events:attend",
+  "keyOrders:place",
 ];
 
 /**

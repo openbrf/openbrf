@@ -77,6 +77,16 @@ describe("board member", () => {
     // for showing that it processes lawfully. That answerability is the board's
     // own, so the seat holds it rather than borrowing it from an administrator.
     "dataProtection:manage",
+    // Giving or refusing the association's consent to a letting in andra hand.
+    // BRL 7 kap. 10 § names the styrelse as who gives it, and 11 § makes the
+    // board the association's side of the rent tribunal proceeding that follows
+    // a refusal.
+    "sublets:handle",
+    // Handing out a key to the building. The board's because it is the
+    // association's own property, and a board member lives here too, so the
+    // ordering half comes with the seat as bookings:book does.
+    "keyOrders:place",
+    "keyOrders:handle",
   ])("can %s", (capability) => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
@@ -163,6 +173,15 @@ describe("property manager", () => {
     // own, and moderating it is the board's.
     "news:comment",
     "site:manage",
+    // What a member does with their own tenant-ownership is the members'
+    // business with their own association.
+    "sublets:apply",
+    "sublets:handle",
+    // And a key to the building is the household's and the board's. An order
+    // list names residents and their apartments, which is the address book in
+    // another shape - and decision 11 keeps this party out of it.
+    "keyOrders:place",
+    "keyOrders:handle",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -190,6 +209,11 @@ describe("resident and member", () => {
     "events:attend",
     // Nor is answering a notice the board put up.
     "news:comment",
+    // Nor is asking for a way in through the front door. No statute gives
+    // anybody a right to a key, so this follows living here rather than holding
+    // the tenant-ownership - a partner, an adult child and a tenant all need
+    // one.
+    "keyOrders:place",
   ])("a resident can %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(true);
   });
@@ -216,23 +240,34 @@ describe("resident and member", () => {
     // A resident writes a comment; hiding a neighbour's is the board's, and it
     // is the same capability the board publishes the website under.
     "site:manage",
+    // A resident orders a key for their own door; answering the queue those
+    // orders arrive in is the board's.
+    "keyOrders:handle",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });
 
-  it("gives a member exactly one capability a resident does not hold", () => {
+  it("gives a member exactly the two capabilities a resident does not hold", () => {
     /*
-     * The one place where membership rather than residency decides access, and
-     * the difference is a statute rather than a product choice.
+     * The only place where membership rather than residency decides access, and
+     * both differences are statutes rather than product choices.
      *
      * EFL 6 kap. 15 § gives the right to have an item taken up at a general
      * meeting to a member, and BRL 9 kap. 14 § applies that chapter to a
-     * housing cooperative with six exceptions of which this is not one. So a
-     * partner, an adult child or a tenant living here holds no motion right.
+     * housing cooperative with six exceptions of which this is not one. BRL
+     * 7 kap. 10 § forsta stycket gives the act of letting in andra hand to a
+     * bostadsrattshavare, about "sin lagenhet". So a partner, an adult child or
+     * a tenant living here holds neither.
      *
      * Written as the exact difference rather than as a containment: a
      * capability that quietly widened to every resident would still satisfy
-     * "a member holds at least what a resident holds".
+     * "a member holds at least what a resident holds". The list is also what
+     * makes a capability added to MEMBER_CAPABILITIES without a statute behind
+     * it fail here rather than pass unnoticed.
+     *
+     * Ordering a key is deliberately not on this list. Nothing gives anybody a
+     * right to one, so it follows living here - which is the decision the key
+     * order module states and this assertion pins.
      *
      * Everything else about membership stays out of the capability model. A
      * member's right to their own apartment register entry is a per-apartment
@@ -241,7 +276,7 @@ describe("resident and member", () => {
     const member = capabilitiesFor(roles({ isResident: true, isMember: true }));
     const resident = capabilitiesFor(roles({ isResident: true }));
     const extra = [...member].filter((capability) => !resident.has(capability));
-    expect(extra).toEqual(["motions:submit"]);
+    expect([...extra].sort()).toEqual(["motions:submit", "sublets:apply"]);
   });
 
   it("denies a resident who is not a member the motion right", () => {
@@ -253,12 +288,32 @@ describe("resident and member", () => {
     );
   });
 
+  it("denies a resident who is not a member the subletting application", () => {
+    // BRL 7 kap. 10 § forsta stycket gives it to the bostadsrattshavare and to
+    // nobody else in the flat. Stated on its own as well as in the difference
+    // above, so a slip that granted it to residents fails twice.
+    expect(can({ isResident: true }, "sublets:apply")).toBe(false);
+    expect(can({ isResident: true, isMember: true }, "sublets:apply")).toBe(
+      true,
+    );
+  });
+
+  it("gives a resident who is not a member the key order", () => {
+    // The deliberate opposite of the two above, and the reason the key order
+    // module decided it separately: no statute gives a right to a key, so a
+    // tenant living here on a second-hand contract orders one exactly as a
+    // member does.
+    expect(can({ isResident: true }, "keyOrders:place")).toBe(true);
+  });
+
   it("does not let a board seat stand in for membership", () => {
     // The right attaches to the tenant-ownership and not to the office. A board
-    // member who holds no tenant-ownership works the queue and holds no right
-    // to put an item into it.
+    // member who holds no tenant-ownership works both queues and holds neither
+    // right to put something into them.
     expect(can({ isBoardMember: true }, "motions:handle")).toBe(true);
     expect(can({ isBoardMember: true }, "motions:submit")).toBe(false);
+    expect(can({ isBoardMember: true }, "sublets:handle")).toBe(true);
+    expect(can({ isBoardMember: true }, "sublets:apply")).toBe(false);
     expect(
       can(
         { isBoardMember: true, isResident: true, isMember: true },

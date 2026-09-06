@@ -4,7 +4,9 @@ import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
+import { computeKeyOrderPurgeDate } from "../key-orders/key-order-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
+import { computeSubletPurgeDate } from "../sublets/sublet-retention";
 import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -61,6 +63,8 @@ const SECTIONS = [
   "documents",
   "bookings",
   "motions",
+  "subletApplications",
+  "keyOrders",
   "eventSignups",
   "newsComments",
   "meetingAttendances",
@@ -522,6 +526,60 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Subletting applications this person made. `appliedByPersonId` is a plain
+     * column and not a relation, for the reason the bookings query above gives,
+     * so this is a query of its own; the apartment IS one, which is how the
+     * address reaches the document without being copied onto the application.
+     */
+    const subletApplications = await tx.subletApplication.findMany({
+      where: { appliedByPersonId: personId },
+      orderBy: [{ submittedAt: "desc" }],
+      select: {
+        id: true,
+        periodFrom: true,
+        periodTo: true,
+        reason: true,
+        status: true,
+        submittedAt: true,
+        closedAt: true,
+        decisionNote: true,
+        tribunalPermittedOn: true,
+        tribunalPermittedUntil: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
+    });
+
+    /*
+     * Keys and tags this person ordered. `orderedByPersonId` is a plain column
+     * and not a relation, for the reason the bookings query above gives.
+     */
+    const keyOrders = await tx.keyOrder.findMany({
+      where: { orderedByPersonId: personId },
+      orderBy: [{ submittedAt: "desc" }],
+      select: {
+        id: true,
+        kind: true,
+        quantity: true,
+        note: true,
+        status: true,
+        submittedAt: true,
+        closedAt: true,
+        boardNote: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
+    });
+
+    /*
      * Sign-ups this person made to the association's own dates, the ones they
      * stood down from included. `personId` is a plain column and not a relation,
      * for the reason `bookedByPersonId` is, so this is a query of its own; the
@@ -891,6 +949,52 @@ export class DataSubjectReportService {
          * still processing it, so no purge date exists to state.
          */
         erasableFrom: toIsoDate(computeMotionPurgeDate(motion.closedAt)),
+      })),
+      subletApplications: subletApplications.map((application) => ({
+        applicationId: application.id,
+        apartment:
+          application.apartment === null
+            ? null
+            : `${application.apartment.address.street} ${application.apartment.address.number} ${application.apartment.number}`,
+        // toIsoDate and not the calendar helper, exactly as every other
+        // `@db.Date` column on this document is rendered: the column is read
+        // back as midnight UTC, which is what the slice already answers.
+        periodFrom: toIsoDate(application.periodFrom) ?? "",
+        periodTo: toIsoDate(application.periodTo) ?? "",
+        reason: application.reason,
+        status: application.status,
+        submittedAt: application.submittedAt.toISOString(),
+        closedAt: application.closedAt?.toISOString() ?? null,
+        decisionNote: application.decisionNote,
+        tribunalPermittedOn: toIsoDate(application.tribunalPermittedOn),
+        tribunalPermittedUntil: toIsoDate(application.tribunalPermittedUntil),
+        /*
+         * Derived here rather than stored, as a residency's and a booking's are,
+         * and from the later of two anchors: the day it closed and the day the
+         * period applied for ended. Null while it is open, which is not a gap in
+         * the answer - there is no closing date to count from, and the
+         * association is still processing it.
+         */
+        erasableFrom: toIsoDate(
+          computeSubletPurgeDate(application.closedAt, application.periodTo),
+        ),
+      })),
+      keyOrders: keyOrders.map((order) => ({
+        orderId: order.id,
+        apartment:
+          order.apartment === null
+            ? null
+            : `${order.apartment.address.street} ${order.apartment.address.number} ${order.apartment.number}`,
+        kind: order.kind,
+        quantity: order.quantity,
+        note: order.note,
+        status: order.status,
+        submittedAt: order.submittedAt.toISOString(),
+        closedAt: order.closedAt?.toISOString() ?? null,
+        boardNote: order.boardNote,
+        // Derived here rather than stored, and anchored on the closing date the
+        // way a motion's is. Null while the order is open.
+        erasableFrom: toIsoDate(computeKeyOrderPurgeDate(order.closedAt)),
       })),
       eventSignups: eventSignups.map((signup) => ({
         signupId: signup.id,
