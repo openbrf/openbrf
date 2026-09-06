@@ -921,7 +921,14 @@
       "description": "Ditt eget språk och hur gränssnittet ser ut på den här enheten.",
       "preferredLocale": "Språk för e-post och utdrag",
       "name": "Namn",
-      "appearance": "Ljust eller mörkt"
+      "appearance": "Ljust eller mörkt",
+      "portability": {
+        "heading": "Dina egna uppgifter",
+        "description": "Hämta det du har lämnat till föreningen, i ett maskinläsbart format (GDPR art. 20). Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
+        "action": "Hämta mina uppgifter",
+        "working": "Hämtar...",
+        "failed": "Uppgifterna kunde inte hämtas just nu."
+      }
     },
     "security": {
       "title": "Inloggning och säkerhet",

@@ -271,6 +271,18 @@ export function saveOwnProfile(input: {
   return apiRequest("PUT", "/api/settings/profile", input);
 }
 
+/**
+ * A person's own data, in a file they can take elsewhere (GDPR art. 20).
+ *
+ * Typed as an unknown record on purpose. The browser writes the file and never
+ * reads it, so mirroring the server's shape here would be a second copy to keep
+ * in step for no benefit - and a mismatch would be a field silently dropped
+ * from somebody's own export.
+ */
+export function exportOwnData(): Promise<ApiResult<Record<string, unknown>>> {
+  return apiRequest("POST", "/api/data-portability/mine", {});
+}
+
 export function fetchAddresses(): Promise<ApiResult<AddressView[]>> {
   return apiRequest("GET", "/api/addresses");
 }

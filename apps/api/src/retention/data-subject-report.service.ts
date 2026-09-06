@@ -185,6 +185,37 @@ export class DataSubjectReportService {
     return report;
   }
 
+  /**
+   * The same assembly, for a person exporting their own data (GDPR art. 20).
+   *
+   * The report itself, narrowed afterwards by the projection in
+   * `data-protection/data-portability.ts`. One gathering rather than two: a
+   * second query layer beside this one would be the place the two drifted
+   * apart, and a section added here and forgotten there would be data a person
+   * could read but not take.
+   *
+   * Its own audit action, so the log can tell a person taking their own data
+   * from a board producing the access report about them. Actor and subject are
+   * the same person, which is the other half of that distinction.
+   */
+  async portable(personId: string): Promise<DataSubjectReport> {
+    const now = new Date();
+    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
+
+    const report = await this.audit.withAuditedRead<DataSubjectReport>(
+      {
+        action: "DATA_PORTABILITY_EXPORTED",
+        actorPersonId: personId,
+        targetPersonId: personId,
+        context: { export: "dataPortability" },
+      },
+      async (tx) => this.build(tx, personId, now, retentionDays),
+    );
+
+    this.logger.log(`Data portability export produced for person ${personId}`);
+    return report;
+  }
+
   private async build(
     tx: Prisma.TransactionClient,
     personId: string,

@@ -921,7 +921,14 @@
       "description": "Your own language and how the interface looks on this device.",
       "preferredLocale": "Language for emails and extracts",
       "name": "Name",
-      "appearance": "Light or dark"
+      "appearance": "Light or dark",
+      "portability": {
+        "heading": "Your own data",
+        "description": "Download what you have given the association, in a machine-readable format (GDPR art. 20). The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
+        "action": "Download my data",
+        "working": "Preparing...",
+        "failed": "Your data could not be prepared just now."
+      }
     },
     "security": {
       "title": "Sign-in and security",

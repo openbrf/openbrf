@@ -1,7 +1,10 @@
 import { Module } from "@nestjs/common";
 
+import { RetentionModule } from "../retention/retention.module";
+
 import { BreachReminderService } from "./breach-reminder.service";
 import { BreachService } from "./breach.service";
+import { DataPortabilityController } from "./data-portability.controller";
 import { DataProtectionController } from "./data-protection.controller";
 import { DataProtectionSeedService } from "./data-protection-seed.service";
 import { ProcessingActivityService } from "./processing-activity.service";
@@ -36,7 +39,17 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
  * processing when an instance is first configured.
  */
 @Module({
-  controllers: [DataProtectionController, DataSubjectRequestController],
+  /*
+   * The access report, for one thing: the art. 20 export is a projection over
+   * it. One gathering rather than two, so a section added to the report cannot
+   * be data a person may read but not take.
+   */
+  imports: [RetentionModule],
+  controllers: [
+    DataProtectionController,
+    DataSubjectRequestController,
+    DataPortabilityController,
+  ],
   providers: [
     BreachService,
     BreachReminderService,
