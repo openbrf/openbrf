@@ -107,8 +107,51 @@ export interface ReportTransfer {
    * personal data. The value is on the acquirer's own report, where it belongs.
    */
   membershipDecidedOn: string | null;
+  /**
+   * Which case of Lag (2026:484) 3 kap. 3 § the overgang falls in, or null where
+   * the board has not stated it.
+   *
+   * Personal data about the acquirer, like the decision date above it: the value
+   * says that this person was already a member, or fell outside the membership
+   * requirement, or acquired the bostadsratt as a lienholding juridical person
+   * at an executive sale. Withheld from a `relinquished` transfer for that
+   * reason - the seller's report would otherwise carry a statement about who
+   * bought from them.
+   *
+   * Null on a GRANT, which 3 kap. 2 § reports and that section does not reach.
+   */
+  reportBasis:
+    | "MEMBERSHIP_DECISION"
+    | "ALREADY_MEMBER"
+    | "OUTSIDE_MEMBERSHIP_REQUIREMENT"
+    | "TO_THE_ASSOCIATION"
+    | "LIENHOLDING_JURIDICAL_PERSON"
+    | null;
   price: string | null;
   agreementReference: string | null;
+}
+
+/**
+ * A transfer on this person's report that has been havd or has gone back to the
+ * seller (Lag (2026:484) 3 kap. 3 § tredje stycket).
+ *
+ * Statutory tier and exempt from the purge, like the transfers it belongs to.
+ * Carried in both directions and not only for the acquirer, which is where it
+ * differs from the decision date and the case above: the reversal is an event
+ * about the transfer itself, and both parties were party to it going back. It
+ * holds no fact about the other person that the transfer section does not
+ * already carry.
+ */
+export interface ReportTransferReversal {
+  reversalId: string;
+  /** The transfer this undoes, which is on this report above. */
+  transferId: string;
+  apartment: string;
+  /** Which of the two things tredje stycket names happened. */
+  kind: "RESCINDED" | "RETURNED_TO_SELLER";
+  reversedOn: string;
+  /** The notice, agreement or minute the board recorded. */
+  reference: string;
 }
 
 /**
@@ -151,21 +194,35 @@ export interface ReportTermination {
  * which events are this person's is already answered by those sections. A
  * termination's obligation follows the terminations `terminationsDuringHolding`
  * selected; a transfer's follows the transfers, and only where this person
- * acquired. On a relinquished transfer it is withheld, because `dueOn` less
- * fourteen days is the day the association decided on the acquirer's membership -
- * the value {@link ReportTransfer.membershipDecidedOn} withholds from the seller
- * for that same reason, and a report stating a deadline instead would disclose it
- * by subtraction.
+ * acquired. On a relinquished transfer it is withheld, because `triggeredOn` on
+ * an ordinary overgang is the day the association decided on the acquirer's
+ * membership - the value {@link ReportTransfer.membershipDecidedOn} withholds
+ * from the seller for that same reason, and a report stating the window instead
+ * would disclose it outright.
+ *
+ * A reversal's obligation follows the reversals, which are on both parties'
+ * reports. It discloses nothing the reversal section does not: its `triggeredOn`
+ * is the day the overlatelse went back, which is on that row already, and it has
+ * no deadline to subtract anything from.
  */
 export interface ReportRegisterReportObligation {
   obligationId: string;
   /** Which register event the report is about. */
-  kind: "GRANT" | "TRANSFER" | "TERMINATION";
+  kind: "GRANT" | "TRANSFER" | "TERMINATION" | "TRANSFER_REVERSAL";
   apartment: string;
-  /** The day the statutory two-week window opened. */
+  /** The day the statutory window opened, or the day the duty otherwise arose. */
   triggeredOn: string;
-  /** The day the report falls due: fourteen days after the day above. */
-  dueOn: string;
+  /**
+   * The day the report falls due: fourteen days after the day above, and null
+   * where the section imposing the duty sets no period.
+   *
+   * 3 kap. 3 § tredje stycket says the association "ska anmala" that a
+   * registered overlatelse has been havd or gone back to the seller, and names
+   * no period, where every other reporting sentence in the chapter says "inom
+   * tva veckor". The report states that as an absent deadline rather than a
+   * computed one.
+   */
+  dueOn: string | null;
 }
 
 export interface ReportPublicationConsent {
@@ -596,6 +653,103 @@ export interface ReportAuditEntry {
   context: Record<string, unknown> | null;
 }
 
+/**
+ * An application this person made for the board's consent to let their apartment
+ * in andra hand.
+ *
+ * Purged like the bookings and motions above, and on a clock of its own: an
+ * application is erased two years after the later of the day it closed and the
+ * day the period applied for ended, so each row states when that window runs out
+ * rather than leaving the date at the foot of the document to govern it.
+ *
+ * An application still with the board states none. It has no closing date to
+ * count from, and it is not held indefinitely by oversight: the association is
+ * still processing it, so the purpose it is held for has not ended.
+ *
+ * The reason is carried in full. It is the person's own words about their own
+ * circumstances and the most complete answer art. 15 can give about them; a
+ * report that summarised why somebody wanted to let their home would be the
+ * association paraphrasing them back to themselves. The board's own note is here
+ * for the same reason read from the other side: it is a statement the
+ * association made about this person, and withholding it would leave them unable
+ * to see what was written down when their request was refused.
+ *
+ * The rent tribunal's permission is on the report although it is the tribunal's
+ * decision rather than the association's, because the association recorded it
+ * against this person - BRL 7 kap. 11 § - and what is held about somebody is
+ * what art. 15 asks for, whoever decided it.
+ */
+export interface ReportSubletApplication {
+  applicationId: string;
+  /** Null where the apartment has since been corrected out of the register. */
+  apartment: string | null;
+  /** "YYYY-MM-DD". */
+  periodFrom: string;
+  /** "YYYY-MM-DD", inclusive. */
+  periodTo: string;
+  reason: string;
+  status: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
+  /** ISO instant. */
+  submittedAt: string;
+  /** ISO instant, or null while the application is with the board. */
+  closedAt: string | null;
+  /** What the board wrote when it answered, where it wrote anything. */
+  decisionNote: string | null;
+  /** "YYYY-MM-DD", or null where no rent tribunal permission was recorded. */
+  tribunalPermittedOn: string | null;
+  /** "YYYY-MM-DD", or null where none was recorded or none named an end. */
+  tribunalPermittedUntil: string | null;
+  /**
+   * The earliest date the purge can reach this application, derived from the
+   * retention window and never stored. Null while it is open.
+   *
+   * The earliest, and deliberately not "the date it is erased on", for the
+   * reason {@link ReportBooking.erasableFrom} gives: a legal hold suspends every
+   * purge for the person it stands against, and `retention.onLegalHold` on this
+   * same report says whether one does.
+   */
+  erasableFrom: string | null;
+}
+
+/**
+ * A key or a tag this person ordered.
+ *
+ * Purged on a clock of its own, a year after the order closed, so each row
+ * states when that window runs out. An order still with the board states none,
+ * for the reason a motion still with the board does.
+ *
+ * A shorter window than the sublet application above it, and the difference is
+ * the point rather than an inconsistency: an order for a key is settled when the
+ * key is in somebody's hand, and what remains is the association's own
+ * accounting year.
+ *
+ * What outlives the row is the audit entry recording the handover, which is on
+ * this document under its own section: the log is append-only and exempt from
+ * every purge, so the association can still answer that somebody was given a key
+ * to the building on a day once the order is gone.
+ */
+export interface ReportKeyOrder {
+  orderId: string;
+  /** Null where the apartment has since been corrected out of the register. */
+  apartment: string | null;
+  kind: "KEY" | "TAG";
+  quantity: number;
+  /** What the resident said it was for, where they said anything. */
+  note: string | null;
+  status: "SUBMITTED" | "HANDED_OVER" | "DECLINED" | "WITHDRAWN";
+  /** ISO instant. */
+  submittedAt: string;
+  /** ISO instant, or null while the order is with the board. */
+  closedAt: string | null;
+  /** What the board wrote when it answered, where it wrote anything. */
+  boardNote: string | null;
+  /**
+   * The earliest date the purge can reach this order, derived from the retention
+   * window and never stored. Null while it is open.
+   */
+  erasableFrom: string | null;
+}
+
 export interface DataSubjectReport {
   /** ISO date the report was produced, for the document stamp. */
   generatedOn: string;
@@ -607,6 +761,7 @@ export interface DataSubjectReport {
   account: ReportAccount | null;
   memberRegisterEntries: ReportMemberRegisterEntry[];
   transfers: ReportTransfer[];
+  transferReversals: ReportTransferReversal[];
   terminations: ReportTermination[];
   lienNotes: ReportLienNote[];
   registerReportObligations: ReportRegisterReportObligation[];
@@ -622,6 +777,8 @@ export interface DataSubjectReport {
   documents: ReportDocument[];
   bookings: ReportBooking[];
   motions: ReportMotion[];
+  subletApplications: ReportSubletApplication[];
+  keyOrders: ReportKeyOrder[];
   eventSignups: ReportEventSignup[];
   memberCharges: ReportMemberCharge[];
   newsComments: ReportNewsComment[];

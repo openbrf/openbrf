@@ -241,6 +241,9 @@ export class InitialSupplyService {
         name: true,
         organizationNumber: true,
         propertyDesignation: true,
+        landTenure: true,
+        taxAssessmentUnitNumber: true,
+        propertyType: true,
       },
     });
     if (association === null) {
@@ -370,6 +373,15 @@ export class InitialSupplyService {
         associationName: name,
         associationOrganizationNumber: organizationNumber,
         associationPropertyDesignation: association.propertyDesignation ?? "",
+        // Empty where the board has not recorded which case the association is
+        // in, which is a truthful "not recorded" and not a claim that it owns
+        // the land. The two columns after it are empty unless the tenure is
+        // OTHER, and the CHECK on the table is what makes that true of the data
+        // rather than only of this expression.
+        associationLandTenure: association.landTenure ?? "",
+        associationTaxAssessmentUnitNumber:
+          association.taxAssessmentUnitNumber ?? "",
+        associationPropertyType: association.propertyType ?? "",
       },
     ];
 

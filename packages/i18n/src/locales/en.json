@@ -98,8 +98,11 @@
       "event": {
         "GRANT": "A grant",
         "TRANSFER": "A transfer",
-        "TERMINATION": "A termination"
-      }
+        "TERMINATION": "A termination",
+        "TRANSFER_REVERSAL": "A transfer reversal"
+      },
+      "bodyUndated": "{{event}} for {{apartment}} was recorded on {{triggeredOn}} and has to be reported to Lantmäteriet.",
+      "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sets no deadline for this report, so none is stated here."
     }
   },
   "sms": {
@@ -334,6 +337,7 @@
         "organizationNumber": "Organisation number",
         "standing": "Still standing",
         "nothing": "Nothing recorded",
+        "noDeadline": "No statutory deadline",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
         "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
@@ -353,12 +357,15 @@
           "documents": "Documents filed",
           "bookings": "Bookings",
           "motions": "Motions",
+          "subletApplications": "Subletting applications",
+          "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
           "newsComments": "News comments",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
-          "retention": "Retention"
+          "retention": "Retention",
+          "transferReversals": "Transfer reversals"
         },
         "field": {
           "name": "Name",
@@ -431,13 +438,19 @@
           "motionTitle": "Motion",
           "submitted": "Submitted",
           "closed": "Closed",
+          "period": "Period",
+          "tribunalPermission": "Rent tribunal permission",
+          "ordered": "Ordered",
           "meeting": "Meeting",
           "capacity": "Capacity",
           "attendanceMode": "Attendance",
           "broughtBy": "Brought by",
           "counterpart": "Other person",
           "proxyGround": "Ground",
-          "authorised": "Proxy authorisation dated"
+          "authorised": "Proxy authorisation dated",
+          "reportBasis": "Case under 3 kap. 3 §",
+          "reversalKind": "What happened",
+          "reversedOn": "Reversed"
         },
         "event": {
           "ENTRY": "Membership granted",
@@ -500,6 +513,17 @@
           "MOTION_SUBMITTED": "Motion submitted",
           "MOTION_ACKNOWLEDGED": "Motion recorded as received",
           "MOTION_WITHDRAWN": "Motion withdrawn",
+          "SUBLET_APPLICATION_SUBMITTED": "Subletting application submitted",
+          "SUBLET_APPLICATION_REVISED": "Subletting application changed",
+          "SUBLET_APPLICATION_WITHDRAWN": "Subletting application withdrawn",
+          "SUBLET_APPLICATION_CONSENTED": "Consent to subletting given",
+          "SUBLET_APPLICATION_REFUSED": "Consent to subletting refused",
+          "SUBLET_TRIBUNAL_PERMISSION_RECORDED": "Rent tribunal decision recorded",
+          "KEY_ORDER_PLACED": "Key order placed",
+          "KEY_ORDER_REVISED": "Key order changed",
+          "KEY_ORDER_WITHDRAWN": "Key order withdrawn",
+          "KEY_ORDER_HANDED_OVER": "Key order handed over",
+          "KEY_ORDER_DECLINED": "Key order declined",
           "EVENT_SIGNUP_MADE": "Event sign-up made",
           "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn",
           "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded",
@@ -521,7 +545,8 @@
         "reportKind": {
           "GRANT": "Grant",
           "TRANSFER": "Transfer",
-          "TERMINATION": "Termination"
+          "TERMINATION": "Termination",
+          "TRANSFER_REVERSAL": "Transfer reversal"
         },
         "auditRole": {
           "subject": "About this person",
@@ -1499,14 +1524,26 @@
         "agreement": "Agreement",
         "membershipDecided": "Membership decided",
         "membershipDecidedLabel": "Membership decided",
-        "membershipDecidedSubmit": "Record the decision date",
-        "membershipFailed": "The membership decision date could not be recorded. The date cannot be in the future, and a transfer that already carries one is not overwritten.",
+        "membershipDecidedLabelFor": "Membership decided for the transfer on {{transferredOn}} to {{to}}",
         "noAgreement": "No agreement reference recorded",
         "firstGrant": "First grant",
         "sellerUnknown": "The register does not hold the seller",
         "kindUnrecorded": "Not recorded in the register",
         "grantReportedFromGrant": "Grant: reported within two weeks of the grant itself, and no membership decision is counted.",
-        "none": "No grants or transfers recorded"
+        "none": "No grants or transfers recorded",
+        "basisLabel": "Case under 3 kap. 3 §",
+        "basisLabelFor": "Case under 3 kap. 3 § for the transfer on {{transferredOn}} to {{to}}",
+        "basisUnchosen": "Choose the case",
+        "basisSubmit": "Record the case",
+        "basisSubmitLabel": "Record the case for the transfer on {{transferredOn}} to {{to}}",
+        "basisFailed": "The case could not be recorded. Only the first case takes a membership decision date, the date cannot be in the future, and a transfer that already states its case is not overwritten.",
+        "basis": {
+          "MEMBERSHIP_DECISION": "The association decided on membership - reported within two weeks of that decision",
+          "ALREADY_MEMBER": "The acquirer was already a member - reported within two weeks of the transfer",
+          "OUTSIDE_MEMBERSHIP_REQUIREMENT": "The acquirer is outside the membership requirement - reported within two weeks of the transfer",
+          "TO_THE_ASSOCIATION": "The tenant-ownership passed to the association - reported within two weeks of the transfer",
+          "LIENHOLDING_JURIDICAL_PERSON": "A juridical person that held a lien and acquired at an executive or forced sale - that person reports it, not the association"
+        }
       },
       "terminations": {
         "heading": "Terminations",
@@ -1540,11 +1577,47 @@
       "ownEmpty": "You do not hold a tenant-ownership, so the apartment register has no entry for you. Ask the board if you believe that is wrong.",
       "noValue": {
         "heldUntil": "Still held"
+      },
+      "reversals": {
+        "heading": "Transfer reversals",
+        "none": "No transfer recorded as reversed",
+        "add": "Record that this went back",
+        "addLabel": "Record that this went back: the transfer on {{transferredOn}} to {{to}}",
+        "kindLabel": "What happened",
+        "kind": {
+          "RESCINDED": "The transfer was rescinded (hävd)",
+          "RETURNED_TO_SELLER": "The tenant-ownership went back to the seller"
+        },
+        "reversedOn": "Reversed",
+        "reference": "Reference",
+        "referenceHint": "The notice of rescission, the agreement returning the tenant-ownership, or the minute recording it.",
+        "appendOnly": "A reversal cannot be edited or removed once recorded. Check the date and the reference before you record it. Record it only where the transfer was registered and no proceedings were brought in court - that is what Lag (2026:484) 3 kap. 3 § tredje stycket asks the association to report.",
+        "submit": "Record the reversal",
+        "cancel": "Cancel",
+        "failed": "The reversal could not be recorded. The date cannot be in the future, a reference is required, and a transfer already recorded as reversed is not recorded twice."
+      },
+      "landTenure": {
+        "label": "The land",
+        "unrecorded": "Not recorded",
+        "add": "Record how the land is held",
+        "edit": "Change how the land is held",
+        "hint": "Förordning (2026:898) 2 kap. 4 § registers the association's lagfarts- och tomträttsinnehav, and reports the property designation with a tax assessment unit number and a property type instead where the buildings stand on land the association neither owns nor holds on a site leasehold.",
+        "value": {
+          "OWNERSHIP": "The association owns the land",
+          "SITE_LEASEHOLD": "The association holds the land on a site leasehold",
+          "OTHER": "Neither: the buildings stand on somebody else's land"
+        },
+        "taxUnit": "Tax assessment unit number",
+        "propertyType": "Property type",
+        "propertyTypeHint": "As the association's own property record states it. The förordning names the field without defining it, so nothing here checks the value.",
+        "submit": "Record it",
+        "cancel": "Cancel",
+        "failed": "How the land is held could not be recorded. A tax assessment unit number and a property type are reported only where the buildings stand on land the association neither owns nor holds on a site leasehold."
       }
     },
     "reports": {
       "heading": "Reporting to the cooperative housing register",
-      "description": "Every register event the association has to report to Lantmäteriet, and the day each report falls due. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names.",
+      "description": "Every register event the association has to report to Lantmäteriet, and the day each report falls due where the statute sets one. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names, except for a transfer reversal: 3 kap. 3 § tredje stycket sets no deadline for that report.",
       "stamp": "Reporting duties - {{date}}",
       "loading": "Loading the reporting duties",
       "error": "The reporting duties could not be read just now.",
@@ -1556,7 +1629,8 @@
       "group": {
         "overdue": "Past the deadline",
         "due": "Still to report",
-        "reported": "Reported"
+        "reported": "Reported",
+        "outstanding": "Owed, no deadline"
       },
       "groupCount_one": "{{count}} duty",
       "groupCount_other": "{{count}} duties",
@@ -1571,12 +1645,14 @@
       "event": {
         "GRANT": "Grant",
         "TRANSFER": "Transfer",
-        "TERMINATION": "Termination"
+        "TERMINATION": "Termination",
+        "TRANSFER_REVERSAL": "Transfer reversal"
       },
       "state": {
         "overdue": "Past the deadline",
         "due": "Still to report",
-        "reported": "Reported"
+        "reported": "Reported",
+        "outstanding": "Owed, no deadline"
       },
       "daysLeft_one": "{{count}} day left",
       "daysLeft_other": "{{count}} days left",
@@ -1587,7 +1663,7 @@
       "reportedLate_other": "Reported {{count}} days after the deadline",
       "empty": {
         "title": "Nothing to report",
-        "description": "A duty appears here when a grant is recorded, when a termination is recorded, or when the day the association decided on an acquirer's membership is recorded against a transfer."
+        "description": "A duty appears here when a grant is recorded, when a termination is recorded, when the board states which case of Lag (2026:484) 3 kap. 3 § a transfer falls in, or when a registered transfer is recorded as reversed."
       },
       "record": {
         "open": "Record the report",
@@ -1627,6 +1703,17 @@
           "LIEN": "Lien note"
         },
         "notHeld": "A column left empty is one this row's kind does not fill, or one the register holds no value for."
+      },
+      "noDeadline": "No deadline",
+      "noDeadlineHint": "The statute sets no deadline for this report",
+      "elsewhere": {
+        "heading": "Reported by somebody else",
+        "count_one": "{{count}} transfer",
+        "count_other": "{{count}} transfers",
+        "description": "Lag (2026:484) 3 kap. 3 § första stycket puts the report for these transfers on the juridical person that acquired the tenant-ownership, not on the association. They carry no deadline here because the association owes none.",
+        "transferredOn": "Transferred",
+        "reporter": "Who reports it",
+        "juridicalPerson": "The acquiring juridical person"
       }
     }
   },
@@ -2672,6 +2759,162 @@
       "meetingNotFound": "That meeting no longer exists. Read the meetings again.",
       "meetingAlreadyHeld": "That meeting has been recorded as held, so it cannot take this item up.",
       "meetingNoticeIssued": "The notice for that meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §)."
+    }
+  },
+  "sublets": {
+    "navLabel": "Subletting",
+    "title": "Subletting your apartment",
+    "intro": "Ask the board for consent to the subletting of your apartment, and follow what happens to the request.",
+    "loading": "Loading the applications...",
+    "loadFailed": "The subletting applications could not be read just now.",
+    "status": {
+      "SUBMITTED": "With the board",
+      "CONSENTED": "Consented",
+      "REFUSED": "Refused",
+      "WITHDRAWN": "Withdrawn"
+    },
+    "apply": {
+      "title": "Ask for the board's consent",
+      "description": "Letting your apartment to somebody else for their own independent use needs the board's consent.",
+      "statute": "A letting always counts as being for independent use if you no longer use the apartment as your permanent home, or otherwise to any noteworthy extent - part of it included (bostadsrattslagen 7 kap. 10 §). If the board refuses, the rent tribunal may give permission instead (7 kap. 11 §).",
+      "apartmentField": "Apartment",
+      "fromField": "From",
+      "toField": "To",
+      "periodHint": "State a last day. Permission from the rent tribunal is always limited in time, so a request without an end cannot be taken further.",
+      "reasonField": "Why you want to let",
+      "reasonHint": "In your own words. The board weighs your reasons against the association's, and so does the rent tribunal if the board refuses.",
+      "action": "Send the application",
+      "sending": "Sending...",
+      "sent": "The application has reached the board.",
+      "noApartment": "This account holds no apartment in the association today, so there is nothing to apply about."
+    },
+    "mine": {
+      "title": "Your applications",
+      "description": "What you have asked the board's consent for, newest first. Nothing here is deleted when you withdraw it.",
+      "empty": "You have asked for no consent.",
+      "apartmentGone": "Apartment no longer in the register",
+      "edit": "Change",
+      "editNamed": "Change the application for {{from}} to {{to}}",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancelEdit": "Cancel",
+      "withdraw": "Withdraw",
+      "withdrawNamed": "Withdraw the application for {{from}} to {{to}}",
+      "withdrawing": "Withdrawing...",
+      "closedOn": "The board answered this on {{date}}.",
+      "boardSaid": "The board wrote: {{note}}",
+      "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
+      "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
+      "tribunalPermittedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date was recorded. The association did not consent; this is recorded beside its refusal."
+    },
+    "queue": {
+      "title": "Subletting applications",
+      "description": "What the members have asked consent for, the ones waiting longest first.",
+      "statute": "Consent is the board's to give (bostadsrattslagen 7 kap. 10 §). Where you refuse, the rent tribunal may give permission instead if the member has reasons and the association has none to refuse (7 kap. 11 §) - so write down why.",
+      "empty": "No member has asked for consent.",
+      "appliedBy": "From",
+      "applicantProtected": "Protected personal data: ask the register.",
+      "applicantUnknown": "No longer in the register.",
+      "noteField": "What you want recorded with the answer",
+      "noteHint": "Optional, and worth writing on a refusal: the rent tribunal gives permission where the association has no legitimate reason to refuse.",
+      "consent": "Consent",
+      "consentNamed": "Consent to the letting from {{from}} to {{to}}",
+      "refuse": "Refuse",
+      "refuseNamed": "Refuse consent to the letting from {{from}} to {{to}}",
+      "answered": "Recorded with the answer: {{note}}",
+      "tribunalNone": "No rent tribunal decision recorded.",
+      "tribunalRecorded": "The rent tribunal gave permission on {{on}}, until {{until}}.",
+      "tribunalRecordedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date recorded.",
+      "tribunalRecord": "Record a rent tribunal decision",
+      "tribunalRecordNamed": "Record a rent tribunal decision for the letting from {{from}} to {{to}}",
+      "tribunalOnField": "Permitted on",
+      "tribunalUntilField": "Until",
+      "tribunalHint": "Only a permission is recorded. A refusal by the tribunal leaves the board's own refusal standing, which this row already says. Recording a permission changes nothing else: the association did not consent, and the row goes on saying so.",
+      "tribunalClear": "Remove the record"
+    },
+    "errors": {
+      "notAMember": "Subletting an apartment is the tenant-owner's to ask about, and this account holds no tenant-ownership in the association.",
+      "apartmentNotFound": "That apartment is not one you hold. You can apply about your own apartment only.",
+      "applicationNotFound": "That application is gone. The list has been read again.",
+      "alreadyClosed": "The board has answered this application, so there is nothing to change.",
+      "notRefused": "A rent tribunal decision can be recorded only against an application the board has refused.",
+      "invalidPeriod": "The period ends before it begins.",
+      "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
+      "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
+      "unknown": "That could not be done just now. Please try again."
+    }
+  },
+  "keyOrders": {
+    "navLabel": "Keys",
+    "title": "Keys and tags",
+    "intro": "Order a key or a tag for your apartment, and follow what happens to the order.",
+    "loading": "Loading the orders...",
+    "loadFailed": "The key orders could not be read just now.",
+    "kind": {
+      "KEY": "Key",
+      "TAG": "Tag"
+    },
+    "status": {
+      "SUBMITTED": "With the board",
+      "HANDED_OVER": "Handed over",
+      "DECLINED": "Declined",
+      "WITHDRAWN": "Withdrawn"
+    },
+    "place": {
+      "title": "Order a key or a tag",
+      "description": "A key or an electronic tag for the apartment you live in. The board hands it over and records that it did.",
+      "cost": "What the association charges for a key or a tag is the board's decision, and it tells you. Nothing is charged here.",
+      "apartmentField": "Apartment",
+      "kindField": "What you need",
+      "quantityField": "How many",
+      "noteField": "Which door, or what it is for",
+      "noteHint": "Optional. Say which door if it is not the entrance.",
+      "action": "Send the order",
+      "sending": "Sending...",
+      "sent": "The order has reached the board.",
+      "noApartment": "This account is not recorded as living in an apartment today, so there is no door to order a key to."
+    },
+    "mine": {
+      "title": "Your orders",
+      "description": "What you have ordered, newest first. Nothing here is deleted when you withdraw it.",
+      "empty": "You have ordered nothing.",
+      "ordered": "{{quantity}} x {{kind}}",
+      "apartmentGone": "Apartment no longer in the register",
+      "edit": "Change",
+      "editNamed": "Change the order of {{quantity}} x {{kind}}",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancelEdit": "Cancel",
+      "withdraw": "Withdraw",
+      "withdrawNamed": "Withdraw the order of {{quantity}} x {{kind}}",
+      "withdrawing": "Withdrawing...",
+      "handedOverOn": "Handed over on {{date}}.",
+      "closedOn": "The board answered this on {{date}}.",
+      "boardSaid": "The board wrote: {{note}}"
+    },
+    "queue": {
+      "title": "Key orders",
+      "description": "What the households have asked for, the ones waiting longest first.",
+      "charges": "Recording a handover says a key went to a named person on a day. What it costs the member is a charge, recorded with the association's other charges and not here.",
+      "empty": "Nobody has ordered a key or a tag.",
+      "orderedBy": "From",
+      "ordererProtected": "Protected personal data: ask the register.",
+      "ordererUnknown": "No longer in the register.",
+      "noteField": "What you want recorded with the answer",
+      "noteHint": "Optional. Where you decline, say why: the household reads this.",
+      "handOver": "Record the handover",
+      "handOverNamed": "Record the handover of {{quantity}} x {{kind}}",
+      "decline": "Decline",
+      "declineNamed": "Decline the order of {{quantity}} x {{kind}}",
+      "answered": "Recorded with the answer: {{note}}"
+    },
+    "errors": {
+      "apartmentNotFound": "That apartment is not one you live in. You can order for your own home only.",
+      "orderNotFound": "That order is gone. The list has been read again.",
+      "alreadyClosed": "The board has answered this order, so there is nothing to change.",
+      "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
+      "invalidBody": "The order needs a kind and a quantity, and what you wrote may not be longer than the form allows.",
+      "unknown": "That could not be done just now. Please try again."
     }
   },
   "events": {

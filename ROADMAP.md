@@ -774,7 +774,7 @@ no, and the pilot is the thing that will change it.
   - [ ] Group and board chat
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
-- [ ] Forms: subletting applications, motions, key orders
+- [x] Forms: subletting applications, motions, key orders
   - [x] Motions to the general meeting: a member submits one in writing and the
         board works the queue it arrives in, recording that it has been received.
         The right is a member's, not a resident's (EFL 6 kap. 15 § via BRL 9 kap.
@@ -786,8 +786,47 @@ no, and the pilot is the thing that will change it.
         a late motion is still received, and which general meeting takes one up
         is recorded against the motion instead, up until that meeting's notice
         has been issued
-  - [ ] Subletting applications
-  - [ ] Key orders
+  - [x] Subletting applications: a member asks the board's consent to let their
+        apartment in andra hand, and the board answers the queue those requests
+        arrive in. The right is a member's, not a resident's: BRL 7 kap. 10 §
+        första stycket lets a bostadsrättshavare let _sin lägenhet_ for
+        självständigt brukande only with the board's consent, so a partner, an
+        adult child or a tenant living there is offered no form - and the
+        apartment named in a request has to be one the applicant holds, which is
+        what stops an administrator's blanket grant from becoming an application
+        about somebody else's home. What counts as självständigt brukande is
+        stated rather than decided: 10 § andra stycket (Lag 2026:776) makes a
+        letting of the apartment or part of it always count where the holder no
+        longer uses it as a permanent home or otherwise in beaktansvärd
+        utsträckning, which is a fact about how somebody lives that the platform
+        does not hold. The two cases in 10 a § where no consent is needed at all
+        are outside the module and stated as such: both holders are juridical
+        persons - a lienholding company after a forced sale, and a kommun or a
+        region - and neither has a resident account to reach a form with. Where
+        the board refuses, the hyresnämnd may permit the letting anyway (7 kap.
+        11 §), and the platform cannot know that unless somebody records it: so
+        it is recorded against the refusal and changes nothing else, because the
+        association did not consent and a row that flipped to consented would be
+        the platform putting words in the board's mouth. The period applied for
+        carries both ends, on the same paragraph's own footing - a permission to
+        a bostadsrättshavare is always limited in time, so a request naming no
+        end could not be taken further as it stands
+  - [x] Key orders: a resident orders a key or a tag for the apartment they live
+        in, the board works the queue, and the handover is a recorded act. The
+        right is a resident's rather than a member's, and the contrast with
+        subletting above is the decision rather than a side effect: nothing in
+        BRL or EFL gives anybody a right to a key, so a way in through the front
+        door belongs to the household and a partner, an adult child and a tenant
+        order one exactly as a member does. The board may decline an order,
+        which the motion queue has no equivalent of - refusing to take up a
+        member's item is not the board's to decide under EFL 6 kap. 15 §, and
+        refusing a household a fourth tag to the bike room plainly is. What a
+        key costs the member is deliberately not here: that is a charge, with
+        its own amount, date, VAT treatment and export to whoever keeps the
+        association's books, and a second place recording a sum would be a
+        second answer to what the member owes. The handover is its own audit
+        action, so once the order has been purged the association can still
+        answer that somebody was given a key to the building on a day
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own
 - [x] Charges to members: a one-off cost put on a named member or apartment -
@@ -854,7 +893,21 @@ no, and the pilot is the thing that will change it.
     records the move, the database refuses a grant that names a seller, and the
     duty 3 kap. 2 § lays on the association is entered on the day of the grant by
     the transaction that records it - the one reporting window that opens with no
-    second date having to be recorded first. A
+    second date having to be recorded first. Every övergång now says which of
+    3 kap. 3 §'s four cases it is, because that is what decides the day its window
+    opens and, in one case, whose duty it is: the board states the case rather
+    than the platform inferring it, the database fixes it once stated the way it
+    fixes the kind, and the duty is entered by the same transaction. A transfer to
+    somebody already a member, to somebody outside the membership requirement, or
+    to the association itself raises its duty on the övergång; an övergång to a
+    juridical person that held a lien and acquired at an executive or forced sale
+    raises none at all, because första stycket assigns that anmälan to that
+    person, and the reporting queue names it and says whose duty it is rather
+    than showing the board nothing. A registered överlåtelse that has been hävd or has gone
+    back to the seller is a statutory-tier record of its own beside the transfer
+    it undoes, append-only and beyond the application role's reach, and it opens
+    the further anmälan of tredje stycket - carried in the ledger with no deadline,
+    because that sentence is the one in the chapter that sets none. A
     person's own duties are on their data subject access report, reached through
     the register events already on it. The board reads those duties on a screen
     of its own that groups them by what is owed, what has passed its statutory
@@ -883,25 +936,20 @@ no, and the pilot is the thing that will change it.
     and area, the association's postal address and its counts of buildings,
     dwellings and premises, a co-holder's share of one bostadsrätt, a holder's
     civil status, and a lienholder's identifier, address and priority number -
-    together with why each is absent. Two duties whose window the
-    statute runs from the event itself rather than from a separately recorded
-    date are still absent: a transfer to somebody already a member or outside
-    the membership requirement, and one where the bostadsrätt passed to the
-    association (3 kap. 3 § andra and fjärde styckena). Neither is
-    distinguishable from what the platform records today - both look like a
-    transfer whose membership decision has not been recorded yet - and the
-    statute also assigns some reports to a juridical person rather than to the
-    association. The grant of 3 kap. 2 § was the third of those and is no
-    longer among them: the register records which of its events are grants, so
-    that duty is raised on the day of the grant itself. A registered överlåtelse that is later hävd or återgången is a
-    further anmälan (3 kap. 3 § tredje stycket) with nothing recording it
-  - Not modelled, and needed before a report can be rendered: Förordning
-    (2026:898) 2 kap. 4 § andra stycket reports fastighetsbeteckning together
-    with taxeringsenhetsnummer and fastighetstyp, in place of the association's
-    lagfarts- och tomträttsinnehav, where its buildings stand on land it neither
-    owns nor holds with tomträtt. The designation has a field; the other two do
-    not. Whether the condition is met is answerable from the association facts,
-    which record whether the land is owned or held on a site leasehold
+    together with why each is absent. Every reporting duty 3 kap. lays on the
+    association is now raised, so what is left here is the transmission and not
+    the ledger behind it
+  - Not modelled, and not needed before a report can be rendered: the
+    lagfarts- och tomträttsinnehav itself (Förordning (2026:898) 2 kap. 4 §
+    första stycket 4). Which of that section's two cases an association is in
+    **is** recorded now, beside the register's own property designation, and so
+    are the taxeringsenhetsnummer and fastighetstyp that andra stycket reports
+    in place of the innehav where the buildings stand on land the association
+    neither owns nor holds with tomträtt. That answer is not read off the
+    association facts page, and the earlier claim on this page that it could be
+    was wrong: the boolean there says whether the land is held on a site
+    leasehold, so false means the association owns it and the page has no value
+    at all for the case the paragraph turns on
 
 ## Paid modules
 

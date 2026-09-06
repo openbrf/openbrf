@@ -219,7 +219,30 @@ export type TerminationKind =
  * spelled out for the reason the one above it is: the report prints this to the
  * person it is about.
  */
-export type RegisterReportKind = "GRANT" | "TRANSFER" | "TERMINATION";
+export type RegisterReportKind =
+  "GRANT" | "TRANSFER" | "TERMINATION" | "TRANSFER_REVERSAL";
+
+/**
+ * Which case of Lag (2026:484) 3 kap. 3 § an overgang falls in.
+ *
+ * Mirrors the TransferReportBasis enum in `apps/api/prisma/schema.prisma`,
+ * spelled out for the reason the two above are: the report prints it to the
+ * person it is about, and it says something about them - that they were already
+ * a member, that they fall outside the membership requirement, or that they
+ * acquired the bostadsratt as a lienholding juridical person.
+ */
+export type TransferReportBasis =
+  | "MEMBERSHIP_DECISION"
+  | "ALREADY_MEMBER"
+  | "OUTSIDE_MEMBERSHIP_REQUIREMENT"
+  | "TO_THE_ASSOCIATION"
+  | "LIENHOLDING_JURIDICAL_PERSON";
+
+/**
+ * Which of the two things Lag (2026:484) 3 kap. 3 § tredje stycket names
+ * happened to a registered overlatelse. Spelled out on the same reading.
+ */
+export type TransferReversalKind = "RESCINDED" | "RETURNED_TO_SELLER";
 
 /**
  * Every audit action an entry on the report can carry.
@@ -282,6 +305,17 @@ export type ReportAuditAction =
   | "MOTION_SUBMITTED"
   | "MOTION_ACKNOWLEDGED"
   | "MOTION_WITHDRAWN"
+  | "SUBLET_APPLICATION_SUBMITTED"
+  | "SUBLET_APPLICATION_REVISED"
+  | "SUBLET_APPLICATION_WITHDRAWN"
+  | "SUBLET_APPLICATION_CONSENTED"
+  | "SUBLET_APPLICATION_REFUSED"
+  | "SUBLET_TRIBUNAL_PERMISSION_RECORDED"
+  | "KEY_ORDER_PLACED"
+  | "KEY_ORDER_REVISED"
+  | "KEY_ORDER_WITHDRAWN"
+  | "KEY_ORDER_HANDED_OVER"
+  | "KEY_ORDER_DECLINED"
   | "EVENT_SIGNUP_MADE"
   | "EVENT_SIGNUP_WITHDRAWN"
   | "REGISTER_REPORT_OBLIGATION_RECORDED"
@@ -365,8 +399,33 @@ export interface DataSubjectReport {
     transferredOn: string;
     /** The day the association decided on the acquirer's membership, or null. */
     membershipDecidedOn: string | null;
+    /**
+     * Which case of Lag (2026:484) 3 kap. 3 § the overgang falls in, or null.
+     *
+     * Personal data about the acquirer, like the decision date above it, and
+     * withheld from the seller for the same reason: the value says that this
+     * person was already a member, or fell outside the membership requirement,
+     * or acquired the bostadsratt as a lienholding juridical person.
+     */
+    reportBasis: TransferReportBasis | null;
     price: string | null;
     agreementReference: string | null;
+  }[];
+  /**
+   * Transfers on this report that have been havd or gone back to the seller
+   * (Lag (2026:484) 3 kap. 3 § tredje stycket).
+   *
+   * Carried in both directions, unlike the decision date and the case above: the
+   * reversal is an event about the transfer itself and both parties were party
+   * to it going back.
+   */
+  transferReversals: {
+    reversalId: string;
+    transferId: string;
+    apartment: string;
+    kind: TransferReversalKind;
+    reversedOn: string;
+    reference: string;
   }[];
   /**
    * Tenant-ownerships this person held that have ceased to exist.
@@ -412,7 +471,12 @@ export interface DataSubjectReport {
     kind: RegisterReportKind;
     apartment: string;
     triggeredOn: string;
-    dueOn: string;
+    /**
+     * Null where the section imposing the duty sets no period. 3 kap. 3 § tredje
+     * stycket says the association "ska anmala" and names none, where every
+     * other reporting sentence in the chapter says "inom tva veckor".
+     */
+    dueOn: string | null;
   }[];
   publicationConsents: {
     scope: ConsentScope;
@@ -483,6 +547,59 @@ export interface DataSubjectReport {
     status: "SUBMITTED" | "ACKNOWLEDGED" | "WITHDRAWN";
     submittedAt: string;
     closedAt: string | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Applications this person made for the board's consent to let their apartment
+   * in andra hand (BRL 7 kap. 10 §).
+   *
+   * Purged on a clock of its own, two years after the later of the day it closed
+   * and the day the period applied for ended - so a consent is not erased while
+   * the letting it covers is still running.
+   *
+   * The board's own note is here beside the applicant's reason, because it is a
+   * statement the association made about this person and withholding it would
+   * leave them unable to see what was written down when their request was
+   * refused. So is what the rent tribunal decided (7 kap. 11 §): the association
+   * recorded it against them, and what is held about somebody is what art. 15
+   * asks for, whoever decided it.
+   */
+  subletApplications: {
+    applicationId: string;
+    apartment: string | null;
+    periodFrom: string;
+    periodTo: string;
+    reason: string;
+    status: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
+    submittedAt: string;
+    closedAt: string | null;
+    decisionNote: string | null;
+    tribunalPermittedOn: string | null;
+    tribunalPermittedUntil: string | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Keys and tags this person ordered.
+   *
+   * Purged a year after the order closed, which is a shorter window than the
+   * subletting application above and deliberately so: an order for a key is
+   * settled when the key is in somebody's hand.
+   *
+   * What outlives the row is the audit entry recording the handover, which is in
+   * the entries section below: the log is append-only and exempt from every
+   * purge, so the association can still answer that somebody was given a key to
+   * the building on a day once the order is gone.
+   */
+  keyOrders: {
+    orderId: string;
+    apartment: string | null;
+    kind: "KEY" | "TAG";
+    quantity: number;
+    note: string | null;
+    status: "SUBMITTED" | "HANDED_OVER" | "DECLINED" | "WITHDRAWN";
+    submittedAt: string;
+    closedAt: string | null;
+    boardNote: string | null;
     erasableFrom: string | null;
   }[];
   /**

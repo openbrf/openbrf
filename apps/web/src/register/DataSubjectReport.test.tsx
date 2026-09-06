@@ -72,6 +72,7 @@ const EMPTY_REPORT: Report = {
   account: null,
   memberRegisterEntries: [],
   transfers: [],
+  transferReversals: [],
   terminations: [],
   lienNotes: [],
   registerReportObligations: [],
@@ -81,6 +82,8 @@ const EMPTY_REPORT: Report = {
   documents: [],
   bookings: [],
   motions: [],
+  subletApplications: [],
+  keyOrders: [],
   eventSignups: [],
   newsComments: [],
   meetingAttendances: [],
@@ -101,6 +104,9 @@ const FULL_REPORT: Report = {
       // The day the two-week reporting window opened for this transfer, which
       // is not the day the transfer completed.
       membershipDecidedOn: "2020-02-18",
+      // And which case of Lag (2026:484) 3 kap. 3 § it is, which is what says
+      // the day above is the one the window ran from.
+      reportBasis: "MEMBERSHIP_DECISION",
       price: "2950000.00",
       agreementReference: "Overlatelseavtal 2020-7",
     },
@@ -117,8 +123,25 @@ const FULL_REPORT: Report = {
       kind: "GRANT",
       transferredOn: "2013-01-10",
       membershipDecidedOn: null,
+      // An upplatelse is reported under 3 kap. 2 §, which has no cases.
+      reportBasis: null,
       price: null,
       agreementReference: "Upplatelseavtal 2013-1",
+    },
+  ],
+  transferReversals: [
+    {
+      /*
+       * The transfer above, gone back to the seller. On the report in both
+       * directions, unlike the case and the decision date: it is an event about
+       * the transfer itself and states no fact about the other party.
+       */
+      reversalId: "reversal-1",
+      transferId: "transfer-1",
+      apartment: "Storgatan 12 1201",
+      kind: "RETURNED_TO_SELLER",
+      reversedOn: "2020-09-15",
+      reference: "Aterganget avtal 2020-7",
     },
   ],
   terminations: [
@@ -156,6 +179,18 @@ const FULL_REPORT: Report = {
       apartment: "Storgatan 12 1201",
       triggeredOn: "2026-02-01",
       dueOn: "2026-02-15",
+    },
+    {
+      /*
+       * The reversal's own duty. 3 kap. 3 § tredje stycket says the association
+       * "ska anmala" and names no period, where every other reporting sentence
+       * in the chapter says "inom tva veckor", so this row has no last day.
+       */
+      obligationId: "obligation-3",
+      kind: "TRANSFER_REVERSAL",
+      apartment: "Storgatan 12 1201",
+      triggeredOn: "2020-09-15",
+      dueOn: null,
     },
   ],
   housingCooperative: {
@@ -254,6 +289,63 @@ const FULL_REPORT: Report = {
       // Still with the board, so there is no closing date to count from.
       closedAt: null,
       erasableFrom: null,
+    },
+  ],
+  subletApplications: [
+    {
+      applicationId: "sublet-1",
+      apartment: "Storgatan 12 1201",
+      periodFrom: "2027-08-01",
+      periodTo: "2028-01-31",
+      reason: "Provbo pa annan ort under ett halvar.",
+      status: "REFUSED",
+      submittedAt: "2027-05-02T09:00:00.000Z",
+      closedAt: "2027-05-20T12:00:00.000Z",
+      decisionNote: "Styrelsen ser inga skal.",
+      // BRL 7 kap. 11 §: the rent tribunal may permit what the board refused.
+      // On the document beside the refusal rather than instead of it, because
+      // the association did not consent and somebody else permitted.
+      tribunalPermittedOn: "2027-06-15",
+      tribunalPermittedUntil: "2028-01-31",
+      /*
+       * Two years after the later of the answer and the end of the period, and
+       * deliberately none of the other dates on this document: the answer came
+       * in May 2027 and the letting runs to the end of January 2028, so the
+       * clock starts when the letting is over.
+       */
+      erasableFrom: "2030-01-31",
+    },
+    {
+      applicationId: "sublet-2",
+      apartment: "Storgatan 12 1201",
+      periodFrom: "2029-02-01",
+      periodTo: "2029-07-31",
+      reason: "Studier pa annan ort.",
+      status: "SUBMITTED",
+      submittedAt: "2028-11-02T09:00:00.000Z",
+      // Still with the board, so there is no closing date to count from.
+      closedAt: null,
+      decisionNote: null,
+      tribunalPermittedOn: null,
+      tribunalPermittedUntil: null,
+      erasableFrom: null,
+    },
+  ],
+  keyOrders: [
+    {
+      orderId: "key-1",
+      apartment: "Storgatan 12 1201",
+      kind: "TAG",
+      quantity: 2,
+      note: "Till cykelrummet.",
+      status: "HANDED_OVER",
+      submittedAt: "2027-02-01T09:00:00.000Z",
+      closedAt: "2027-02-10T12:00:00.000Z",
+      boardNote: "Hamtade i styrelserummet.",
+      // A year after it closed, and shorter than the application above on
+      // purpose: an order for a key is settled when the key is in somebody's
+      // hand.
+      erasableFrom: "2028-02-09",
     },
   ],
   eventSignups: [
@@ -644,6 +736,57 @@ describe("what the document prints", () => {
     ).toBe(2);
   });
 
+  it("prints the day the board answered a subletting application", async () => {
+    /*
+     * The answer is the act the record exists for. BRL 7 kap. 10 § makes the
+     * consent the styrelse's to give, so the day it was given or refused is a
+     * fact held about this person, and art. 15 asks for what is held. The
+     * payload carried the day while the table printed only the status, which
+     * told the person that their application was refused and not when.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const applications = within(
+      sectionOf("Ansökningar om andrahandsupplåtelse"),
+    );
+    expect(applications.getByText("Avslutad")).not.toBeNull();
+    expect(applications.getByText("2027-05-20")).not.toBeNull();
+
+    // And the application still with the board states no day, because there is
+    // no answer to state one for.
+    const openRow = applications
+      .getByText("Studier pa annan ort.")
+      .closest("tr");
+    expect(openRow?.textContent).toContain("Hos styrelsen");
+  });
+
+  it("states a tribunal permission with no recorded end as the day it names", async () => {
+    /*
+     * BRL 7 kap. 11 § makes a permission for a natural person one that is
+     * always limited in time, so a recorded permission normally names an end
+     * day and the cell states the range. Where the board wrote down only the
+     * day permission was given, a range with nothing after the dash does not
+     * read as a shorter answer - it reads as an end day the document failed to
+     * print, on the one document the person is entitled to rely on.
+     */
+    renderReport({
+      ...FULL_REPORT,
+      subletApplications: FULL_REPORT.subletApplications.map((application) => ({
+        ...application,
+        tribunalPermittedUntil: null,
+      })),
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const applications = within(
+      sectionOf("Ansökningar om andrahandsupplåtelse"),
+    );
+    // An exact match, so the dangling "2027-06-15 - " this is written against
+    // would not satisfy it.
+    expect(applications.getByText("2027-06-15")).not.toBeNull();
+  });
+
   it("prints the termination of a tenant-ownership, on its statutory ground", async () => {
     /*
      * Statutory tier, so no erasure date and no promise of one - the document
@@ -696,19 +839,68 @@ describe("what the document prints", () => {
       .getByText("Anmälningsskyldigheter till bostadsrättsregistret")
       .closest("section")
       ?.querySelectorAll("tbody tr");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows?.[0]?.textContent).toContain("2020-02-18");
     expect(rows?.[0]?.textContent).toContain("2020-03-03");
     expect(rows?.[0]?.textContent).toContain("Överlåtelse");
     expect(rows?.[1]?.textContent).toContain("2026-02-01");
     expect(rows?.[1]?.textContent).toContain("2026-02-15");
     expect(rows?.[1]?.textContent).toContain("Upphörande");
+    // The duty Lag (2026:484) 3 kap. 3 § tredje stycket sets no period for. Its
+    // deadline column says the statute sets none rather than carrying a date
+    // computed from a sentence that names none - and rather than the document's
+    // "not recorded" mark, which would say a deadline exists and was not
+    // written down.
+    expect(rows?.[2]?.textContent).toContain("2020-09-15");
+    expect(rows?.[2]?.textContent).toContain(
+      "Hävd eller återgången överlåtelse",
+    );
+    expect(rows?.[2]?.textContent).not.toContain("2020-09-29");
+    expect(rows?.[2]?.textContent).toContain(
+      i18n.t("register.person.report.noDeadline"),
+    );
+    expect(rows?.[2]?.textContent).not.toContain(
+      i18n.t("register.person.report.nothing"),
+    );
 
     // And the retention sentence that covers them, naming the reports among
     // what no setting and no administrator reaches.
     expect(
       screen.getByText(/anmälningsskyldigheterna till bostadsrättsregistret/),
     ).not.toBeNull();
+  });
+
+  it("prints a transfer reversal as an event of its own", async () => {
+    /*
+     * The overlatelse happened and it went back, and the document has to say
+     * both: a report that replaced the transfer with its reversal would state
+     * that a person never acquired a bostadsratt they did acquire.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const rows = screen
+      .getByText("Hävda och återgångna överlåtelser")
+      .closest("section")
+      ?.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.textContent).toContain("2020-09-15");
+    expect(rows?.[0]?.textContent).toContain("Aterganget avtal 2020-7");
+    // The transfer it undid is still on the document.
+    expect(screen.getByText("Overlatelseavtal 2020-7")).not.toBeNull();
+  });
+
+  it("prints which case of 3 kap. 3 § an acquired transfer falls in", async () => {
+    // A statement about the acquirer - that the board decided on their
+    // membership, or that they were already a member, or that they fall outside
+    // the requirement - so it belongs on their own report.
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const transfer = screen
+      .getByText("Overlatelseavtal 2020-7")
+      .closest("tr")?.textContent;
+    expect(transfer).toContain("Föreningen beslutade om medlemskap");
   });
 
   it("prints the day a transfer's membership was decided", async () => {

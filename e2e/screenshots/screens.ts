@@ -166,6 +166,36 @@ const MOTION = {
 const MOTION_DEADLINE_CARD = "Sista dag för motioner";
 
 /**
+ * The subletting application the andrahand screens are photographed against.
+ *
+ * Held here rather than inline because both entries name it: the member asks for
+ * consent, and the board reads the same request in its queue.
+ *
+ * A period well into the future, so the picture says the same thing whenever the
+ * walk is run. The reason is the association's own kind of sentence and carries
+ * no third party's name - these images go into a public pull request about a
+ * statutory personal-data register.
+ */
+const SUBLET = {
+  from: "2029-02-01",
+  to: "2029-08-31",
+  reason:
+    "Jag ska arbeta på annan ort under ett halvår och vill hyra ut " +
+    "lägenheten under tiden.",
+} as const;
+
+/**
+ * The key order the nyckel screens are photographed against.
+ *
+ * Held here rather than inline because both entries name it: a resident orders
+ * it, and the board reads the same order in its queue.
+ */
+const KEY_ORDER = {
+  quantity: "2",
+  note: "Två taggar till cykelrummet.",
+} as const;
+
+/**
  * The laundry room the booking screens are photographed against.
  *
  * Held here rather than inline because all three entries name it: the board adds
@@ -1044,6 +1074,116 @@ export const SCREENS: readonly Screen[] = [
       button: `Anteckna motionen ${MOTION.title} som mottagen`,
     },
     capture: { panel: "Motioner från medlemmarna" },
+  },
+
+  // --- subletting -------------------------------------------------------------
+  // Two screens in one order, because the second photographs what the first did:
+  // a member asks the board's consent to let her apartment in andra hand, and
+  // the board reads that request in its queue. Nothing is on the queue before
+  // the first of them.
+  //
+  // The member rather than the resident, and that is the statute rather than a
+  // convenience: BRL 7 kap. 10 § forsta stycket lets a bostadsrattshavare let
+  // "sin lagenhet" in andra hand with the board's consent. The resident persona
+  // holds no tenant-ownership and is offered no form at all, which is why the
+  // first entry cannot be theirs.
+  {
+    /*
+     * A member asking for consent, and what she holds afterwards.
+     *
+     * The whole page, because the form and the list of what she has asked for
+     * are one screen to her: the sentence that says the rent tribunal may permit
+     * what the board refuses (7 kap. 11 §) is on the form, and the answer she is
+     * waiting for lands in the list under it.
+     */
+    name: "sublets-member",
+    as: "member",
+    goto: appPath("/sublets"),
+    prepare: [
+      { see: { panel: "Begär styrelsens samtycke" } },
+      {
+        fill: { label: "Från", within: "Begär styrelsens samtycke" },
+        value: SUBLET.from,
+      },
+      {
+        fill: { label: "Till", within: "Begär styrelsens samtycke" },
+        value: SUBLET.to,
+      },
+      {
+        fill: { label: "Varför du vill hyra ut" },
+        value: SUBLET.reason,
+      },
+      { click: { button: "Skicka ansökan" } },
+    ],
+    // The withdraw control on the request that was just made, which arrives with
+    // the re-read of what this account has asked for rather than with the click.
+    waitFor: { button: /^Återkalla ansökan/, first: true },
+    capture: "page",
+  },
+  {
+    /*
+     * The board's half: what the members have asked consent for, and the two
+     * answers BRL 7 kap. 10 § gives it.
+     *
+     * The card on its own rather than the whole screen, because this is the half
+     * the capability exists for - the administrator's own intake half above it
+     * holds no tenant-ownership and would only show an account with no apartment
+     * to apply about.
+     */
+    name: "sublets-board",
+    as: "administrator",
+    goto: appPath("/sublets"),
+    // The consent control on the request the entry above made, which exists only
+    // once the queue has been read back with it.
+    waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
+    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
+  },
+
+  // --- key orders ---------------------------------------------------------------
+  // Two screens in one order, as above: a household orders a tag and the board
+  // reads the order in its queue.
+  //
+  // The resident rather than the member, and the contrast with the two entries
+  // above is the point. Nothing in BRL or EFL gives anybody a right to a key, so
+  // ordering one follows living here rather than holding the tenant-ownership -
+  // and the persona who is offered no subletting form at all orders a tag here.
+  {
+    name: "key-orders-resident",
+    as: "resident",
+    goto: appPath("/key-orders"),
+    prepare: [
+      { see: { panel: "Beställ en nyckel eller en tagg" } },
+      { select: { combobox: "Vad du behöver" }, option: "Tagg" },
+      {
+        fill: { label: "Hur många", within: "Beställ en nyckel eller en tagg" },
+        value: KEY_ORDER.quantity,
+      },
+      {
+        fill: { label: "Vilken dörr, eller vad den ska användas till" },
+        value: KEY_ORDER.note,
+      },
+      { click: { button: "Skicka beställningen" } },
+    ],
+    // The withdraw control on the order that was just placed, which arrives with
+    // the re-read rather than with the click.
+    waitFor: { button: /^Återkalla beställningen/, first: true },
+    capture: "page",
+  },
+  {
+    /*
+     * The board's half: the queue, and the handover it records.
+     *
+     * The card on its own, for the reason the subletting queue above is
+     * photographed alone: the administrator's own ordering half holds no
+     * residency and would show an account with no door to order a key to.
+     */
+    name: "key-orders-board",
+    as: "administrator",
+    goto: appPath("/key-orders"),
+    // The handover control on the order the entry above placed, which exists
+    // only once the queue has been read back with it.
+    waitFor: { button: /^Anteckna utlämning/, first: true },
+    capture: { panel: "Nyckelbeställningar" },
   },
 
   // --- events -----------------------------------------------------------------

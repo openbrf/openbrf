@@ -98,6 +98,27 @@ export const SUPPLY_COLUMNS = [
   "associationName",
   "associationOrganizationNumber",
   "associationPropertyDesignation",
+  /**
+   * On what footing the association's buildings stand on their land: OWNERSHIP,
+   * SITE_LEASEHOLD, OTHER, or empty where the board has not recorded it.
+   *
+   * Not the lagfarts- och tomtrattsinnehav of 2 kap. 4 § forsta stycket 4, which
+   * an instance does not hold - it is which of that section's two cases the
+   * association is in. It is here because the two columns after it are
+   * conditional on exactly that answer, and an empty taxeringsenhetsnummer with
+   * nothing saying why cannot be told from one the register lost. The same
+   * reasoning holderProtectedPersonalData carries about the three empty address
+   * columns beside it.
+   */
+  "associationLandTenure",
+  /**
+   * The two fields 2 kap. 4 § andra stycket reports in place of the lagfarts-
+   * och tomtrattsinnehav, where the buildings stand on land the association
+   * neither owns nor holds with tomtratt. Empty in every other case, and the
+   * database will not hold a value there.
+   */
+  "associationTaxAssessmentUnitNumber",
+  "associationPropertyType",
   // The bostadsrattslagenhet (2 kap. 3 §), on an APARTMENT row.
   "apartmentNumber",
   "apartmentAddressStreet",

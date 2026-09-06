@@ -29,6 +29,8 @@ import {
   type RegisterReportKind,
   type ReportAuditAction,
   type TerminationKind,
+  type TransferReportBasis,
+  type TransferReversalKind,
   fetchDataSubjectReport,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
@@ -102,7 +104,24 @@ const REGISTER_REPORT_KIND_LABEL = {
   GRANT: "register.person.report.reportKind.GRANT",
   TRANSFER: "register.person.report.reportKind.TRANSFER",
   TERMINATION: "register.person.report.reportKind.TERMINATION",
+  TRANSFER_REVERSAL: "register.person.report.reportKind.TRANSFER_REVERSAL",
 } as const satisfies Record<RegisterReportKind, TranslationKey>;
+
+const TRANSFER_REPORT_BASIS_LABEL = {
+  MEMBERSHIP_DECISION:
+    "registers.apartment.transfers.basis.MEMBERSHIP_DECISION",
+  ALREADY_MEMBER: "registers.apartment.transfers.basis.ALREADY_MEMBER",
+  OUTSIDE_MEMBERSHIP_REQUIREMENT:
+    "registers.apartment.transfers.basis.OUTSIDE_MEMBERSHIP_REQUIREMENT",
+  TO_THE_ASSOCIATION: "registers.apartment.transfers.basis.TO_THE_ASSOCIATION",
+  LIENHOLDING_JURIDICAL_PERSON:
+    "registers.apartment.transfers.basis.LIENHOLDING_JURIDICAL_PERSON",
+} as const satisfies Record<TransferReportBasis, TranslationKey>;
+
+const TRANSFER_REVERSAL_KIND_LABEL = {
+  RESCINDED: "registers.apartment.reversals.kind.RESCINDED",
+  RETURNED_TO_SELLER: "registers.apartment.reversals.kind.RETURNED_TO_SELLER",
+} as const satisfies Record<TransferReversalKind, TranslationKey>;
 
 const BOOKING_STATUS_LABEL = {
   BOOKED: "bookings.status.BOOKED",
@@ -114,6 +133,25 @@ const MOTION_STATUS_LABEL = {
   SUBMITTED: "motions.status.SUBMITTED",
   ACKNOWLEDGED: "motions.status.ACKNOWLEDGED",
   WITHDRAWN: "motions.status.WITHDRAWN",
+} as const satisfies Record<string, TranslationKey>;
+
+const SUBLET_STATUS_LABEL = {
+  SUBMITTED: "sublets.status.SUBMITTED",
+  CONSENTED: "sublets.status.CONSENTED",
+  REFUSED: "sublets.status.REFUSED",
+  WITHDRAWN: "sublets.status.WITHDRAWN",
+} as const satisfies Record<string, TranslationKey>;
+
+const KEY_ORDER_STATUS_LABEL = {
+  SUBMITTED: "keyOrders.status.SUBMITTED",
+  HANDED_OVER: "keyOrders.status.HANDED_OVER",
+  DECLINED: "keyOrders.status.DECLINED",
+  WITHDRAWN: "keyOrders.status.WITHDRAWN",
+} as const satisfies Record<string, TranslationKey>;
+
+const KEY_ORDER_KIND_LABEL = {
+  KEY: "keyOrders.kind.KEY",
+  TAG: "keyOrders.kind.TAG",
 } as const satisfies Record<string, TranslationKey>;
 
 /*
@@ -227,6 +265,23 @@ const AUDIT_ACTION_LABEL = {
   MOTION_SUBMITTED: "register.person.report.action.MOTION_SUBMITTED",
   MOTION_ACKNOWLEDGED: "register.person.report.action.MOTION_ACKNOWLEDGED",
   MOTION_WITHDRAWN: "register.person.report.action.MOTION_WITHDRAWN",
+  SUBLET_APPLICATION_SUBMITTED:
+    "register.person.report.action.SUBLET_APPLICATION_SUBMITTED",
+  SUBLET_APPLICATION_REVISED:
+    "register.person.report.action.SUBLET_APPLICATION_REVISED",
+  SUBLET_APPLICATION_WITHDRAWN:
+    "register.person.report.action.SUBLET_APPLICATION_WITHDRAWN",
+  SUBLET_APPLICATION_CONSENTED:
+    "register.person.report.action.SUBLET_APPLICATION_CONSENTED",
+  SUBLET_APPLICATION_REFUSED:
+    "register.person.report.action.SUBLET_APPLICATION_REFUSED",
+  SUBLET_TRIBUNAL_PERMISSION_RECORDED:
+    "register.person.report.action.SUBLET_TRIBUNAL_PERMISSION_RECORDED",
+  KEY_ORDER_PLACED: "register.person.report.action.KEY_ORDER_PLACED",
+  KEY_ORDER_REVISED: "register.person.report.action.KEY_ORDER_REVISED",
+  KEY_ORDER_WITHDRAWN: "register.person.report.action.KEY_ORDER_WITHDRAWN",
+  KEY_ORDER_HANDED_OVER: "register.person.report.action.KEY_ORDER_HANDED_OVER",
+  KEY_ORDER_DECLINED: "register.person.report.action.KEY_ORDER_DECLINED",
   EVENT_SIGNUP_MADE: "register.person.report.action.EVENT_SIGNUP_MADE",
   EVENT_SIGNUP_WITHDRAWN:
     "register.person.report.action.EVENT_SIGNUP_WITHDRAWN",
@@ -616,6 +671,7 @@ export function DataSubjectReport({
                   "register.person.report.field.direction",
                   "register.person.report.field.date",
                   "register.person.report.field.membershipDecidedOn",
+                  "register.person.report.field.reportBasis",
                   "register.person.report.field.price",
                   "register.person.report.field.agreementReference",
                 ]}
@@ -643,10 +699,44 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>
                       {transfer.membershipDecidedOn ?? nothing}
                     </td>
+                    {/*
+                      Which case of Lag (2026:484) 3 kap. 3 § the association
+                      recorded. Absent on a grant, on a row nobody has stated it
+                      for, and on a transfer this person sold on - the last
+                      because it is a statement about the person who bought.
+                    */}
+                    <td className={TEXT_CELL}>
+                      {transfer.reportBasis === null
+                        ? nothing
+                        : t(TRANSFER_REPORT_BASIS_LABEL[transfer.reportBasis])}
+                    </td>
                     <td className={DATA_CELL}>{transfer.price ?? nothing}</td>
                     <td className={DATA_CELL}>
                       {transfer.agreementReference ?? nothing}
                     </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.transferReversals">
+              <Rows
+                empty={report.transferReversals.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.reversalKind",
+                  "register.person.report.field.reversedOn",
+                  "register.person.report.field.terminationReference",
+                ]}
+              >
+                {report.transferReversals.map((reversal) => (
+                  <tr key={reversal.reversalId} className={ROW}>
+                    <td className={DATA_CELL}>{reversal.apartment}</td>
+                    <td className={TEXT_CELL}>
+                      {t(TRANSFER_REVERSAL_KIND_LABEL[reversal.kind])}
+                    </td>
+                    <td className={DATA_CELL}>{reversal.reversedOn}</td>
+                    <td className={TEXT_CELL}>{reversal.reference}</td>
                   </tr>
                 ))}
               </Rows>
@@ -718,7 +808,17 @@ export function DataSubjectReport({
                       {t(REGISTER_REPORT_KIND_LABEL[obligation.kind])}
                     </td>
                     <td className={DATA_CELL}>{obligation.triggeredOn}</td>
-                    <td className={DATA_CELL}>{obligation.dueOn}</td>
+                    {/*
+                      Absent where the statute sets no period, which is one duty:
+                      3 kap. 3 § tredje stycket says the association "ska anmala"
+                      and names no last day. Said as that rather than with the
+                      document's "not recorded" mark, which would tell the
+                      subject a deadline exists and nobody wrote it down.
+                    */}
+                    <td className={DATA_CELL}>
+                      {obligation.dueOn ??
+                        t("register.person.report.noDeadline")}
+                    </td>
                   </tr>
                 ))}
               </Rows>
@@ -914,6 +1014,134 @@ export function DataSubjectReport({
                      */}
                     <td className={DATA_CELL}>
                       {motion.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.subletApplications">
+              <Rows
+                empty={report.subletApplications.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.period",
+                  "register.person.report.field.reason",
+                  "register.person.report.field.status",
+                  "register.person.report.field.closed",
+                  "register.person.report.field.tribunalPermission",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.subletApplications.map((application) => (
+                  <tr key={application.applicationId} className={ROW}>
+                    <td className={DATA_CELL}>
+                      {application.apartment ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {`${application.periodFrom} - ${application.periodTo}`}
+                    </td>
+                    {/* The person's own words and the association's words about
+                      them, both in full: this is the fullest answer art. 15 can
+                      give, and a summary would be the association paraphrasing
+                      somebody back to themselves. */}
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {application.reason}
+                      </span>
+                      {application.decisionNote === null ? null : (
+                        <span className="block whitespace-pre-line">
+                          {application.decisionNote}
+                        </span>
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(SUBLET_STATUS_LABEL[application.status])}
+                    </td>
+                    {/* The day the board answered, which is the day the consent
+                      was given or refused. Absent while the application is still
+                      with the board, which the status beside it already says. */}
+                    <td className={DATA_CELL}>
+                      {day(application.closedAt) ?? nothing}
+                    </td>
+                    {/* What the rent tribunal decided (BRL 7 kap. 11 §). Not the
+                      association's own decision, and on the report all the same:
+                      it was recorded against this person, and what is held about
+                      somebody is what art. 15 asks for.
+
+                      A permission for a natural person is always limited in time
+                      under that paragraph, so a recorded one normally names an
+                      end day and the cell states the range. Where the board
+                      recorded no end, the permission day stands alone rather
+                      than opening a range with nothing on the far side of the
+                      dash. */}
+                    <td className={DATA_CELL}>
+                      {application.tribunalPermittedOn === null
+                        ? nothing
+                        : application.tribunalPermittedUntil === null
+                          ? application.tribunalPermittedOn
+                          : `${application.tribunalPermittedOn} - ${application.tribunalPermittedUntil}`}
+                    </td>
+                    {/*
+                     * The row's own retention date, two years after the later of
+                     * the answer and the end of the period applied for - so a
+                     * consent is not erased while the letting it covers is still
+                     * running. Absent while the application is open, because
+                     * there is no closing date to count from.
+                     */}
+                    <td className={DATA_CELL}>
+                      {application.erasableFrom ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.keyOrders">
+              <Rows
+                empty={report.keyOrders.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.ordered",
+                  "register.person.report.field.note",
+                  "register.person.report.field.status",
+                  "register.person.report.field.closed",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.keyOrders.map((order) => (
+                  <tr key={order.orderId} className={ROW}>
+                    <td className={DATA_CELL}>{order.apartment ?? nothing}</td>
+                    <td className={DATA_CELL}>
+                      {`${String(order.quantity)} ${t(
+                        KEY_ORDER_KIND_LABEL[order.kind],
+                      )}`}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {order.note ?? nothing}
+                      </span>
+                      {order.boardNote === null ? null : (
+                        <span className="block whitespace-pre-line">
+                          {order.boardNote}
+                        </span>
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(KEY_ORDER_STATUS_LABEL[order.status])}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(order.closedAt) ?? nothing}
+                    </td>
+                    {/*
+                     * A year after the order closed, and shorter than the
+                     * application above it on purpose: an order for a key is
+                     * settled when the key is in somebody's hand. What outlives
+                     * the row is the handover in the entries section, which no
+                     * purge reaches.
+                     */}
+                    <td className={DATA_CELL}>
+                      {order.erasableFrom ?? nothing}
                     </td>
                   </tr>
                 ))}

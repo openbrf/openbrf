@@ -19,7 +19,9 @@ import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
+import { SubletsRoute } from "./SubletsRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
+import { KeyOrdersRoute } from "./KeyOrdersRoute";
 import { MotionsRoute } from "./MotionsRoute";
 import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
@@ -333,6 +335,40 @@ const motionsRoute = createRoute({
 });
 
 /**
+ * Subletting applications. Signed in here, capabilities inside the screen.
+ *
+ * One route for both halves of the module, on the reasoning the motions route
+ * above sets out: a member asks the board's consent and reads their own
+ * requests, and the board additionally answers the queue those arrive in.
+ *
+ * Its own destination rather than a panel under motions, although both are forms
+ * a member fills in: a motion is the member's business with the general meeting
+ * and this is their business with the board about their own apartment, and the
+ * two are held by different capabilities for different statutory reasons.
+ */
+const subletsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sublets",
+  beforeLoad: requireSession,
+  component: SubletsRoute,
+});
+
+/**
+ * Key orders. Signed in here, capabilities inside the screen.
+ *
+ * One route for both halves, as above. Its own destination rather than a panel
+ * under sublets, and the audiences are why: this one is offered to whoever lives
+ * here and that one only to the tenant-owner, so a shared screen would have to
+ * hide half of itself from half the house.
+ */
+const keyOrdersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/key-orders",
+  beforeLoad: requireSession,
+  component: KeyOrdersRoute,
+});
+
+/**
  * The general meeting. Signed in here, capabilities inside the screen.
  *
  * Its own destination rather than a screen under motions, although a motion is
@@ -481,6 +517,8 @@ const routeTree = rootRoute.addChildren([
   eventsRoute,
   chargesRoute,
   motionsRoute,
+  subletsRoute,
+  keyOrdersRoute,
   meetingsRoute,
   newsRoute,
   documentsRoute,

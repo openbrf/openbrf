@@ -4,7 +4,9 @@ import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
+import { computeKeyOrderPurgeDate } from "../key-orders/key-order-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
+import { computeSubletPurgeDate } from "../sublets/sublet-retention";
 import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -52,6 +54,7 @@ const SECTIONS = [
   "account",
   "memberRegisterEntries",
   "transfers",
+  "transferReversals",
   "terminations",
   "lienNotes",
   "registerReportObligations",
@@ -61,6 +64,8 @@ const SECTIONS = [
   "documents",
   "bookings",
   "motions",
+  "subletApplications",
+  "keyOrders",
   "eventSignups",
   "memberCharges",
   "newsComments",
@@ -304,6 +309,7 @@ export class DataSubjectReportService {
         toPersonId: true,
         transferredOn: true,
         membershipDecidedOn: true,
+        reportBasis: true,
         price: true,
         agreementReference: true,
         apartment: {
@@ -314,6 +320,38 @@ export class DataSubjectReportService {
         },
       },
     });
+
+    /*
+     * The transfers on this report that went back, in both directions.
+     *
+     * Keyed on the transfers above rather than on a person column - the table
+     * has none - which is the same reach the obligations below use. Both
+     * directions, unlike the membership decision and the case: a reversal is an
+     * event about the transfer itself and both parties were party to it going
+     * back, and it states no fact about the other person that the transfer
+     * section does not already carry.
+     */
+    const transferIds = transfers.map((transfer) => transfer.id);
+    const transferReversals =
+      transferIds.length === 0
+        ? []
+        : await tx.transferReversal.findMany({
+            where: { transferId: { in: transferIds } },
+            orderBy: [{ reversedOn: "asc" }],
+            select: {
+              id: true,
+              transferId: true,
+              kind: true,
+              reversedOn: true,
+              reference: true,
+              apartment: {
+                select: {
+                  number: true,
+                  address: { select: { street: true, number: true } },
+                },
+              },
+            },
+          });
 
     /*
      * Lien notes reach a person only through the tenant-ownership they held, so
@@ -401,17 +439,29 @@ export class DataSubjectReportService {
     const acquiredTransferIds = transfers
       .filter((transfer) => transfer.toPersonId === personId)
       .map((transfer) => transfer.id);
+    const reportedReversalIds = transferReversals.map(
+      (reversal) => reversal.id,
+    );
     const registerReportObligations =
-      reportedTerminationIds.length === 0 && acquiredTransferIds.length === 0
+      reportedTerminationIds.length === 0 &&
+      acquiredTransferIds.length === 0 &&
+      reportedReversalIds.length === 0
         ? []
         : await tx.registerReportObligation.findMany({
             where: {
               OR: [
                 { terminationId: { in: reportedTerminationIds } },
                 { transferId: { in: acquiredTransferIds } },
+                { reversalId: { in: reportedReversalIds } },
               ],
             },
-            orderBy: [{ dueOn: "asc" }],
+            /*
+             * Nulls last, so the one duty the statute sets no deadline for reads
+             * after the dated ones rather than ahead of them: PostgreSQL sorts
+             * nulls last on ASC by default, and stating it here keeps the report
+             * ordered the way the queue is whatever the default becomes.
+             */
+            orderBy: [{ dueOn: { sort: "asc", nulls: "last" } }],
             select: {
               id: true,
               kind: true,
@@ -490,6 +540,60 @@ export class DataSubjectReportService {
         status: true,
         submittedAt: true,
         closedAt: true,
+      },
+    });
+
+    /*
+     * Subletting applications this person made. `appliedByPersonId` is a plain
+     * column and not a relation, for the reason the bookings query above gives,
+     * so this is a query of its own; the apartment IS one, which is how the
+     * address reaches the document without being copied onto the application.
+     */
+    const subletApplications = await tx.subletApplication.findMany({
+      where: { appliedByPersonId: personId },
+      orderBy: [{ submittedAt: "desc" }],
+      select: {
+        id: true,
+        periodFrom: true,
+        periodTo: true,
+        reason: true,
+        status: true,
+        submittedAt: true,
+        closedAt: true,
+        decisionNote: true,
+        tribunalPermittedOn: true,
+        tribunalPermittedUntil: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
+      },
+    });
+
+    /*
+     * Keys and tags this person ordered. `orderedByPersonId` is a plain column
+     * and not a relation, for the reason the bookings query above gives.
+     */
+    const keyOrders = await tx.keyOrder.findMany({
+      where: { orderedByPersonId: personId },
+      orderBy: [{ submittedAt: "desc" }],
+      select: {
+        id: true,
+        kind: true,
+        quantity: true,
+        note: true,
+        status: true,
+        submittedAt: true,
+        closedAt: true,
+        boardNote: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
       },
     });
 
@@ -773,6 +877,20 @@ export class DataSubjectReportService {
           transfer.toPersonId === personId
             ? toIsoDate(transfer.membershipDecidedOn)
             : null,
+        // Withheld from the seller for the same reason and on the same test.
+        // The value says that the acquirer was already a member, or fell
+        // outside the membership requirement, or is a lienholding juridical
+        // person - each a fact about them and not about the person selling.
+        reportBasis:
+          transfer.toPersonId === personId ? transfer.reportBasis : null,
+      })),
+      transferReversals: transferReversals.map((reversal) => ({
+        reversalId: reversal.id,
+        transferId: reversal.transferId,
+        apartment: `${reversal.apartment.address.street} ${reversal.apartment.address.number} ${reversal.apartment.number}`,
+        kind: reversal.kind,
+        reversedOn: toIsoDate(reversal.reversedOn) ?? "",
+        reference: reversal.reference,
       })),
       terminations: terminations.map((termination) => ({
         terminationId: termination.id,
@@ -797,7 +915,7 @@ export class DataSubjectReportService {
           kind: obligation.kind,
           apartment: `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`,
           triggeredOn: toIsoDate(obligation.triggeredOn) ?? "",
-          dueOn: toIsoDate(obligation.dueOn) ?? "",
+          dueOn: toIsoDate(obligation.dueOn),
         }),
       ),
       publicationConsents: person.publicationConsents.map((consent) => ({
@@ -867,6 +985,52 @@ export class DataSubjectReportService {
          * still processing it, so no purge date exists to state.
          */
         erasableFrom: toIsoDate(computeMotionPurgeDate(motion.closedAt)),
+      })),
+      subletApplications: subletApplications.map((application) => ({
+        applicationId: application.id,
+        apartment:
+          application.apartment === null
+            ? null
+            : `${application.apartment.address.street} ${application.apartment.address.number} ${application.apartment.number}`,
+        // toIsoDate and not the calendar helper, exactly as every other
+        // `@db.Date` column on this document is rendered: the column is read
+        // back as midnight UTC, which is what the slice already answers.
+        periodFrom: toIsoDate(application.periodFrom) ?? "",
+        periodTo: toIsoDate(application.periodTo) ?? "",
+        reason: application.reason,
+        status: application.status,
+        submittedAt: application.submittedAt.toISOString(),
+        closedAt: application.closedAt?.toISOString() ?? null,
+        decisionNote: application.decisionNote,
+        tribunalPermittedOn: toIsoDate(application.tribunalPermittedOn),
+        tribunalPermittedUntil: toIsoDate(application.tribunalPermittedUntil),
+        /*
+         * Derived here rather than stored, as a residency's and a booking's are,
+         * and from the later of two anchors: the day it closed and the day the
+         * period applied for ended. Null while it is open, which is not a gap in
+         * the answer - there is no closing date to count from, and the
+         * association is still processing it.
+         */
+        erasableFrom: toIsoDate(
+          computeSubletPurgeDate(application.closedAt, application.periodTo),
+        ),
+      })),
+      keyOrders: keyOrders.map((order) => ({
+        orderId: order.id,
+        apartment:
+          order.apartment === null
+            ? null
+            : `${order.apartment.address.street} ${order.apartment.address.number} ${order.apartment.number}`,
+        kind: order.kind,
+        quantity: order.quantity,
+        note: order.note,
+        status: order.status,
+        submittedAt: order.submittedAt.toISOString(),
+        closedAt: order.closedAt?.toISOString() ?? null,
+        boardNote: order.boardNote,
+        // Derived here rather than stored, and anchored on the closing date the
+        // way a motion's is. Null while the order is open.
+        erasableFrom: toIsoDate(computeKeyOrderPurgeDate(order.closedAt)),
       })),
       eventSignups: eventSignups.map((signup) => ({
         signupId: signup.id,
