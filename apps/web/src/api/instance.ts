@@ -105,6 +105,14 @@ export interface InstanceSettings {
   /** Whether the association's website carries an issue report form. */
   issueReporting: { publicFormEnabled: boolean };
   /**
+   * Who answers for the association's processing of personal data.
+   *
+   * Read with association:read because the board answers for the records these
+   * appear in, and changed with association:manage like every other instance
+   * setting. Null throughout on a fresh instance.
+   */
+  dataProtectionContacts: DataProtectionContacts;
+  /**
    * The deadline the bylaws set for motions to the general meeting, or null when
    * they set none.
    *
@@ -308,6 +316,33 @@ export function saveOwnProfile(input: {
   preferredLocale: string;
 }): Promise<ApiResult<{ preferredLocale: string }>> {
   return apiRequest("PUT", "/api/settings/profile", input);
+}
+
+/**
+ * A person's own data, in a file they can take elsewhere (GDPR art. 20).
+ *
+ * Typed as an unknown record on purpose. The browser writes the file and never
+ * reads it, so mirroring the server's shape here would be a second copy to keep
+ * in step for no benefit - and a mismatch would be a field silently dropped
+ * from somebody's own export.
+ */
+export function exportOwnData(): Promise<ApiResult<Record<string, unknown>>> {
+  return apiRequest("POST", "/api/data-portability/mine", {});
+}
+
+/** Who answers for the association's processing (GDPR art. 13, art. 30). */
+export interface DataProtectionContacts {
+  controller: { contactEmail: string | null; postalAddress: string | null };
+  officer: { name: string | null; email: string | null; phone: string | null };
+  jointController: { name: string | null; contact: string | null };
+}
+
+export function saveDataProtectionContacts(input: {
+  controller: { contactEmail: string; postalAddress: string };
+  officer: { name: string; email: string; phone: string };
+  jointController: { name: string; contact: string };
+}): Promise<ApiResult<DataProtectionContacts>> {
+  return apiRequest("PUT", "/api/settings/data-protection-contacts", input);
 }
 
 export function fetchAddresses(): Promise<ApiResult<AddressView[]>> {

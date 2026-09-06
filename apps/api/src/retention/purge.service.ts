@@ -8,19 +8,30 @@ import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { toIsoDate } from "../address-book/address-book-view";
+import { lockResidencyTransitions } from "../registers/residency-lock";
+import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
 import { purgeCutoff } from "./purge-window";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
+import {
+  erasureRequestedPersonIds,
+  withheldPersonIds,
+} from "./withheld-persons";
 
 /** Queue the nightly service-data purge runs on. */
 export const SERVICE_DATA_PURGE_QUEUE = "service-data-purge";
 
 /**
- * When it runs. In the small hours, and not on the same minute as the import
- * session purge: two jobs waking together on one small connection pool is a
- * contention nobody gains anything from.
+ * When it runs: last of the nightly band, and on a minute of its own.
+ *
+ * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues, 03:23
+ * import sessions, 03:29 motions, 03:41 bookings, 03:53 service data. Two jobs
+ * waking together on one small connection pool is a contention nobody gains
+ * anything from, and this one is deliberately last: it is the job that executes
+ * a granted erasure request and closes it, and the module purges before it
+ * select on that request still being open.
  */
-const PURGE_CRON = "41 3 * * *";
+const PURGE_CRON = "53 3 * * *";
 
 /**
  * The most people one run erases.
@@ -42,6 +53,14 @@ export interface PurgeOutcome {
   cleared: string[];
   accountDeleted: boolean;
   invitationsDeleted: number;
+  /**
+   * Rows the person was detached from and which stayed. Counted rather than
+   * named: the record is the association's, and how many of its own issues a
+   * departing resident had filed is not something the audit log needs to hold.
+   */
+  issuesDetachedFromPerson: number;
+  documentsDetachedFromPerson: number;
+  mediaDetachedFromPerson: number;
 }
 
 export interface PurgeRunSummary {
@@ -90,11 +109,45 @@ export interface PurgeRunSummary {
  * so an attempt would be an error rather than an erasure, and code that tried
  * would be code that believed the archive was purgeable.
  *
- * Issues and documents are out of scope this train. Their retention story needs
- * its own decisions - an issue's description is free text a resident wrote and
- * may name a third party - and a purge that guessed at them would be worse than
- * one that says plainly which data it reaches. The data subject access report
- * lists both, so nothing is invisible in the meantime.
+ * ## Issues, documents and uploaded files
+ *
+ * These are detached from the person rather than deleted. The link to the
+ * person goes, along with the reporter's name and address held on an issue, and
+ * the record stays: an issue is the association's own account of a problem with
+ * its building, and a document in the archive is an association record. Neither
+ * stops being worth keeping because the person who filed it has moved away.
+ *
+ * What is left is not anonymous data, and nothing here calls it that. An
+ * issue's description is free text somebody wrote, and it may name a
+ * neighbour, so the result still identifies a person within the meaning of
+ * GDPR Recital 26 - which is why the operation is named for what it does to
+ * the link rather than for what it fails to do to the text. The
+ * description is never rewritten by this job: a person named in one has an
+ * art. 17 request like anybody else, which the board decides on its merits, and
+ * a purge editing prose on a schedule would be the association silently
+ * rewriting its own records.
+ *
+ * ## Erasure requests and restrictions
+ *
+ * A granted erasure request brings this run forward for one person: the same
+ * data is erased, on the same rules, only sooner - the retention window and the
+ * requirement of a past residency are what a request replaces, and nothing
+ * else. Every other refusal still applies, so a person who still lives here, is
+ * on the board, holds a system role or is under a legal hold is not erased
+ * because they asked.
+ *
+ * A restriction (art. 18) stops this job for that person entirely. Art. 18(2)
+ * permits storage and almost nothing else, so the one act it forbids is the one
+ * this job performs.
+ *
+ * ## Its place in the night
+ *
+ * This purge runs last of the nightly band, at 03:53. The module purges before
+ * it select on the same granted erasure requests, and this is the job that
+ * marks a request executed and closes it. Running it first would close the
+ * request before the bookings, sign-ups, motions and comments had been looked
+ * at, and those would wait for a clock the person had asked to be freed from. A
+ * purge added to the band later takes a minute before 03:53.
  *
  * ## How it runs
  *
@@ -218,6 +271,19 @@ export class PurgeService implements OnModuleInit {
     const cutoff = purgeCutoff(now, retentionDays);
     const defaultLocale = await this.defaultLocale();
 
+    /*
+     * People whose data is referenced from a row this job detaches. These are
+     * plain columns rather than relations, so no `some` filter reaches them and
+     * the ordinary scan below would miss somebody whose only remaining trace is
+     * an issue they reported years ago. Read as three groupBys for the reason
+     * the module purges give: one distinct scan of a column beats a join across
+     * every person in the register.
+     */
+    const referencedIds = await this.referencedPersonIds();
+
+    const requested = await erasureRequestedPersonIds(this.prisma);
+    const withheld = new Set(await withheldPersonIds(this.prisma));
+
     const persons = await this.prisma.person.findMany({
       where: {
         residencies: { some: {} },
@@ -236,14 +302,98 @@ export class PurgeService implements OnModuleInit {
         },
         systemRoles: { none: {} },
         legalHolds: { none: { releasedAt: null } },
-        OR: clearableStates(defaultLocale),
+        processingRestrictedAt: null,
+        OR: [...clearableStates(defaultLocale), { id: { in: referencedIds } }],
       },
       orderBy: [{ createdAt: "asc" }],
       take: MAX_PERSONS_PER_RUN,
       select: { id: true },
     });
 
-    return persons.map((person) => person.id);
+    /*
+     * A granted erasure request replaces two of the conditions above and
+     * nothing else: the retention window, and the requirement of a past
+     * residency at all. A person who asked to be erased and never lived here -
+     * an external board member, an administrator - has service data like
+     * anybody else and no move-out to anchor a date on.
+     *
+     * Every other refusal still stands, which is why this is a second query
+     * rather than a relaxed version of the first: a person who still lives
+     * here, sits on the board, holds a system role or is under a hold is not
+     * erased because they asked, and the board is told which of those it was.
+     */
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.person.findMany({
+            where: {
+              id: { in: requested },
+              NOT: {
+                residencies: {
+                  some: {
+                    OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+                  },
+                },
+              },
+              boardPositions: {
+                none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
+              },
+              systemRoles: { none: {} },
+              legalHolds: { none: { releasedAt: null } },
+              processingRestrictedAt: null,
+            },
+            orderBy: [{ createdAt: "asc" }],
+            take: MAX_PERSONS_PER_RUN,
+            select: { id: true },
+          });
+
+    const ids: string[] = [];
+    for (const person of [...persons, ...onRequest]) {
+      if (withheld.has(person.id) || ids.includes(person.id)) {
+        continue;
+      }
+      ids.push(person.id);
+    }
+
+    return ids.slice(0, MAX_PERSONS_PER_RUN);
+  }
+
+  /**
+   * Everybody named by a row this job detaches rather than erases.
+   *
+   * Three distinct scans rather than a join: reporterPersonId,
+   * uploadedByPersonId on a document and the same column on a media file are
+   * plain columns with an index each, and asking each of them for its distinct
+   * values is one index scan apiece.
+   */
+  private async referencedPersonIds(): Promise<string[]> {
+    const [issues, documents, media] = await Promise.all([
+      this.prisma.issue.groupBy({
+        by: ["reporterPersonId"],
+        where: { reporterPersonId: { not: null } },
+      }),
+      this.prisma.document.groupBy({
+        by: ["uploadedByPersonId"],
+        where: { uploadedByPersonId: { not: null } },
+      }),
+      this.prisma.mediaFile.groupBy({
+        by: ["uploadedByPersonId"],
+        where: { uploadedByPersonId: { not: null } },
+      }),
+    ]);
+
+    const ids = new Set<string>();
+    for (const row of issues) {
+      if (row.reporterPersonId !== null) {
+        ids.add(row.reporterPersonId);
+      }
+    }
+    for (const row of [...documents, ...media]) {
+      if (row.uploadedByPersonId !== null) {
+        ids.add(row.uploadedByPersonId);
+      }
+    }
+    return [...ids];
   }
 
   /**
@@ -266,10 +416,38 @@ export class PurgeService implements OnModuleInit {
     const defaultLocale = await this.defaultLocale();
 
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Both locks, in this order, before the read. The lock file's own comment
+       * describes the gap this closes: without them a hold placed, or a
+       * residency reopened, between the read below and the writes that follow
+       * would be decided by whichever transaction committed last.
+       *
+       * The order is fixed across the product - hold, then residency - and
+       * every other writer takes at most one of them: LegalHoldService takes
+       * the hold lock, MoveService the residency lock. So no transaction ever
+       * holds the second while waiting for the first, and the pair cannot
+       * deadlock.
+       */
+      await lockLegalHold(tx, personId);
+      await lockResidencyTransitions(tx, personId);
+
+      const request = await tx.dataSubjectRequest.findFirst({
+        where: {
+          personId,
+          kind: "ERASURE",
+          decision: "GRANTED",
+          executedAt: null,
+          closedAt: null,
+        },
+        orderBy: [{ requestedOn: "asc" }],
+        select: { id: true },
+      });
+
       const person = await tx.person.findUnique({
         where: { id: personId },
         select: {
           id: true,
+          processingRestrictedAt: true,
           emailCipher: true,
           emailIndex: true,
           phoneCipher: true,
@@ -293,13 +471,26 @@ export class PurgeService implements OnModuleInit {
         },
       });
 
-      if (person === null || !isEligible(person, now, cutoff)) {
+      if (
+        person === null ||
+        !isEligible(
+          person,
+          now,
+          request === null ? cutoff : now,
+          request !== null,
+        )
+      ) {
         /*
          * Re-checked here rather than trusted from the scan. A legal hold
          * placed, or a residency reopened, between the scan and this
          * transaction has to win: the board member who placed the hold is
          * entitled to assume it took effect, and this is the moment where that
          * is either true or a promise nobody kept.
+         *
+         * A granted request moves the cutoff to now and lifts the requirement
+         * of a past residency; it lifts nothing else, so a hold placed after
+         * the grant still refuses here and the request stays granted and
+         * unexecuted for the board to look at.
          */
         return null;
       }
@@ -350,11 +541,87 @@ export class PurgeService implements OnModuleInit {
         where: { personId, acceptedAt: null },
       });
 
-      if (cleared.length === 0 && !accountDeleted && invitationsDeleted === 0) {
+      /*
+       * Issues, documents and uploaded files are detached from the person and
+       * kept. What goes is the link and the contact details an issue carries
+       * for a reporter who had no account; what stays is the association's
+       * record of a problem with its building, the document in its archive, and
+       * every photograph.
+       *
+       * The description is not touched. It is free text somebody wrote about
+       * the building, it is the record of what was wrong, and it may name a
+       * neighbour - which is why this is a detachment and why the result is
+       * not anonymous. A person named in one makes an art. 17 request, which
+       * the board decides; a job rewriting prose on a schedule would be the
+       * association quietly editing its own history.
+       */
+      const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
+        where: { reporterPersonId: personId },
+        data: {
+          reporterPersonId: null,
+          reporterNameCipher: null,
+          reporterEmailCipher: null,
+          reporterEmailIndex: null,
+        },
+      });
+
+      const { count: documentsDetachedFromPerson } =
+        await tx.document.updateMany({
+          where: { uploadedByPersonId: personId },
+          data: { uploadedByPersonId: null },
+        });
+
+      /*
+       * Every file the person uploaded, an issue photograph included. Nothing
+       * is removed from storage: a photograph of a leaking pipe is the record
+       * of the problem, and the flag saying it may show somebody is a default
+       * the upload path writes about every issue photograph rather than a
+       * finding about the picture.
+       */
+      const { count: mediaDetachedFromPerson } = await tx.mediaFile.updateMany({
+        where: { uploadedByPersonId: personId },
+        data: { uploadedByPersonId: null },
+      });
+
+      if (issuesDetachedFromPerson > 0) {
+        cleared.push("issues");
+      }
+      if (documentsDetachedFromPerson > 0) {
+        cleared.push("documents");
+      }
+      if (mediaDetachedFromPerson > 0) {
+        cleared.push("media");
+      }
+
+      if (
+        request === null &&
+        cleared.length === 0 &&
+        !accountDeleted &&
+        invitationsDeleted === 0
+      ) {
         // Nothing was there to erase. The eligibility query filters these out,
         // so reaching here means the last of it went while this ran; writing an
         // entry for an erasure that erased nothing would be a false record.
+        //
+        // A granted request is the exception: the board was promised the run
+        // would happen, so the entry is written and the request closed even
+        // when there was nothing left to clear, which is the difference between
+        // "we did it" and "we never got to it".
         return null;
+      }
+
+      if (request !== null) {
+        await tx.dataSubjectRequest.update({
+          where: { id: request.id },
+          data: {
+            executedAt: now,
+            closedAt: now,
+            closeReason: "purged",
+            // No person: the purge closed it, and that absence is what
+            // distinguishes execution from a board member closing it by hand.
+            closedByPersonId: null,
+          },
+        });
       }
 
       const lastMoveOut = person.residencies[0]?.movedOutOn ?? null;
@@ -376,15 +643,29 @@ export class PurgeService implements OnModuleInit {
             cleared,
             accountDeleted,
             invitationsDeleted,
+            issuesDetachedFromPerson,
+            documentsDetachedFromPerson,
+            mediaDetachedFromPerson,
             retentionDaysAfterMoveOut: days,
             lastMovedOutOn: toIsoDate(lastMoveOut),
             purgeOn: toIsoDate(computePurgeDate(lastMoveOut, days)),
+            ...(request === null
+              ? {}
+              : { requested: true, erasureRequestId: request.id }),
           },
         },
         tx,
       );
 
-      return { personId, cleared, accountDeleted, invitationsDeleted };
+      return {
+        personId,
+        cleared,
+        accountDeleted,
+        invitationsDeleted,
+        issuesDetachedFromPerson,
+        documentsDetachedFromPerson,
+        mediaDetachedFromPerson,
+      };
     });
   }
 
@@ -443,22 +724,29 @@ function isEligible(
     boardPositions: readonly { endedOn: Date | null }[];
     systemRoles: readonly unknown[];
     legalHolds: readonly unknown[];
+    processingRestrictedAt: Date | null;
   },
   now: Date,
   cutoff: Date,
+  onRequest = false,
 ): boolean {
-  if (person.residencies.length === 0) {
+  /*
+   * A restriction refuses before anything else is considered. Art. 18(2) lets
+   * the association store the data and little else, so erasing it is the one
+   * act the person has asked it not to perform - and asking for a restriction
+   * after asking for erasure is a person changing their mind, which the later
+   * request wins.
+   */
+  if (person.processingRestrictedAt !== null) {
     return false;
   }
-  if (
-    person.residencies.some(
-      (residency) =>
-        residency.movedOutOn === null ||
-        residency.movedOutOn.getTime() > cutoff.getTime(),
-    )
-  ) {
-    return false;
-  }
+  /*
+   * Asked before the residencies, because none of these depends on one. A
+   * granted request moves the cutoff and lifts the requirement of a past
+   * residency; it lifts nothing else, so a hold placed after the grant still
+   * refuses here - and it has to refuse for somebody who never held a
+   * residency too, whose data a hold is just as capable of preserving.
+   */
   if (
     person.boardPositions.some(
       (position) =>
@@ -467,5 +755,21 @@ function isEligible(
   ) {
     return false;
   }
-  return person.systemRoles.length === 0 && person.legalHolds.length === 0;
+  if (person.systemRoles.length > 0 || person.legalHolds.length > 0) {
+    return false;
+  }
+  /*
+   * Somebody who never lived here has no move-out to anchor a purge date on, so
+   * the scheduled job leaves them alone. A granted request is a different
+   * authority: it names this person, and their contact details and account are
+   * service data whether or not they ever held a residency.
+   */
+  if (person.residencies.length === 0) {
+    return onRequest;
+  }
+  return !person.residencies.some(
+    (residency) =>
+      residency.movedOutOn === null ||
+      residency.movedOutOn.getTime() > cutoff.getTime(),
+  );
 }

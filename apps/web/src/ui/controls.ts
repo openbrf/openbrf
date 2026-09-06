@@ -35,6 +35,19 @@ export const SECONDARY_BUTTON =
   "inline-flex min-h-11 items-center justify-center rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-ink transition-colors duration-150 ease-out disabled:opacity-60";
 
 /**
+ * Secondary action for something the board should read twice before doing: a
+ * legal hold, granting an erasure, an act that is hard to take back.
+ *
+ * The warn colour is on the label and not on the surface, so it reads as a
+ * caution rather than as an error that has already happened, and the shape
+ * stays a secondary button because the caution is in what the act does and not
+ * in how loud the control is. Never the only signal - the label says what will
+ * happen, and the sentence beside it says what it cannot undo.
+ */
+export const CAUTION_BUTTON =
+  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-warn";
+
+/**
  * A quiet button that still meets the touch target: used for row actions like
  * removing a generated apartment row.
  */

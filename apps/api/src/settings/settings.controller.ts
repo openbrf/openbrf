@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { actingPersonId } from "../registers/acting-person";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
@@ -25,6 +26,7 @@ import {
   type BoardMailboxSettingsView,
   type BrandingSettings,
   type HousingCooperativeSettings,
+  type DataProtectionContacts,
   type InstanceSettings,
   type LogoSlot,
   SettingsService,
@@ -125,6 +127,48 @@ const smsSchema = z.object({
  */
 const MIN_RETENTION_DAYS = 30;
 const MAX_RETENTION_DAYS = 3650;
+
+/**
+ * Who answers for the association's processing.
+ *
+ * Every field optional and nullable: an association that has appointed no data
+ * protection officer has none to record, and clearing a field is how a board
+ * says an appointment ended.
+ *
+ * The two addresses are checked as addresses, because the privacy notice prints
+ * them as the way to reach whoever answers for the processing under art. 13.
+ * Blank still clears: the empty string is what the form sends for a field a
+ * board has emptied, and `blankToNull` turns it into no value recorded.
+ */
+const clearableEmail = z
+  .string()
+  .trim()
+  .max(200)
+  .refine((value) => value === "" || z.email().safeParse(value).success)
+  .nullable()
+  .optional();
+
+const dataProtectionContactsSchema = z.object({
+  controller: z
+    .object({
+      contactEmail: clearableEmail,
+      postalAddress: z.string().trim().max(500).nullable().optional(),
+    })
+    .optional(),
+  officer: z
+    .object({
+      name: z.string().trim().max(200).nullable().optional(),
+      email: clearableEmail,
+      phone: z.string().trim().max(50).nullable().optional(),
+    })
+    .optional(),
+  jointController: z
+    .object({
+      name: z.string().trim().max(200).nullable().optional(),
+      contact: z.string().trim().max(500).nullable().optional(),
+    })
+    .optional(),
+});
 
 const retentionSchema = z.object({
   daysAfterMoveOut: z.coerce
@@ -295,6 +339,30 @@ export class SettingsWriteController {
     @Req() request: RequestWithPrincipal,
   ): Promise<BrandingSettings> {
     return this.settings.removeLogo(logoSlot(slot), requirePersonId(request));
+  }
+
+  @Put("data-protection-contacts")
+  async updateDataProtectionContacts(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<DataProtectionContacts> {
+    const input = dataProtectionContactsSchema.parse(body);
+    return this.settings.updateDataProtectionContacts({
+      controller: {
+        contactEmail: input.controller?.contactEmail ?? null,
+        postalAddress: input.controller?.postalAddress ?? null,
+      },
+      officer: {
+        name: input.officer?.name ?? null,
+        email: input.officer?.email ?? null,
+        phone: input.officer?.phone ?? null,
+      },
+      jointController: {
+        name: input.jointController?.name ?? null,
+        contact: input.jointController?.contact ?? null,
+      },
+      actorPersonId: actingPersonId(request),
+    });
   }
 
   @Put("smtp")

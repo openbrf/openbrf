@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { MediaModule } from "../media/media.module";
+import { IssuePurgeService } from "./issue-purge.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
@@ -19,6 +20,10 @@ import {
  *
  * The services are exported because the association's public website renders
  * the report form itself, in process, rather than calling this API over HTTP.
+ *
+ * IssuePurgeService is a provider and not exported: it is a scheduled job with
+ * nobody to call it, and the integration suite reaches it through the module
+ * reference the way it reaches every other purge in the band.
  */
 @Module({
   imports: [MediaModule],
@@ -27,7 +32,7 @@ import {
     IssueQueueController,
     IssueTypeAdminController,
   ],
-  providers: [IssueService, IssueTypeService],
+  providers: [IssueService, IssueTypeService, IssuePurgeService],
   exports: [IssueService, IssueTypeService],
 })
 export class IssuesModule {}

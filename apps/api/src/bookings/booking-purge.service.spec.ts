@@ -48,21 +48,53 @@ interface Booking {
  * `endsAt` filter, the `notIn` exclusion, the sort and the bound, which is
  * exactly the contract the real one is being relied on for.
  */
-function build(options: { bookings: Booking[]; heldPersonIds?: string[] }) {
+function build(options: {
+  bookings: Booking[];
+  heldPersonIds?: string[];
+  restrictedPersonIds?: string[];
+  erasureRequestedPersonIds?: string[];
+}) {
   const held = options.heldPersonIds ?? [];
+  const restricted = options.restrictedPersonIds ?? [];
+  const requested = options.erasureRequestedPersonIds ?? [];
+  const withheld = [...new Set([...held, ...restricted])];
 
   const groupBy = vi.fn(
     async (args: {
-      where: { endsAt: { lte: Date }; bookedByPersonId?: { notIn: string[] } };
+      where: {
+        OR: (
+          { endsAt: { lte: Date } } | { bookedByPersonId: { in: string[] } }
+        )[];
+        bookedByPersonId?: { notIn: string[] };
+      };
       take: number;
     }) => {
       const excluded = new Set(args.where.bookedByPersonId?.notIn ?? []);
+
+      /*
+       * The OR is honoured rather than assumed, for the reason the whole fake
+       * exists: a booking is selected either because its own window has run out
+       * or because the person was granted erasure, and a fake that only checked
+       * the date would pass a service that had forgotten the second half.
+       */
+      const expiredBefore = args.where.OR.find(
+        (clause): clause is { endsAt: { lte: Date } } => "endsAt" in clause,
+      )?.endsAt.lte;
+      const requestedIds = new Set(
+        args.where.OR.find(
+          (clause): clause is { bookedByPersonId: { in: string[] } } =>
+            "bookedByPersonId" in clause,
+        )?.bookedByPersonId.in ?? [],
+      );
+
       const ids = [
         ...new Set(
           options.bookings
             .filter(
               (booking) =>
-                booking.endsAt.getTime() <= args.where.endsAt.lte.getTime() &&
+                ((expiredBefore !== undefined &&
+                  booking.endsAt.getTime() <= expiredBefore.getTime()) ||
+                  requestedIds.has(booking.bookedByPersonId)) &&
                 !excluded.has(booking.bookedByPersonId),
             )
             .map((booking) => booking.bookedByPersonId),
@@ -88,6 +120,22 @@ function build(options: { bookings: Booking[]; heldPersonIds?: string[] }) {
         return held.length > 0 ? { id: "hold-1" } : null;
       }),
     },
+    person: {
+      findUnique: vi.fn(async (args: { where: { id: string } }) => {
+        calls.push("readRestriction");
+        return {
+          processingRestrictedAt: restricted.includes(args.where.id)
+            ? new Date("2027-05-01T00:00:00.000Z")
+            : null,
+        };
+      }),
+    },
+    dataSubjectRequest: {
+      findFirst: vi.fn(async (args: { where: { personId: string } }) => {
+        calls.push("readRequest");
+        return requested.includes(args.where.personId) ? { id: "req-1" } : null;
+      }),
+    },
     booking: {
       deleteMany: vi.fn(async () => {
         calls.push("delete");
@@ -98,6 +146,20 @@ function build(options: { bookings: Booking[]; heldPersonIds?: string[] }) {
 
   const prisma = {
     booking: { groupBy },
+    person: {
+      findMany: vi.fn(
+        async (args: {
+          where: { OR?: unknown[]; dataSubjectRequests?: unknown };
+        }) =>
+          // The two questions withheld-persons.ts asks, told apart by their
+          // shape: one asks for a hold or a restriction, the other for a
+          // granted erasure request.
+          (args.where.dataSubjectRequests === undefined
+            ? withheld
+            : requested
+          ).map((id) => ({ id })),
+      ),
+    },
     legalHold: {
       findMany: vi.fn(async () => held.map((personId) => ({ personId }))),
     },
@@ -166,6 +228,35 @@ describe("choosing who a run erases for", () => {
     ]);
   });
 
+  it("tells a hold, a restriction and a granted erasure apart", async () => {
+    /*
+     * The three arms of the scan in one run. A hold and a restriction withhold
+     * the person however old their rows are; a granted erasure reaches them
+     * however recent, because bringing the purge forward is what the board
+     * granted. Asserted together because the query tells the three apart by
+     * shape, and one of them silently answering for another is exactly what
+     * would not show up in a test that exercised only two.
+     */
+    const { service } = build({
+      bookings: [
+        expiredBookingFor("held"),
+        expiredBookingFor("restricted"),
+        // Ends well after this run, and erasable all the same.
+        {
+          bookedByPersonId: "requested",
+          endsAt: new Date("2027-12-24T10:00:00.000Z"),
+        },
+      ],
+      heldPersonIds: ["held"],
+      restrictedPersonIds: ["restricted"],
+      erasureRequestedPersonIds: ["requested"],
+    });
+
+    await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
+      "requested",
+    ]);
+  });
+
   it("reaches people behind a run's worth of held people", async () => {
     /*
      * The starvation case, and the reason the holds are excluded by the query
@@ -226,7 +317,13 @@ describe("erasing one person's bookings", () => {
 
     await service.purgePerson("aa", NOW, RETENTION_DAYS);
 
-    expect(calls).toEqual(["lock", "readHold", "delete"]);
+    expect(calls).toEqual([
+      "lock",
+      "readHold",
+      "readRestriction",
+      "readRequest",
+      "delete",
+    ]);
   });
 
   it("erases nothing when a hold stands", async () => {
@@ -238,7 +335,7 @@ describe("erasing one person's bookings", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold"]);
+    expect(calls).toEqual(["lock", "readHold", "readRestriction"]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 

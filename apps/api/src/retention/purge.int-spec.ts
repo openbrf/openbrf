@@ -64,6 +64,21 @@ const PASSWORD = "a-long-enough-password";
 const MOVED_OUT = new Date("2015-03-01T00:00:00.000Z");
 const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 
+const issueTypeId = `purge-type-${suffix}`;
+const issueId = `purge-issue-${suffix}`;
+const photoFileId = `purge-photo-${suffix}`;
+const documentFileId = `purge-docfile-${suffix}`;
+const documentId = `purge-doc-${suffix}`;
+
+/**
+ * What a reporter wrote, naming somebody else.
+ *
+ * The purge never rewrites it, which is the whole reason the operation is a
+ * detachment rather than something that could be called anonymous: a person
+ * named in here has an art. 17 request, decided by the board on its merits.
+ */
+const ISSUE_DESCRIPTION = "Grannen i 1202 stallde cyklar i trapphuset";
+
 /** The moment the retention policy has run out on that move-out, and before. */
 let dueAt: Date;
 let notDueAt: Date;
@@ -104,6 +119,14 @@ const people = {
   twice: `purge-twice-${suffix}`,
   /** Reached through run() rather than through purgePerson(). */
   swept: `purge-swept-${suffix}`,
+  /** Asked for a restriction, which suspends the purge as a hold does. */
+  restricted: `purge-restricted-${suffix}`,
+  /** Granted erasure while their retention window was still running. */
+  requested: `purge-requested-${suffix}`,
+  /** Granted erasure and never held a residency at all. */
+  neverResident: `purge-never-${suffix}`,
+  /** Filed an issue, uploaded a document and a photograph. */
+  referenced: `purge-referenced-${suffix}`,
 } as const;
 
 const personIds = Object.values(people);
@@ -232,7 +255,11 @@ beforeAll(async () => {
       // so the reset to the association's own default has something to do.
       locale: personId === people.due ? statedLocale : defaultLocale,
     });
-    await moveOut(personId, apartmentId(String(index)));
+    if (personId !== people.neverResident) {
+      // Everybody but the one whose whole point is having no residency to
+      // anchor a purge date on.
+      await moveOut(personId, apartmentId(String(index)));
+    }
   }
 
   // The identity number is apartment register content, not service data. Put
@@ -274,6 +301,88 @@ beforeAll(async () => {
     personId: people.held,
     reason: "Tvist om andrahandsuthyrning",
     actorPersonId: people.board,
+  });
+
+  // A restriction under GDPR art. 18: the association keeps the data and stops
+  // using it, so the one act it may not perform is the one this job performs.
+  await prisma.person.update({
+    where: { id: people.restricted },
+    data: { processingRestrictedAt: new Date("2026-01-15T00:00:00.000Z") },
+  });
+
+  // Two granted erasure requests. One from somebody whose retention window is
+  // still running, one from somebody who never lived here at all.
+  await prisma.dataSubjectRequest.createMany({
+    data: [people.requested, people.neverResident].map((personId) => ({
+      personId,
+      kind: "ERASURE" as const,
+      requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+      ground: "Jag vill inte finnas kvar hos foreningen.",
+      erasureGround: "NO_LONGER_NECESSARY" as const,
+      decision: "GRANTED" as const,
+      erasureException: "NONE" as const,
+      decisionGround: "Inget lagligt krav hindrar radering.",
+      decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+      recordedByPersonId: people.board,
+      decidedByPersonId: people.board,
+    })),
+  });
+
+  // Somebody who filed an issue, uploaded a document and left a photograph on
+  // the issue: the three things the purge detaches rather than deletes.
+  await prisma.issueType.create({
+    data: {
+      id: issueTypeId,
+      name: `Gallringsarende ${suffix}`,
+      audience: "MEMBER",
+    },
+  });
+  await prisma.issue.create({
+    data: {
+      id: issueId,
+      typeId: issueTypeId,
+      reporterPersonId: people.referenced,
+      location: "Trapphuset",
+      description: ISSUE_DESCRIPTION,
+      status: "DONE",
+    },
+  });
+  await prisma.mediaFile.createMany({
+    data: [
+      {
+        id: photoFileId,
+        storageKey: `purge/${suffix}/trapphus.jpg`,
+        contentType: "image/jpeg",
+        byteSize: 2048,
+        checksum: `sha-photo-${suffix}`,
+        fileName: "trapphus.jpg",
+        showsIdentifiablePersons: true,
+        uploadedByPersonId: people.referenced,
+      },
+      {
+        id: documentFileId,
+        storageKey: `purge/${suffix}/stadgar.pdf`,
+        contentType: "application/pdf",
+        byteSize: 1024,
+        checksum: `sha-doc-${suffix}`,
+        fileName: "stadgar.pdf",
+        visibility: "MEMBER",
+        uploadedByPersonId: people.referenced,
+      },
+    ],
+  });
+  await prisma.issuePhoto.create({
+    data: { issueId, fileId: photoFileId },
+  });
+  await prisma.document.create({
+    data: {
+      id: documentId,
+      title: `Stadgar ${suffix}`,
+      category: "Stadgar",
+      audience: "MEMBER",
+      mediaFileId: documentFileId,
+      uploadedByPersonId: people.referenced,
+    },
   });
 
   // The statutory archive this suite must be able to show is untouched: an
@@ -398,6 +507,24 @@ afterAll(async () => {
           }),
         () =>
           prisma.legalHold.deleteMany({
+            where: { personId: { in: personIds } },
+          }),
+        /*
+         * The rows the detachment left behind, in foreign-key order: the photo
+         * link before the issue, the document before the file it points at.
+         * They no longer name anybody, which is the point, so they have to be
+         * found by their own ids.
+         */
+        () => prisma.issuePhoto.deleteMany({ where: { issueId } }),
+        () => prisma.issue.deleteMany({ where: { id: issueId } }),
+        () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
+        () => prisma.document.deleteMany({ where: { id: documentId } }),
+        () =>
+          prisma.mediaFile.deleteMany({
+            where: { id: { in: [photoFileId, documentFileId] } },
+          }),
+        () =>
+          prisma.dataSubjectRequest.deleteMany({
             where: { personId: { in: personIds } },
           }),
         () =>
@@ -690,6 +817,149 @@ describe("who the purge leaves alone", () => {
     );
     await expect(purge.purgePerson(people.staying, dueAt)).resolves.toBeNull();
     expect((await personRow(people.staying)).emailCipher).not.toBeNull();
+  });
+});
+
+describe("issues, documents and files the person left behind", () => {
+  it("detaches them from the person and keeps every one of them", async () => {
+    const outcome = await purge.purgePerson(people.referenced, dueAt);
+
+    expect(outcome?.issuesDetachedFromPerson).toBe(1);
+    expect(outcome?.documentsDetachedFromPerson).toBe(1);
+    // Both files: the document's own and the photograph on the issue.
+    expect(outcome?.mediaDetachedFromPerson).toBe(2);
+
+    const issue = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: {
+        reporterPersonId: true,
+        reporterNameCipher: true,
+        reporterEmailCipher: true,
+        reporterEmailIndex: true,
+        description: true,
+      },
+    });
+    expect(issue.reporterPersonId).toBeNull();
+    // The ciphers a public-form reporter would have left go with the link. An
+    // address left behind would still answer "did this person report this".
+    expect(issue.reporterNameCipher).toBeNull();
+    expect(issue.reporterEmailCipher).toBeNull();
+    expect(issue.reporterEmailIndex).toBeNull();
+
+    // The record of the problem stays, and so does what the reporter wrote -
+    // including the neighbour it names. That is why this is a detachment and
+    // why nothing calls the result anonymous.
+    expect(issue.description).toBe(ISSUE_DESCRIPTION);
+
+    const document = await prisma.document.findUniqueOrThrow({
+      where: { id: documentId },
+      select: { uploadedByPersonId: true, title: true },
+    });
+    expect(document.uploadedByPersonId).toBeNull();
+    expect(document.title).toBe(`Stadgar ${suffix}`);
+
+    const photo = await prisma.mediaFile.findUniqueOrThrow({
+      where: { id: photoFileId },
+      select: { uploadedByPersonId: true, storageKey: true },
+    });
+    expect(photo.uploadedByPersonId).toBeNull();
+    // Nothing is removed from storage. A photograph of a stairwell is the
+    // record of the problem, and the flag saying somebody may be in it is a
+    // default the upload path writes rather than a finding about the picture.
+    expect(photo.storageKey).toBe(`purge/${suffix}/trapphus.jpg`);
+  });
+
+  it("selects a person whose only remaining trace is a row it detaches", async () => {
+    // reporterPersonId and uploadedByPersonId are plain columns, so no relation
+    // filter reaches them: without the reference scan this person would never
+    // be selected at all and their link would stay for good.
+    const [entry] = await purgeEntriesFor(people.referenced);
+
+    expect(entry?.context).toMatchObject({
+      issuesDetachedFromPerson: 1,
+      documentsDetachedFromPerson: 1,
+      mediaDetachedFromPerson: 2,
+    });
+  });
+
+  it("does not select them a second time once the links are gone", async () => {
+    await expect(purge.eligible(dueAt, retentionDays)).resolves.not.toContain(
+      people.referenced,
+    );
+  });
+});
+
+describe("a restriction of processing", () => {
+  it("suspends the purge as a legal hold does", async () => {
+    // GDPR art. 18(2) lets the association store the data and little else, so
+    // erasing it is the one act the person has asked it not to perform.
+    await expect(purge.eligible(dueAt, retentionDays)).resolves.not.toContain(
+      people.restricted,
+    );
+    await expect(
+      purge.purgePerson(people.restricted, dueAt),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("an erasure request the board has granted", () => {
+  it("brings the purge forward before the retention window has run out", async () => {
+    // notDueAt is inside the window, so nothing but the request could select
+    // this person: that is what "brings the purge forward" means.
+    await expect(purge.eligible(notDueAt, retentionDays)).resolves.toContain(
+      people.requested,
+    );
+
+    const outcome = await purge.purgePerson(
+      people.requested,
+      notDueAt,
+      retentionDays,
+    );
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.cleared).toEqual(expect.arrayContaining(["email"]));
+  });
+
+  it("closes the request it executed, without naming a person who closed it", async () => {
+    const request = await prisma.dataSubjectRequest.findFirstOrThrow({
+      where: { personId: people.requested, kind: "ERASURE" },
+      select: {
+        executedAt: true,
+        closedAt: true,
+        closeReason: true,
+        closedByPersonId: true,
+      },
+    });
+
+    expect(request.executedAt).not.toBeNull();
+    expect(request.closedAt).not.toBeNull();
+    expect(request.closeReason).toBe("purged");
+    // The absence of a person is what distinguishes the purge executing a
+    // request from a board member closing it by hand.
+    expect(request.closedByPersonId).toBeNull();
+  });
+
+  it("does not select the person again once the request is closed", async () => {
+    await expect(
+      purge.eligible(notDueAt, retentionDays),
+    ).resolves.not.toContain(people.requested);
+  });
+
+  it("reaches somebody who never held a residency at all", async () => {
+    /*
+     * The scheduled job leaves them alone for ever: there is no move-out to
+     * anchor a purge date on. A granted request is a different authority - it
+     * names this person, and an external board member's contact details are
+     * service data like anybody else's.
+     */
+    const outcome = await purge.purgePerson(
+      people.neverResident,
+      notDueAt,
+      retentionDays,
+    );
+
+    expect(outcome).not.toBeNull();
+    expect(outcome?.cleared).toEqual(expect.arrayContaining(["email"]));
   });
 });
 

@@ -18,6 +18,7 @@ import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
 import { IssuesRoute } from "./IssuesRoute";
+import { DataProtectionRoute } from "./DataProtectionRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
 import { SubletsRoute } from "./SubletsRoute";
 import { MemberRegisterRoute } from "./MemberRegisterRoute";
@@ -386,6 +387,20 @@ const meetingsRoute = createRoute({
 });
 
 /**
+ * What the association owes as controller, gathered in one place.
+ *
+ * Signed in here and the capability checked inside the screen, the rule every
+ * route in this file follows: the guard on a route says only that somebody is
+ * signed in, and what they may see is the screen's own question.
+ */
+const dataProtectionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/data-protection",
+  beforeLoad: requireSession,
+  component: DataProtectionRoute,
+});
+
+/**
  * The association's news as the house reads it. Signed in here, capabilities
  * inside the screen.
  *
@@ -520,6 +535,7 @@ const routeTree = rootRoute.addChildren([
   subletsRoute,
   keyOrdersRoute,
   meetingsRoute,
+  dataProtectionRoute,
   newsRoute,
   documentsRoute,
   newsAdminRoute,

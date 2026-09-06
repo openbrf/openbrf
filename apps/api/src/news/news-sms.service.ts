@@ -14,7 +14,7 @@ import {
 import { failureName } from "../logging/failure";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
 import { SmsService } from "../sms/sms.service";
-import { DELIVERY_FAILURES } from "./news-delivery";
+import { DELIVERY_FAILURES, objectionStands } from "./news-delivery";
 import { composeNewsSms } from "./news-sms-message";
 
 /**
@@ -254,12 +254,46 @@ export class NewsSmsService implements OnModuleInit {
     delivery: { id: string; personId: string },
     message: { association: string; title: string; articleUrl: string },
   ): Promise<"sent" | "failed" | "skipped"> {
+    /*
+     * Read before the claim, for the reason the mailer beside this gives: a
+     * claim marks the row SENT, and an objection is the person saying not to
+     * try rather than an attempt that failed.
+     */
+    if (await objectionStands(this.prisma, delivery.personId)) {
+      await this.prisma.newsDelivery.updateMany({
+        where: { id: delivery.id, channel: "SMS", status: "PENDING" },
+        data: {
+          status: "FAILED",
+          failureReason: DELIVERY_FAILURES.recipientObjected,
+        },
+      });
+      return "failed";
+    }
+
     const claimed = await this.prisma.newsDelivery.updateMany({
       where: { id: delivery.id, channel: "SMS", status: "PENDING" },
       data: { status: "SENT", sentAt: new Date() },
     });
     if (claimed.count === 0) {
       return "skipped";
+    }
+
+    /*
+     * Asked again, now that this worker holds the row. An objection recorded
+     * between the read above and the claim would otherwise be overtaken by it,
+     * and the message would go out after the member had asked the association
+     * to stop - so the row is failed with the same code and nothing is sent.
+     */
+    if (await objectionStands(this.prisma, delivery.personId)) {
+      await this.prisma.newsDelivery.updateMany({
+        where: { id: delivery.id, channel: "SMS", status: "SENT" },
+        data: {
+          status: "FAILED",
+          sentAt: null,
+          failureReason: DELIVERY_FAILURES.recipientObjected,
+        },
+      });
+      return "failed";
     }
 
     const person = await this.prisma.person.findUnique({

@@ -269,6 +269,22 @@ export class MeetingNoticeService {
 
         const summoned = await this.membersOn(tx, localDayOf(created.issuedAt));
 
+        /*
+         * Every member, and neither an objection nor a restriction removes one.
+         *
+         * A summons to a general meeting is not a mailing the association
+         * chose to send. EFL 6 kap. 21-22 §§, applied by BRL 9 kap. 14 §,
+         * requires it, so it rests on GDPR art. 6(1)(c) - and art. 21 reaches
+         * only art. 6(1)(e) and (f), which is why an objection that stops the
+         * news mailings leaves this alone. A restriction does not reach it
+         * either: art. 18(2) allows processing needed to protect somebody
+         * else's rights, and convening the meeting lawfully is the other
+         * members' right to a meeting they were summoned to.
+         *
+         * A member left out of this list is a meeting that was not lawfully
+         * convened, which is a defect in the meeting rather than in a mailing.
+         */
+
         // No skipDuplicates. The unique triple is the guarantee, and a duplicate
         // reaching here would mean the notice row above had not been the only
         // one - which must abort the summons loudly rather than be dropped.

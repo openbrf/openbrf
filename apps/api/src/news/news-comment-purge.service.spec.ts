@@ -65,24 +65,53 @@ interface Comment {
 function build(options: {
   comments: Comment[];
   heldPersonIds?: string[];
+  restrictedPersonIds?: string[];
+  erasureRequestedPersonIds?: string[];
   deletedCount?: number;
 }) {
   const held = options.heldPersonIds ?? [];
+  const restricted = options.restrictedPersonIds ?? [];
+  const requested = options.erasureRequestedPersonIds ?? [];
+  const withheld = [...new Set([...held, ...restricted])];
   const deletedCount = options.deletedCount ?? 2;
 
   const groupBy = vi.fn(
     async (args: {
-      where: { createdAt: { lte: Date }; authorPersonId?: { notIn: string[] } };
+      where: {
+        OR: (
+          { createdAt: { lte: Date } } | { authorPersonId: { in: string[] } }
+        )[];
+        authorPersonId?: { notIn: string[] };
+      };
       take: number;
     }) => {
       const excluded = new Set(args.where.authorPersonId?.notIn ?? []);
+
+      /*
+       * The OR is honoured rather than assumed, for the reason the whole fake
+       * exists: a comment is selected either because its own window has run out
+       * or because the person was granted erasure, and a fake that only checked
+       * the date would pass a service that had forgotten the second half.
+       */
+      const writtenBefore = args.where.OR.find(
+        (clause): clause is { createdAt: { lte: Date } } =>
+          "createdAt" in clause,
+      )?.createdAt.lte;
+      const requestedIds = new Set(
+        args.where.OR.find(
+          (clause): clause is { authorPersonId: { in: string[] } } =>
+            "authorPersonId" in clause,
+        )?.authorPersonId.in ?? [],
+      );
+
       const ids = [
         ...new Set(
           options.comments
             .filter(
               (comment) =>
-                comment.createdAt.getTime() <=
-                  args.where.createdAt.lte.getTime() &&
+                ((writtenBefore !== undefined &&
+                  comment.createdAt.getTime() <= writtenBefore.getTime()) ||
+                  requestedIds.has(comment.authorPersonId)) &&
                 !excluded.has(comment.authorPersonId),
             )
             .map((comment) => comment.authorPersonId),
@@ -102,6 +131,22 @@ function build(options: {
       calls.push("lock");
       return 1;
     }),
+    person: {
+      findUnique: vi.fn(async (args: { where: { id: string } }) => {
+        calls.push("readRestriction");
+        return {
+          processingRestrictedAt: restricted.includes(args.where.id)
+            ? new Date("2027-05-01T00:00:00.000Z")
+            : null,
+        };
+      }),
+    },
+    dataSubjectRequest: {
+      findFirst: vi.fn(async (args: { where: { personId: string } }) => {
+        calls.push("readRequest");
+        return requested.includes(args.where.personId) ? { id: "req-1" } : null;
+      }),
+    },
     legalHold: {
       findFirst: vi.fn(async () => {
         calls.push("readHold");
@@ -118,6 +163,20 @@ function build(options: {
 
   const prisma = {
     newsComment: { groupBy },
+    person: {
+      findMany: vi.fn(
+        async (args: {
+          where: { OR?: unknown[]; dataSubjectRequests?: unknown };
+        }) =>
+          // The two questions withheld-persons.ts asks, told apart by their
+          // shape: one asks for a hold or a restriction, the other for a
+          // granted erasure request.
+          (args.where.dataSubjectRequests === undefined
+            ? withheld
+            : requested
+          ).map((id) => ({ id })),
+      ),
+    },
     legalHold: {
       findMany: vi.fn(async () => held.map((personId) => ({ personId }))),
     },
@@ -171,6 +230,35 @@ describe("choosing who a run erases for", () => {
 
     await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
       "bb",
+    ]);
+  });
+
+  it("tells a hold, a restriction and a granted erasure apart", async () => {
+    /*
+     * The three arms of the scan in one run. A hold and a restriction withhold
+     * the person however old their rows are; a granted erasure reaches them
+     * however recent, because bringing the purge forward is what the board
+     * granted. Asserted together because the query tells the three apart by
+     * shape, and one of them silently answering for another is exactly what
+     * would not show up in a test that exercised only two.
+     */
+    const { service } = build({
+      comments: [
+        expiredCommentFor("held"),
+        expiredCommentFor("restricted"),
+        // Written this morning, and erasable all the same.
+        {
+          authorPersonId: "requested",
+          createdAt: new Date("2027-06-01T08:00:00.000Z"),
+        },
+      ],
+      heldPersonIds: ["held"],
+      restrictedPersonIds: ["restricted"],
+      erasureRequestedPersonIds: ["requested"],
+    });
+
+    await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
+      "requested",
     ]);
   });
 
@@ -251,7 +339,13 @@ describe("erasing one person's comments", () => {
 
     await service.purgePerson("aa", NOW, RETENTION_DAYS);
 
-    expect(calls).toEqual(["lock", "readHold", "delete"]);
+    expect(calls).toEqual([
+      "lock",
+      "readHold",
+      "readRestriction",
+      "readRequest",
+      "delete",
+    ]);
   });
 
   it("erases nothing when a hold stands", async () => {
@@ -263,7 +357,7 @@ describe("erasing one person's comments", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold"]);
+    expect(calls).toEqual(["lock", "readHold", "readRestriction"]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
@@ -287,7 +381,13 @@ describe("erasing one person's comments", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold", "delete"]);
+    expect(calls).toEqual([
+      "lock",
+      "readHold",
+      "readRestriction",
+      "readRequest",
+      "delete",
+    ]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 

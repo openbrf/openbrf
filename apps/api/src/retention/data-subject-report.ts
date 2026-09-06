@@ -64,6 +64,95 @@ export interface ReportAccount {
   createdAt: string;
 }
 
+/**
+ * What this person has asked about their own data, and what the board decided.
+ *
+ * On their own access report because it is theirs: art. 15 gives a person what
+ * the association holds about them, and a decision the board took about their
+ * erasure is squarely that. The board's ground travels with it, because
+ * art. 12(4) requires a refusal to state its reasons and this is the document
+ * the person reads.
+ */
+export interface ReportDataSubjectRequest {
+  requestId: string;
+  kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
+  requestedOn: string | null;
+  /** The art. 12(3) month, derived from the request date. */
+  dueOn: string | null;
+  ground: string;
+  /**
+   * The art. 17(1) ground an erasure rests on.
+   *
+   * The Prisma enum spelled out, like `kind` and `decision` beside it, and not
+   * `string`. The browser declares the same closed set, and a producer typed
+   * wider lets a new enum member reach a consumer that has no case for it while
+   * both builds stay green.
+   */
+  erasureGround:
+    | "NO_LONGER_NECESSARY"
+    | "CONSENT_WITHDRAWN"
+    | "OBJECTION_UPHELD"
+    | "UNLAWFUL_PROCESSING"
+    | "LEGAL_OBLIGATION_TO_ERASE"
+    | null;
+  /** The art. 17(3) assessment recorded with the decision. */
+  erasureException: "NONE" | "LEGAL_OBLIGATION_TO_KEEP" | "LEGAL_CLAIMS" | null;
+  decision: "GRANTED" | "REFUSED" | null;
+  decisionGround: string | null;
+  decidedAt: string | null;
+  executedAt: string | null;
+  closedAt: string | null;
+  closeReason: string | null;
+  /** The issue whose description names them, where that is what it was about. */
+  issueId: string | null;
+}
+
+/**
+ * A personal data breach that reached this person's data (GDPR art. 34).
+ *
+ * Listed because a breach is a fact about their data, and a person entitled to
+ * know what the association holds about them is entitled to know that it once
+ * lost control of some of it. What travels is the breach's own account of
+ * itself - never the board's grounds for its decisions, which are about the
+ * association's compliance rather than about this person.
+ */
+/**
+ * A breach that reached this person's data, and what the association did about
+ * it - not its account of what happened.
+ *
+ * `dataDescription`, `effects` and `measures` are deliberately absent, and this
+ * is the one place on the report where a section says less than the register
+ * behind it. Those three are one text per breach, written once about everybody
+ * it touched: a breach reaching four flats has one description of all four, and
+ * a board writing what it knows writes what it knows. Serving that text on each
+ * subject's own report would disclose the others' details to each of them, on
+ * the document the association produces as evidence that it handles personal
+ * data properly.
+ *
+ * The person is not left without them. Art. 34(2) requires the nature, the
+ * likely consequences and the measures to be communicated to each affected
+ * person where the risk is high, and that communication is its own act - the
+ * one `informedAt` below records the date of. This document answers art. 15,
+ * which gives a person their own data and information about the processing of
+ * it; the association's narrative of an incident is a record about the
+ * incident.
+ *
+ * What stays is what is theirs: that a breach reached their data, when it was
+ * discovered, how it was assessed, whether the supervisory authority was told
+ * and whether they themselves were. The title stays with them because a report
+ * has to name what it is telling them about, and it is one line rather than the
+ * board's account of everyone involved.
+ */
+export interface ReportPersonalDataBreach {
+  breachId: string;
+  title: string;
+  discoveredAt: string;
+  risk: "UNLIKELY" | "LIKELY" | "HIGH" | null;
+  imyNotifiedAt: string | null;
+  /** When this person was told, or null where they have not been. */
+  informedAt: string | null;
+}
+
 /** Statutory tier: exempt from the purge, listed here because it is theirs. */
 export interface ReportMemberRegisterEntry {
   entryId: string;
@@ -758,6 +847,8 @@ export interface DataSubjectReport {
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];
   auditEntries: ReportAuditEntry[];
+  dataSubjectRequests: ReportDataSubjectRequest[];
+  personalDataBreaches: ReportPersonalDataBreach[];
   /** What the association keeps, and until when. */
   retention: {
     daysAfterMoveOut: number;

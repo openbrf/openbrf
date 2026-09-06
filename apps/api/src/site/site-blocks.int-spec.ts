@@ -496,6 +496,33 @@ describe("a board roster on a page anybody can open", () => {
     expect(html).toContain("Ordförande");
   });
 
+  it("leaves out a board member who has asked for a restriction", async () => {
+    /*
+     * The consent stands, and the roster still drops them. The two answer
+     * different questions: the consent says the person agreed to appear,
+     * a restriction under GDPR art. 18 says the association may not act on it
+     * today - art. 18(2) permits storage rather than use, and publishing a name
+     * on the association's website is a use.
+     */
+    await prisma.person.update({
+      where: { id: boardMember.personId },
+      data: { processingRestrictedAt: new Date("2026-03-01T00:00:00.000Z") },
+    });
+
+    try {
+      expect(await pageAs()).not.toContain(CONSENTED_SURNAME);
+    } finally {
+      await prisma.person.update({
+        where: { id: boardMember.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    // And back once it is lifted, so the exclusion is the restriction rather
+    // than something that consumed the consent.
+    expect(await pageAs()).toContain(CONSENTED_SURNAME);
+  });
+
   it("leaves out the board member nobody has asked", async () => {
     expect(await pageAs()).not.toContain(SILENT_SURNAME);
   });

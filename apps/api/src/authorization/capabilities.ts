@@ -316,6 +316,34 @@ export const CAPABILITIES = [
    */
   "meetings:manage",
   /**
+   * Keep the association's own data protection records: the personal data
+   * breach register, the record of processing activities, the classification of
+   * every recipient of personal data with the agreements art. 28 requires, and
+   * the overview of what people have asked about their own data.
+   *
+   * The board's, because the association is the controller
+   * (personuppgiftsansvarig, GDPR art. 4(7)) and art. 5(2) makes it answerable
+   * for demonstrating that it processes lawfully. That answerability is the
+   * board's own and cannot be delegated to whoever happens to administer the
+   * instance, so this is not an administrator's capability that the board
+   * borrows - an administrator holds it through ADMIN_CAPABILITIES, as they
+   * hold everything, and that is a different fact about a different role.
+   *
+   * Not the external property manager's, on the `motions:handle` precedent and
+   * more firmly: these records describe what the association does with its
+   * residents' data, including the record of which contractors receive it. A
+   * contractor reading the association's assessment of itself, and of them, is
+   * not part of handling issues.
+   *
+   * One capability rather than one per record, because the four are one duty
+   * looked at from four sides, and a board that may read the breach register
+   * but not the record of processing could not answer a supervisory authority
+   * about either. What a single person asks about their own data is gated
+   * separately, on the address book, because that is a fact about a named
+   * person rather than about the association.
+   */
+  "dataProtection:manage",
+  /**
    * Read the board mailbox (styrelsens brevlada), take a thread on, answer it
    * and close it.
    *
@@ -496,6 +524,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "motions:handle",
   "meetings:manage",
   "events:attend",
+  "dataProtection:manage",
   "boardMailbox:handle",
   "sublets:handle",
   "keyOrders:place",

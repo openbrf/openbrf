@@ -73,7 +73,13 @@ export class PluginAddressBookService {
     const rows = await this.prisma.residency.findMany({
       where: {
         OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-        person: { protectedPersonalData: false },
+        /*
+         * Protected personal data has never reached a plugin. A restriction
+         * (GDPR art. 18) is excluded here for a narrower reason: handing the
+         * row to code the association installed is a use, and art. 18(2)
+         * permits storage rather than use.
+         */
+        person: { protectedPersonalData: false, processingRestrictedAt: null },
       },
       orderBy: [
         { apartment: { address: { sortOrder: "asc" } } },
@@ -99,6 +105,14 @@ export class PluginAddressBookService {
             lastName: true,
             emailCipher: options.contact,
             phoneCipher: options.contact,
+            /*
+             * A standing objection (art. 21). The row still travels - the
+             * plugin is entitled to know who lives here - but the contact
+             * details do not, because the association has decided not to defend
+             * a legitimate interest in messaging this person, and a plugin
+             * given the address could message them anyway.
+             */
+            communicationObjectionAt: true,
           },
         },
       },
@@ -120,6 +134,15 @@ export class PluginAddressBookService {
           // permission should not be able to tell "no email on file" from
           // "not allowed to see the email".
           return base;
+        }
+
+        // Nullish rather than strict: a row read without the column selected
+        // means "nothing recorded", not "objecting".
+        if (row.person.communicationObjectionAt != null) {
+          // Null rather than absent, and the difference is deliberate: the
+          // plugin holds the permission, so it may tell "objected or nothing on
+          // file" from "not allowed to see it".
+          return { ...base, email: null, phone: null };
         }
 
         const [email, phone] = await Promise.all([
@@ -146,12 +169,14 @@ export class PluginAddressBookService {
       this.prisma.person.count({
         where: {
           protectedPersonalData: false,
+          processingRestrictedAt: null,
           residencies: { some: active },
         },
       }),
       this.prisma.person.count({
         where: {
           protectedPersonalData: false,
+          processingRestrictedAt: null,
           residencies: { some: { ...active, role: "MEMBER" } },
         },
       }),

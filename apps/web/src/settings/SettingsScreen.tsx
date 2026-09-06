@@ -19,6 +19,7 @@ import { IssueTypesPanel } from "./IssueTypesPanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { ProfilePanel } from "./ProfilePanel";
+import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
 import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { SelfSignupPanel } from "./SelfSignupPanel";
@@ -241,6 +242,14 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               <SelfSignupPanel
                 enabled={settings.selfSignup.enabled}
                 editable={canManage}
+              />
+
+              {/* Beside retention, which is the other setting the association
+                  is answerable for rather than one about how the instance
+                  behaves. */}
+              <DataProtectionContactsPanel
+                contacts={settings.dataProtectionContacts}
+                mayManage={canManage}
               />
 
               {/* Beside the switch that produced them, and shown to whoever

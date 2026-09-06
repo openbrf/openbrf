@@ -726,6 +726,52 @@ describe("the resident-facing directory", () => {
     expect(rows.map((row) => row.personId)).toContain(actors.resident.personId);
   });
 
+  it("excludes somebody who asked for a restriction, and shows them themselves", async () => {
+    /*
+     * GDPR art. 18(2) permits the association to store the data and little
+     * else, and showing a name to every household is a use. The person keeps
+     * seeing their own row - a restriction is about what the association does
+     * with the data, not about hiding it from whom it belongs to - and the
+     * board keeps seeing them with the RESTRICTED sign, because it has to be
+     * able to handle the request.
+     */
+    await prisma.person.update({
+      where: { id: actors.resident.personId },
+      data: { processingRestrictedAt: new Date("2026-03-01T00:00:00.000Z") },
+    });
+
+    try {
+      const neighbour = await signIn(actors.protectedPerson.email);
+      const own = await signIn(actors.resident.email);
+
+      const asNeighbour = await inject({
+        method: "GET",
+        url: `/api/resident-directory?addressId=${addressId}`,
+        headers: { cookie: neighbour },
+      });
+      const asThemselves = await inject({
+        method: "GET",
+        url: `/api/resident-directory?addressId=${addressId}`,
+        headers: { cookie: own },
+      });
+
+      const seenByNeighbour = (
+        JSON.parse(asNeighbour.body) as { rows: { personId: string }[] }
+      ).rows.map((row) => row.personId);
+      const seenByThemselves = (
+        JSON.parse(asThemselves.body) as { rows: { personId: string }[] }
+      ).rows.map((row) => row.personId);
+
+      expect(seenByNeighbour).not.toContain(actors.resident.personId);
+      expect(seenByThemselves).toContain(actors.resident.personId);
+    } finally {
+      await prisma.person.update({
+        where: { id: actors.resident.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
   it("does not count a protected person towards the page either", async () => {
     // The exclusion has to happen in the query, not only in the mapper. A
     // protected person filtered out after the page was cut would leave a

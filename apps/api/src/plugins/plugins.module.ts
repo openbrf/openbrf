@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+
+import { DataProtectionModule } from "../data-protection/data-protection.module";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { PackagingModule } from "../packaging/packaging.module";
@@ -43,7 +45,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
  * the platform. Both ignore every route that is not a plugin's.
  */
 @Module({
-  imports: [PackagingModule],
+  imports: [PackagingModule, DataProtectionModule],
   controllers: [
     PluginsReadController,
     PluginsWriteController,

@@ -107,4 +107,31 @@ describe("what addressBook:read releases", () => {
     ]);
     expect(resident?.email).toBe("anna@exempel.se");
   });
+
+  it("withholds the contact details of somebody who has objected", async () => {
+    /*
+     * The row still travels - a plugin is entitled to know who lives here - but
+     * the address does not. A news mailing rests on a legitimate interest the
+     * person has objected to under GDPR art. 21 and that the association has
+     * decided not to defend, and a plugin handed the address could send the
+     * message the association just agreed not to send.
+     */
+    const objecting = {
+      ...ROW,
+      person: {
+        ...ROW.person,
+        communicationObjectionAt: new Date("2026-03-01T00:00:00.000Z"),
+      },
+    };
+
+    const [resident] = await serviceReturning(objecting).residents({
+      contact: true,
+    });
+
+    expect(resident?.name).toBe("Anna Andersson");
+    // Null rather than absent: the plugin holds the permission, so it may tell
+    // "nothing to give" from "not allowed to see it".
+    expect(resident?.email).toBeNull();
+    expect(resident?.phone).toBeNull();
+  });
 });

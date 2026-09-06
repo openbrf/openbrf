@@ -18,8 +18,10 @@ import { computeBoardMailboxPurgeDate } from "../board-mailbox/board-mailbox-ret
 import type {
   DataSubjectReport,
   ReportAuditEntry,
+  ReportDataSubjectRequest,
   ReportBoardMailboxThread,
   ReportMeetingAttendance,
+  ReportPersonalDataBreach,
   ReportNewsComment,
   ReportPostalAddress,
   ReportProxyAuthorisation,
@@ -29,6 +31,7 @@ import {
   lienNotesDuringHolding,
   terminationsDuringHolding,
 } from "./holding-periods";
+import { dueOn } from "../data-protection/data-subject-request";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -71,6 +74,8 @@ const SECTIONS = [
   "meetingAttendances",
   "proxyAuthorisations",
   "auditEntries",
+  "dataSubjectRequests",
+  "personalDataBreaches",
 ] as const;
 
 /**
@@ -185,6 +190,37 @@ export class DataSubjectReportService {
     this.logger.log(
       `Data subject access report produced for person ${input.personId}`,
     );
+    return report;
+  }
+
+  /**
+   * The same assembly, for a person exporting their own data (GDPR art. 20).
+   *
+   * The report itself, narrowed afterwards by the projection in
+   * `data-protection/data-portability.ts`. One gathering rather than two: a
+   * second query layer beside this one would be the place the two drifted
+   * apart, and a section added here and forgotten there would be data a person
+   * could read but not take.
+   *
+   * Its own audit action, so the log can tell a person taking their own data
+   * from a board producing the access report about them. Actor and subject are
+   * the same person, which is the other half of that distinction.
+   */
+  async portable(personId: string): Promise<DataSubjectReport> {
+    const now = new Date();
+    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
+
+    const report = await this.audit.withAuditedRead<DataSubjectReport>(
+      {
+        action: "DATA_PORTABILITY_EXPORTED",
+        actorPersonId: personId,
+        targetPersonId: personId,
+        context: { export: "dataPortability" },
+      },
+      async (tx) => this.build(tx, personId, now, retentionDays),
+    );
+
+    this.logger.log(`Data portability export produced for person ${personId}`);
     return report;
   }
 
@@ -778,6 +814,57 @@ export class DataSubjectReportService {
       },
     });
 
+    /*
+     * What this person asked about their own data, and what the board decided.
+     * Theirs by definition: art. 15 gives them what the association holds about
+     * them, and a decision about their erasure is that.
+     */
+    const dataSubjectRequests = await tx.dataSubjectRequest.findMany({
+      where: { personId },
+      orderBy: [{ requestedOn: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        kind: true,
+        requestedOn: true,
+        ground: true,
+        erasureGround: true,
+        erasureException: true,
+        issueId: true,
+        decision: true,
+        decisionGround: true,
+        decidedAt: true,
+        executedAt: true,
+        closedAt: true,
+        closeReason: true,
+      },
+    });
+
+    /*
+     * Breaches that reached this person's data. Read through the subject rows,
+     * which is the only link there is: a person a breach reached is recorded on
+     * it individually, because art. 34 is owed to each of them.
+     *
+     * The board's grounds for its own decisions are deliberately not here. Why
+     * the association did or did not notify IMY is a fact about its compliance,
+     * not about this person's data, and art. 15 gives them the second.
+     */
+    const breachSubjects = await tx.personalDataBreachSubject.findMany({
+      where: { personId },
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        informedAt: true,
+        breach: {
+          select: {
+            id: true,
+            title: true,
+            discoveredAt: true,
+            risk: true,
+            imyNotifiedAt: true,
+          },
+        },
+      },
+    });
+
     const lastMovedOutOn = latestMoveOut(person.residencies);
 
     return {
@@ -1177,6 +1264,34 @@ export class DataSubjectReportService {
         targetId: entry.targetId,
         context: subjectScopedContext(asContext(entry.context), personId),
       })),
+      dataSubjectRequests: dataSubjectRequests.map(
+        (request): ReportDataSubjectRequest => ({
+          requestId: request.id,
+          kind: request.kind,
+          requestedOn: toIsoDate(request.requestedOn),
+          dueOn: toIsoDate(dueOn(request.requestedOn)),
+          ground: request.ground,
+          erasureGround: request.erasureGround,
+          erasureException: request.erasureException,
+          decision: request.decision,
+          decisionGround: request.decisionGround,
+          decidedAt: toIsoDate(request.decidedAt),
+          executedAt: toIsoDate(request.executedAt),
+          closedAt: toIsoDate(request.closedAt),
+          closeReason: request.closeReason,
+          issueId: request.issueId,
+        }),
+      ),
+      personalDataBreaches: breachSubjects.map(
+        (subject): ReportPersonalDataBreach => ({
+          breachId: subject.breach.id,
+          title: subject.breach.title,
+          discoveredAt: subject.breach.discoveredAt.toISOString(),
+          risk: subject.breach.risk,
+          imyNotifiedAt: subject.breach.imyNotifiedAt?.toISOString() ?? null,
+          informedAt: subject.informedAt?.toISOString() ?? null,
+        }),
+      ),
       retention: {
         daysAfterMoveOut: retentionDays,
         purgeOn: toIsoDate(computePurgeDate(lastMovedOutOn, retentionDays)),

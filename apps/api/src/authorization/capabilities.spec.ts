@@ -73,6 +73,10 @@ describe("board member", () => {
     // which the board already holds for publishing in the cooperative's name.
     "news:comment",
     "site:manage",
+    // The association is the controller and GDPR art. 5(2) makes it answerable
+    // for showing that it processes lawfully. That answerability is the board's
+    // own, so the seat holds it rather than borrowing it from an administrator.
+    "dataProtection:manage",
     // Giving or refusing the association's consent to a letting in andra hand.
     // BRL 7 kap. 10 § names the styrelse as who gives it, and 11 § makes the
     // board the association's side of the rent tribunal proceeding that follows
@@ -126,6 +130,9 @@ describe("property manager", () => {
   });
 
   it.each<Capability>([
+    // The association's account of what it does with its residents' data, and
+    // of which contractors receive it, is no part of handling issues.
+    "dataProtection:manage",
     "addressBook:read",
     "addressBook:write",
     "memberRegister:read",
@@ -218,6 +225,7 @@ describe("resident and member", () => {
     "protectedData:reveal",
     "registerReport:export",
     "association:manage",
+    "dataProtection:manage",
     "association:read",
     "invitation:send",
     "boardPosition:manage",

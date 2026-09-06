@@ -70,6 +70,7 @@ beforeAll(async () => {
     documents: [],
     roster: [],
     facts: null,
+    controllerContact: null,
   };
 });
 

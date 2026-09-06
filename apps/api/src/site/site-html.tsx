@@ -149,6 +149,24 @@ export interface SiteChrome {
    * renders as nothing where nothing was read.
    */
   facts: BrokerPageInput | null;
+  /**
+   * How the association is reached as controller, and its data protection
+   * officer where one is appointed.
+   *
+   * Handed in like everything else here rather than read from the database by
+   * the renderer, because src/site may not reach the crypto module or the
+   * registers. Null on every page that carries no controller contact block.
+   */
+  controllerContact: SiteControllerContact | null;
+}
+
+/** What the notice prints about the controller (GDPR art. 13(1)(a)-(b)). */
+export interface SiteControllerContact {
+  name: string;
+  organizationNumber: string | null;
+  contactEmail: string | null;
+  postalAddress: string | null;
+  officer: { name: string | null; email: string; phone: string | null } | null;
 }
 
 /**
@@ -412,6 +430,8 @@ export function renderBlock(
       return renderBoardRoster(chrome, index);
     case "associationFacts":
       return renderAssociationFacts(chrome, index);
+    case "controllerContact":
+      return renderControllerContact(chrome, index);
     case "faq":
       return renderFaq(chrome, block, index);
     default:
@@ -621,6 +641,88 @@ function renderAssociationFacts(
     <section className="site-facts-block" key={index}>
       <h2>{chrome.t("site.facts.heading")}</h2>
       {renderFactGroups(groups, 3)}
+    </section>
+  );
+}
+
+/**
+ * The association's contact details as controller.
+ *
+ * Renders nothing at all when nothing has been recorded, on the same rule the
+ * facts block follows: a heading over an empty list tells a visitor the
+ * association has answered a question it has not.
+ *
+ * A description list, because that is the shape of a label and its value, and a
+ * screen reader announces the pair.
+ */
+function renderControllerContact(
+  chrome: SiteChrome,
+  index: number,
+): ReactElement | null {
+  const controller = chrome.controllerContact;
+  if (controller === null) {
+    return null;
+  }
+
+  const rows: { label: string; value: string }[] = [
+    { label: chrome.t("site.controllerContact.name"), value: controller.name },
+  ];
+  if (controller.organizationNumber !== null) {
+    rows.push({
+      label: chrome.t("site.controllerContact.organizationNumber"),
+      value: controller.organizationNumber,
+    });
+  }
+  if (controller.postalAddress !== null) {
+    rows.push({
+      label: chrome.t("site.controllerContact.postalAddress"),
+      value: controller.postalAddress,
+    });
+  }
+  if (controller.contactEmail !== null) {
+    rows.push({
+      label: chrome.t("site.controllerContact.contactEmail"),
+      value: controller.contactEmail,
+    });
+  }
+  if (controller.officer !== null) {
+    rows.push({
+      label: chrome.t("site.controllerContact.officer"),
+      value: [
+        controller.officer.name,
+        controller.officer.email,
+        controller.officer.phone,
+      ]
+        .filter((part): part is string => part !== null && part !== "")
+        .join(", "),
+    });
+  }
+
+  /*
+   * The association's name and organization number exist on every instance, so
+   * counting the rows cannot tell a configured block from an empty one. What
+   * makes this block worth printing is a way to reach whoever answers for the
+   * processing: an address, an email, or an appointed officer.
+   */
+  if (
+    controller.postalAddress === null &&
+    controller.contactEmail === null &&
+    controller.officer === null
+  ) {
+    return null;
+  }
+
+  return (
+    <section className="site-controller-contact-block" key={index}>
+      <h2>{chrome.t("site.controllerContact.heading")}</h2>
+      <dl>
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

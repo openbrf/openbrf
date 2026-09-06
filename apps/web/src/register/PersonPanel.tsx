@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { FIELD, FIELD_DATA, LABEL } from "../ui/controls";
+import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
+import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
 import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
@@ -144,8 +145,6 @@ type InviteStatus =
 
 const SECONDARY_BUTTON =
   "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-ink";
-const CAUTION_BUTTON =
-  "inline-flex min-h-11 items-center gap-2 rounded-control border border-line-strong bg-raised px-4 text-small font-semibold text-warn";
 
 /** A label above a value, the room-side pattern for a read-only field. */
 function Field({
@@ -1348,6 +1347,27 @@ export function PersonPanel({
               </p>
             ) : null}
           </section>
+
+          {/*
+           * What this person has asked about their own data, directly after the
+           * legal hold: the two are one answer to what happens to their data and
+           * when, and a board reading one without the other would be reading a
+           * promise the instance is not keeping.
+           */}
+          <DataSubjectRequestsSection
+            personId={person.personId}
+            requests={person.dataSubjectRequests}
+            /*
+             * The panel refetches itself, the way the legal hold above does
+             * and for the same reason: the requests are read from this
+             * person's own view, and reloading the board's list instead would
+             * shift the rows under whoever is reading them while leaving the
+             * request they just recorded off the screen entirely.
+             */
+            onChanged={() => {
+              setReloadToken((token) => token + 1);
+            }}
+          />
 
           {/*
            * The data subject access report. Offered only where there is a

@@ -7,6 +7,8 @@ export type { BoardMailboxReplyMailProps } from "./board-mailbox-reply.template"
 export { bookingConfirmationMail } from "./booking-confirmation.template";
 export type { BookingConfirmationMailProps } from "./booking-confirmation.template";
 export type { BookingMailMode, BookingMailPeriod } from "./booking-period";
+export { breachReminderMail } from "./personal-data-breach-reminder.template";
+export type { BreachReminderMailProps } from "./personal-data-breach-reminder.template";
 export { contactSubmissionMail } from "./contact-submission.template";
 export type { ContactSubmissionMailProps } from "./contact-submission.template";
 export { invitationMail } from "./invitation.template";

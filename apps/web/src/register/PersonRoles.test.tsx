@@ -85,6 +85,9 @@ const PERSON: PersonDetail = {
   },
   publicationConsents: unasked(),
   legalHold: null,
+  dataSubjectRequests: [],
+  communicationObjectionAt: null,
+  processingRestrictedAt: null,
 };
 
 /** Elected, and not yet stood down. */

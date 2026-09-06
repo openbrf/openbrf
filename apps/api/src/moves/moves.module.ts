@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { DataProtectionModule } from "../data-protection/data-protection.module";
 import { RegistersModule } from "../registers/registers.module";
 import { MoveController } from "./move.controller";
 import { MoveService } from "./move.service";
@@ -24,7 +25,14 @@ import { MoveService } from "./move.service";
    * grant, and that ledger's writer lives there. The dependency runs one way:
    * the registers module knows nothing about moves.
    */
-  imports: [RegistersModule],
+  /*
+   * And the data protection module, for one service: a move-in closes a
+   * granted erasure request that has not been carried out. Without it such a
+   * request stands for ever, because the purge refuses anybody with a current
+   * residency - so it would never be executed and never be closed, and the
+   * person's page would keep saying their data was about to be erased.
+   */
+  imports: [RegistersModule, DataProtectionModule],
   controllers: [MoveController],
   providers: [MoveService],
   exports: [MoveService],

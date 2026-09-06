@@ -13,6 +13,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 - Apartment-based address book and member register, with import. Contact details and personal identity numbers are encrypted at rest; names and postal addresses stay readable, because the statutory register must be searchable and printable
 - The statutory registers under Swedish law: the member register (public on request) and the confidential apartment register, kept strictly separate
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
+- The rest of what a controller has to do: the record of processing activities (art. 30), the personal data breach register with the 72-hour clock (art. 33), processor agreements with each recipient classified first (art. 28), a privacy notice checked against what art. 13 requires, and the requests a person makes about their own data - erasure, objection, restriction and a portable export (art. 17, 18, 20, 21)
 - News and mailings, document archive, issue reporting with photos
 - The association's public website with a page CMS: public and member-only pages in one menu, a broker information page generated from association facts, contact and issue report forms, and news that can email the members on publish
 - Roles for board members, residents, and external property managers
