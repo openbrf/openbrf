@@ -514,7 +514,7 @@
           "KEY_ORDER_PLACED": "Key order placed",
           "KEY_ORDER_REVISED": "Key order changed",
           "KEY_ORDER_WITHDRAWN": "Key order withdrawn",
-          "KEY_ORDER_HANDED_OVER": "Key handed over",
+          "KEY_ORDER_HANDED_OVER": "Key order handed over",
           "KEY_ORDER_DECLINED": "Key order declined",
           "EVENT_SIGNUP_MADE": "Event sign-up made",
           "EVENT_SIGNUP_WITHDRAWN": "Event sign-up withdrawn",
@@ -2693,7 +2693,7 @@
   "sublets": {
     "navLabel": "Subletting",
     "title": "Subletting your apartment",
-    "intro": "Ask the board for consent to let your apartment in andra hand, and follow what happens to the request.",
+    "intro": "Ask the board for consent to sublet your apartment, and follow what happens to the request.",
     "loading": "Loading the applications...",
     "loadFailed": "The subletting applications could not be read just now.",
     "status": {
@@ -2762,7 +2762,7 @@
       "tribunalClear": "Remove the record"
     },
     "errors": {
-      "notAMember": "Letting an apartment in andra hand is the tenant-owner's to ask about, and this account holds no tenant-ownership in the association.",
+      "notAMember": "Subletting an apartment is the tenant-owner's to ask about, and this account holds no tenant-ownership in the association.",
       "apartmentNotFound": "That apartment is not one you hold. You can apply about your own apartment only.",
       "applicationNotFound": "That application is gone. The list has been read again.",
       "alreadyClosed": "The board has answered this application, so there is nothing to change.",

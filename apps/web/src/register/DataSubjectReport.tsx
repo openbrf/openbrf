@@ -964,6 +964,7 @@ export function DataSubjectReport({
                   "register.person.report.field.period",
                   "register.person.report.field.reason",
                   "register.person.report.field.status",
+                  "register.person.report.field.closed",
                   "register.person.report.field.tribunalPermission",
                   "register.person.report.field.erasableFrom",
                 ]}
@@ -993,16 +994,29 @@ export function DataSubjectReport({
                     <td className={TEXT_CELL}>
                       {t(SUBLET_STATUS_LABEL[application.status])}
                     </td>
+                    {/* The day the board answered, which is the day the consent
+                      was given or refused. Absent while the application is still
+                      with the board, which the status beside it already says. */}
+                    <td className={DATA_CELL}>
+                      {day(application.closedAt) ?? nothing}
+                    </td>
                     {/* What the rent tribunal decided (BRL 7 kap. 11 §). Not the
                       association's own decision, and on the report all the same:
                       it was recorded against this person, and what is held about
-                      somebody is what art. 15 asks for. */}
+                      somebody is what art. 15 asks for.
+
+                      A permission for a natural person is always limited in time
+                      under that paragraph, so a recorded one normally names an
+                      end day and the cell states the range. Where the board
+                      recorded no end, the permission day stands alone rather
+                      than opening a range with nothing on the far side of the
+                      dash. */}
                     <td className={DATA_CELL}>
                       {application.tribunalPermittedOn === null
                         ? nothing
-                        : `${application.tribunalPermittedOn} - ${
-                            application.tribunalPermittedUntil ?? ""
-                          }`}
+                        : application.tribunalPermittedUntil === null
+                          ? application.tribunalPermittedOn
+                          : `${application.tribunalPermittedOn} - ${application.tribunalPermittedUntil}`}
                     </td>
                     {/*
                      * The row's own retention date, two years after the later of

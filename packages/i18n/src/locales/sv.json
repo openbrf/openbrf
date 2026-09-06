@@ -514,7 +514,7 @@
           "KEY_ORDER_PLACED": "Nyckelbeställning inlämnad",
           "KEY_ORDER_REVISED": "Nyckelbeställning ändrad",
           "KEY_ORDER_WITHDRAWN": "Nyckelbeställning återkallad",
-          "KEY_ORDER_HANDED_OVER": "Nyckel utlämnad",
+          "KEY_ORDER_HANDED_OVER": "Nyckelbeställning utlämnad",
           "KEY_ORDER_DECLINED": "Nyckelbeställning nekad",
           "EVENT_SIGNUP_MADE": "Anmälan till evenemang gjordes",
           "EVENT_SIGNUP_WITHDRAWN": "Anmälan till evenemang återkallades",

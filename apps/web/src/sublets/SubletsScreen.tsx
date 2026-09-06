@@ -30,7 +30,18 @@ interface Loaded {
   apartments: readonly SubletApartment[];
   own: readonly OwnSubletApplication[];
   queue: readonly QueuedSubletApplication[];
-  loadFailed: boolean;
+  /**
+   * Which of the two reads failed, one flag each rather than one between them.
+   *
+   * A failed read has no rows, and a panel handed no rows says so in words: the
+   * queue says nobody is waiting for the board's consent, which under BRL 7 kap.
+   * 10 § is the board's own decision to make and a claim the association is
+   * holding no request. The notice above does not undo a sentence somebody has
+   * already read, so a half that failed is not drawn at all, and the half that
+   * succeeded is unaffected by it.
+   */
+  intakeFailed: boolean;
+  queueFailed: boolean;
 }
 
 const EMPTY: Loaded = {
@@ -38,7 +49,8 @@ const EMPTY: Loaded = {
   apartments: [],
   own: [],
   queue: [],
-  loadFailed: false,
+  intakeFailed: false,
+  queueFailed: false,
 };
 
 /**
@@ -91,7 +103,8 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
       apartments: intake?.ok === true ? intake.value.apartments : [],
       own: intake?.ok === true ? intake.value.applications : [],
       queue: queue?.ok === true ? queue.value.applications : [],
-      loadFailed: intake?.ok === false || queue?.ok === false,
+      intakeFailed: intake?.ok === false,
+      queueFailed: queue?.ok === false,
     };
   }, [canApply, canHandle]);
 
@@ -123,7 +136,7 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
     };
   }, [reload]);
 
-  const { ready, apartments, own, queue, loadFailed } = loaded;
+  const { ready, apartments, own, queue, intakeFailed, queueFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -132,7 +145,7 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
         <p className="text-body text-ink-muted">{t("sublets.intro")}</p>
       </header>
 
-      {loadFailed ? (
+      {intakeFailed || queueFailed ? (
         <LoadFailure messageKey="sublets.loadFailed" onRetry={reload} />
       ) : null}
 
@@ -142,11 +155,11 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
         </p>
       )}
 
-      {ready && canHandle ? (
+      {ready && canHandle && !queueFailed ? (
         <SubletQueuePanel applications={queue} onChanged={reload} />
       ) : null}
 
-      {ready && canApply ? (
+      {ready && canApply && !intakeFailed ? (
         <>
           <ApplyForSubletPanel apartments={apartments} onApplied={reload} />
           <OwnSubletsPanel applications={own} onChanged={reload} />

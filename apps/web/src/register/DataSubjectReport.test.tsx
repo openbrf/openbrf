@@ -703,6 +703,57 @@ describe("what the document prints", () => {
     ).toBe(2);
   });
 
+  it("prints the day the board answered a subletting application", async () => {
+    /*
+     * The answer is the act the record exists for. BRL 7 kap. 10 § makes the
+     * consent the styrelse's to give, so the day it was given or refused is a
+     * fact held about this person, and art. 15 asks for what is held. The
+     * payload carried the day while the table printed only the status, which
+     * told the person that their application was refused and not when.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const applications = within(
+      sectionOf("Ansökningar om andrahandsupplåtelse"),
+    );
+    expect(applications.getByText("Avslutad")).not.toBeNull();
+    expect(applications.getByText("2027-05-20")).not.toBeNull();
+
+    // And the application still with the board states no day, because there is
+    // no answer to state one for.
+    const openRow = applications
+      .getByText("Studier pa annan ort.")
+      .closest("tr");
+    expect(openRow?.textContent).toContain("Hos styrelsen");
+  });
+
+  it("states a tribunal permission with no recorded end as the day it names", async () => {
+    /*
+     * BRL 7 kap. 11 § makes a permission for a natural person one that is
+     * always limited in time, so a recorded permission normally names an end
+     * day and the cell states the range. Where the board wrote down only the
+     * day permission was given, a range with nothing after the dash does not
+     * read as a shorter answer - it reads as an end day the document failed to
+     * print, on the one document the person is entitled to rely on.
+     */
+    renderReport({
+      ...FULL_REPORT,
+      subletApplications: FULL_REPORT.subletApplications.map((application) => ({
+        ...application,
+        tribunalPermittedUntil: null,
+      })),
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const applications = within(
+      sectionOf("Ansökningar om andrahandsupplåtelse"),
+    );
+    // An exact match, so the dangling "2027-06-15 - " this is written against
+    // would not satisfy it.
+    expect(applications.getByText("2027-06-15")).not.toBeNull();
+  });
+
   it("prints the termination of a tenant-ownership, on its statutory ground", async () => {
     /*
      * Statutory tier, so no erasure date and no promise of one - the document

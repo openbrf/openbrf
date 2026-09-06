@@ -253,6 +253,71 @@ describe("the board", () => {
     expect(screen.getByText("Nils Boende")).not.toBeNull();
   });
 
+  it("is not told who ordered where the register protects their name", async () => {
+    /*
+     * Skyddade personuppgifter. The board's own address book prints the name and
+     * this queue deliberately does not: the queue is a working list rather than
+     * a register, and a board member who has to reach the person goes through
+     * the register that has a reason to name them. The apartment stays, because
+     * the key is for a door and the board has to know which one.
+     *
+     * Asserted on the absence of the name as well as on the substitute. The
+     * projection is the server's, so a client that had started printing
+     * `orderer.name` for every kind would still pass a test that only looked
+     * for the substitute sentence somewhere on the page.
+     */
+    fetchKeyOrderQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        orders: [
+          {
+            ...OPEN_ORDER,
+            orderer: { kind: "protected", personId: "person-nils" },
+            closedByPersonId: null,
+          },
+        ],
+      },
+    });
+
+    render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
+
+    await screen.findByText("Nyckelbeställningar");
+    expect(screen.queryByText("Nils Boende")).toBeNull();
+    expect(
+      screen.getByText("Skyddade personuppgifter: fråga registret."),
+    ).not.toBeNull();
+    expect(screen.getByText("Storgatan 12 1201")).not.toBeNull();
+  });
+
+  it("is shown no queue at all where the queue could not be read", async () => {
+    /*
+     * An empty list and a list that failed to arrive are different answers, and
+     * the panel has words for only one of them: handed no orders it says nobody
+     * has ordered a key. That is a statement about the association made from a
+     * request that never answered, and the notice above it does not undo a
+     * sentence somebody has already read.
+     */
+    fetchKeyOrderQueue.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    render(
+      <KeyOrdersScreen
+        viewer={viewer(["keyOrders:place", "keyOrders:handle"])}
+      />,
+    );
+
+    await screen.findByText("Nyckelbeställningarna kunde inte läsas just nu.");
+    expect(screen.queryByText("Nyckelbeställningar")).toBeNull();
+    expect(
+      screen.queryByText("Ingen har beställt nyckel eller tagg."),
+    ).toBeNull();
+
+    // And the half that did answer is untouched by the other's failure.
+    expect(screen.getByText("Beställ en nyckel eller en tagg")).not.toBeNull();
+  });
+
   it("records the handover with what it wrote", async () => {
     render(<KeyOrdersScreen viewer={viewer(["keyOrders:handle"])} />);
 

@@ -593,6 +593,49 @@ describe("who may read which half", () => {
       name: "Maja Medlem",
     });
   });
+
+  it("withholds the name where the register protects it, and keeps the apartment", async () => {
+    /*
+     * Skyddade personuppgifter, and the projection is the server's rather than
+     * the screen's: this queue is a working list and not a register, so a board
+     * member who has to reach the person goes through the register that has a
+     * statutory reason to name them.
+     *
+     * The apartment is deliberately still stated. The consent BRL 7 kap. 10 §
+     * asks the board for is consent to a letting of one named apartment, and a
+     * board that could not tell which one could not answer at all.
+     *
+     * Asserted on the serialized row and not only on the projection, because
+     * the name reaching the board through some other field of the same payload
+     * is the disclosure this test exists to catch.
+     */
+    const created = await apply(memberCookie);
+    expect(created.statusCode).toBe(201);
+    const { id } = created.json<{ id: string }>();
+
+    await prisma.person.update({
+      where: { id: member.personId },
+      data: { protectedPersonalData: true },
+    });
+    try {
+      const queued = await queue(boardCookie);
+      const row = queued.applications.find(
+        (application) => application.id === id,
+      );
+
+      expect(row?.applicant).toEqual({
+        kind: "protected",
+        personId: member.personId,
+      });
+      expect(row?.apartment?.id).toBe(apartmentId);
+      expect(JSON.stringify(row)).not.toContain("Medlem");
+    } finally {
+      await prisma.person.update({
+        where: { id: member.personId },
+        data: { protectedPersonalData: false },
+      });
+    }
+  });
 });
 
 describe("the personal identity number guardrail", () => {

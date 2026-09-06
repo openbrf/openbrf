@@ -571,6 +571,46 @@ describe("who may read which half", () => {
       name: "Lars Inneboende",
     });
   });
+
+  it("withholds the name where the register protects it, and keeps the door", async () => {
+    /*
+     * Skyddade personuppgifter, and the projection is the server's rather than
+     * the screen's: this queue is a working list and not a register, so a board
+     * member who has to reach the person goes through the register that has a
+     * statutory reason to name them.
+     *
+     * The apartment is deliberately still stated. The key is for a door, and a
+     * board that could not tell which one could not answer the order at all.
+     *
+     * Asserted on the serialized row and not only on the projection, because
+     * the name reaching the board through some other field of the same payload
+     * is the disclosure this test exists to catch.
+     */
+    const created = await order(lodgerCookie);
+    expect(created.statusCode).toBe(201);
+    const { id } = created.json<{ id: string }>();
+
+    await prisma.person.update({
+      where: { id: lodger.personId },
+      data: { protectedPersonalData: true },
+    });
+    try {
+      const queued = await queue(boardCookie);
+      const row = queued.orders.find((placed) => placed.id === id);
+
+      expect(row?.orderer).toEqual({
+        kind: "protected",
+        personId: lodger.personId,
+      });
+      expect(row?.apartment?.id).toBe(apartmentId);
+      expect(JSON.stringify(row)).not.toContain("Inneboende");
+    } finally {
+      await prisma.person.update({
+        where: { id: lodger.personId },
+        data: { protectedPersonalData: false },
+      });
+    }
+  });
 });
 
 describe("the personal identity number guardrail", () => {

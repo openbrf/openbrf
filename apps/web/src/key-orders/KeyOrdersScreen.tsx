@@ -30,7 +30,18 @@ interface Loaded {
   apartments: readonly KeyOrderApartment[];
   own: readonly OwnKeyOrder[];
   queue: readonly QueuedKeyOrder[];
-  loadFailed: boolean;
+  /**
+   * Which of the two reads failed, one flag each rather than one between them.
+   *
+   * A failed read has no rows, and a panel handed no rows says so in words: the
+   * queue says no order is waiting and the resident's list says they have
+   * ordered nothing. Both are statements about the association made from a
+   * request that never answered, and the notice above them does not undo a
+   * sentence somebody has already read. So a half that failed is not drawn at
+   * all, and the half that succeeded is unaffected by it.
+   */
+  intakeFailed: boolean;
+  queueFailed: boolean;
 }
 
 const EMPTY: Loaded = {
@@ -38,7 +49,8 @@ const EMPTY: Loaded = {
   apartments: [],
   own: [],
   queue: [],
-  loadFailed: false,
+  intakeFailed: false,
+  queueFailed: false,
 };
 
 /**
@@ -92,7 +104,8 @@ export function KeyOrdersScreen({
       apartments: intake?.ok === true ? intake.value.apartments : [],
       own: intake?.ok === true ? intake.value.orders : [],
       queue: queue?.ok === true ? queue.value.orders : [],
-      loadFailed: intake?.ok === false || queue?.ok === false,
+      intakeFailed: intake?.ok === false,
+      queueFailed: queue?.ok === false,
     };
   }, [canPlace, canHandle]);
 
@@ -124,7 +137,7 @@ export function KeyOrdersScreen({
     };
   }, [reload]);
 
-  const { ready, apartments, own, queue, loadFailed } = loaded;
+  const { ready, apartments, own, queue, intakeFailed, queueFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -133,7 +146,7 @@ export function KeyOrdersScreen({
         <p className="text-body text-ink-muted">{t("keyOrders.intro")}</p>
       </header>
 
-      {loadFailed ? (
+      {intakeFailed || queueFailed ? (
         <LoadFailure messageKey="keyOrders.loadFailed" onRetry={reload} />
       ) : null}
 
@@ -143,11 +156,11 @@ export function KeyOrdersScreen({
         </p>
       )}
 
-      {ready && canHandle ? (
+      {ready && canHandle && !queueFailed ? (
         <KeyOrderQueuePanel orders={queue} onChanged={reload} />
       ) : null}
 
-      {ready && canPlace ? (
+      {ready && canPlace && !intakeFailed ? (
         <>
           <PlaceKeyOrderPanel apartments={apartments} onPlaced={reload} />
           <OwnKeyOrdersPanel orders={own} onChanged={reload} />

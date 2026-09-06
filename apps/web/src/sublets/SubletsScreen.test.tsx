@@ -229,6 +229,72 @@ describe("a resident who is not a member", () => {
 });
 
 describe("the board", () => {
+  it("is not told who applied where the register protects their name", async () => {
+    /*
+     * Skyddade personuppgifter. The board's own address book prints the name and
+     * this queue deliberately does not: the queue is a working list rather than
+     * a register, and a board member who has to reach the person goes through
+     * the register that has a reason to name them. The apartment stays, because
+     * the consent under BRL 7 kap. 10 § is about a named apartment.
+     *
+     * Asserted on the absence of the name as well as on the substitute. The
+     * projection is the server's, so a client that had started printing
+     * `applicant.name` for every kind would still pass a test that only looked
+     * for the substitute sentence somewhere on the page.
+     */
+    fetchSubletQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        applications: [
+          {
+            ...OPEN_APPLICATION,
+            applicant: { kind: "protected", personId: "person-maja" },
+            closedByPersonId: null,
+          },
+        ],
+      },
+    });
+
+    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
+
+    await screen.findByText("Ansökningar om andrahandsupplåtelse");
+    expect(screen.queryByText("Maja Medlem")).toBeNull();
+    expect(
+      screen.getByText("Skyddade personuppgifter: fråga registret."),
+    ).not.toBeNull();
+    expect(screen.getByText("Storgatan 12 1201")).not.toBeNull();
+  });
+
+  it("is shown no queue at all where the queue could not be read", async () => {
+    /*
+     * An empty list and a list that failed to arrive are different answers, and
+     * the panel has words for only one of them: handed no applications it says
+     * no member is waiting for the board's consent. The consent is the board's
+     * own to give under BRL 7 kap. 10 §, so that sentence is the association
+     * telling the people who decide that there is nothing to decide - said from
+     * a request that never answered, and not undone by a notice above it.
+     */
+    fetchSubletQueue.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    render(
+      <SubletsScreen viewer={viewer(["sublets:apply", "sublets:handle"])} />,
+    );
+
+    await screen.findByText(
+      "Ansökningarna om andrahandsupplåtelse kunde inte läsas just nu.",
+    );
+    expect(
+      screen.queryByText("Ansökningar om andrahandsupplåtelse"),
+    ).toBeNull();
+    expect(screen.queryByText("Ingen medlem har begärt samtycke.")).toBeNull();
+
+    // And the half that did answer is untouched by the other's failure.
+    expect(screen.getByText("Begär styrelsens samtycke")).not.toBeNull();
+  });
+
   it("is offered the queue, and no form where it holds no tenant-ownership", async () => {
     // The same rule read from the other end: the consent is the board's to give
     // and the application is the member's to make, and a board member who holds
