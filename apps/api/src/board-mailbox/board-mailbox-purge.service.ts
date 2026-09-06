@@ -356,10 +356,23 @@ export class BoardMailboxPurgeService implements OnModuleInit {
    * media table deduplicates nothing - but a file this purge did not own is not
    * a file it may delete, and the check costs one query against an indexed key.
    *
-   * A failure here is logged and not raised. The thread is already gone and the
-   * run has more of them to erase; what is left behind is bytes with nothing
-   * pointing at them, which the next run does not retry but which is a smaller
-   * fault than a purge that stops.
+   * A failure here is logged and not raised, and what a failure can be is worth
+   * being exact about. `MediaService.remove` deletes the row in a transaction of
+   * its own and then removes the object, catching a storage failure itself and
+   * not re-throwing - the media layer's documented choice, taken for every
+   * caller: bytes with no row are unreachable but stored, a row with no bytes
+   * serves a 404, and only the first of those is a disclosure risk once somebody
+   * has asked for a file to be deleted. So a storage failure never reaches this
+   * block. What can is a database failure, which leaves the file row itself
+   * behind with nothing pointing at it.
+   *
+   * That is not lost work needing a queue to remember it. A file no attachment,
+   * no issue photo and no document references is what an orphan is, so it is
+   * answerable by a query rather than by a record of the attempt - and the id is
+   * logged, which is opaque and names nothing about the correspondence, so the
+   * one that got away is findable from the log alone. The thread is already
+   * gone, the run has more to erase, and stopping the purge over it would leave
+   * whole letters past their window rather than one file.
    */
   private async removeAttachments(fileIds: readonly string[]): Promise<void> {
     for (const fileId of fileIds) {
@@ -374,8 +387,10 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         // arrived, and nobody pressed anything.
         await this.media.remove(fileId, null);
       } catch (error) {
+        // The id and the class of the failure. An id is opaque and says nothing
+        // about the letter; a file name would be the sender's own words.
         this.logger.error(
-          `Board mailbox purge erased a thread but not one of its attachments: ${failureName(error)}`,
+          `Board mailbox purge erased a thread but not its attachment ${fileId}: ${failureName(error)}`,
         );
       }
     }
