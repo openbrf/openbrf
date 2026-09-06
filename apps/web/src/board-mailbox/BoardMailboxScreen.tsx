@@ -291,7 +291,7 @@ export function BoardMailboxScreen(): ReactElement {
                     </span>
                     <span className="text-small text-ink-muted">
                       {t("boardMailbox.inbox.summary", {
-                        sender:
+                        correspondent:
                           summary.correspondent.name ??
                           summary.correspondent.email,
                         count: summary.messageCount,

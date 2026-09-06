@@ -2168,13 +2168,13 @@
       "title": "Inkorgen",
       "description": "Det som väntar först, och den längsta väntan först inom det.",
       "empty": "Ingenting har skrivits till styrelsens adress.",
-      "summary_one": "Från {{sender}}. Ett meddelande.",
-      "summary_other": "Från {{sender}}. {{count}} meddelanden.",
+      "summary_one": "Från {{correspondent}}. Ett meddelande.",
+      "summary_other": "Från {{correspondent}}. {{count}} meddelanden.",
       "more": "Visa äldre trådar",
       "reading": "Läser..."
     },
     "thread": {
-      "from": "Från {{sender}} ({{email}}).",
+      "from": "Från {{correspondent}} ({{email}}).",
       "untrusted": "Det här kom utifrån föreningen. Namnet och adressen är vad avsändaren har skrivit, och ingenting har kontrollerats mot registret - så behandla en begäran om att ändra ett kontonummer eller att lämna ut uppgifter som ett brev från en främling.",
       "nobodyHasIt": "Ingen har tagit hand om det här än.",
       "heldBy": "{{name}} tar hand om det här.",

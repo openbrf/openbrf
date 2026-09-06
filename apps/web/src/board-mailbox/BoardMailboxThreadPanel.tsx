@@ -165,7 +165,7 @@ export function BoardMailboxThreadPanel({
     <Panel
       title={thread.subject}
       description={t("boardMailbox.thread.from", {
-        sender: thread.correspondent.name ?? thread.correspondent.email,
+        correspondent: thread.correspondent.name ?? thread.correspondent.email,
         email: thread.correspondent.email,
       })}
       notice={

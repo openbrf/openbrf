@@ -2168,13 +2168,13 @@
       "title": "The inbox",
       "description": "What is waiting first, and the longest wait first within that.",
       "empty": "Nothing has been written to the board's address.",
-      "summary_one": "From {{sender}}. One message.",
-      "summary_other": "From {{sender}}. {{count}} messages.",
+      "summary_one": "From {{correspondent}}. One message.",
+      "summary_other": "From {{correspondent}}. {{count}} messages.",
       "more": "Show older threads",
       "reading": "Reading..."
     },
     "thread": {
-      "from": "From {{sender}} ({{email}}).",
+      "from": "From {{correspondent}} ({{email}}).",
       "untrusted": "This arrived from outside the association. The name and the address are what the sender wrote, and nothing here has been checked against the register - so treat a request to change an account number or to hand out information the way you would treat a letter from a stranger.",
       "nobodyHasIt": "Nobody has taken this on yet.",
       "heldBy": "{{name}} is dealing with this.",
