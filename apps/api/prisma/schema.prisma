@@ -5325,14 +5325,29 @@ enum BoardMailboxDeliveryStatus {
 /// record, and confers nothing: a letter signed with a member's name is a letter
 /// signed with a member's name.
 ///
-/// The address index is the one exception, and it is deliberately not
-/// attribution. It exists so that two questions the association is obliged to
-/// answer can be answered at all: what personal data does this instance hold
-/// about me (the data subject access report), and which of it must be preserved
-/// (the legal hold that suspends the purge). Both are the association answering
-/// FOR data it holds rather than treating the mail as somebody's word, and both
-/// are reached from the person's own record outward - never from the thread
-/// inward to a name on a screen.
+/// Two questions the association is obliged to answer need more than that, and
+/// the columns that answer them are deliberately not attribution: what personal
+/// data does this instance hold about me (the data subject access report), and
+/// which of it must be preserved (the legal hold that suspends the purge). Both
+/// are the association answering FOR data it holds rather than treating the mail
+/// as somebody's word, and neither is ever read from the thread inward to a name
+/// on a screen.
+///
+/// They are answered by different columns, because being wrong costs the
+/// opposite thing in each. The report is a disclosure, so it goes on
+/// `correspondentPersonId`, which is written as the letter arrives and only
+/// where the address was one person's registered address and nobody else's at
+/// that moment. The address index cannot carry that question: `Person.emailIndex`
+/// is not unique, so a household that gave the association one address holds it
+/// twice over, and an address recorded later for somebody else - a styrelsen@ or
+/// ordforande@ seat changing hands is the ordinary case - would put the previous
+/// holder's correspondence into the new holder's report. A thread nobody was
+/// established to be is in no automatic disclosure at all.
+///
+/// The hold goes on `correspondentEmailIndex` and stays there. Holding a thread
+/// that turns out to be somebody else's keeps data past its window, which is a
+/// cost the association carries; releasing one it should have kept destroys
+/// evidence it undertook to preserve, and nothing recovers that.
 ///
 /// ## Service tier
 ///
@@ -5372,6 +5387,27 @@ model BoardMailboxThread {
   /// address alone.
   correspondentNameCipher String?
 
+  /// The person the correspondent was established to be, where that could be
+  /// established at all.
+  ///
+  /// Decided once, as the thread is opened, against the register as it stands:
+  /// the address the letter came from, indexed under `person.email`, and a link
+  /// only where exactly one person carries that index. Null otherwise - an
+  /// address the register does not hold, one two people share, or a thread
+  /// collected before this column existed - and null keeps the thread out of
+  /// every automatic disclosure rather than putting it into the wrong one.
+  ///
+  /// Never re-evaluated afterwards, which is the half that answers an address
+  /// given to somebody else later: what this column holds is who the address
+  /// belonged to when the letter arrived, and the register cannot be asked that
+  /// once it has moved on.
+  ///
+  /// A plain column and not a relation, for the reason `takenByPersonId` gives.
+  /// It states nothing about who wrote the letter - the correspondent is still
+  /// the address an envelope asserted - and nothing shows it to the board: the
+  /// access report reads it and nothing else does.
+  correspondentPersonId String?
+
   status BoardMailboxThreadStatus @default(NEW)
 
   /// The board member who has taken the thread on.
@@ -5404,9 +5440,12 @@ model BoardMailboxThread {
 
   /// The inbox, worked from the top.
   @@index([status, lastMessageAt])
-  /// The purge's scan, and the access report's lookup.
+  /// The purge's scan.
   @@index([lastMessageAt])
+  /// The legal hold's scan for the addresses it must not erase.
   @@index([correspondentEmailIndex])
+  /// The access report's lookup.
+  @@index([correspondentPersonId])
   @@map("board_mailbox_thread")
 }
 

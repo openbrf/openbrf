@@ -58,9 +58,12 @@ import {
  * against the person whose address it is with stops it, and that the audit entry
  * lands in the same transaction.
  *
- * And that the data subject access report answers for the correspondence, which
- * is the one place the platform goes from a person to a thread - from the
- * person's own registered address outward, never the other way.
+ * And that the data subject access report answers for the correspondence of the
+ * person a thread was established to be with, and for nobody else's: not a
+ * household's, where one address is held by two people, and not the next
+ * holder's, where an address is recorded for somebody else after the letter
+ * arrived. That is the one place the platform goes from a person to a thread,
+ * and what it follows is the link the mailbox wrote when the letter came in.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -70,6 +73,7 @@ let app: NestFastifyApplication;
 let associationCreated = false;
 
 let prisma: PrismaService;
+let encryption: FieldEncryptionService;
 let collector: BoardMailboxCollectorService;
 let mailer: BoardMailboxMailerService;
 let purge: BoardMailboxPurgeService;
@@ -121,6 +125,26 @@ const heldResident = {
 /** The same address as the envelope carries it, which is how a thread stores it. */
 const heldResidentEnvelope = heldResident.email.toLowerCase();
 
+/**
+ * Two residents of one apartment who gave the association the same address.
+ *
+ * `Person.emailIndex` carries no unique constraint and this needs no unusual
+ * behaviour by anybody: a couple writes one address on the form. Neither of them
+ * is identified by it, so a letter from it is in neither of their reports.
+ */
+const householdAddress = `mailbox-hushall-${suffix}@exempel.se`;
+const householdOne = { personId: `mailbox-household-a-${suffix}` };
+const householdTwo = { personId: `mailbox-household-b-${suffix}` };
+
+/**
+ * An address that changes hands, which is what a role address does: whoever
+ * holds the seat writes to the board, moves out, and the address is recorded for
+ * whoever took the seat over.
+ */
+const seatAddress = `mailbox-ordforande-${suffix}@exempel.se`;
+const seatFormerHolder = { personId: `mailbox-seat-former-${suffix}` };
+const seatNewHolder = { personId: `mailbox-seat-new-${suffix}` };
+
 const actors = [
   administrator,
   boardMember,
@@ -128,7 +152,14 @@ const actors = [
   resident,
   manager,
 ];
-const personIds = [...actors, heldResident].map((actor) => actor.personId);
+const personIds = [
+  ...actors,
+  heldResident,
+  householdOne,
+  householdTwo,
+  seatFormerHolder,
+  seatNewHolder,
+].map((actor) => actor.personId);
 
 const addressId = `mailbox-address-${suffix}`;
 const apartmentIds = [1, 2, 3].map((n) => `mailbox-apartment-${suffix}-${n}`);
@@ -381,6 +412,28 @@ async function threadBySubject(subject: string): Promise<ThreadBody> {
   return matching[0] as ThreadBody;
 }
 
+/**
+ * Records an address on a person, or takes the one they had away.
+ *
+ * The register's own writes are what this stands in for: the ciphertext and the
+ * blind index, written together, because a person carrying one without the
+ * other is a row no path in the product produces.
+ */
+async function registerAddress(
+  personId: string,
+  email: string | null,
+): Promise<void> {
+  const address =
+    email === null ? null : await encryption.encrypt("person.email", email);
+  await prisma.person.update({
+    where: { id: personId },
+    data: {
+      emailCipher: address?.cipher ?? null,
+      emailIndex: address?.index ?? null,
+    },
+  });
+}
+
 let administratorCookie: string;
 let boardCookie: string;
 let protectedCookie: string;
@@ -453,6 +506,26 @@ beforeAll(async () => {
         id: heldResident.personId,
         firstName: "Harald",
         lastName: `Brevlada${suffix}`,
+      },
+      {
+        id: householdOne.personId,
+        firstName: "Hanna",
+        lastName: `Hushall${suffix}`,
+      },
+      {
+        id: householdTwo.personId,
+        firstName: "Henrik",
+        lastName: `Hushall${suffix}`,
+      },
+      {
+        id: seatFormerHolder.personId,
+        firstName: "Sigrid",
+        lastName: `Ordforande${suffix}`,
+      },
+      {
+        id: seatNewHolder.personId,
+        firstName: "Sten",
+        lastName: `Ordforande${suffix}`,
       },
     ],
   });
@@ -528,23 +601,23 @@ beforeAll(async () => {
   }
 
   /*
-   * The held resident's own registered address, which is what the purge and the
-   * access report match a thread against.
+   * The registered addresses. The held resident's is what the purge matches a
+   * thread against, and every one of them is what the collector asks the
+   * register about as a letter arrives.
    *
    * Written through the register's own field encryption rather than through an
    * endpoint, because the register offers none that sets an address on an
    * existing person - and because what has to be right here is the ciphertext
    * and the index, which is exactly what those paths read.
    */
-  const encryption = app.get(FieldEncryptionService);
-  const heldAddress = await encryption.encrypt(
-    "person.email",
-    heldResident.email,
-  );
-  await prisma.person.update({
-    where: { id: heldResident.personId },
-    data: { emailCipher: heldAddress.cipher, emailIndex: heldAddress.index },
-  });
+  encryption = app.get(FieldEncryptionService);
+  await registerAddress(heldResident.personId, heldResident.email);
+  // One address, two people, and neither of them identified by it.
+  await registerAddress(householdOne.personId, householdAddress);
+  await registerAddress(householdTwo.personId, householdAddress);
+  // The seat's address, held by whoever holds it now. It changes hands in the
+  // test that needs it to.
+  await registerAddress(seatFormerHolder.personId, seatAddress);
 
   administratorCookie = await signIn(administrator.email);
   boardCookie = await signIn(boardMember.email);
@@ -1580,6 +1653,50 @@ describe("the purge", () => {
 });
 
 describe("the data subject access report", () => {
+  /**
+   * One letter in the mailbox, collected.
+   *
+   * The server is closed whatever the collection did, because a test that left
+   * one listening would take the port into the next one.
+   */
+  async function collectLetter(options: {
+    from: string;
+    subject: string;
+    body: string;
+  }): Promise<void> {
+    const server = await serveMailbox([
+      {
+        uid: `uid-${identifierOf(options.subject)}`,
+        raw: letter({
+          from: options.from,
+          subject: options.subject,
+          body: options.body,
+          messageId: `${identifierOf(options.subject)}@exempel.se`,
+        }),
+      },
+    ]);
+    try {
+      await collector.collect();
+    } finally {
+      await server.close();
+    }
+  }
+
+  /** The subjects of the threads one person's report answers for. */
+  async function reportedSubjects(personId: string): Promise<string[]> {
+    const response = await inject({
+      method: "POST",
+      url: `/api/data-subject-reports/persons/${personId}`,
+      headers: { cookie: administratorCookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+
+    const report = response.json() as {
+      boardMailboxThreads: { subject: string }[];
+    };
+    return report.boardMailboxThreads.map((thread) => thread.subject);
+  }
+
   it("answers for correspondence the association holds with this address", async () => {
     const subject = `Registerutdrag ${suffix}`;
     const server = await serveMailbox([
@@ -1629,5 +1746,71 @@ describe("the data subject access report", () => {
     expect(listed?.messages[0]?.body).toContain("En fraga fran en boende.");
     // The date the purge will reach it, derived rather than stored.
     expect(listed?.erasableFrom).not.toBe("");
+
+    // And what put it there: the person the register held that address for when
+    // the letter arrived, written onto the thread as it was opened. The report
+    // asks for that link and never for the address, so this is the whole of what
+    // decides whose document a letter is in.
+    expect(
+      await prisma.boardMailboxThread.findFirst({
+        where: { subject },
+        select: { correspondentPersonId: true },
+      }),
+    ).toEqual({ correspondentPersonId: heldResident.personId });
+  });
+
+  it("answers for nobody when one address is two people's", async () => {
+    const subject = `Delad adress ${suffix}`;
+    await collectLetter({
+      from: householdAddress,
+      subject,
+      body: "En fraga om balkongen.",
+    });
+
+    /*
+     * Nobody was established, so the thread carries no link - which is the
+     * answer that discloses nothing rather than the one that guesses. Reporting
+     * it to either resident would hand them the other's letter to the board, and
+     * the board's answer about them, inside the document the association
+     * produces to show it handles personal data properly.
+     */
+    expect(
+      await prisma.boardMailboxThread.findFirst({
+        where: { subject },
+        select: { correspondentPersonId: true },
+      }),
+    ).toEqual({ correspondentPersonId: null });
+
+    expect(await reportedSubjects(householdOne.personId)).not.toContain(
+      subject,
+    );
+    expect(await reportedSubjects(householdTwo.personId)).not.toContain(
+      subject,
+    );
+  });
+
+  it("answers to the person the address belonged to when the letter arrived", async () => {
+    const subject = `Overlamnad adress ${suffix}`;
+    await collectLetter({
+      from: seatAddress,
+      subject,
+      body: "En fraga fran ordforanden.",
+    });
+
+    // The seat changes hands: the address leaves the person who wrote from it
+    // and is recorded for whoever took the seat over.
+    await registerAddress(seatFormerHolder.personId, null);
+    await registerAddress(seatNewHolder.personId, seatAddress);
+
+    // The letter is still the person's who wrote it. Their own address is gone
+    // from the register, and the report answers for the correspondence anyway,
+    // because what it follows is the link and not the address.
+    expect(await reportedSubjects(seatFormerHolder.personId)).toContain(
+      subject,
+    );
+    // And the new holder's report is about the new holder.
+    expect(await reportedSubjects(seatNewHolder.personId)).not.toContain(
+      subject,
+    );
   });
 });

@@ -484,27 +484,26 @@ export interface ReportEventSignup {
  * board struck through, and `hidden` is what says the board did.
  */
 /**
- * A conversation in the board's shared mailbox that this person's own address is
- * with.
+ * A conversation in the board's shared mailbox this person was established to be
+ * the correspondent of.
  *
- * The one section of this report reached through an address rather than through
- * a person reference, and the difference is the point of the note. A thread in
- * the board's mailbox is not attributed to anybody: the address on it is what an
- * envelope asserted, and the module never resolves one to a person, because
- * anyone can write anyone's name in a From header. So a thread is not "this
- * person's" in the way a booking or a comment is.
+ * Still not attribution, and the note is the point of the difference. The
+ * address on a thread is what an envelope asserted, and nothing checks it, so a
+ * thread is not "this person's" in the way a booking or a comment is: what the
+ * board mailbox recorded, as the letter arrived, is that the register then held
+ * that address for this person and for nobody else.
  *
- * It is still an answer this report owes. The association holds the letter, it
- * holds the address it came from, and a data subject asking what is held about
- * them is entitled to the rows their own address matches - which is the
- * association answering for data rather than a claim about who wrote it. The
- * lookup runs one way only, from the person's own registered address outward,
- * and the wording here says so: the report states that the association holds
- * correspondence with this address, not that this person sent it.
+ * It is an answer this report owes on data the association holds - the letter,
+ * and the address it came from - rather than a claim about who wrote. What the
+ * establishment buys is the other half: a report may only carry what belongs to
+ * the person it is for, and an address that two people share or that changed
+ * hands is not an identification. A thread the mailbox could not establish a
+ * correspondent for is in no report at all, which is the answer that discloses
+ * nothing.
  */
 export interface ReportBoardMailboxThread {
   threadId: string;
-  /** The address the correspondence is with, which is this person's own. */
+  /** The address the correspondence is with, as the thread holds it. */
   correspondentEmail: string;
   /** The subject as it was received. */
   subject: string;

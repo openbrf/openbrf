@@ -360,7 +360,7 @@ test("the board's correspondence never reaches the association's website", async
   expect(body).not.toContain("Det rinner vatten");
 });
 
-test("the access report answers for correspondence with a resident's address", async ({
+test("the access report answers for correspondence the mailbox identified", async ({
   api: request,
   clientAddress,
 }) => {
@@ -375,10 +375,11 @@ test("the access report answers for correspondence with a resident's address", a
   const people = await ensureMailboxFixture(request, clientAddress);
 
   /*
-   * A letter from an address the register holds, which is the one case where the
-   * access report has to reach this table. The lookup runs from the person's own
-   * registered address outward - the association answering for data it holds -
-   * and never from a thread to a name on a screen.
+   * A letter from an address the register holds for exactly one person, which is
+   * the one case where the access report reaches this table. The mailbox records
+   * that person as the letter arrives and the report asks for the link; an
+   * address the register holds twice, or holds for somebody else by the time the
+   * report is drawn, identifies nobody and is in no report at all.
    */
   const karlId = people.get("Karl Berg");
   if (karlId === undefined) {

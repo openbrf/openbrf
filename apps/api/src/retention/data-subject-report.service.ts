@@ -672,70 +672,66 @@ export class DataSubjectReportService {
       },
     });
 
-    /*
-     * Correspondence in the board's shared mailbox that this person's own
-     * address is with.
-     *
-     * Reached through the address rather than through a person reference, and
-     * that is deliberate rather than a workaround for a missing column: a thread
-     * carries the address an envelope asserted and the module never resolves it
-     * to anybody, because a From header is a claim rather than an identity. This
-     * runs the lookup one way only - from the person's own registered address
-     * outward - which is the association answering for data it holds rather than
-     * attributing a letter to somebody. `ReportBoardMailboxThread` says the same
-     * thing in the words the document prints.
-     *
-     * The blind index has to be computed rather than compared: CipherSweet
-     * derives a distinct key per table and field, so the address index stored on
-     * the person and the one stored on a thread are not comparable, and the match
-     * is made by indexing this person's plaintext address under the mailbox
-     * table's own label. A person the purge has already cleared has no address
-     * left to match, which is the erasure working rather than a gap.
-     */
+    /* The person's own address, printed on the document and nothing else. */
     const personEmail =
       person.emailCipher === null
         ? null
         : await this.encryption.decrypt("person.email", person.emailCipher);
 
-    const boardMailboxIndex =
-      personEmail === null
-        ? null
-        : await this.encryption.computeIndex(
-            "boardMailboxThread.correspondentEmail",
-            personEmail,
-          );
-
-    const boardMailboxThreads =
-      boardMailboxIndex === null
-        ? []
-        : await tx.boardMailboxThread.findMany({
-            where: { correspondentEmailIndex: boardMailboxIndex },
-            orderBy: [{ lastMessageAt: "desc" }],
-            select: {
-              id: true,
-              subject: true,
-              status: true,
-              // The address the thread itself holds, rather than the one the
-              // lookup was made with. They index to the same value, which is
-              // what matched them, but the index normalises - so the two can be
-              // spelled differently, and what this document has to state is the
-              // one the association is keeping.
-              correspondentEmailCipher: true,
-              createdAt: true,
-              lastMessageAt: true,
-              messages: {
-                orderBy: { occurredAt: "asc" },
-                select: {
-                  direction: true,
-                  body: true,
-                  bodyFromHtml: true,
-                  bodyTruncated: true,
-                  occurredAt: true,
-                  _count: { select: { attachments: true } },
-                },
-              },
-            },
-          });
+    /*
+     * Correspondence in the board's shared mailbox this person was established
+     * to be the correspondent of.
+     *
+     * Reached through the link the thread carries and not through the address on
+     * it. The address was what this asked once, by indexing the person's
+     * registered address under the mailbox table's label and matching threads on
+     * it, and that question has no safe answer: `Person.emailIndex` carries no
+     * unique constraint and a thread records no period over which an address
+     * belonged to anybody, so it answered "whoever holds this address now". A
+     * household that gave the association one address had each resident's report
+     * carry the other's letters to the board, and an address recorded later for
+     * somebody else - a styrelsen@ seat changing hands - put the previous
+     * holder's correspondence into the new holder's report. This document is the
+     * one the association produces to show it handles personal data properly,
+     * and a disclosure inside it is the worst place for one.
+     *
+     * So the identification is the board mailbox's to make, at the moment the
+     * letter arrives and only where the register then held that address for
+     * exactly one person. A thread nobody was established to be carries no link
+     * and is in no report - including every thread collected before the column
+     * existed, which is the honest answer rather than a guess made years later.
+     * The model comment on BoardMailboxThread sets out why the legal hold still
+     * asks the address instead, and `ReportBoardMailboxThread` says what the
+     * document prints.
+     */
+    const boardMailboxThreads = await tx.boardMailboxThread.findMany({
+      where: { correspondentPersonId: personId },
+      orderBy: [{ lastMessageAt: "desc" }],
+      select: {
+        id: true,
+        subject: true,
+        status: true,
+        // The address the thread itself holds, rather than the one on the
+        // person. It is what the association is keeping on this row, and it can
+        // be spelled differently from the registered one - the index that
+        // established the link normalises - or be all that is left of the
+        // person's contact details once a purge has run.
+        correspondentEmailCipher: true,
+        createdAt: true,
+        lastMessageAt: true,
+        messages: {
+          orderBy: { occurredAt: "asc" },
+          select: {
+            direction: true,
+            body: true,
+            bodyFromHtml: true,
+            bodyTruncated: true,
+            occurredAt: true,
+            _count: { select: { attachments: true } },
+          },
+        },
+      },
+    });
 
     /*
      * Every line on which this person was recorded as present at a general
@@ -1145,13 +1141,11 @@ export class DataSubjectReportService {
         boardMailboxThreads.map(
           async (thread): Promise<ReportBoardMailboxThread> => ({
             threadId: thread.id,
-            // Read off the thread and not off the person. The lookup went the one
-            // direction this module allows - from a registered address outward to
-            // the threads whose own address indexes the same - and printing the
+            // Read off the thread and not off the person. Printing the
             // registered spelling back would state a value the association does
-            // not hold on the row being reported. Decrypting the thread's own
-            // column resolves nothing to anybody: it is the address an envelope
-            // asserted, which is what the document has to answer for.
+            // not hold on the row being reported, and the row's own address is
+            // what it has to answer for: the address an envelope asserted, which
+            // is still not a claim about who wrote.
             correspondentEmail: await this.encryption.decrypt(
               "boardMailboxThread.correspondentEmail",
               thread.correspondentEmailCipher,
