@@ -852,7 +852,9 @@ describe("what the document prints", () => {
     // "not recorded" mark, which would say a deadline exists and was not
     // written down.
     expect(rows?.[2]?.textContent).toContain("2020-09-15");
-    expect(rows?.[2]?.textContent).toContain("Återgången överlåtelse");
+    expect(rows?.[2]?.textContent).toContain(
+      "Hävd eller återgången överlåtelse",
+    );
     expect(rows?.[2]?.textContent).not.toContain("2020-09-29");
     expect(rows?.[2]?.textContent).toContain(
       i18n.t("register.person.report.noDeadline"),
@@ -878,7 +880,7 @@ describe("what the document prints", () => {
     await screen.findByText("Brf Eksemplet");
 
     const rows = screen
-      .getByText("Återgångna överlåtelser")
+      .getByText("Hävda och återgångna överlåtelser")
       .closest("section")
       ?.querySelectorAll("tbody tr");
     expect(rows).toHaveLength(1);

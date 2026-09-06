@@ -413,7 +413,7 @@ describe("a tenant-owner", () => {
     ).toBeNull();
     expect(
       screen.queryByRole("button", {
-        name: /Registrera att den gått tillbaka/,
+        name: /Registrera hävning eller återgång/,
       }),
     ).toBeNull();
     expect(
@@ -515,7 +515,7 @@ describe("register completeness", () => {
     render(<ApartmentRegisterScreen />);
 
     const reversals = await screen.findAllByRole("button", {
-      name: /Registrera att den gått tillbaka/,
+      name: /Registrera hävning eller återgång/,
     });
     expect(
       reversals.map((button) => button.getAttribute("aria-label")),
@@ -681,7 +681,7 @@ describe("register completeness", () => {
     render(<ApartmentRegisterScreen />);
 
     const [open] = await screen.findAllByRole("button", {
-      name: /Registrera att den gått tillbaka/,
+      name: /Registrera hävning eller återgång/,
     });
     await session.click(open as HTMLElement);
 
@@ -689,13 +689,18 @@ describe("register completeness", () => {
       screen.getByLabelText(/Vad som hände/),
       "RETURNED_TO_SELLER",
     );
-    await session.type(screen.getByLabelText(/Återgått/), "2019-08-01");
+    await session.type(
+      screen.getByLabelText(/Hävd eller återgången/),
+      "2019-08-01",
+    );
     await session.type(
       screen.getByLabelText(/^Referens/),
       "Hävningsförklaring 2019-7",
     );
     await session.click(
-      screen.getByRole("button", { name: /Registrera återgången/ }),
+      screen.getByRole("button", {
+        name: /Registrera hävningen eller återgången/,
+      }),
     );
 
     expect(recordTransferReversal).toHaveBeenCalledWith({
@@ -738,7 +743,7 @@ describe("register completeness", () => {
     await screen.findByText(/Upplatelseavtal 2013-1/);
     expect(
       screen.queryByRole("button", {
-        name: /Registrera att den gått tillbaka/,
+        name: /Registrera hävning eller återgång/,
       }),
     ).toBeNull();
   });
@@ -752,7 +757,7 @@ describe("register completeness", () => {
 
     await screen.findByText(/Hävningsförklaring 2019-7/);
     const remaining = screen.queryAllByRole("button", {
-      name: /Registrera att den gått tillbaka/,
+      name: /Registrera hävning eller återgång/,
     });
     // Only the legacy transfer beside it, which carries no reversal.
     expect(remaining).toHaveLength(1);

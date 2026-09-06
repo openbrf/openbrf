@@ -731,15 +731,17 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
     .filter({ hasText: designationOf(apartment) });
 
   await entry
-    .getByRole("button", { name: "Registrera att den gått tillbaka" })
+    .getByRole("button", { name: "Registrera hävning eller återgång" })
     .first()
     .click();
   await entry
     .getByLabel(/^Vad som hände/)
     .selectOption({ label: "Bostadsrätten har återgått till säljaren" });
-  await entry.getByLabel(/^Återgått/).fill(REVERSED_ON);
+  await entry.getByLabel(/^Hävd eller återgången/).fill(REVERSED_ON);
   await entry.getByLabel(/^Referens/).fill(`HAV-2026-${apartment.number}`);
-  await entry.getByRole("button", { name: "Registrera återgången" }).click();
+  await entry
+    .getByRole("button", { name: "Registrera hävningen eller återgången" })
+    .click();
 
   await expect(
     entry.getByText("Bostadsrätten har återgått till säljaren"),
@@ -749,7 +751,7 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) })
-    .filter({ hasText: "Återgången överlåtelse" });
+    .filter({ hasText: "Hävd eller återgången överlåtelse" });
   await expect(row).toContainText("Ingen frist");
   await expect(row).toContainText(REVERSED_ON);
 });
