@@ -111,8 +111,12 @@ const activitySchema = z.object({
     "LEGITIMATE_INTEREST",
   ]),
   legalBasisNote: z.string().trim().max(1000).nullable().optional(),
-  dataSubjectCategories: z.array(z.enum(DATA_SUBJECT_CATEGORIES)),
-  personalDataCategories: z.array(z.enum(PERSONAL_DATA_CATEGORIES)),
+  dataSubjectCategories: z
+    .array(z.enum(DATA_SUBJECT_CATEGORIES))
+    .max(DATA_SUBJECT_CATEGORIES.length),
+  personalDataCategories: z
+    .array(z.enum(PERSONAL_DATA_CATEGORIES))
+    .max(PERSONAL_DATA_CATEGORIES.length),
   recipients: z.string().trim().max(1000).nullable().optional(),
   thirdCountryTransfer: z.boolean(),
   thirdCountrySafeguards: z.string().trim().max(1000).nullable().optional(),

@@ -624,22 +624,46 @@ export class BreachService {
     await this.requireBreach(breachId);
 
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Only a subject who has not been told yet. The instant recorded here is
+       * when the art. 34 communication was made, and there is one of those: a
+       * second click would move the date the association would show a
+       * supervisory authority, and it is the first one that happened.
+       */
       const { count } = await tx.personalDataBreachSubject.updateMany({
-        where: { breachId, personId },
+        where: { breachId, personId, informedAt: null },
         data: { informedAt: new Date() },
       });
+
       if (count === 0) {
+        const subject = await tx.personalDataBreachSubject.findFirst({
+          where: { breachId, personId },
+          select: { informedAt: true },
+        });
+        if (subject === null) {
+          /*
+           * Nobody by that id is recorded as a subject of this breach. The
+           * audit entry below is append-only and outside every purge, so
+           * writing it here would assert an art. 34 communication about data
+           * this breach never reached, on a row the association could not
+           * afterwards withdraw.
+           */
+          throw new BreachError(
+            "That person is not a subject of this breach.",
+            "person-not-found",
+          );
+        }
+
         /*
-         * Nobody by that id is recorded as a subject of this breach. The audit
-         * entry below is append-only and outside every purge, so writing it
-         * here would assert an art. 34 communication about data this breach
-         * never reached, on a row the association could not afterwards
-         * withdraw.
+         * Already told, so this changed nothing and the log says nothing. A
+         * second entry would read as a second communication that never
+         * happened, on a person's own access report.
          */
-        throw new BreachError(
-          "That person is not a subject of this breach.",
-          "person-not-found",
-        );
+        const unchanged = await tx.personalDataBreach.findUniqueOrThrow({
+          where: { id: breachId },
+          select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
+        });
+        return toView(unchanged, new Date());
       }
 
       // The subject is the person, so their own access report shows that the
@@ -687,11 +711,24 @@ export class BreachService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.personalDataBreach.update({
-        where: { id: breachId },
+      /*
+       * The state the transition needs, asked as part of the write. The two
+       * refusals above answer the board in a sentence it can act on, but they
+       * read outside this transaction: two board members clicking within the
+       * same moment would both pass them, and the second would rewrite who
+       * finished with the breach and append a second closure to a log that
+       * cannot be corrected.
+       */
+      const { count } = await tx.personalDataBreach.updateMany({
+        where: { id: breachId, decidedAt: { not: null }, closedAt: null },
         data: { closedAt: new Date(), closedByPersonId: actorPersonId },
-        select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
       });
+      if (count === 0) {
+        throw new BreachError(
+          "This breach has already been closed.",
+          "already-closed",
+        );
+      }
 
       await this.audit.record(
         {
@@ -703,6 +740,10 @@ export class BreachService {
         tx,
       );
 
+      const row = await tx.personalDataBreach.findUniqueOrThrow({
+        where: { id: breachId },
+        select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
+      });
       return toView(row, new Date());
     });
   }

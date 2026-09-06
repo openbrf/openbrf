@@ -84,6 +84,38 @@ const REPORT = {
     },
   ],
   personalDataBreaches: [{ breachId: "breach-1" }],
+  subletApplications: [
+    {
+      applicationId: "sublet-1",
+      apartment: "1001",
+      periodFrom: "2029-02-01",
+      periodTo: "2029-08-31",
+      reason: "Provsamboende på annan ort.",
+      submittedAt: "2028-11-01T09:00:00.000Z",
+      // The association's own answer, which the export must not carry.
+      status: "CONSENTED",
+      closedAt: "2028-11-14T09:00:00.000Z",
+      decisionNote: "Styrelsen samtycker för hela perioden.",
+      tribunalPermittedOn: "2028-12-01",
+      tribunalPermittedUntil: "2029-08-31",
+      erasableFrom: "2031-08-31",
+    },
+  ],
+  keyOrders: [
+    {
+      orderId: "key-1",
+      apartment: "1001",
+      kind: "TAG",
+      quantity: 2,
+      note: "Taggar till tvättstugan.",
+      submittedAt: "2028-11-01T09:00:00.000Z",
+      // The association's own answer, which the export must not carry.
+      status: "HANDED_OVER",
+      closedAt: "2028-11-03T09:00:00.000Z",
+      boardNote: "Utlämnade i expeditionen.",
+      erasableFrom: "2029-11-03",
+    },
+  ],
   retention: {
     daysAfterMoveOut: 365,
     purgeOn: "2027-01-01",
@@ -132,6 +164,8 @@ describe("what the export carries", () => {
     expect(exported.issues).toHaveLength(1);
     expect(exported.publicationConsents).toHaveLength(1);
     expect(exported.dataSubjectRequests).toHaveLength(1);
+    expect(exported.subletApplications).toHaveLength(1);
+    expect(exported.keyOrders).toHaveLength(1);
   });
 
   it("says what it is and why it is a file rather than a transfer", () => {
@@ -184,19 +218,51 @@ describe("what the export leaves on the access report", () => {
       "systemRoles",
     ]);
 
-    // And the board's own answer, on a section the export does carry: the
-    // request is the person's, the decision on it is the association's.
-    const request = toDataPortabilityExport(REPORT, t)
-      .dataSubjectRequests[0] as Record<string, unknown> | undefined;
-    for (const field of [
-      "decision",
-      "decisionGround",
-      "decidedAt",
-      "executedAt",
-      "closedAt",
-      "closeReason",
-    ]) {
-      expect(request?.[field]).toBeUndefined();
+    /*
+     * And the board's own answer, on the three sections the export does carry.
+     * The row is the person's - what they asked for, the period they asked
+     * about, what they ordered - and what the association decided about it is
+     * not; art. 20(1) reaches the first and not the second.
+     *
+     * Field by field against the report's own row, so a section that gains an
+     * answer field cannot start travelling here unnoticed. An allow-list
+     * projection over a report that keeps growing is exactly where that goes
+     * wrong, which is how the two sections below arrived missing entirely.
+     */
+    const carried = toDataPortabilityExport(REPORT, t);
+    const answers: Record<string, readonly string[]> = {
+      dataSubjectRequests: [
+        "decision",
+        "decisionGround",
+        "decidedAt",
+        "executedAt",
+        "closedAt",
+        "closeReason",
+      ],
+      subletApplications: [
+        "status",
+        "closedAt",
+        "decisionNote",
+        "tribunalPermittedOn",
+        "tribunalPermittedUntil",
+        "erasableFrom",
+      ],
+      keyOrders: ["status", "closedAt", "boardNote", "erasableFrom"],
+    };
+
+    for (const [section, fields] of Object.entries(answers)) {
+      const reported = (REPORT as unknown as Record<string, unknown[]>)[
+        section
+      ]?.[0] as Record<string, unknown> | undefined;
+      const row = (carried as unknown as Record<string, unknown[]>)[
+        section
+      ]?.[0] as Record<string, unknown> | undefined;
+
+      for (const field of fields) {
+        // The report really carries it, so its absence below means something.
+        expect(reported?.[field]).toBeDefined();
+        expect(row?.[field]).toBeUndefined();
+      }
     }
   });
 

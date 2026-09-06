@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 import type {
   DataSubjectReport,
   ReportDataSubjectRequest,
+  ReportKeyOrder,
 } from "../retention/data-subject-report";
 
 /**
@@ -78,6 +79,45 @@ export interface DataPortabilityExport {
    * breach record. The access report carries all of it.
    */
   dataSubjectRequests: PortableDataSubjectRequest[];
+  /** What they asked the board's permission for, and why. */
+  subletApplications: PortableSubletApplication[];
+  /** What they ordered, how many, and what they said it was for. */
+  keyOrders: PortableKeyOrder[];
+}
+
+/**
+ * One sublet application, narrowed to what the person themselves supplied.
+ *
+ * The period and the reason are theirs: they wrote them into the form. The
+ * board's answer is not - `decisionNote` and the rent tribunal's permission are
+ * the association's own account of what it decided about this person, which the
+ * access report carries and art. 20(1) does not reach. The same rule keeps the
+ * decision fields off {@link PortableDataSubjectRequest}.
+ */
+export interface PortableSubletApplication {
+  applicationId: string;
+  /** Null where the apartment has since been corrected out of the register. */
+  apartment: string | null;
+  /** "YYYY-MM-DD". */
+  periodFrom: string;
+  /** "YYYY-MM-DD", inclusive. */
+  periodTo: string;
+  reason: string;
+  /** ISO instant. */
+  submittedAt: string;
+}
+
+/** One key or tag order, narrowed the same way: not the board's `boardNote`. */
+export interface PortableKeyOrder {
+  orderId: string;
+  /** Null where the apartment has since been corrected out of the register. */
+  apartment: string | null;
+  kind: ReportKeyOrder["kind"];
+  quantity: number;
+  /** What the resident said it was for, where they said anything. */
+  note: string | null;
+  /** ISO instant. */
+  submittedAt: string;
 }
 
 /** One request, narrowed to what the person themselves supplied. */
@@ -150,6 +190,22 @@ export function toDataPortabilityExport(
       ground: request.ground,
       erasureGround: request.erasureGround,
       issueId: request.issueId,
+    })),
+    subletApplications: report.subletApplications.map((application) => ({
+      applicationId: application.applicationId,
+      apartment: application.apartment,
+      periodFrom: application.periodFrom,
+      periodTo: application.periodTo,
+      reason: application.reason,
+      submittedAt: application.submittedAt,
+    })),
+    keyOrders: report.keyOrders.map((order) => ({
+      orderId: order.orderId,
+      apartment: order.apartment,
+      kind: order.kind,
+      quantity: order.quantity,
+      note: order.note,
+      submittedAt: order.submittedAt,
     })),
   };
 }

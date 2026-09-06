@@ -665,6 +665,8 @@
           "boardPositionCurrent": "This person still holds a position of trust.",
           "systemRoleCurrent": "This person still administers the instance.",
           "processingRestricted": "This person has asked for a restriction, which means the data is kept and not used.",
+          "dateNotACalendarDate": "That is not a calendar date.",
+          "requestedInFuture": "A request cannot have been made on a day that has not arrived.",
           "unknown": "The request could not be saved just now."
         }
       }

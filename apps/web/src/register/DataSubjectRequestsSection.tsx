@@ -58,6 +58,9 @@ const REASON: Record<string, TranslationKey> = {
   "system-role-current": "register.person.requests.reasons.systemRoleCurrent",
   "processing-restricted":
     "register.person.requests.reasons.processingRestricted",
+  "date-not-a-calendar-date":
+    "register.person.requests.reasons.dateNotACalendarDate",
+  "requested-in-future": "register.person.requests.reasons.requestedInFuture",
 };
 
 const STATE_LABEL: Record<DataSubjectRequestView["state"], TranslationKey> = {

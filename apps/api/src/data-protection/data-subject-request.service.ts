@@ -406,6 +406,15 @@ export class DataSubjectRequestService {
         );
       }
       await lockDataSubjectRequests(tx, owner.personId);
+      /*
+       * And the residency lock, in the order every writer here takes them.
+       * `closeForMoveIn` runs inside the move-in's own transaction under that
+       * lock alone: without taking it here, a move-in could select this request
+       * as still open while this closure was committing and then overwrite the
+       * board's reason with "moved-in", on a row a second audit entry would
+       * already have described twice.
+       */
+      await lockResidencyTransitions(tx, owner.personId);
 
       const row = await tx.dataSubjectRequest.findUniqueOrThrow({
         where: { id: requestId },
@@ -480,14 +489,22 @@ export class DataSubjectRequestService {
       return;
     }
 
-    await tx.dataSubjectRequest.update({
-      where: { id: standing.id },
+    /*
+     * Still open is asked as part of the write, for the reason the board's own
+     * `close` gives: the row selected above is a read, and a closure committing
+     * beside it must not be overwritten with this one's reason.
+     */
+    const { count } = await tx.dataSubjectRequest.updateMany({
+      where: { id: standing.id, closedAt: null },
       data: {
         closedAt: new Date(),
         closeReason: "moved-in",
         closedByPersonId: actorPersonId,
       },
     });
+    if (count === 0) {
+      return;
+    }
 
     await this.audit.record(
       {

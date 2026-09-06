@@ -6,6 +6,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { IssueTypeService } from "./issue-type.service";
+import { lockIssue } from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /**
@@ -291,35 +292,47 @@ export class IssueService {
     issueId: string,
     status: IssueStatus,
   ): Promise<QueuedIssueView> {
-    const existing = await this.prisma.issue.findUnique({
-      where: { id: issueId },
-      select: { id: true, closedAt: true },
-    });
-    if (existing === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
+    /*
+     * The read and the write in one transaction, under the row's own lock. The
+     * closing date below is derived from what the row already holds, so a
+     * reopen and a close arriving together would otherwise both read the same
+     * value and the later write would commit a date neither decided on - which
+     * the retention clock then runs on.
+     */
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await lockIssue(tx, issueId);
 
-    const issue = await this.prisma.issue.update({
-      where: { id: issueId },
-      data: {
-        status,
-        /*
-         * The day the issue was closed, and null again if it is reopened.
-         *
-         * Its own column rather than updatedAt, which is what the retention
-         * clock on a public-form report has to run on: detaching a reporter
-         * from a neighbouring issue is an update, so a clock reading updatedAt
-         * would push its own purge date away every night the purge ran.
-         *
-         * Set on the move into DONE and not on every request that names it.
-         * A board member clicking twice, or a retry, would otherwise put a new
-         * date on an issue nobody reopened, and a clock that resets when
-         * somebody presses the same button again is not a clock: the reporter's
-         * contact details would be kept past the window the policy states.
-         */
-        closedAt: status === "DONE" ? (existing.closedAt ?? new Date()) : null,
-      },
-      include: ISSUE_INCLUDE,
+      const existing = await tx.issue.findUnique({
+        where: { id: issueId },
+        select: { id: true, closedAt: true },
+      });
+      if (existing === null) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+
+      return tx.issue.update({
+        where: { id: issueId },
+        data: {
+          status,
+          /*
+           * The day the issue was closed, and null again if it is reopened.
+           *
+           * Its own column rather than updatedAt, which is what the retention
+           * clock on a public-form report has to run on: detaching a reporter
+           * from a neighbouring issue is an update, so a clock reading updatedAt
+           * would push its own purge date away every night the purge ran.
+           *
+           * Set on the move into DONE and not on every request that names it.
+           * A board member clicking twice, or a retry, would otherwise put a new
+           * date on an issue nobody reopened, and a clock that resets when
+           * somebody presses the same button again is not a clock: the reporter's
+           * contact details would be kept past the window the policy states.
+           */
+          closedAt:
+            status === "DONE" ? (existing.closedAt ?? new Date()) : null,
+        },
+        include: ISSUE_INCLUDE,
+      });
     });
 
     this.logger.log(`Issue ${issue.id} moved to ${status}`);
