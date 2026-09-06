@@ -876,26 +876,38 @@ no, and the pilot is the thing that will change it.
         which the motion queue has no equivalent of - refusing to take up a
         member's item is not the board's to decide under EFL 6 kap. 15 §, and
         refusing a household a fourth tag to the bike room plainly is. What a
-        key costs the member is deliberately not here: that is a charge, with
-        its own amount, date, VAT treatment and export to whoever keeps the
-        association's books, and a second place recording a sum would be a
-        second answer to what the member owes. The handover is its own audit
+        key costs is deliberately not here: that is a charge, put on the member
+        or on the apartment, with its own amount, date, VAT treatment and export
+        to whoever keeps the association's books, and a second place recording a
+        sum would be a second answer to what is owed. The handover is its own audit
         action, so once the order has been purged the association can still
         answer that somebody was given a key to the building on a day
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own
-- [ ] Charges to members: a one-off cost put on a named member or apartment -
+- [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
       charged on - with the amount, the date, the reason, the VAT treatment
       and whether it has already gone to the economic manager. The board
-      records the charge and exports the list as CSV or PDF for whoever keeps
-      the association's books. Open BRF holds the basis for the charge, not
+      records the charge on a screen of its own, reads the debiting list for a
+      period, and takes it away as a CSV file and as the printed page a browser
+      writes a PDF from. Open BRF holds the basis for the charge, not
       the ledger: it never records a payment and never carries an outstanding
       balance, because the accounting system is where a debt is settled and a
       second answer to "has this been paid" is worse than none. A charge ties a
-      sum to a member or to an apartment, and an apartment leads back to the
-      people holding it, so it sits in the service tier under the same access
-      control, masking and audit log as the rest, and it is never public
+      sum to a member or to an apartment and never to both, and an apartment
+      leads back to the people holding it, so it sits in the service tier under
+      the same access control, masking and audit log as the rest, behind a
+      capability the board holds and the property manager does not, and it is
+      never public. A member with protected personal data is named on the list
+      and their apartment is withheld from it, the way the register extracts
+      withhold an address, because the list is handed to a bookkeeper outside
+      the association. The reason is board-written free text and is scanned for
+      a personal identity number when it is written and on every later edit.
+      Every charge is on its subject's data subject access report, by its own
+      column or through the apartment they were living in on the day, and the
+      nightly purge erases it at the end of the seventh calendar year after the
+      one it falls in, which is how long the accounting record it was the basis
+      for is preserved (bokföringslagen 7 kap. 2 §), unless a legal hold stands
 - [ ] Reporting to Lantmäteriet's cooperative housing register
       (bostadsrättsregister). Not a single export but a standing duty: an
       initial submission of the existing apartments, then a notification of

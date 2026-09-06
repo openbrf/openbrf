@@ -73,6 +73,10 @@ describe("board member", () => {
     // which the board already holds for publishing in the cooperative's name.
     "news:comment",
     "site:manage",
+    // Putting a one-off cost on a member or an apartment, and handing the
+    // debiting list to whoever keeps the books. Running the cooperative's
+    // economy is the board's, the way publishing in its name is.
+    "memberCharges:manage",
     // The association is the controller and GDPR art. 5(2) makes it answerable
     // for showing that it processes lawfully. That answerability is the board's
     // own, so the seat holds it rather than borrowing it from an administrator.
@@ -173,6 +177,10 @@ describe("property manager", () => {
     // own, and moderating it is the board's.
     "news:comment",
     "site:manage",
+    // What the association charges its members is its business with its own
+    // members. The economic manager who receives the list has no account here
+    // at all, and the property manager who has one handles issues.
+    "memberCharges:manage",
     // What a member does with their own tenant-ownership is the members'
     // business with their own association.
     "sublets:apply",
@@ -240,6 +248,11 @@ describe("resident and member", () => {
     // A resident writes a comment; hiding a neighbour's is the board's, and it
     // is the same capability the board publishes the website under.
     "site:manage",
+    // A member is told what they are charged by the notice the accounting
+    // system sends. What Open BRF holds is the basis, and reading it is the
+    // board's; a member reaches their own charges through the data subject
+    // access report instead.
+    "memberCharges:manage",
     // A resident orders a key for their own door; answering the queue those
     // orders arrive in is the board's.
     "keyOrders:handle",

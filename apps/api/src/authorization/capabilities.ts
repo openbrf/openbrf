@@ -316,6 +316,40 @@ export const CAPABILITIES = [
    */
   "meetings:manage",
   /**
+   * Record a charge against a member or an apartment (debitering), read the
+   * debiting list for a period, and export it.
+   *
+   * The board's, by the argument `documents:manage` and `site:manage` make:
+   * deciding that a household owes the association for a second key is the
+   * board running the cooperative's economy, while `association:manage` is the
+   * administrator's and covers how the instance is configured rather than what
+   * the association charges.
+   *
+   * One capability and not a pair, although the export is a disclosure and the
+   * recording is not. The alternative would be a reading half and a writing
+   * half, and the two would have the same holder: a board that records a charge
+   * does so in order to hand the list to whoever keeps the books, and a seat
+   * entitled to one and not the other is not a seat this product has. That is
+   * the opposite reading from `registerReport:export`, which is separate
+   * precisely because supplying the register onward has a recipient outside the
+   * association and a different seat could plausibly hold it - and it is the
+   * reason the export writes an audit entry of its own here instead.
+   *
+   * Deliberately not the external property manager's, on the `motions:handle`
+   * precedent: they handle the association's issues, and what the association
+   * charges its members is the board's business with its own members. It is not
+   * the economic manager's either, who has no account here at all - the list is
+   * exported and handed over, which is what keeps this inside the association.
+   *
+   * There is no resident half. A member is told what they are being charged for
+   * by the notice that reaches them from the accounting system, and a screen in
+   * Open BRF showing an amount without the payment against it would invite
+   * exactly the second answer this module refuses to hold. What a member is
+   * entitled to see of it is on their data subject access report, which is a
+   * different route with a different gate.
+   */
+  "memberCharges:manage",
+  /**
    * Keep the association's own data protection records: the personal data
    * breach register, the record of processing activities, the classification of
    * every recipient of personal data with the agreements art. 28 requires, and
@@ -524,6 +558,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "motions:handle",
   "meetings:manage",
   "events:attend",
+  "memberCharges:manage",
   "dataProtection:manage",
   "boardMailbox:handle",
   "sublets:handle",
