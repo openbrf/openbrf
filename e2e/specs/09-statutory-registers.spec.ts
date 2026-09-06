@@ -83,6 +83,129 @@ function designationOf(apartment: ClaimedApartment): string {
 /** People from the shared register fixture, who must not reach her extract. */
 const OTHER_MEMBERS = ["Astrid Lindqvist", "Karl Berg"] as const;
 
+/** The day the transfers below take effect, and the fourteenth day after. */
+const TRANSFER_ON = "2026-06-02";
+const TRANSFER_DUE_ON = "2026-06-16";
+/** The day one of them goes back to the seller. */
+const REVERSED_ON = "2026-07-20";
+
+/**
+ * The three buyers this file needs a transfer for, one apartment each.
+ *
+ * Separate apartments rather than one, because a transfer and a member register
+ * entry are kept for good: a second case cannot be stated on a transfer that
+ * already carries one, and the tests below are about three different cases.
+ */
+const ALREADY_MEMBER_BUYER = "hanna";
+const JURIDICAL_PERSON_BUYER = "ivar";
+const REVERSED_BUYER = "jonas";
+
+const transfers = new Map<
+  string,
+  Promise<{ personId: string; apartment: ClaimedApartment }>
+>();
+
+/**
+ * A tenant-ownership that has passed to a new holder, once per buyer.
+ *
+ * Over HTTP, like Sigrid's above and for the same reason: what these tests are
+ * about is the case the board states afterwards and what the queue then says,
+ * not the move flow, which is criterion 8's.
+ *
+ * The seller of each is recorded as holding that apartment before the day it
+ * passes on, so the row is a transfer out of a hand the register holds rather
+ * than one naming a seller who never held the tenant-ownership. The apartment
+ * register takes its holders from the member residencies, so the seller is
+ * moved in with no transfer of their own: that records the holding without
+ * raising a reporting duty, which is the state a register filled by the initial
+ * supply is in and what keeps the queue below about the buyer's transfer alone.
+ * A seller per case rather than Sigrid, whose own entry and whose single
+ * apartment the documents above are read against.
+ */
+function ensureTransfer(
+  request: APIRequestContext,
+  name: string,
+): Promise<{ personId: string; apartment: ClaimedApartment }> {
+  const existing = transfers.get(name);
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const created = (async () => {
+    await ensureInstance(request);
+    const apartment = await claimApartment(request, ADDRESS_NUMBER);
+
+    const sellerId = await api.createPerson(request, stack.baseUrl, {
+      firstName: "Sonja",
+      lastName: uniqueSurname(`${name}-seller`),
+      email: uniqueEmail(`${name}-seller`),
+    });
+    const { residencyId } = await api.moveIn(request, stack.baseUrl, {
+      personId: sellerId,
+      apartmentId: apartment.id,
+      role: "MEMBER",
+      movedInOn: HELD_FROM,
+    });
+
+    const personId = await api.createPerson(request, stack.baseUrl, {
+      firstName: name.charAt(0).toUpperCase() + name.slice(1),
+      lastName: uniqueSurname(name),
+      email: uniqueEmail(name),
+    });
+
+    // The seller stops holding it on the day it passes on, so the register
+    // states one current holder rather than two.
+    await api.moveOut(request, stack.baseUrl, {
+      residencyId,
+      movedOutOn: TRANSFER_ON,
+    });
+    await api.moveIn(request, stack.baseUrl, {
+      personId,
+      apartmentId: apartment.id,
+      role: "MEMBER",
+      movedInOn: TRANSFER_ON,
+      transfer: {
+        kind: "TRANSFER",
+        fromPersonId: sellerId,
+        transferredOn: TRANSFER_ON,
+        agreementReference: `OVL-2026-${apartment.number}`,
+      },
+    });
+
+    return { personId, apartment };
+  })();
+
+  transfers.set(name, created);
+  return created;
+}
+
+/**
+ * States which case of 3 kap. 3 § one apartment's transfer falls in.
+ *
+ * On the apartment register screen, which is where the board does it. The entry
+ * is located by its designation, because the register lists every apartment the
+ * run has claimed.
+ */
+async function stateCase(
+  page: Page,
+  apartment: ClaimedApartment,
+  basis: string,
+): Promise<void> {
+  await openApartmentRegister(page);
+  const entry = page
+    .getByRole("article")
+    .filter({ hasText: designationOf(apartment) });
+  await entry
+    .getByLabel(/^Fall enligt 3 kap. 3/)
+    .first()
+    .selectOption(basis);
+  await entry
+    .getByRole("button", { name: "Registrera fallet" })
+    .first()
+    .click();
+  await expect(entry.getByLabel(/^Fall enligt 3 kap. 3/)).toHaveCount(0);
+}
+
 // --- what may appear on a document that is public on request -----------------
 
 /**
@@ -532,4 +655,142 @@ test("an upplatelse takes its own deadline into the reporting queue", async ({
   // The day of the grant, and the fourteenth day after it.
   await expect(row).toContainText(HELD_FROM);
   await expect(row).toContainText("2026-05-15");
+});
+
+test("an overgang with no membership decision still takes its deadline", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * The gap this closes. Lag (2026:484) 3 kap. 3 § andra stycket, second
+   * sentence: "Vid overgang till nagon som redan ar medlem i foreningen eller
+   * som inte omfattas av kravet pa medlemskap ska anmalan i stallet goras inom
+   * tva veckor fran overgangen." There is no membership decision to record, so
+   * before the case was recorded this transfer raised no duty at all - it was
+   * indistinguishable from one whose decision nobody had minuted yet.
+   */
+  const { apartment } = await ensureTransfer(request, ALREADY_MEMBER_BUYER);
+
+  await signInAsAdmin(page);
+  await stateCase(page, apartment, "ALREADY_MEMBER");
+
+  await page.goto(appPath("/registers/reports"));
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: designationOf(apartment) });
+  await expect(row).toContainText("Övergång");
+  // From the overgang, and the fourteenth day after it - not from a membership
+  // decision, which this case has none of.
+  await expect(row).toContainText(TRANSFER_ON);
+  await expect(row).toContainText(TRANSFER_DUE_ON);
+});
+
+test("an overgang the acquirer reports is named, not silently absent", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * 3 kap. 3 § forsta stycket: "En overgang till en sadan juridisk person som
+   * avses i 6 kap. 1 § andra stycket bostadsrattslagen (1991:614) ska dock
+   * anmalas for registrering av den juridiska personen." The association owes
+   * nothing, so the ledger holds no row - but a board that recorded the case
+   * and then saw nothing at all could not tell that from having forgotten to
+   * record it.
+   */
+  const { apartment } = await ensureTransfer(request, JURIDICAL_PERSON_BUYER);
+
+  await signInAsAdmin(page);
+  await stateCase(page, apartment, "LIENHOLDING_JURIDICAL_PERSON");
+
+  await page.goto(appPath("/registers/reports"));
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: designationOf(apartment) });
+  await expect(row).toContainText("Den förvärvande juridiska personen");
+  // And no deadline of the association's own beside it.
+  await expect(row).not.toContainText("Kvar att anmäla");
+});
+
+test("a reversed overlatelse is owed with no deadline the statute never set", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * 3 kap. 3 § tredje stycket: "Bostadsrattsforeningen ska anmala om en
+   * overlatelse som har registrerats har havts eller atergatt till saljaren
+   * utan att talan vackts i domstol." It names no period, where 2 §, the rest
+   * of 3 § and 4 § each say "inom tva veckor" - so the queue states the duty
+   * without a day rather than printing a deadline nobody enacted.
+   */
+  const { apartment } = await ensureTransfer(request, REVERSED_BUYER);
+
+  await signInAsAdmin(page);
+  await page.goto(appPath("/registers/apartments"));
+  const entry = page
+    .getByRole("article")
+    .filter({ hasText: designationOf(apartment) });
+
+  await entry
+    .getByRole("button", { name: "Registrera hävning eller återgång" })
+    .first()
+    .click();
+  await entry
+    .getByLabel(/^Vad som hände/)
+    .selectOption({ label: "Bostadsrätten har återgått till säljaren" });
+  await entry.getByLabel(/^Hävd eller återgången/).fill(REVERSED_ON);
+  await entry.getByLabel(/^Referens/).fill(`HAV-2026-${apartment.number}`);
+  await entry
+    .getByRole("button", { name: "Registrera hävningen eller återgången" })
+    .click();
+
+  await expect(
+    entry.getByText("Bostadsrätten har återgått till säljaren"),
+  ).toBeVisible();
+
+  await page.goto(appPath("/registers/reports"));
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: designationOf(apartment) })
+    .filter({ hasText: "Hävd eller återgången överlåtelse" });
+  await expect(row).toContainText("Ingen frist");
+  await expect(row).toContainText(REVERSED_ON);
+});
+
+test("the land the buildings stand on decides which fields the register carries", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * Forordning (2026:898) 2 kap. 4 § andra stycket: "Om bostadsrattsforeningens
+   * byggnad eller byggnader star pa mark som foreningen varken ager eller
+   * innehar med tomtratt, ska uppgift om fastighetsbeteckning,
+   * taxeringsenhetsnummer och fastighetstyp redovisas i stallet for uppgift om
+   * lagfarts- eller tomtrattsinnehav." The two extra fields are offered in that
+   * case and in no other, because the server refuses them beside any other
+   * answer.
+   */
+  await ensureInstance(request);
+  await signInAsAdmin(page);
+  await openApartmentRegister(page);
+
+  await page.getByRole("button", { name: /hur marken innehas/i }).click();
+  /*
+   * Anchored, because this select's label carries a hint naming both of the
+   * fields below it and Playwright matches a label by substring and without
+   * case. An unanchored "Taxeringsenhetsnummer" resolves to this select as
+   * well as to its own input; matching from the start of the label does not.
+   */
+  const tenure = page.getByLabel(/^Marken/);
+
+  await tenure.selectOption("SITE_LEASEHOLD");
+  await expect(page.getByLabel(/^Taxeringsenhetsnummer/)).toHaveCount(0);
+
+  await tenure.selectOption("OTHER");
+  await page.getByLabel(/^Taxeringsenhetsnummer/).fill("30001234");
+  await page.getByLabel(/^Fastighetstyp/).fill("Hyreshusenhet");
+  await page.getByRole("button", { name: "Registrera", exact: true }).click();
+
+  const document = printableDocument(page);
+  await expect(document).toContainText("30001234");
+  await expect(document).toContainText("Hyreshusenhet");
 });

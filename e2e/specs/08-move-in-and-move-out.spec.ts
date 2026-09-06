@@ -64,6 +64,8 @@ function apartmentForVilgot(
 
 const MOVED_IN_ON = "2026-06-01";
 const MOVED_OUT_ON = "2026-08-01";
+/** The day the apartment passes to its next holder, after the move-out. */
+const TRANSFERRED_ON = "2026-08-02";
 
 /** What a fresh instance starts at, and what nothing in this suite changes. */
 const RETENTION_DAYS = 365;
@@ -306,4 +308,117 @@ test("moving someone out states the purge date and keeps the register entry", as
       },
     )
     .toEqual(["ENTRY", "EXIT"]);
+});
+
+test("an overgang is recorded, and the board then says which case it is", async ({
+  page,
+  api: request,
+}) => {
+  /*
+   * The other half of the move panel's question, and what happens next.
+   *
+   * Vilgot has moved out, so the apartment he held is passing to somebody: that
+   * is an overgang (BRL 6 kap.), not the association granting a bostadsratt.
+   * Lag (2026:484) 3 kap. 3 § then has four rules and they differ in the day
+   * the two-week window opens on and in who makes the anmalan, so recording the
+   * move is not enough - the board has to state which of them applies, and it
+   * does that on the apartment register screen.
+   *
+   * Until it does, the transfer carries no deadline at all. That is the state
+   * this test walks through: a case offered rather than a date, and no
+   * membership-decision field until the case that has one is chosen.
+   */
+  await ensureInstance(request);
+  const apartment = await apartmentForVilgot(request);
+
+  const buyer = {
+    firstName: "Signe",
+    lastName: uniqueSurname("Ekstrom"),
+    email: uniqueEmail("signe"),
+  } as const;
+  const buyerName = `${buyer.firstName} ${buyer.lastName}`;
+
+  await api.createPerson(request, stack.baseUrl, {
+    firstName: buyer.firstName,
+    lastName: buyer.lastName,
+    email: buyer.email,
+  });
+
+  await signInAsAdmin(page);
+  await page.getByRole("button", { name: "Flytta in" }).click();
+  const panel = movePanel(page, "Flytta in");
+  await expect(panel).toBeVisible();
+
+  await panel.getByLabel("Person", { exact: true }).fill(buyer.lastName);
+  await panel.getByRole("button", { name: buyerName }).click();
+  await panel
+    .getByRole("combobox", { name: "Adresser" })
+    .selectOption({ label: apartment.addressLabel });
+  await panel
+    .getByRole("combobox", { name: "Lägenhet" })
+    .selectOption({ label: apartment.number });
+  await panel
+    .getByRole("radio", { name: "Medlem - innehar bostadsrätten" })
+    .check();
+  await panel.getByLabel("Inflyttningsdatum").fill(TRANSFERRED_ON);
+
+  await panel
+    .getByRole("checkbox", { name: "Registrera upplåtelse eller överlåtelse" })
+    .check();
+  await panel.getByLabel("Avtalsdatum").fill(TRANSFERRED_ON);
+  await panel
+    .getByLabel("Vad registreras")
+    .selectOption({ label: "Överlåtelse - bostadsrätten byter innehavare" });
+  /*
+   * An overgang has a previous holder, so the picker is offered here where a
+   * grant does not offer it at all. Left unselected rather than naming Vilgot:
+   * it offers the apartment's current holders, and he moved out in the test
+   * above, so he is not among them. That is a transfer whose seller the
+   * register does not hold - which is a state the register models on purpose
+   * and not a gap - and this test is about the case the board states next.
+   */
+  await expect(
+    panel.getByRole("combobox", { name: "Tidigare innehavare" }),
+  ).toHaveCount(1);
+  await panel
+    .getByLabel("Avtalshänvisning")
+    .fill(`OVL-2026-B-${apartment.number}`);
+  await panel.getByRole("button", { name: "Flytta in", exact: true }).click();
+
+  await expect(
+    panel.getByText("Överlåtelsen registrerades i lägenhetsförteckningen."),
+  ).toBeVisible();
+
+  // And now the case, on the register screen.
+  await page.goto(appPath("/registers/apartments"));
+  const entry = page
+    .getByRole("article")
+    .filter({ hasText: `${apartment.addressLabel} ${apartment.number}` });
+  const basis = entry.getByLabel(/^Fall enligt 3 kap. 3/).first();
+  await expect(basis).toBeVisible();
+
+  /*
+   * No date until the case that has one is chosen. The window for the case
+   * below runs "fran overgangen", so there is no decision to date and the
+   * server refuses one - and a screen offers no control the server would
+   * refuse.
+   */
+  await expect(entry.getByLabel(/^Medlemskap beslutat/)).toHaveCount(0);
+  await basis.selectOption("ALREADY_MEMBER");
+  await expect(entry.getByLabel(/^Medlemskap beslutat/)).toHaveCount(0);
+  await basis.selectOption("MEMBERSHIP_DECISION");
+  await expect(entry.getByLabel(/^Medlemskap beslutat/).first()).toBeVisible();
+
+  await basis.selectOption("ALREADY_MEMBER");
+  await entry
+    .getByRole("button", { name: "Registrera fallet" })
+    .first()
+    .click();
+
+  // Stated on the entry afterwards, and the control gone: the case is fixed
+  // once recorded, because the deadline computed from it cannot be corrected.
+  await expect(
+    entry.getByText("Förvärvaren var redan medlem", { exact: false }),
+  ).toBeVisible();
+  await expect(entry.getByLabel(/^Fall enligt 3 kap. 3/)).toHaveCount(0);
 });

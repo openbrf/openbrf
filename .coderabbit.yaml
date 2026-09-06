@@ -102,8 +102,8 @@ reviews:
         Migrations are forward-only and reviewed for safety, not style.
 
         Flag anything that would weaken the statutory archive: the tables
-        member_register_entry, audit_log_entry, termination and
-        register_report_obligation must never accept UPDATE or DELETE, and
+        member_register_entry, audit_log_entry, termination, transfer_reversal
+        and register_report_obligation must never accept UPDATE or DELETE, and
         transfer and lien_note must never accept DELETE. Those guards are a
         row-level BEFORE UPDATE OR DELETE trigger (BEFORE DELETE alone on the
         two that stay updatable) plus a statement-level TRUNCATE trigger plus
@@ -126,8 +126,9 @@ reviews:
       instructions: >-
         This schema carries a two-tier model that must not be blurred. The
         statutory tier (MemberRegisterEntry, Transfer, LienNote, Termination,
-        RegisterReportObligation, AuditLogEntry and the confidential apartment
-        register fields) is append-only and exempt from purging. The service
+        TransferReversal, RegisterReportObligation, AuditLogEntry and the
+        confidential apartment register fields) is append-only and exempt from
+        purging. The service
         tier carries a computed purge date.
 
         Flag: a new field holding personal data that is not encrypted and blind
@@ -220,14 +221,14 @@ reviews:
 
         The append-only statutory tier is the exception, and rows left there
         must NOT be flagged. audit_log_entry, member_register_entry,
-        termination and register_report_obligation are protected by table-wide
-        BEFORE UPDATE OR DELETE triggers, and transfer and lien_note by BEFORE
-        DELETE ones, so a suite cannot delete its own rows without an ALTER
+        termination, transfer_reversal and register_report_obligation are
+        protected by table-wide BEFORE UPDATE OR DELETE triggers, and transfer
+        and lien_note by BEFORE DELETE ones, so a suite cannot delete its own rows without an ALTER
         that turns the guard off for every connection, including a concurrent
         run of another suite. Leaving those rows is therefore the required
         behaviour and the law's, not an oversight: the Swedish Economic
         Associations Act (EFL 5 kap., via BRL 9 kap.) requires the register to
-        be retained. Any suite that writes to one of the six leaves its rows
+        be retained. Any suite that writes to one of the seven leaves its rows
         behind on purpose.
         What such a suite owes instead is assertions that select on a per-run or
         per-record identifier rather than on a count of the whole table, so flag

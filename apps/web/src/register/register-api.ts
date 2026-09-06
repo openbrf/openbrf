@@ -221,7 +221,30 @@ export type TerminationKind =
  * spelled out for the reason the one above it is: the report prints this to the
  * person it is about.
  */
-export type RegisterReportKind = "GRANT" | "TRANSFER" | "TERMINATION";
+export type RegisterReportKind =
+  "GRANT" | "TRANSFER" | "TERMINATION" | "TRANSFER_REVERSAL";
+
+/**
+ * Which case of Lag (2026:484) 3 kap. 3 § an overgang falls in.
+ *
+ * Mirrors the TransferReportBasis enum in `apps/api/prisma/schema.prisma`,
+ * spelled out for the reason the two above are: the report prints it to the
+ * person it is about, and it says something about them - that they were already
+ * a member, that they fall outside the membership requirement, or that they
+ * acquired the bostadsratt as a lienholding juridical person.
+ */
+export type TransferReportBasis =
+  | "MEMBERSHIP_DECISION"
+  | "ALREADY_MEMBER"
+  | "OUTSIDE_MEMBERSHIP_REQUIREMENT"
+  | "TO_THE_ASSOCIATION"
+  | "LIENHOLDING_JURIDICAL_PERSON";
+
+/**
+ * Which of the two things Lag (2026:484) 3 kap. 3 § tredje stycket names
+ * happened to a registered overlatelse. Spelled out on the same reading.
+ */
+export type TransferReversalKind = "RESCINDED" | "RETURNED_TO_SELLER";
 
 /**
  * Every audit action an entry on the report can carry.
@@ -396,8 +419,33 @@ export interface DataSubjectReport {
     transferredOn: string;
     /** The day the association decided on the acquirer's membership, or null. */
     membershipDecidedOn: string | null;
+    /**
+     * Which case of Lag (2026:484) 3 kap. 3 § the overgang falls in, or null.
+     *
+     * Personal data about the acquirer, like the decision date above it, and
+     * withheld from the seller for the same reason: the value says that this
+     * person was already a member, or fell outside the membership requirement,
+     * or acquired the bostadsratt as a lienholding juridical person.
+     */
+    reportBasis: TransferReportBasis | null;
     price: string | null;
     agreementReference: string | null;
+  }[];
+  /**
+   * Transfers on this report that have been havd or gone back to the seller
+   * (Lag (2026:484) 3 kap. 3 § tredje stycket).
+   *
+   * Carried in both directions, unlike the decision date and the case above: the
+   * reversal is an event about the transfer itself and both parties were party
+   * to it going back.
+   */
+  transferReversals: {
+    reversalId: string;
+    transferId: string;
+    apartment: string;
+    kind: TransferReversalKind;
+    reversedOn: string;
+    reference: string;
   }[];
   /**
    * Tenant-ownerships this person held that have ceased to exist.
@@ -443,7 +491,12 @@ export interface DataSubjectReport {
     kind: RegisterReportKind;
     apartment: string;
     triggeredOn: string;
-    dueOn: string;
+    /**
+     * Null where the section imposing the duty sets no period. 3 kap. 3 § tredje
+     * stycket says the association "ska anmala" and names none, where every
+     * other reporting sentence in the chapter says "inom tva veckor".
+     */
+    dueOn: string | null;
   }[];
   publicationConsents: {
     scope: ConsentScope;

@@ -1,0 +1,14 @@
+-- The ledger learns the fourth duty Lag (2026:484) 3 kap. lays on the
+-- association.
+--
+-- 3 kap. 3 § tredje stycket: "Bostadsrattsforeningen ska anmala om en
+-- overlatelse som har registrerats har havts eller atergatt till saljaren utan
+-- att talan vackts i domstol." A second anmalan about an overgang the
+-- association has already reported, and nothing in the register recorded that it
+-- had happened.
+--
+-- Its own migration, and it does one thing. PostgreSQL will not let a value
+-- added to an enum be used in the same transaction that added it, and the CHECK
+-- in 20260912252000 names this one. That is the reason 20260912210000 was split
+-- off the same way for 'GRANT', and it has not changed.
+ALTER TYPE "RegisterReportKind" ADD VALUE 'TRANSFER_REVERSAL';

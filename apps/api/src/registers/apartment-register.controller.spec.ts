@@ -55,8 +55,10 @@ describe("the apartment register's capability declarations", () => {
       "addLien",
       "releaseLien",
       "recordTermination",
-      "recordMembershipDecision",
+      "recordReportBasis",
+      "recordTransferReversal",
       "recordPropertyDesignation",
+      "recordLandTenure",
     ]) {
       expect(
         requiredOn(ApartmentRegisterController.prototype, route),
@@ -86,8 +88,10 @@ describe("the apartment register's capability declarations", () => {
     for (const route of [
       "addLien",
       "recordTermination",
-      "recordMembershipDecision",
+      "recordReportBasis",
+      "recordTransferReversal",
       "recordPropertyDesignation",
+      "recordLandTenure",
     ]) {
       expect(
         (

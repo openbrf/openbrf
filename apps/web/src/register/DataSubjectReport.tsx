@@ -29,6 +29,8 @@ import {
   type RegisterReportKind,
   type ReportAuditAction,
   type TerminationKind,
+  type TransferReportBasis,
+  type TransferReversalKind,
   fetchDataSubjectReport,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
@@ -102,7 +104,24 @@ const REGISTER_REPORT_KIND_LABEL = {
   GRANT: "register.person.report.reportKind.GRANT",
   TRANSFER: "register.person.report.reportKind.TRANSFER",
   TERMINATION: "register.person.report.reportKind.TERMINATION",
+  TRANSFER_REVERSAL: "register.person.report.reportKind.TRANSFER_REVERSAL",
 } as const satisfies Record<RegisterReportKind, TranslationKey>;
+
+const TRANSFER_REPORT_BASIS_LABEL = {
+  MEMBERSHIP_DECISION:
+    "registers.apartment.transfers.basis.MEMBERSHIP_DECISION",
+  ALREADY_MEMBER: "registers.apartment.transfers.basis.ALREADY_MEMBER",
+  OUTSIDE_MEMBERSHIP_REQUIREMENT:
+    "registers.apartment.transfers.basis.OUTSIDE_MEMBERSHIP_REQUIREMENT",
+  TO_THE_ASSOCIATION: "registers.apartment.transfers.basis.TO_THE_ASSOCIATION",
+  LIENHOLDING_JURIDICAL_PERSON:
+    "registers.apartment.transfers.basis.LIENHOLDING_JURIDICAL_PERSON",
+} as const satisfies Record<TransferReportBasis, TranslationKey>;
+
+const TRANSFER_REVERSAL_KIND_LABEL = {
+  RESCINDED: "registers.apartment.reversals.kind.RESCINDED",
+  RETURNED_TO_SELLER: "registers.apartment.reversals.kind.RETURNED_TO_SELLER",
+} as const satisfies Record<TransferReversalKind, TranslationKey>;
 
 const BOOKING_STATUS_LABEL = {
   BOOKED: "bookings.status.BOOKED",
@@ -686,6 +705,7 @@ export function DataSubjectReport({
                   "register.person.report.field.direction",
                   "register.person.report.field.date",
                   "register.person.report.field.membershipDecidedOn",
+                  "register.person.report.field.reportBasis",
                   "register.person.report.field.price",
                   "register.person.report.field.agreementReference",
                 ]}
@@ -713,10 +733,44 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>
                       {transfer.membershipDecidedOn ?? nothing}
                     </td>
+                    {/*
+                      Which case of Lag (2026:484) 3 kap. 3 § the association
+                      recorded. Absent on a grant, on a row nobody has stated it
+                      for, and on a transfer this person sold on - the last
+                      because it is a statement about the person who bought.
+                    */}
+                    <td className={TEXT_CELL}>
+                      {transfer.reportBasis === null
+                        ? nothing
+                        : t(TRANSFER_REPORT_BASIS_LABEL[transfer.reportBasis])}
+                    </td>
                     <td className={DATA_CELL}>{transfer.price ?? nothing}</td>
                     <td className={DATA_CELL}>
                       {transfer.agreementReference ?? nothing}
                     </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.transferReversals">
+              <Rows
+                empty={report.transferReversals.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.reversalKind",
+                  "register.person.report.field.reversedOn",
+                  "register.person.report.field.terminationReference",
+                ]}
+              >
+                {report.transferReversals.map((reversal) => (
+                  <tr key={reversal.reversalId} className={ROW}>
+                    <td className={DATA_CELL}>{reversal.apartment}</td>
+                    <td className={TEXT_CELL}>
+                      {t(TRANSFER_REVERSAL_KIND_LABEL[reversal.kind])}
+                    </td>
+                    <td className={DATA_CELL}>{reversal.reversedOn}</td>
+                    <td className={TEXT_CELL}>{reversal.reference}</td>
                   </tr>
                 ))}
               </Rows>
@@ -788,7 +842,17 @@ export function DataSubjectReport({
                       {t(REGISTER_REPORT_KIND_LABEL[obligation.kind])}
                     </td>
                     <td className={DATA_CELL}>{obligation.triggeredOn}</td>
-                    <td className={DATA_CELL}>{obligation.dueOn}</td>
+                    {/*
+                      Absent where the statute sets no period, which is one duty:
+                      3 kap. 3 § tredje stycket says the association "ska anmala"
+                      and names no last day. Said as that rather than with the
+                      document's "not recorded" mark, which would tell the
+                      subject a deadline exists and nobody wrote it down.
+                    */}
+                    <td className={DATA_CELL}>
+                      {obligation.dueOn ??
+                        t("register.person.report.noDeadline")}
+                    </td>
                   </tr>
                 ))}
               </Rows>

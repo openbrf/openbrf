@@ -66,6 +66,16 @@ const PROBE_TERMINATION_ID = id("probe-termination");
 const UNDECIDED_TRANSFER_ID = id("undecided-transfer");
 /** An upplatelse, whose window opens on the day of the grant itself. */
 const GRANT_TRANSFER_ID = id("granted-transfer");
+/**
+ * An overgang the board has stated is the association's, so a case can be
+ * refused a second one - and one whose acquirer reports it themselves, so the
+ * ledger can be asked for a row it must never hold.
+ */
+const CASED_TRANSFER_ID = id("cased-transfer");
+const ELSEWHERE_TRANSFER_ID = id("elsewhere-transfer");
+/** A registered overlatelse recorded as having gone back to the seller. */
+const REVERSAL_ID = id("reversal");
+const REVERSED_TRANSFER_ID = id("reversed-transfer");
 
 /**
  * A role for the privilege suite, made per run.
@@ -203,6 +213,52 @@ beforeAll(async () => {
       tookEffectOn: new Date("2026-04-08"),
     },
   });
+  await prisma.transfer.create({
+    data: {
+      id: CASED_TRANSFER_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "TRANSFER",
+      toPersonId: PERSON_ID,
+      transferredOn: new Date("2023-03-01"),
+      // Andra stycket's second sentence: no membership decision, and the window
+      // runs from the overgang.
+      reportBasis: "ALREADY_MEMBER",
+      agreementReference: `Overlatelseavtal ${CASED_TRANSFER_ID}`,
+    },
+  });
+  await prisma.transfer.create({
+    data: {
+      id: ELSEWHERE_TRANSFER_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "TRANSFER",
+      toPersonId: PERSON_ID,
+      transferredOn: new Date("2023-04-01"),
+      // Forsta stycket's second sentence: the anmalan is the juridical person's,
+      // so the association's ledger may hold no row about it at all.
+      reportBasis: "LIENHOLDING_JURIDICAL_PERSON",
+      agreementReference: `Overlatelseavtal ${ELSEWHERE_TRANSFER_ID}`,
+    },
+  });
+  await prisma.transfer.create({
+    data: {
+      id: REVERSED_TRANSFER_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "TRANSFER",
+      toPersonId: PERSON_ID,
+      transferredOn: new Date("2023-05-01"),
+      agreementReference: `Overlatelseavtal ${REVERSED_TRANSFER_ID}`,
+    },
+  });
+  await prisma.transferReversal.create({
+    data: {
+      id: REVERSAL_ID,
+      transferId: REVERSED_TRANSFER_ID,
+      apartmentId: APARTMENT_ID,
+      kind: "RETURNED_TO_SELLER",
+      reversedOn: new Date("2023-07-02"),
+      reference: `Aterganget avtal ${REVERSAL_ID}`,
+    },
+  });
   await prisma.registerReportObligation.create({
     data: {
       id: OBLIGATION_ID,
@@ -290,6 +346,7 @@ afterAll(async () => {
     ["transfer", "transfer_no_delete"],
     ["lien_note", "lien_note_no_delete"],
     ["termination", "termination_append_only"],
+    ["transfer_reversal", "transfer_reversal_append_only"],
     ["register_report_obligation", "register_report_obligation_append_only"],
   ] as const;
 
@@ -311,6 +368,10 @@ afterAll(async () => {
     // so a transfer or a termination with a deadline against it cannot go
     // first.
     await prisma.registerReportObligation.deleteMany({
+      where: { apartmentId: APARTMENT_ID },
+    });
+    // Before the transfers, for the same reason: the reference is RESTRICT.
+    await prisma.transferReversal.deleteMany({
       where: { apartmentId: APARTMENT_ID },
     });
     await prisma.transfer.deleteMany({ where: { apartmentId: APARTMENT_ID } });
@@ -879,6 +940,359 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
  * The role and the statement it governs travel down one connection, which is
  * the condition that makes any of the above true. See {@link sqlStateAsProbe}.
  */
+/**
+ * Thrown to roll a probe transaction back once it has proved its point.
+ *
+ * Two rules below are about what the database accepts, and the rows they would
+ * write are shared with the assertions around them - the association singleton,
+ * and a transfer other tests read the absence of a case on.
+ */
+class GuardRollback extends Error {}
+
+/**
+ * A registered overlatelse that has been havd or has gone back to the seller.
+ *
+ * Lag (2026:484) 3 kap. 3 § tredje stycket. Statutory tier, so it takes the
+ * termination's guards rather than the transfer's: the event has happened and
+ * there is no later state for the row to reach.
+ */
+describe("a reversed overlatelse", () => {
+  it("refuses an update, on the termination's reading", async () => {
+    await expect(
+      prisma.transferReversal.update({
+        where: { id: REVERSAL_ID },
+        data: { reversedOn: new Date("2020-01-01") },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a delete", async () => {
+    await expect(
+      prisma.transferReversal.delete({ where: { id: REVERSAL_ID } }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+
+  it("refuses a truncate, which row triggers alone would not catch", async () => {
+    /*
+     * Both tables in one statement, because register_report_obligation
+     * references this one, and this table named first: PostgreSQL refuses to
+     * truncate a table a foreign key points at unless the referencing table goes
+     * with it, and it does so with 0A000 before any statement-level trigger
+     * fires. Naming this table first is what makes the message prove this
+     * table's guard rather than the ledger's.
+     */
+    await expect(
+      prisma.$executeRawUnsafe(
+        'TRUNCATE TABLE "transfer_reversal", "register_report_obligation"',
+      ),
+    ).rejects.toThrow(
+      /OPENBRF_STATUTORY_ARCHIVE: TRUNCATE is not permitted on transfer_reversal/,
+    );
+  });
+
+  it("refuses a reference that is only whitespace", async () => {
+    // The board records what shows the reversal. A field of spaces is not a
+    // reference, and the class is String.prototype.trim's rather than
+    // [[:space:]], which is locale-dependent.
+    await expect(
+      prisma.transferReversal.create({
+        data: {
+          id: id("blank-reference"),
+          transferId: CASED_TRANSFER_ID,
+          apartmentId: APARTMENT_ID,
+          kind: "RESCINDED",
+          reversedOn: new Date("2023-08-01"),
+          reference: "\u00a0 \u2007",
+        },
+      }),
+    ).rejects.toThrow(/transfer_reversal_reference_present/);
+  });
+
+  it("refuses one on an apartment its overlatelse is not about", async () => {
+    // The apartment is denormalised so the register can be read per apartment
+    // without a join, and a denormalised column nothing checks is a second
+    // answer waiting to disagree with the first.
+    await expect(
+      prisma.transferReversal.create({
+        data: {
+          id: id("wrong-apartment-reversal"),
+          transferId: CASED_TRANSFER_ID,
+          apartmentId: OTHER_APARTMENT_ID,
+          kind: "RESCINDED",
+          reversedOn: new Date("2023-08-01"),
+          reference: `Havning ${suffix}`,
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_REVERSAL/);
+  });
+
+  it("refuses one on an upplatelse, which has no seller to go back to", async () => {
+    await expect(
+      prisma.transferReversal.create({
+        data: {
+          id: id("grant-reversal"),
+          transferId: GRANT_TRANSFER_ID,
+          apartmentId: APARTMENT_ID,
+          kind: "RESCINDED",
+          reversedOn: new Date("2023-08-01"),
+          reference: `Havning ${suffix}`,
+        },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_REVERSAL/);
+  });
+
+  it("refuses a second reversal of one overlatelse", async () => {
+    await expect(
+      prisma.transferReversal.create({
+        data: {
+          id: id("second-reversal"),
+          transferId: REVERSED_TRANSFER_ID,
+          apartmentId: APARTMENT_ID,
+          kind: "RESCINDED",
+          reversedOn: new Date("2023-09-01"),
+          reference: `Havning ${suffix}`,
+        },
+      }),
+    ).rejects.toThrow(/transfer_reversal_transferId_key/);
+  });
+});
+
+/**
+ * The cases of Lag (2026:484) 3 kap. 3 §, in the database.
+ *
+ * The service chooses which day a window opens on. These are what say the same
+ * thing to every other writer this schema has - a seed, an import, a migration.
+ */
+describe("which case of 3 kap. 3 § an overgang falls in", () => {
+  it("refuses a case being restated, as a recorded kind is", async () => {
+    // The obligation computed from it names a paragraph and a day, and the
+    // ledger refuses UPDATE and DELETE, so a case that could move would leave
+    // the association's own record of what it owed stating a rule nobody chose.
+    await expect(
+      prisma.transfer.update({
+        where: { id: CASED_TRANSFER_ID },
+        data: { reportBasis: "TO_THE_ASSOCIATION" },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_RECORD/);
+
+    await expect(
+      prisma.transfer.update({
+        where: { id: CASED_TRANSFER_ID },
+        data: { reportBasis: null },
+      }),
+    ).rejects.toThrow(/OPENBRF_TRANSFER_RECORD/);
+  });
+
+  it("still accepts one on a transfer that never stated one", async () => {
+    // Null to a value is a correction the board is making rather than a guess
+    // the platform is making, which is the grandfathering the kind's own rule
+    // keeps. Rolled back, because the row is shared with the tests around it.
+    await prisma
+      .$transaction(async (tx) => {
+        await tx.transfer.update({
+          where: { id: UNDECIDED_TRANSFER_ID },
+          data: { reportBasis: "ALREADY_MEMBER" },
+        });
+        throw new GuardRollback();
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof GuardRollback)) {
+          throw error;
+        }
+      });
+
+    const stored = await prisma.transfer.findUniqueOrThrow({
+      where: { id: UNDECIDED_TRANSFER_ID },
+      select: { reportBasis: true },
+    });
+    expect(stored.reportBasis).toBeNull();
+  });
+
+  it("refuses a case on an upplatelse, which 3 kap. 3 § does not reach", async () => {
+    await expect(
+      prisma.transfer.update({
+        where: { id: GRANT_TRANSFER_ID },
+        data: { reportBasis: "ALREADY_MEMBER" },
+      }),
+    ).rejects.toThrow(/transfer_report_basis_is_for_an_overgang/);
+  });
+
+  it("refuses a membership decision date beside a case that has none", async () => {
+    // Andra stycket's second sentence runs the window from the overgang, so
+    // there is no decision to date, and a value here would be a second and
+    // contradictory answer to which day the window opened.
+    await expect(
+      prisma.transfer.update({
+        where: { id: CASED_TRANSFER_ID },
+        data: { membershipDecidedOn: new Date("2023-02-01") },
+      }),
+    ).rejects.toThrow(/transfer_membership_decision_matches_basis/);
+  });
+
+  it("counts an already-member overgang's two weeks from the overgang", async () => {
+    // The whole content of the rule: this transfer has no membership decision,
+    // so a ledger row dated from that column would be dated from nothing. The
+    // day it is dated from is the transfer's own.
+    const obligation = await prisma.registerReportObligation.create({
+      data: {
+        id: id("already-member-window"),
+        kind: "TRANSFER",
+        apartmentId: APARTMENT_ID,
+        transferId: CASED_TRANSFER_ID,
+        triggeredOn: new Date("2023-03-01"),
+        dueOn: new Date("2023-03-15"),
+      },
+    });
+    expect(obligation.id).toBe(id("already-member-window"));
+  });
+
+  it("refuses that overgang's window dated from anything else", async () => {
+    /*
+     * The transfer whose case runs the window from the overgang, dated a day
+     * off it. Matched on the sentence about the day rather than on the marker:
+     * three rules in this trigger raise the same marker, and a test that
+     * accepted any of them would pass with the rule it is about removed.
+     */
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("already-member-wrong-day"),
+          kind: "TRANSFER",
+          apartmentId: APARTMENT_ID,
+          transferId: CASED_TRANSFER_ID,
+          triggeredOn: new Date("2023-03-02"),
+          dueOn: new Date("2023-03-16"),
+        },
+      }),
+    ).rejects.toThrow(/the window is dated .* but the statute counts it from/);
+  });
+
+  it("refuses any duty at all where the acquirer makes the anmalan", async () => {
+    /*
+     * Forsta stycket puts the anmalan on the juridical person, so a row here
+     * would be the association recording a deadline it does not owe - and it
+     * could never be taken out again, because this table refuses UPDATE and
+     * DELETE. Dated from the overgang, which is the day a caller reading andra
+     * stycket alone would reach for.
+     */
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("elsewhere-duty"),
+          kind: "TRANSFER",
+          apartmentId: APARTMENT_ID,
+          transferId: ELSEWHERE_TRANSFER_ID,
+          triggeredOn: new Date("2023-04-01"),
+          dueOn: new Date("2023-04-15"),
+        },
+      }),
+      // On the sentence that names the anmalare, not on the marker. Without
+      // this rule the trigger falls through to the date check, which raises the
+      // same marker because that case has no membership decision to count from
+      // - so a test matching the marker alone stays green with the rule gone.
+    ).rejects.toThrow(/anmald by the juridical person that acquired it/);
+  });
+});
+
+/**
+ * The duty tredje stycket sets no period for.
+ *
+ * Every other reporting sentence in 3 kap. says "inom tva veckor"; this one says
+ * the association "ska anmala" and stops. The CHECK states both halves, so
+ * neither a fabricated deadline nor a missing one can be written.
+ */
+describe("a reversal's deadline, or its absence", () => {
+  it("accepts one with no deadline at all", async () => {
+    const obligation = await prisma.registerReportObligation.create({
+      data: {
+        id: id("reversal-duty"),
+        kind: "TRANSFER_REVERSAL",
+        apartmentId: APARTMENT_ID,
+        reversalId: REVERSAL_ID,
+        triggeredOn: new Date("2023-07-02"),
+        dueOn: null,
+      },
+    });
+    expect(obligation.dueOn).toBeNull();
+  });
+
+  it("refuses a deadline read into a sentence that names none", async () => {
+    // Raw SQL, because the generated client's own types now say a reversal's
+    // deadline is null and this is about what the database refuses rather than
+    // about what TypeScript allows. Fourteen days, which is the value an
+    // analogy with the sentences around tredje stycket would reach for.
+    await expect(
+      prisma.$executeRawUnsafe(
+        `INSERT INTO "register_report_obligation"
+           ("id", "kind", "apartmentId", "reversalId", "triggeredOn", "dueOn")
+         VALUES ($1, 'TRANSFER_REVERSAL', $2, $3, DATE '2023-07-02', DATE '2023-07-16')`,
+        id("reversal-dated"),
+        APARTMENT_ID,
+        REVERSAL_ID,
+      ),
+    ).rejects.toThrow(/register_report_obligation_deadline_only_where_stated/);
+  });
+
+  /*
+   * The invariant that could have been lost when the column became nullable.
+   *
+   * Before this change the column was NOT NULL, so the database itself said
+   * every duty in the ledger has a deadline. A plain nullable column says
+   * nothing, and a GRANT, a TRANSFER or a TERMINATION written without one would
+   * be a duty the queue can never call overdue - on a table that refuses UPDATE,
+   * so it could never be corrected either. One case per kind, because the
+   * constraint branches on the kind and a single case would leave two of the
+   * three untested.
+   */
+  const DATED_KINDS = [
+    { kind: "GRANT", event: { transferId: GRANT_TRANSFER_ID } },
+    { kind: "TRANSFER", event: { transferId: CASED_TRANSFER_ID } },
+    { kind: "TERMINATION", event: { terminationId: PROBE_TERMINATION_ID } },
+  ] as const;
+
+  for (const { kind, event } of DATED_KINDS) {
+    it(`refuses a ${kind} with no deadline at all`, async () => {
+      await expect(
+        prisma.registerReportObligation.create({
+          data: {
+            id: id(`undated-${kind}`),
+            kind,
+            apartmentId: APARTMENT_ID,
+            ...event,
+            // The day each event actually carries, so the row is refused on its
+            // nullability rather than on the trigger that checks the window
+            // against the register event.
+            triggeredOn:
+              kind === "GRANT"
+                ? new Date("2022-01-15")
+                : kind === "TRANSFER"
+                  ? new Date("2023-03-01")
+                  : new Date("2026-04-08"),
+            dueOn: null,
+          },
+        }),
+      ).rejects.toThrow(
+        /register_report_obligation_deadline_only_where_stated/,
+      );
+    });
+  }
+
+  it("refuses a reversal's window dated from a day it does not carry", async () => {
+    await expect(
+      prisma.registerReportObligation.create({
+        data: {
+          id: id("reversal-wrong-day"),
+          kind: "TRANSFER_REVERSAL",
+          apartmentId: APARTMENT_ID,
+          reversalId: REVERSAL_ID,
+          triggeredOn: new Date("2023-07-03"),
+          dueOn: null,
+        },
+      }),
+    ).rejects.toThrow(/the window is dated .* but the statute counts it from/);
+  });
+});
+
 describe("the application role's privileges on the statutory archive", () => {
   /** PostgreSQL's insufficient_privilege. */
   const PERMISSION_DENIED = "42501";
