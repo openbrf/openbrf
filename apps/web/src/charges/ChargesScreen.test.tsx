@@ -253,6 +253,53 @@ describe("the file", () => {
       "debiteringslangd-2026-01-01-2026-12-31.csv",
     );
   });
+
+  it("drops a file the list moved on from while it was being produced", async () => {
+    let answer = (): void => undefined;
+    exportDebitingList.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = (): void => {
+            resolve({
+              ok: true,
+              value: {
+                list: LIST,
+                fileName: "debiteringslangd-2026-01-01-2026-12-31.csv",
+                csv: "chargedOn;party\r\n",
+              },
+            });
+          };
+        }),
+    );
+
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta fram filen" }),
+    );
+
+    // A charge is removed while the file is being produced, which reads the
+    // period again. The period is unchanged, so nothing about the dates says
+    // the rows moved - but they did, and the file was produced before it.
+    removeCharge.mockResolvedValue({ ok: true, value: undefined });
+    const row = (await screen.findByText("Nyckel till cykelrummet")).closest(
+      "tr",
+    );
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+    await waitFor(() => {
+      expect(fetchDebitingList).toHaveBeenCalledTimes(2);
+    });
+
+    answer();
+
+    await waitFor(() => {
+      expect(exportDebitingList).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByRole("link", { name: "Hämta filen" })).toBeNull();
+  });
 });
 
 describe("when the read fails", () => {

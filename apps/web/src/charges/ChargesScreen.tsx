@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -146,8 +146,19 @@ export function ChargesScreen(): ReactElement {
     };
   }, [reload]);
 
+  /*
+   * Which read the list on the screen came from. The period cannot say it on
+   * its own: recording or removing a charge reads the same period again, so an
+   * export in flight across that would answer with rows the screen no longer
+   * shows and satisfy a check that compared only the dates. The file is a
+   * disclosure with an audit entry behind it, so handing back the wrong rows is
+   * worse than handing back none.
+   */
+  const generation = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
+    generation.current += 1;
 
     void (async () => {
       const result = await fetchDebitingList(from, to);
@@ -219,7 +230,13 @@ export function ChargesScreen(): ReactElement {
   }, []);
 
   const onExport = useCallback(async () => {
+    const requestedAt = generation.current;
     const result = await exportDebitingList(from, to);
+    // A read that started while this was in flight answers for rows this file
+    // does not carry, so the file is dropped rather than offered against them.
+    if (generation.current !== requestedAt) {
+      return;
+    }
     if (result.ok) {
       setFile({ fileName: result.value.fileName, csv: result.value.csv });
       setRefusal(null);
