@@ -393,6 +393,8 @@ model Apartment {
   signupRequests        SignupRequest[]
   issues                Issue[]
   bookings              Booking[]
+  subletApplications    SubletApplication[]
+  keyOrders             KeyOrder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1595,6 +1597,46 @@ enum AuditAction {
   /// access report shows the meeting their item was put to. The entry names the
   /// meeting and never the motion's text.
   MOTION_MEETING_SET
+  /// A member asked the board's consent to let their apartment in andra hand
+  /// (BRL 7 kap. 10 §). Actor and subject are the same person: the request is
+  /// theirs to make and nobody makes it on anybody's behalf. The entry carries
+  /// the period asked for and the length of the reason, never the reason itself.
+  SUBLET_APPLICATION_SUBMITTED
+  /// The applicant changed what they were asking for while the request was still
+  /// with the board. Actor and subject are the same person.
+  SUBLET_APPLICATION_REVISED
+  /// The applicant took the request back. Actor and subject are the same person.
+  SUBLET_APPLICATION_WITHDRAWN
+  /// The board consented to the letting. The subject stays the applicant, so
+  /// their own access report shows what the association answered.
+  SUBLET_APPLICATION_CONSENTED
+  /// The board refused consent. Its own action rather than a status on a shared
+  /// one, because only a refusal opens the rent tribunal route in BRL 7 kap.
+  /// 11 §, and the log has to be able to say which of the two the association is
+  /// answerable for. The subject stays the applicant.
+  SUBLET_APPLICATION_REFUSED
+  /// Somebody recorded that the rent tribunal (hyresnamnden) permitted a letting
+  /// the board had refused (BRL 7 kap. 11 §), or took that record back. The
+  /// subject stays the applicant: the permission is about their letting, and
+  /// their own access report is where it has to be visible. The entry carries
+  /// the dates recorded and nothing else about the proceeding.
+  SUBLET_TRIBUNAL_PERMISSION_RECORDED
+  /// A resident ordered a key or a tag. Actor and subject are the same person.
+  /// The entry carries the kind and the quantity, never the note.
+  KEY_ORDER_PLACED
+  /// The resident changed a standing order. Actor and subject are the same
+  /// person.
+  KEY_ORDER_REVISED
+  /// The resident took a standing order back. Actor and subject are the same
+  /// person.
+  KEY_ORDER_WITHDRAWN
+  /// The board handed the key or the tag over. Its own action, because the
+  /// handover is the act the record exists for: once the order itself has been
+  /// purged, this entry is what still says somebody was given a key to the
+  /// building on a day. The subject stays whoever ordered it.
+  KEY_ORDER_HANDED_OVER
+  /// The board declined an order. The subject stays whoever placed it.
+  KEY_ORDER_DECLINED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -4527,4 +4569,286 @@ model MeetingNoticeDelivery {
   /// The worker's queue, and the board's count of what got through.
   @@index([noticeId, channel, status])
   @@map("meeting_notice_delivery")
+}
+
+// ---------------------------------------------------------------------------
+// The forms a person living here fills in, and the queues the board works them
+// from.
+//
+// Two subjects with the same shape and different grounds, which is why they are
+// two models rather than one with a kind column. A subletting application is a
+// bostadsrattshavare exercising something BRL 7 kap. 10 § conditions on the
+// board's consent; a key order is a household asking the association for a
+// service nothing obliges it to give. The audiences differ, the acts the board
+// may take differ, and the retention clocks are anchored on different facts.
+// ---------------------------------------------------------------------------
+
+/// Where a subletting application stands.
+///
+/// The statute's own vocabulary. CONSENTED and REFUSED rather than APPROVED and
+/// REJECTED, because BRL 7 kap. 10 § makes the board's act the giving or
+/// withholding of samtycke - and only a refusal opens the rent tribunal route in
+/// 11 §, so the two have to be told apart everywhere.
+enum SubletApplicationStatus {
+  /// With the board, and the only state the applicant may still revise or
+  /// withdraw it in.
+  SUBMITTED
+  /// The board consented to the letting.
+  CONSENTED
+  /// The board refused consent. The one state a rent tribunal permission can be
+  /// recorded against, because 11 § opens that route on the board having
+  /// refused.
+  REFUSED
+  /// The applicant took the request back before the board answered.
+  WITHDRAWN
+}
+
+/// One application for the board's consent to let an apartment in andra hand.
+///
+/// BRL 7 kap. 10 § forsta stycket: a bostadsrattshavare may let their apartment
+/// in andra hand for sjalvstandigt brukande only if the board consents. So the
+/// applicant is the tenant-owner, the apartment is their own, and what this row
+/// records is one dated request and the board's dated answer to it.
+///
+/// ## What is deliberately not here
+///
+/// The sublessee. 10 § conditions the consent on the letting being for
+/// independent use and 11 § weighs the holder's reasons against the
+/// association's, and neither turns on who the tenant is - so naming a third
+/// party who holds no account on this instance would create a data subject the
+/// association could not answer an access request about from this table. What
+/// the board needs to know about the arrangement is in the reason, in the
+/// applicant's own words and under the personal identity number guardrail.
+///
+/// The cases in 10 a §, where no consent is needed at all and the board is only
+/// to be notified: a bostadsratt acquired at a forced sale by a lienholding
+/// juridical person that is not a member, and one held by a kommun or a region.
+/// Both holders are juridical persons, which this platform holds no resident
+/// account for, so neither can reach a resident-initiated form. A board that
+/// receives such a notification records it outside this module.
+///
+/// Whether the letting is for sjalvstandigt brukande at all. 10 § andra stycket
+/// (Lag 2026:776) makes a letting of the apartment or part of it always count as
+/// independent use where the holder does not use it as a permanent home or
+/// otherwise to a beaktansvard extent - a fact about how somebody lives that the
+/// platform does not hold and would be guessing at. The form states the rule and
+/// the applicant applies or does not.
+///
+/// Service tier: purged on the clock in `sublets/sublet-retention.ts`, which is
+/// anchored on the later of the closing date and the end of the period applied
+/// for.
+model SubletApplication {
+  id String @id @default(cuid())
+
+  /// The bostadsrattshavare who is asking.
+  ///
+  /// A plain column and not a relation, for the reason Issue.reporterPersonId
+  /// and Booking.bookedByPersonId are: every referential action a foreign key
+  /// can carry either rewrites this row when a person is erased or vetoes the
+  /// erasure outright, and service-tier data has to be purgeable without the
+  /// purge having to negotiate with the sublet queue.
+  appliedByPersonId String
+
+  /// The apartment the consent would be about.
+  ///
+  /// SetNull rather than Restrict, exactly as Issue.apartmentId and
+  /// Booking.apartmentId are: an apartment corrected out of the register must
+  /// not be held hostage by an application decided two years ago. What is lost
+  /// is which apartment; the row still says who asked, for when, and what the
+  /// board answered.
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
+
+  /// The period applied for, both ends inclusive.
+  ///
+  /// Both required. The statute fixes no period on the application itself, but
+  /// its own fallback where the board refuses does: 7 kap. 11 § forsta stycket
+  /// has the rent tribunal's permission limited to viss tid for a
+  /// bostadsrattshavare, so an application naming no end could not be taken
+  /// further as it stands. The andra stycket softens that to "kan begransas" for
+  /// an apartment held by a juridical person, which is not a case that reaches
+  /// this form.
+  ///
+  /// Dates and not instants: a letting runs over calendar days, and the
+  /// retention window counts from the day the period ends.
+  periodFrom DateTime @db.Date
+  periodTo   DateTime @db.Date
+
+  /// Why the member wants to let, in their own words.
+  ///
+  /// What 11 § calls the bostadsrattshavare's skal for upplatelsen, which is
+  /// half of what the rent tribunal weighs if the board refuses. Free text
+  /// scanned for a personal identity number before it is stored and again on
+  /// every revision: the reason is quoted back to the applicant, read by the
+  /// board and printed on a data subject access report, and the third party a
+  /// letting is arranged with is exactly whose number turns up pasted into it.
+  reason String
+
+  status SubletApplicationStatus @default(SUBMITTED)
+
+  submittedAt DateTime @default(now())
+
+  /// When the application stopped being open, whichever way it closed. Null
+  /// while it is with the board.
+  ///
+  /// One date and not one per status, for the reason Motion.closedAt is one: an
+  /// application closes exactly once, the status says which close it was, and
+  /// the purge needs a single column to compare a cutoff against. Together with
+  /// the status this is the board's decision and its date.
+  closedAt DateTime?
+
+  /// Who closed it: the board member who answered, or the applicant who took the
+  /// request back. A plain column, for the reason appliedByPersonId is one.
+  closedByPersonId String?
+
+  /// What the board said when it answered.
+  ///
+  /// Optional, and 11 § is why it exists at all: the rent tribunal gives
+  /// permission where the association has no befogad anledning to refuse, so a
+  /// refusal whose ground is nowhere written down leaves the association with
+  /// nothing to point at. Scanned like the applicant's own text, because it
+  /// travels back to them and onto their access report.
+  decisionNote String?
+
+  /// The day the rent tribunal (hyresnamnden) permitted the letting the board
+  /// refused, and the day that permission runs out.
+  ///
+  /// Recorded and never derived, which is the whole point of the pair. BRL 7
+  /// kap. 11 § lets the bostadsrattshavare let in andra hand anyway if the
+  /// tribunal permits, and the platform cannot know what the tribunal decided
+  /// unless somebody writes it down - so this is stated rather than enforced.
+  /// The status stays REFUSED: the association did not consent, the tribunal
+  /// permitted, and those are two facts about the same letting rather than one
+  /// overwriting the other. Nothing recomputes a consent from these columns.
+  ///
+  /// Only a refused application may carry them, because that is the state 11 §
+  /// opens the route from, and the database says so as well as the service.
+  ///
+  /// "Until" is nullable although 11 § forsta stycket requires the permission to
+  /// be limited in time, because what is recorded is what the decision said
+  /// rather than what it ought to have said.
+  tribunalPermittedOn    DateTime? @db.Date
+  tribunalPermittedUntil DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The board's queue: open applications first, oldest first within a status.
+  @@index([status, submittedAt])
+  /// A member's own applications, and the section on their access report.
+  @@index([appliedByPersonId, submittedAt])
+  /// Both columns the purge compares against its cutoff. An application is
+  /// erasable only once its closing date and the end of the period applied for
+  /// are both past the window, so the scan filters on the pair.
+  @@index([closedAt, periodTo])
+  /// The applications standing against one apartment.
+  @@index([apartmentId])
+  @@map("sublet_application")
+}
+
+/// What a resident is ordering.
+///
+/// Two values, because two is what a household actually orders: a cut key
+/// (nyckel) and an electronic tag (tagg, passerbricka). Which door it opens is
+/// the note on the order rather than a third value here - the doors a building
+/// has are the board's own list, and an enum over them would be the platform
+/// describing a building it has never seen.
+enum KeyOrderKind {
+  KEY
+  TAG
+}
+
+/// Where a key order stands.
+///
+/// HANDED_OVER rather than a general "done": the act the board records is a
+/// handover to a named person on a day, which is what the record exists for.
+/// DECLINED has no counterpart in the motion queue, and the contrast is the
+/// point - nothing gives a resident a right to a key, where refusing to take up
+/// a member's motion is not the board's to decide at all.
+enum KeyOrderStatus {
+  /// With the board, and the only state the resident may still revise or
+  /// withdraw it in.
+  SUBMITTED
+  /// The board handed the key or the tag over.
+  HANDED_OVER
+  /// The board declined the order.
+  DECLINED
+  /// The resident took the order back before the board answered.
+  WITHDRAWN
+}
+
+/// One order for a key or a tag, and the handover the board records.
+///
+/// No statute stands behind this one, and that is the difference from the
+/// subletting application above. A key to the entrance or a tag to the bike room
+/// is the association's own service to the household that lives here, so the
+/// right is a resident's rather than a member's and the board may decline an
+/// order outright.
+///
+/// Deliberately no amount, no price and no invoice. What a key costs the member
+/// is a charge (debitering), which is its own model with its own VAT treatment
+/// and its own export to whoever keeps the association's books - and a second
+/// place recording a sum would be a second answer to what the member owes. The
+/// join, when it is made, runs from a charge to the order it is the basis for.
+///
+/// Service tier: purged on the clock in `key-orders/key-order-retention.ts`,
+/// anchored on the closing date.
+model KeyOrder {
+  id String @id @default(cuid())
+
+  /// Whoever ordered it. A resident rather than a member: a partner, an adult
+  /// child and a tenant all need to get through the front door, and a key is the
+  /// household's business with the association rather than a right the
+  /// tenant-ownership carries.
+  ///
+  /// A plain column, for the reason SubletApplication.appliedByPersonId is one.
+  orderedByPersonId String
+
+  /// The apartment the key belongs to. SetNull, for the reason
+  /// SubletApplication.apartmentId is nullable.
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
+
+  kind KeyOrderKind
+
+  /// How many. Bounded in the database as well as the API, because an order for
+  /// a household is a handful and a four-figure quantity is a typed mistake the
+  /// board would otherwise have to catch by reading.
+  quantity Int @default(1)
+
+  /// Which door, or what the resident wants it for.
+  ///
+  /// Optional: a tag for the entrance needs no explanation, and a form that
+  /// insisted on one would collect a line of nothing. Resident-written free text,
+  /// so it is scanned for a personal identity number before it is stored and
+  /// again on every revision - an order placed for somebody else in the
+  /// household is where a number gets written down without anybody deciding to.
+  note String?
+
+  status KeyOrderStatus @default(SUBMITTED)
+
+  submittedAt DateTime @default(now())
+
+  /// When the order stopped being open, whichever way it closed, and who closed
+  /// it. For a handover that is the recorded act itself: the board member who
+  /// handed the key over, and when.
+  closedAt         DateTime?
+  closedByPersonId String?
+
+  /// What the board said when it answered. Scanned like the resident's own note,
+  /// because it travels back to them and onto their access report.
+  boardNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The board's queue: open orders first, oldest first within a status.
+  @@index([status, submittedAt])
+  /// A resident's own orders, and the section on their access report.
+  @@index([orderedByPersonId, submittedAt])
+  /// The purge scan.
+  @@index([closedAt])
+  /// The orders standing against one apartment.
+  @@index([apartmentId])
+  @@map("key_order")
 }

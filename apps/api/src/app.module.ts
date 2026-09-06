@@ -25,6 +25,7 @@ import { MailModule } from "./mail/mail.module";
 import { MeetingsModule } from "./meetings/meetings.module";
 import { SmsModule } from "./sms/sms.module";
 import { MediaModule } from "./media/media.module";
+import { KeyOrdersModule } from "./key-orders/key-orders.module";
 import { MotionsModule } from "./motions/motions.module";
 import { MovesModule } from "./moves/moves.module";
 import { NewsModule } from "./news/news.module";
@@ -39,6 +40,7 @@ import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
 import { SiteModule } from "./site/site.module";
 import { StorageModule } from "./storage/storage.module";
+import { SubletsModule } from "./sublets/sublets.module";
 import { ThemesModule } from "./themes/themes.module";
 
 @Module({
@@ -77,6 +79,8 @@ import { ThemesModule } from "./themes/themes.module";
     BookingsModule,
     EventsModule,
     MotionsModule,
+    SubletsModule,
+    KeyOrdersModule,
     MeetingsModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has

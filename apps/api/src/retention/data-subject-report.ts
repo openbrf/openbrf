@@ -576,6 +576,103 @@ export interface ReportAuditEntry {
   context: Record<string, unknown> | null;
 }
 
+/**
+ * An application this person made for the board's consent to let their apartment
+ * in andra hand.
+ *
+ * Purged like the bookings and motions above, and on a clock of its own: an
+ * application is erased two years after the later of the day it closed and the
+ * day the period applied for ended, so each row states when that window runs out
+ * rather than leaving the date at the foot of the document to govern it.
+ *
+ * An application still with the board states none. It has no closing date to
+ * count from, and it is not held indefinitely by oversight: the association is
+ * still processing it, so the purpose it is held for has not ended.
+ *
+ * The reason is carried in full. It is the person's own words about their own
+ * circumstances and the most complete answer art. 15 can give about them; a
+ * report that summarised why somebody wanted to let their home would be the
+ * association paraphrasing them back to themselves. The board's own note is here
+ * for the same reason read from the other side: it is a statement the
+ * association made about this person, and withholding it would leave them unable
+ * to see what was written down when their request was refused.
+ *
+ * The rent tribunal's permission is on the report although it is the tribunal's
+ * decision rather than the association's, because the association recorded it
+ * against this person - BRL 7 kap. 11 § - and what is held about somebody is
+ * what art. 15 asks for, whoever decided it.
+ */
+export interface ReportSubletApplication {
+  applicationId: string;
+  /** Null where the apartment has since been corrected out of the register. */
+  apartment: string | null;
+  /** "YYYY-MM-DD". */
+  periodFrom: string;
+  /** "YYYY-MM-DD", inclusive. */
+  periodTo: string;
+  reason: string;
+  status: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
+  /** ISO instant. */
+  submittedAt: string;
+  /** ISO instant, or null while the application is with the board. */
+  closedAt: string | null;
+  /** What the board wrote when it answered, where it wrote anything. */
+  decisionNote: string | null;
+  /** "YYYY-MM-DD", or null where no rent tribunal permission was recorded. */
+  tribunalPermittedOn: string | null;
+  /** "YYYY-MM-DD", or null where none was recorded or none named an end. */
+  tribunalPermittedUntil: string | null;
+  /**
+   * The earliest date the purge can reach this application, derived from the
+   * retention window and never stored. Null while it is open.
+   *
+   * The earliest, and deliberately not "the date it is erased on", for the
+   * reason {@link ReportBooking.erasableFrom} gives: a legal hold suspends every
+   * purge for the person it stands against, and `retention.onLegalHold` on this
+   * same report says whether one does.
+   */
+  erasableFrom: string | null;
+}
+
+/**
+ * A key or a tag this person ordered.
+ *
+ * Purged on a clock of its own, a year after the order closed, so each row
+ * states when that window runs out. An order still with the board states none,
+ * for the reason a motion still with the board does.
+ *
+ * A shorter window than the sublet application above it, and the difference is
+ * the point rather than an inconsistency: an order for a key is settled when the
+ * key is in somebody's hand, and what remains is the association's own
+ * accounting year.
+ *
+ * What outlives the row is the audit entry recording the handover, which is on
+ * this document under its own section: the log is append-only and exempt from
+ * every purge, so the association can still answer that somebody was given a key
+ * to the building on a day once the order is gone.
+ */
+export interface ReportKeyOrder {
+  orderId: string;
+  /** Null where the apartment has since been corrected out of the register. */
+  apartment: string | null;
+  kind: "KEY" | "TAG";
+  quantity: number;
+  /** What the resident said it was for, where they said anything. */
+  note: string | null;
+  status: "SUBMITTED" | "HANDED_OVER" | "DECLINED" | "WITHDRAWN";
+  /** ISO instant. */
+  submittedAt: string;
+  /** ISO instant, or null while the order is with the board. */
+  closedAt: string | null;
+  /** What the board wrote when it answered, where it wrote anything. */
+  boardNote: string | null;
+  /**
+   * The earliest date the purge can reach this order, derived from the retention
+   * window and never stored. Null while it is open.
+   */
+  erasableFrom: string | null;
+}
+
 export interface DataSubjectReport {
   /** ISO date the report was produced, for the document stamp. */
   generatedOn: string;
@@ -603,6 +700,8 @@ export interface DataSubjectReport {
   documents: ReportDocument[];
   bookings: ReportBooking[];
   motions: ReportMotion[];
+  subletApplications: ReportSubletApplication[];
+  keyOrders: ReportKeyOrder[];
   eventSignups: ReportEventSignup[];
   newsComments: ReportNewsComment[];
   meetingAttendances: ReportMeetingAttendance[];
