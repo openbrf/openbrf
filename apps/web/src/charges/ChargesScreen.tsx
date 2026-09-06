@@ -192,6 +192,19 @@ export function ChargesScreen(): ReactElement {
     };
   }, [from, to, reload]);
 
+  /*
+   * The document the server answered for, and only while it is still the period
+   * the controls name. The answer carries its own `from` and `to`, so this is
+   * read off the data rather than cleared on every transition: a stale document
+   * would sit under controls naming another period, and the remove button
+   * beside a row acts on the charge that row is - so a board reading one period
+   * could take a charge out of another. The file is a copy of the same rows and
+   * goes with it.
+   */
+  const shown =
+    list !== null && list.from === from && list.to === to ? list : null;
+  const shownFile = shown === null ? null : file;
+
   const retry = useCallback(() => {
     setFailed(false);
     setLoading(true);
@@ -290,7 +303,7 @@ export function ChargesScreen(): ReactElement {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {file === null ? (
+            {shownFile === null ? (
               <button
                 type="button"
                 onClick={() => {
@@ -302,8 +315,8 @@ export function ChargesScreen(): ReactElement {
               </button>
             ) : (
               <a
-                href={fileHref(file.csv)}
-                download={file.fileName}
+                href={fileHref(shownFile.csv)}
+                download={shownFile.fileName}
                 className={SECONDARY_BUTTON}
               >
                 {t("charges.export.download")}
@@ -334,19 +347,19 @@ export function ChargesScreen(): ReactElement {
         </Notice>
       )}
 
-      {loading && list === null && !forbidden ? (
+      {loading && shown === null && !forbidden ? (
         <p role="status" className="text-body text-ink-muted">
           {t("charges.loading")}
         </p>
       ) : null}
 
-      {list === null ? null : (
+      {shown === null ? null : (
         <section {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
           <header className="flex flex-col gap-1">
-            <h2 className="text-headline">{list.housingCooperative.name}</h2>
-            {list.housingCooperative.organizationNumber === null ? null : (
+            <h2 className="text-headline">{shown.housingCooperative.name}</h2>
+            {shown.housingCooperative.organizationNumber === null ? null : (
               <p className="font-data text-data text-ink-muted">
-                {`${t("registers.common.organizationNumber")} ${list.housingCooperative.organizationNumber}`}
+                {`${t("registers.common.organizationNumber")} ${shown.housingCooperative.organizationNumber}`}
               </p>
             )}
             <p className="text-title">{t("charges.documentTitle")}</p>
@@ -360,7 +373,7 @@ export function ChargesScreen(): ReactElement {
           */}
           <p className="text-small text-ink-muted">{t("charges.basisOnly")}</p>
 
-          {list.rows.length === 0 ? (
+          {shown.rows.length === 0 ? (
             <div className="flex flex-col gap-1">
               <p className="text-title">{t("charges.empty.title")}</p>
               <p className="text-body text-ink-muted">
@@ -404,7 +417,7 @@ export function ChargesScreen(): ReactElement {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.rows.map((row) => (
+                  {shown.rows.map((row) => (
                     <tr key={row.chargeId} className={ROW}>
                       <td className={DATA_CELL}>{row.chargedOn}</td>
                       <td className={`${CELL} text-body text-ink`}>
@@ -462,13 +475,13 @@ export function ChargesScreen(): ReactElement {
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <p className={STAMP}>
               {t("charges.stamp", {
-                from: list.from,
-                to: list.to,
-                date: list.generatedOn,
+                from: shown.from,
+                to: shown.to,
+                date: shown.generatedOn,
               })}
             </p>
             <p className="font-data text-data text-ink">
-              {t("charges.total", { total: list.total })}
+              {t("charges.total", { total: shown.total })}
             </p>
           </div>
         </section>

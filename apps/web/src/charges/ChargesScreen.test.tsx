@@ -291,6 +291,30 @@ describe("when the read fails", () => {
     expect(screen.queryByText("Andrahandsavgift")).toBeNull();
   });
 
+  it("takes the previous period away when the next one is refused", async () => {
+    render(<ChargesScreen />);
+    await screen.findByText("Nyckel till cykelrummet");
+
+    // A refused period is not a permission failure, so the document is not
+    // taken away for that reason - but it belongs to the period that was asked
+    // for, and the board is now asking for a different one. Leaving it would
+    // put a remove button beside a charge from a period the controls no longer
+    // name.
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "range-invalid" },
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2026-04-01" },
+    });
+
+    expect(
+      await screen.findByText("Perioden kan inte sluta innan den börjar."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Nyckel till cykelrummet")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ta bort" })).toBeNull();
+  });
+
   it("treats a refused period as something to correct, not as a failed read", async () => {
     // The board stated something it can change on the controls above, so the
     // screen says which and keeps the form rather than offering a retry.

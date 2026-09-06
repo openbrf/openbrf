@@ -789,16 +789,30 @@ describe("correcting and removing", () => {
       };
     });
 
+    /*
+     * Resolved once the removal holds the lock and has deleted the row, so the
+     * correction is started against the window rather than merely soon after
+     * the removal was. Waiting on elapsed time instead would let a loaded
+     * machine run the correction first, and the test would then fail with no
+     * regression behind it - which is the one outcome a test for an ordering
+     * must not have.
+     */
+    let removalReady = (): void => undefined;
+    const removalStarted = new Promise<void>((resolve) => {
+      removalReady = resolve;
+    });
+
     const removal = prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`member-charge:${chargeId}`}))`;
         await tx.memberCharge.delete({ where: { id: chargeId } });
+        removalReady();
         await held;
       },
       { timeout: 20_000 },
     );
 
-    await settle();
+    await removalStarted;
     const correction = inject({
       method: "POST",
       url: `/api/member-charges/${chargeId}/correct`,
