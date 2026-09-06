@@ -1,5 +1,6 @@
 ---
 "@openbrf/i18n": patch
+"@openbrf/api": patch
 ---
 
 Correct three values in the data protection module that a board acts on or the
@@ -18,6 +19,14 @@ English. That value is seeded into the persisted art. 30 record rather than only
 rendered, so the misspelling was written into a document the association
 produces on request. It is Lantmäteriet, as the register module has always
 spelled it.
+
+Correcting the string alone would have repaired nothing already written, because
+the seed refreshed only the fields it derives from the configuration and left
+the text it had authored where it was. It now refreshes every field it wrote, on
+the same condition as before: only while nobody has edited the row. That
+condition is what protects a board's own words, and it is set by any edit that
+changes something, so a row the board has touched still comes out of a seed
+exactly as the board left it.
 
 The erasure ground for an upheld objection said an objection "nothing
 overrides". GDPR art. 17(1)(c) turns on there being no overriding legitimate

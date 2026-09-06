@@ -785,6 +785,83 @@ describe("record of processing", () => {
     expect(second.activities).toHaveLength(first.activities.length);
   });
 
+  it("carries a corrected wording into a row it already wrote", async () => {
+    /*
+     * The record is persisted rather than rendered, so a value fixed only in
+     * the locale file repairs nothing already written. The authority's name was
+     * seeded misspelled into this record once; the correction had to reach the
+     * rows that carried it.
+     *
+     * The old value is put back on a seeded row here rather than waited for,
+     * because what is being tested is that the next seed repairs a row holding
+     * text the product no longer uses.
+     */
+    await seedRecord();
+    const key = "cooperativeHousingRegisterReporting";
+
+    await prisma.processingActivity.updateMany({
+      where: { sourceKey: key, updatedByPersonId: null },
+      data: { purpose: "Anmala till Lantmateriet." },
+    });
+
+    await seedRecord();
+
+    const row = await prisma.processingActivity.findFirst({
+      where: { sourceKey: key },
+      select: { purpose: true },
+    });
+    expect(row?.purpose).not.toBe("Anmala till Lantmateriet.");
+    expect(row?.purpose).toContain("Lantmäteriet");
+  });
+
+  it("leaves every word of a row the board has edited", async () => {
+    /*
+     * The other half, and the one that decides whether widening the refresh was
+     * safe: `updatedByPersonId` is what protects the board's own words, and it
+     * is set by any edit that changes something. A row carrying it must come
+     * out of a seed exactly as the board left it, text and derived fields
+     * alike - the board is answerable for the record under art. 5(2), and a
+     * background job rewriting its account of its own processing would be the
+     * association contradicting itself.
+     */
+    await seedRecord();
+    const before = await readRecord();
+    const target = before.activities.find(
+      (activity) => activity.sourceKey === "issues",
+    );
+    if (target === undefined) {
+      throw new Error("the seed did not write the issues row");
+    }
+
+    const edited = await inject({
+      method: "PUT",
+      url: `/api/data-protection/processing-activities/${target.activityId}`,
+      payload: {
+        name: "Felanmalningar, som styrelsen beskriver dem",
+        purpose: "Styrelsens egen beskrivning av vad den gor med anmalningar.",
+        legalBasis: target.legalBasis,
+        dataSubjectCategories: target.dataSubjectCategories,
+        personalDataCategories: target.personalDataCategories,
+        thirdCountryTransfer: target.thirdCountryTransfer,
+        retention: "Sa lange styrelsen har beslutat.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(edited.statusCode).toBe(200);
+
+    await seedRecord();
+
+    const row = await prisma.processingActivity.findFirst({
+      where: { sourceKey: "issues" },
+      select: { name: true, purpose: true, retention: true },
+    });
+    expect(row?.name).toBe("Felanmalningar, som styrelsen beskriver dem");
+    expect(row?.purpose).toBe(
+      "Styrelsens egen beskrivning av vad den gor med anmalningar.",
+    );
+    expect(row?.retention).toBe("Sa lange styrelsen har beslutat.");
+  });
+
   it("names the controller with its contact details at the head", async () => {
     /*
      * art. 30(1)(a). The name and the organisation number were always on the

@@ -64,7 +64,7 @@ export interface ProcessingActivityView {
   source: string;
   sourceKey: string | null;
   endedAt: string | null;
-  /** True while the seed still refreshes this row's fact-derived fields. */
+  /** True while the seed still refreshes this row, i.e. nobody has edited it. */
   seeded: boolean;
 }
 
@@ -90,10 +90,20 @@ export interface ProcessingRecord {
  * product. So the instance writes down what it does with personal data, and the
  * board corrects it and adds what happens outside the application.
  *
- * The seed is idempotent on `sourceKey` and refreshes only the fact-derived
- * fields, and only while `updatedByPersonId` is null. That is what makes a
- * changed storage driver show up in the record without a background job ever
- * overwriting a board's own wording.
+ * The seed is idempotent on `sourceKey` and refreshes every field it authored,
+ * and only while `updatedByPersonId` is null. That is what makes a changed
+ * storage driver show up in the record without a background job ever
+ * overwriting a board's own wording: the column says whether the board has
+ * touched the row, and `update` sets it on any edit that changes something.
+ *
+ * Text the product wrote is refreshed for the same reason the derived fields
+ * are. A row nobody has edited is the product's statement of what the instance
+ * does, so a correction to that statement has to reach it - the record is
+ * persisted rather than rendered, and a value only fixed in the locale file
+ * would leave every instance seeded before the fix stating the old one for
+ * good. That is not hypothetical: the authority's name was seeded misspelled
+ * into this record until it was corrected, and correcting the string alone
+ * would have repaired nothing already written.
  *
  * Art. 30(5) exempts an organisation with fewer than 250 employees only where
  * the processing is occasional, carries no risk and holds no special
@@ -198,6 +208,19 @@ export class ProcessingActivityService {
         await tx.processingActivity.updateMany({
           where: { sourceKey: row.sourceKey, updatedByPersonId: null },
           data: {
+            /*
+             * Everything the seed authored, not only what it derives from the
+             * configuration. `updatedByPersonId` is what protects the board's
+             * own words, and it is set by every edit that changes anything, so
+             * a row reaching here has nothing of the board's in it to lose.
+             */
+            name: row.name,
+            purpose: row.purpose,
+            legalBasis: row.legalBasis,
+            legalBasisNote: row.legalBasisNote,
+            dataSubjectCategories: row.dataSubjectCategories,
+            personalDataCategories: row.personalDataCategories,
+            retention: row.retention,
             recipients: row.recipients,
             thirdCountryTransfer: row.thirdCountryTransfer,
             thirdCountrySafeguards: row.thirdCountrySafeguards,
