@@ -2,6 +2,8 @@ import { PERSONAL_DATA_CATEGORIES } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 import { describe, expect, it } from "vitest";
 
+import { I18nService } from "../i18n/i18n.service";
+
 import { PLUGIN_PERSONAL_DATA_CATEGORIES } from "@openbrf/plugin-sdk";
 
 import {
@@ -228,5 +230,36 @@ describe("securityMeasuresFor", () => {
 
     expect(text).not.toContain("dataProtection.processing.security.s3");
     expect(text).not.toContain("dataProtection.processing.security.localDisk");
+  });
+});
+
+describe("the seed text in the real catalogues", () => {
+  it("resolves every key each row asks for, in both languages", async () => {
+    /*
+     * The echoing translator above proves the rows ask for the right keys. This
+     * proves the keys exist: a seeded record naming
+     * "dataProtection.processing.seed.memberRegister.name" would be a board's
+     * first sight of its own art. 30 record, and it would look like a bug
+     * because it is one.
+     */
+    const i18n = new I18nService();
+    await i18n.init();
+
+    for (const locale of ["sv", "en"] as const) {
+      const translate = i18n.translatorFor(locale);
+      for (const row of seedRows(translate, S3)) {
+        for (const [field, value] of Object.entries(row)) {
+          if (typeof value !== "string") {
+            continue;
+          }
+          expect(value, `${locale} ${row.sourceKey}.${field}`).not.toContain(
+            "dataProtection.processing",
+          );
+          expect(value.trim(), `${locale} ${row.sourceKey}.${field}`).not.toBe(
+            "",
+          );
+        }
+      }
+    }
   });
 });

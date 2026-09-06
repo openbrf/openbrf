@@ -3,6 +3,9 @@ import { Module } from "@nestjs/common";
 import { BreachReminderService } from "./breach-reminder.service";
 import { BreachService } from "./breach.service";
 import { DataProtectionController } from "./data-protection.controller";
+import { DataProtectionSeedService } from "./data-protection-seed.service";
+import { ProcessingActivityService } from "./processing-activity.service";
+import { ProcessorFactsService } from "./processor-facts.service";
 import { DataSubjectRequestController } from "./data-subject-request.controller";
 import { DataSubjectRequestService } from "./data-subject-request.service";
 
@@ -31,7 +34,18 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
  */
 @Module({
   controllers: [DataProtectionController, DataSubjectRequestController],
-  providers: [BreachService, BreachReminderService, DataSubjectRequestService],
-  exports: [DataSubjectRequestService],
+  providers: [
+    BreachService,
+    BreachReminderService,
+    DataSubjectRequestService,
+    ProcessingActivityService,
+    ProcessorFactsService,
+    DataProtectionSeedService,
+  ],
+  exports: [
+    DataSubjectRequestService,
+    ProcessingActivityService,
+    DataProtectionSeedService,
+  ],
 })
 export class DataProtectionModule {}

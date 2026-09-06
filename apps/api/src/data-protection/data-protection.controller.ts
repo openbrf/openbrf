@@ -18,6 +18,11 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { actingPersonId } from "../registers/acting-person";
 import { BreachService, type BreachView } from "./breach.service";
+import {
+  ProcessingActivityService,
+  type ProcessingActivityView,
+  type ProcessingRecord,
+} from "./processing-activity.service";
 
 /**
  * Every free text the board types is bounded here, at the edge, and scanned for
@@ -74,6 +79,28 @@ const decisionSchema = z.object({
   subjectsDecisionGround: z.string().trim().max(1000).nullable().optional(),
 });
 
+/** One processing as the board writes it (GDPR art. 30(1)(b)-(g)). */
+const activitySchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  purpose: z.string().trim().min(1).max(2000),
+  legalBasis: z.enum([
+    "CONSENT",
+    "CONTRACT",
+    "LEGAL_OBLIGATION",
+    "VITAL_INTERESTS",
+    "PUBLIC_TASK",
+    "LEGITIMATE_INTEREST",
+  ]),
+  legalBasisNote: z.string().trim().max(1000).nullable().optional(),
+  dataSubjectCategories: z.array(z.enum(DATA_SUBJECT_CATEGORIES)),
+  personalDataCategories: z.array(z.enum(PERSONAL_DATA_CATEGORIES)),
+  recipients: z.string().trim().max(1000).nullable().optional(),
+  thirdCountryTransfer: z.boolean(),
+  thirdCountrySafeguards: z.string().trim().max(1000).nullable().optional(),
+  retention: z.string().trim().min(1).max(1000),
+  securityMeasures: z.string().trim().max(2000).nullable().optional(),
+});
+
 const subjectSchema = z.object({
   personId: z.string().trim().min(1).max(64),
 });
@@ -97,7 +124,57 @@ function toDate(value: string | null | undefined): Date | null | undefined {
 @Controller("api/data-protection")
 @RequireCapability("dataProtection:manage")
 export class DataProtectionController {
-  constructor(private readonly breaches: BreachService) {}
+  constructor(
+    private readonly breaches: BreachService,
+    private readonly processing: ProcessingActivityService,
+  ) {}
+
+  @Get("processing-activities")
+  async readProcessingRecord(): Promise<ProcessingRecord> {
+    return this.processing.read();
+  }
+
+  @Post("processing-activities")
+  async recordProcessingActivity(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ProcessingActivityView> {
+    const input = activitySchema.parse(body);
+    return this.processing.record({
+      ...input,
+      dataSubjectCategories: [...input.dataSubjectCategories],
+      personalDataCategories: [...input.personalDataCategories],
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  @Put("processing-activities/:activityId")
+  async updateProcessingActivity(
+    @Req() request: RequestWithPrincipal,
+    @Param("activityId") activityId: string,
+    @Body() body: unknown,
+  ): Promise<ProcessingActivityView> {
+    const input = activitySchema.partial().parse(body);
+    return this.processing.update(activityId, {
+      ...input,
+      dataSubjectCategories: input.dataSubjectCategories
+        ? [...input.dataSubjectCategories]
+        : undefined,
+      personalDataCategories: input.personalDataCategories
+        ? [...input.personalDataCategories]
+        : undefined,
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  @Post("processing-activities/:activityId/end")
+  @HttpCode(200)
+  async endProcessingActivity(
+    @Req() request: RequestWithPrincipal,
+    @Param("activityId") activityId: string,
+  ): Promise<ProcessingActivityView> {
+    return this.processing.end(activityId, actingPersonId(request));
+  }
 
   @Get("breaches")
   async listBreaches(): Promise<BreachView[]> {

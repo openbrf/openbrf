@@ -3102,6 +3102,120 @@
     "title": "Dataskydd",
     "intro": "Det föreningen ska kunna visa som personuppgiftsansvarig: de personuppgiftsincidenter den har antecknat, registerförteckningen, hur varje mottagare av personuppgifter är klassificerad och vad enskilda har begärt om sina egna uppgifter.",
     "loading": "Läser dataskyddsuppgifterna...",
-    "loadFailed": "Dataskyddsuppgifterna kunde inte läsas just nu."
+    "loadFailed": "Dataskyddsuppgifterna kunde inte läsas just nu.",
+    "processing": {
+      "seed": {
+        "memberRegister": {
+          "name": "Medlemsförteckning",
+          "purpose": "Föra den medlemsförteckning lagen kräver av föreningen.",
+          "legalBasisNote": "Rättslig förpliktelse: BRL 9 kap. 8-9 §§ och EFL 5 kap.",
+          "retention": "Så länge lagen kräver att förteckningen bevaras. Gallras aldrig."
+        },
+        "apartmentRegister": {
+          "name": "Lägenhetsförteckning",
+          "purpose": "Föra den lägenhetsförteckning lagen kräver av föreningen.",
+          "legalBasisNote": "Rättslig förpliktelse: BRL 9 kap. 10-11 §§.",
+          "retention": "Så länge lagen kräver att förteckningen bevaras. Gallras aldrig."
+        },
+        "cooperativeHousingRegisterReporting": {
+          "name": "Anmälan till bostadsrättsregistret",
+          "purpose": "Anmäla upplåtelser och överlåtelser till Lantmäteriet.",
+          "legalBasisNote": "Rättslig förpliktelse: Lag (2026:484) 3 kap.",
+          "retention": "Anmälningsliggaren bevaras med förteckningarna."
+        },
+        "meetingRecords": {
+          "name": "Stämmohandlingar",
+          "purpose": "Kalla till föreningsstämma och föra dess protokoll.",
+          "legalBasisNote": "Rättslig förpliktelse: EFL 6 kap. 21-22 och 39-40 §§ via BRL 9 kap. 14 §.",
+          "retention": "Protokollen bevaras. Kallelseliggaren, som visar vem som kallades och när, bevaras med dem och gallras inte."
+        },
+        "auditLog": {
+          "name": "Granskningslogg",
+          "purpose": "Kunna visa vem som gjort vad med vems uppgifter.",
+          "legalBasisNote": "Rättslig förpliktelse: GDPR art. 5(2) och art. 32.",
+          "retention": "Loggen är oföränderlig och gallras aldrig."
+        },
+        "addressBookAndAccounts": {
+          "name": "Adressbok och konton",
+          "purpose": "Nå de boende och ge dem tillgång till föreningens tjänster.",
+          "legalBasisNote": "Avtal för medlemmar (art. 6(1)(b)); berättigat intresse för övriga boende.",
+          "retention": "Gallras enligt föreningens gallringstid efter utflytt."
+        },
+        "residentDirectory": {
+          "name": "Grannlista",
+          "purpose": "Låta de boende se vilka som bor i huset.",
+          "legalBasisNote": "Berättigat intresse: att veta vilka man bor tillsammans med.",
+          "retention": "Följer adressboken."
+        },
+        "newsMailings": {
+          "name": "Nyhetsutskick",
+          "purpose": "Meddela medlemmarna vad styrelsen publicerar.",
+          "legalBasisNote": "Berättigat intresse: att hålla medlemmarna underrättade.",
+          "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat."
+        },
+        "issues": {
+          "name": "Felanmälningar",
+          "purpose": "Ta emot och åtgärda fel i huset.",
+          "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
+          "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut."
+        },
+        "documents": {
+          "name": "Dokumentarkiv",
+          "purpose": "Förvara föreningens egna handlingar.",
+          "legalBasisNote": "Berättigat intresse: att bevara föreningens handlingar.",
+          "retention": "Kopplingen till den som laddade upp tas bort vid gallringen; dokumentet behålls."
+        },
+        "bookings": {
+          "name": "Bokningar",
+          "purpose": "Fördela husets gemensamma resurser.",
+          "legalBasisNote": "Avtal: nyttjanderätten till föreningens utrymmen.",
+          "retention": "365 dagar efter bokad tid."
+        },
+        "events": {
+          "name": "Aktiviteter och anmälningar",
+          "purpose": "Kalla till och hålla ordning på föreningens aktiviteter.",
+          "legalBasisNote": "Avtal: deltagande i föreningens verksamhet.",
+          "retention": "365 dagar efter tillfället."
+        },
+        "motions": {
+          "name": "Motioner",
+          "purpose": "Ta emot medlemmarnas motioner till stämman.",
+          "legalBasisNote": "Avtal: medlemmens rätt att lägga fram ärenden.",
+          "retention": "730 dagar efter att motionen avslutats. En öppen motion gallras aldrig."
+        },
+        "websitePublication": {
+          "name": "Publicering på webbplatsen",
+          "purpose": "Visa namn och bilder på föreningens egen webbplats.",
+          "legalBasisNote": "Samtycke: publiceringssamtycke per person och ändamål.",
+          "retention": "Tills samtycket återkallas. Datumen samtycket gällde mellan bevaras."
+        },
+        "contactSubmissions": {
+          "name": "Kontaktformulär",
+          "purpose": "Ta emot meddelanden från allmänheten.",
+          "legalBasisNote": "Berättigat intresse: att kunna svara den som skriver.",
+          "retention": "Tas bort av styrelsen när ärendet är avslutat."
+        },
+        "signupRequestsAndInvitations": {
+          "name": "Kontoansökningar och inbjudningar",
+          "purpose": "Avgöra vem som ska få ett konto på instansen.",
+          "legalBasisNote": "Berättigat intresse: föreningen avgör vem som får tillgång.",
+          "retention": "En avgjord ansökan tas bort av styrelsen. En inbjudan som aldrig accepterats gallras med personens övriga tjänstedata."
+        },
+        "recipients": {
+          "noMailServer": "Ingen e-postserver är konfigurerad.",
+          "localDisk": "Föreningens egen lagring på instansens disk.",
+          "s3": "Objektlagring hos {{endpoint}}, hinken {{bucket}}."
+        },
+        "storageTransfer": "Filerna ligger hos {{endpoint}} i hinken {{bucket}}, signerad för regionen {{region}}. Instansen kan inte avgöra var hinken finns; styrelsen anger var den är placerad eller vilken skyddsåtgärd enligt art. 46 som gäller."
+      },
+      "security": {
+        "encryptionAtRest": "Kontaktuppgifter och personnummer är krypterade i databasen och sökbara via blindindex.",
+        "auditLog": "Varje åtkomst och ändring skrivs till den oföränderliga granskningsloggen.",
+        "capabilityGates": "Varje anrop prövas mot vad den inloggade får göra.",
+        "protectedPersons": "Personer med skyddade personuppgifter maskeras överallt.",
+        "localDisk": "Filerna ligger på instansens egen disk.",
+        "s3": "Filerna ligger i objektlagring hos {{endpoint}}."
+      }
+    }
   }
 }

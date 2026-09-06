@@ -8,12 +8,18 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import { I18nService } from "../i18n/i18n.service";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
   runSuffix,
 } from "../testing/integration-env";
 import { BreachReminderService } from "./breach-reminder.service";
+import { DataProtectionSeedService } from "./data-protection-seed.service";
+import { ProcessingActivityService } from "./processing-activity.service";
+import { ProcessorFactsService } from "./processor-facts.service";
+import { SEED_KEYS } from "./processing-activity-seed";
+import type { ProcessingRecord } from "./processing-activity.service";
 import { BREACH_REMINDER_QUEUE } from "./breach-reminder.queue";
 import type { BreachView } from "./breach.service";
 
@@ -543,5 +549,238 @@ describe("breaches", () => {
         }),
       ).resolves.toBe(0);
     });
+  });
+});
+
+describe("record of processing", () => {
+  /** The record as the board reads it. */
+  async function readRecord(): Promise<ProcessingRecord> {
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/processing-activities",
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json<ProcessingRecord>();
+  }
+
+  /*
+   * The seed is driven directly rather than through the boot hook, which
+   * refuses before setup has completed - and setup state is shared with every
+   * other suite on this database, so flipping it here would be reaching into
+   * their fixtures. That the hook refuses is asserted on its own below.
+   */
+  async function seedRecord(): Promise<void> {
+    await app
+      .get(ProcessingActivityService)
+      .seed(
+        app.get(I18nService).translatorFor("sv"),
+        await app.get(ProcessorFactsService).read(),
+      );
+  }
+
+  it("writes one row per processing the instance performs, and is idempotent", async () => {
+    await seedRecord();
+    const first = await readRecord();
+
+    await seedRecord();
+    const second = await readRecord();
+
+    const seeded = second.activities.filter(
+      (activity) =>
+        activity.sourceKey !== null &&
+        !activity.sourceKey.startsWith("plugin:"),
+    );
+    // Exactly the fixed list, and a second seed writes nothing new: the
+    // sourceKey is what makes it idempotent.
+    const byName = (left: string, right: string): number =>
+      left.localeCompare(right);
+    expect(
+      seeded.map((activity) => activity.sourceKey ?? "").sort(byName),
+    ).toEqual([...SEED_KEYS].sort(byName));
+    expect(second.activities).toHaveLength(first.activities.length);
+  });
+
+  it("names the controller with its contact details at the head", async () => {
+    /*
+     * art. 30(1)(a). The name and the organisation number were always on the
+     * association; nothing recorded how to reach it until now.
+     *
+     * Conditional on the row existing, because this database is shared and a
+     * suite that created an association would be writing another suite's
+     * fixture. Where there is none, what matters is that the block is still
+     * answered rather than throwing - a record that cannot be read is worse
+     * than one with a blank in it.
+     */
+    const association = await prisma.association.findUnique({
+      where: { id: 1 },
+      select: { controllerContactEmail: true, controllerPostalAddress: true },
+    });
+
+    if (association === null) {
+      const record = await readRecord();
+      expect(record.controller.contactEmail).toBeNull();
+      expect(record.controller.postalAddress).toBeNull();
+      expect(record.controller.officer).toBeNull();
+      return;
+    }
+
+    await prisma.association.update({
+      where: { id: 1 },
+      data: {
+        controllerContactEmail: `styrelsen-${suffix}@exempel.se`,
+        controllerPostalAddress: "Storgatan 1, 111 22 Stockholm",
+      },
+    });
+
+    try {
+      const record = await readRecord();
+      expect(record.controller.contactEmail).toBe(
+        `styrelsen-${suffix}@exempel.se`,
+      );
+      expect(record.controller.postalAddress).toBe(
+        "Storgatan 1, 111 22 Stockholm",
+      );
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: {
+          controllerContactEmail: association.controllerContactEmail,
+          controllerPostalAddress: association.controllerPostalAddress,
+        },
+      });
+    }
+  });
+
+  it("names a joint controller only when both halves are recorded", async () => {
+    // art. 30(1)(a) asks for the contact details, so a name standing alone is
+    // not what it requires and is not shown as one.
+    const exists = await prisma.association.count({ where: { id: 1 } });
+    if (exists === 0) {
+      expect((await readRecord()).controller.jointController).toBeNull();
+      return;
+    }
+
+    try {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: {
+          jointControllerName: "Samfalligheten",
+          jointControllerContact: null,
+        },
+      });
+      expect((await readRecord()).controller.jointController).toBeNull();
+
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { jointControllerContact: "kontakt@samfalligheten.test" },
+      });
+      expect((await readRecord()).controller.jointController).toEqual({
+        name: "Samfalligheten",
+        contact: "kontakt@samfalligheten.test",
+      });
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { jointControllerName: null, jointControllerContact: null },
+      });
+    }
+  });
+
+  it("refreshes a seeded row the board has not edited, and never one it has", async () => {
+    /*
+     * The whole reason updatedByPersonId exists. A changed storage driver has
+     * to show up in the record, and a board's own wording must never be
+     * replaced by a background job.
+     */
+    await seedRecord();
+
+    const before = await readRecord();
+    const documents = before.activities.find(
+      (activity) => activity.sourceKey === "documents",
+    );
+    expect(documents).toBeDefined();
+
+    const edited = await inject({
+      method: "PUT",
+      url: `/api/data-protection/processing-activities/${documents?.activityId ?? ""}`,
+      payload: { purpose: "Styrelsens egen formulering." },
+      headers: { cookie: boardCookie },
+    });
+    expect(edited.statusCode).toBe(200);
+
+    await seedRecord();
+
+    const after = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "documents",
+    );
+    expect(after?.purpose).toBe("Styrelsens egen formulering.");
+    // And it has stopped following the instance's settings, which is what the
+    // screen tells the board about a row it has edited.
+    expect(after?.seeded).toBe(false);
+  });
+
+  it("takes a processing the board performs outside the application", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/data-protection/processing-activities",
+      payload: {
+        name: `Nyckelhantering ${suffix}`,
+        purpose: "Hallа reda pa vem som kvitterat vilken nyckel.",
+        legalBasis: "LEGITIMATE_INTEREST",
+        dataSubjectCategories: ["member", "resident"],
+        personalDataCategories: ["name", "apartment"],
+        thirdCountryTransfer: false,
+        retention: "Tills nyckeln lamnas tillbaka.",
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json<{ source: string }>().source).toBe("BOARD");
+  });
+
+  it("refuses a personal identity number in the record", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/data-protection/processing-activities",
+      payload: {
+        name: `Test ${suffix}`,
+        purpose: `Om ${runIdentityNumber(suffix)} i klartext.`,
+        legalBasis: "CONTRACT",
+        dataSubjectCategories: ["member"],
+        personalDataCategories: ["name"],
+        thirdCountryTransfer: false,
+        retention: "Kort.",
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("personal-identity-number");
+  });
+
+  it("writes nothing before the instance has been set up", async () => {
+    /*
+     * The association row is a shell until setup completes. Seeding then would
+     * write a record naming a cooperative with no name, in whatever language
+     * the schema defaults to, and the board's first sight of its own art. 30
+     * record would be that.
+     */
+    const association = await prisma.association.findUnique({
+      where: { id: 1 },
+      select: { setupCompletedAt: true },
+    });
+
+    if (association?.setupCompletedAt == null) {
+      const before = await prisma.processingActivity.count();
+      await app.get(DataProtectionSeedService).seedIfConfigured();
+      expect(await prisma.processingActivity.count()).toBe(before);
+    } else {
+      // Another suite completed setup on this shared database, so the hook is
+      // expected to write instead. Either way it agrees with the row.
+      await app.get(DataProtectionSeedService).seedIfConfigured();
+      expect(await prisma.processingActivity.count()).toBeGreaterThan(0);
+    }
   });
 });

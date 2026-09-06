@@ -3102,6 +3102,120 @@
     "title": "Data protection",
     "intro": "What the association has to be able to show as controller: the personal data breaches it has recorded, the record of its processing activities, how every recipient of personal data is classified, and what people have asked about their own data.",
     "loading": "Reading the data protection records...",
-    "loadFailed": "The data protection records could not be read just now."
+    "loadFailed": "The data protection records could not be read just now.",
+    "processing": {
+      "seed": {
+        "memberRegister": {
+          "name": "Member register",
+          "purpose": "Keeping the member register the law requires of the association.",
+          "legalBasisNote": "Legal obligation: BRL 9 kap. 8-9 §§ and EFL 5 kap.",
+          "retention": "For as long as the law requires the register. Never purged."
+        },
+        "apartmentRegister": {
+          "name": "Apartment register",
+          "purpose": "Keeping the apartment register the law requires of the association.",
+          "legalBasisNote": "Legal obligation: BRL 9 kap. 10-11 §§.",
+          "retention": "For as long as the law requires the register. Never purged."
+        },
+        "cooperativeHousingRegisterReporting": {
+          "name": "Reporting to the cooperative housing register",
+          "purpose": "Reporting grants and transfers to Lantmateriet.",
+          "legalBasisNote": "Legal obligation: Lag (2026:484) 3 kap.",
+          "retention": "The reporting ledger is kept with the registers."
+        },
+        "meetingRecords": {
+          "name": "General meeting records",
+          "purpose": "Summoning the general meeting and keeping its minutes.",
+          "legalBasisNote": "Legal obligation: EFL 6 kap. 21-22 and 39-40 §§ via BRL 9 kap. 14 §.",
+          "retention": "The minutes are kept. The notice ledger, which shows who was summoned and when, is kept with them and is not purged."
+        },
+        "auditLog": {
+          "name": "Audit log",
+          "purpose": "Being able to show who did what with whose data.",
+          "legalBasisNote": "Legal obligation: GDPR art. 5(2) and art. 32.",
+          "retention": "The log is append-only and is never purged."
+        },
+        "addressBookAndAccounts": {
+          "name": "Address book and accounts",
+          "purpose": "Reaching the residents and giving them access to the association's services.",
+          "legalBasisNote": "Contract for members (art. 6(1)(b)); legitimate interest for other residents.",
+          "retention": "Purged on the association's retention window after a move-out."
+        },
+        "residentDirectory": {
+          "name": "Resident directory",
+          "purpose": "Letting the residents see who lives in the building.",
+          "legalBasisNote": "Legitimate interest: knowing whom one lives with.",
+          "retention": "Follows the address book."
+        },
+        "newsMailings": {
+          "name": "News mailings",
+          "purpose": "Telling the members what the board publishes.",
+          "legalBasisNote": "Legitimate interest: keeping the members informed.",
+          "retention": "The delivery ledger is kept as the association's record of what it sent."
+        },
+        "issues": {
+          "name": "Issue reports",
+          "purpose": "Receiving and dealing with problems in the building.",
+          "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
+          "retention": "The link to the person is detached by the purge; the issue and its photographs are kept. A public-form report is purged 365 days after it is closed."
+        },
+        "documents": {
+          "name": "Document archive",
+          "purpose": "Keeping the association's own records.",
+          "legalBasisNote": "Legitimate interest: preserving the association's records.",
+          "retention": "The link to the uploader is detached by the purge; the document is kept."
+        },
+        "bookings": {
+          "name": "Bookings",
+          "purpose": "Sharing out the building's common resources.",
+          "legalBasisNote": "Contract: the right to use the association's spaces.",
+          "retention": "365 days after the booked period."
+        },
+        "events": {
+          "name": "Events and sign-ups",
+          "purpose": "Arranging the association's events and keeping track of them.",
+          "legalBasisNote": "Contract: taking part in the association's activities.",
+          "retention": "365 days after the occurrence."
+        },
+        "motions": {
+          "name": "Motions",
+          "purpose": "Receiving the members' motions to the general meeting.",
+          "legalBasisNote": "Contract: a member's right to put an item to the meeting.",
+          "retention": "730 days after the motion is closed. An open motion is never purged."
+        },
+        "websitePublication": {
+          "name": "Publication on the website",
+          "purpose": "Showing names and photographs on the association's own website.",
+          "legalBasisNote": "Consent: a publication consent per person and per scope.",
+          "retention": "Until the consent is withdrawn. The dates it applied between are kept."
+        },
+        "contactSubmissions": {
+          "name": "Contact form",
+          "purpose": "Receiving messages from the public.",
+          "legalBasisNote": "Legitimate interest: being able to answer whoever writes.",
+          "retention": "Deleted by the board once the matter is finished."
+        },
+        "signupRequestsAndInvitations": {
+          "name": "Sign-up requests and invitations",
+          "purpose": "Deciding who is given an account on the instance.",
+          "legalBasisNote": "Legitimate interest: the association decides who gets access.",
+          "retention": "A decided request is deleted by the board. An invitation never accepted is purged with the person's other service data."
+        },
+        "recipients": {
+          "noMailServer": "No mail server is configured.",
+          "localDisk": "The association's own storage on the instance's disk.",
+          "s3": "Object storage at {{endpoint}}, bucket {{bucket}}."
+        },
+        "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."
+      },
+      "security": {
+        "encryptionAtRest": "Contact details and personal identity numbers are encrypted at rest and searchable through blind indexes.",
+        "auditLog": "Every access and change is written to the append-only audit log.",
+        "capabilityGates": "Every call is checked against what the signed-in person may do.",
+        "protectedPersons": "People with protected personal data are masked everywhere.",
+        "localDisk": "The files are on the instance's own disk.",
+        "s3": "The files are in object storage at {{endpoint}}."
+      }
+    }
   }
 }
