@@ -1436,6 +1436,59 @@ describe("the purge", () => {
     expect(JSON.stringify(entries[0]?.context)).not.toContain("@");
   });
 
+  it("takes an attachment's file and its bytes with the thread", async () => {
+    const correspondent = `bilaga-${suffix}@utanfor.example`;
+    const collectorServer = await serveMailbox([
+      {
+        uid: `uid-aged-attachment-${suffix}`,
+        raw: letter({
+          from: correspondent,
+          subject: `Gammal bilaga ${suffix}`,
+          body: "Ett gammalt brev med bilaga.",
+          messageId: `aged-attachment-${suffix}@utanfor.example`,
+          attachment: true,
+        }),
+      },
+    ]);
+    try {
+      await collector.collect();
+    } finally {
+      await collectorServer.close();
+    }
+
+    const thread = await threadBySubject(`Gammal bilaga ${suffix}`);
+    const stored = await prisma.boardMailboxAttachment.findMany({
+      where: { message: { threadId: thread.id } },
+      select: { fileId: true },
+    });
+    expect(stored).toHaveLength(1);
+    const fileId = stored[0]?.fileId ?? "";
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: fileId } }),
+    ).not.toBeNull();
+
+    await prisma.boardMailboxThread.update({
+      where: { id: thread.id },
+      data: { lastMessageAt: new Date("2020-01-01T00:00:00.000Z") },
+    });
+    await purge.run(new Date("2026-01-01T00:00:00.000Z"));
+
+    expect(
+      await prisma.boardMailboxThread.findUnique({ where: { id: thread.id } }),
+    ).toBeNull();
+    /*
+     * And the file with it. The cascade reaches the attachment row and stops
+     * there - a row points at a file, and that direction cascades the other way
+     * - so without the purge removing the media itself the bytes of a letter
+     * would outlive the letter, and the retention window would be kept for
+     * everything on a thread except the part somebody outside the association
+     * chose to attach.
+     */
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: fileId } }),
+    ).toBeNull();
+  });
+
   it("leaves a thread whose conversation is still recent", async () => {
     const threadId = await agedThread(
       `farsk-${suffix}@utanfor.example`,

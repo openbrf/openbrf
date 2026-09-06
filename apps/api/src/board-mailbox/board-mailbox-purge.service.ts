@@ -7,6 +7,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { MediaService } from "../media/media.service";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
@@ -118,6 +119,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
     private readonly jobs: JobQueueService,
+    private readonly media: MediaService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -238,6 +240,24 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     }
 
     /*
+     * The files that arrived on this thread, read before it goes.
+     *
+     * Deleting the thread cascades to the messages and to the attachment rows,
+     * and stops there: an attachment row points at a media file, and that
+     * direction cascades the other way - remove the file and the row that
+     * indexes it goes with it, not the reverse. So the bytes would outlive the
+     * letter that carried them, which is the retention window not being kept
+     * for the part of a letter somebody outside the association chose to send.
+     *
+     * Collected here rather than after the delete, because after it there is
+     * nothing left to read them from.
+     */
+    const attachments = await this.prisma.boardMailboxAttachment.findMany({
+      where: { message: { threadId } },
+      select: { fileId: true },
+    });
+
+    /*
      * Who this thread's correspondent turns out to be in the register, if
      * anybody, read before the transaction opens.
      *
@@ -252,7 +272,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         ? null
         : await this.heldPersonFor(thread.correspondentEmailIndex);
 
-    return this.prisma.$transaction(async (tx) => {
+    const erased = await this.prisma.$transaction(async (tx) => {
       if (heldPersonId !== null) {
         /*
          * Before the hold is read, so that reading it settles the question.
@@ -314,6 +334,51 @@ export class BoardMailboxPurgeService implements OnModuleInit {
 
       return true;
     });
+
+    if (erased) {
+      await this.removeAttachments(attachments.map((row) => row.fileId));
+    }
+    return erased;
+  }
+
+  /**
+   * Removes the media a purged thread's attachments pointed at.
+   *
+   * After the transaction and never inside it. `MediaService.remove` opens a
+   * transaction of its own and then deletes the object out of storage, and
+   * storage is not a thing a database transaction can roll back - a removal
+   * begun inside one that then aborted would leave a row pointing at bytes that
+   * are gone, which is the failure the attachment row's own cascade note calls
+   * worse than no row at all.
+   *
+   * Each file is checked for anything still pointing at it first. Nothing shares
+   * one today - the collector uploads every attachment as its own file, and the
+   * media table deduplicates nothing - but a file this purge did not own is not
+   * a file it may delete, and the check costs one query against an indexed key.
+   *
+   * A failure here is logged and not raised. The thread is already gone and the
+   * run has more of them to erase; what is left behind is bytes with nothing
+   * pointing at them, which the next run does not retry but which is a smaller
+   * fault than a purge that stops.
+   */
+  private async removeAttachments(fileIds: readonly string[]): Promise<void> {
+    for (const fileId of fileIds) {
+      try {
+        const stillReferenced = await this.prisma.boardMailboxAttachment.count({
+          where: { fileId },
+        });
+        if (stillReferenced > 0) {
+          continue;
+        }
+        // No actor, for the reason the erasure entry above gives: a date
+        // arrived, and nobody pressed anything.
+        await this.media.remove(fileId, null);
+      } catch (error) {
+        this.logger.error(
+          `Board mailbox purge erased a thread but not one of its attachments: ${failureName(error)}`,
+        );
+      }
+    }
   }
 
   /**
