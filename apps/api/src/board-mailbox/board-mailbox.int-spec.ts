@@ -1489,6 +1489,51 @@ describe("the purge", () => {
     ).toBeNull();
   });
 
+  it("erases a thread carrying no correspondent index while a hold stands", async () => {
+    const threadId = await agedThread(
+      `oindexerad-${suffix}@utanfor.example`,
+      new Date("2020-01-01T00:00:00.000Z"),
+    );
+    // A thread whose correspondent carries no index. The collector will not
+    // write one today, and the column is nullable, and the two halves of the
+    // purge have to agree about what a null means: `purgeThread` reads it as
+    // nobody held, so the scan has to offer it.
+    await prisma.boardMailboxThread.update({
+      where: { id: threadId },
+      data: { correspondentEmailIndex: null },
+    });
+
+    /*
+     * And a hold standing somewhere in the association, which is what used to
+     * hide it. With no hold the scan asks no question about the index at all;
+     * with one it asked `NOT IN`, and SQL does not answer that true for a null -
+     * it answers null, and the row is dropped. The window would then pass with
+     * the thread never offered to a run and nothing saying so.
+     */
+    const hold = await prisma.legalHold.create({
+      data: {
+        // Somebody whose registered address does index, so the scan really does
+        // build a list to exclude. A held person the register holds no address
+        // for contributes nothing to it, and the query would take the branch
+        // that asks nothing about the index at all.
+        personId: heldResident.personId,
+        reason: `Oindexerad ${suffix}`,
+        placedByPersonId: administrator.personId,
+      },
+      select: { id: true },
+    });
+
+    try {
+      await purge.run(new Date("2026-01-01T00:00:00.000Z"));
+
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).toBeNull();
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+    }
+  });
+
   it("leaves a thread whose conversation is still recent", async () => {
     const threadId = await agedThread(
       `farsk-${suffix}@utanfor.example`,

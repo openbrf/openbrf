@@ -203,10 +203,25 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     const threads = await this.prisma.boardMailboxThread.findMany({
       where: {
         lastMessageAt: { lte: cutoff },
-        // Spelled conditionally rather than as an empty `notIn`, so what the
-        // query asks does not depend on how the client renders a list of none.
+        /*
+         * Spelled conditionally rather than as an empty `notIn`, so what the
+         * query asks does not depend on how the client renders a list of none.
+         *
+         * And the null branch beside it, because `NOT IN` in SQL does not answer
+         * true for null - it answers null, and the row is dropped. A thread whose
+         * correspondent carries no index would therefore have been invisible to
+         * this query for as long as any hold stood anywhere in the association,
+         * and invisible to it is never erased: the retention window would pass
+         * and nothing would say so. `purgeThread` reads a null index as nobody
+         * held, and these two have to agree about that.
+         */
         ...(held.length > 0
-          ? { correspondentEmailIndex: { notIn: held } }
+          ? {
+              OR: [
+                { correspondentEmailIndex: { notIn: held } },
+                { correspondentEmailIndex: null },
+              ],
+            }
           : {}),
       },
       orderBy: [{ lastMessageAt: "asc" }],
