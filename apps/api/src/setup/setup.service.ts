@@ -18,6 +18,7 @@ import {
   I18nService,
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
+import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
 import { PagesService } from "../site/pages.service";
 
 export class SetupError extends DomainError {
@@ -90,6 +91,9 @@ export class SetupService implements OnModuleInit {
     private readonly audit: AuditLogService,
     private readonly pages: PagesService,
     private readonly i18n: I18nService,
+    // The record of processing activities, written when the wizard finishes:
+    // the instance only knows what it processes once it knows who it is.
+    private readonly dataProtection: DataProtectionSeedService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -302,6 +306,30 @@ export class SetupService implements OnModuleInit {
         "Setup finished, but the association's first pages could not be " +
           "written. The public address answers with a not-found until a page " +
           "is created.",
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
+
+    /*
+     * The record of processing activities (GDPR art. 30), written from what the
+     * instance now knows about itself.
+     *
+     * Here rather than only at the next boot, which is where it would otherwise
+     * happen: the association exists from this moment, and a board that opens
+     * the data protection screen the same afternoon should find its own record
+     * rather than an empty list with nothing saying why.
+     *
+     * Its own try, like the pages above. The seed swallows its own failures
+     * already, and this does not lean on that: setup has been stamped, and a
+     * record that can be written on the next start is not a reason to fail a
+     * completion that succeeded.
+     */
+    try {
+      await this.dataProtection.seedIfConfigured();
+    } catch (cause) {
+      this.logger.error(
+        "Setup finished, but the record of processing activities could not " +
+          "be written. It is retried on the next start.",
         cause instanceof Error ? cause.stack : undefined,
       );
     }

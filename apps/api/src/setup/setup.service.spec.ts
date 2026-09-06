@@ -6,6 +6,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import type { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
 import type { PagesService } from "../site/pages.service";
 import { SetupError, SetupService } from "./setup.service";
 
@@ -74,6 +75,7 @@ interface Fakes {
     seedDefaultPage: ReturnType<typeof vi.fn>;
     seedPrivacyNotice: ReturnType<typeof vi.fn>;
   };
+  dataProtection: { seedIfConfigured: ReturnType<typeof vi.fn> };
 }
 
 /**
@@ -130,6 +132,10 @@ function build(
     seedPrivacyNotice: vi.fn().mockResolvedValue({ created: true }),
   };
 
+  const dataProtection = {
+    seedIfConfigured: vi.fn().mockResolvedValue(undefined),
+  };
+
   const service = new SetupService(
     client as unknown as PrismaService,
     auth as unknown as AuthService,
@@ -137,10 +143,11 @@ function build(
     audit as unknown as AuditLogService,
     pages as unknown as PagesService,
     i18n,
+    dataProtection as unknown as DataProtectionSeedService,
     TEST_ENV,
   );
 
-  return { service, prisma, auth, audit, pages };
+  return { service, prisma, auth, audit, pages, dataProtection };
 }
 
 describe("setup state", () => {
@@ -408,6 +415,31 @@ describe("completing setup", () => {
     // instance unclaimed with an administrator already in it.
     const { service, pages } = build();
     pages.seedDefaultPage.mockRejectedValue(new Error("no database"));
+
+    await expect(service.complete("person-1")).resolves.toMatchObject({
+      completedAt: expect.any(Date) as Date,
+    });
+  });
+
+  it("writes the record of processing activities", async () => {
+    /*
+     * GDPR art. 30, when the instance first knows who it is. Without this the
+     * record is written on the next boot instead, so a board that finishes the
+     * wizard and opens the data protection screen the same afternoon finds an
+     * empty list with nothing on the screen saying why.
+     */
+    const { service, dataProtection } = build();
+
+    await service.complete("person-1");
+
+    expect(dataProtection.seedIfConfigured).toHaveBeenCalledTimes(1);
+  });
+
+  it("still completes when the record cannot be written", async () => {
+    // For the reason the page above gives. The seed swallows its own failures,
+    // so this pins that nothing between here and there rethrows one.
+    const { service, dataProtection } = build();
+    dataProtection.seedIfConfigured.mockRejectedValue(new Error("no database"));
 
     await expect(service.complete("person-1")).resolves.toMatchObject({
       completedAt: expect.any(Date) as Date,

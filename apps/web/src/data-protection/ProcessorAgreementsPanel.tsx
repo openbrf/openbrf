@@ -93,9 +93,18 @@ export function ProcessorAgreementsPanel({
               <span className="text-body font-semibold">
                 {nameOf(processor)}
               </span>
-              <span className={HINT}>
-                {t(`dataProtection.processors.kind.${processor.processorKind}`)}
-              </span>
+              {/*
+               * The kind, where it is not already the name. A row the instance
+               * has no name for is called what kind it is, and printing that
+               * twice would read as a stutter rather than as two facts.
+               */}
+              {processor.identity === null ? null : (
+                <span className={HINT}>
+                  {t(
+                    `dataProtection.processors.kind.${processor.processorKind}`,
+                  )}
+                </span>
+              )}
               <span className="text-small font-semibold">
                 {t(STATE_LABEL[processor.state])}
               </span>
