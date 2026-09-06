@@ -846,3 +846,115 @@ export async function setPublicationConsent(
     "PATCH /api/address-book/persons/:id/publication-consent",
   );
 }
+
+export type BreachRow = {
+  readonly breachId: string;
+  readonly title: string;
+  readonly discoveredAt: string;
+  readonly state: "awaitingDecision" | "overdue" | "decided" | "closed";
+};
+
+/**
+ * Records a personal data breach.
+ *
+ * Over HTTP because there is no screen that records one, and deliberately so:
+ * a breach is discovered in a hurry, often by somebody who is not at a desk,
+ * and the board writes it up afterwards. What the screen exists for is the two
+ * decisions art. 33 and art. 34 ask for, and those the specs drive by clicking.
+ *
+ * `discoveredAt` is what the 72-hour clock runs from, so a spec that wants an
+ * overdue breach passes a date days back rather than waiting for one.
+ */
+export async function recordPersonalDataBreach(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    title: string;
+    description: string;
+    discoveredAt: Date;
+    dataDescription: string;
+    effects: string;
+    measures: string;
+    personalDataCategories?: readonly string[];
+    dataSubjectCategories?: readonly string[];
+    subjectPersonIds?: readonly string[];
+  },
+): Promise<BreachRow> {
+  const response = await request.post(
+    `${baseUrl}/api/data-protection/breaches`,
+    {
+      data: {
+        title: input.title,
+        description: input.description,
+        discoveredAt: input.discoveredAt.toISOString(),
+        dataDescription: input.dataDescription,
+        effects: input.effects,
+        measures: input.measures,
+        personalDataCategories: input.personalDataCategories ?? ["name"],
+        dataSubjectCategories: input.dataSubjectCategories ?? ["member"],
+        subjectPersonIds: input.subjectPersonIds ?? [],
+      },
+    },
+  );
+  await expectOk(response, "POST /api/data-protection/breaches");
+  return (await response.json()) as BreachRow;
+}
+
+export type ProcessorRow = {
+  readonly processorKey: string;
+  readonly processorKind:
+    "SMTP" | "SMS" | "STORAGE" | "HOSTING" | "PLUGIN" | "EXTERNAL";
+  readonly identity: string;
+  readonly state:
+    | "inPlace"
+    | "pending"
+    | "notAProcessor"
+    | "independentController"
+    | "notRecorded";
+};
+
+/**
+ * Who this instance hands personal data to, as the board's screen lists them.
+ *
+ * Read rather than written here. A spec that classifies a recipient does it by
+ * clicking, because the judgement is the board's and the screen is where it is
+ * made; what this answers is how many rows that screen will show, which is a
+ * property of the deployment rather than of the test.
+ */
+export async function listProcessors(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly ProcessorRow[]> {
+  const response = await request.get(
+    `${baseUrl}/api/data-protection/processors`,
+  );
+  await expectOk(response, "GET /api/data-protection/processors");
+  return (await response.json()) as readonly ProcessorRow[];
+}
+
+/**
+ * How the association is reached as controller (GDPR art. 13(1)(a)-(b)).
+ *
+ * Set over HTTP by the specs that need the privacy notice to have something to
+ * print. The settings panel that records it has its own coverage; a spec about
+ * what a visitor can read on the notice needs the details to exist rather than
+ * to be typed in front of it.
+ */
+export async function setDataProtectionContacts(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    controller: { contactEmail?: string | null; postalAddress?: string | null };
+    officer?: {
+      name?: string | null;
+      email?: string | null;
+      phone?: string | null;
+    };
+  },
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/settings/data-protection-contacts`,
+    { data: input },
+  );
+  await expectOk(response, "PUT /api/settings/data-protection-contacts");
+}

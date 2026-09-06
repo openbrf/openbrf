@@ -97,6 +97,11 @@ export function BreachRegisterPanel({
                     <button
                       type="button"
                       className={SECONDARY_BUTTON}
+                      // Names the breach, because every row offers the same act
+                      // and a screen reader hears one button per row otherwise.
+                      aria-label={t("dataProtection.breaches.decideNamed", {
+                        title: breach.title,
+                      })}
                       onClick={() => {
                         setOpen(
                           open === breach.breachId ? null : breach.breachId,
@@ -154,6 +159,16 @@ function DecideForm({
     imyNotifiedAt !== "" &&
     new Date(imyNotifiedAt).getTime() > new Date(breach.imyNotifyBy).getTime();
 
+  /*
+   * A datetime-local control holds "2026-09-06T13:00" - the reader's own wall
+   * clock, with no seconds and no zone - and the API takes an instant. Parsed
+   * here rather than sent as written: the string means one moment to the board
+   * member reading it and nothing at all to a server in another zone, and this
+   * is the one place that knows which of the two is meant.
+   */
+  const notifiedAtInstant =
+    imyNotifiedAt === "" ? null : new Date(imyNotifiedAt).toISOString();
+
   return (
     <form
       className="flex flex-col gap-3 border-l border-line pl-3"
@@ -163,7 +178,7 @@ function DecideForm({
           risk,
           imyNotificationRequired: imyRequired,
           imyDecisionGround: imyGround,
-          imyNotifiedAt: imyNotifiedAt === "" ? null : imyNotifiedAt,
+          imyNotifiedAt: notifiedAtInstant,
           delayReasons: delayReasons === "" ? null : delayReasons,
           subjectsInformationRequired: subjectsRequired,
           subjectsDecisionGround: subjectsGround === "" ? null : subjectsGround,

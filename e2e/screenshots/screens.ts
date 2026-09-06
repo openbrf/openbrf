@@ -1242,4 +1242,65 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Rösten närvarande" },
     capture: { panel: "Röstlängden" },
   },
+
+  // --- what the association shows as controller ------------------------------
+  // The administrator again. There is no resident's own view of any of this: a
+  // person's own rights are exercised on their profile and recorded on their
+  // page in the register, both of which are photographed elsewhere.
+  {
+    /*
+     * The whole screen, scrolled. It is four records that only mean something
+     * together - what is waiting, what the association processes, who receives
+     * personal data and what the privacy notice answers - and a picture of the
+     * top of it would show the strip and none of what the strip is about.
+     *
+     * The breach register is empty here, which is the honest picture of a
+     * cooperative that has not had one. Nothing on this walk records a breach,
+     * because nothing on the screens does: a breach is discovered in a hurry
+     * and written up over the API afterwards.
+     */
+    name: "data-protection",
+    as: "administrator",
+    goto: appPath("/data-protection"),
+    // A seeded processing, which renders only once the record has come back.
+    waitFor: { text: "Medlemsförteckning" },
+    capture: "page",
+  },
+  {
+    /*
+     * Classifying a recipient, with the form open. The judgement is the board's
+     * and this is where it is made, so the picture is of the question being
+     * answered rather than of a list of answers.
+     *
+     * Whoever runs the machine, because that is the row the instance cannot
+     * fill in for itself: storage on the local disk arrives with its answer
+     * suggested, and a mail server names itself.
+     */
+    name: "data-protection-classify",
+    prepare: [{ click: { button: /^Klassificera Drift/ } }],
+    waitFor: { text: "Klassificering" },
+    capture: { panel: "Mottagare av personuppgifter" },
+  },
+  {
+    /*
+     * How the association is reached as controller, and whether it has a data
+     * protection officer. The card says in words that a housing cooperative
+     * rarely needs one, so a board does not appoint somebody to fill a field
+     * in.
+     */
+    name: "settings-data-protection-contacts",
+    goto: appPath("/settings"),
+    prepare: [
+      {
+        fill: { label: "E-post till föreningen" },
+        value: "styrelsen@granngarden.test",
+      },
+      {
+        fill: { label: "Postadress" },
+        value: "Granngården 1, 123 45 Solna",
+      },
+    ],
+    waitFor: { panel: "Dataskyddskontakter" },
+    capture: { panel: "Dataskyddskontakter" },
+  },
 ];

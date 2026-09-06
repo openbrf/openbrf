@@ -106,6 +106,11 @@ export function ProcessorAgreementsPanel({
               <button
                 type="button"
                 className={SECONDARY_BUTTON}
+                // Names the recipient, because every row offers the same act
+                // and a screen reader hears one button per row otherwise.
+                aria-label={t("dataProtection.processors.classifyNamed", {
+                  identity: processor.identity,
+                })}
                 onClick={() => {
                   setOpen(
                     open === processor.processorKey
