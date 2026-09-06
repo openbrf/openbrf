@@ -214,13 +214,15 @@ the data rather than from a flag.
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.
 
-A purge that fails on one person reports it to the container log, naming the
-person by the id the application addresses them with and nothing else, because
-the transaction that would have recorded the erasure rolled back with it. That
-line is the only trace of an erasure still outstanding, so how long these logs
-are kept and who may read them is part of this instance's retention posture
-rather than an operational detail beside it. The reasoning, and what may and may
-not be written to a log here, is ADR 0007.
+A purge that fails on one person reports two things to the container log: the
+class of the failure with the runtime's code for it, and the surrogate id this
+application addresses that person by. Not their name, their contact details or
+their personal identity number, nothing out of the rows being erased, and never
+the exception's own message. The transaction that would have recorded the
+erasure rolled back with it, so that line is the only trace of an erasure still
+outstanding - which makes how long these logs are kept and who may read them
+part of this instance's retention posture rather than an operational detail
+beside it. ADR 0007 draws the boundary and says why it falls there.
 
 ## Plugins and themes
 
