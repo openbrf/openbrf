@@ -529,7 +529,16 @@ export class BreachService {
         select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
       });
 
-      const notifiedAt = input.imyNotifiedAt ?? null;
+      /*
+       * Read back off the row rather than off the input, which is the same
+       * resolution `assertDelayReasons` makes above and for the same reason: a
+       * decision that omits the field decides about the instant already
+       * recorded, and Prisma leaves that instant in place. Taking it from the
+       * input would write an entry saying no notification had been made, in
+       * the log that is the evidence of when it was - and the entry is
+       * append-only, so it would stay wrong.
+       */
+      const notifiedAt = row.imyNotifiedAt;
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_DECIDED",

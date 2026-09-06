@@ -457,6 +457,50 @@ describe("breaches", () => {
     );
   });
 
+  it("records the notification instant the row holds, not the one the decision omitted", async () => {
+    /*
+     * A notification recorded on the row before the decision, and a decision
+     * that says nothing about it. Prisma leaves the instant in place, so the
+     * audit entry has to describe that instant rather than the absence of one
+     * in the decision's own payload.
+     *
+     * It matters because the entry is the evidence of when IMY was told and
+     * whether that was inside the 72 hours. The log is append-only and outside
+     * every purge, so an entry saying no notification was made outlives the
+     * row that proves one was.
+     */
+    const discoveredAt = discoveredHoursAgo(10);
+    const view = await recorded({ discoveredAt });
+
+    const notifiedAt = new Date(
+      new Date(discoveredAt).getTime() + 4 * 60 * 60 * 1000,
+    ).toISOString();
+    const updated = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: { imyNotifiedAt: notifiedAt },
+      headers: { cookie: boardCookie },
+    });
+    expect(updated.statusCode).toBe(200);
+
+    // The decision says nothing about the notification.
+    const decided = await decide(view.breachId, {});
+    expect(decided.statusCode).toBe(200);
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "PERSONAL_DATA_BREACH_DECIDED",
+        targetId: view.breachId,
+      },
+      select: { context: true },
+    });
+    expect(entry?.context).toMatchObject({
+      // Four hours after discovery, and well inside the bound.
+      hoursAfterDiscovery: 4,
+      notifiedWithinDeadline: true,
+    });
+  });
+
   it("refuses a second decision, and refuses closing one never decided", async () => {
     const undecided = await recorded();
     const closing = await inject({
