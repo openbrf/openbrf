@@ -774,7 +774,7 @@ no, and the pilot is the thing that will change it.
   - [ ] Group and board chat
 - [ ] Shared board mailbox
 - [ ] Digital home folder for residents
-- [ ] Forms: subletting applications, motions, key orders
+- [x] Forms: subletting applications, motions, key orders
   - [x] Motions to the general meeting: a member submits one in writing and the
         board works the queue it arrives in, recording that it has been received.
         The right is a member's, not a resident's (EFL 6 kap. 15 § via BRL 9 kap.
@@ -786,8 +786,47 @@ no, and the pilot is the thing that will change it.
         a late motion is still received, and which general meeting takes one up
         is recorded against the motion instead, up until that meeting's notice
         has been issued
-  - [ ] Subletting applications
-  - [ ] Key orders
+  - [x] Subletting applications: a member asks the board's consent to let their
+        apartment in andra hand, and the board answers the queue those requests
+        arrive in. The right is a member's, not a resident's: BRL 7 kap. 10 §
+        första stycket lets a bostadsrättshavare let _sin lägenhet_ for
+        självständigt brukande only with the board's consent, so a partner, an
+        adult child or a tenant living there is offered no form - and the
+        apartment named in a request has to be one the applicant holds, which is
+        what stops an administrator's blanket grant from becoming an application
+        about somebody else's home. What counts as självständigt brukande is
+        stated rather than decided: 10 § andra stycket (Lag 2026:776) makes a
+        letting of the apartment or part of it always count where the holder no
+        longer uses it as a permanent home or otherwise in beaktansvärd
+        utsträckning, which is a fact about how somebody lives that the platform
+        does not hold. The two cases in 10 a § where no consent is needed at all
+        are outside the module and stated as such: both holders are juridical
+        persons - a lienholding company after a forced sale, and a kommun or a
+        region - and neither has a resident account to reach a form with. Where
+        the board refuses, the hyresnämnd may permit the letting anyway (7 kap.
+        11 §), and the platform cannot know that unless somebody records it: so
+        it is recorded against the refusal and changes nothing else, because the
+        association did not consent and a row that flipped to consented would be
+        the platform putting words in the board's mouth. The period applied for
+        carries both ends, on the same paragraph's own footing - a permission to
+        a bostadsrättshavare is always limited in time, so a request naming no
+        end could not be taken further as it stands
+  - [x] Key orders: a resident orders a key or a tag for the apartment they live
+        in, the board works the queue, and the handover is a recorded act. The
+        right is a resident's rather than a member's, and the contrast with
+        subletting above is the decision rather than a side effect: nothing in
+        BRL or EFL gives anybody a right to a key, so a way in through the front
+        door belongs to the household and a partner, an adult child and a tenant
+        order one exactly as a member does. The board may decline an order,
+        which the motion queue has no equivalent of - refusing to take up a
+        member's item is not the board's to decide under EFL 6 kap. 15 §, and
+        refusing a household a fourth tag to the bike room plainly is. What a
+        key costs the member is deliberately not here: that is a charge, with
+        its own amount, date, VAT treatment and export to whoever keeps the
+        association's books, and a second place recording a sum would be a
+        second answer to what the member owes. The handover is its own audit
+        action, so once the order has been purged the association can still
+        answer that somebody was given a key to the building on a day
 - [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
       bookkeeping engine of our own
 - [ ] Charges to members: a one-off cost put on a named member or apartment -
