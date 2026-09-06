@@ -301,7 +301,18 @@ export class IssueService {
 
     const issue = await this.prisma.issue.update({
       where: { id: issueId },
-      data: { status },
+      data: {
+        status,
+        /*
+         * The day the issue was closed, and null again if it is reopened.
+         *
+         * Its own column rather than updatedAt, which is what the retention
+         * clock on a public-form report has to run on: detaching a reporter
+         * from a neighbouring issue is an update, so a clock reading updatedAt
+         * would push its own purge date away every night the purge ran.
+         */
+        closedAt: status === "DONE" ? new Date() : null,
+      },
       include: ISSUE_INCLUDE,
     });
 
