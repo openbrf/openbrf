@@ -5,6 +5,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { BreachRisk } from "../generated/prisma/enums";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { lockBreach } from "./breach-lock";
 import { BreachError } from "./breach.error";
 import {
   BREACH_NOTIFICATION_HOURS,
@@ -355,7 +356,6 @@ export class BreachService {
       ].filter((value): value is string => typeof value === "string"),
     );
 
-    const discoveredAt = input.discoveredAt ?? existing.discoveredAt;
     if (
       input.discoveredAt !== undefined &&
       input.discoveredAt.getTime() > Date.now()
@@ -372,24 +372,6 @@ export class BreachService {
       );
     }
     /*
-     * The values the row will hold, not the ones this call names. An omitted
-     * field leaves the stored one standing, so reading `null` for it would let
-     * a later act clear the reasons off a notification the record already says
-     * was made after the bound.
-     */
-    assertDelayReasons({
-      discoveredAt,
-      imyNotifiedAt:
-        input.imyNotifiedAt === undefined
-          ? existing.imyNotifiedAt
-          : input.imyNotifiedAt,
-      delayReasons:
-        input.delayReasons === undefined
-          ? existing.delayReasons
-          : input.delayReasons,
-    });
-
-    /*
      * Whether this call touches a fact the decision rests on. The refusal above
      * reads that outside the transaction, so a `decide` committing in the gap
      * would let these fields change after the decision they were decided on -
@@ -400,6 +382,39 @@ export class BreachService {
     const decidedFacts = changed.some((field) => !LATER_ACTS.has(field));
 
     return this.prisma.$transaction(async (tx) => {
+      await lockBreach(tx, breachId);
+      /*
+       * Re-read under the lock, and this read is the one the rule is checked
+       * against. The art. 33(1) invariant spans the discovery instant, the
+       * notification instant and the reasons, so a call that validated against
+       * the row as it was before another writer moved one of the three would
+       * pass while leaving a record that breaks it.
+       *
+       * The values the row will hold, not the ones this call names: an omitted
+       * field leaves the stored one standing, so reading `null` for it would
+       * let a later act clear the reasons off a notification the record already
+       * says was made after the bound.
+       */
+      const held = await tx.personalDataBreach.findUniqueOrThrow({
+        where: { id: breachId },
+        select: {
+          discoveredAt: true,
+          imyNotifiedAt: true,
+          delayReasons: true,
+        },
+      });
+      assertDelayReasons({
+        discoveredAt: input.discoveredAt ?? held.discoveredAt,
+        imyNotifiedAt:
+          input.imyNotifiedAt === undefined
+            ? held.imyNotifiedAt
+            : input.imyNotifiedAt,
+        delayReasons:
+          input.delayReasons === undefined
+            ? held.delayReasons
+            : input.delayReasons,
+      });
+
       const { count } = await tx.personalDataBreach.updateMany({
         where: decidedFacts
           ? { id: breachId, decidedAt: null }
@@ -531,23 +546,39 @@ export class BreachService {
       );
     }
 
-    // The values the row will hold, for the reason `update` gives: a decision
-    // that omits either field decides about what is already recorded.
-    assertDelayReasons({
-      discoveredAt: existing.discoveredAt,
-      imyNotifiedAt:
-        input.imyNotifiedAt === undefined
-          ? existing.imyNotifiedAt
-          : input.imyNotifiedAt,
-      delayReasons:
-        input.delayReasons === undefined
-          ? existing.delayReasons
-          : input.delayReasons,
-    });
-
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      await lockBreach(tx, breachId);
+      /*
+       * The art. 33(1) rule checked against the row as held, for the reason
+       * `update` gives: the invariant spans three columns, so a correction
+       * committing beside this decision could leave a late notification with
+       * the reasons cleared while both calls validated cleanly on their own.
+       *
+       * The values the row will hold: a decision that omits either field
+       * decides about what is already recorded.
+       */
+      const held = await tx.personalDataBreach.findUniqueOrThrow({
+        where: { id: breachId },
+        select: {
+          discoveredAt: true,
+          imyNotifiedAt: true,
+          delayReasons: true,
+        },
+      });
+      assertDelayReasons({
+        discoveredAt: held.discoveredAt,
+        imyNotifiedAt:
+          input.imyNotifiedAt === undefined
+            ? held.imyNotifiedAt
+            : input.imyNotifiedAt,
+        delayReasons:
+          input.delayReasons === undefined
+            ? held.delayReasons
+            : input.delayReasons,
+      });
+
       /*
        * Undecided is asked as part of the write. The refusal above reads it
        * outside this transaction, so two board members deciding within the same
@@ -607,13 +638,13 @@ export class BreachService {
                 ? null
                 : Math.round(
                     BREACH_NOTIFICATION_HOURS -
-                      hoursLeft(existing.discoveredAt, notifiedAt),
+                      hoursLeft(held.discoveredAt, notifiedAt),
                   ),
             notifiedWithinDeadline:
               notifiedAt === null
                 ? null
                 : notifiedAt.getTime() <=
-                  computeBreachDeadline(existing.discoveredAt).getTime(),
+                  computeBreachDeadline(held.discoveredAt).getTime(),
           },
         },
         tx,

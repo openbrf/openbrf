@@ -457,6 +457,76 @@ describe("breaches", () => {
     );
   });
 
+  it("holds the delay-reasons rule across two corrections arriving together", async () => {
+    /*
+     * The rule spans three columns - the discovery instant the bound is counted
+     * from, the instant IMY was notified, and the reasons - so neither writer
+     * has to be wrong on its own for the pair of them to break it.
+     *
+     * One moves the discovery date back, which turns a punctual notification
+     * into a late one and leaves the reasons standing. The other clears the
+     * reasons, having read the discovery date as it was. Validated before the
+     * writes, both pass; the row then says the association told the authority
+     * after the bound and declines to say why, on the register it would produce
+     * to demonstrate that it did not.
+     *
+     * Serialised on the row's own lock, one of them has to lose. Which one is
+     * not the property under test and depends on who takes the lock first: what
+     * has to hold is that the row is never left in that state.
+     */
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(2) });
+
+    const notifiedAt = new Date().toISOString();
+    const withReasons = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: {
+        imyNotifiedAt: notifiedAt,
+        delayReasons: "Styrelsen kunde inte sammantrada forran nu.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(withReasons.statusCode).toBe(200);
+
+    const [movedBack, cleared] = await Promise.all([
+      inject({
+        method: "PUT",
+        url: `/api/data-protection/breaches/${view.breachId}`,
+        payload: { discoveredAt: discoveredHoursAgo(100) },
+        headers: { cookie: boardCookie },
+      }),
+      inject({
+        method: "PUT",
+        url: `/api/data-protection/breaches/${view.breachId}`,
+        payload: { delayReasons: "   " },
+        headers: { cookie: boardCookie },
+      }),
+    ]);
+
+    const refused = [movedBack, cleared].filter(
+      (response) => response.statusCode !== 200,
+    );
+    for (const response of refused) {
+      expect(reasonOf(response)).toBe("delay-reasons-required");
+    }
+
+    const row = await prisma.personalDataBreach.findUniqueOrThrow({
+      where: { id: view.breachId },
+      select: {
+        discoveredAt: true,
+        imyNotifiedAt: true,
+        delayReasons: true,
+      },
+    });
+    const late =
+      row.imyNotifiedAt !== null &&
+      row.imyNotifiedAt.getTime() >
+        row.discoveredAt.getTime() + 72 * 60 * 60 * 1000;
+    if (late) {
+      expect((row.delayReasons ?? "").trim()).not.toBe("");
+    }
+  });
+
   it("records the notification instant the row holds, not the one the decision omitted", async () => {
     /*
      * A notification recorded on the row before the decision, and a decision
