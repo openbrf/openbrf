@@ -2693,7 +2693,7 @@
   "sublets": {
     "navLabel": "Subletting",
     "title": "Subletting your apartment",
-    "intro": "Ask the board for consent to sublet your apartment, and follow what happens to the request.",
+    "intro": "Ask the board for consent to the subletting of your apartment, and follow what happens to the request.",
     "loading": "Loading the applications...",
     "loadFailed": "The subletting applications could not be read just now.",
     "status": {
