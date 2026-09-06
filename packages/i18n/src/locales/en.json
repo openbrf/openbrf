@@ -364,7 +364,9 @@
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
-          "retention": "Retention"
+          "retention": "Retention",
+          "dataSubjectRequests": "What you have asked about your data",
+          "personalDataBreaches": "Personal data breaches that reached your data"
         },
         "field": {
           "name": "Name",
@@ -397,7 +399,7 @@
           "tookEffectOn": "Ceased",
           "terminationReference": "Reference",
           "triggeredOn": "Window opened",
-          "dueOn": "Report due",
+          "dueOn": "To be answered by",
           "scope": "Scope",
           "granted": "Given",
           "withdrawn": "Withdrawn",
@@ -443,7 +445,24 @@
           "broughtBy": "Brought by",
           "counterpart": "Other person",
           "proxyGround": "Ground",
-          "authorised": "Proxy authorisation dated"
+          "authorised": "Proxy authorisation dated",
+          "requestKind": "Request",
+          "requestedOn": "Requested",
+          "requestGround": "Your ground",
+          "erasureGround": "Ground under art. 17(1)",
+          "erasureException": "Assessment under art. 17(3)",
+          "decision": "Decision",
+          "decisionGround": "The board's reasons",
+          "decidedAt": "Decided",
+          "executedAt": "Carried out",
+          "closeReason": "Closed because",
+          "breachDiscovered": "Discovered",
+          "breachData": "What the breach touched",
+          "breachEffects": "Consequences",
+          "breachMeasures": "Measures",
+          "breachRisk": "Risk",
+          "imyNotified": "Notified to IMY",
+          "informedOn": "You were told"
         },
         "event": {
           "ENTRY": "Membership granted",
@@ -518,7 +537,23 @@
           "MEETING_ATTENDANCE_WITHDRAWN": "Struck off the list of those present",
           "MEETING_PROXY_REGISTERED": "Proxy authorisation registered",
           "MEETING_PROXY_WITHDRAWN": "Proxy authorisation withdrawn",
-          "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded"
+          "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded",
+          "PERSONAL_DATA_BREACH_RECORDED": "Personal data breach recorded",
+          "PERSONAL_DATA_BREACH_UPDATED": "Personal data breach record changed",
+          "PERSONAL_DATA_BREACH_DECIDED": "Personal data breach decided",
+          "PERSONAL_DATA_BREACH_SUBJECT_INFORMED": "Told about a personal data breach",
+          "PERSONAL_DATA_BREACH_CLOSED": "Personal data breach closed",
+          "PROCESSING_ACTIVITY_RECORDED": "Processing entered in the record",
+          "PROCESSING_ACTIVITY_UPDATED": "Processing changed in the record",
+          "PROCESSING_ACTIVITY_ENDED": "Processing ended",
+          "PROCESSOR_AGREEMENT_RECORDED": "Recipient classified",
+          "PROCESSOR_AGREEMENT_ENDED": "Recipient classification closed",
+          "DATA_SUBJECT_REQUEST_RECORDED": "Request about own data recorded",
+          "DATA_SUBJECT_REQUEST_DECIDED": "Request decided",
+          "DATA_SUBJECT_REQUEST_CLOSED": "Request closed",
+          "DATA_PORTABILITY_EXPORTED": "Own data downloaded",
+          "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED": "Data protection contacts recorded",
+          "PRIVACY_NOTICE_HEADINGS_ADDED": "Headings added to the privacy notice"
         },
         "transferKind": {
           "GRANT": "Grant",
@@ -539,6 +574,29 @@
         },
         "yes": "Yes",
         "no": "No"
+      },
+      "requests": {
+        "kind": {
+          "ERASURE": "Erasure",
+          "OBJECTION": "Objection",
+          "RESTRICTION": "Restriction"
+        },
+        "decision": {
+          "GRANTED": "Granted",
+          "REFUSED": "Refused"
+        },
+        "erasureGround": {
+          "NO_LONGER_NECESSARY": "No longer necessary for its purpose",
+          "CONSENT_WITHDRAWN": "Consent withdrawn and no other basis applies",
+          "OBJECTION_UPHELD": "An objection nothing overrides",
+          "UNLAWFUL_PROCESSING": "The processing was unlawful",
+          "LEGAL_OBLIGATION_TO_ERASE": "Erasure is required by law"
+        },
+        "erasureException": {
+          "NONE": "No exception",
+          "LEGAL_OBLIGATION_TO_KEEP": "A legal obligation to keep the record",
+          "LEGAL_CLAIMS": "A legal claim"
+        }
       }
     },
     "reveal": {
@@ -3239,6 +3297,13 @@
     "processors": {
       "seed": {
         "localDisk": "The association's own storage on the instance's disk. Nobody outside receives the files, so there is no processor here."
+      }
+    },
+    "breaches": {
+      "risk": {
+        "UNLIKELY": "Unlikely to result in a risk",
+        "LIKELY": "A risk",
+        "HIGH": "A high risk"
       }
     }
   }

@@ -64,6 +64,61 @@ export interface ReportAccount {
   createdAt: string;
 }
 
+/**
+ * What this person has asked about their own data, and what the board decided.
+ *
+ * On their own access report because it is theirs: art. 15 gives a person what
+ * the association holds about them, and a decision the board took about their
+ * erasure is squarely that. The board's ground travels with it, because
+ * art. 12(4) requires a refusal to state its reasons and this is the document
+ * the person reads.
+ */
+export interface ReportDataSubjectRequest {
+  requestId: string;
+  kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
+  requestedOn: string | null;
+  /** The art. 12(3) month, derived from the request date. */
+  dueOn: string | null;
+  ground: string;
+  /** The art. 17(1) ground an erasure rests on. */
+  erasureGround: string | null;
+  /** The art. 17(3) assessment recorded with the decision. */
+  erasureException: string | null;
+  decision: "GRANTED" | "REFUSED" | null;
+  decisionGround: string | null;
+  decidedAt: string | null;
+  executedAt: string | null;
+  closedAt: string | null;
+  closeReason: string | null;
+  /** The issue whose description names them, where that is what it was about. */
+  issueId: string | null;
+}
+
+/**
+ * A personal data breach that reached this person's data (GDPR art. 34).
+ *
+ * Listed because a breach is a fact about their data, and a person entitled to
+ * know what the association holds about them is entitled to know that it once
+ * lost control of some of it. What travels is the breach's own account of
+ * itself - never the board's grounds for its decisions, which are about the
+ * association's compliance rather than about this person.
+ */
+export interface ReportPersonalDataBreach {
+  breachId: string;
+  title: string;
+  /** Which store and which rows, in the board's own words. */
+  dataDescription: string;
+  discoveredAt: string;
+  /** The likely consequences, art. 33(3)(c). */
+  effects: string;
+  /** What was done about it, art. 33(3)(d). */
+  measures: string;
+  risk: "UNLIKELY" | "LIKELY" | "HIGH" | null;
+  imyNotifiedAt: string | null;
+  /** When this person was told, or null where they have not been. */
+  informedAt: string | null;
+}
+
 /** Statutory tier: exempt from the purge, listed here because it is theirs. */
 export interface ReportMemberRegisterEntry {
   entryId: string;
@@ -550,6 +605,8 @@ export interface DataSubjectReport {
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];
   auditEntries: ReportAuditEntry[];
+  dataSubjectRequests: ReportDataSubjectRequest[];
+  personalDataBreaches: ReportPersonalDataBreach[];
   /** What the association keeps, and until when. */
   retention: {
     daysAfterMoveOut: number;

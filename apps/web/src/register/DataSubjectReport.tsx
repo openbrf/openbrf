@@ -248,6 +248,38 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.MEETING_PROXY_WITHDRAWN",
   MEETING_DECISION_RECORDED:
     "register.person.report.action.MEETING_DECISION_RECORDED",
+  PERSONAL_DATA_BREACH_RECORDED:
+    "register.person.report.action.PERSONAL_DATA_BREACH_RECORDED",
+  PERSONAL_DATA_BREACH_UPDATED:
+    "register.person.report.action.PERSONAL_DATA_BREACH_UPDATED",
+  PERSONAL_DATA_BREACH_DECIDED:
+    "register.person.report.action.PERSONAL_DATA_BREACH_DECIDED",
+  PERSONAL_DATA_BREACH_SUBJECT_INFORMED:
+    "register.person.report.action.PERSONAL_DATA_BREACH_SUBJECT_INFORMED",
+  PERSONAL_DATA_BREACH_CLOSED:
+    "register.person.report.action.PERSONAL_DATA_BREACH_CLOSED",
+  PROCESSING_ACTIVITY_RECORDED:
+    "register.person.report.action.PROCESSING_ACTIVITY_RECORDED",
+  PROCESSING_ACTIVITY_UPDATED:
+    "register.person.report.action.PROCESSING_ACTIVITY_UPDATED",
+  PROCESSING_ACTIVITY_ENDED:
+    "register.person.report.action.PROCESSING_ACTIVITY_ENDED",
+  PROCESSOR_AGREEMENT_RECORDED:
+    "register.person.report.action.PROCESSOR_AGREEMENT_RECORDED",
+  PROCESSOR_AGREEMENT_ENDED:
+    "register.person.report.action.PROCESSOR_AGREEMENT_ENDED",
+  DATA_SUBJECT_REQUEST_RECORDED:
+    "register.person.report.action.DATA_SUBJECT_REQUEST_RECORDED",
+  DATA_SUBJECT_REQUEST_DECIDED:
+    "register.person.report.action.DATA_SUBJECT_REQUEST_DECIDED",
+  DATA_SUBJECT_REQUEST_CLOSED:
+    "register.person.report.action.DATA_SUBJECT_REQUEST_CLOSED",
+  DATA_PORTABILITY_EXPORTED:
+    "register.person.report.action.DATA_PORTABILITY_EXPORTED",
+  ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED:
+    "register.person.report.action.ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED",
+  PRIVACY_NOTICE_HEADINGS_ADDED:
+    "register.person.report.action.PRIVACY_NOTICE_HEADINGS_ADDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
@@ -1133,6 +1165,124 @@ export function DataSubjectReport({
                     </td>
                     <td className={DATA_CELL}>
                       {contextLine(entry.context) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * What this person asked about their own data.
+             *
+             * Their own ground and the board's both print. Art. 12(4) requires
+             * a refusal to state its reasons, and this document is what the
+             * person is handed: a refusal with the reasons left in the
+             * database would not have been given to them.
+             */}
+            <Section titleKey="register.person.report.section.dataSubjectRequests">
+              <Rows
+                empty={report.dataSubjectRequests.length === 0}
+                headings={[
+                  "register.person.report.field.requestKind",
+                  "register.person.report.field.requestedOn",
+                  "register.person.report.field.dueOn",
+                  "register.person.report.field.requestGround",
+                  "register.person.report.field.erasureGround",
+                  "register.person.report.field.decision",
+                  "register.person.report.field.decisionGround",
+                  "register.person.report.field.erasureException",
+                  "register.person.report.field.decidedAt",
+                  "register.person.report.field.executedAt",
+                  "register.person.report.field.closeReason",
+                ]}
+              >
+                {report.dataSubjectRequests.map((request) => (
+                  <tr key={request.requestId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      {t(`register.person.requests.kind.${request.kind}`)}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {request.requestedOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>{request.dueOn ?? nothing}</td>
+                    <td className={TEXT_CELL}>{request.ground}</td>
+                    <td className={TEXT_CELL}>
+                      {request.erasureGround === null
+                        ? nothing
+                        : t(
+                            `register.person.requests.erasureGround.${request.erasureGround}`,
+                          )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {request.decision === null
+                        ? nothing
+                        : t(
+                            `register.person.requests.decision.${request.decision}`,
+                          )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {request.decisionGround ?? nothing}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {request.erasureException === null
+                        ? nothing
+                        : t(
+                            `register.person.requests.erasureException.${request.erasureException}`,
+                          )}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(request.decidedAt) ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(request.executedAt) ?? nothing}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {request.closeReason ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * Breaches that reached this person's data.
+             *
+             * The breach's own account of itself, and nothing about why the
+             * board decided as it did: that is a fact about the association's
+             * compliance rather than about this person's data, and art. 15
+             * gives them the second.
+             */}
+            <Section titleKey="register.person.report.section.personalDataBreaches">
+              <Rows
+                empty={report.personalDataBreaches.length === 0}
+                headings={[
+                  "register.person.report.field.breachDiscovered",
+                  "register.person.report.field.breachData",
+                  "register.person.report.field.breachEffects",
+                  "register.person.report.field.breachMeasures",
+                  "register.person.report.field.breachRisk",
+                  "register.person.report.field.imyNotified",
+                  "register.person.report.field.informedOn",
+                ]}
+              >
+                {report.personalDataBreaches.map((breach) => (
+                  <tr key={breach.breachId} className={ROW}>
+                    <td className={DATA_CELL}>
+                      {day(breach.discoveredAt) ?? nothing}
+                    </td>
+                    <td className={TEXT_CELL}>{breach.dataDescription}</td>
+                    <td className={TEXT_CELL}>{breach.effects}</td>
+                    <td className={TEXT_CELL}>{breach.measures}</td>
+                    <td className={TEXT_CELL}>
+                      {breach.risk === null
+                        ? nothing
+                        : t(`dataProtection.breaches.risk.${breach.risk}`)}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(breach.imyNotifiedAt) ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(breach.informedAt) ?? nothing}
                     </td>
                   </tr>
                 ))}

@@ -294,7 +294,23 @@ export type ReportAuditAction =
   | "MEETING_ATTENDANCE_WITHDRAWN"
   | "MEETING_PROXY_REGISTERED"
   | "MEETING_PROXY_WITHDRAWN"
-  | "MEETING_DECISION_RECORDED";
+  | "MEETING_DECISION_RECORDED"
+  | "PERSONAL_DATA_BREACH_RECORDED"
+  | "PERSONAL_DATA_BREACH_UPDATED"
+  | "PERSONAL_DATA_BREACH_DECIDED"
+  | "PERSONAL_DATA_BREACH_SUBJECT_INFORMED"
+  | "PERSONAL_DATA_BREACH_CLOSED"
+  | "PROCESSING_ACTIVITY_RECORDED"
+  | "PROCESSING_ACTIVITY_UPDATED"
+  | "PROCESSING_ACTIVITY_ENDED"
+  | "PROCESSOR_AGREEMENT_RECORDED"
+  | "PROCESSOR_AGREEMENT_ENDED"
+  | "DATA_SUBJECT_REQUEST_RECORDED"
+  | "DATA_SUBJECT_REQUEST_DECIDED"
+  | "DATA_SUBJECT_REQUEST_CLOSED"
+  | "DATA_PORTABILITY_EXPORTED"
+  | "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED"
+  | "PRIVACY_NOTICE_HEADINGS_ADDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -592,6 +608,45 @@ export interface DataSubjectReport {
     targetId: string | null;
     /** Field names, identifiers and counts. Never a value. */
     context: Record<string, unknown> | null;
+  }[];
+  /** What this person asked about their own data, and what was decided. */
+  dataSubjectRequests: {
+    requestId: string;
+    kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
+    requestedOn: string | null;
+    /** The month GDPR art. 12(3) gives, derived from the request date. */
+    dueOn: string | null;
+    ground: string;
+    /** The art. 17(1) alternative the person invoked. */
+    erasureGround:
+      | "NO_LONGER_NECESSARY"
+      | "CONSENT_WITHDRAWN"
+      | "OBJECTION_UPHELD"
+      | "UNLAWFUL_PROCESSING"
+      | "LEGAL_OBLIGATION_TO_ERASE"
+      | null;
+    /** The art. 17(3) assessment recorded with the decision. */
+    erasureException:
+      "NONE" | "LEGAL_OBLIGATION_TO_KEEP" | "LEGAL_CLAIMS" | null;
+    decision: "GRANTED" | "REFUSED" | null;
+    decisionGround: string | null;
+    decidedAt: string | null;
+    executedAt: string | null;
+    closedAt: string | null;
+    closeReason: string | null;
+    issueId: string | null;
+  }[];
+  /** Breaches that reached this person's data (GDPR art. 34). */
+  personalDataBreaches: {
+    breachId: string;
+    title: string;
+    dataDescription: string;
+    discoveredAt: string;
+    effects: string;
+    measures: string;
+    risk: "UNLIKELY" | "LIKELY" | "HIGH" | null;
+    imyNotifiedAt: string | null;
+    informedAt: string | null;
   }[];
   retention: {
     daysAfterMoveOut: number;

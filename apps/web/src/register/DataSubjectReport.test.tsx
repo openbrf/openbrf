@@ -86,6 +86,8 @@ const EMPTY_REPORT: Report = {
   meetingAttendances: [],
   proxyAuthorisations: [],
   auditEntries: [],
+  dataSubjectRequests: [],
+  personalDataBreaches: [],
   retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
 };
 
@@ -373,6 +375,39 @@ const FULL_REPORT: Report = {
       targetKind: "newsComment",
       targetId: "comment-2",
       context: { newsId: "news-1" },
+    },
+  ],
+  dataSubjectRequests: [
+    {
+      requestId: "request-1",
+      kind: "ERASURE",
+      requestedOn: "2026-03-01",
+      dueOn: "2026-04-01",
+      ground: "Jag har flyttat och vill inte finnas kvar.",
+      erasureGround: "NO_LONGER_NECESSARY",
+      // Refused, so the board's reasons print: art. 12(4) requires them, and
+      // this document is what the person is handed.
+      erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+      decision: "REFUSED",
+      decisionGround: "Medlemsforteckningen far inte gallras.",
+      decidedAt: "2026-03-08T10:00:00.000Z",
+      executedAt: null,
+      closedAt: null,
+      closeReason: null,
+      issueId: null,
+    },
+  ],
+  personalDataBreaches: [
+    {
+      breachId: "breach-1",
+      title: "Felskickad medlemslista",
+      dataDescription: "Namn och adresser ur medlemsforteckningen.",
+      discoveredAt: "2026-02-10T08:00:00.000Z",
+      effects: "Mottagaren kunde lasa namn och adresser.",
+      measures: "Mottagaren ombads radera meddelandet.",
+      risk: "LIKELY",
+      imyNotifiedAt: "2026-02-11T09:00:00.000Z",
+      informedAt: "2026-02-12T09:00:00.000Z",
     },
   ],
   retention: {
@@ -967,5 +1002,65 @@ describe("what the document prints", () => {
     expect(grantRow?.textContent).toContain("Upplåtelse");
     const purchaseRow = transfers.getByText("Storgatan 12 1201").closest("tr");
     expect(purchaseRow?.textContent).toContain("Överlåtelse");
+  });
+});
+
+describe("what the person asked about their own data", () => {
+  it("prints the request, both grounds and the board's reasons", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    /*
+     * The board's reasons are on the page and not only in the database. GDPR
+     * art. 12(4) requires a refusal to state them, and this document is what
+     * the person is handed - a refusal whose reasons they never see has not
+     * been given to them.
+     */
+    expect(
+      screen.getByText("Medlemsforteckningen far inte gallras."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Uppgifterna behövs inte längre för sitt ändamål"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Rättslig förpliktelse att bevara uppgifterna"),
+    ).toBeTruthy();
+    // The month art. 12(3) gives, derived rather than stored.
+    expect(screen.getByText("2026-04-01")).toBeTruthy();
+  });
+
+  it("says nothing where nothing was asked", async () => {
+    renderReport(EMPTY_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText("Vad du har begärt om dina uppgifter"),
+    ).toBeTruthy();
+  });
+});
+
+describe("breaches that reached this person's data", () => {
+  it("prints the breach's own account of itself", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText("Namn och adresser ur medlemsforteckningen."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Mottagaren ombads radera meddelandet."),
+    ).toBeTruthy();
+  });
+
+  it("carries nothing about why the board decided as it did", async () => {
+    /*
+     * Why the association notified IMY, or did not, is a fact about its own
+     * compliance rather than about this person's data. Art. 15 gives them the
+     * second, and the section is built so the first has nowhere to travel.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.queryByText(/obehorig mottagare/i)).toBeNull();
   });
 });

@@ -364,7 +364,9 @@
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
           "audit": "Granskningsloggen",
-          "retention": "Gallring"
+          "retention": "Gallring",
+          "dataSubjectRequests": "Vad du har begärt om dina uppgifter",
+          "personalDataBreaches": "Personuppgiftsincidenter som rört dina uppgifter"
         },
         "field": {
           "name": "Namn",
@@ -397,7 +399,7 @@
           "tookEffectOn": "Upphörde",
           "terminationReference": "Hänvisning",
           "triggeredOn": "Fristen började",
-          "dueOn": "Anmälan senast",
+          "dueOn": "Ska besvaras senast",
           "scope": "Omfattning",
           "granted": "Lämnat",
           "withdrawn": "Återkallat",
@@ -443,7 +445,24 @@
           "broughtBy": "Medtagen av",
           "counterpart": "Motpart",
           "proxyGround": "Grund",
-          "authorised": "Fullmakt daterad"
+          "authorised": "Fullmakt daterad",
+          "requestKind": "Begäran",
+          "requestedOn": "Begärd",
+          "requestGround": "Din grund",
+          "erasureGround": "Grund enligt art. 17.1",
+          "erasureException": "Bedömning enligt art. 17.3",
+          "decision": "Beslut",
+          "decisionGround": "Styrelsens skäl",
+          "decidedAt": "Beslutad",
+          "executedAt": "Verkställd",
+          "closeReason": "Avslutad därför att",
+          "breachDiscovered": "Upptäckt",
+          "breachData": "Vad incidenten omfattade",
+          "breachEffects": "Följder",
+          "breachMeasures": "Åtgärder",
+          "breachRisk": "Risk",
+          "imyNotified": "Anmäld till IMY",
+          "informedOn": "Du underrättades"
         },
         "event": {
           "ENTRY": "Inträde",
@@ -518,7 +537,23 @@
           "MEETING_ATTENDANCE_WITHDRAWN": "Struken från förteckningen över närvarande",
           "MEETING_PROXY_REGISTERED": "Fullmakt registrerad",
           "MEETING_PROXY_WITHDRAWN": "Fullmakt återkallad",
-          "MEETING_DECISION_RECORDED": "Föreningsstämmans beslut antecknat"
+          "MEETING_DECISION_RECORDED": "Föreningsstämmans beslut antecknat",
+          "PERSONAL_DATA_BREACH_RECORDED": "Personuppgiftsincident antecknad",
+          "PERSONAL_DATA_BREACH_UPDATED": "Uppgift om personuppgiftsincident ändrad",
+          "PERSONAL_DATA_BREACH_DECIDED": "Beslut om personuppgiftsincident",
+          "PERSONAL_DATA_BREACH_SUBJECT_INFORMED": "Underrättad om personuppgiftsincident",
+          "PERSONAL_DATA_BREACH_CLOSED": "Personuppgiftsincident avslutad",
+          "PROCESSING_ACTIVITY_RECORDED": "Behandling införd i registerförteckningen",
+          "PROCESSING_ACTIVITY_UPDATED": "Behandling ändrad i registerförteckningen",
+          "PROCESSING_ACTIVITY_ENDED": "Behandling avslutad",
+          "PROCESSOR_AGREEMENT_RECORDED": "Mottagare klassificerad",
+          "PROCESSOR_AGREEMENT_ENDED": "Klassificering av mottagare avslutad",
+          "DATA_SUBJECT_REQUEST_RECORDED": "Begäran om egna uppgifter antecknad",
+          "DATA_SUBJECT_REQUEST_DECIDED": "Beslut om begäran",
+          "DATA_SUBJECT_REQUEST_CLOSED": "Begäran avslutad",
+          "DATA_PORTABILITY_EXPORTED": "Egna uppgifter hämtade",
+          "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED": "Dataskyddskontakter antecknade",
+          "PRIVACY_NOTICE_HEADINGS_ADDED": "Rubriker tillagda i integritetspolicyn"
         },
         "transferKind": {
           "GRANT": "Upplåtelse",
@@ -539,6 +574,29 @@
         },
         "yes": "Ja",
         "no": "Nej"
+      },
+      "requests": {
+        "kind": {
+          "ERASURE": "Radering",
+          "OBJECTION": "Invändning",
+          "RESTRICTION": "Begränsning"
+        },
+        "decision": {
+          "GRANTED": "Bifallen",
+          "REFUSED": "Avslagen"
+        },
+        "erasureGround": {
+          "NO_LONGER_NECESSARY": "Uppgifterna behövs inte längre för sitt ändamål",
+          "CONSENT_WITHDRAWN": "Samtycket är återkallat och ingen annan grund finns",
+          "OBJECTION_UPHELD": "Invändning som ingenting väger tyngre än",
+          "UNLAWFUL_PROCESSING": "Behandlingen var olaglig",
+          "LEGAL_OBLIGATION_TO_ERASE": "Radering krävs enligt lag"
+        },
+        "erasureException": {
+          "NONE": "Inget undantag",
+          "LEGAL_OBLIGATION_TO_KEEP": "Rättslig förpliktelse att bevara uppgifterna",
+          "LEGAL_CLAIMS": "Rättsligt anspråk"
+        }
       }
     },
     "reveal": {
@@ -3239,6 +3297,13 @@
     "processors": {
       "seed": {
         "localDisk": "Foreningens egen lagring pa instansens disk. Ingen utomstaende tar emot filerna, sa det finns inget personuppgiftsbitrade har."
+      }
+    },
+    "breaches": {
+      "risk": {
+        "UNLIKELY": "Sannolikt ingen risk",
+        "LIKELY": "Risk",
+        "HIGH": "Hög risk"
       }
     }
   }
