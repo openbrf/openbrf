@@ -56,25 +56,55 @@ interface Signup {
  * series' own `firstOn`, which is a date column read back as midnight UTC - would
  * fail this rather than quietly erase on a different day.
  */
-function build(options: { signups: Signup[]; heldPersonIds?: string[] }) {
+function build(options: {
+  signups: Signup[];
+  heldPersonIds?: string[];
+  restrictedPersonIds?: string[];
+  erasureRequestedPersonIds?: string[];
+}) {
   const held = options.heldPersonIds ?? [];
+  const restricted = options.restrictedPersonIds ?? [];
+  const requested = options.erasureRequestedPersonIds ?? [];
+  const withheld = [...new Set([...held, ...restricted])];
 
   const groupBy = vi.fn(
     async (args: {
       where: {
-        occurrence: { endsAt: { lte: Date } };
+        OR: (
+          | { occurrence: { endsAt: { lte: Date } } }
+          | { personId: { in: string[] } }
+        )[];
         personId?: { notIn: string[] };
       };
       take: number;
     }) => {
       const excluded = new Set(args.where.personId?.notIn ?? []);
+
+      /*
+       * The OR is honoured rather than assumed, for the reason the whole fake
+       * exists: a sign-up is selected either because its date has run out or
+       * because the person was granted erasure, and a fake that only checked
+       * the date would pass a service that had forgotten the second half.
+       */
+      const endsBefore = args.where.OR.find(
+        (clause): clause is { occurrence: { endsAt: { lte: Date } } } =>
+          "occurrence" in clause,
+      )?.occurrence.endsAt.lte;
+      const requestedIds = new Set(
+        args.where.OR.find(
+          (clause): clause is { personId: { in: string[] } } =>
+            "personId" in clause,
+        )?.personId.in ?? [],
+      );
+
       const ids = [
         ...new Set(
           options.signups
             .filter(
               (signup) =>
-                signup.occurrenceEndsAt.getTime() <=
-                  args.where.occurrence.endsAt.lte.getTime() &&
+                ((endsBefore !== undefined &&
+                  signup.occurrenceEndsAt.getTime() <= endsBefore.getTime()) ||
+                  requestedIds.has(signup.personId)) &&
                 !excluded.has(signup.personId),
             )
             .map((signup) => signup.personId),
@@ -94,6 +124,22 @@ function build(options: { signups: Signup[]; heldPersonIds?: string[] }) {
       calls.push("lock");
       return 1;
     }),
+    person: {
+      findUnique: vi.fn(async (args: { where: { id: string } }) => {
+        calls.push("readRestriction");
+        return {
+          processingRestrictedAt: restricted.includes(args.where.id)
+            ? new Date("2027-05-01T00:00:00.000Z")
+            : null,
+        };
+      }),
+    },
+    dataSubjectRequest: {
+      findFirst: vi.fn(async (args: { where: { personId: string } }) => {
+        calls.push("readRequest");
+        return requested.includes(args.where.personId) ? { id: "req-1" } : null;
+      }),
+    },
     legalHold: {
       findFirst: vi.fn(async () => {
         calls.push("readHold");
@@ -113,6 +159,20 @@ function build(options: { signups: Signup[]; heldPersonIds?: string[] }) {
 
   const prisma = {
     eventSignup: { groupBy },
+    person: {
+      findMany: vi.fn(
+        async (args: {
+          where: { OR?: unknown[]; dataSubjectRequests?: unknown };
+        }) =>
+          // The two questions withheld-persons.ts asks, told apart by their
+          // shape: one asks for a hold or a restriction, the other for a
+          // granted erasure request.
+          (args.where.dataSubjectRequests === undefined
+            ? withheld
+            : requested
+          ).map((id) => ({ id })),
+      ),
+    },
     legalHold: {
       findMany: vi.fn(async () => held.map((personId) => ({ personId }))),
     },
@@ -239,7 +299,13 @@ describe("erasing one person's sign-ups", () => {
 
     await service.purgePerson("aa", NOW, RETENTION_DAYS);
 
-    expect(calls).toEqual(["lock", "readHold", "delete"]);
+    expect(calls).toEqual([
+      "lock",
+      "readHold",
+      "readRestriction",
+      "readRequest",
+      "delete",
+    ]);
   });
 
   it("erases nothing when a hold stands", async () => {
@@ -251,7 +317,7 @@ describe("erasing one person's sign-ups", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold"]);
+    expect(calls).toEqual(["lock", "readHold", "readRestriction"]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 

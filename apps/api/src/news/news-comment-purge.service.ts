@@ -8,6 +8,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
+  erasureRequestedPersonIds,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
+import {
   NEWS_COMMENT_RETENTION_DAYS,
   newsCommentPurgeCutoff,
 } from "./news-comment-retention";
@@ -18,13 +22,17 @@ export const NEWS_COMMENT_PURGE_QUEUE = "news-comment-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own. The import session purge takes
- * 03:23, the service data purge 03:41 and the booking purge 03:53, so this one
- * takes 03:11 - twelve minutes clear of the nearest of them, and clear of 03:29
- * as well, which the event sign-up purge is taking. Jobs waking together on one
- * small connection pool is a contention nobody gains anything from.
+ * In the small hours, on a minute of its own - 03:07, which is the first of
+ * the band. It used to say 03:11, which the event sign-up purge also holds:
+ * the two woke together every night, which is exactly what spacing the band
+ * exists to prevent.
+ *
+ * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues,
+ * 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53 service data.
+ * Jobs waking together on one small connection pool is a contention nobody
+ * gains anything from.
  */
-const PURGE_CRON = "11 3 * * *";
+const PURGE_CRON = "07 3 * * *";
 
 /**
  * The most people one run erases the comments of.
@@ -225,15 +233,28 @@ export class NewsCommentPurgeService implements OnModuleInit {
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = newsCommentPurgeCutoff(now, retentionDays);
-    const held = await this.heldPersonIds();
+    const withheld = await withheldPersonIds(this.prisma);
+    const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
+      (personId) => !withheld.includes(personId),
+    );
 
     const groups = await this.prisma.newsComment.groupBy({
       by: ["authorPersonId"],
       where: {
-        createdAt: { lte: cutoff },
+        /*
+         * Either the comment's own window has run out, or the person has been
+         * granted erasure, in which case every comment of theirs goes however
+         * recent: bringing the purge forward is what the board granted.
+         */
+        OR: [
+          { createdAt: { lte: cutoff } },
+          ...(requested.length > 0
+            ? [{ authorPersonId: { in: requested } }]
+            : []),
+        ],
         // Spelled conditionally rather than as an empty `notIn`, so what the
         // query asks does not depend on how the client renders a list of none.
-        ...(held.length > 0 ? { authorPersonId: { notIn: held } } : {}),
+        ...(withheld.length > 0 ? { authorPersonId: { notIn: withheld } } : {}),
       },
       orderBy: [{ authorPersonId: "asc" }],
       take: MAX_PERSONS_PER_RUN,
@@ -272,18 +293,47 @@ export class NewsCommentPurgeService implements OnModuleInit {
         where: { personId, releasedAt: null },
         select: { id: true },
       });
-      if (held !== null) {
+      const person = await tx.person.findUnique({
+        where: { id: personId },
+        select: { processingRestrictedAt: true },
+      });
+      if (held !== null || person?.processingRestrictedAt != null) {
         /*
-         * Re-checked here rather than trusted from the scan. A hold placed
-         * between the scan and this transaction has to win: the board member who
-         * placed it is entitled to assume it took effect, and this is the moment
-         * where that is either true or a promise nobody kept.
+         * Re-checked here rather than trusted from the scan. A hold placed, or a
+         * restriction recorded, between the scan and this transaction has to
+         * win: whoever asked for it is entitled to assume it took effect, and
+         * this is the moment where that is either true or a promise nobody kept.
+         * A restriction refuses for the reason art. 18(2) gives - the
+         * association may store the data, which makes erasing it the one act
+         * the person asked it not to perform.
          */
         return 0;
       }
 
+      /*
+       * A granted erasure request moves this job's cutoff to now, which is the
+       * whole of what bringing the purge forward means: the same rows, on the
+       * same rule, without waiting out a window the person asked to be freed
+       * from. The request is not closed here - the service-data purge runs last
+       * in the band and closes it, which is why this job still sees it open.
+       */
+      const request = await tx.dataSubjectRequest.findFirst({
+        where: {
+          personId,
+          kind: "ERASURE",
+          decision: "GRANTED",
+          executedAt: null,
+          closedAt: null,
+        },
+        select: { id: true },
+      });
+      const effectiveCutoff = request === null ? cutoff : now;
+
       const { count } = await tx.newsComment.deleteMany({
-        where: { authorPersonId: personId, createdAt: { lte: cutoff } },
+        where: {
+          authorPersonId: personId,
+          createdAt: { lte: effectiveCutoff },
+        },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them
@@ -318,22 +368,5 @@ export class NewsCommentPurgeService implements OnModuleInit {
 
       return count;
     });
-  }
-
-  /**
-   * Everybody a legal hold currently stands against.
-   *
-   * Read whole rather than asked about a shortlist, because the scan needs them
-   * before it chooses its shortlist rather than after. One row per held person
-   * at most, and a hold is a dispute the board entered deliberately, so this is
-   * a handful of ids in a cooperative that has any at all.
-   */
-  private async heldPersonIds(): Promise<string[]> {
-    const holds = await this.prisma.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    return holds.map((hold) => hold.personId);
   }
 }

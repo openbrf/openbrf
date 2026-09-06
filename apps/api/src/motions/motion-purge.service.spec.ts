@@ -61,13 +61,25 @@ interface Motion {
  * `closedAt` filter in both its halves, the `notIn` exclusion, the sort and the
  * bound, which is exactly the contract the real one is relied on for.
  */
-function build(options: { motions: Motion[]; heldPersonIds?: string[] }) {
+function build(options: {
+  motions: Motion[];
+  heldPersonIds?: string[];
+  restrictedPersonIds?: string[];
+  erasureRequestedPersonIds?: string[];
+}) {
   const held = options.heldPersonIds ?? [];
+  const restricted = options.restrictedPersonIds ?? [];
+  const requested = options.erasureRequestedPersonIds ?? [];
+  const withheld = [...new Set([...held, ...restricted])];
 
   const groupBy = vi.fn(
     async (args: {
       where: {
-        closedAt: { not: null; lte: Date };
+        closedAt: { not: null; lte?: Date };
+        OR?: (
+          | { closedAt: { lte: Date } }
+          | { submittedByPersonId: { in: string[] } }
+        )[];
         submittedByPersonId?: { notIn: string[] };
       };
       take: number;
@@ -77,6 +89,25 @@ function build(options: { motions: Motion[]; heldPersonIds?: string[] }) {
       // silently let an open motion through would hide exactly the defect the
       // "leaves an open motion alone" test exists to catch.
       const requiresClosed = args.where.closedAt.not === null;
+      /*
+       * The cutoff sits on `closedAt` when nobody has been granted erasure and
+       * moves into the OR when somebody has, because a request reaches their
+       * closed motions early. An open motion is out of scope either way, which
+       * is what `requiresClosed` keeps honest.
+       */
+      const closedBefore =
+        args.where.closedAt.lte ??
+        args.where.OR?.find(
+          (clause): clause is { closedAt: { lte: Date } } =>
+            "closedAt" in clause,
+        )?.closedAt.lte;
+      const requestedIds = new Set(
+        args.where.OR?.find(
+          (clause): clause is { submittedByPersonId: { in: string[] } } =>
+            "submittedByPersonId" in clause,
+        )?.submittedByPersonId.in ?? [],
+      );
+
       const ids = [
         ...new Set(
           options.motions
@@ -86,8 +117,9 @@ function build(options: { motions: Motion[]; heldPersonIds?: string[] }) {
               }
               return (
                 motion.closedAt !== null &&
-                motion.closedAt.getTime() <=
-                  args.where.closedAt.lte.getTime() &&
+                ((closedBefore !== undefined &&
+                  motion.closedAt.getTime() <= closedBefore.getTime()) ||
+                  requestedIds.has(motion.submittedByPersonId)) &&
                 !excluded.has(motion.submittedByPersonId)
               );
             })
@@ -120,6 +152,22 @@ function build(options: { motions: Motion[]; heldPersonIds?: string[] }) {
       calls.push("lock");
       return 1;
     }),
+    person: {
+      findUnique: vi.fn(async (args: { where: { id: string } }) => {
+        calls.push("readRestriction");
+        return {
+          processingRestrictedAt: restricted.includes(args.where.id)
+            ? new Date("2027-05-01T00:00:00.000Z")
+            : null,
+        };
+      }),
+    },
+    dataSubjectRequest: {
+      findFirst: vi.fn(async (args: { where: { personId: string } }) => {
+        calls.push("readRequest");
+        return requested.includes(args.where.personId) ? { id: "req-1" } : null;
+      }),
+    },
     legalHold: {
       findFirst: vi.fn(async () => {
         calls.push("readHold");
@@ -131,6 +179,20 @@ function build(options: { motions: Motion[]; heldPersonIds?: string[] }) {
 
   const prisma = {
     motion: { groupBy },
+    person: {
+      findMany: vi.fn(
+        async (args: {
+          where: { OR?: unknown[]; dataSubjectRequests?: unknown };
+        }) =>
+          // The two questions withheld-persons.ts asks, told apart by their
+          // shape: one asks for a hold or a restriction, the other for a
+          // granted erasure request.
+          (args.where.dataSubjectRequests === undefined
+            ? withheld
+            : requested
+          ).map((id) => ({ id })),
+      ),
+    },
     legalHold: {
       findMany: vi.fn(async () => held.map((personId) => ({ personId }))),
     },
@@ -278,7 +340,13 @@ describe("erasing one person's motions", () => {
 
     await service.purgePerson("aa", NOW, RETENTION_DAYS);
 
-    expect(calls).toEqual(["lock", "readHold", "delete"]);
+    expect(calls).toEqual([
+      "lock",
+      "readHold",
+      "readRestriction",
+      "readRequest",
+      "delete",
+    ]);
   });
 
   it("erases nothing when a hold stands", async () => {
@@ -290,7 +358,7 @@ describe("erasing one person's motions", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold"]);
+    expect(calls).toEqual(["lock", "readHold", "readRestriction"]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 

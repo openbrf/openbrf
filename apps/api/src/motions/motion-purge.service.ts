@@ -7,6 +7,10 @@ import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockLegalHold } from "../retention/legal-hold-lock";
+import {
+  erasureRequestedPersonIds,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
 import { MOTION_RETENTION_DAYS, motionPurgeCutoff } from "./motion-retention";
 
 /** Queue the nightly motion purge runs on. */
@@ -15,10 +19,12 @@ export const MOTION_PURGE_QUEUE = "motion-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own: the import session purge takes
- * 03:23, the service data purge 03:41 and the booking purge 03:53, and jobs
- * waking together on one small connection pool is a contention nobody gains
- * anything from.
+ * In the small hours, on a minute of its own.
+ *
+ * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues,
+ * 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53 service data.
+ * Jobs waking together on one small connection pool is a contention nobody
+ * gains anything from.
  */
 const PURGE_CRON = "29 3 * * *";
 
@@ -211,7 +217,10 @@ export class MotionPurgeService implements OnModuleInit {
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = motionPurgeCutoff(now, retentionDays);
-    const held = await this.heldPersonIds();
+    const withheld = await withheldPersonIds(this.prisma);
+    const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
+      (personId) => !withheld.includes(personId),
+    );
 
     const groups = await this.prisma.motion.groupBy({
       by: ["submittedByPersonId"],
@@ -220,10 +229,30 @@ export class MotionPurgeService implements OnModuleInit {
         // date is not less than or equal to anything, but stating it makes the
         // rule readable as the rule it is - an open motion is out of scope
         // however old it is.
-        closedAt: { not: null, lte: cutoff },
+        //
+        // That stays true for a granted erasure request, which is the one place
+        // in the band where bringing the purge forward does not reach
+        // everything: an open motion is a matter the association is still
+        // dealing with, and the member who put it has a right to have it dealt
+        // with. The request reaches their closed motions early and waits for
+        // the rest.
+        closedAt: {
+          not: null,
+          ...(requested.length > 0 ? {} : { lte: cutoff }),
+        },
+        ...(requested.length > 0
+          ? {
+              OR: [
+                { closedAt: { lte: cutoff } },
+                { submittedByPersonId: { in: requested } },
+              ],
+            }
+          : {}),
         // Spelled conditionally rather than as an empty `notIn`, so what the
         // query asks does not depend on how the client renders a list of none.
-        ...(held.length > 0 ? { submittedByPersonId: { notIn: held } } : {}),
+        ...(withheld.length > 0
+          ? { submittedByPersonId: { notIn: withheld } }
+          : {}),
       },
       orderBy: [{ submittedByPersonId: "asc" }],
       take: MAX_PERSONS_PER_RUN,
@@ -262,20 +291,48 @@ export class MotionPurgeService implements OnModuleInit {
         where: { personId, releasedAt: null },
         select: { id: true },
       });
-      if (held !== null) {
+      const person = await tx.person.findUnique({
+        where: { id: personId },
+        select: { processingRestrictedAt: true },
+      });
+      if (held !== null || person?.processingRestrictedAt != null) {
         /*
-         * Re-checked here rather than trusted from the scan. A hold placed
-         * between the scan and this transaction has to win: the board member who
-         * placed it is entitled to assume it took effect, and this is the moment
-         * where that is either true or a promise nobody kept.
+         * Re-checked here rather than trusted from the scan. A hold placed, or a
+         * restriction recorded, between the scan and this transaction has to
+         * win: whoever asked for it is entitled to assume it took effect, and
+         * this is the moment where that is either true or a promise nobody kept.
+         * A restriction refuses for the reason art. 18(2) gives - the
+         * association may store the data, which makes erasing it the one act
+         * the person asked it not to perform.
          */
         return 0;
       }
 
+      /*
+       * A granted erasure request moves this job's cutoff to now, which is the
+       * whole of what bringing the purge forward means: the same rows, on the
+       * same rule, without waiting out a window the person asked to be freed
+       * from. The request is not closed here - the service-data purge runs last
+       * in the band and closes it, which is why this job still sees it open.
+       */
+      const request = await tx.dataSubjectRequest.findFirst({
+        where: {
+          personId,
+          kind: "ERASURE",
+          decision: "GRANTED",
+          executedAt: null,
+          closedAt: null,
+        },
+        select: { id: true },
+      });
+      const effectiveCutoff = request === null ? cutoff : now;
+
       const { count } = await tx.motion.deleteMany({
         where: {
           submittedByPersonId: personId,
-          closedAt: { not: null, lte: cutoff },
+          // An open motion is still out of scope, request or no request:
+          // it is a matter the association is still dealing with.
+          closedAt: { not: null, lte: effectiveCutoff },
         },
       });
       if (count === 0) {
@@ -308,22 +365,5 @@ export class MotionPurgeService implements OnModuleInit {
 
       return count;
     });
-  }
-
-  /**
-   * Everybody a legal hold currently stands against.
-   *
-   * Read whole rather than asked about a shortlist, because the scan needs them
-   * before it chooses its shortlist rather than after. One row per held person at
-   * most, and a hold is a dispute the board entered deliberately, so this is a
-   * handful of ids in a cooperative that has any at all.
-   */
-  private async heldPersonIds(): Promise<string[]> {
-    const holds = await this.prisma.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    return holds.map((hold) => hold.personId);
   }
 }
