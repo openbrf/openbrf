@@ -83,14 +83,14 @@ function designationOf(apartment: ClaimedApartment): string {
 /** People from the shared register fixture, who must not reach her extract. */
 const OTHER_MEMBERS = ["Astrid Lindqvist", "Karl Berg"] as const;
 
-/** The day the overgangar below take effect, and the fourteenth day after. */
-const OVERGANG_ON = "2026-06-02";
-const OVERGANG_DUE_ON = "2026-06-16";
+/** The day the transfers below take effect, and the fourteenth day after. */
+const TRANSFER_ON = "2026-06-02";
+const TRANSFER_DUE_ON = "2026-06-16";
 /** The day one of them goes back to the seller. */
 const REVERSED_ON = "2026-07-20";
 
 /**
- * The three buyers this file needs an overgang for, one apartment each.
+ * The three buyers this file needs a transfer for, one apartment each.
  *
  * Separate apartments rather than one, because a transfer and a member register
  * entry are kept for good: a second case cannot be stated on a transfer that
@@ -100,7 +100,7 @@ const ALREADY_MEMBER_BUYER = "hanna";
 const JURIDICAL_PERSON_BUYER = "ivar";
 const REVERSED_BUYER = "jonas";
 
-const overgangar = new Map<
+const transfers = new Map<
   string,
   Promise<{ personId: string; apartment: ClaimedApartment }>
 >();
@@ -112,38 +112,62 @@ const overgangar = new Map<
  * about is the case the board states afterwards and what the queue then says,
  * not the move flow, which is criterion 8's.
  *
- * The seller is Sigrid, so the row is an overgang with a previous holder the
- * register holds - which is what makes it a plain 3 kap. 3 § case rather than a
- * transfer out of a hand the register never held.
+ * The seller of each is recorded as holding that apartment before the day it
+ * passes on, so the row is an overgang out of a hand the register holds rather
+ * than one naming a seller who never held the bostadsratt. The apartment
+ * register takes its holders from the member residencies, so the seller is
+ * moved in without a transfer: that records the holding without raising a
+ * reporting duty of its own, which is the state a register filled by the
+ * initial supply is in and what keeps the queue below about the overgang alone.
+ * A seller per case rather than Sigrid, whose own entry and whose single
+ * apartment the documents above are read against.
  */
-function ensureOvergang(
+function ensureTransfer(
   request: APIRequestContext,
   name: string,
 ): Promise<{ personId: string; apartment: ClaimedApartment }> {
-  const existing = overgangar.get(name);
+  const existing = transfers.get(name);
   if (existing !== undefined) {
     return existing;
   }
 
   const created = (async () => {
-    const { personId: sellerId } = await ensureSigrid(request);
+    await ensureInstance(request);
     const apartment = await claimApartment(request, ADDRESS_NUMBER);
-    const lastName = uniqueSurname(name);
+
+    const sellerId = await api.createPerson(request, stack.baseUrl, {
+      firstName: "Sonja",
+      lastName: uniqueSurname(`${name}-seller`),
+      email: uniqueEmail(`${name}-seller`),
+    });
+    const { residencyId } = await api.moveIn(request, stack.baseUrl, {
+      personId: sellerId,
+      apartmentId: apartment.id,
+      role: "MEMBER",
+      movedInOn: HELD_FROM,
+    });
+
     const personId = await api.createPerson(request, stack.baseUrl, {
       firstName: name.charAt(0).toUpperCase() + name.slice(1),
-      lastName,
+      lastName: uniqueSurname(name),
       email: uniqueEmail(name),
     });
 
+    // The seller stops holding it on the day it passes on, so the register
+    // states one current holder rather than two.
+    await api.moveOut(request, stack.baseUrl, {
+      residencyId,
+      movedOutOn: TRANSFER_ON,
+    });
     await api.moveIn(request, stack.baseUrl, {
       personId,
       apartmentId: apartment.id,
       role: "MEMBER",
-      movedInOn: OVERGANG_ON,
+      movedInOn: TRANSFER_ON,
       transfer: {
         kind: "TRANSFER",
         fromPersonId: sellerId,
-        transferredOn: OVERGANG_ON,
+        transferredOn: TRANSFER_ON,
         agreementReference: `OVL-2026-${apartment.number}`,
       },
     });
@@ -151,12 +175,12 @@ function ensureOvergang(
     return { personId, apartment };
   })();
 
-  overgangar.set(name, created);
+  transfers.set(name, created);
   return created;
 }
 
 /**
- * States which case of 3 kap. 3 § one apartment's overgang falls in.
+ * States which case of 3 kap. 3 § one apartment's transfer falls in.
  *
  * On the apartment register screen, which is where the board does it. The entry
  * is located by its designation, because the register lists every apartment the
@@ -645,7 +669,7 @@ test("an overgang with no membership decision still takes its deadline", async (
    * before the case was recorded this transfer raised no duty at all - it was
    * indistinguishable from one whose decision nobody had minuted yet.
    */
-  const { apartment } = await ensureOvergang(request, ALREADY_MEMBER_BUYER);
+  const { apartment } = await ensureTransfer(request, ALREADY_MEMBER_BUYER);
 
   await signInAsAdmin(page);
   await stateCase(page, apartment, "ALREADY_MEMBER");
@@ -657,8 +681,8 @@ test("an overgang with no membership decision still takes its deadline", async (
   await expect(row).toContainText("Övergång");
   // From the overgang, and the fourteenth day after it - not from a membership
   // decision, which this case has none of.
-  await expect(row).toContainText(OVERGANG_ON);
-  await expect(row).toContainText(OVERGANG_DUE_ON);
+  await expect(row).toContainText(TRANSFER_ON);
+  await expect(row).toContainText(TRANSFER_DUE_ON);
 });
 
 test("an overgang the acquirer reports is named, not silently absent", async ({
@@ -673,7 +697,7 @@ test("an overgang the acquirer reports is named, not silently absent", async ({
    * and then saw nothing at all could not tell that from having forgotten to
    * record it.
    */
-  const { apartment } = await ensureOvergang(request, JURIDICAL_PERSON_BUYER);
+  const { apartment } = await ensureTransfer(request, JURIDICAL_PERSON_BUYER);
 
   await signInAsAdmin(page);
   await stateCase(page, apartment, "LIENHOLDING_JURIDICAL_PERSON");
@@ -698,7 +722,7 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
    * of 3 § and 4 § each say "inom tva veckor" - so the queue states the duty
    * without a day rather than printing a deadline nobody enacted.
    */
-  const { apartment } = await ensureOvergang(request, REVERSED_BUYER);
+  const { apartment } = await ensureTransfer(request, REVERSED_BUYER);
 
   await signInAsAdmin(page);
   await page.goto(appPath("/registers/apartments"));

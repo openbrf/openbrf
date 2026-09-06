@@ -99,7 +99,7 @@
         "GRANT": "A grant",
         "TRANSFER": "A transfer",
         "TERMINATION": "A termination",
-        "TRANSFER_REVERSAL": "A reversed transfer"
+        "TRANSFER_REVERSAL": "A transfer reversal"
       },
       "bodyUndated": "{{event}} for {{apartment}} was recorded on {{triggeredOn}} and has to be reported to Lantmäteriet.",
       "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sets no deadline for this report, so none is stated here."
@@ -337,6 +337,7 @@
         "organizationNumber": "Organisation number",
         "standing": "Still standing",
         "nothing": "Nothing recorded",
+        "noDeadline": "No statutory deadline",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
         "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
@@ -362,7 +363,7 @@
           "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
           "retention": "Retention",
-          "transferReversals": "Reversed transfers"
+          "transferReversals": "Transfer reversals"
         },
         "field": {
           "name": "Name",
@@ -529,7 +530,7 @@
           "GRANT": "Grant",
           "TRANSFER": "Transfer",
           "TERMINATION": "Termination",
-          "TRANSFER_REVERSAL": "Reversed transfer"
+          "TRANSFER_REVERSAL": "Transfer reversal"
         },
         "auditRole": {
           "subject": "About this person",
@@ -1507,6 +1508,7 @@
         "agreement": "Agreement",
         "membershipDecided": "Membership decided",
         "membershipDecidedLabel": "Membership decided",
+        "membershipDecidedLabelFor": "Membership decided for the transfer on {{transferredOn}} to {{to}}",
         "noAgreement": "No agreement reference recorded",
         "firstGrant": "First grant",
         "sellerUnknown": "The register does not hold the seller",
@@ -1514,8 +1516,10 @@
         "grantReportedFromGrant": "Grant: reported within two weeks of the grant itself, and no membership decision is counted.",
         "none": "No grants or transfers recorded",
         "basisLabel": "Case under 3 kap. 3 §",
+        "basisLabelFor": "Case under 3 kap. 3 § for the transfer on {{transferredOn}} to {{to}}",
         "basisUnchosen": "Choose the case",
         "basisSubmit": "Record the case",
+        "basisSubmitLabel": "Record the case for the transfer on {{transferredOn}} to {{to}}",
         "basisFailed": "The case could not be recorded. Only the first case takes a membership decision date, the date cannot be in the future, and a transfer that already states its case is not overwritten.",
         "basis": {
           "MEMBERSHIP_DECISION": "The association decided on membership - reported within two weeks of that decision",
@@ -1559,9 +1563,10 @@
         "heldUntil": "Still held"
       },
       "reversals": {
-        "heading": "Reversed transfers",
+        "heading": "Transfer reversals",
         "none": "No transfer recorded as reversed",
         "add": "Record that this went back",
+        "addLabel": "Record that this went back: the transfer on {{transferredOn}} to {{to}}",
         "kindLabel": "What happened",
         "kind": {
           "RESCINDED": "The transfer was rescinded (hävd)",
@@ -1596,7 +1601,7 @@
     },
     "reports": {
       "heading": "Reporting to the cooperative housing register",
-      "description": "Every register event the association has to report to Lantmäteriet, and the day each report falls due. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names.",
+      "description": "Every register event the association has to report to Lantmäteriet, and the day each report falls due where the statute sets one. Lag (2026:484) 3 kap. gives two weeks from the day the section in question names, except for a transfer reversal: 3 kap. 3 § tredje stycket sets no deadline for that report.",
       "stamp": "Reporting duties - {{date}}",
       "loading": "Loading the reporting duties",
       "error": "The reporting duties could not be read just now.",
@@ -1625,7 +1630,7 @@
         "GRANT": "Grant",
         "TRANSFER": "Transfer",
         "TERMINATION": "Termination",
-        "TRANSFER_REVERSAL": "Reversed transfer"
+        "TRANSFER_REVERSAL": "Transfer reversal"
       },
       "state": {
         "overdue": "Past the deadline",
@@ -1691,7 +1696,7 @@
         "count_other": "{{count}} transfers",
         "description": "Lag (2026:484) 3 kap. 3 § första stycket puts the report for these transfers on the juridical person that acquired the tenant-ownership, not on the association. They carry no deadline here because the association owes none.",
         "transferredOn": "Transferred",
-        "anmalare": "Who reports it",
+        "reporter": "Who reports it",
         "juridicalPerson": "The acquiring juridical person"
       }
     }

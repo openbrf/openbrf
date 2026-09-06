@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { LandTenure } from "../generated/prisma/client";
 import {
   addLocalDays,
   formatLocalDay,
@@ -1813,8 +1814,8 @@ describe("the obligation ledger and the event it is about", () => {
  * exactly like a decision nobody has minuted yet.
  */
 describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
-  /** A fresh overgang with no case stated, for one test to state one on. */
-  async function anOvergang(name: string): Promise<string> {
+  /** A fresh transfer with no case stated, for one test to state one on. */
+  async function aTransfer(name: string): Promise<string> {
     const id = `reg-transfer-${name}-${suffix}`;
     await prisma.transfer.create({
       data: {
@@ -1831,7 +1832,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
   }
 
   it("opens the window on the overgang where the acquirer was already a member", async () => {
-    const transferId = await anOvergang("already-member");
+    const transferId = await aTransfer("already-member");
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -1864,7 +1865,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
   });
 
   it("opens it on the overgang where the acquirer is outside the requirement", async () => {
-    const transferId = await anOvergang("outside-requirement");
+    const transferId = await aTransfer("outside-requirement");
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -1884,7 +1885,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
     // Fjarde stycket, which is its own paragraph rather than a reading of andra
     // stycket: the association is not an acquirer the membership requirement is
     // applied to.
-    const transferId = await anOvergang("to-the-association");
+    const transferId = await aTransfer("to-the-association");
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -1904,7 +1905,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
     // Refused rather than dropped. The date would go to a column a CHECK forbids
     // it in, and a statutory date silently discarded is one the board believes
     // it recorded.
-    const transferId = await anOvergang("date-refused");
+    const transferId = await aTransfer("date-refused");
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -1929,7 +1930,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
   });
 
   it("refuses the ordinary case with no date to count the two weeks from", async () => {
-    const transferId = await anOvergang("date-required");
+    const transferId = await aTransfer("date-required");
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -1950,7 +1951,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
      * table nothing can correct, and the board would work a queue holding a duty
      * it has no way to discharge.
      */
-    const transferId = await anOvergang("juridical-person");
+    const transferId = await aTransfer("juridical-person");
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -1973,7 +1974,7 @@ describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
   });
 
   it("names that overgang on the queue rather than leaving the board nothing", async () => {
-    const transferId = await anOvergang("juridical-person-queue");
+    const transferId = await aTransfer("juridical-person-queue");
     await inject({
       method: "POST",
       url: "/api/apartment-register/membership-decision",
@@ -2237,6 +2238,34 @@ describe("recording that a registered overlatelse went back", () => {
  * med tomtratt".
  */
 describe("the land the buildings stand on", () => {
+  /*
+   * The association is a singleton every suite against this database reads, and
+   * these tests write all three of its land columns. What they were is put back
+   * afterwards, so the file's own later blocks and any suite that runs after it
+   * in this worker see the state they were written against rather than the one
+   * the last test here happened to leave.
+   */
+  let recordedLand: {
+    landTenure: LandTenure | null;
+    taxAssessmentUnitNumber: string | null;
+    propertyType: string | null;
+  };
+
+  beforeAll(async () => {
+    recordedLand = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: {
+        landTenure: true,
+        taxAssessmentUnitNumber: true,
+        propertyType: true,
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.association.update({ where: { id: 1 }, data: recordedLand });
+  });
+
   it("is refused for a resident", async () => {
     const response = await inject({
       method: "POST",
@@ -2345,6 +2374,71 @@ describe("the land the buildings stand on", () => {
     expect(association.landTenure).toBe("OWNERSHIP");
     expect(association.taxAssessmentUnitNumber).toBeNull();
     expect(association.propertyType).toBeNull();
+  });
+
+  it("keeps a conditional field the request does not restate", async () => {
+    // Omitted is not cleared. The tenure is still the one that reports these
+    // two (Forordning (2026:898) 2 kap. 4 § andra stycket), so a request that
+    // corrects nothing but the tenure would otherwise drop two fields the
+    // register has to carry, answer 200, and leave them only in the audit
+    // entry - a statutory field the board believes it recorded.
+    const cookie = await signIn(actors.board.email);
+    const recorded = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: {
+        landTenure: "OTHER",
+        taxAssessmentUnitNumber: "70001234",
+        propertyType: "Hyreshusenhet",
+      },
+      headers: { cookie },
+    });
+    expect(recorded.statusCode).toBe(200);
+
+    const restated = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: { landTenure: "OTHER" },
+      headers: { cookie },
+    });
+
+    expect(restated.statusCode).toBe(200);
+    expect(JSON.parse(restated.body)).toMatchObject({
+      landTenure: "OTHER",
+      taxAssessmentUnitNumber: "70001234",
+      propertyType: "Hyreshusenhet",
+    });
+  });
+
+  it("clears a conditional field the request states as null", async () => {
+    // Stating null is the board saying the field has no value, which is a
+    // different act from saying nothing about it - and the one that has to keep
+    // working, since it is how a value recorded in error is undone.
+    const cookie = await signIn(actors.board.email);
+    await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: {
+        landTenure: "OTHER",
+        taxAssessmentUnitNumber: "70005678",
+        propertyType: "Hyreshusenhet",
+      },
+      headers: { cookie },
+    });
+
+    const cleared = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: { landTenure: "OTHER", propertyType: null },
+      headers: { cookie },
+    });
+
+    expect(cleared.statusCode).toBe(200);
+    expect(JSON.parse(cleared.body)).toMatchObject({
+      landTenure: "OTHER",
+      taxAssessmentUnitNumber: "70005678",
+      propertyType: null,
+    });
   });
 });
 

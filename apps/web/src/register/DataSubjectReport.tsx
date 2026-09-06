@@ -775,10 +775,14 @@ export function DataSubjectReport({
                     {/*
                       Absent where the statute sets no period, which is one duty:
                       3 kap. 3 § tredje stycket says the association "ska anmala"
-                      and names no last day. Rendered as the document's own "not
-                      recorded" mark rather than as a computed date.
+                      and names no last day. Said as that rather than with the
+                      document's "not recorded" mark, which would tell the
+                      subject a deadline exists and nobody wrote it down.
                     */}
-                    <td className={DATA_CELL}>{obligation.dueOn ?? nothing}</td>
+                    <td className={DATA_CELL}>
+                      {obligation.dueOn ??
+                        t("register.person.report.noDeadline")}
+                    </td>
                   </tr>
                 ))}
               </Rows>

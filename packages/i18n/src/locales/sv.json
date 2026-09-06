@@ -337,6 +337,7 @@
         "organizationNumber": "Organisationsnummer",
         "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
+        "noDeadline": "Ingen lagstadgad frist",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
         "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, upplåtelserna, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
         "section": {
@@ -1507,6 +1508,7 @@
         "agreement": "Avtal",
         "membershipDecided": "Medlemskap beslutat",
         "membershipDecidedLabel": "Medlemskap beslutat",
+        "membershipDecidedLabelFor": "Medlemskap beslutat för övergången den {{transferredOn}} till {{to}}",
         "noAgreement": "Ingen avtalshänvisning registrerad",
         "firstGrant": "Upplåtelse",
         "sellerUnknown": "Säljaren finns inte i registret",
@@ -1514,8 +1516,10 @@
         "grantReportedFromGrant": "Upplåtelse: anmäls inom två veckor från upplåtelsen, inget medlemskapsbeslut räknas.",
         "none": "Inga upplåtelser eller överlåtelser registrerade",
         "basisLabel": "Fall enligt 3 kap. 3 §",
+        "basisLabelFor": "Fall enligt 3 kap. 3 § för övergången den {{transferredOn}} till {{to}}",
         "basisUnchosen": "Välj fall",
         "basisSubmit": "Registrera fallet",
+        "basisSubmitLabel": "Registrera fallet för övergången den {{transferredOn}} till {{to}}",
         "basisFailed": "Fallet kunde inte registreras. Bara det första fallet har ett datum för medlemskapsbeslut, datumet kan inte ligga i framtiden, och en övergång som redan anger sitt fall skrivs inte över.",
         "basis": {
           "MEMBERSHIP_DECISION": "Föreningen beslutade om medlemskap - anmäls inom två veckor från beslutet",
@@ -1562,6 +1566,7 @@
         "heading": "Återgångna överlåtelser",
         "none": "Ingen överlåtelse registrerad som återgången",
         "add": "Registrera att den gått tillbaka",
+        "addLabel": "Registrera att den gått tillbaka: övergången den {{transferredOn}} till {{to}}",
         "kindLabel": "Vad som hände",
         "kind": {
           "RESCINDED": "Överlåtelsen har hävts",
@@ -1596,7 +1601,7 @@
     },
     "reports": {
       "heading": "Anmälningar till bostadsrättsregistret",
-      "description": "Varje registerhändelse som föreningen ska anmäla till Lantmäteriet, och den dag varje anmälan ska vara gjord. Lag (2026:484) 3 kap. ger två veckor från den dag som paragrafen i fråga anger.",
+      "description": "Varje registerhändelse som föreningen ska anmäla till Lantmäteriet, och den dag varje anmälan ska vara gjord när lagen sätter någon. Lag (2026:484) 3 kap. ger två veckor från den dag som paragrafen i fråga anger, utom för en återgången överlåtelse: 3 kap. 3 § tredje stycket sätter ingen frist för den anmälan.",
       "stamp": "Anmälningsskyldigheter - {{date}}",
       "loading": "Hämtar anmälningsskyldigheterna",
       "error": "Anmälningsskyldigheterna kunde inte läsas just nu.",
@@ -1691,7 +1696,7 @@
         "count_other": "{{count}} övergångar",
         "description": "Lag (2026:484) 3 kap. 3 § första stycket lägger anmälan för de här övergångarna på den juridiska person som förvärvat bostadsrätten, inte på föreningen. De bär ingen frist här eftersom föreningen inte har någon skyldighet.",
         "transferredOn": "Övergått",
-        "anmalare": "Vem som anmäler",
+        "reporter": "Vem som anmäler",
         "juridicalPerson": "Den förvärvande juridiska personen"
       }
     }

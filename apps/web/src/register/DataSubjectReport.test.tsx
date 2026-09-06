@@ -737,11 +737,19 @@ describe("what the document prints", () => {
     expect(rows?.[1]?.textContent).toContain("2026-02-15");
     expect(rows?.[1]?.textContent).toContain("Upphörande");
     // The duty Lag (2026:484) 3 kap. 3 § tredje stycket sets no period for. Its
-    // deadline column carries the document's own "not recorded" mark rather than
-    // a date computed from a sentence that names none.
+    // deadline column says the statute sets none rather than carrying a date
+    // computed from a sentence that names none - and rather than the document's
+    // "not recorded" mark, which would say a deadline exists and was not
+    // written down.
     expect(rows?.[2]?.textContent).toContain("2020-09-15");
     expect(rows?.[2]?.textContent).toContain("Återgången överlåtelse");
     expect(rows?.[2]?.textContent).not.toContain("2020-09-29");
+    expect(rows?.[2]?.textContent).toContain(
+      i18n.t("register.person.report.noDeadline"),
+    );
+    expect(rows?.[2]?.textContent).not.toContain(
+      i18n.t("register.person.report.nothing"),
+    );
 
     // And the retention sentence that covers them, naming the reports among
     // what no setting and no administrator reaches.
@@ -750,7 +758,7 @@ describe("what the document prints", () => {
     ).not.toBeNull();
   });
 
-  it("prints a reversed transfer as an event of its own", async () => {
+  it("prints a transfer reversal as an event of its own", async () => {
     /*
      * The overlatelse happened and it went back, and the document has to say
      * both: a report that replaced the transfer with its reversal would state

@@ -1246,6 +1246,8 @@ function ApartmentEntry({
                 ) : canWrite ? (
                   <ReportBasisControl
                     transferId={transfer.id}
+                    transferredOn={transfer.transferredOn}
+                    to={transfer.toName}
                     onRecord={onRecordReportBasis}
                   />
                 ) : null}
@@ -1261,6 +1263,13 @@ function ApartmentEntry({
                   would refuse. A row whose kind was never recorded keeps the
                   control: what it was is not recorded, and refusing it here
                   would be the platform deciding.
+
+                  Named after the transfer it acts on, the way the lien release
+                  above is named after its creditor: a row can list several
+                  transfers, each with a control of its own, and this one writes
+                  to an append-only table. Identical accessible names would
+                  leave somebody reading the screen through them unable to tell
+                  which transfer they were about to record as gone back.
                 */}
                 {canWrite &&
                 transfer.kind !== "GRANT" &&
@@ -1270,6 +1279,10 @@ function ApartmentEntry({
                     onClick={() => {
                       onStartReversal(transfer.id);
                     }}
+                    aria-label={t("registers.apartment.reversals.addLabel", {
+                      transferredOn: transfer.transferredOn,
+                      to: transfer.toName,
+                    })}
                     className={`${QUIET_BUTTON} print:hidden`}
                   >
                     {t("registers.apartment.reversals.add")}
@@ -1479,9 +1492,22 @@ function ApartmentEntry({
  */
 function ReportBasisControl({
   transferId,
+  transferredOn,
+  to,
   onRecord,
 }: {
   transferId: string;
+  /**
+   * The day of the transfer and who acquired it, for the accessible names.
+   *
+   * One row can list several transfers still awaiting a case, so each of these
+   * controls is rendered more than once with the same visible text. What the
+   * board reads on screen is disambiguated by the row the control sits in;
+   * somebody reading through the accessible names has only the name, and the
+   * case is recorded once and never corrected.
+   */
+  transferredOn: string;
+  to: string;
   onRecord: (
     transferId: string,
     basis: TransferReportBasis,
@@ -1495,6 +1521,7 @@ function ReportBasisControl({
 
   const needsDate = basis === "MEMBERSHIP_DECISION";
   const ready = basis !== "" && (!needsDate || decidedOn !== "");
+  const names = { transferredOn, to };
 
   return (
     <span className="flex flex-wrap items-center gap-2 print:hidden">
@@ -1508,6 +1535,7 @@ function ReportBasisControl({
             // string back into the union.
             setBasis(event.target.value as TransferReportBasis | "");
           }}
+          aria-label={t("registers.apartment.transfers.basisLabelFor", names)}
           className={FIELD}
         >
           <option value="">
@@ -1531,6 +1559,10 @@ function ReportBasisControl({
             onChange={(event) => {
               setDecidedOn(event.target.value);
             }}
+            aria-label={t(
+              "registers.apartment.transfers.membershipDecidedLabelFor",
+              names,
+            )}
             className={FIELD_DATA}
           />
         </label>
@@ -1552,6 +1584,7 @@ function ReportBasisControl({
             setRecording(false);
           });
         }}
+        aria-label={t("registers.apartment.transfers.basisSubmitLabel", names)}
         className={QUIET_BUTTON}
       >
         {t("registers.apartment.transfers.basisSubmit")}

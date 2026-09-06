@@ -1197,6 +1197,15 @@ export class ApartmentRegisterService {
    * database says the same with a CHECK, and a value silently dropped is a
    * statutory field the board believes it recorded.
    *
+   * A field the request does not mention is left as recorded, which is the same
+   * rule read from the other side. Omitted and cleared are two different acts,
+   * and only the tenure decides whether the register reports these columns at
+   * all: a request restating the tenure as OTHER without repeating them would
+   * otherwise drop two fields Forordning (2026:898) 2 kap. 4 § andra stycket
+   * requires in that very case, answer 200, and leave the values only in the
+   * audit entry. Stating null or an empty string still clears one, since that is
+   * a board saying the field has no value rather than saying nothing about it.
+   *
    * One act and one audit entry, because the three are decided together: the two
    * fields are only reportable on the strength of the tenure, and an entry per
    * column would leave the log unable to say so.
@@ -1217,6 +1226,23 @@ export class ApartmentRegisterService {
     };
     const statedNumber = blank(input.taxAssessmentUnitNumber);
     const statedType = blank(input.propertyType);
+
+    /**
+     * What to write for one conditional field.
+     *
+     * Null wherever the tenure stops reporting it. Otherwise `undefined`, which
+     * is Prisma's "no change", for a field the request never mentioned, and the
+     * stated value - null included - for one it did.
+     */
+    const written = (
+      field: string | null | undefined,
+      stated: string | null,
+    ): string | null | undefined => {
+      if (input.landTenure !== "OTHER") {
+        return null;
+      }
+      return field === undefined ? undefined : stated;
+    };
 
     if (
       input.landTenure !== "OTHER" &&
@@ -1248,8 +1274,11 @@ export class ApartmentRegisterService {
         where: { id: 1 },
         data: {
           landTenure: input.landTenure,
-          taxAssessmentUnitNumber: statedNumber,
-          propertyType: statedType,
+          taxAssessmentUnitNumber: written(
+            input.taxAssessmentUnitNumber,
+            statedNumber,
+          ),
+          propertyType: written(input.propertyType, statedType),
         },
         select: {
           landTenure: true,

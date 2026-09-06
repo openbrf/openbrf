@@ -524,7 +524,7 @@ export function RegisterReportQueueScreen(): ReactElement {
                         {t("registers.reports.elsewhere.transferredOn")}
                       </th>
                       <th scope="col" className={HEAD_CELL}>
-                        {t("registers.reports.elsewhere.anmalare")}
+                        {t("registers.reports.elsewhere.reporter")}
                       </th>
                     </tr>
                   </thead>

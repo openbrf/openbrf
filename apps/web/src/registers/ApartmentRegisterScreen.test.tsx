@@ -502,6 +502,58 @@ describe("register completeness", () => {
     }
   });
 
+  it("names the transfer in every per-transfer control", async () => {
+    /*
+     * A row lists several transfers and each carries its own controls, so the
+     * visible text of one is the visible text of all of them. Both of these
+     * write a value that cannot be corrected afterwards - the reversal goes into
+     * an append-only table, and a transfer that states its case is not
+     * overwritten - so somebody reading the screen through its accessible names
+     * has to be able to tell which transfer a control acts on.
+     */
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    const reversals = await screen.findAllByRole("button", {
+      name: /Registrera att den gått tillbaka/,
+    });
+    expect(
+      reversals.map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      i18n.t("registers.apartment.reversals.addLabel", {
+        transferredOn: "2019-06-01",
+        to: "Anna Lindqvist",
+      }),
+      i18n.t("registers.apartment.reversals.addLabel", {
+        transferredOn: "2014-03-02",
+        to: "Karin Ohman",
+      }),
+    ]);
+
+    // The transfer that states no case yet, which is the one the case control
+    // is offered on.
+    const named = { transferredOn: "2014-03-02", to: "Karin Ohman" };
+    const select = screen.getByLabelText(
+      i18n.t("registers.apartment.transfers.basisLabelFor", named),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: i18n.t("registers.apartment.transfers.basisSubmitLabel", named),
+      }),
+    ).toBeTruthy();
+
+    // And the date the first case takes, which appears only once it is chosen.
+    await session.selectOptions(select, "MEMBERSHIP_DECISION");
+    expect(
+      screen.getByLabelText(
+        i18n.t(
+          "registers.apartment.transfers.membershipDecidedLabelFor",
+          named,
+        ),
+      ),
+    ).toBeTruthy();
+  });
+
   it("records the ordinary case with the day the board decided", async () => {
     const session = userEvent.setup();
     render(<ApartmentRegisterScreen />);
