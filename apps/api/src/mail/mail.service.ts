@@ -80,6 +80,33 @@ export interface SendMailInput<Props> {
   locale: string | null | undefined;
   template: MailTemplate<Props>;
   props: Props;
+  /**
+   * Where an answer to this message should go, when that is not the address it
+   * was sent from.
+   *
+   * The board's shared mailbox is what this exists for: a reply goes out through
+   * whatever identity the instance's mail server accepts, and the conversation
+   * has to come back to the address the board published rather than to that
+   * relay. Nothing else sets it, and most correspondence should not - an
+   * invitation or a sign-in link is not a message to answer.
+   */
+  replyTo?: string;
+
+  /**
+   * This message's own RFC 5322 identifier, and the one it answers.
+   *
+   * Set together, by a caller that stores the conversation: the identifier has
+   * to be known before the message is handed over, because it is what a later
+   * reply is matched against on the way back in.
+   *
+   * Three named fields rather than an arbitrary header bag, and that is a
+   * boundary rather than a convenience. A caller that could set any header could
+   * set Bcc, or From, or an authentication result, from a value that came from
+   * somewhere else - and the one caller here composes its threading from a
+   * message written by somebody outside the association.
+   */
+  messageId?: string | null;
+  inReplyTo?: string | null;
 }
 
 /**
@@ -186,6 +213,14 @@ export class MailService {
       subject: rendered.subject,
       html: rendered.html,
       text: rendered.text,
+      replyTo: input.replyTo,
+      messageId: input.messageId == null ? undefined : `<${input.messageId}>`,
+      // Both headers, from the one value. In-Reply-To names the message being
+      // answered and References carries the conversation, and a client needs
+      // the second to place the reply in a thread it is already showing.
+      inReplyTo: input.inReplyTo == null ? undefined : `<${input.inReplyTo}>`,
+      references:
+        input.inReplyTo == null ? undefined : [`<${input.inReplyTo}>`],
     });
   }
 

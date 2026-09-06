@@ -187,6 +187,78 @@ export async function saveSmtp(
   await expectOk(response, "PUT /api/settings/smtp");
 }
 
+/**
+ * Points the instance at the mailbox the board's address is collected from.
+ *
+ * The ordinary settings endpoint, with the administrator's capability, which is
+ * the whole point: the spec configures the mailbox the way a board's
+ * administrator would and the application collects it the way it always does.
+ */
+export async function saveBoardMailbox(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: {
+    address: string | null;
+    host: string | null;
+    port: number | null;
+    secure: boolean;
+    user: string | null;
+    password?: string | null;
+  },
+): Promise<void> {
+  const response = await request.put(`${baseUrl}/api/settings/board-mailbox`, {
+    data: input,
+  });
+  await expectOk(response, "PUT /api/settings/board-mailbox");
+}
+
+/** One conversation in the board's mailbox, as the inbox lists it. */
+export type BoardMailboxThreadRow = {
+  readonly id: string;
+  readonly subject: string;
+  readonly correspondent: {
+    readonly email: string;
+    readonly name: string | null;
+  };
+  readonly status: "NEW" | "TAKEN" | "ANSWERED" | "CLOSED";
+  readonly messageCount: number;
+};
+
+export async function listBoardMailboxThreads(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly BoardMailboxThreadRow[]> {
+  const response = await request.get(`${baseUrl}/api/board-mailbox/threads`);
+  await expectOk(response, "GET /api/board-mailbox/threads");
+  // The inbox is a bounded page with a continuation behind it. This suite never
+  // fills a page, so the rows are the whole of what the board would see.
+  const body = (await response.json()) as {
+    readonly threads: readonly BoardMailboxThreadRow[];
+  };
+  return body.threads;
+}
+
+/**
+ * Collects the mailbox now, and answers what arrived.
+ *
+ * The product's own control rather than a lever built for this suite: a board
+ * that has just been told somebody wrote in presses it, and so does one checking
+ * that an administrator's settings work. Driving it here is what lets a browser
+ * test assert on an inbound message without waiting out the five-minute
+ * schedule.
+ */
+export async function collectBoardMailbox(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<{ readonly collected: number; readonly configured: boolean }> {
+  const response = await request.post(`${baseUrl}/api/board-mailbox/collect`);
+  await expectOk(response, "POST /api/board-mailbox/collect");
+  return (await response.json()) as {
+    readonly collected: number;
+    readonly configured: boolean;
+  };
+}
+
 export type InstanceSettings = {
   readonly housingCooperative: {
     readonly name: string;

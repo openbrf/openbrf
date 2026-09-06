@@ -316,6 +316,34 @@ export const CAPABILITIES = [
    */
   "meetings:manage",
   /**
+   * Read the board mailbox (styrelsens brevlada), take a thread on, answer it
+   * and close it.
+   *
+   * The board's, and one capability for the whole of it rather than a pair, by
+   * the argument `events:manage` makes: reading a letter addressed to the board
+   * and answering it are one act, and there is no half of it a person could
+   * sensibly hold on its own. A seat that could read the correspondence without
+   * being able to answer would be a seat that has to ask somebody else to press
+   * send, which is the situation the shared mailbox exists to end.
+   *
+   * Deliberately not the external property manager's, on the `motions:handle`
+   * precedent and for a stronger version of the same reason. What arrives at a
+   * board's address is whatever a resident, a bank, an authority or a neighbour
+   * chose to write to their association, and a contractor engaged to fix the
+   * building has no business reading it. That is also why the issue queue -
+   * which they do read - stays a separate module with a separate capability: an
+   * issue is a report about the house, and a letter to the board is not.
+   *
+   * Nor is it a resident's. Every resident may write to the board; none of them
+   * may read what the neighbours wrote.
+   *
+   * It does not carry configuring the mailbox. Where the mail is collected from,
+   * and with which credentials, is `association:manage` beside the SMTP
+   * settings, because it is the same question - which mail server does this
+   * instance talk to - answered by the same person.
+   */
+  "boardMailbox:handle",
+  /**
    * Ask the board's consent to let one's own apartment in andra hand
    * (andrahandsupplatelse), and read one's own applications.
    *
@@ -468,6 +496,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "motions:handle",
   "meetings:manage",
   "events:attend",
+  "boardMailbox:handle",
   "sublets:handle",
   "keyOrders:place",
   "keyOrders:handle",

@@ -772,7 +772,42 @@ no, and the pilot is the thing that will change it.
         conversation is, and the comments before that page are a press away
         rather than quietly missing
   - [ ] Group and board chat
-- [ ] Shared board mailbox
+- [x] Shared board mailbox: mail sent to the address the board publishes
+      arrives in the application as a thread every board member can see,
+      one board member takes it on where the others can watch it happen, and the
+      answer goes out from here and stays on the thread as the record of what
+      the association was asked and what it said. What makes a board address get
+      stuck with an individual is not that mail is lost but that nothing says
+      out loud who is dealing with it, which is why taking a thread writes a
+      name onto the row every other seat is reading, and why nothing about it is
+      exclusive: a second board member can take a thread from the first, because
+      a letter locked to somebody on holiday is the failure the module exists to
+      end. Mail comes in by collecting a mailbox the board already has, over
+      POP3, on the job schedule and on demand from the screen. That is the whole
+      of the inbound design and it follows from the deployment promise: the
+      platform installs with one Compose command, and receiving mail directly
+      would need port 25 open to the internet, an MX record, a public hostname
+      with a certificate and a spam defence, none of which a board can be asked
+      to arrange -- what it needs instead is the same kind of credential the
+      board already pastes into the SMTP settings. Nothing is deleted from the
+      mailbox, so a board member who also reads it in a mail client finds their
+      mail where they left it. A letter is untrusted input from outside the
+      association and is handled as such throughout: the body is stored as text
+      and an HTML part is converted as it arrives, so no markup is ever kept;
+      attachments go through the ordinary upload path and are identified from
+      their own bytes rather than from the type the sender declared; and the
+      sender is the address the envelope asserted and is never resolved to a
+      person in the register, so a letter signed with a member's name is a
+      letter signed with a member's name and confers nothing. A thread is
+      service tier: it appears in the data subject access report for the address
+      it is with, it is erased two years after the last thing said in it, and a
+      legal hold against the person whose address that is suspends the erasure.
+      Two boundaries are worth stating rather than discovering. The mailbox is
+      authenticated with a user name and a password, which is what the hosts a
+      Swedish housing cooperative buys a domain from offer, so a provider that
+      requires OAuth2 cannot be configured. And nothing tells a board member
+      that a letter has arrived: the inbox is somewhere the board goes, on the
+      issue queue's precedent, rather than something that reaches them
 - [ ] Digital home folder for residents
 - [x] Forms: subletting applications, motions, key orders
   - [x] Motions to the general meeting: a member submits one in writing and the

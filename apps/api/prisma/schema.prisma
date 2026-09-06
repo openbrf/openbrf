@@ -331,6 +331,42 @@ model Association {
   /// routes, so it is stored beside the driver rather than assumed.
   smsSenderName String?
 
+  /// The address the board publishes as its own (styrelsens brevlada), and the
+  /// mailbox this instance collects that address's mail from.
+  ///
+  /// One address and one mailbox, not a list. A housing cooperative has one
+  /// board and tells the street one way of writing to it, and a second inbox
+  /// would immediately raise the question this module exists to answer: which
+  /// of them is the one that does not get stuck with an individual.
+  ///
+  /// Stored beside the SMTP settings because it is the same kind of thing -
+  /// where this instance's correspondence goes out and where it comes in - and
+  /// changed by the same capability. What is done with the mail once it is here
+  /// is the board's, and gated separately.
+  boardMailboxAddress String?
+
+  /// Where the mail is collected from, over POP3.
+  ///
+  /// POP3 rather than IMAP, and the reasoning is in `board-mailbox/pop3.ts`.
+  /// The short of it: the platform ships as one Compose command, the board
+  /// already has a mailbox at whoever hosts its domain, and collecting from it
+  /// needs no inbound port, no public hostname and no MX record - only the same
+  /// kind of credential the board already pastes into the SMTP settings.
+  ///
+  /// `Secure` means implicit TLS on the connection, which is what port 995
+  /// offers. There is no STARTTLS variant here, unlike SMTP: every hosting
+  /// provider a Swedish housing cooperative buys a domain from offers implicit
+  /// TLS on 995, and an unencrypted default would be a password on the wire.
+  boardMailboxPop3Host   String?
+  boardMailboxPop3Port   Int?
+  boardMailboxPop3Secure Boolean @default(true)
+  boardMailboxPop3User   String?
+
+  /// The mailbox password. Encrypted at rest like the SMTP password, and
+  /// unindexed for the same reason: it is read back by primary key, and
+  /// indexing a secret is pure downside.
+  boardMailboxPop3PasswordCipher String?
+
   /// Null means the built-in default theme (Porttavlan) is active.
   activeThemeId String?
 
@@ -1597,6 +1633,25 @@ enum AuditAction {
   /// access report shows the meeting their item was put to. The entry names the
   /// meeting and never the motion's text.
   MOTION_MEETING_SET
+  /// A board member took a thread in the shared mailbox on, so that every other
+  /// seat can see who is dealing with it. No subject: the correspondent is an
+  /// address the envelope asserted and is deliberately never resolved to a
+  /// person, so naming one here would be the attribution the module refuses to
+  /// make everywhere else.
+  BOARD_MAILBOX_THREAD_TAKEN
+  /// A thread was put back, by whoever held it or by another seat. The entry
+  /// names the thread and never its subject line, which is the correspondent's
+  /// writing and has a home of its own.
+  BOARD_MAILBOX_THREAD_RELEASED
+  /// A reply to a thread was written and queued for sending. One action and not
+  /// two: what the board did was answer, and whether the mail server accepted it
+  /// is the delivery ledger's question rather than the log's. Not a word of the
+  /// reply travels with the entry.
+  BOARD_MAILBOX_REPLY_SENT
+  /// The board recorded that it is finished with a thread, or reopened one it
+  /// had closed.
+  BOARD_MAILBOX_THREAD_CLOSED
+  BOARD_MAILBOX_THREAD_REOPENED
   /// A member asked the board's consent to let their apartment in andra hand
   /// (BRL 7 kap. 10 §). Actor and subject are the same person: the request is
   /// theirs to make and nobody makes it on anybody's behalf. The entry carries
@@ -2126,10 +2181,11 @@ model MediaFile {
   /// erasure of the person it names. The record stands as it was written.
   uploadedByPersonId String?
 
-  associationLogo     Association[] @relation("AssociationLogo")
-  associationLogoDark Association[] @relation("AssociationLogoDark")
-  issuePhotos         IssuePhoto[]
-  document            Document?     @relation("DocumentFile")
+  associationLogo         Association[]            @relation("AssociationLogo")
+  associationLogoDark     Association[]            @relation("AssociationLogoDark")
+  issuePhotos             IssuePhoto[]
+  document                Document?                @relation("DocumentFile")
+  boardMailboxAttachments BoardMailboxAttachment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4160,7 +4216,7 @@ model MeetingDecision {
 /// (EFL 6 kap. 39 §), which 40 § has kept safely, so a line erased on a clock
 /// of its own would take part of the association's minutes with it.
 model MeetingAttendance {
-  id        String  @id @default(cuid())
+  id        String @id @default(cuid())
   meetingId String
 
   /// Restricts the meeting rather than cascading from it, on the ground
@@ -4274,7 +4330,7 @@ model MeetingAttendance {
 /// authorised me to exercise theirs" are different facts about different
 /// people.
 model ProxyAuthorisation {
-  id        String  @id @default(cuid())
+  id        String @id @default(cuid())
   meetingId String
 
   /// Restricts the meeting rather than cascading from it, on the ground
@@ -4569,6 +4625,341 @@ model MeetingNoticeDelivery {
   /// The worker's queue, and the board's count of what got through.
   @@index([noticeId, channel, status])
   @@map("meeting_notice_delivery")
+}
+
+// ---------------------------------------------------------------------------
+// The board mailbox (styrelsens brevlada).
+// ---------------------------------------------------------------------------
+
+/// Where a thread in the board's mailbox stands.
+///
+/// Four states, and the two in the middle are what the module exists for. A
+/// board's address gets stuck with an individual because nothing says out loud
+/// who is dealing with a letter, so TAKEN names that person on the thread every
+/// other seat is looking at, and NEW is the state that says nobody has.
+///
+/// ANSWERED is separate from CLOSED because the two are different claims. A
+/// thread the board has replied to is still open correspondence - the
+/// correspondent may write back, and often does - while a closed one is the
+/// board saying it is finished with the matter. Collapsing them would make
+/// "we answered" and "we are done" the same button, and a question answered
+/// badly would look settled.
+enum BoardMailboxThreadStatus {
+  /// Arrived, and nobody has said they are dealing with it.
+  NEW
+  /// A board member has taken it on. The thread names them.
+  TAKEN
+  /// A reply has been sent from the application.
+  ANSWERED
+  /// The board is finished with the matter.
+  CLOSED
+}
+
+/// Which way one message on a thread went.
+enum BoardMailboxMessageDirection {
+  /// Collected from the mailbox. Untrusted input from outside the association.
+  INBOUND
+  /// Written in the application by a board member and sent through this
+  /// instance's own mail server.
+  OUTBOUND
+}
+
+/// How far an outbound reply got.
+///
+/// The news mailing's and the meeting notice's three states, reproduced rather
+/// than borrowed, on the reasoning MeetingNoticeDeliveryStatus states: a reply
+/// is neither a mailing nor a summons, and a state added for one of those has no
+/// business widening this one. Null on an inbound message, which was never sent
+/// by this instance and has no delivery to record.
+enum BoardMailboxDeliveryStatus {
+  /// Written and claimed by the thread, not yet handed to a mail server.
+  PENDING
+  /// Accepted by the mail server. Not a claim that anybody read it.
+  SENT
+  /// The mail server refused it, or this instance has none configured. The
+  /// reply is on the thread either way: what failed is the sending.
+  FAILED
+}
+
+/// One conversation in the board's shared mailbox.
+///
+/// The board publishes one address and mail sent to it is collected into this
+/// table, so that every seat sees the same inbox and one of them takes a letter
+/// on in a way the others can see. That is the whole of the product argument:
+/// what goes wrong with a board address is not that mail is lost but that it
+/// sits unanswered in one member's client, and the fix is a queue with a name
+/// against each item.
+///
+/// ## The correspondent is whoever the envelope said, and nothing more
+///
+/// Everything on an inbound message is untrusted input from outside the
+/// association. The From address is asserted by whoever sent it and this
+/// platform has no way to check it, so the correspondent is recorded as an
+/// address and a display name and is never resolved to a person in the
+/// register. A thread is not attributed to a member, does not appear on their
+/// record, and confers nothing: a letter signed with a member's name is a letter
+/// signed with a member's name.
+///
+/// The address index is the one exception, and it is deliberately not
+/// attribution. It exists so that two questions the association is obliged to
+/// answer can be answered at all: what personal data does this instance hold
+/// about me (the data subject access report), and which of it must be preserved
+/// (the legal hold that suspends the purge). Both are the association answering
+/// FOR data it holds rather than treating the mail as somebody's word, and both
+/// are reached from the person's own record outward - never from the thread
+/// inward to a name on a screen.
+///
+/// ## Service tier
+///
+/// A letter from a resident to their board is personal data held for one
+/// service purpose - dealing with what was asked - and it carries whatever the
+/// writer chose to put in it, which for a board's inbox is health, money and
+/// neighbours. So it is erased on its own clock rather than on a residency's,
+/// for the reason `board-mailbox-retention.ts` sets out, and nothing here is
+/// ever published: the association's website takes no authenticated read and
+/// this table is behind a capability.
+model BoardMailboxThread {
+  id String @id @default(cuid())
+
+  /// The subject line of the message that opened the thread, as received.
+  ///
+  /// Stored as written and never parsed for meaning. Subject lines are how a
+  /// board recognises a conversation, and rewriting one - stripping a "Re:",
+  /// normalising case - would show the board something the correspondent did not
+  /// send. Threading is decided by the message identifiers instead, which is a
+  /// question this column is deliberately not asked.
+  subject String
+
+  /// The address the mail came from, encrypted at rest.
+  ///
+  /// Encrypted like a sign-up request's address and an issue reporter's, and for
+  /// the same reason: it is not register content, it is how the board answers,
+  /// and it is held for that alone. The index is what makes the access report
+  /// and the legal hold possible - see the note above, which is also the note
+  /// about what it is not for.
+  correspondentEmailCipher String
+  correspondentEmailIndex  String?
+
+  /// What the sender called themselves in the From header, when they said.
+  ///
+  /// Unindexed: nothing searches by it, and a display name is a string the
+  /// sender chose rather than an identity. Null for an envelope that carried an
+  /// address alone.
+  correspondentNameCipher String?
+
+  status BoardMailboxThreadStatus @default(NEW)
+
+  /// The board member who has taken the thread on.
+  ///
+  /// A plain column and not a relation, for the reason the audit log, the media
+  /// file and the issue all give: every referential action a foreign key could
+  /// carry would either rewrite this row or veto erasure of the person it names,
+  /// and service-tier data has to be purgeable without negotiating with the
+  /// board's inbox. A taker who is no longer on this instance reads as a thread
+  /// nobody currently holds, which is the honest answer.
+  takenByPersonId String?
+  takenAt         DateTime?
+
+  closedByPersonId String?
+  closedAt         DateTime?
+
+  /// When the newest message on the thread arrived or was sent.
+  ///
+  /// Maintained rather than derived, because it is what the inbox is ordered by
+  /// and what the purge is anchored on, and both would otherwise be a subquery
+  /// over every message on every thread. A conversation's clock runs from the
+  /// last thing said in it: a reply restarts it, which is right, because the
+  /// association's answer is part of what it is keeping.
+  lastMessageAt DateTime @default(now())
+
+  messages BoardMailboxMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The inbox, worked from the top.
+  @@index([status, lastMessageAt])
+  /// The purge's scan, and the access report's lookup.
+  @@index([lastMessageAt])
+  @@index([correspondentEmailIndex])
+  @@map("board_mailbox_thread")
+}
+
+/// One message on a thread, in either direction.
+///
+/// ## Nothing here is markup
+///
+/// The body is plain text, always. An inbound message that arrived as HTML is
+/// converted to text as it is collected and the markup is not kept, which is a
+/// stronger promise than sanitising would be: there is no stored markup for a
+/// later screen, export or mail template to render by mistake. `bodyFromHtml`
+/// records that the conversion happened, so the board is told it is reading a
+/// rendering rather than what the sender typed.
+///
+/// ## Identifiers, and why they are here
+///
+/// `messageId` is the RFC 5322 Message-ID. It is what a reply is threaded
+/// against, in the correspondent's mail client as well as in this table: an
+/// outbound reply carries In-Reply-To and References pointing at it, so the
+/// answer lands in the conversation the question was asked in rather than as a
+/// new letter.
+///
+/// `sourceUid` is the POP3 unique identifier of a collected message, and it is
+/// what makes collecting the mailbox twice harmless. It is unique in this table,
+/// so two polls that overlap cannot both insert the same letter - the second
+/// loses on the constraint rather than on a check that read a moment earlier. It
+/// carries a fingerprint of the mailbox it came from, because a UID is unique
+/// within one mailbox and not between two: without it, pointing the instance at
+/// a different mailbox could silently discard a real message whose UID happened
+/// to collide.
+model BoardMailboxMessage {
+  id String @id @default(cuid())
+
+  threadId String
+  thread   BoardMailboxThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  direction BoardMailboxMessageDirection
+
+  /// RFC 5322 Message-ID, without the angle brackets. Null for an inbound
+  /// message that carried none, which is malformed but not a reason to drop a
+  /// letter the board was sent.
+  messageId String?
+
+  /// What this message is an answer to, as a Message-ID. Set on an outbound
+  /// reply and on an inbound message that carried In-Reply-To.
+  inReplyTo String?
+
+  /// The POP3 identifier this message was seen in the mailbox under. Set on an
+  /// inbound message when it is collected, and on an outbound one if the
+  /// mailbox files what was sent from it and the collector recognises the answer
+  /// as this instance's own - which is what stops it being fetched again. Null
+  /// until one of those happens.
+  sourceUid String? @unique
+
+  /// The message, as text.
+  body String
+
+  /// Whether the text above was derived from an HTML part rather than sent as
+  /// text. Stated on the screen, because a rendering is not a quotation.
+  bodyFromHtml Boolean @default(false)
+
+  /// Whether the body was cut at the length this module accepts. The board is
+  /// told, rather than shown a truncated letter that reads as a complete one.
+  bodyTruncated Boolean @default(false)
+
+  /// How many attachments arrived that this instance would not store.
+  ///
+  /// The upload path accepts the file types the rest of the product accepts and
+  /// identifies each one from its own bytes, so a message carrying a type it does
+  /// not take - or a file too large for the instance's own limit - loses that
+  /// attachment. The count is kept because the alternative is worse than either
+  /// storing it or dropping it: a board reading a letter that says "see the
+  /// attached" with nothing attached would have no way to tell a sender's mistake
+  /// from this instance's refusal, and would answer the wrong one.
+  attachmentsDropped Int @default(0)
+
+  /// The board member who wrote an outbound reply. Null on an inbound message,
+  /// which nobody here wrote. A plain column, for the reason the thread's
+  /// `takenByPersonId` gives.
+  sentByPersonId String?
+
+  /// Delivery of an outbound reply. Null in both columns on an inbound message.
+  deliveryStatus  BoardMailboxDeliveryStatus?
+  /// Why a reply did not go out, as a code and never as the mail server's own
+  /// words: a rejection quotes the envelope back, and the envelope is an
+  /// address. See `board-mailbox-delivery.ts`.
+  deliveryFailure String?
+  /// When the reply was claimed for sending, which is a moment before it was
+  /// handed to a mail server. Written by the claim rather than after the
+  /// handover, so that it also marks a reply an attempt is holding: a reply with
+  /// a time here and PENDING beside it is one whose handover has not been
+  /// confirmed, and cleared again when the sending is recorded as failed.
+  sentAt          DateTime?
+
+  /// When an inbound message reached the association, taken from the envelope's
+  /// Date header where it carried a usable one and from the collection
+  /// otherwise. A sender's clock is not this instance's, so a date in the future
+  /// or implausibly far in the past is not trusted.
+  occurredAt DateTime @default(now())
+
+  attachments BoardMailboxAttachment[]
+
+  createdAt DateTime @default(now())
+
+  /// The thread, read in order.
+  @@index([threadId, occurredAt])
+  /// Threading a collected message against what this instance already holds.
+  @@index([messageId])
+  @@map("board_mailbox_message")
+}
+
+/// A file that arrived attached to a message.
+///
+/// A join rather than a column on the file, exactly as IssuePhoto is, so a
+/// message can carry several and the media layer keeps knowing nothing about the
+/// mailbox. Every attachment goes through the ordinary upload path, so it is
+/// identified from its own bytes rather than from what the sender called it, and
+/// an attachment of a type that path does not accept is not stored at all: the
+/// message says how many were dropped, which is more useful to a board than a
+/// file it cannot open.
+///
+/// Attachments are collected only from inbound mail. A reply written in the
+/// application carries text, because a board answering a letter is answering it,
+/// and an upload surface on the reply form would be a second way to put files on
+/// this instance with no question it answers.
+model BoardMailboxAttachment {
+  id String @id @default(cuid())
+
+  messageId String
+  message   BoardMailboxMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  /// Cascade: the row is an index of the file, and an index of bytes that are
+  /// gone is worse than no index at all. IssuePhoto's argument, unchanged.
+  fileId String
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, fileId])
+  @@index([messageId, sortOrder])
+  @@map("board_mailbox_attachment")
+}
+
+/// A message in the mailbox that was read and will never be stored.
+///
+/// Nothing is deleted from the mailbox, so what this instance holds is decided
+/// by what it remembers having seen. A letter it stored is remembered by the
+/// identifier on its own row; a letter it read and could not store had no row to
+/// be remembered by, so it was fetched again on every run - and once the per-run
+/// bound counts fetches rather than rows, fifty of those at the head of the
+/// mailbox stop a collection before it reaches the mail behind them. This is the
+/// row that remembers one: the identifier, and why it was left.
+///
+/// Only for a letter that nothing will ever change about. A message too large to
+/// fetch is not here - it is never read, so it costs a listing line and no more -
+/// and neither is one a retrieval failed on, because that is a mailbox having a
+/// bad minute and the next run should try it again.
+///
+/// No personal data. The identifier is the mailbox's own opaque string behind a
+/// fingerprint of the credentials it was seen under, and the reason is a code
+/// this module writes. So it is outside every purge scope and outside the data
+/// subject access report: there is no person to key it to, which is the same
+/// reason the thread purge names no subject.
+model BoardMailboxIgnoredMessage {
+  id String @id @default(cuid())
+
+  /// The POP3 identifier, under the same mailbox fingerprint a stored message
+  /// carries, so that one lookup answers for both.
+  sourceUid String @unique
+
+  /// Why it will not be stored, as a code. See `board-mailbox-delivery.ts`.
+  reason String
+
+  createdAt DateTime @default(now())
+
+  @@map("board_mailbox_ignored_message")
 }
 
 // ---------------------------------------------------------------------------
