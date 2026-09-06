@@ -12,6 +12,14 @@ export type {
   ApartmentNumberRow,
   GenerateApartmentNumbersInput,
 } from "./apartment-numbering.ts";
+export {
+  DATA_SUBJECT_CATEGORIES,
+  PERSONAL_DATA_CATEGORIES,
+} from "./data-protection.ts";
+export type {
+  DataSubjectCategory,
+  PersonalDataCategory,
+} from "./data-protection.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
   isValidPersonalIdentityNumber,
