@@ -74,6 +74,12 @@ describe("computeMemberChargePurgeDate", () => {
     expect(() => computeMemberChargePurgeDate(day("2026-03-05"), -1)).toThrow(
       RangeError,
     );
+    // Refused rather than rounded: half a calendar year is not a thing to
+    // anchor on, and rounding it would erase a year off what was asked for
+    // without saying so.
+    expect(() => computeMemberChargePurgeDate(day("2026-03-05"), 6.5)).toThrow(
+      RangeError,
+    );
   });
 });
 
@@ -96,6 +102,9 @@ describe("memberChargePurgeCutoff", () => {
     expect(() =>
       memberChargePurgeCutoff(middayOn("2034-06-01"), Number.NaN),
     ).toThrow(RangeError);
+    expect(() => memberChargePurgeCutoff(middayOn("2034-06-01"), 6.5)).toThrow(
+      RangeError,
+    );
   });
 });
 

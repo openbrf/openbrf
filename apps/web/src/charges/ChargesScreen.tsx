@@ -162,8 +162,17 @@ export function ChargesScreen(): ReactElement {
         return;
       }
       if (result.failure.status === 403) {
+        /*
+         * The list goes with the permission. A seat that held
+         * `memberCharges:manage` and has it no longer must not go on reading
+         * other members' charges off a document the last permitted read left
+         * behind, and the file produced from that period is a copy of the same
+         * rows.
+         */
         setForbidden(true);
         setFailed(false);
+        setList(null);
+        setFile(null);
         return;
       }
       /*

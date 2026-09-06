@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -103,7 +103,7 @@ describe("two people the register holds the same way", () => {
   it("tells them apart by the day each of them moved in", async () => {
     /*
      * A father and a son, one name, one flat. The option has to distinguish
-     * them: charging the wrong one is a charge on somebody who owes nothing, and
+     * them: charging the wrong one puts a sum on a member it was not for, and
      * two identical rows give a board no way to avoid it.
      */
     render(
@@ -151,6 +151,29 @@ describe("two people the register holds the same way", () => {
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toContain(
       "Astrid Vallin - Storgatan 12 1001",
     );
+  });
+});
+
+describe("the hand-over date", () => {
+  it("cannot be offered before the charge it is the basis for", async () => {
+    /*
+     * The server refuses a basis that reached the economic manager before the
+     * charge was made, so the form does not invite one. The bound follows the
+     * charge date rather than being fixed at today: a charge is dated back, and
+     * the hand-over then belongs on or after that day.
+     */
+    panel();
+
+    const handedOver = screen.getByLabelText(/Skickat till ekonomisk/);
+    expect(handedOver.getAttribute("min")).toBe("2026-06-01");
+    expect(handedOver.getAttribute("max")).toBe("2026-06-01");
+
+    fireEvent.change(screen.getByLabelText("Debiteringsdatum"), {
+      target: { value: "2026-05-04" },
+    });
+
+    expect(handedOver.getAttribute("min")).toBe("2026-05-04");
+    expect(handedOver.getAttribute("max")).toBe("2026-06-01");
   });
 });
 

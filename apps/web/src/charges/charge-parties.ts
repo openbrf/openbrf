@@ -69,8 +69,13 @@ export interface ChargeParties {
  * The endpoint pages at a hundred rows and this form needs the book as a whole,
  * so it reads until the rows run out. Bounded because an unbounded loop against
  * a paging endpoint is a way to hang a screen on a server that keeps answering:
- * two thousand people is far beyond any housing cooperative, and stopping there
- * offers a shorter list rather than never finishing.
+ * two thousand people is far beyond any housing cooperative.
+ *
+ * Reaching the bound fails the load rather than answering the pages that did
+ * arrive. A short list is not a smaller version of this form's job: the people
+ * it leaves out cannot be charged at all, and nothing on the screen would say
+ * which they were. The failure state the module already has says the parties
+ * could not be read and offers the retry, which is true.
  */
 const MAX_PAGES = 20;
 
@@ -87,7 +92,7 @@ export async function loadChargeParties(
 ): Promise<ChargeParties> {
   const [persons, apartments] = await Promise.all([
     loadPersons(signal),
-    loadApartments(),
+    loadApartments(signal),
   ]);
   return { persons, apartments };
 }
@@ -125,12 +130,16 @@ async function loadPersons(signal: AbortSignal): Promise<ChargeablePerson[]> {
     }
 
     if (persons.length >= answer.total || answer.rows.length === 0) {
-      break;
+      return markAmbiguous(persons).sort((first, second) =>
+        first.name.localeCompare(second.name),
+      );
     }
   }
 
-  return markAmbiguous(persons).sort((first, second) =>
-    first.name.localeCompare(second.name),
+  throw new Error(
+    `The address book did not fit in ${String(MAX_PAGES)} pages of ${String(
+      REGISTER_MAX_PAGE_SIZE,
+    )}.`,
   );
 }
 
@@ -158,7 +167,21 @@ export function markAmbiguous(
   }));
 }
 
-async function loadApartments(): Promise<ChargeableApartment[]> {
+/**
+ * The flats, one address at a time.
+ *
+ * The signal is read between the requests rather than carried into them: the
+ * shared API client sends no signal, and giving it one is a change to every call
+ * in this application rather than to this screen. Stopping at the next boundary
+ * is what the waste here is made of - one request per address, in sequence - so
+ * an abandoned load stops after the request in flight instead of walking the
+ * whole address list a second time.
+ */
+async function loadApartments(
+  signal: AbortSignal,
+): Promise<ChargeableApartment[]> {
+  signal.throwIfAborted();
+
   const addresses = await fetchAddresses();
   if (!addresses.ok) {
     throw new RegisterRequestError(
@@ -169,6 +192,8 @@ async function loadApartments(): Promise<ChargeableApartment[]> {
 
   const apartments: ChargeableApartment[] = [];
   for (const address of addresses.value) {
+    signal.throwIfAborted();
+
     const answer = await fetchApartments(address.id);
     if (!answer.ok) {
       throw new RegisterRequestError(

@@ -99,7 +99,7 @@ export function computeMemberChargePurgeDate(
   assertRetentionYears(retentionYears);
 
   return dateColumnOf({
-    year: localDayOfColumn(chargedOn).year + Math.round(retentionYears) + 1,
+    year: localDayOfColumn(chargedOn).year + retentionYears + 1,
     month: 1,
     day: 1,
   });
@@ -128,24 +128,29 @@ export function memberChargePurgeCutoff(
   assertRetentionYears(retentionYears);
 
   return dateColumnOf({
-    year: localDayOf(now).year - Math.round(retentionYears),
+    year: localDayOf(now).year - retentionYears,
     month: 1,
     day: 1,
   });
 }
 
 /**
- * Refuses a retention window that is not a number of years.
+ * Refuses a retention window that is not a number of whole years.
  *
  * The same refusal both functions need, for the reason `purge-window.ts` gives: a
  * window that is not a number would otherwise put the cutoff in the future and
  * erase charges whose retention had not run out - including ones from the year
  * that is still running.
+ *
+ * Whole years and not a fraction, because the window is stated in calendar years
+ * and there is no half of one to anchor on. Rounding a fraction here would erase
+ * on a year other than the one the caller asked for, without saying so; the
+ * value is refused instead.
  */
 function assertRetentionYears(retentionYears: number): void {
-  if (!Number.isFinite(retentionYears) || retentionYears < 0) {
+  if (!Number.isInteger(retentionYears) || retentionYears < 0) {
     throw new RangeError(
-      `Member charge retention must be a non-negative number of years, got ${String(
+      `Member charge retention must be a non-negative whole number of years, got ${String(
         retentionYears,
       )}.`,
     );

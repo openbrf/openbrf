@@ -347,6 +347,28 @@ describe("removing an apartment", () => {
     expect(prisma.apartment.delete).not.toHaveBeenCalled();
   });
 
+  it("answers the refusal, not a server error, when a key decides", async () => {
+    /*
+     * The counts narrow the race; the restrictive foreign keys close it. A
+     * charge recorded on this apartment between the read and the delete makes
+     * the delete raise P2003, and uncaught that reaches the board as "something
+     * went wrong" rather than as the sentence the branch above already has.
+     */
+    const { service, prisma } = build({
+      apartment: { id: "apartment-1", number: "1101" },
+    });
+    prisma.apartment.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("foreign key violation", {
+        code: "P2003",
+        clientVersion: "test",
+      }),
+    );
+
+    await expect(service.removeApartment("apartment-1")).rejects.toMatchObject({
+      reason: "apartment-in-use",
+    });
+  });
+
   it("reports an apartment that is not there", async () => {
     const { service } = build({ apartment: null });
 

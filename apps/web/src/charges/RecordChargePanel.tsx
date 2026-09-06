@@ -290,9 +290,15 @@ export function RecordChargePanel({
 
         <label className={LABEL}>
           {t("charges.record.handedToManagerOn")}
+          {/*
+            Bounded at both ends, because the server refuses both: a hand-over
+            before the charge existed, and one in the future. The form does not
+            invite an entry it knows will come back refused.
+          */}
           <input
             type="date"
             value={handedToManagerOn}
+            min={chargedOn}
             max={today}
             onChange={(event) => {
               setHandedToManagerOn(event.target.value);

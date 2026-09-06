@@ -55,7 +55,7 @@ write.
 Where the register holds two people of one name in one flat - a father and a
 son - the picker names the day each of them moved in, because an option that
 read the same for both would ask a board to choose between two identical rows,
-and charging the wrong one is a charge on somebody who owes nothing. The date is
+and charging the wrong one puts a sum on a member it was not for. The date is
 added only to the rows that need it.
 
 Every charge is on its subject's data subject access report, by its own column or

@@ -181,6 +181,17 @@ async function readList(
   return response.json<DebitingList>();
 }
 
+/**
+ * Long enough for a request already sent to have reached the statement it will
+ * wait on. Used only where a test drives two transactions against one row on
+ * purpose.
+ */
+function settle(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 150);
+  });
+}
+
 /** This suite's own rows out of a list every other test also writes into. */
 function ownRows(list: DebitingList): DebitingListRow[] {
   return list.rows.filter((row) => row.reason.endsWith(suffix));
@@ -460,6 +471,42 @@ describe("recording a charge", () => {
     ).rejects.toThrow();
   });
 
+  it("keeps the table's own guard on the reason, whatever the whitespace", async () => {
+    /*
+     * A tab, not a space. The predicate this replaced was btrim(), which strips
+     * the space and nothing else, so a reason of one tab satisfied a constraint
+     * whose whole point is that an unexplained sum cannot reach the debiting
+     * list. The service refuses all of it, and the service is not the only
+     * writer.
+     */
+    await expect(
+      prisma.memberCharge.create({
+        data: {
+          personId: member.personId,
+          chargedOn: new Date("2026-03-05"),
+          amount: "450.00",
+          reason: "\t",
+          vatTreatment: "EXEMPT",
+          recordedByPersonId: board.personId,
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.memberCharge.create({
+        data: {
+          personId: member.personId,
+          chargedOn: new Date("2026-03-05"),
+          amount: "450.00",
+          // A non-breaking space, which [[:space:]] does not cover here either.
+          reason: "\u00a0",
+          vatTreatment: "EXEMPT",
+          recordedByPersonId: board.personId,
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
   it("keeps the table's own guard on the rate and the amount", async () => {
     await expect(
       prisma.memberCharge.create({
@@ -717,6 +764,54 @@ describe("correcting and removing", () => {
     expect(entry?.context).toEqual({ fields: ["amount"] });
 
     await prisma.memberCharge.delete({ where: { id: chargeId } });
+  });
+
+  it("orders a correction behind a removal of the same charge", async () => {
+    /*
+     * A correction reads the charge and carries over every field the board left
+     * out, so the read and the write are one act or they are wrong. A removal
+     * committing between them used to leave the update with no row to change,
+     * and the board met a server error for a charge that had simply gone.
+     *
+     * The removal is held open here rather than raced: it takes the charge's
+     * lock, deletes the row and waits, so the correction meets exactly the
+     * window the ordering exists for.
+     */
+    const created = await recordCharge(
+      chargeOn({ reason: `Kapplopning ${suffix}` }),
+    );
+    const chargeId = created.json<DebitingListRow>().chargeId;
+
+    let commitRemoval = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      commitRemoval = (): void => {
+        resolve();
+      };
+    });
+
+    const removal = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`member-charge:${chargeId}`}))`;
+        await tx.memberCharge.delete({ where: { id: chargeId } });
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+
+    await settle();
+    const correction = inject({
+      method: "POST",
+      url: `/api/member-charges/${chargeId}/correct`,
+      payload: { amount: "500.00" },
+      headers: { cookie: boardCookie },
+    });
+
+    await settle();
+    commitRemoval();
+    await removal;
+
+    // The refusal this module has a code for, not a driver error.
+    expect((await correction).statusCode).toBe(404);
   });
 
   it("refuses a hand-over dated before the charge", async () => {

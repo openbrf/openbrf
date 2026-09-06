@@ -282,7 +282,26 @@ export class AddressService {
       );
     }
 
-    await this.prisma.apartment.delete({ where: { id } });
+    try {
+      await this.prisma.apartment.delete({ where: { id } });
+    } catch (cause) {
+      /*
+       * The counts above narrow the window; the foreign keys close it. A charge
+       * or a residency written between the read and the delete makes the delete
+       * raise P2003 against a restrictive key, and without this the board meets
+       * a 500 for the state the paragraph above already has a sentence for.
+       */
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2003"
+      ) {
+        throw new AddressError(
+          `Apartment ${apartment.number} appears in the register and cannot be removed.`,
+          "apartment-in-use",
+        );
+      }
+      throw cause;
+    }
     this.logger.log(`Removed apartment ${apartment.number}`);
   }
 

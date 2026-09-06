@@ -1,14 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type ChargeablePerson, markAmbiguous } from "./charge-parties";
+import {
+  type ChargeablePerson,
+  loadChargeParties,
+  markAmbiguous,
+} from "./charge-parties";
+
+const fetchBoardRegister = vi.fn();
+const fetchAddresses = vi.fn();
+const fetchApartments = vi.fn();
+
+vi.mock("../register/register-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../register/register-api")>()),
+  fetchBoardRegister: (query: unknown, signal: AbortSignal) =>
+    fetchBoardRegister(query, signal),
+}));
+
+vi.mock("../api/instance", () => ({
+  fetchAddresses: () => fetchAddresses(),
+  fetchApartments: (addressId: string) => fetchApartments(addressId),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  fetchAddresses.mockResolvedValue({ ok: true, value: [] });
+  fetchApartments.mockResolvedValue({ ok: true, value: [] });
+});
 
 /**
  * Which people an option cannot tell apart.
  *
  * A register can hold two people of one name in one flat - a father and a son -
  * and an option that read the same for both would ask a board to choose between
- * two identical rows. Charging the wrong one is a charge on somebody who owes
- * nothing, so what this decides is not cosmetic.
+ * two identical rows. Charging the wrong one puts a sum on a member it was not
+ * for, so what this decides is not cosmetic.
  */
 
 function person(
@@ -73,5 +98,49 @@ describe("markAmbiguous", () => {
     ]);
 
     expect(marked.map((entry) => entry.ambiguous)).toEqual([false, false]);
+  });
+});
+
+describe("loadChargeParties", () => {
+  it("fails rather than offering a register that did not fit", async () => {
+    /*
+     * The page bound is a guard against an endpoint that keeps answering, not a
+     * ceiling on the association. Reaching it with rows still outstanding used
+     * to answer the pages that had arrived, and the people left out are people
+     * the form then cannot charge - with nothing on the screen saying which.
+     */
+    let page = 0;
+    fetchBoardRegister.mockImplementation(() => {
+      page += 1;
+      return Promise.resolve({
+        rows: [
+          {
+            personId: `person-${String(page)}`,
+            name: `Bo Ekwall ${String(page)}`,
+            apartment: null,
+            movedInOn: null,
+          },
+        ],
+        addresses: [],
+        total: 5000,
+      });
+    });
+
+    await expect(
+      loadChargeParties(new AbortController().signal),
+    ).rejects.toThrow();
+  });
+
+  it("does not walk the address list once the load is abandoned", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    fetchBoardRegister.mockResolvedValue({
+      rows: [],
+      addresses: [],
+      total: 0,
+    });
+
+    await expect(loadChargeParties(controller.signal)).rejects.toThrow();
+    expect(fetchAddresses).not.toHaveBeenCalled();
   });
 });

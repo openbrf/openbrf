@@ -9,6 +9,7 @@ import {
   ADMINISTRATOR,
   ensureAccountFor,
   ensureRegisterFixture,
+  REGISTER_PEOPLE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
 
@@ -57,8 +58,36 @@ test.describe.configure({ mode: "serial" });
 /** The password the shared fixture accounts are activated with, per spec 03. */
 const PASSWORD = "granngarden-kastanj-2026";
 
-/** From the shared fixture: a member with protected personal data. */
-const PROTECTED = { name: "Ingrid Persson" } as const;
+/**
+ * From the shared fixture: a member with protected personal data, and the flat
+ * the fixture puts them in.
+ *
+ * The apartment is read out of the fixture rather than written here. Masking is
+ * the one regression this spec exists to catch, and a literal apartment number
+ * would go on passing after the fixture moved this person: the row would print
+ * their real flat, the literal would be absent from it, and the assertion would
+ * read as a pass.
+ */
+const PROTECTED = registerPerson("Ingrid", "Persson");
+
+/** One of the four people `ensureRegisterFixture` puts in the register. */
+function registerPerson(
+  firstName: string,
+  lastName: string,
+): { name: string; apartmentNumber: string } {
+  const entry = REGISTER_PEOPLE.find(
+    (person) => person.firstName === firstName && person.lastName === lastName,
+  );
+  if (entry === undefined) {
+    throw new Error(
+      `${firstName} ${lastName} is not one of the register fixture's people.`,
+    );
+  }
+  return {
+    name: `${firstName} ${lastName}`,
+    apartmentNumber: entry.apartmentNumber,
+  };
+}
 
 /** From the shared fixture: a resident with no board seat and no vote. */
 const RESIDENT = {
@@ -424,7 +453,7 @@ test("a protected member is named and their apartment is withheld", async ({
   // from the name to the door does not, which is what protection withholds.
   await expect(row).toContainText(PROTECTED.name);
   await expect(row).toContainText("Skyddad, skrivs inte ut");
-  await expect(row).not.toContainText("1102");
+  await expect(row).not.toContainText(PROTECTED.apartmentNumber);
 });
 
 test("the list leaves as a CSV file and as a printed PDF", async ({

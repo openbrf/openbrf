@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -265,6 +271,26 @@ describe("when the read fails", () => {
     expect(await screen.findByText("Astrid Vallin")).toBeTruthy();
   });
 
+  it("takes the document away when the read is refused after a permitted one", async () => {
+    render(<ChargesScreen />);
+    await screen.findByText("Nyckel till cykelrummet");
+
+    // The seat lost the capability between the two reads. What the permitted
+    // read put on the screen is other members' charges, so it goes with it.
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 403, reason: "forbidden" },
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2026-02-01" },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Nyckel till cykelrummet")).toBeNull();
+    });
+    expect(screen.queryByText("Andrahandsavgift")).toBeNull();
+  });
+
   it("treats a refused period as something to correct, not as a failed read", async () => {
     // The board stated something it can change on the controls above, so the
     // screen says which and keeps the form rather than offering a retry.
@@ -288,9 +314,12 @@ describe("removing a charge", () => {
     await screen.findByText("Astrid Vallin");
 
     const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
-    const remove = row?.querySelector("button");
-    expect(remove).not.toBeNull();
-    await userEvent.click(remove as HTMLButtonElement);
+    expect(row).not.toBeNull();
+    // By its accessible name, which is the contract: the first button in the row
+    // would be found even if it had lost the label a screen reader announces.
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
 
     expect(removeCharge).toHaveBeenCalledWith("charge-1");
     await waitFor(() => {

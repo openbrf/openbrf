@@ -90,10 +90,18 @@ ALTER TABLE "member_charge" ADD CONSTRAINT "member_charge_vatRate_check"
   );
 
 -- A reason with something in it. The reason is what the member is told the
--- charge was for, so a row carrying only spaces would put an unexplained sum on
--- the debiting list. The same shape as transfer."agreementReference"'s check.
+-- charge was for, so a row carrying only whitespace would put an unexplained sum
+-- on the debiting list. The same shape as transfer."agreementReference"'s check,
+-- down to the class: PostgreSQL's one-argument btrim strips spaces and nothing
+-- else, so a single tab, newline or non-breaking space would satisfy that older
+-- predicate while the service refuses all of those - String.prototype.trim
+-- strips the whole Unicode whitespace set, and the constraint exists because the
+-- service is not the only writer. The class below is that set written out.
+-- Enumerated rather than [[:space:]], which is locale-dependent and in this
+-- database already excludes U+00A0, U+1680, U+202F and U+FEFF. U+200B is
+-- deliberately absent: it is not whitespace, and String.prototype.trim keeps it.
 ALTER TABLE "member_charge" ADD CONSTRAINT "member_charge_reason_check"
-  CHECK (btrim("reason") <> '');
+  CHECK ("reason" ~ '[^\u0009-\u000D\u0020\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]');
 
 -- CreateIndex
 --

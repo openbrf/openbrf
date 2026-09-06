@@ -3127,7 +3127,7 @@
       "reason": "Reason",
       "vat": "VAT",
       "amount": "Amount",
-      "handedToManagerOn": "Sent to the manager",
+      "handedToManagerOn": "Sent to the economic manager",
       "actions": "Actions"
     },
     "noValue": {

@@ -3127,7 +3127,7 @@
       "reason": "Orsak",
       "vat": "Moms",
       "amount": "Belopp",
-      "handedToManagerOn": "Skickat till förvaltaren",
+      "handedToManagerOn": "Skickat till ekonomisk förvaltare",
       "actions": "Åtgärder"
     },
     "noValue": {
@@ -3146,7 +3146,7 @@
         "legend": "Debiteras",
         "person": "En medlem",
         "apartment": "En lägenhet",
-        "hint": "En debitering läggs på en namngiven person eller på en lägenhet, vem som än bor där - aldrig på båda."
+        "hint": "En debitering läggs på en namngiven person eller på en lägenhet, vem som än innehar den - aldrig på båda."
       },
       "person": "Medlem",
       "apartment": "Lägenhet",

@@ -23,6 +23,7 @@ import {
   sumChargeAmounts,
   writeDebitingList,
 } from "./debiting-list";
+import { lockMemberCharge } from "./member-charge-lock";
 import {
   MemberChargeError,
   type MemberChargeTextLocation,
@@ -269,68 +270,78 @@ export class MemberChargeService {
     input: CorrectMemberChargeInput,
     now: Date = new Date(),
   ): Promise<DebitingListRow> {
-    const charge = await this.prisma.memberCharge.findUnique({
-      where: { id },
-      select: CHARGE_FIELDS,
-    });
-    if (charge === null) {
-      throw new MemberChargeError("There is no such charge.", "not-found");
-    }
-
-    const chargedOn =
-      input.chargedOn === undefined
-        ? localDayOfColumn(charge.chargedOn)
-        : this.readPastDate(input.chargedOn, now);
-
-    const handedToManagerOn =
-      input.handedToManagerOn === undefined
-        ? charge.handedToManagerOn === null
-          ? null
-          : localDayOfColumn(charge.handedToManagerOn)
-        : this.readHandOver(input.handedToManagerOn, chargedOn, now);
     /*
-     * Checked again when only the charge date moved. The pair is an invariant
-     * about the row rather than a validation of one field, so a charge dated
-     * forward past a hand-over already recorded has to be refused too - the
-     * board is told to move the hand-over as well, rather than being left with a
-     * row saying the basis was sent before the charge existed.
+     * The read, the arithmetic and the write are one transaction behind the
+     * charge's own lock. A correction carries over every field the board left
+     * out, so a snapshot taken outside the transaction lets two corrections
+     * arriving at once each keep their own copy of the fields the other moved -
+     * and lets a removal in the same window turn the update into a driver error
+     * rather than the refusal this module has a reason code for.
      */
-    if (
-      input.handedToManagerOn === undefined &&
-      handedToManagerOn !== null &&
-      compareLocalDays(handedToManagerOn, chargedOn) < 0
-    ) {
-      throw new MemberChargeError(
-        "The basis cannot have reached the economic manager before the charge was made.",
-        "handed-over-before-charge",
-      );
-    }
-
-    const amount =
-      input.amount === undefined ? undefined : readAmount(input.amount);
-    const reason =
-      input.reason === undefined ? undefined : readReason(input.reason);
-    const vatTreatment = input.vatTreatment ?? charge.vatTreatment;
-    const vatRatePercent = readVatRate(
-      vatTreatment,
-      input.vatTreatment === undefined && input.vatRatePercent === undefined
-        ? charge.vatRatePercent
-        : (input.vatRatePercent ?? null),
-    );
-    if (reason !== undefined) {
-      refusePersonalIdentityNumbers({ reason });
-    }
-
-    const fields = changedFields(charge, {
-      chargedOn,
-      amount,
-      reason,
-      vatTreatment,
-      vatRatePercent,
-      handedToManagerOn,
-    });
-
     const updated = await this.prisma.$transaction(async (tx) => {
+      await lockMemberCharge(tx, id);
+
+      const charge = await tx.memberCharge.findUnique({
+        where: { id },
+        select: CHARGE_FIELDS,
+      });
+      if (charge === null) {
+        throw new MemberChargeError("There is no such charge.", "not-found");
+      }
+
+      const chargedOn =
+        input.chargedOn === undefined
+          ? localDayOfColumn(charge.chargedOn)
+          : this.readPastDate(input.chargedOn, now);
+
+      const handedToManagerOn =
+        input.handedToManagerOn === undefined
+          ? charge.handedToManagerOn === null
+            ? null
+            : localDayOfColumn(charge.handedToManagerOn)
+          : this.readHandOver(input.handedToManagerOn, chargedOn, now);
+      /*
+       * Checked again when only the charge date moved. The pair is an invariant
+       * about the row rather than a validation of one field, so a charge dated
+       * forward past a hand-over already recorded has to be refused too - the
+       * board is told to move the hand-over as well, rather than being left with
+       * a row saying the basis was sent before the charge existed.
+       */
+      if (
+        input.handedToManagerOn === undefined &&
+        handedToManagerOn !== null &&
+        compareLocalDays(handedToManagerOn, chargedOn) < 0
+      ) {
+        throw new MemberChargeError(
+          "The basis cannot have reached the economic manager before the charge was made.",
+          "handed-over-before-charge",
+        );
+      }
+
+      const amount =
+        input.amount === undefined ? undefined : readAmount(input.amount);
+      const reason =
+        input.reason === undefined ? undefined : readReason(input.reason);
+      const vatTreatment = input.vatTreatment ?? charge.vatTreatment;
+      const vatRatePercent = readVatRate(
+        vatTreatment,
+        input.vatTreatment === undefined && input.vatRatePercent === undefined
+          ? charge.vatRatePercent
+          : (input.vatRatePercent ?? null),
+      );
+      if (reason !== undefined) {
+        refusePersonalIdentityNumbers({ reason });
+      }
+
+      const fields = changedFields(charge, {
+        chargedOn,
+        amount,
+        reason,
+        vatTreatment,
+        vatRatePercent,
+        handedToManagerOn,
+      });
+
       const row = await tx.memberCharge.update({
         where: { id },
         data: {
@@ -376,6 +387,12 @@ export class MemberChargeService {
    */
   async remove(id: string, actorPersonId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // The same lock a correction takes, so the two are ordered rather than
+      // interleaved: a correction that got there first has committed before this
+      // read, and one that arrives during this transaction finds the row gone
+      // and answers "not-found".
+      await lockMemberCharge(tx, id);
+
       const charge = await tx.memberCharge.findUnique({
         where: { id },
         select: { id: true, personId: true, apartmentId: true },
