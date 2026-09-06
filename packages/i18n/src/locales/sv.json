@@ -632,7 +632,7 @@
         "erasureGround": {
           "NO_LONGER_NECESSARY": "Uppgifterna behövs inte längre för sitt ändamål",
           "CONSENT_WITHDRAWN": "Samtycket är återkallat och ingen annan grund finns",
-          "OBJECTION_UPHELD": "Invändning som ingenting väger tyngre än",
+          "OBJECTION_UPHELD": "Invändning där det saknas berättigade skäl för behandlingen som väger tyngre",
           "UNLAWFUL_PROCESSING": "Behandlingen var olaglig",
           "LEGAL_OBLIGATION_TO_ERASE": "Radering krävs enligt lag"
         },
@@ -3814,7 +3814,7 @@
       },
       "title": "Personuppgiftsincidenter",
       "description": "Vad som hänt, vad ni beslutade och på vilken grund.",
-      "deadlineNote": "IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från det att föreningen fick kännedom om incidenten - om den inte sannolikt inte medför någon risk för de registrerade.",
+      "deadlineNote": "IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från det att föreningen fick kännedom om incidenten - om det inte är osannolikt att incidenten medför en risk för de registrerade.",
       "none": "Ingen incident är antecknad.",
       "decide": "Fatta beslut",
       "decideNamed": "Fatta beslut om {{title}}",

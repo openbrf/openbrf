@@ -632,7 +632,7 @@
         "erasureGround": {
           "NO_LONGER_NECESSARY": "No longer necessary for its purpose",
           "CONSENT_WITHDRAWN": "Consent withdrawn and no other basis applies",
-          "OBJECTION_UPHELD": "An objection nothing overrides",
+          "OBJECTION_UPHELD": "An objection with no overriding legitimate grounds for the processing",
           "UNLAWFUL_PROCESSING": "The processing was unlawful",
           "LEGAL_OBLIGATION_TO_ERASE": "Erasure is required by law"
         },
@@ -3636,7 +3636,7 @@
         },
         "cooperativeHousingRegisterReporting": {
           "name": "Reporting to the cooperative housing register",
-          "purpose": "Reporting grants and transfers to Lantmateriet.",
+          "purpose": "Reporting grants and transfers to Lantmäteriet.",
           "legalBasisNote": "Legal obligation: Lag (2026:484) 3 kap.",
           "retention": "The reporting ledger is kept with the registers."
         },
