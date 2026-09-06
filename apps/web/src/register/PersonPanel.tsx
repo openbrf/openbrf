@@ -1357,7 +1357,16 @@ export function PersonPanel({
           <DataSubjectRequestsSection
             personId={person.personId}
             requests={person.dataSubjectRequests}
-            onChanged={onChanged}
+            /*
+             * The panel refetches itself, the way the legal hold above does
+             * and for the same reason: the requests are read from this
+             * person's own view, and reloading the board's list instead would
+             * shift the rows under whoever is reading them while leaving the
+             * request they just recorded off the screen entirely.
+             */
+            onChanged={() => {
+              setReloadToken((token) => token + 1);
+            }}
           />
 
           {/*

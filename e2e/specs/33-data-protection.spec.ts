@@ -365,10 +365,25 @@ test.describe("the board's own data protection records", () => {
           .getByLabel("Varför inget avtal behövs")
           .fill("Filerna ligger på föreningens egen disk.");
       } else {
+        /*
+         * A processor, with the agreement recorded as signed. Both boxes are
+         * ticked deliberately: art. 28(3) lists what the agreement has to say
+         * and art. 28(2) requires sub-processors to be authorised in advance,
+         * and an agreement is only complete when the board has answered both.
+         */
         await page.getByLabel("Motpart").fill(name);
         await page
           .getByRole("combobox", { name: "Avtalets status" })
-          .selectOption("PENDING");
+          .selectOption("IN_PLACE");
+        await page
+          .getByLabel("Undertecknat")
+          .fill(new Date().toISOString().slice(0, 10));
+        await page
+          .getByLabel("Avtalet innehåller villkoren i art. 28.3")
+          .check();
+        await page
+          .getByLabel("Underbiträden är godkända i förväg (art. 28.2)")
+          .check();
       }
 
       await page.getByRole("button", { name: "Spara", exact: true }).click();
@@ -377,7 +392,9 @@ test.describe("the board's own data protection records", () => {
       ).toHaveCount(0);
     }
 
-    // Nothing left unanswered, said as a sentence.
+    // Nothing left unanswered and no agreement still being drafted, said as a
+    // sentence. The strip reports what is outstanding before it reports that
+    // nothing is, so this line only appears once both counts are nought.
     await expect(
       page.getByText("Alla mottagare av personuppgifter är klassificerade."),
     ).toBeVisible();
@@ -466,7 +483,8 @@ test.describe("the board's own data protection records", () => {
       ADMINISTRATOR.password,
     );
 
-    await page.goto(appPath("/register"));
+    // The address book is the application's own front screen.
+    await page.goto(appPath());
     await page.getByLabel("Sök i registret").fill("Lindqvist");
     await page.getByRole("button", { name: `Öppna ${MEMBER.name}` }).click();
     await expect(
