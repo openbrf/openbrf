@@ -596,6 +596,57 @@
           "NONE": "No exception",
           "LEGAL_OBLIGATION_TO_KEEP": "A legal obligation to keep the record",
           "LEGAL_CLAIMS": "A legal claim"
+        },
+        "title": "Requests about own data",
+        "explained": "What this person has asked about their data, and what the board decided. Erasure, objection and restriction under GDPR art. 17, 21 and 18.",
+        "none": "No request is recorded.",
+        "record": "Record a request",
+        "decide": "Decide",
+        "close": "Close",
+        "save": "Save",
+        "saving": "Saving...",
+        "kindLabel": "What the person asks for",
+        "requestedOn": "Requested on",
+        "groundLabel": "The person's own ground",
+        "erasureGroundLabel": "Ground under art. 17(1)",
+        "issueLabel": "An issue that names the person (optional)",
+        "issueNote": "The request is about a name in an issue's description. What is done to the text is the board's own decision on that issue; the purge never rewrites a description.",
+        "decisionLabel": "Decision",
+        "decisionGroundLabel": "The board's ground",
+        "exceptionLabel": "Assessment under art. 17(3)",
+        "dueOn": "To be answered by {{date}}",
+        "state": {
+          "open": "Awaiting an answer",
+          "overdue": "Past the month",
+          "granted": "Granted",
+          "refused": "Refused",
+          "executed": "Carried out",
+          "closed": "Closed"
+        },
+        "closeReason": {
+          "purged": "Closed when the purge carried it out.",
+          "movedIn": "Closed when the person moved in again."
+        },
+        "reasons": {
+          "personNotFound": "There is no such person in the register.",
+          "issueNotFound": "There is no such issue.",
+          "requestNotFound": "There is no such request.",
+          "erasureGroundRequired": "An erasure request states the ground in art. 17(1) it rests on.",
+          "groundNotApplicable": "An art. 17(1) ground belongs to an erasure request alone.",
+          "issueKindInconsistent": "Only an erasure request is about an issue.",
+          "erasureExceptionRequired": "A decision on an erasure records the art. 17(3) assessment.",
+          "exceptionInconsistent": "An exception under art. 17(3) refuses a request rather than granting it.",
+          "exceptionNotApplicable": "The art. 17(3) assessment belongs to an erasure alone.",
+          "decisionGroundRequired": "A decision states the ground it rests on.",
+          "alreadyOpen": "This person already has a request of that kind open.",
+          "alreadyDecided": "This request has already been decided.",
+          "alreadyClosed": "This request is already closed.",
+          "currentlyResident": "This person still lives here. The data is needed while the residency runs.",
+          "onLegalHold": "A legal hold stands against this person (art. 17(3)(e)).",
+          "boardPositionCurrent": "This person still holds a position of trust.",
+          "systemRoleCurrent": "This person still administers the instance.",
+          "processingRestricted": "This person has asked for a restriction, which means the data is kept and not used.",
+          "unknown": "The request could not be saved just now."
         }
       }
     },
@@ -1142,6 +1193,23 @@
       "assistantWidenedHint": "Under the statute a member may bring only their spouse or cohabitant or another member (BRL 9 kap. 14 §). Reported at check-in and applied by the meeting: an assistant needs no authority in writing, so there is no document for the board to attest.",
       "errors": {
         "proxyLimitInvalid": "That is not a number of members a bylaws clause could name."
+      }
+    },
+    "dataProtectionContacts": {
+      "title": "Data protection contacts",
+      "description": "How the association is reached as controller, and who its data protection officer is. Used in the record of processing activities and in the privacy notice.",
+      "contactEmail": "Email to the association",
+      "postalAddress": "Postal address",
+      "officerHint": "A housing cooperative rarely needs a data protection officer (art. 37(1)). Leave the fields empty if the association has appointed none.",
+      "officerName": "Officer's name",
+      "officerEmail": "Officer's email",
+      "officerPhone": "Officer's telephone",
+      "jointHint": "Joint controllership (art. 26) is unusual in a housing cooperative. Fill in both fields or neither.",
+      "jointName": "Joint controller",
+      "jointContact": "The joint controller's contact details",
+      "errors": {
+        "jointIncomplete": "A joint controller is recorded with its contact details.",
+        "unknown": "The details could not be saved just now."
       }
     }
   },
@@ -3299,11 +3367,74 @@
         "protectedPersons": "People with protected personal data are masked everywhere.",
         "localDisk": "The files are on the instance's own disk.",
         "s3": "The files are in object storage at {{endpoint}}."
+      },
+      "title": "Record of processing activities",
+      "description": "The association's processing of personal data, under GDPR art. 30.",
+      "ended": "Ended",
+      "seeded": "Follows the instance's settings until the board edits the row.",
+      "retentionPrefix": "Kept:",
+      "recipientsPrefix": "Recipients:",
+      "thirdCountry": "Data may be transferred outside the EU and the EEA.",
+      "controller": {
+        "name": "Controller",
+        "contact": "Contact details",
+        "noContact": "No contact details recorded",
+        "officer": "Data protection officer",
+        "noOfficer": "No data protection officer appointed",
+        "jointController": "Joint controller",
+        "jointControllerNone": "None"
+      },
+      "legalBasis": {
+        "CONSENT": "Consent",
+        "CONTRACT": "Contract",
+        "LEGAL_OBLIGATION": "Legal obligation",
+        "VITAL_INTERESTS": "Vital interests",
+        "PUBLIC_TASK": "Public task",
+        "LEGITIMATE_INTEREST": "Legitimate interest"
       }
     },
     "processors": {
       "seed": {
         "localDisk": "The association's own storage on the instance's disk. Nobody outside receives the files, so there is no processor here."
+      },
+      "title": "Recipients of personal data",
+      "description": "Who receives data, how each is classified and what agreement covers them.",
+      "classify": "Classify",
+      "classification": "Classification",
+      "counterparty": "Other party",
+      "status": "Agreement status",
+      "signedOn": "Signed",
+      "termsConfirmed": "The agreement carries the terms art. 28(3) requires",
+      "subProcessorsAuthorised": "Sub-processors are authorised in advance (art. 28(2))",
+      "note": "Why no agreement is needed",
+      "localDiskHint": "The files are on the association's own disk. Nobody outside receives them, so there is no processor here.",
+      "save": "Save",
+      "saving": "Saving...",
+      "kind": {
+        "SMTP": "Mail server",
+        "SMS": "SMS gateway",
+        "STORAGE": "File storage",
+        "HOSTING": "Hosting",
+        "PLUGIN": "Plugin",
+        "EXTERNAL": "Recorded by the board"
+      },
+      "state": {
+        "inPlace": "Agreement in place",
+        "pending": "Agreement being made",
+        "notAProcessor": "No processor",
+        "independentController": "Independent controller",
+        "notRecorded": "Not classified",
+        "processor": "Processor"
+      },
+      "errors": {
+        "notFound": "This instance hands nothing to that recipient.",
+        "classificationInconsistent": "Those answers belong to a processor's agreement.",
+        "termsRequired": "An agreement is in place once it carries the terms art. 28(3) requires.",
+        "counterpartyRequired": "Name the other party.",
+        "noteRequired": "Say why this recipient needs no agreement.",
+        "signedOnRequired": "State when the agreement was signed.",
+        "personalIdentityNumber": "Write it without a personal identity number.",
+        "unknown": "The classification could not be saved just now."
       }
     },
     "breaches": {
@@ -3311,7 +3442,71 @@
         "UNLIKELY": "Unlikely to result in a risk",
         "LIKELY": "A risk",
         "HIGH": "A high risk"
+      },
+      "title": "Personal data breaches",
+      "description": "What happened, what you decided and on what ground.",
+      "deadlineNote": "IMY is notified without undue delay and, where feasible, within 72 hours of the association becoming aware - unless the breach is unlikely to result in a risk to the people concerned.",
+      "none": "No breach is recorded.",
+      "decide": "Decide",
+      "save": "Save the decision",
+      "saving": "Saving...",
+      "hoursLeft": "{{hours}} hours left of the 72.",
+      "discoveredOn": "Discovered {{date}}.",
+      "riskLabel": "Risk to the people concerned",
+      "imyRequired": "IMY is to be notified",
+      "imyGround": "Ground for the decision about IMY",
+      "imyNotifiedAt": "Notified to IMY",
+      "delayReasons": "Reasons for the delay (art. 33(1))",
+      "subjectsRequired": "The people affected are to be told",
+      "subjectsGround": "Exemption under art. 34(3)",
+      "state": {
+        "awaitingDecision": "Awaiting a decision",
+        "overdue": "Past the bound",
+        "decided": "Decided",
+        "closed": "Closed"
+      },
+      "errors": {
+        "riskInconsistent": "IMY is notified unless the breach is unlikely to result in a risk. Change the risk or the decision.",
+        "subjectsGroundRequired": "At a high risk, not telling the people affected needs a ground under art. 34(3).",
+        "delayReasonsRequired": "A notification made after 72 hours carries the reasons for the delay.",
+        "alreadyDecided": "This breach has already been decided.",
+        "alreadySubject": "That person is already recorded on this breach.",
+        "personalIdentityNumber": "Write it without a personal identity number.",
+        "unknown": "The decision could not be saved just now."
       }
+    },
+    "overview": {
+      "breachesOverdue": "{{count}} personal data breach is past the 72 hours with no decision.",
+      "breachesOverdue_other": "{{count}} personal data breaches are past the 72 hours with no decision.",
+      "breachesWaiting": "{{count}} personal data breach awaits a decision, {{hours}} hours left.",
+      "breachesWaiting_other": "{{count}} personal data breaches await a decision, {{hours}} hours left on the nearest.",
+      "breachesNone": "No personal data breach awaits a decision.",
+      "requestsOverdue": "{{count}} request is past the month you have to answer in.",
+      "requestsOverdue_other": "{{count}} requests are past the month you have to answer in.",
+      "requestsOpen": "{{count}} request awaits an answer.",
+      "requestsOpen_other": "{{count}} requests await an answer.",
+      "requestsNone": "No request awaits an answer.",
+      "processorsNotRecorded": "{{count}} recipient of personal data is not classified yet.",
+      "processorsNotRecorded_other": "{{count}} recipients of personal data are not classified yet.",
+      "processorsPending": "{{count}} processor agreement is being made.",
+      "processorsPending_other": "{{count}} processor agreements are being made.",
+      "processorsRecorded": "Every recipient of personal data is classified.",
+      "noticeUnpublished": "The privacy notice is not published.",
+      "noticeMissing": "The privacy notice is missing {{count}} heading art. 13 requires.",
+      "noticeMissing_other": "The privacy notice is missing {{count}} headings art. 13 requires.",
+      "noticeComplete": "The privacy notice answers everything art. 13 requires."
+    },
+    "coverage": {
+      "title": "The privacy notice",
+      "description": "What GDPR art. 13 requires the notice to answer, and what it answers today.",
+      "present": "Present",
+      "absent": "Missing",
+      "noticeMissing": "The association has no privacy notice yet.",
+      "unpublished": "The notice is not published, so nobody outside can read it.",
+      "appendBoundary": "The button adds the missing headings and the block with the association's contact details. It writes no text: the answer under each heading is the board's own, written in the site editor.",
+      "append": "Add the missing headings",
+      "appending": "Adding...",
+      "appendFailed": "The headings could not be added just now."
     }
   }
 }

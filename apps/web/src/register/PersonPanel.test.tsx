@@ -96,6 +96,9 @@ const PROTECTED_PERSON: PersonDetail = {
   },
   publicationConsents: unasked(),
   legalHold: null,
+  dataSubjectRequests: [],
+  communicationObjectionAt: null,
+  processingRestrictedAt: null,
 };
 
 const PLAIN_PERSON: PersonDetail = {

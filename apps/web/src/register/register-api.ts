@@ -16,6 +16,8 @@
  */
 
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
+import type { DataSubjectRequestView } from "../api/data-protection";
+
 export type RegisterSign =
   | "CHAIR"
   | "BOARD_MEMBER"
@@ -687,6 +689,17 @@ export interface PersonDetail {
    * happen.
    */
   legalHold: LegalHold | null;
+  /**
+   * What this person has asked about their own data (GDPR art. 17, 18, 21).
+   *
+   * Beside the hold and the purge date for the same reason those two are beside
+   * each other: the three are one answer to what happens to this person's data
+   * and when.
+   */
+  dataSubjectRequests: DataSubjectRequestView[];
+  /** Dated, so the panel can say since when. Null means none stands. */
+  communicationObjectionAt: string | null;
+  processingRestrictedAt: string | null;
 }
 
 export interface RevealedFields {

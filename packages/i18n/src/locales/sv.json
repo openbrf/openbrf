@@ -596,6 +596,57 @@
           "NONE": "Inget undantag",
           "LEGAL_OBLIGATION_TO_KEEP": "Rättslig förpliktelse att bevara uppgifterna",
           "LEGAL_CLAIMS": "Rättsligt anspråk"
+        },
+        "title": "Begäranden om egna uppgifter",
+        "explained": "Vad den här personen har begärt om sina uppgifter, och vad styrelsen beslutade. Radering, invändning och begränsning enligt GDPR art. 17, 21 och 18.",
+        "none": "Ingen begäran är antecknad.",
+        "record": "Anteckna en begäran",
+        "decide": "Fatta beslut",
+        "close": "Avsluta",
+        "save": "Spara",
+        "saving": "Sparar...",
+        "kindLabel": "Vad personen begär",
+        "requestedOn": "Begärd den",
+        "groundLabel": "Personens egen grund",
+        "erasureGroundLabel": "Grund enligt art. 17.1",
+        "issueLabel": "Ärende som nämner personen (valfritt)",
+        "issueNote": "Begäran gäller ett namn i en felanmälans beskrivning. Vad som görs med texten är styrelsens eget beslut om ärendet; gallringen skriver aldrig om en beskrivning.",
+        "decisionLabel": "Beslut",
+        "decisionGroundLabel": "Styrelsens skäl",
+        "exceptionLabel": "Bedömning enligt art. 17.3",
+        "dueOn": "Ska besvaras senast {{date}}",
+        "state": {
+          "open": "Väntar på svar",
+          "overdue": "Över tiden",
+          "granted": "Bifallen",
+          "refused": "Avslagen",
+          "executed": "Verkställd",
+          "closed": "Avslutad"
+        },
+        "closeReason": {
+          "purged": "Avslutad när gallringen verkställde den.",
+          "movedIn": "Avslutad när personen flyttade in igen."
+        },
+        "reasons": {
+          "personNotFound": "Personen finns inte i registret.",
+          "issueNotFound": "Det finns inget sådant ärende.",
+          "requestNotFound": "Det finns ingen sådan begäran.",
+          "erasureGroundRequired": "En begäran om radering anger vilken grund i art. 17.1 den vilar på.",
+          "groundNotApplicable": "En grund enligt art. 17.1 hör bara till en begäran om radering.",
+          "issueKindInconsistent": "Bara en begäran om radering gäller ett ärende.",
+          "erasureExceptionRequired": "Ett beslut om radering ska ange bedömningen enligt art. 17.3.",
+          "exceptionInconsistent": "Ett undantag enligt art. 17.3 avslår en begäran, det bifaller den inte.",
+          "exceptionNotApplicable": "Bedömningen enligt art. 17.3 hör bara till radering.",
+          "decisionGroundRequired": "Ett beslut anger vilken grund det vilar på.",
+          "alreadyOpen": "Personen har redan en öppen begäran av det slaget.",
+          "alreadyDecided": "Begäran är redan beslutad.",
+          "alreadyClosed": "Begäran är redan avslutad.",
+          "currentlyResident": "Personen bor kvar. Uppgifterna behövs så länge boendet pågår.",
+          "onLegalHold": "Ett rättsligt bevarandekrav gäller för personen (art. 17.3 e).",
+          "boardPositionCurrent": "Personen har kvar ett förtroendeuppdrag.",
+          "systemRoleCurrent": "Personen administrerar fortfarande instansen.",
+          "processingRestricted": "Personen har begärt begränsning, vilket innebär att uppgifterna ska bevaras och inte användas.",
+          "unknown": "Begäran kunde inte sparas just nu."
         }
       }
     },
@@ -1142,6 +1193,23 @@
       "assistantWidenedHint": "Enligt lagen får en medlem bara ta med sin make, maka eller sambo eller en annan medlem (BRL 9 kap. 14 §). Redovisas vid avprickningen och tillämpas av stämman: ett biträde behöver ingen skriftlig fullmakt, så det finns ingen handling för styrelsen att intyga.",
       "errors": {
         "proxyLimitInvalid": "Det är inte ett antal medlemmar som en stadgeklausul skulle kunna ange."
+      }
+    },
+    "dataProtectionContacts": {
+      "title": "Dataskyddskontakter",
+      "description": "Hur föreningen nås som personuppgiftsansvarig, och vem som är dataskyddsombud. Uppgifterna används i registerförteckningen och i integritetspolicyn.",
+      "contactEmail": "E-post till föreningen",
+      "postalAddress": "Postadress",
+      "officerHint": "En bostadsrättsförening behöver sällan ett dataskyddsombud (art. 37.1). Lämna fälten tomma om föreningen inte har utsett något.",
+      "officerName": "Dataskyddsombudets namn",
+      "officerEmail": "Dataskyddsombudets e-post",
+      "officerPhone": "Dataskyddsombudets telefon",
+      "jointHint": "Gemensamt personuppgiftsansvar (art. 26) är ovanligt i en bostadsrättsförening. Fyll i båda fälten eller inget av dem.",
+      "jointName": "Gemensamt ansvarig",
+      "jointContact": "Kontaktuppgifter till den gemensamt ansvariga",
+      "errors": {
+        "jointIncomplete": "En gemensamt personuppgiftsansvarig antecknas med sina kontaktuppgifter.",
+        "unknown": "Uppgifterna kunde inte sparas just nu."
       }
     }
   },
@@ -3299,11 +3367,74 @@
         "protectedPersons": "Personer med skyddade personuppgifter maskeras överallt.",
         "localDisk": "Filerna ligger på instansens egen disk.",
         "s3": "Filerna ligger i objektlagring hos {{endpoint}}."
+      },
+      "title": "Registerförteckning",
+      "description": "Föreningens behandlingar av personuppgifter, enligt GDPR art. 30.",
+      "ended": "Avslutad",
+      "seeded": "Följer instansens inställningar tills styrelsen ändrar raden.",
+      "retentionPrefix": "Bevaras:",
+      "recipientsPrefix": "Mottagare:",
+      "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
+      "controller": {
+        "name": "Personuppgiftsansvarig",
+        "contact": "Kontaktuppgifter",
+        "noContact": "Inga kontaktuppgifter antecknade",
+        "officer": "Dataskyddsombud",
+        "noOfficer": "Inget dataskyddsombud utsett",
+        "jointController": "Gemensamt personuppgiftsansvarig",
+        "jointControllerNone": "Ingen"
+      },
+      "legalBasis": {
+        "CONSENT": "Samtycke",
+        "CONTRACT": "Avtal",
+        "LEGAL_OBLIGATION": "Rättslig förpliktelse",
+        "VITAL_INTERESTS": "Grundläggande intresse",
+        "PUBLIC_TASK": "Uppgift av allmänt intresse",
+        "LEGITIMATE_INTEREST": "Berättigat intresse"
       }
     },
     "processors": {
       "seed": {
         "localDisk": "Foreningens egen lagring pa instansens disk. Ingen utomstaende tar emot filerna, sa det finns inget personuppgiftsbitrade har."
+      },
+      "title": "Mottagare av personuppgifter",
+      "description": "Vem som tar emot uppgifter, hur var och en är klassificerad och vilket avtal som gäller.",
+      "classify": "Klassificera",
+      "classification": "Klassificering",
+      "counterparty": "Motpart",
+      "status": "Avtalets status",
+      "signedOn": "Undertecknat",
+      "termsConfirmed": "Avtalet innehåller villkoren i art. 28.3",
+      "subProcessorsAuthorised": "Underbiträden är godkända i förväg (art. 28.2)",
+      "note": "Varför inget avtal behövs",
+      "localDiskHint": "Filerna ligger på föreningens egen disk. Ingen utomstående tar emot dem, så det finns inget personuppgiftsbiträde här.",
+      "save": "Spara",
+      "saving": "Sparar...",
+      "kind": {
+        "SMTP": "E-postserver",
+        "SMS": "SMS-gateway",
+        "STORAGE": "Fillagring",
+        "HOSTING": "Drift",
+        "PLUGIN": "Tillägg",
+        "EXTERNAL": "Antecknad av styrelsen"
+      },
+      "state": {
+        "inPlace": "Avtal finns",
+        "pending": "Avtal tas fram",
+        "notAProcessor": "Inget personuppgiftsbiträde",
+        "independentController": "Egen personuppgiftsansvarig",
+        "notRecorded": "Ej klassificerad",
+        "processor": "Personuppgiftsbiträde"
+      },
+      "errors": {
+        "notFound": "Instansen lämnar inga uppgifter till den mottagaren.",
+        "classificationInconsistent": "De uppgifterna hör till ett personuppgiftsbiträdesavtal.",
+        "termsRequired": "Ett avtal räknas som klart först när det innehåller villkoren i art. 28.3.",
+        "counterpartyRequired": "Ange vem motparten är.",
+        "noteRequired": "Skriv varför mottagaren inte behöver något avtal.",
+        "signedOnRequired": "Ange när avtalet undertecknades.",
+        "personalIdentityNumber": "Skriv utan personnummer.",
+        "unknown": "Klassificeringen kunde inte sparas just nu."
       }
     },
     "breaches": {
@@ -3311,7 +3442,71 @@
         "UNLIKELY": "Sannolikt ingen risk",
         "LIKELY": "Risk",
         "HIGH": "Hög risk"
+      },
+      "title": "Personuppgiftsincidenter",
+      "description": "Vad som hänt, vad ni beslutade och på vilken grund.",
+      "deadlineNote": "IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från det att föreningen fick kännedom om incidenten - om den inte sannolikt inte medför någon risk för de registrerade.",
+      "none": "Ingen incident är antecknad.",
+      "decide": "Fatta beslut",
+      "save": "Spara beslutet",
+      "saving": "Sparar...",
+      "hoursLeft": "{{hours}} timmar kvar till 72-timmarsgränsen.",
+      "discoveredOn": "Upptäckt {{date}}.",
+      "riskLabel": "Risk för de registrerade",
+      "imyRequired": "IMY ska underrättas",
+      "imyGround": "Skäl för beslutet om IMY",
+      "imyNotifiedAt": "Underrättad till IMY",
+      "delayReasons": "Skäl för dröjsmålet (art. 33.1)",
+      "subjectsRequired": "De registrerade ska underrättas",
+      "subjectsGround": "Undantag enligt art. 34.3",
+      "state": {
+        "awaitingDecision": "Väntar på beslut",
+        "overdue": "Över tiden",
+        "decided": "Beslutad",
+        "closed": "Avslutad"
+      },
+      "errors": {
+        "riskInconsistent": "IMY underrättas om det inte är osannolikt att incidenten medför en risk. Ändra risken eller beslutet.",
+        "subjectsGroundRequired": "Vid hög risk krävs ett skäl enligt art. 34.3 för att inte underrätta de registrerade.",
+        "delayReasonsRequired": "En underrättelse efter 72 timmar ska åtföljas av skälen för dröjsmålet.",
+        "alreadyDecided": "Incidenten är redan beslutad.",
+        "alreadySubject": "Personen är redan antecknad på incidenten.",
+        "personalIdentityNumber": "Skriv utan personnummer.",
+        "unknown": "Beslutet kunde inte sparas just nu."
       }
+    },
+    "overview": {
+      "breachesOverdue": "{{count}} personuppgiftsincident har passerat 72-timmarsgränsen utan beslut.",
+      "breachesOverdue_other": "{{count}} personuppgiftsincidenter har passerat 72-timmarsgränsen utan beslut.",
+      "breachesWaiting": "{{count}} personuppgiftsincident väntar på beslut, {{hours}} timmar kvar.",
+      "breachesWaiting_other": "{{count}} personuppgiftsincidenter väntar på beslut, {{hours}} timmar kvar för den närmaste.",
+      "breachesNone": "Ingen personuppgiftsincident väntar på beslut.",
+      "requestsOverdue": "{{count}} begäran har passerat månaden ni har på er att svara.",
+      "requestsOverdue_other": "{{count}} begäranden har passerat månaden ni har på er att svara.",
+      "requestsOpen": "{{count}} begäran väntar på svar.",
+      "requestsOpen_other": "{{count}} begäranden väntar på svar.",
+      "requestsNone": "Ingen begäran väntar på svar.",
+      "processorsNotRecorded": "{{count}} mottagare av personuppgifter är ännu inte klassificerad.",
+      "processorsNotRecorded_other": "{{count}} mottagare av personuppgifter är ännu inte klassificerade.",
+      "processorsPending": "{{count}} personuppgiftsbiträdesavtal håller på att tas fram.",
+      "processorsPending_other": "{{count}} personuppgiftsbiträdesavtal håller på att tas fram.",
+      "processorsRecorded": "Alla mottagare av personuppgifter är klassificerade.",
+      "noticeUnpublished": "Integritetspolicyn är inte publicerad.",
+      "noticeMissing": "Integritetspolicyn saknar {{count}} rubrik som art. 13 kräver.",
+      "noticeMissing_other": "Integritetspolicyn saknar {{count}} rubriker som art. 13 kräver.",
+      "noticeComplete": "Integritetspolicyn svarar på allt art. 13 kräver."
+    },
+    "coverage": {
+      "title": "Integritetspolicyn",
+      "description": "Vad GDPR art. 13 kräver att policyn svarar på, och vad den svarar på i dag.",
+      "present": "Finns",
+      "absent": "Saknas",
+      "noticeMissing": "Föreningen har ingen integritetspolicy ännu.",
+      "unpublished": "Policyn är inte publicerad, så ingen utomstående kan läsa den.",
+      "appendBoundary": "Knappen lägger till de rubriker som saknas och blocket med föreningens kontaktuppgifter. Den skriver ingen text: svaret under varje rubrik är styrelsens eget och skrivs i webbplatsredigeraren.",
+      "append": "Lägg till rubrikerna som saknas",
+      "appending": "Lägger till...",
+      "appendFailed": "Rubrikerna kunde inte läggas till just nu."
     }
   }
 }

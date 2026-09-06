@@ -95,6 +95,11 @@ const SETTINGS: InstanceSettings = {
   retention: { daysAfterMoveOut: 365 },
   selfSignup: { enabled: false },
   issueReporting: { publicFormEnabled: true },
+  dataProtectionContacts: {
+    controller: { contactEmail: null, postalAddress: null },
+    officer: { name: null, email: null, phone: null },
+    jointController: { name: null, contact: null },
+  },
   // The clause a cooperative's own bylaws set. Null here, which is the ordinary
   // state of an instance whose bylaws say nothing about motions.
   motionDeadline: null,

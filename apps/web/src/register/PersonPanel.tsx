@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
+import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
 import { DatePair } from "./DatePair";
 import { SignChip } from "./SignChip";
 import {
@@ -1346,6 +1347,18 @@ export function PersonPanel({
               </p>
             ) : null}
           </section>
+
+          {/*
+           * What this person has asked about their own data, directly after the
+           * legal hold: the two are one answer to what happens to their data and
+           * when, and a board reading one without the other would be reading a
+           * promise the instance is not keeping.
+           */}
+          <DataSubjectRequestsSection
+            personId={person.personId}
+            requests={person.dataSubjectRequests}
+            onChanged={onChanged}
+          />
 
           {/*
            * The data subject access report. Offered only where there is a
