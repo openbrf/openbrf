@@ -5,10 +5,11 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MediaService } from "../media/media.service";
-import { lockLegalHold } from "../retention/legal-hold-lock";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -257,42 +258,40 @@ export class BoardMailboxPurgeService implements OnModuleInit {
       select: { fileId: true },
     });
 
-    /*
-     * Who this thread's correspondent turns out to be in the register, if
-     * anybody, read before the transaction opens.
-     *
-     * Read here rather than inside it because it is a scan of the held people
-     * rather than a lookup - `Person.emailIndex` is computed under a different
-     * field label, so the two stored indexes are not comparable and the match
-     * has to be made by computing this table's index from each held person's own
-     * address. The list is a handful in a cooperative that has any holds at all.
-     */
-    const heldPersonId =
-      thread.correspondentEmailIndex === null
-        ? null
-        : await this.heldPersonFor(thread.correspondentEmailIndex);
-
     const erased = await this.prisma.$transaction(async (tx) => {
-      if (heldPersonId !== null) {
-        /*
-         * Before the hold is read, so that reading it settles the question.
-         * Everything below runs at READ COMMITTED, where a placement committing
-         * between the read and the delete would leave this transaction erasing
-         * the rows the hold was placed to preserve - and the board member would
-         * have been told the person was held. `LegalHoldService.place` takes the
-         * same key, which is what makes the two orderable at all.
-         */
-        await lockLegalHold(tx, heldPersonId);
+      /*
+       * Before anything is read about holds, and taken whether or not this
+       * thread turns out to have one.
+       *
+       * Every other purge is keyed on a person, so it locks that person's key
+       * and reads the hold underneath it. This one is keyed on an address an
+       * envelope asserted, and which person it belongs to - if anybody - is only
+       * answerable by computing each held person's own index and comparing:
+       * `Person.emailIndex` is derived under a different field label, so the two
+       * stored indexes are not comparable. In the ordinary case that answers
+       * "nobody", and there is then no person's key to take - which is exactly
+       * the case where a placement committing between the scan and the delete
+       * would erase the correspondence the hold was placed to preserve, with the
+       * board member told the person was held.
+       *
+       * So the registry key, which a placement takes as well as its own. See
+       * `legal-hold-lock.ts`.
+       */
+      await lockLegalHoldRegistry(tx);
 
-        const stands = await tx.legalHold.findFirst({
-          where: { personId: heldPersonId, releasedAt: null },
-          select: { id: true },
-        });
-        if (stands !== null) {
-          // Re-checked here rather than trusted from the scan. A hold placed
-          // between the two has to win.
-          return false;
-        }
+      /*
+       * And the scan runs inside it, which is the point of taking it. Read here
+       * rather than before the transaction as it once was: a scan whose answer
+       * is used after the lock but taken before it is the same race in a
+       * different place. It is a handful of rows in a cooperative that has any
+       * holds at all.
+       */
+      const heldPersonId =
+        thread.correspondentEmailIndex === null
+          ? null
+          : await this.heldPersonFor(thread.correspondentEmailIndex, tx);
+      if (heldPersonId !== null) {
+        return false;
       }
 
       const { count } = await tx.boardMailboxThread.deleteMany({
@@ -372,7 +371,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
    * logged, which is opaque and names nothing about the correspondence, so the
    * one that got away is findable from the log alone. The thread is already
    * gone, the run has more to erase, and stopping the purge over it would leave
-   * whole letters past their window rather than one file.
+   * whole threads past their window rather than one file.
    */
   private async removeAttachments(fileIds: readonly string[]): Promise<void> {
     for (const fileId of fileIds) {
@@ -426,8 +425,9 @@ export class BoardMailboxPurgeService implements OnModuleInit {
   /** The held person whose address this thread is with, if any. */
   private async heldPersonFor(
     correspondentEmailIndex: string,
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<string | null> {
-    const holds = await this.prisma.legalHold.findMany({
+    const holds = await client.legalHold.findMany({
       where: { releasedAt: null },
       select: { person: { select: { id: true, emailCipher: true } } },
       distinct: ["personId"],
