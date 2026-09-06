@@ -29,6 +29,27 @@ export interface ChargeablePerson {
   name: string;
   /** Where they live, for telling two people of one name apart. */
   apartment: string | null;
+  /**
+   * The day they moved in, carried only for the case below.
+   *
+   * Null where the register holds none, which is also the case where two
+   * otherwise identical people cannot be told apart at all - the option then
+   * reads the same for both, and there is nothing truthful to add.
+   */
+  movedInOn: string | null;
+  /**
+   * Whether somebody else renders the same name and the same apartment.
+   *
+   * A register can hold two people of one name in one flat - a father and a son
+   * - and an option that read the same for both would ask a board to choose
+   * between two identical rows, which is not a choice. Where that happens the
+   * option carries the day each of them moved in, which is what the register
+   * holds and what tells them apart; where it does not, the option stays short.
+   *
+   * Computed over the whole list rather than per row, because being ambiguous is
+   * a fact about a pair and not about a person.
+   */
+  ambiguous: boolean;
 }
 
 export interface ChargeableApartment {
@@ -97,6 +118,9 @@ async function loadPersons(signal: AbortSignal): Promise<ChargeablePerson[]> {
         personId: row.personId,
         name: row.name,
         apartment: apartmentOf(answer.addresses, row.apartment),
+        movedInOn: row.movedInOn,
+        // Settled below, once the whole list is known.
+        ambiguous: false,
       });
     }
 
@@ -105,7 +129,33 @@ async function loadPersons(signal: AbortSignal): Promise<ChargeablePerson[]> {
     }
   }
 
-  return persons.sort((first, second) => first.name.localeCompare(second.name));
+  return markAmbiguous(persons).sort((first, second) =>
+    first.name.localeCompare(second.name),
+  );
+}
+
+/**
+ * Flags the people an option would otherwise render identically.
+ *
+ * Exported for its own test: the case it exists for needs two people the
+ * register happens to hold the same way, which is awkward to arrange and easy to
+ * state directly.
+ */
+export function markAmbiguous(
+  persons: readonly ChargeablePerson[],
+): ChargeablePerson[] {
+  const shown = new Map<string, number>();
+  const shownAs = (person: ChargeablePerson): string =>
+    `${person.name}\u0000${person.apartment ?? ""}`;
+
+  for (const person of persons) {
+    shown.set(shownAs(person), (shown.get(shownAs(person)) ?? 0) + 1);
+  }
+
+  return persons.map((person) => ({
+    ...person,
+    ambiguous: (shown.get(shownAs(person)) ?? 0) > 1,
+  }));
 }
 
 async function loadApartments(): Promise<ChargeableApartment[]> {

@@ -3151,6 +3151,7 @@
       "person": "Medlem",
       "apartment": "Lägenhet",
       "choose": "Välj",
+      "personMovedIn": "{{person}} (inflyttad {{movedInOn}})",
       "chargedOn": "Debiteringsdatum",
       "amount": "Belopp i kronor",
       "reason": "Vad debiteringen avser",

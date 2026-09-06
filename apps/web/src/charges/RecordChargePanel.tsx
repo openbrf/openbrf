@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 
 import {
@@ -13,7 +14,7 @@ import {
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { chargeFailureKey, refusedIdentityNumbers } from "./charge-failures";
-import type { ChargeParties } from "./charge-parties";
+import type { ChargeablePerson, ChargeParties } from "./charge-parties";
 import {
   type ChargeRow,
   recordCharge,
@@ -47,6 +48,35 @@ import {
  * nothing about payment - the sentence under it says so, because that is the one
  * thing about this screen a reader is most likely to assume wrongly.
  */
+/**
+ * What one person's option reads.
+ *
+ * The name, and where they live where the register knows: two households share a
+ * surname often enough that the address is what tells them apart. Where even
+ * that is not enough - two people of one name in one flat, which a register can
+ * hold - the day they moved in is added, because an option that read the same
+ * for both would ask a board to choose between two identical rows.
+ *
+ * The date is added only to the rows that need it. Putting it on every option
+ * would push the thing a board is actually reading off the end of the line.
+ */
+function personOption(
+  person: ChargeablePerson,
+  t: TFunction<"translation">,
+): string {
+  const shown =
+    person.apartment === null
+      ? person.name
+      : `${person.name} - ${person.apartment}`;
+
+  return person.ambiguous && person.movedInOn !== null
+    ? t("charges.record.personMovedIn", {
+        person: shown,
+        movedInOn: person.movedInOn,
+      })
+    : shown;
+}
+
 export function RecordChargePanel({
   parties,
   today,
@@ -148,9 +178,7 @@ export function RecordChargePanel({
               <option value="">{t("charges.record.choose")}</option>
               {parties.persons.map((person) => (
                 <option key={person.personId} value={person.personId}>
-                  {person.apartment === null
-                    ? person.name
-                    : `${person.name} - ${person.apartment}`}
+                  {personOption(person, t)}
                 </option>
               ))}
             </select>

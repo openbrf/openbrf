@@ -53,8 +53,16 @@ const PARTIES: ChargeParties = {
       personId: "person-1",
       name: "Astrid Vallin",
       apartment: "Storgatan 12 1001",
+      movedInOn: "2026-01-15",
+      ambiguous: false,
     },
-    { personId: "person-2", name: "Signe Skyddad", apartment: null },
+    {
+      personId: "person-2",
+      name: "Signe Skyddad",
+      apartment: null,
+      movedInOn: null,
+      ambiguous: false,
+    },
   ],
   apartments: [{ apartmentId: "apartment-1", label: "Storgatan 12 1002" }],
 };

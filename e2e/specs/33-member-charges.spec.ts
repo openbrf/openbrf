@@ -304,12 +304,21 @@ async function recordCharge(
     .check();
   await page
     /*
-     * Exactly. A select's accessible name is its label's own words rather than
-     * its options, so both of these are one word - and a substring match would
-     * also reach the radio above, since `getByLabel` ignores case and the radios
-     * read "En medlem" and "En lägenhet".
+     * By role and accessible name, not by label.
+     *
+     * `getByLabel` compares the label ELEMENT's text, and a label that wraps its
+     * control carries that control's content too: this form's hand-over field
+     * computes as "Skickat till ekonomisk forvaltare Dagen underlaget skickades
+     * over...", hint and all. For a wrapped select that means the label text is
+     * the word plus every option, so an exact match can never equal it and a
+     * substring one also reaches the radio above, since getByLabel ignores case
+     * and the radios read "En medlem" and "En lagenhet".
+     *
+     * The accessible name is computed the other way and is just the word, which
+     * is what the screenshot walk already targets its selects by.
      */
-    .getByLabel(charge.party === "person" ? "Medlem" : "Lägenhet", {
+    .getByRole("combobox", {
+      name: charge.party === "person" ? "Medlem" : "Lägenhet",
       exact: true,
     })
     .selectOption(charge.value);

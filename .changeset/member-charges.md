@@ -52,6 +52,12 @@ field it was found in and never the value. It is copied into a file that leaves
 the association, which is why the scan reaches the edit as well as the first
 write.
 
+Where the register holds two people of one name in one flat - a father and a
+son - the picker names the day each of them moved in, because an option that
+read the same for both would ask a board to choose between two identical rows,
+and charging the wrong one is a charge on somebody who owes nothing. The date is
+added only to the rows that need it.
+
 Every charge is on its subject's data subject access report, by its own column or
 through the apartment they were living in on the day it is dated, and each row
 states the earliest date the purge can reach it. A nightly purge erases a charge

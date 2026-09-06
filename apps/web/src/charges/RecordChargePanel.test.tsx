@@ -34,6 +34,8 @@ const PARTIES: ChargeParties = {
       personId: "person-1",
       name: "Astrid Vallin",
       apartment: "Storgatan 12 1001",
+      movedInOn: "2026-01-15",
+      ambiguous: false,
     },
   ],
   apartments: [{ apartmentId: "apartment-1", label: "Storgatan 12 1002" }],
@@ -93,6 +95,61 @@ describe("the charged party", () => {
         vatRatePercent: null,
         handedToManagerOn: null,
       }),
+    );
+  });
+});
+
+describe("two people the register holds the same way", () => {
+  it("tells them apart by the day each of them moved in", async () => {
+    /*
+     * A father and a son, one name, one flat. The option has to distinguish
+     * them: charging the wrong one is a charge on somebody who owes nothing, and
+     * two identical rows give a board no way to avoid it.
+     */
+    render(
+      <RecordChargePanel
+        parties={{
+          persons: [
+            {
+              personId: "bo-elder",
+              name: "Bo Ekwall",
+              apartment: "Storgatan 12 1602",
+              movedInOn: "2019-03-01",
+              ambiguous: true,
+            },
+            {
+              personId: "bo-younger",
+              name: "Bo Ekwall",
+              apartment: "Storgatan 12 1602",
+              movedInOn: "2026-01-15",
+              ambiguous: true,
+            },
+          ],
+          apartments: [],
+        }}
+        today="2026-06-01"
+        onRecorded={() => undefined}
+      />,
+    );
+
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(options).toContain(
+      "Bo Ekwall - Storgatan 12 1602 (inflyttad 2019-03-01)",
+    );
+    expect(options).toContain(
+      "Bo Ekwall - Storgatan 12 1602 (inflyttad 2026-01-15)",
+    );
+    // Substituted, not the raw key: this option is interpolated.
+    expect(options.join("")).not.toContain("{{");
+  });
+
+  it("leaves an unambiguous option short", () => {
+    // The date is added only where it is needed; on every row it would push the
+    // thing a board is reading off the end of the line.
+    panel();
+
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toContain(
+      "Astrid Vallin - Storgatan 12 1001",
     );
   });
 });
