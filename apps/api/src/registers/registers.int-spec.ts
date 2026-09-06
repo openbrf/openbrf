@@ -1394,6 +1394,7 @@ describe("recording the membership decision behind a transfer", () => {
       url: "/api/apartment-register/membership-decision",
       payload: {
         transferId: UNDECIDED_TRANSFER_ID,
+        basis: "MEMBERSHIP_DECISION",
         membershipDecidedOn: "2021-01-14",
       },
       headers: { cookie: await signIn(actors.resident.email) },
@@ -1467,6 +1468,7 @@ describe("recording the membership decision behind a transfer", () => {
       url: "/api/apartment-register/membership-decision",
       payload: {
         transferId: UNDECIDED_TRANSFER_ID,
+        basis: "MEMBERSHIP_DECISION",
         // Before the transfer, which is the ordinary order: the board approves
         // membership when it meets and the transfer completes on the
         // tilltradesdag. Nothing refuses that, because the statute does not.
@@ -1503,6 +1505,27 @@ describe("recording the membership decision behind a transfer", () => {
       apartmentId: apartments.other,
       membershipDecidedOn: "2021-01-14",
       transferredOn: "2021-02-01",
+    });
+
+    /*
+     * And the case, which is a second entry rather than a widened first. "The
+     * board decided on membership on this day" is a fact about a person and has
+     * carried that action since the column existed; "this overgang falls in the
+     * first case of 3 kap. 3 §" is a statement about which paragraph the
+     * association is acting under. A reader looking for decisions taken about
+     * somebody should not have to know the action was renamed when a fourth case
+     * was added beside it.
+     */
+    const caseEntry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "APARTMENT_REGISTER_TRANSFER_REPORT_BASIS_RECORDED",
+        targetKind: "transfer",
+        targetId: UNDECIDED_TRANSFER_ID,
+      },
+    });
+    expect(caseEntry.context).toMatchObject({
+      basis: "MEMBERSHIP_DECISION",
+      membershipDecidedOn: "2021-01-14",
     });
 
     /*
@@ -1570,6 +1593,7 @@ describe("recording the membership decision behind a transfer", () => {
       url: "/api/apartment-register/membership-decision",
       payload: {
         transferId: UNDECIDED_TRANSFER_ID,
+        basis: "MEMBERSHIP_DECISION",
         membershipDecidedOn: "2021-06-30",
       },
       headers: { cookie: await signIn(actors.board.email) },
@@ -1577,7 +1601,7 @@ describe("recording the membership decision behind a transfer", () => {
 
     expect(response.statusCode).toBe(409);
     expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
-      "membership-decision-already-recorded",
+      "report-basis-already-recorded",
     );
 
     const stored = await prisma.transfer.findUniqueOrThrow({
@@ -1604,6 +1628,7 @@ describe("recording the membership decision behind a transfer", () => {
       url: "/api/apartment-register/membership-decision",
       payload: {
         transferId: REFUSED_TRANSFER_ID,
+        basis: "MEMBERSHIP_DECISION",
         membershipDecidedOn: tomorrow,
       },
       headers: { cookie: await signIn(actors.board.email) },
@@ -1621,6 +1646,7 @@ describe("recording the membership decision behind a transfer", () => {
       url: "/api/apartment-register/membership-decision",
       payload: {
         transferId: `no-such-transfer-${suffix}`,
+        basis: "MEMBERSHIP_DECISION",
         membershipDecidedOn: "2021-01-14",
       },
       headers: { cookie: await signIn(actors.board.email) },
@@ -1735,6 +1761,7 @@ describe("the obligation ledger and the event it is about", () => {
         url: "/api/apartment-register/membership-decision",
         payload: {
           transferId: REFUSED_TRANSFER_ID,
+          basis: "MEMBERSHIP_DECISION",
           membershipDecidedOn: "2022-04-04",
         },
         headers: { cookie: await signIn(actors.board.email) },
@@ -1757,6 +1784,640 @@ describe("the obligation ledger and the event it is about", () => {
         where: { transferId: REFUSED_TRANSFER_ID },
       }),
     ).resolves.toBeNull();
+  });
+});
+
+/**
+ * The three other cases of Lag (2026:484) 3 kap. 3 §, and the reversal.
+ *
+ * Verbatim, because the whole of this block is about which sentence applies:
+ *
+ *   Forsta stycket: "En anmalan for registrering av overgang ska goras av
+ *   bostadsrattsforeningen. En overgang till en sadan juridisk person som avses
+ *   i 6 kap. 1 § andra stycket bostadsrattslagen (1991:614) ska dock anmalas
+ *   for registrering av den juridiska personen."
+ *
+ *   Andra stycket: "... Vid overgang till nagon som redan ar medlem i foreningen
+ *   eller som inte omfattas av kravet pa medlemskap ska anmalan i stallet goras
+ *   inom tva veckor fran overgangen."
+ *
+ *   Tredje stycket: "Bostadsrattsforeningen ska anmala om en overlatelse som har
+ *   registrerats har havts eller atergatt till saljaren utan att talan vackts i
+ *   domstol."
+ *
+ *   Fjarde stycket: "Om en bostadsratt har overgatt till foreningen, ska anmalan
+ *   goras inom tva veckor fran overgangen."
+ *
+ * Until the case was recorded the platform raised a duty only where a membership
+ * decision was, so three of those four raised none at all - each of them looks
+ * exactly like a decision nobody has minuted yet.
+ */
+describe("the cases of 3 kap. 3 § that run from the overgang itself", () => {
+  /** A fresh overgang with no case stated, for one test to state one on. */
+  async function anOvergang(name: string): Promise<string> {
+    const id = `reg-transfer-${name}-${suffix}`;
+    await prisma.transfer.create({
+      data: {
+        id,
+        apartmentId: apartments.other,
+        kind: "TRANSFER",
+        fromPersonId: actors.member.personId,
+        toPersonId: actors.resident.personId,
+        transferredOn: new Date("2023-09-04T00:00:00.000Z"),
+        agreementReference: `Overlatelseavtal ${name} ${suffix}`,
+      },
+    });
+    return id;
+  }
+
+  it("opens the window on the overgang where the acquirer was already a member", async () => {
+    const transferId = await anOvergang("already-member");
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId, basis: "ALREADY_MEMBER" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    /*
+     * The whole content of the assertion is which date the window runs from.
+     * There is no membership decision to count from - that is what the case
+     * says - so it runs from the overgang, the 4th of September, and closes on
+     * the 18th. Before the case was recorded this transfer got no row at all.
+     */
+    const obligation = await prisma.registerReportObligation.findUniqueOrThrow({
+      where: { transferId },
+    });
+    expect(obligation.kind).toBe("TRANSFER");
+    expect(isoDay(obligation.triggeredOn)).toBe("2023-09-04");
+    expect(isoDay(obligation.dueOn)).toBe("2023-09-18");
+
+    const stored = await prisma.transfer.findUniqueOrThrow({
+      where: { id: transferId },
+      select: { reportBasis: true, membershipDecidedOn: true },
+    });
+    expect(stored.reportBasis).toBe("ALREADY_MEMBER");
+    // And no date invented for the column the other case fills.
+    expect(stored.membershipDecidedOn).toBeNull();
+  });
+
+  it("opens it on the overgang where the acquirer is outside the requirement", async () => {
+    const transferId = await anOvergang("outside-requirement");
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId, basis: "OUTSIDE_MEMBERSHIP_REQUIREMENT" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const obligation = await prisma.registerReportObligation.findUniqueOrThrow({
+      where: { transferId },
+    });
+    expect(isoDay(obligation.triggeredOn)).toBe("2023-09-04");
+    expect(isoDay(obligation.dueOn)).toBe("2023-09-18");
+  });
+
+  it("opens it on the overgang where the bostadsratt passed to the association", async () => {
+    // Fjarde stycket, which is its own paragraph rather than a reading of andra
+    // stycket: the association is not an acquirer the membership requirement is
+    // applied to.
+    const transferId = await anOvergang("to-the-association");
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId, basis: "TO_THE_ASSOCIATION" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const obligation = await prisma.registerReportObligation.findUniqueOrThrow({
+      where: { transferId },
+    });
+    expect(isoDay(obligation.triggeredOn)).toBe("2023-09-04");
+    expect(isoDay(obligation.dueOn)).toBe("2023-09-18");
+  });
+
+  it("refuses a membership decision date in a case that has none", async () => {
+    // Refused rather than dropped. The date would go to a column a CHECK forbids
+    // it in, and a statutory date silently discarded is one the board believes
+    // it recorded.
+    const transferId = await anOvergang("date-refused");
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: {
+        transferId,
+        basis: "ALREADY_MEMBER",
+        membershipDecidedOn: "2023-08-01",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "membership-decision-not-in-this-case",
+    );
+    const stored = await prisma.transfer.findUniqueOrThrow({
+      where: { id: transferId },
+      select: { reportBasis: true, membershipDecidedOn: true },
+    });
+    expect(stored.reportBasis).toBeNull();
+    expect(stored.membershipDecidedOn).toBeNull();
+  });
+
+  it("refuses the ordinary case with no date to count the two weeks from", async () => {
+    const transferId = await anOvergang("date-required");
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId, basis: "MEMBERSHIP_DECISION" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "membership-decision-required",
+    );
+  });
+
+  it("raises no duty where the statute puts the anmalan on the acquirer", async () => {
+    /*
+     * Forsta stycket assigns it to the juridical person, so the association owes
+     * nothing. A row in the ledger would be a deadline it does not have, on a
+     * table nothing can correct, and the board would work a queue holding a duty
+     * it has no way to discharge.
+     */
+    const transferId = await anOvergang("juridical-person");
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId, basis: "LIENHOLDING_JURIDICAL_PERSON" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    await expect(
+      prisma.registerReportObligation.findUnique({ where: { transferId } }),
+    ).resolves.toBeNull();
+
+    // And the statement is recorded, which is what distinguishes this from a
+    // transfer nobody has got to. Both would otherwise be a null in one column.
+    const stored = await prisma.transfer.findUniqueOrThrow({
+      where: { id: transferId },
+      select: { reportBasis: true },
+    });
+    expect(stored.reportBasis).toBe("LIENHOLDING_JURIDICAL_PERSON");
+  });
+
+  it("names that overgang on the queue rather than leaving the board nothing", async () => {
+    const transferId = await anOvergang("juridical-person-queue");
+    await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId, basis: "LIENHOLDING_JURIDICAL_PERSON" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    const queue = await inject({
+      method: "GET",
+      url: "/api/register-reports",
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+    const body = JSON.parse(queue.body) as {
+      duties: { transferId: string | null }[];
+      reportedElsewhere: { transferId: string; transferredOn: string }[];
+    };
+
+    expect(
+      body.reportedElsewhere.find((row) => row.transferId === transferId),
+    ).toMatchObject({ transferredOn: "2023-09-04" });
+    // And nowhere among the duties, which are what the association owes.
+    expect(body.duties.some((duty) => duty.transferId === transferId)).toBe(
+      false,
+    );
+  });
+
+  it("refuses a case on an upplatelse, which 3 kap. 3 § does not reach", async () => {
+    const id = `reg-transfer-grant-basis-${suffix}`;
+    await prisma.transfer.create({
+      data: {
+        id,
+        apartmentId: apartments.other,
+        kind: "GRANT",
+        toPersonId: actors.member.personId,
+        transferredOn: new Date("2012-05-02T00:00:00.000Z"),
+        agreementReference: `Upplatelseavtal grant ${suffix}`,
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/membership-decision",
+      payload: { transferId: id, basis: "ALREADY_MEMBER" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "report-basis-on-a-grant",
+    );
+  });
+});
+
+/**
+ * A registered overlatelse that has been havd or has gone back to the seller.
+ *
+ * Tredje stycket, and the one reporting sentence in the chapter that sets no
+ * period: it says the association "ska anmala" and stops, where 2 §, the rest of
+ * 3 § and 4 § each say "inom tva veckor".
+ */
+describe("recording that a registered overlatelse went back", () => {
+  const REVERSED_TRANSFER_ID = `reg-transfer-reversed-${suffix}`;
+
+  it("is refused for a resident", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/transfer-reversals",
+      payload: {
+        transferId: UNDECIDED_TRANSFER_ID,
+        kind: "RESCINDED",
+        reversedOn: "2021-05-01",
+        reference: `Nej ${suffix}`,
+      },
+      headers: { cookie: await signIn(actors.resident.email) },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("records it beside the transfer, with a duty that carries no deadline", async () => {
+    await prisma.transfer.create({
+      data: {
+        id: REVERSED_TRANSFER_ID,
+        apartmentId: apartments.other,
+        kind: "TRANSFER",
+        fromPersonId: actors.member.personId,
+        toPersonId: actors.resident.personId,
+        transferredOn: new Date("2024-02-01T00:00:00.000Z"),
+        agreementReference: `Overlatelseavtal reversed ${suffix}`,
+      },
+    });
+
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/transfer-reversals",
+      payload: {
+        transferId: REVERSED_TRANSFER_ID,
+        kind: "RETURNED_TO_SELLER",
+        reversedOn: "2024-04-18",
+        reference: `Aterganget avtal ${suffix}`,
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(201);
+
+    const reversal = await prisma.transferReversal.findUniqueOrThrow({
+      where: { transferId: REVERSED_TRANSFER_ID },
+    });
+    expect(reversal.kind).toBe("RETURNED_TO_SELLER");
+    expect(isoDay(reversal.reversedOn)).toBe("2024-04-18");
+    // The apartment is carried on the row and checked against the transfer's by
+    // a trigger, so the register can be read per apartment without a join.
+    expect(reversal.apartmentId).toBe(apartments.other);
+
+    /*
+     * The assertion this whole block exists for. Tredje stycket names no period,
+     * so the duty has no last day - and giving it fourteen by analogy with the
+     * sentences around it would put a statutory deadline nobody enacted onto a
+     * row nothing can correct.
+     */
+    const obligation = await prisma.registerReportObligation.findUniqueOrThrow({
+      where: { reversalId: reversal.id },
+    });
+    expect(obligation.kind).toBe("TRANSFER_REVERSAL");
+    expect(isoDay(obligation.triggeredOn)).toBe("2024-04-18");
+    expect(obligation.dueOn).toBeNull();
+    expect(obligation.transferId).toBeNull();
+
+    // And the transfer it undid is still there, with its own record intact: both
+    // happened, and a register that showed only one would state something that
+    // is not the case.
+    const transfer = await prisma.transfer.findUniqueOrThrow({
+      where: { id: REVERSED_TRANSFER_ID },
+      select: { transferredOn: true },
+    });
+    expect(isoDay(transfer.transferredOn)).toBe("2024-02-01");
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED",
+        targetKind: "transferReversal",
+        targetId: reversal.id,
+      },
+    });
+    expect(entry.actorPersonId).toBe(actors.board.personId);
+    expect(entry.context).toMatchObject({
+      transferId: REVERSED_TRANSFER_ID,
+      kind: "RETURNED_TO_SELLER",
+      reversedOn: "2024-04-18",
+    });
+  });
+
+  it("shows the duty as owed without a day on the queue", async () => {
+    const queue = await inject({
+      method: "GET",
+      url: "/api/register-reports",
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+    const body = JSON.parse(queue.body) as {
+      counts: { outstanding: number };
+      duties: {
+        kind: string;
+        state: string;
+        dueOn: string | null;
+        daysUntilDue: number | null;
+      }[];
+    };
+
+    const duty = body.duties.find((row) => row.kind === "TRANSFER_REVERSAL");
+    expect(duty).toBeDefined();
+    // Not "overdue": there is no deadline to have passed. Not "due": there is no
+    // day it stops being safe to leave.
+    expect(duty?.state).toBe("outstanding");
+    expect(duty?.dueOn).toBeNull();
+    expect(duty?.daysUntilDue).toBeNull();
+    expect(body.counts.outstanding).toBeGreaterThan(0);
+  });
+
+  it("refuses a second reversal of one overlatelse", async () => {
+    // An overlatelse goes back once. A second row would be a second anmalan
+    // about one event, on a table nothing can delete, and the two would disagree
+    // about the day it happened.
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/transfer-reversals",
+      payload: {
+        transferId: REVERSED_TRANSFER_ID,
+        kind: "RESCINDED",
+        reversedOn: "2024-06-01",
+        reference: `Andra forsoket ${suffix}`,
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "transfer-reversal-already-recorded",
+    );
+  });
+
+  it("refuses one on an upplatelse, which has no seller to go back to", async () => {
+    const id = `reg-transfer-grant-reversal-${suffix}`;
+    await prisma.transfer.create({
+      data: {
+        id,
+        apartmentId: apartments.other,
+        kind: "GRANT",
+        toPersonId: actors.member.personId,
+        transferredOn: new Date("2012-06-02T00:00:00.000Z"),
+        agreementReference: `Upplatelseavtal reversal ${suffix}`,
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/transfer-reversals",
+      payload: {
+        transferId: id,
+        kind: "RESCINDED",
+        reversedOn: "2013-01-01",
+        reference: `Nej ${suffix}`,
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "transfer-reversal-on-a-grant",
+    );
+  });
+
+  it("is on the extract beside the transfer it undid", async () => {
+    const read = await inject({
+      method: "GET",
+      url: `/api/apartment-register?apartmentId=${apartments.other}`,
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+    const extract = JSON.parse(read.body) as ApartmentRegisterExtract;
+    const row = extract.rows[0];
+
+    expect(
+      row?.transferReversals.find(
+        (entry) => entry.transferId === REVERSED_TRANSFER_ID,
+      ),
+    ).toMatchObject({ kind: "RETURNED_TO_SELLER", reversedOn: "2024-04-18" });
+    expect(
+      row?.transfers.some((entry) => entry.id === REVERSED_TRANSFER_ID),
+    ).toBe(true);
+  });
+});
+
+/**
+ * On what footing the association's buildings stand on their land.
+ *
+ * Forordning (2026:898) 2 kap. 4 § forsta stycket 4 registers the lagfarts- och
+ * tomtrattsinnehav; andra stycket reports fastighetsbeteckning,
+ * taxeringsenhetsnummer and fastighetstyp instead "[o]m bostadsrattsforeningens
+ * byggnad eller byggnader star pa mark som foreningen varken ager eller innehar
+ * med tomtratt".
+ */
+describe("the land the buildings stand on", () => {
+  it("is refused for a resident", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: { landTenure: "OWNERSHIP" },
+      headers: { cookie: await signIn(actors.resident.email) },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("refuses the two conditional fields beside a tenure that does not report them", async () => {
+    // Andra stycket reports them "i stallet for" the lagfarts- och
+    // tomtrattsinnehav, in the one case where the association holds neither. A
+    // value beside any other answer would go into a supply file under a
+    // paragraph that does not apply to it.
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: {
+        landTenure: "SITE_LEASEHOLD",
+        taxAssessmentUnitNumber: "12345678",
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "property-fields-need-other-tenure",
+    );
+  });
+
+  it("records all three, states them on the extract and logs what they replaced", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    const first = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: { landTenure: "SITE_LEASEHOLD" },
+      headers: { cookie },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: {
+        landTenure: "OTHER",
+        taxAssessmentUnitNumber: `TE${suffix}`,
+        propertyType: "Hyreshusenhet",
+      },
+      headers: { cookie },
+    });
+    expect(second.statusCode).toBe(200);
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/apartment-register?apartmentId=${apartments.other}`,
+      headers: { cookie },
+    });
+    expect(
+      (JSON.parse(read.body) as ApartmentRegisterExtract).housingCooperative,
+    ).toMatchObject({
+      landTenure: "OTHER",
+      taxAssessmentUnitNumber: `TE${suffix}`,
+      propertyType: "Hyreshusenhet",
+    });
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "ASSOCIATION_LAND_TENURE_RECORDED",
+        targetKind: "association",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry.actorPersonId).toBe(actors.board.personId);
+    // What it was as well as what it became: "the tenure was wrong for a year"
+    // is a question the log has to be able to answer.
+    expect(entry.context).toMatchObject({
+      from: { landTenure: "SITE_LEASEHOLD" },
+      to: { landTenure: "OTHER", propertyType: "Hyreshusenhet" },
+    });
+  });
+
+  it("clears the two conditional fields when the tenure stops reporting them", async () => {
+    // Cleared rather than refused: a board correcting a mistaken tenure would
+    // otherwise be stopped by values that existed only on the strength of the
+    // mistake, and the CHECK on the table would refuse the correction outright.
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/land-tenure",
+      payload: { landTenure: "OWNERSHIP" },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const association = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: {
+        landTenure: true,
+        taxAssessmentUnitNumber: true,
+        propertyType: true,
+      },
+    });
+    expect(association.landTenure).toBe("OWNERSHIP");
+    expect(association.taxAssessmentUnitNumber).toBeNull();
+    expect(association.propertyType).toBeNull();
+  });
+});
+
+/**
+ * The conditional fields of Forordning (2026:898) 2 kap. 4 § andra stycket.
+ *
+ * Reported "i stallet for" the lagfarts- och tomtrattsinnehav, in the one case
+ * where the association's buildings stand on land it neither owns nor holds with
+ * tomtratt.
+ *
+ * The CHECK rather than the service, which the block above covers. This table
+ * has writers the service is not - a seed, an import, a migration - and a
+ * constraint weaker than the service is not the boundary it was added to be.
+ */
+describe("the association's conditional property fields, in the database", () => {
+  it("refuses them beside a tenure that does not report them", async () => {
+    await expect(
+      prisma.association.update({
+        where: { id: 1 },
+        data: {
+          landTenure: "SITE_LEASEHOLD",
+          taxAssessmentUnitNumber: "12345678",
+        },
+      }),
+    ).rejects.toThrow(/association_conditional_property_fields/);
+  });
+
+  it("refuses them with no tenure recorded at all", async () => {
+    // Null is "not recorded", not "the conditional case". A value stated beside
+    // it would be reported under a paragraph nobody said applied.
+    await expect(
+      prisma.association.update({
+        where: { id: 1 },
+        data: { landTenure: null, propertyType: "Hyreshusenhet" },
+      }),
+    ).rejects.toThrow(/association_conditional_property_fields/);
+  });
+
+  it("refuses a field made only of whitespace", async () => {
+    await expect(
+      prisma.association.update({
+        where: { id: 1 },
+        data: { landTenure: "OTHER", propertyType: "\u00a0 \u2007" },
+      }),
+    ).rejects.toThrow(/association_property_fields_present/);
+  });
+
+  it("accepts all three together in the case that reports them", async () => {
+    // Rolled back: the association singleton is shared with every other suite
+    // against this database.
+    await prisma
+      .$transaction(async (tx) => {
+        await tx.association.update({
+          where: { id: 1 },
+          data: {
+            landTenure: "OTHER",
+            taxAssessmentUnitNumber: "12345678",
+            propertyType: "Hyreshusenhet",
+          },
+        });
+        throw new Rollback();
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof Rollback)) {
+          throw error;
+        }
+      });
+
+    const association = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { taxAssessmentUnitNumber: true },
+    });
+    expect(association.taxAssessmentUnitNumber).toBeNull();
   });
 });
 

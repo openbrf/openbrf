@@ -4,9 +4,13 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type {
+  LandTenure,
   Prisma,
+  RegisterReportKind,
   TerminationKind,
   TransferKind,
+  TransferReportBasis,
+  TransferReversalKind,
 } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
@@ -54,6 +58,13 @@ export type ApartmentRegisterErrorReason =
   | "transfer-not-found"
   | "membership-decision-already-recorded"
   | "membership-decision-on-a-grant"
+  | "report-basis-already-recorded"
+  | "report-basis-on-a-grant"
+  | "membership-decision-required"
+  | "membership-decision-not-in-this-case"
+  | "transfer-reversal-already-recorded"
+  | "transfer-reversal-on-a-grant"
+  | "property-fields-need-other-tenure"
   | "date-not-a-calendar-date"
   | "date-in-the-future"
   | "association-not-set-up";
@@ -72,6 +83,13 @@ const ERROR_STATUS = {
   "transfer-not-found": 404,
   "membership-decision-already-recorded": 409,
   "membership-decision-on-a-grant": 409,
+  "report-basis-already-recorded": 409,
+  "report-basis-on-a-grant": 409,
+  "membership-decision-required": 400,
+  "membership-decision-not-in-this-case": 400,
+  "transfer-reversal-already-recorded": 409,
+  "transfer-reversal-on-a-grant": 409,
+  "property-fields-need-other-tenure": 400,
   "date-not-a-calendar-date": 400,
   "date-in-the-future": 400,
   "association-not-set-up": 409,
@@ -138,6 +156,17 @@ export interface ApartmentRegisterTransfer {
    * the decision is taken rather than derived afterwards.
    */
   membershipDecidedOn: string | null;
+  /**
+   * Which case of Lag (2026:484) 3 kap. 3 § this overgang falls in, and null
+   * where the board has not stated it.
+   *
+   * On the view because it is what separates the two meanings a null
+   * `membershipDecidedOn` used to carry: a decision the board has not minuted
+   * yet, and a case that has no decision to minute. The screen needs both - one
+   * asks for a date and the other must not - and so does the reader of a printed
+   * extract, since the day the reporting window opened is different in each.
+   */
+  reportBasis: TransferReportBasis | null;
   /** Null for the first grant of a tenant-ownership (upplatelse). */
   fromName: string | null;
   toName: string;
@@ -167,6 +196,25 @@ export interface ApartmentRegisterTermination {
   reference: string;
 }
 
+/**
+ * A registered overlatelse that has been havd or has gone back to the seller.
+ *
+ * On the extract beside the transfer it undoes rather than in place of it. Both
+ * happened: the overlatelse was recorded and reported, and it went back
+ * afterwards, and an entry showing only one of the two states something that is
+ * not the case.
+ */
+export interface ApartmentRegisterTransferReversal {
+  id: string;
+  /** The transfer this undoes, so a reader can find it in the list above. */
+  transferId: string;
+  kind: TransferReversalKind;
+  /** The day the overlatelse was havd or went back to the seller. */
+  reversedOn: string;
+  /** The notice, agreement or minute the board recorded. */
+  reference: string;
+}
+
 export interface ApartmentRegisterRow {
   apartmentId: string;
   /** Address and apartment number together, as the register designates it. */
@@ -178,6 +226,7 @@ export interface ApartmentRegisterRow {
   holders: ApartmentRegisterHolder[];
   liens: ApartmentRegisterLien[];
   transfers: ApartmentRegisterTransfer[];
+  transferReversals: ApartmentRegisterTransferReversal[];
   terminations: ApartmentRegisterTermination[];
 }
 
@@ -193,6 +242,23 @@ export interface ApartmentRegisterExtract {
      * the property the apartments are in, which is apartment register content.
      */
     propertyDesignation: string | null;
+    /**
+     * On what footing the association's buildings stand on their land, and null
+     * where the board has not recorded it.
+     *
+     * Beside the designation because Forordning (2026:898) 2 kap. 4 § andra
+     * stycket makes the designation conditional on this answer: it is reported
+     * with the two fields below, in place of the lagfarts- och
+     * tomtrattsinnehav, where the buildings stand on land the association
+     * neither owns nor holds with tomtratt. An extract stating a designation
+     * without saying which case it is in leaves the reader unable to tell
+     * whether it is the reportable one.
+     */
+    landTenure: LandTenure | null;
+    /** Reported only where `landTenure` is OTHER. Null otherwise. */
+    taxAssessmentUnitNumber: string | null;
+    /** Reported only where `landTenure` is OTHER. Null otherwise. */
+    propertyType: string | null;
   };
   generatedOn: string;
   /** Whether this copy carries the holders' personal identity numbers. */
@@ -512,32 +578,58 @@ export class ApartmentRegisterService {
   }
 
   /**
-   * Records the day the association decided on an acquirer's membership.
+   * The board states which case of Lag (2026:484) 3 kap. 3 § an overgang is,
+   * and with it the day its reporting window opens or that there is no window.
    *
-   * Its own act rather than a field on the move, because it is a different
-   * decision taken on a different day: the board approves membership when it
-   * meets, and the transfer completes on the tilltradesdag. Lag (2026:484)
-   * 3 kap. 3 § andra stycket runs the transfer report's two weeks from the
-   * former.
+   * ## One act and not five
    *
-   * Refused rather than rewritten once recorded. Transfer keeps UPDATE, so the
-   * database would accept a second value, and this date is the start of a
-   * statutory window: overwriting it would move a deadline with nothing left
-   * saying where it had been. Claimed conditionally, so two boards recording it
-   * at once cannot both write and the loser is answered as a sequential second
-   * attempt would be.
+   * The section has four rules and they differ in the two things a duty is made
+   * of - the day and the anmalare - so what a board is doing here is choosing
+   * between them. Choosing is one statement:
    *
-   * This is also where the transfer's entry in the obligation ledger is written,
-   * in the same transaction as the date it runs from - and not at the transfer's
-   * own insert, where there is no decision date and 3 kap. 3 § andra stycket
-   * gives no other day to count from. So a transfer whose decision has not been
-   * recorded has no deadline in the ledger, which is what is true of it: the
-   * board has not told the register when its window opened.
+   *   MEMBERSHIP_DECISION carries the day the association decided on membership,
+   *   and the two weeks run from it (andra stycket, first sentence).
+   *
+   *   ALREADY_MEMBER and OUTSIDE_MEMBERSHIP_REQUIREMENT carry no date. There is
+   *   no decision to take, and the two weeks run "fran overgangen" instead
+   *   (andra stycket, second sentence) - which the register already holds as
+   *   `transferredOn`.
+   *
+   *   TO_THE_ASSOCIATION likewise, on fjarde stycket.
+   *
+   *   LIENHOLDING_JURIDICAL_PERSON opens no window at all and enters nothing in
+   *   the ledger. Forsta stycket assigns that anmalan to the juridical person
+   *   that acquired the bostadsratt, so the association owes no report, and a
+   *   row in the ledger would be a deadline it does not have on a table nothing
+   *   can correct.
+   *
+   * Recording the date on its own is what this used to be, and the two are one
+   * act now because they were never separable in fact: the date is only
+   * meaningful in the first case, and until the board said which case applied,
+   * an absent date meant either "not minuted yet" or "there is nothing to
+   * minute". The register could not tell those apart, and that is precisely why
+   * three of the four rules raised no duty at all.
+   *
+   * ## Refused rather than rewritten once stated
+   *
+   * Transfer keeps UPDATE, so the database would take a second value, and both
+   * columns start a statutory window: overwriting either would move a deadline
+   * with nothing left saying where it had been. Claimed conditionally, so two
+   * boards recording at once cannot both write and the loser is answered as a
+   * sequential second attempt would be. The database says the same - the
+   * `transfer_states_what_it_is` trigger refuses a basis that changes.
+   *
+   * A row whose decision date was recorded before this act existed is refused
+   * too. Its duty is already in the ledger, on the right paragraph and the right
+   * day, and stating the basis afterwards would add nothing the ledger could
+   * act on.
    */
-  async recordMembershipDecision(input: {
+  async recordReportBasis(input: {
     actorPersonId: string;
     transferId: string;
-    membershipDecidedOn: string;
+    basis: TransferReportBasis;
+    /** Required by MEMBERSHIP_DECISION and refused by every other case. */
+    membershipDecidedOn?: string | null;
     now?: Date;
   }): Promise<ApartmentRegisterTransfer> {
     const existing = await this.prisma.transfer.findUnique({
@@ -546,6 +638,8 @@ export class ApartmentRegisterService {
         id: true,
         apartmentId: true,
         kind: true,
+        reportBasis: true,
+        transferredOn: true,
         membershipDecidedOn: true,
       },
     });
@@ -557,16 +651,24 @@ export class ApartmentRegisterService {
     }
     /*
      * An upplatelse is reported on its own day (Lag (2026:484) 3 kap. 2 §), and
-     * its duty was entered when it was recorded. A membership decision date on
-     * one would be a second window on a second paragraph for one event, and the
-     * ledger would refuse the row it produced - after this transaction had
-     * already written the date into the register. Refused here instead, where
-     * the board can read why.
+     * its duty was entered when it was recorded. 3 kap. 3 § does not reach it at
+     * all, so neither a case under that section nor a membership decision date
+     * belongs on one - and the ledger and the CHECK would both refuse what this
+     * produced, after the transaction had already written into the register.
+     * Refused here instead, where the board can read why.
      */
     if (existing.kind === "GRANT") {
       throw new ApartmentRegisterError(
         "An upplatelse is reported from the day of the grant.",
-        "membership-decision-on-a-grant",
+        input.basis === "MEMBERSHIP_DECISION"
+          ? "membership-decision-on-a-grant"
+          : "report-basis-on-a-grant",
+      );
+    }
+    if (existing.reportBasis !== null) {
+      throw new ApartmentRegisterError(
+        "That transfer already states which case of 3 kap. 3 § it falls in.",
+        "report-basis-already-recorded",
       );
     }
     if (existing.membershipDecidedOn !== null) {
@@ -576,46 +678,77 @@ export class ApartmentRegisterService {
       );
     }
 
-    const decidedOn = statutoryDateColumn(
-      input.membershipDecidedOn,
-      input.now ?? new Date(),
+    const stated = (input.membershipDecidedOn ?? "").trim();
+    if (input.basis === "MEMBERSHIP_DECISION") {
+      if (stated === "") {
+        throw new ApartmentRegisterError(
+          "This case runs from the day the association decided on membership, so that day is needed.",
+          "membership-decision-required",
+        );
+      }
+    } else if (stated !== "") {
+      /*
+       * Refused rather than ignored. The date would be dropped silently on its
+       * way to a column a CHECK forbids it in, and the board would have typed a
+       * statutory date into a register that did not keep it.
+       */
+      throw new ApartmentRegisterError(
+        "This case has no membership decision: its two weeks run from the overgang itself.",
+        "membership-decision-not-in-this-case",
+      );
+    }
+
+    const decidedOn =
+      input.basis === "MEMBERSHIP_DECISION"
+        ? statutoryDateColumn(stated, input.now ?? new Date())
+        : null;
+
+    /*
+     * Which day the window opens on, or null where no window opens at all.
+     *
+     * The ordinary case runs from the membership decision; the three that have
+     * no decision run "fran overgangen", which is the transfer's own date; and
+     * the juridical person's case opens nothing, because forsta stycket makes
+     * the anmalan theirs. Chosen here and stated by the database as well: the
+     * trigger on the ledger reads the transfer's own basis back, refuses a row
+     * dated from the other column, and refuses a row for that last case
+     * outright. The two cannot drift.
+     */
+    const triggeredOn = REPORT_BASIS_WINDOW[input.basis](
+      decidedOn,
+      existing.transferredOn,
     );
 
     const recorded = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.transfer.updateMany({
-        where: { id: input.transferId, membershipDecidedOn: null },
-        data: { membershipDecidedOn: decidedOn },
+        where: {
+          id: input.transferId,
+          reportBasis: null,
+          membershipDecidedOn: null,
+        },
+        data: { reportBasis: input.basis, membershipDecidedOn: decidedOn },
       });
       if (claimed.count === 0) {
         throw new ApartmentRegisterError(
-          "That transfer already carries a membership decision date.",
-          "membership-decision-already-recorded",
+          "That transfer already states which case of 3 kap. 3 § it falls in.",
+          "report-basis-already-recorded",
         );
       }
 
       const transfer = await tx.transfer.findUniqueOrThrow({
         where: { id: input.transferId },
-        select: {
-          id: true,
-          transferredOn: true,
-          kind: true,
-          membershipDecidedOn: true,
-          price: true,
-          agreementReference: true,
-          agreementDocumentPath: true,
-          fromPerson: { select: { firstName: true, lastName: true } },
-          toPerson: { select: { firstName: true, lastName: true } },
-        },
+        select: TRANSFER_VIEW_SELECT,
       });
 
       await this.audit.record(
         {
-          action: "APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED",
+          action: "APARTMENT_REGISTER_TRANSFER_REPORT_BASIS_RECORDED",
           actorPersonId: input.actorPersonId,
           targetKind: "transfer",
           targetId: transfer.id,
           context: {
             apartmentId: existing.apartmentId,
+            basis: input.basis,
             membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
             transferredOn: isoDate(transfer.transferredOn),
           },
@@ -623,20 +756,165 @@ export class ApartmentRegisterService {
         tx,
       );
 
+      /*
+       * The decision date keeps its own entry as well, and it is not a duplicate
+       * of the one above. "The board decided on membership on this day" is a
+       * fact about a person, and the log has recorded it under that action since
+       * the column existed; a data protection officer reading for decisions
+       * taken about somebody should not have to know that the action was renamed
+       * when a fourth case was added beside it.
+       */
+      if (decidedOn !== null) {
+        await this.audit.record(
+          {
+            action: "APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED",
+            actorPersonId: input.actorPersonId,
+            targetKind: "transfer",
+            targetId: transfer.id,
+            context: {
+              apartmentId: existing.apartmentId,
+              membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
+              transferredOn: isoDate(transfer.transferredOn),
+            },
+          },
+          tx,
+        );
+      }
+
+      if (triggeredOn === null) {
+        // LIENHOLDING_JURIDICAL_PERSON. The statement is recorded and no duty
+        // is: see the doc comment, and the trigger that refuses one.
+        return { view: toTransfer(transfer), obligation: null };
+      }
+
       const obligation = await this.enterObligation(tx, {
         actorPersonId: input.actorPersonId,
         kind: "TRANSFER",
         apartmentId: existing.apartmentId,
         transferId: transfer.id,
-        // The decision date this transaction has just claimed, and never
-        // transfer.transferredOn beside it. 3 kap. 3 § andra stycket runs the
-        // two weeks from the decision, and the transfer completes on the
-        // tilltradesdag - usually the later day - so counting from it would
-        // state a deadline after the statutory one.
-        triggeredOn: decidedOn,
+        triggeredOn,
       });
 
       return { view: toTransfer(transfer), obligation };
+    });
+
+    if (recorded.obligation !== null) {
+      await this.enqueueBoardNotice(recorded.obligation.id);
+    }
+    return recorded.view;
+  }
+
+  /**
+   * The board records that a registered overlatelse has been havd or has gone
+   * back to the seller.
+   *
+   * Lag (2026:484) 3 kap. 3 § tredje stycket: "Bostadsrattsforeningen ska anmala
+   * om en overlatelse som har registrerats har havts eller atergatt till
+   * saljaren utan att talan vackts i domstol." A second anmalan about an
+   * overgang the association has already reported, and its own event: the row is
+   * written to a statutory-tier table beside the transfer rather than onto it,
+   * because both are true and the register has to be able to state both.
+   *
+   * Three conditions in that sentence are the board's to establish and nothing
+   * here checks them - that the overlatelse was registered, that the overgang
+   * was an overlatelse rather than an inheritance or a bodelning, and that no
+   * proceedings were brought. None is answerable from this database, and
+   * refusing to record an event that has happened would leave the association
+   * unable to report it. That is the reading {@link recordTermination} takes of
+   * BRL 6 kap. 11 §'s own conditions.
+   *
+   * The duty it opens carries no deadline. Every other reporting sentence in
+   * 3 kap. says "inom tva veckor"; this one says "ska anmala" and stops. So the
+   * ledger row has a null `dueOn` and the queue states the duty without a day,
+   * rather than the platform reading fourteen days into a sentence that does not
+   * contain them.
+   *
+   * The row, its obligation and its audit entries share a transaction, as every
+   * write to this register does.
+   */
+  async recordTransferReversal(input: {
+    actorPersonId: string;
+    transferId: string;
+    kind: TransferReversalKind;
+    reversedOn: string;
+    reference: string;
+    now?: Date;
+  }): Promise<ApartmentRegisterTransferReversal> {
+    const transfer = await this.prisma.transfer.findUnique({
+      where: { id: input.transferId },
+      select: {
+        id: true,
+        apartmentId: true,
+        kind: true,
+        reversal: { select: { id: true } },
+      },
+    });
+    if (transfer === null) {
+      throw new ApartmentRegisterError(
+        "No such transfer.",
+        "transfer-not-found",
+      );
+    }
+    if (transfer.kind === "GRANT") {
+      throw new ApartmentRegisterError(
+        "An upplatelse has no earlier holder for the bostadsratt to go back to.",
+        "transfer-reversal-on-a-grant",
+      );
+    }
+    if (transfer.reversal !== null) {
+      throw new ApartmentRegisterError(
+        "That transfer is already recorded as reversed.",
+        "transfer-reversal-already-recorded",
+      );
+    }
+
+    const reversedOn = statutoryDateColumn(
+      input.reversedOn,
+      input.now ?? new Date(),
+    );
+
+    const recorded = await this.prisma.$transaction(async (tx) => {
+      /*
+       * The unique index on transferId is what actually stops a second row -
+       * the read above is a refusal the board can act on, and two requests
+       * arriving together both pass it. A statutory row nothing can delete is
+       * not one to leave to a check-then-write.
+       */
+      const reversal = await tx.transferReversal.create({
+        data: {
+          transferId: transfer.id,
+          apartmentId: transfer.apartmentId,
+          kind: input.kind,
+          reversedOn,
+          reference: input.reference.trim(),
+        },
+      });
+
+      await this.audit.record(
+        {
+          action: "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "transferReversal",
+          targetId: reversal.id,
+          context: {
+            apartmentId: transfer.apartmentId,
+            transferId: transfer.id,
+            kind: reversal.kind,
+            reversedOn: isoDate(reversal.reversedOn),
+          },
+        },
+        tx,
+      );
+
+      const obligation = await this.enterObligation(tx, {
+        actorPersonId: input.actorPersonId,
+        kind: "TRANSFER_REVERSAL",
+        apartmentId: transfer.apartmentId,
+        reversalId: reversal.id,
+        triggeredOn: reversal.reversedOn,
+      });
+
+      return { view: toTransferReversal(reversal), obligation };
     });
 
     await this.enqueueBoardNotice(recorded.obligation.id);
@@ -762,22 +1040,37 @@ export class ApartmentRegisterService {
       | { kind: "GRANT"; transferId: string }
       | { kind: "TRANSFER"; transferId: string }
       | { kind: "TERMINATION"; terminationId: string }
+      | { kind: "TRANSFER_REVERSAL"; reversalId: string }
     ),
   ): Promise<{
     id: string;
-    kind: "GRANT" | "TRANSFER" | "TERMINATION";
+    kind: RegisterReportKind;
     triggeredOn: Date;
-    dueOn: Date;
+    dueOn: Date | null;
   }> {
     const obligation = await tx.registerReportObligation.create({
       data: {
         kind: input.kind,
         apartmentId: input.apartmentId,
-        transferId: input.kind === "TERMINATION" ? null : input.transferId,
+        transferId:
+          input.kind === "GRANT" || input.kind === "TRANSFER"
+            ? input.transferId
+            : null,
         terminationId:
           input.kind === "TERMINATION" ? input.terminationId : null,
+        reversalId:
+          input.kind === "TRANSFER_REVERSAL" ? input.reversalId : null,
         triggeredOn: input.triggeredOn,
-        dueOn: reportDueOn(input.triggeredOn),
+        /*
+         * No deadline for a reversal, because 3 kap. 3 § tredje stycket sets
+         * none. The CHECK on the table states the same rule from the other side
+         * - null for this kind and fourteen days for every other - so neither
+         * half can drift into inventing a window.
+         */
+        dueOn:
+          input.kind === "TRANSFER_REVERSAL"
+            ? null
+            : reportDueOn(input.triggeredOn),
       },
     });
 
@@ -792,6 +1085,7 @@ export class ApartmentRegisterService {
           apartmentId: obligation.apartmentId,
           transferId: obligation.transferId,
           terminationId: obligation.terminationId,
+          reversalId: obligation.reversalId,
           triggeredOn: isoDate(obligation.triggeredOn),
           dueOn: isoDate(obligation.dueOn),
         },
@@ -877,6 +1171,116 @@ export class ApartmentRegisterService {
   }
 
   /**
+   * Records on what footing the association's buildings stand on their land,
+   * and the two fields that answer makes reportable.
+   *
+   * Forordning (2026:898) 2 kap. 4 § forsta stycket 4 registers the
+   * association's lagfarts- och tomtrattsinnehav. Andra stycket replaces it:
+   * "Om bostadsrattsforeningens byggnad eller byggnader star pa mark som
+   * foreningen varken ager eller innehar med tomtratt, ska uppgift om
+   * fastighetsbeteckning, taxeringsenhetsnummer och fastighetstyp redovisas i
+   * stallet for uppgift om lagfarts- eller tomtrattsinnehav."
+   *
+   * Register content and here rather than in the settings module, for the reason
+   * {@link recordPropertyDesignation} gives about the designation it decides the
+   * reporting of. association_facts holds a `siteLeasehold` boolean the board
+   * writes for a broker, and it is not this answer twice over: false there means
+   * the association owns the land, so that column has no value at all for
+   * buildings standing on land it does neither - the case the paragraph turns
+   * on. Deriving a statutory answer from that page is forbidden by its own model
+   * besides.
+   *
+   * The two conditional fields are cleared where the tenure is not OTHER rather
+   * than refused, because a board correcting a mistaken tenure would otherwise
+   * be stopped by values that only existed on the strength of the mistake. What
+   * is refused is stating them alongside a tenure that does not report them: the
+   * database says the same with a CHECK, and a value silently dropped is a
+   * statutory field the board believes it recorded.
+   *
+   * One act and one audit entry, because the three are decided together: the two
+   * fields are only reportable on the strength of the tenure, and an entry per
+   * column would leave the log unable to say so.
+   */
+  async recordLandTenure(input: {
+    actorPersonId: string;
+    landTenure: LandTenure | null;
+    taxAssessmentUnitNumber?: string | null;
+    propertyType?: string | null;
+  }): Promise<{
+    landTenure: LandTenure | null;
+    taxAssessmentUnitNumber: string | null;
+    propertyType: string | null;
+  }> {
+    const blank = (value: string | null | undefined): string | null => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed === "" ? null : trimmed;
+    };
+    const statedNumber = blank(input.taxAssessmentUnitNumber);
+    const statedType = blank(input.propertyType);
+
+    if (
+      input.landTenure !== "OTHER" &&
+      (statedNumber !== null || statedType !== null)
+    ) {
+      throw new ApartmentRegisterError(
+        "Taxeringsenhetsnummer and fastighetstyp are reported only where the buildings stand on land the association neither owns nor holds with tomtratt.",
+        "property-fields-need-other-tenure",
+      );
+    }
+
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: {
+        landTenure: true,
+        taxAssessmentUnitNumber: true,
+        propertyType: true,
+      },
+    });
+    if (association === null) {
+      throw new ApartmentRegisterError(
+        "The association has not been set up yet.",
+        "association-not-set-up",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.association.update({
+        where: { id: 1 },
+        data: {
+          landTenure: input.landTenure,
+          taxAssessmentUnitNumber: statedNumber,
+          propertyType: statedType,
+        },
+        select: {
+          landTenure: true,
+          taxAssessmentUnitNumber: true,
+          propertyType: true,
+        },
+      });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_LAND_TENURE_RECORDED",
+          actorPersonId: input.actorPersonId,
+          targetKind: "association",
+          targetId: "1",
+          context: {
+            // What each was and what each became. None of the three names a
+            // person, all three are printed on the register extract, and "the
+            // tenure was wrong for a year" is a question the log has to answer -
+            // which is the reasoning the property designation's entry gives.
+            from: association,
+            to: updated,
+          },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  /**
    * Which apartments this request may read.
    *
    * A tenant-owner reads the apartments they currently hold and nothing else,
@@ -939,6 +1343,9 @@ export class ApartmentRegisterService {
         name: true,
         organizationNumber: true,
         propertyDesignation: true,
+        landTenure: true,
+        taxAssessmentUnitNumber: true,
+        propertyType: true,
       },
     });
 
@@ -982,16 +1389,16 @@ export class ApartmentRegisterService {
         },
         transfers: {
           orderBy: [{ transferredOn: "desc" }],
+          select: TRANSFER_VIEW_SELECT,
+        },
+        transferReversals: {
+          orderBy: [{ reversedOn: "desc" }],
           select: {
             id: true,
-            transferredOn: true,
+            transferId: true,
             kind: true,
-            membershipDecidedOn: true,
-            price: true,
-            agreementReference: true,
-            agreementDocumentPath: true,
-            fromPerson: { select: { firstName: true, lastName: true } },
-            toPerson: { select: { firstName: true, lastName: true } },
+            reversedOn: true,
+            reference: true,
           },
         },
         terminations: {
@@ -1044,6 +1451,7 @@ export class ApartmentRegisterService {
         holders,
         liens: apartment.lienNotes.map(toLien),
         transfers: apartment.transfers.map(toTransfer),
+        transferReversals: apartment.transferReversals.map(toTransferReversal),
         terminations: apartment.terminations.map(toTermination),
       });
     }
@@ -1053,6 +1461,9 @@ export class ApartmentRegisterService {
         name: association?.name ?? "",
         organizationNumber: association?.organizationNumber ?? null,
         propertyDesignation: association?.propertyDesignation ?? null,
+        landTenure: association?.landTenure ?? null,
+        taxAssessmentUnitNumber: association?.taxAssessmentUnitNumber ?? null,
+        propertyType: association?.propertyType ?? null,
       },
       generatedOn: isoDate(now) ?? "",
       identityNumbersIncluded: query.includeIdentityNumbers,
@@ -1105,16 +1516,76 @@ function toLien(lien: {
 }
 
 /**
+ * Which day each case of Lag (2026:484) 3 kap. 3 § opens its window on, and
+ * which opens none.
+ *
+ * A map keyed on the whole enum rather than a chain of comparisons, so a case
+ * added to {@link TransferReportBasis} without a day named here is a compile
+ * error. A fall-through would silently give a new case the transfer's own date,
+ * which is the answer three of the five want and would be wrong for the two that
+ * do not - and it would be wrong on a row that opens a statutory deadline in an
+ * append-only ledger.
+ *
+ * @param decidedOn The membership decision date, where the case has one.
+ * @param transferredOn The day of the overgang.
+ */
+const REPORT_BASIS_WINDOW = {
+  // Andra stycket, first sentence: "inom tva veckor fran det att
+  // bostadsrattsforeningen beslutat om medlemskap i foreningen".
+  MEMBERSHIP_DECISION: (decidedOn: Date | null) => decidedOn,
+  // Andra stycket, second sentence: "i stallet ... inom tva veckor fran
+  // overgangen".
+  ALREADY_MEMBER: (_decidedOn: Date | null, transferredOn: Date) =>
+    transferredOn,
+  OUTSIDE_MEMBERSHIP_REQUIREMENT: (
+    _decidedOn: Date | null,
+    transferredOn: Date,
+  ) => transferredOn,
+  // Fjarde stycket: "Om en bostadsratt har overgatt till foreningen, ska
+  // anmalan goras inom tva veckor fran overgangen."
+  TO_THE_ASSOCIATION: (_decidedOn: Date | null, transferredOn: Date) =>
+    transferredOn,
+  // Forsta stycket, second sentence: the anmalan is the juridical person's, so
+  // the association's ledger gets no row and no day.
+  LIENHOLDING_JURIDICAL_PERSON: () => null,
+} as const satisfies Record<
+  TransferReportBasis,
+  (decidedOn: Date | null, transferredOn: Date) => Date | null
+>;
+
+/**
+ * What a transfer row has to carry to be rendered as one.
+ *
+ * A shared constant rather than the same object written at each call site: the
+ * extract and the two acts that answer with a transfer all build the same view,
+ * and a column added to it in one place and not the others is a field that is
+ * present on one path and absent on the next.
+ */
+const TRANSFER_VIEW_SELECT = {
+  id: true,
+  transferredOn: true,
+  kind: true,
+  reportBasis: true,
+  membershipDecidedOn: true,
+  price: true,
+  agreementReference: true,
+  agreementDocumentPath: true,
+  fromPerson: { select: { firstName: true, lastName: true } },
+  toPerson: { select: { firstName: true, lastName: true } },
+} as const satisfies Prisma.TransferSelect;
+
+/**
  * One transfer as the extract states it.
  *
  * A function rather than an inline map because two callers now build it: the
- * extract, and recording a membership decision, which answers with the row it
- * changed. Two spellings of one payload is how a field ends up on one path and
- * not the other.
+ * extract, and recording which case of 3 kap. 3 § the overgang is, which answers
+ * with the row it changed. Two spellings of one payload is how a field ends up
+ * on one path and not the other.
  */
 function toTransfer(transfer: {
   id: string;
   kind: TransferKind | null;
+  reportBasis: TransferReportBasis | null;
   transferredOn: Date;
   membershipDecidedOn: Date | null;
   price: { toString: () => string } | null;
@@ -1128,6 +1599,7 @@ function toTransfer(transfer: {
     kind: transfer.kind,
     transferredOn: isoDate(transfer.transferredOn) ?? "",
     membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
+    reportBasis: transfer.reportBasis,
     fromName:
       transfer.fromPerson === null
         ? null
@@ -1137,6 +1609,22 @@ function toTransfer(transfer: {
     price: transfer.price?.toString() ?? null,
     agreementReference:
       transfer.agreementReference ?? transfer.agreementDocumentPath,
+  };
+}
+
+function toTransferReversal(reversal: {
+  id: string;
+  transferId: string;
+  kind: TransferReversalKind;
+  reversedOn: Date;
+  reference: string;
+}): ApartmentRegisterTransferReversal {
+  return {
+    id: reversal.id,
+    transferId: reversal.transferId,
+    kind: reversal.kind,
+    reversedOn: isoDate(reversal.reversedOn) ?? "",
+    reference: reversal.reference,
   };
 }
 

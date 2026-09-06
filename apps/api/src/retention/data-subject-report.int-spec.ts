@@ -421,6 +421,9 @@ beforeAll(async () => {
       // membership when it meets, and the transfer completes on the
       // tilltradesdag. This is the day the register's two-week window opened.
       membershipDecidedOn: new Date("2020-02-12"),
+      // And which case of Lag (2026:484) 3 kap. 3 § it is, which is what says
+      // the day above is the one the window ran from.
+      reportBasis: "MEMBERSHIP_DECISION",
       price: "1875000",
       agreementReference: `OVL-2020-${suffix}`,
     },
@@ -441,6 +444,8 @@ beforeAll(async () => {
       toPersonId: ACQUIRER_PERSON_ID,
       transferredOn: new Date("2026-02-01"),
       membershipDecidedOn: new Date("2026-01-14"),
+      // The case is a statement about the acquirer too - see the test below.
+      reportBasis: "MEMBERSHIP_DECISION",
       price: "2450000",
       agreementReference: `OVL-2026-${suffix}`,
     },
@@ -1043,6 +1048,9 @@ describe("what the report contains", () => {
     // this transfer, which is a decision taken about this person and not the
     // day the transfer completed.
     expect(report.transfers[0]?.membershipDecidedOn).toBe("2020-02-12");
+    // And which case of 3 kap. 3 § the association recorded, which is what says
+    // that date is the one the window ran from rather than the transfer's.
+    expect(report.transfers[0]?.reportBasis).toBe("MEMBERSHIP_DECISION");
   });
 
   it("keeps the acquirer's membership decision off the seller's report", async () => {
@@ -1059,6 +1067,12 @@ describe("what the report contains", () => {
     // handing it to the seller would answer one access request with another
     // party's personal data. It is on the acquirer's own report instead.
     expect(relinquished?.membershipDecidedOn).toBeNull();
+    // Nor the case, on the same reading and for the same reason. The value says
+    // that the acquirer was already a member, or falls outside the membership
+    // requirement, or is a lienholding juridical person - each a fact about
+    // them, and each one a deadline on this report could otherwise be reasoned
+    // back to.
+    expect(relinquished?.reportBasis).toBeNull();
   });
 
   it("lists the termination that ended this person's tenant-ownership", async () => {

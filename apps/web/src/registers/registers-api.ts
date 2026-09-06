@@ -110,10 +110,50 @@ export interface ApartmentRegisterTransfer {
    * transfer, and because only an overgang has a membership decision to record.
    */
   kind: "GRANT" | "TRANSFER" | null;
+  /**
+   * Which case of Lag (2026:484) 3 kap. 3 § this overgang falls in, and null
+   * where the board has not stated it.
+   *
+   * What separates the two meanings a null `membershipDecidedOn` carries: a
+   * decision the board has not minuted yet, and a case that has none to minute.
+   * The screen needs both, because one of them is offered a date field and the
+   * other must not be.
+   */
+  reportBasis: TransferReportBasis | null;
   fromName: string | null;
   toName: string;
   price: string | null;
   agreementReference: string | null;
+}
+
+/**
+ * Which case of Lag (2026:484) 3 kap. 3 § an overgang falls in.
+ *
+ * Mirrors the TransferReportBasis enum in `apps/api/prisma/schema.prisma`. The
+ * ordinary case runs its two weeks from the day the association decided on
+ * membership; the next three run from the overgang itself, because there is no
+ * decision to take; and the last is not the association's report at all - forsta
+ * stycket assigns it to the juridical person that acquired the bostadsratt.
+ */
+export type TransferReportBasis =
+  | "MEMBERSHIP_DECISION"
+  | "ALREADY_MEMBER"
+  | "OUTSIDE_MEMBERSHIP_REQUIREMENT"
+  | "TO_THE_ASSOCIATION"
+  | "LIENHOLDING_JURIDICAL_PERSON";
+
+/**
+ * Which of the two things Lag (2026:484) 3 kap. 3 § tredje stycket names
+ * happened to a registered overlatelse.
+ */
+export type TransferReversalKind = "RESCINDED" | "RETURNED_TO_SELLER";
+
+export interface ApartmentRegisterTransferReversal {
+  id: string;
+  transferId: string;
+  kind: TransferReversalKind;
+  reversedOn: string;
+  reference: string;
 }
 
 /**
@@ -144,8 +184,19 @@ export interface ApartmentRegisterRow {
   holders: ApartmentRegisterHolder[];
   liens: ApartmentRegisterLien[];
   transfers: ApartmentRegisterTransfer[];
+  transferReversals: ApartmentRegisterTransferReversal[];
   terminations: ApartmentRegisterTermination[];
 }
+
+/**
+ * On what footing the association's buildings stand on their land.
+ *
+ * Mirrors the LandTenure enum in `apps/api/prisma/schema.prisma`. Forordning
+ * (2026:898) 2 kap. 4 § andra stycket reports the fastighetsbeteckning with a
+ * taxeringsenhetsnummer and a fastighetstyp, in place of the lagfarts- och
+ * tomtrattsinnehav, in the third case alone.
+ */
+export type LandTenure = "OWNERSHIP" | "SITE_LEASEHOLD" | "OTHER";
 
 /**
  * The association as the apartment register names it.
@@ -158,6 +209,9 @@ export interface ApartmentRegisterRow {
  */
 export interface ApartmentRegisterHousingCooperative extends RegisterHousingCooperative {
   propertyDesignation: string | null;
+  landTenure: LandTenure | null;
+  taxAssessmentUnitNumber: string | null;
+  propertyType: string | null;
 }
 
 export interface ApartmentRegisterExtract {
@@ -230,14 +284,38 @@ export function recordTermination(input: {
   return apiRequest("POST", "/api/apartment-register/terminations", input);
 }
 
-/** Records the day the association decided on an acquirer's membership. */
-export function recordMembershipDecision(input: {
+/**
+ * Records which case of Lag (2026:484) 3 kap. 3 § an overgang falls in, and the
+ * day the association decided on membership where that case has one.
+ *
+ * The route keeps the path the membership decision had: it is the same act
+ * widened, and the ordinary case is what it always recorded.
+ */
+export function recordReportBasis(input: {
   transferId: string;
-  membershipDecidedOn: string;
+  basis: TransferReportBasis;
+  membershipDecidedOn?: string | null;
 }): Promise<ApiResult<ApartmentRegisterTransfer>> {
   return apiRequest(
     "POST",
     "/api/apartment-register/membership-decision",
+    input,
+  );
+}
+
+/**
+ * Records that a registered overlatelse has been havd or has gone back to the
+ * seller (Lag (2026:484) 3 kap. 3 § tredje stycket).
+ */
+export function recordTransferReversal(input: {
+  transferId: string;
+  kind: TransferReversalKind;
+  reversedOn: string;
+  reference: string;
+}): Promise<ApiResult<ApartmentRegisterTransferReversal>> {
+  return apiRequest(
+    "POST",
+    "/api/apartment-register/transfer-reversals",
     input,
   );
 }
@@ -251,6 +329,25 @@ export function recordPropertyDesignation(input: {
     "/api/apartment-register/property-designation",
     input,
   );
+}
+
+/**
+ * Records on what footing the association's buildings stand on their land, and
+ * the two fields Forordning (2026:898) 2 kap. 4 § andra stycket reports on the
+ * strength of one of the three answers.
+ */
+export function recordLandTenure(input: {
+  landTenure: LandTenure | null;
+  taxAssessmentUnitNumber?: string | null;
+  propertyType?: string | null;
+}): Promise<
+  ApiResult<{
+    landTenure: LandTenure | null;
+    taxAssessmentUnitNumber: string | null;
+    propertyType: string | null;
+  }>
+> {
+  return apiRequest("POST", "/api/apartment-register/land-tenure", input);
 }
 
 // --- Reporting to the cooperative housing register (bostadsrattsregistret) ---
@@ -267,10 +364,20 @@ export function recordPropertyDesignation(input: {
  */
 
 /** Which register event a duty is about. */
-export type RegisterReportKind = "GRANT" | "TRANSFER" | "TERMINATION";
+export type RegisterReportKind =
+  "GRANT" | "TRANSFER" | "TERMINATION" | "TRANSFER_REVERSAL";
 
-/** Where one duty stands today. */
-export type RegisterReportState = "reported" | "overdue" | "due";
+/**
+ * Where one duty stands today.
+ *
+ * `outstanding` is a duty the statute sets no deadline for. There is one - the
+ * anmalan that a registered overlatelse has been havd or gone back to the seller
+ * (Lag (2026:484) 3 kap. 3 § tredje stycket), which says the association "ska
+ * anmala" where every other reporting sentence in the chapter says "inom tva
+ * veckor".
+ */
+export type RegisterReportState =
+  "reported" | "overdue" | "due" | "outstanding";
 
 export interface RegisterReportDuty {
   id: string;
@@ -279,8 +386,10 @@ export interface RegisterReportDuty {
   designation: string;
   transferId: string | null;
   terminationId: string | null;
+  reversalId: string | null;
   triggeredOn: string;
-  dueOn: string;
+  /** Null where the section imposing the duty sets no period. */
+  dueOn: string | null;
   state: RegisterReportState;
   /**
    * Calendar days from today to the deadline, negative once it has passed.
@@ -289,14 +398,36 @@ export interface RegisterReportDuty {
    * disagree. A browser clock a day out would otherwise render a duty as still
    * due with "1 day past the deadline" beside it.
    */
-  daysUntilDue: number;
+  daysUntilDue: number | null;
   reportedOn: string | null;
+}
+
+/**
+ * An overgang the association does not report, and who does.
+ *
+ * Lag (2026:484) 3 kap. 3 § forsta stycket puts the anmalan on a juridical
+ * person that acquired the bostadsratt at an executive or forced sale while
+ * holding a lien in it (BRL 6 kap. 1 § andra stycket). No duty is entered in the
+ * ledger for one, because the association owes none and could never discharge
+ * it, so the queue states it separately rather than showing the board nothing.
+ */
+export interface RegisterReportElsewhere {
+  transferId: string;
+  apartmentId: string;
+  designation: string;
+  transferredOn: string;
 }
 
 export interface RegisterReportQueue {
   generatedOn: string;
-  counts: { overdue: number; due: number; reported: number };
+  counts: {
+    overdue: number;
+    due: number;
+    outstanding: number;
+    reported: number;
+  };
   duties: RegisterReportDuty[];
+  reportedElsewhere: RegisterReportElsewhere[];
 }
 
 export function fetchRegisterReportQueue(): Promise<

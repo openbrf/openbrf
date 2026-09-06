@@ -49,17 +49,47 @@ import {
  * notice above the document says how many there are. The colour is the fifth
  * signal and never the only one, which is the rule DESIGN.md states.
  *
+ * ## Two things on this screen that are not deadlines
+ *
+ * One duty in Lag (2026:484) 3 kap. has no deadline at all: the anmalan that a
+ * registered overlatelse has been havd or gone back to the seller (3 kap. 3 §
+ * tredje stycket) says the association "ska anmala" where every other reporting
+ * sentence says "inom tva veckor". It is a group of its own below the dated
+ * ones, and its rows say so in the deadline column rather than leaving it blank.
+ *
+ * And one overgang is not the association's report at all. 3 kap. 3 § forsta
+ * stycket puts the anmalan on a juridical person that acquired the bostadsratt
+ * at an executive or forced sale while holding a lien in it. No duty is entered
+ * in the ledger for one - the association owes none, and could never discharge
+ * it - so those are listed after the document, saying whose duty it is. A board
+ * that has recorded the case and then sees nothing at all cannot tell that from
+ * having forgotten to record it.
+ *
  * ## The queue carries no personal data
  *
  * A duty names an apartment and two dates. Not the acquirer, not the former
  * holder, no address and no personal identity number - which is why this screen
  * sits behind the register's read capability alone, and why the initial supply,
  * which carries every holder's personal identity number, is a screen of its own
- * behind a capability of its own.
+ * behind a capability of its own. The overgangar reported elsewhere carry an
+ * apartment and one date and no more, on the same reading.
  */
 
-/** The groups, in the order they lead the document. */
-const GROUPS: readonly RegisterReportState[] = ["overdue", "due", "reported"];
+/**
+ * The groups, in the order they lead the document.
+ *
+ * The undated group sits below both dated ones and above the reported. Nothing
+ * about it is closer to a fine than a dated duty - 3 kap. 10 §'s vite reaches an
+ * anmalan of an upplatelse, an overgang or a bostadsratt having ceased, and a
+ * reversal is none of those - but it is still owed, which the reported group is
+ * not.
+ */
+const GROUPS: readonly RegisterReportState[] = [
+  "overdue",
+  "due",
+  "outstanding",
+  "reported",
+];
 
 /** What the board is stating about one duty. */
 interface ReportDraft {
@@ -76,8 +106,8 @@ interface ReportDraft {
  * clock: the state and the day count both come from the server, and a second
  * clock would be a second opinion.
  */
-function daysBetween(from: string, to: string | null): number | null {
-  if (to === null || from === "") {
+function daysBetween(from: string | null, to: string | null): number | null {
+  if (from === null || to === null || from === "") {
     return null;
   }
   const start = Date.parse(`${from}T00:00:00.000Z`);
@@ -93,7 +123,14 @@ function stateClass(state: RegisterReportState): string {
   if (state === "overdue") {
     return "text-danger";
   }
-  return state === "due" ? "text-warn" : "text-ink-muted";
+  if (state === "due") {
+    return "text-warn";
+  }
+  // Owed but undated, and reported. Neither is a warning: one has no deadline to
+  // be late against and the other has been dealt with. They are told apart by
+  // the group they are in and by the words in the cell, which is the rule
+  // DESIGN.md states about colour never being the only signal.
+  return "text-ink-muted";
 }
 
 export function RegisterReportQueueScreen(): ReactElement {
@@ -140,6 +177,12 @@ export function RegisterReportQueueScreen(): ReactElement {
       return late !== null && late > 0
         ? t("registers.reports.reportedLate", { count: late })
         : t("registers.reports.state.reported");
+    }
+    // No deadline, because 3 kap. 3 § tredje stycket sets none. Said in words
+    // rather than left blank: an empty cell in a column of dates reads as a
+    // value the screen failed to load.
+    if (duty.daysUntilDue === null) {
+      return t("registers.reports.noDeadlineHint");
     }
     if (duty.daysUntilDue < 0) {
       return t("registers.reports.daysOverdue", { count: -duty.daysUntilDue });
@@ -395,7 +438,9 @@ export function RegisterReportQueueScreen(): ReactElement {
                               {t(`registers.reports.event.${duty.kind}`)}
                             </td>
                             <td className={DATA_CELL}>{duty.triggeredOn}</td>
-                            <td className={DATA_CELL}>{duty.dueOn}</td>
+                            <td className={DATA_CELL}>
+                              {duty.dueOn ?? t("registers.reports.noDeadline")}
+                            </td>
                             <td
                               className={`${CELL} text-small ${stateClass(duty.state)}`}
                             >
@@ -447,6 +492,56 @@ export function RegisterReportQueueScreen(): ReactElement {
                 </section>
               );
             })
+          )}
+
+          {queue.reportedElsewhere.length === 0 ? null : (
+            <section className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline gap-3">
+                <h3 className="text-title">
+                  {t("registers.reports.elsewhere.heading")}
+                </h3>
+                <p className={STAMP}>
+                  {t("registers.reports.elsewhere.count", {
+                    count: queue.reportedElsewhere.length,
+                  })}
+                </p>
+              </div>
+              <p className="max-w-3xl text-body text-ink-muted">
+                {t("registers.reports.elsewhere.description")}
+              </p>
+
+              <div className={TABLE_SCROLL}>
+                <table className={TABLE}>
+                  <caption className="sr-only">
+                    {t("registers.reports.elsewhere.heading")}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className={HEAD_CELL}>
+                        {t("registers.reports.column.apartment")}
+                      </th>
+                      <th scope="col" className={HEAD_CELL}>
+                        {t("registers.reports.elsewhere.transferredOn")}
+                      </th>
+                      <th scope="col" className={HEAD_CELL}>
+                        {t("registers.reports.elsewhere.anmalare")}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {queue.reportedElsewhere.map((entry) => (
+                      <tr key={entry.transferId} className={ROW}>
+                        <td className={DATA_CELL}>{entry.designation}</td>
+                        <td className={DATA_CELL}>{entry.transferredOn}</td>
+                        <td className={`${CELL} text-body text-ink-muted`}>
+                          {t("registers.reports.elsewhere.juridicalPerson")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
 
           <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">

@@ -52,7 +52,7 @@ vi.mock("@tanstack/react-router", () => ({
  */
 const QUEUE: RegisterReportQueue = {
   generatedOn: "2027-07-01",
-  counts: { overdue: 1, due: 1, reported: 1 },
+  counts: { overdue: 1, due: 1, outstanding: 1, reported: 1 },
   duties: [
     {
       id: "duty-overdue",
@@ -61,6 +61,7 @@ const QUEUE: RegisterReportQueue = {
       designation: "Bokgatan 3 1101",
       transferId: null,
       terminationId: "termination-a",
+      reversalId: null,
       triggeredOn: "2027-06-01",
       dueOn: "2027-06-15",
       state: "overdue",
@@ -74,6 +75,7 @@ const QUEUE: RegisterReportQueue = {
       designation: "Bokgatan 3 1102",
       transferId: "transfer-b",
       terminationId: null,
+      reversalId: null,
       triggeredOn: "2027-06-25",
       dueOn: "2027-07-09",
       state: "due",
@@ -87,11 +89,47 @@ const QUEUE: RegisterReportQueue = {
       designation: "Bokgatan 5 1201",
       transferId: "transfer-c",
       terminationId: null,
+      reversalId: null,
       triggeredOn: "2027-05-01",
       dueOn: "2027-05-15",
       state: "reported",
       daysUntilDue: -47,
       reportedOn: "2027-05-20",
+    },
+    {
+      /*
+       * The one duty in Lag (2026:484) 3 kap. that carries no deadline: a
+       * registered overlatelse having been havd or gone back to the seller
+       * (3 kap. 3 § tredje stycket says the association "ska anmala" and names
+       * no period). Null and not a computed date, which is what the screen has
+       * to render without leaving a blank in a column of dates.
+       */
+      id: "duty-outstanding",
+      kind: "TRANSFER_REVERSAL",
+      apartmentId: "apartment-d",
+      designation: "Bokgatan 5 1202",
+      transferId: null,
+      terminationId: null,
+      reversalId: "reversal-d",
+      triggeredOn: "2027-06-20",
+      dueOn: null,
+      state: "outstanding",
+      daysUntilDue: null,
+      reportedOn: null,
+    },
+  ],
+  reportedElsewhere: [
+    {
+      /*
+       * An overgang to a juridical person that held a lien and acquired at an
+       * executive or forced sale. 3 kap. 3 § forsta stycket puts the anmalan on
+       * that person, so the association has no duty and the ledger holds no row
+       * - which is why this is a list of its own rather than a state.
+       */
+      transferId: "transfer-e",
+      apartmentId: "apartment-e",
+      designation: "Bokgatan 7 1301",
+      transferredOn: "2027-06-28",
     },
   ],
 };
@@ -134,7 +172,7 @@ describe("an overdue duty", () => {
       ok: true,
       value: {
         ...QUEUE,
-        counts: { overdue: 2, due: 0, reported: 0 },
+        counts: { overdue: 2, due: 0, outstanding: 0, reported: 0 },
         duties: [
           QUEUE.duties[0],
           {
@@ -343,14 +381,115 @@ describe("when the queue cannot be read", () => {
   });
 });
 
+describe("a duty the statute sets no deadline for", () => {
+  it("says so in the deadline column rather than leaving it blank", async () => {
+    /*
+     * Lag (2026:484) 3 kap. 3 § tredje stycket says the association "ska
+     * anmala" that a registered overlatelse has been havd or gone back to the
+     * seller, and names no period, where 2 §, the rest of 3 § and 4 § each say
+     * "inom tva veckor". An empty cell in a column of dates reads as a value the
+     * screen failed to load, and a computed date would be a deadline nobody
+     * enacted.
+     */
+    render(<RegisterReportQueueScreen />);
+
+    const row = (await screen.findByText("Bokgatan 5 1202")).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("Ingen frist")).toBeTruthy();
+    expect(
+      within(row as HTMLElement).getByText(
+        "Lagen sätter ingen frist för den här anmälan",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("is neither overdue nor reported", async () => {
+    // It is owed, so it is not "reported"; there is no deadline to have passed,
+    // so it is not "overdue". Grouping it with either would state something the
+    // statute does not.
+    render(<RegisterReportQueueScreen />);
+
+    const row = (await screen.findByText("Bokgatan 5 1202")).closest("tr");
+    expect(within(row as HTMLElement).queryByText("Försenad")).toBeNull();
+    expect(within(row as HTMLElement).queryByText("Anmäld")).toBeNull();
+    expect(within(row as HTMLElement).queryByText(/dagar/)).toBeNull();
+    expect(
+      within(row as HTMLElement).getAllByText("Ska anmälas, ingen frist"),
+    ).toHaveLength(1);
+  });
+
+  it("is still offered the control that records the report", async () => {
+    // No deadline is not the same as nothing owed. The board still makes the
+    // anmalan and still states the day it reached Lantmateriet.
+    render(<RegisterReportQueueScreen />);
+
+    const row = (await screen.findByText("Bokgatan 5 1202")).closest("tr");
+    expect(
+      within(row as HTMLElement).getByRole("button", {
+        name: /Registrera anmälan/,
+      }),
+    ).toBeTruthy();
+  });
+});
+
+describe("an overgang the statute assigns to somebody else", () => {
+  it("is listed with whose duty it is rather than left off the screen", async () => {
+    /*
+     * 3 kap. 3 § forsta stycket puts the anmalan for an overgang to a juridical
+     * person under BRL 6 kap. 1 § andra stycket on that person. No duty is
+     * entered in the ledger, because the association owes none and could never
+     * discharge one - but a board that recorded the case and then saw nothing at
+     * all could not tell that from having forgotten to record it.
+     */
+    render(<RegisterReportQueueScreen />);
+
+    expect(await screen.findByText("Bokgatan 7 1301")).toBeTruthy();
+    // By role, because the table's own caption repeats the heading for a screen
+    // reader and a text query would find both.
+    expect(
+      screen.getByRole("heading", { name: "Anmäls av någon annan" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Den förvärvande juridiska personen")).toBeTruthy();
+  });
+
+  it("carries no deadline and no control to report it", async () => {
+    // It is not the association's report, so offering it the act of stating one
+    // was made would let a board record a discharge of a duty it never had.
+    render(<RegisterReportQueueScreen />);
+
+    const row = (await screen.findByText("Bokgatan 7 1301")).closest("tr");
+    expect(row).not.toBeNull();
+    expect(
+      within(row as HTMLElement).queryByRole("button", {
+        name: /Registrera anmälan/,
+      }),
+    ).toBeNull();
+    expect(within(row as HTMLElement).queryByText(/dagar/)).toBeNull();
+  });
+
+  it("is absent from the screen when the register holds none", async () => {
+    fetchRegisterReportQueue.mockResolvedValue({
+      ok: true,
+      value: { ...QUEUE, reportedElsewhere: [] },
+    });
+    render(<RegisterReportQueueScreen />);
+
+    await screen.findByText("Bokgatan 3 1101");
+    expect(
+      screen.queryByRole("heading", { name: "Anmäls av någon annan" }),
+    ).toBeNull();
+  });
+});
+
 describe("an association with nothing outstanding", () => {
   it("says that no deadline has passed, and why the screen is empty", async () => {
     fetchRegisterReportQueue.mockResolvedValue({
       ok: true,
       value: {
         generatedOn: "2027-07-01",
-        counts: { overdue: 0, due: 0, reported: 0 },
+        counts: { overdue: 0, due: 0, outstanding: 0, reported: 0 },
         duties: [],
+        reportedElsewhere: [],
       },
     });
     render(<RegisterReportQueueScreen />);

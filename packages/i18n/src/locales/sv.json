@@ -98,8 +98,11 @@
       "event": {
         "GRANT": "En upplåtelse",
         "TRANSFER": "En övergång",
-        "TERMINATION": "Ett upphörande"
-      }
+        "TERMINATION": "Ett upphörande",
+        "TRANSFER_REVERSAL": "En återgången överlåtelse"
+      },
+      "bodyUndated": "{{event}} för {{apartment}} registrerades den {{triggeredOn}} och ska anmälas till Lantmäteriet.",
+      "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sätter ingen frist för den här anmälan, så ingen anges här."
     }
   },
   "sms": {
@@ -358,7 +361,8 @@
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
           "audit": "Granskningsloggen",
-          "retention": "Gallring"
+          "retention": "Gallring",
+          "transferReversals": "Återgångna överlåtelser"
         },
         "field": {
           "name": "Namn",
@@ -437,7 +441,10 @@
           "broughtBy": "Medtagen av",
           "counterpart": "Motpart",
           "proxyGround": "Grund",
-          "authorised": "Fullmakt daterad"
+          "authorised": "Fullmakt daterad",
+          "reportBasis": "Fall enligt 3 kap. 3 §",
+          "reversalKind": "Vad som hände",
+          "reversedOn": "Återgått"
         },
         "event": {
           "ENTRY": "Inträde",
@@ -521,7 +528,8 @@
         "reportKind": {
           "GRANT": "Upplåtelse",
           "TRANSFER": "Överlåtelse",
-          "TERMINATION": "Upphörande"
+          "TERMINATION": "Upphörande",
+          "TRANSFER_REVERSAL": "Återgången överlåtelse"
         },
         "auditRole": {
           "subject": "Om den här personen",
@@ -1499,14 +1507,23 @@
         "agreement": "Avtal",
         "membershipDecided": "Medlemskap beslutat",
         "membershipDecidedLabel": "Medlemskap beslutat",
-        "membershipDecidedSubmit": "Registrera beslutsdatumet",
-        "membershipFailed": "Beslutsdatumet för medlemskapet kunde inte registreras. Datumet kan inte ligga i framtiden, och en överlåtelse som redan har ett datum skrivs inte över.",
         "noAgreement": "Ingen avtalshänvisning registrerad",
         "firstGrant": "Upplåtelse",
         "sellerUnknown": "Säljaren finns inte i registret",
         "kindUnrecorded": "Ej angivet i registret",
         "grantReportedFromGrant": "Upplåtelse: anmäls inom två veckor från upplåtelsen, inget medlemskapsbeslut räknas.",
-        "none": "Inga upplåtelser eller överlåtelser registrerade"
+        "none": "Inga upplåtelser eller överlåtelser registrerade",
+        "basisLabel": "Fall enligt 3 kap. 3 §",
+        "basisUnchosen": "Välj fall",
+        "basisSubmit": "Registrera fallet",
+        "basisFailed": "Fallet kunde inte registreras. Bara det första fallet har ett datum för medlemskapsbeslut, datumet kan inte ligga i framtiden, och en övergång som redan anger sitt fall skrivs inte över.",
+        "basis": {
+          "MEMBERSHIP_DECISION": "Föreningen beslutade om medlemskap - anmäls inom två veckor från beslutet",
+          "ALREADY_MEMBER": "Förvärvaren var redan medlem - anmäls inom två veckor från övergången",
+          "OUTSIDE_MEMBERSHIP_REQUIREMENT": "Förvärvaren omfattas inte av kravet på medlemskap - anmäls inom två veckor från övergången",
+          "TO_THE_ASSOCIATION": "Bostadsrätten har övergått till föreningen - anmäls inom två veckor från övergången",
+          "LIENHOLDING_JURIDICAL_PERSON": "Juridisk person med panträtt som förvärvat vid exekutiv försäljning eller tvångsförsäljning - den juridiska personen anmäler, inte föreningen"
+        }
       },
       "terminations": {
         "heading": "Upphöranden",
@@ -1540,6 +1557,41 @@
       "ownEmpty": "Du innehar ingen bostadsrätt, så lägenhetsförteckningen har ingen post för dig. Fråga styrelsen om du tror att det är fel.",
       "noValue": {
         "heldUntil": "Innehas fortfarande"
+      },
+      "reversals": {
+        "heading": "Återgångna överlåtelser",
+        "none": "Ingen överlåtelse registrerad som återgången",
+        "add": "Registrera att den gått tillbaka",
+        "kindLabel": "Vad som hände",
+        "kind": {
+          "RESCINDED": "Överlåtelsen har hävts",
+          "RETURNED_TO_SELLER": "Bostadsrätten har återgått till säljaren"
+        },
+        "reversedOn": "Återgått",
+        "reference": "Referens",
+        "referenceHint": "Hävningsförklaringen, avtalet som återför bostadsrätten, eller protokollet som antecknar det.",
+        "appendOnly": "En återgång kan inte ändras eller tas bort när den är registrerad. Kontrollera datum och referens innan du registrerar. Registrera bara när överlåtelsen var registrerad och talan inte väckts i domstol - det är det Lag (2026:484) 3 kap. 3 § tredje stycket ålägger föreningen att anmäla.",
+        "submit": "Registrera återgången",
+        "cancel": "Avbryt",
+        "failed": "Återgången kunde inte registreras. Datumet kan inte ligga i framtiden, en referens krävs, och en överlåtelse som redan registrerats som återgången registreras inte igen."
+      },
+      "landTenure": {
+        "label": "Marken",
+        "unrecorded": "Inte registrerat",
+        "add": "Registrera hur marken innehas",
+        "edit": "Ändra hur marken innehas",
+        "hint": "Förordning (2026:898) 2 kap. 4 § registrerar föreningens lagfarts- och tomträttsinnehav, och redovisar i stället fastighetsbeteckning med taxeringsenhetsnummer och fastighetstyp om byggnaderna står på mark som föreningen varken äger eller innehar med tomträtt.",
+        "value": {
+          "OWNERSHIP": "Föreningen äger marken",
+          "SITE_LEASEHOLD": "Föreningen innehar marken med tomträtt",
+          "OTHER": "Varken eller: byggnaderna står på någon annans mark"
+        },
+        "taxUnit": "Taxeringsenhetsnummer",
+        "propertyType": "Fastighetstyp",
+        "propertyTypeHint": "Som föreningens eget fastighetsunderlag anger den. Förordningen namnger fältet utan att definiera det, så värdet kontrolleras inte här.",
+        "submit": "Registrera",
+        "cancel": "Avbryt",
+        "failed": "Hur marken innehas kunde inte registreras. Taxeringsenhetsnummer och fastighetstyp redovisas bara om byggnaderna står på mark som föreningen varken äger eller innehar med tomträtt."
       }
     },
     "reports": {
@@ -1556,7 +1608,8 @@
       "group": {
         "overdue": "Försenade",
         "due": "Kvar att anmäla",
-        "reported": "Anmälda"
+        "reported": "Anmälda",
+        "outstanding": "Ska anmälas, ingen frist"
       },
       "groupCount_one": "{{count}} skyldighet",
       "groupCount_other": "{{count}} skyldigheter",
@@ -1571,12 +1624,14 @@
       "event": {
         "GRANT": "Upplåtelse",
         "TRANSFER": "Övergång",
-        "TERMINATION": "Upphörande"
+        "TERMINATION": "Upphörande",
+        "TRANSFER_REVERSAL": "Återgången överlåtelse"
       },
       "state": {
         "overdue": "Försenad",
         "due": "Kvar att anmäla",
-        "reported": "Anmäld"
+        "reported": "Anmäld",
+        "outstanding": "Ska anmälas, ingen frist"
       },
       "daysLeft_one": "{{count}} dag kvar",
       "daysLeft_other": "{{count}} dagar kvar",
@@ -1587,7 +1642,7 @@
       "reportedLate_other": "Anmäld {{count}} dagar efter sista dagen",
       "empty": {
         "title": "Inget att anmäla",
-        "description": "En skyldighet dyker upp här när en upplåtelse registreras, när ett upphörande registreras, eller när den dag då föreningen beslutade om förvärvarens medlemskap registreras på en övergång."
+        "description": "En skyldighet visas här när en upplåtelse registreras, när ett upphörande registreras, när styrelsen anger vilket fall enligt Lag (2026:484) 3 kap. 3 § en övergång hör till, eller när en registrerad överlåtelse antecknas som återgången."
       },
       "record": {
         "open": "Registrera anmälan",
@@ -1627,6 +1682,17 @@
           "LIEN": "Pantnotering"
         },
         "notHeld": "En tom kolumn är antingen en som radens typ inte fyller i, eller en som förteckningen saknar värde för."
+      },
+      "noDeadline": "Ingen frist",
+      "noDeadlineHint": "Lagen sätter ingen frist för den här anmälan",
+      "elsewhere": {
+        "heading": "Anmäls av någon annan",
+        "count_one": "{{count}} övergång",
+        "count_other": "{{count}} övergångar",
+        "description": "Lag (2026:484) 3 kap. 3 § första stycket lägger anmälan för de här övergångarna på den juridiska person som förvärvat bostadsrätten, inte på föreningen. De bär ingen frist här eftersom föreningen inte har någon skyldighet.",
+        "transferredOn": "Övergått",
+        "anmalare": "Vem som anmäler",
+        "juridicalPerson": "Den förvärvande juridiska personen"
       }
     }
   },

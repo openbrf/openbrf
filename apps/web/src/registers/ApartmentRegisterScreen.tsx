@@ -31,13 +31,18 @@ import {
   type ApartmentRegisterExtract,
   type ApartmentRegisterRow,
   type ApartmentRegisterTransfer,
+  type LandTenure,
   type TerminationKind,
+  type TransferReportBasis,
+  type TransferReversalKind,
   fetchApartmentRegister,
   fetchOwnApartmentRegister,
   noteLien,
-  recordMembershipDecision,
+  recordLandTenure,
   recordPropertyDesignation,
+  recordReportBasis,
   recordTermination,
+  recordTransferReversal,
   releaseLien,
   revealApartmentRegister,
   revealOwnApartmentRegister,
@@ -130,6 +135,59 @@ const TERMINATION_KINDS: TerminationKind[] = [
 ];
 
 /**
+ * The five cases of Lag (2026:484) 3 kap. 3 §, in the order the form offers
+ * them, which is the order the statute states them in.
+ *
+ * No default is selected. Which case an overgang falls in is a statement about
+ * facts the board knows and the platform does not, and a preselected first
+ * option is the answer a hurried click gives - on a value that fixes which
+ * paragraph a statutory deadline is computed under and cannot be changed
+ * afterwards.
+ */
+const REPORT_BASES: TransferReportBasis[] = [
+  "MEMBERSHIP_DECISION",
+  "ALREADY_MEMBER",
+  "OUTSIDE_MEMBERSHIP_REQUIREMENT",
+  "TO_THE_ASSOCIATION",
+  "LIENHOLDING_JURIDICAL_PERSON",
+];
+
+/** The two things tredje stycket names, in the order the form offers them. */
+const REVERSAL_KINDS: TransferReversalKind[] = [
+  "RESCINDED",
+  "RETURNED_TO_SELLER",
+];
+
+/** The three answers Forordning (2026:898) 2 kap. 4 § distinguishes. */
+const LAND_TENURES: LandTenure[] = ["OWNERSHIP", "SITE_LEASEHOLD", "OTHER"];
+
+/**
+ * What the board is recording about an overlatelse that has gone back.
+ *
+ * Carries the transfer it undoes rather than only the apartment, because an
+ * apartment has a history of transfers and this is about one of them.
+ */
+interface ReversalDraft {
+  transferId: string;
+  kind: TransferReversalKind;
+  reversedOn: string;
+  reference: string;
+}
+
+/**
+ * What the board is recording about the land the buildings stand on.
+ *
+ * The two conditional fields are kept in the draft whatever the tenure is, so a
+ * board that picks the wrong one and corrects it does not lose what it typed.
+ * They are only sent where the tenure reports them; see the submit handler.
+ */
+interface LandTenureDraft {
+  landTenure: LandTenure | "";
+  taxAssessmentUnitNumber: string;
+  propertyType: string;
+}
+
+/**
  * Who the tenant-ownership came from, in words.
  *
  * A missing name means three different things, and the register now records
@@ -171,9 +229,17 @@ export function ApartmentRegisterScreen(): ReactElement {
   // so a board told a termination was refused after a membership decision was
   // refused would go looking for the wrong record - and might record the
   // termination again to fix it.
-  const [membershipFailed, setMembershipFailed] = useState(false);
+  const [basisFailed, setBasisFailed] = useState(false);
+  const [reversal, setReversal] = useState<ReversalDraft | null>(null);
+  const [reversalFailed, setReversalFailed] = useState(false);
+  // Whether a reversal is in flight. Its own flag for the reason the
+  // termination's has one: this route inserts into an append-only table, so a
+  // second click writes a second statutory row nobody can take back out.
+  const [recordingReversal, setRecordingReversal] = useState(false);
   const [designation, setDesignation] = useState<string | null>(null);
   const [designationFailed, setDesignationFailed] = useState(false);
+  const [tenure, setTenure] = useState<LandTenureDraft | null>(null);
+  const [tenureFailed, setTenureFailed] = useState(false);
 
   /*
    * Nothing is written to state before an answer arrives, so a reload leaves
@@ -296,17 +362,77 @@ export function ApartmentRegisterScreen(): ReactElement {
     [load],
   );
 
-  const submitMembershipDecision = useCallback(
-    async (transferId: string, membershipDecidedOn: string): Promise<void> => {
-      setMembershipFailed(false);
-      const result = await recordMembershipDecision({
+  const submitReportBasis = useCallback(
+    async (
+      transferId: string,
+      basis: TransferReportBasis,
+      membershipDecidedOn: string | null,
+    ): Promise<void> => {
+      setBasisFailed(false);
+      const result = await recordReportBasis({
         transferId,
+        basis,
+        // Sent only by the one case that has a decision. The server refuses a
+        // date on any other rather than dropping it, so a value that leaked
+        // through here would surface as a refusal the board could read - not as
+        // a statutory date quietly discarded.
         membershipDecidedOn,
       });
       if (!result.ok) {
-        setMembershipFailed(true);
+        setBasisFailed(true);
         return;
       }
+      await load();
+    },
+    [load],
+  );
+
+  const submitReversal = useCallback(
+    async (input: ReversalDraft): Promise<void> => {
+      setReversalFailed(false);
+      setRecordingReversal(true);
+      try {
+        const result = await recordTransferReversal({
+          transferId: input.transferId,
+          kind: input.kind,
+          reversedOn: input.reversedOn,
+          reference: input.reference.trim(),
+        });
+        if (!result.ok) {
+          setReversalFailed(true);
+          return;
+        }
+        setReversal(null);
+        await load();
+      } finally {
+        setRecordingReversal(false);
+      }
+    },
+    [load],
+  );
+
+  const submitTenure = useCallback(
+    async (input: LandTenureDraft): Promise<void> => {
+      setTenureFailed(false);
+      const reports = input.landTenure === "OTHER";
+      const result = await recordLandTenure({
+        // Cleared rather than stored empty, the way the designation is: the
+        // register states an answer or says none is recorded.
+        landTenure: input.landTenure === "" ? null : input.landTenure,
+        // Sent only where Forordning (2026:898) 2 kap. 4 § andra stycket reports
+        // them. The server refuses them beside any other tenure, and the
+        // database refuses to hold them there, so the form must not offer a
+        // value it would have to discard.
+        taxAssessmentUnitNumber: reports
+          ? input.taxAssessmentUnitNumber.trim() || null
+          : null,
+        propertyType: reports ? input.propertyType.trim() || null : null,
+      });
+      if (!result.ok) {
+        setTenureFailed(true);
+        return;
+      }
+      setTenure(null);
       await load();
     },
     [load],
@@ -415,9 +541,19 @@ export function ApartmentRegisterScreen(): ReactElement {
             {t("registers.apartment.terminations.failed")}
           </Notice>
         ) : null}
-        {membershipFailed ? (
+        {basisFailed ? (
           <Notice tone="danger" live>
-            {t("registers.apartment.transfers.membershipFailed")}
+            {t("registers.apartment.transfers.basisFailed")}
+          </Notice>
+        ) : null}
+        {reversalFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.reversals.failed")}
+          </Notice>
+        ) : null}
+        {tenureFailed ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.landTenure.failed")}
           </Notice>
         ) : null}
         {designationFailed ? (
@@ -483,6 +619,137 @@ export function ApartmentRegisterScreen(): ReactElement {
             </form>
           )
         ) : null}
+
+        {/*
+          On what footing the buildings stand on their land, and the two fields
+          Forordning (2026:898) 2 kap. 4 § andra stycket reports on the strength
+          of one of the three answers. Beside the designation because the two are
+          one register question: that paragraph decides, on this answer, whether
+          the designation is reported at all.
+
+          Not read off the broker information page, which holds a site-leasehold
+          boolean. False there means the association owns the land, so that field
+          has no value for buildings standing on land it does neither - the case
+          the paragraph turns on - and nothing statutory may be derived from that
+          page in any event.
+        */}
+        {isBoard && extract !== null ? (
+          tenure === null ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTenure({
+                  landTenure: extract.housingCooperative.landTenure ?? "",
+                  taxAssessmentUnitNumber:
+                    extract.housingCooperative.taxAssessmentUnitNumber ?? "",
+                  propertyType: extract.housingCooperative.propertyType ?? "",
+                });
+              }}
+              className={QUIET_BUTTON}
+            >
+              {extract.housingCooperative.landTenure === null
+                ? t("registers.apartment.landTenure.add")
+                : t("registers.apartment.landTenure.edit")}
+            </button>
+          ) : (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitTenure(tenure);
+              }}
+            >
+              <label className={LABEL}>
+                {t("registers.apartment.landTenure.label")}
+                <select
+                  value={tenure.landTenure}
+                  onChange={(event) => {
+                    setTenure({
+                      ...tenure,
+                      // The select offers exactly the three answers plus the
+                      // blank that clears the field, so its value is one of
+                      // them; the cast carries that from the DOM's string back
+                      // into the union.
+                      landTenure: event.target.value as LandTenure | "",
+                    });
+                  }}
+                  className={FIELD}
+                >
+                  <option value="">
+                    {t("registers.apartment.landTenure.unrecorded")}
+                  </option>
+                  {LAND_TENURES.map((value) => (
+                    <option key={value} value={value}>
+                      {t(`registers.apartment.landTenure.value.${value}`)}
+                    </option>
+                  ))}
+                </select>
+                <span className={HINT}>
+                  {t("registers.apartment.landTenure.hint")}
+                </span>
+              </label>
+
+              {/*
+                Offered only in the case that reports them, because the server
+                refuses them beside any other tenure and the database will not
+                hold them there. A field the board could fill in and then have
+                silently dropped is a statutory value it believes it recorded.
+              */}
+              {tenure.landTenure === "OTHER" ? (
+                <>
+                  <label className={LABEL}>
+                    {t("registers.apartment.landTenure.taxUnit")}
+                    <input
+                      type="text"
+                      value={tenure.taxAssessmentUnitNumber}
+                      maxLength={200}
+                      onChange={(event) => {
+                        setTenure({
+                          ...tenure,
+                          taxAssessmentUnitNumber: event.target.value,
+                        });
+                      }}
+                      className={FIELD}
+                    />
+                  </label>
+                  <label className={LABEL}>
+                    {t("registers.apartment.landTenure.propertyType")}
+                    <input
+                      type="text"
+                      value={tenure.propertyType}
+                      maxLength={200}
+                      onChange={(event) => {
+                        setTenure({
+                          ...tenure,
+                          propertyType: event.target.value,
+                        });
+                      }}
+                      className={FIELD}
+                    />
+                    <span className={HINT}>
+                      {t("registers.apartment.landTenure.propertyTypeHint")}
+                    </span>
+                  </label>
+                </>
+              ) : null}
+
+              <div className="flex flex-wrap gap-3">
+                <button type="submit" className={PRIMARY_BUTTON}>
+                  {t("registers.apartment.landTenure.submit")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTenure(null);
+                  }}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("registers.apartment.landTenure.cancel")}
+                </button>
+              </div>
+            </form>
+          )
+        ) : null}
       </div>
 
       {failed ? (
@@ -509,6 +776,22 @@ export function ApartmentRegisterScreen(): ReactElement {
             {extract.housingCooperative.propertyDesignation === null ? null : (
               <p className="font-data text-data text-ink-muted">
                 {`${t("registers.apartment.designation.label")} ${extract.housingCooperative.propertyDesignation}`}
+              </p>
+            )}
+            {extract.housingCooperative.landTenure === null ? null : (
+              <p className="text-small text-ink-muted">
+                {`${t("registers.apartment.landTenure.label")} ${t(`registers.apartment.landTenure.value.${extract.housingCooperative.landTenure}`)}`}
+              </p>
+            )}
+            {extract.housingCooperative.taxAssessmentUnitNumber ===
+            null ? null : (
+              <p className="font-data text-data text-ink-muted">
+                {`${t("registers.apartment.landTenure.taxUnit")} ${extract.housingCooperative.taxAssessmentUnitNumber}`}
+              </p>
+            )}
+            {extract.housingCooperative.propertyType === null ? null : (
+              <p className="font-data text-data text-ink-muted">
+                {`${t("registers.apartment.landTenure.propertyType")} ${extract.housingCooperative.propertyType}`}
               </p>
             )}
             <p className="text-title">{t("registers.apartment.heading")}</p>
@@ -565,7 +848,37 @@ export function ApartmentRegisterScreen(): ReactElement {
                   onSubmitTermination={(input) => {
                     void submitTermination(input);
                   }}
-                  onRecordMembershipDecision={submitMembershipDecision}
+                  onRecordReportBasis={submitReportBasis}
+                  reversal={
+                    reversal !== null &&
+                    row.transfers.some(
+                      (transfer) => transfer.id === reversal.transferId,
+                    )
+                      ? reversal
+                      : null
+                  }
+                  onStartReversal={(transferId) => {
+                    setReversal({
+                      transferId,
+                      // No opening default on the ground, for the reason the
+                      // report basis has none: which of the two happened is a
+                      // statement about a contract, on a row nothing can
+                      // correct. RESCINDED leads because it is the first the
+                      // sentence names, and the form refuses to submit until a
+                      // date and a reference are there anyway.
+                      kind: "RESCINDED",
+                      reversedOn: "",
+                      reference: "",
+                    });
+                  }}
+                  onCancelReversal={() => {
+                    setReversal(null);
+                  }}
+                  onChangeReversal={setReversal}
+                  recordingReversal={recordingReversal}
+                  onSubmitReversal={(input) => {
+                    void submitReversal(input);
+                  }}
                 />
               ))}
             </div>
@@ -604,7 +917,13 @@ function ApartmentEntry({
   onChangeTermination,
   recordingTermination,
   onSubmitTermination,
-  onRecordMembershipDecision,
+  onRecordReportBasis,
+  reversal,
+  onStartReversal,
+  onCancelReversal,
+  onChangeReversal,
+  recordingReversal,
+  onSubmitReversal,
 }: {
   row: ApartmentRegisterRow;
   canWrite: boolean;
@@ -620,12 +939,28 @@ function ApartmentEntry({
   onChangeTermination: (draft: TerminationDraft) => void;
   recordingTermination: boolean;
   onSubmitTermination: (draft: TerminationDraft) => void;
-  onRecordMembershipDecision: (
+  onRecordReportBasis: (
     transferId: string,
-    decidedOn: string,
+    basis: TransferReportBasis,
+    decidedOn: string | null,
   ) => Promise<void>;
+  reversal: ReversalDraft | null;
+  onStartReversal: (transferId: string) => void;
+  onCancelReversal: () => void;
+  onChangeReversal: (draft: ReversalDraft) => void;
+  recordingReversal: boolean;
+  onSubmitReversal: (draft: ReversalDraft) => void;
 }): ReactElement {
   const { t } = useTranslation();
+
+  /*
+   * Which of this apartment's transfers already carry a reversal. A set rather
+   * than a scan per row: the list is short but the lookup is inside the map over
+   * it, and the shape says what the question is.
+   */
+  const reversedTransferIds = new Set(
+    row.transferReversals.map((entry) => entry.transferId),
+  );
 
   return (
     <article className="flex break-inside-avoid flex-col gap-3 border-t border-line pt-4">
@@ -873,12 +1208,12 @@ function ApartmentEntry({
                   </span>
                 )}
                 {/*
-                  The membership decision date, which is the day the register's
-                  two-week reporting window opens for this transfer. Shown once
-                  recorded, and offered for recording while it is absent -
-                  never described as missing, because the statute has transfers
-                  with no such decision at all and a register must not call one
-                  of those a gap.
+                  Which case of Lag (2026:484) 3 kap. 3 § the overgang falls in,
+                  and with it the day the reporting window opens or that the
+                  report is somebody else's. Shown once stated, and offered for
+                  stating while it is absent - never described as missing, since
+                  three of that section's four cases have no membership decision
+                  at all and a register must not call one of those a gap.
                 */}
                 {transfer.kind === "GRANT" ? (
                   // An upplatelse takes no membership decision: its report is
@@ -888,18 +1223,98 @@ function ApartmentEntry({
                   <span className="text-small text-ink-muted">
                     {t("registers.apartment.transfers.grantReportedFromGrant")}
                   </span>
-                ) : transfer.membershipDecidedOn === null ? (
-                  canWrite ? (
-                    <MembershipDecisionControl
-                      transferId={transfer.id}
-                      onRecord={onRecordMembershipDecision}
-                    />
-                  ) : null
-                ) : (
+                ) : transfer.reportBasis !== null ? (
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-small text-ink-muted">
+                      {t(
+                        `registers.apartment.transfers.basis.${transfer.reportBasis}`,
+                      )}
+                    </span>
+                    {transfer.membershipDecidedOn === null ? null : (
+                      <span className="font-data text-data text-ink-muted">
+                        {`${t("registers.apartment.transfers.membershipDecided")} ${transfer.membershipDecidedOn}`}
+                      </span>
+                    )}
+                  </span>
+                ) : transfer.membershipDecidedOn !== null ? (
+                  // A row whose decision date was recorded before the case was
+                  // asked for. Its duty is in the ledger on the right paragraph
+                  // and the right day, so nothing more is offered on it.
                   <span className="font-data text-data text-ink-muted">
                     {`${t("registers.apartment.transfers.membershipDecided")} ${transfer.membershipDecidedOn}`}
                   </span>
-                )}
+                ) : canWrite ? (
+                  <ReportBasisControl
+                    transferId={transfer.id}
+                    onRecord={onRecordReportBasis}
+                  />
+                ) : null}
+
+                {/*
+                  Recording that this overlatelse went back. Offered only where
+                  no reversal is recorded for it and only on an overgang: the
+                  row is unique per transfer, so a second attempt is refused by
+                  the database, and an upplatelse has no earlier holder for the
+                  bostadsratt to go back to, which the database refuses too. A
+                  control that could only fail is a control the screen should
+                  not carry - the rule that a screen offers nothing the server
+                  would refuse. A row whose kind was never recorded keeps the
+                  control: what it was is not recorded, and refusing it here
+                  would be the platform deciding.
+                */}
+                {canWrite &&
+                transfer.kind !== "GRANT" &&
+                !reversedTransferIds.has(transfer.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onStartReversal(transfer.id);
+                    }}
+                    className={`${QUIET_BUTTON} print:hidden`}
+                  >
+                    {t("registers.apartment.reversals.add")}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {reversal === null ? null : (
+          <TransferReversalForm
+            draft={reversal}
+            recording={recordingReversal}
+            onChange={onChangeReversal}
+            onCancel={onCancelReversal}
+            onSubmit={onSubmitReversal}
+          />
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-label text-ink-muted uppercase">
+          {t("registers.apartment.reversals.heading")}
+        </h4>
+        {row.transferReversals.length === 0 ? (
+          <p className="text-body text-ink-muted">
+            {t("registers.apartment.reversals.none")}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {row.transferReversals.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2"
+              >
+                <span className="font-data text-data text-ink">
+                  {entry.reversedOn}
+                </span>
+                <span className="text-body text-ink">
+                  {t(`registers.apartment.reversals.kind.${entry.kind}`)}
+                </span>
+                <span className="font-data text-data text-ink-muted">
+                  {`${t("registers.apartment.reversals.reference")} ${entry.reference}`}
+                </span>
               </li>
             ))}
           </ul>
@@ -1038,65 +1453,208 @@ function ApartmentEntry({
 }
 
 /**
- * Records the day the association decided on one transfer's membership.
+ * States which case of Lag (2026:484) 3 kap. 3 § one overgang falls in.
  *
- * Its own component so the date it holds belongs to the transfer it is on. A
- * single draft on the screen would put the value a board typed for one transfer
- * into the input on the next one.
+ * Its own component so the values it holds belong to the transfer it is on. A
+ * single draft on the screen would put the case a board chose for one transfer
+ * into the control on the next one.
+ *
+ * The date appears only for the case that has one, and disappears when the board
+ * chooses another. The server refuses a date beside any other case rather than
+ * dropping it, and this is the same rule stated on the screen: a control that
+ * offers a value the server would refuse is the thing this codebase has decided
+ * twice not to build.
  *
  * Empty rather than defaulted to today, unlike the lien release beside it. A
  * release is normally recorded the day it happens; a membership decision is
  * normally minuted at a board meeting some days before anybody types it in, and
  * a prefilled today would be the wrong answer offered as the easy one - on a
- * date that starts a statutory window and cannot be corrected afterwards.
+ * date that starts a statutory window and cannot be corrected afterwards. The
+ * case itself opens unchosen for the same reason.
  *
  * One request at a time. A second click while the first is in flight sends the
- * date twice, and the route refuses a transfer that already carries one, so the
- * board would be told the recording failed by the very request that proves it
- * succeeded - on the one date here that cannot be recorded again.
+ * statement twice, and the route refuses a transfer that already carries one, so
+ * the board would be told the recording failed by the very request that proves
+ * it succeeded - on a value that cannot be recorded again.
  */
-function MembershipDecisionControl({
+function ReportBasisControl({
   transferId,
   onRecord,
 }: {
   transferId: string;
-  onRecord: (transferId: string, decidedOn: string) => Promise<void>;
+  onRecord: (
+    transferId: string,
+    basis: TransferReportBasis,
+    decidedOn: string | null,
+  ) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
+  const [basis, setBasis] = useState<TransferReportBasis | "">("");
   const [decidedOn, setDecidedOn] = useState("");
   const [recording, setRecording] = useState(false);
+
+  const needsDate = basis === "MEMBERSHIP_DECISION";
+  const ready = basis !== "" && (!needsDate || decidedOn !== "");
 
   return (
     <span className="flex flex-wrap items-center gap-2 print:hidden">
       <label className="flex items-center gap-2 text-small text-ink-muted">
-        {t("registers.apartment.transfers.membershipDecidedLabel")}
-        <input
-          type="date"
-          value={decidedOn}
-          max={today()}
+        {t("registers.apartment.transfers.basisLabel")}
+        <select
+          value={basis}
           onChange={(event) => {
-            setDecidedOn(event.target.value);
+            // The select offers exactly the five cases plus the unchosen blank,
+            // so its value is one of them; the cast carries that from the DOM's
+            // string back into the union.
+            setBasis(event.target.value as TransferReportBasis | "");
           }}
-          className={FIELD_DATA}
-        />
+          className={FIELD}
+        >
+          <option value="">
+            {t("registers.apartment.transfers.basisUnchosen")}
+          </option>
+          {REPORT_BASES.map((value) => (
+            <option key={value} value={value}>
+              {t(`registers.apartment.transfers.basis.${value}`)}
+            </option>
+          ))}
+        </select>
       </label>
+
+      {needsDate ? (
+        <label className="flex items-center gap-2 text-small text-ink-muted">
+          {t("registers.apartment.transfers.membershipDecidedLabel")}
+          <input
+            type="date"
+            value={decidedOn}
+            max={today()}
+            onChange={(event) => {
+              setDecidedOn(event.target.value);
+            }}
+            className={FIELD_DATA}
+          />
+        </label>
+      ) : null}
+
       <button
         type="button"
-        disabled={decidedOn === "" || recording}
+        disabled={!ready || recording}
         onClick={() => {
-          if (recording) {
+          if (recording || basis === "") {
             return;
           }
           setRecording(true);
-          void onRecord(transferId, decidedOn).finally(() => {
+          void onRecord(
+            transferId,
+            basis,
+            needsDate ? decidedOn : null,
+          ).finally(() => {
             setRecording(false);
           });
         }}
         className={QUIET_BUTTON}
       >
-        {t("registers.apartment.transfers.membershipDecidedSubmit")}
+        {t("registers.apartment.transfers.basisSubmit")}
       </button>
     </span>
+  );
+}
+
+/**
+ * Records that a registered overlatelse has been havd or has gone back to the
+ * seller (Lag (2026:484) 3 kap. 3 § tredje stycket).
+ *
+ * A form rather than an inline control, on the termination's shape: it writes a
+ * row to an append-only table and needs a ground, a date and a reference, and
+ * the note that it cannot be edited or removed belongs where the board reads it
+ * before submitting rather than after.
+ */
+function TransferReversalForm({
+  draft,
+  recording,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  draft: ReversalDraft;
+  recording: boolean;
+  onChange: (draft: ReversalDraft) => void;
+  onCancel: () => void;
+  onSubmit: (draft: ReversalDraft) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+
+  return (
+    <form
+      className="flex flex-col gap-3 print:hidden"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (recording) {
+          return;
+        }
+        onSubmit(draft);
+      }}
+    >
+      <label className={LABEL}>
+        {t("registers.apartment.reversals.kindLabel")}
+        <select
+          value={draft.kind}
+          onChange={(event) => {
+            onChange({
+              ...draft,
+              // The select offers exactly the two grounds, so its value is one
+              // of them; the cast carries that back into the union.
+              kind: event.target.value as TransferReversalKind,
+            });
+          }}
+          className={FIELD}
+        >
+          {REVERSAL_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {t(`registers.apartment.reversals.kind.${kind}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className={LABEL}>
+        {t("registers.apartment.reversals.reversedOn")}
+        <input
+          type="date"
+          required
+          value={draft.reversedOn}
+          max={today()}
+          onChange={(event) => {
+            onChange({ ...draft, reversedOn: event.target.value });
+          }}
+          className={FIELD_DATA}
+        />
+      </label>
+      <label className={LABEL}>
+        {t("registers.apartment.reversals.reference")}
+        <input
+          type="text"
+          required
+          maxLength={500}
+          value={draft.reference}
+          onChange={(event) => {
+            onChange({ ...draft, reference: event.target.value });
+          }}
+          className={FIELD}
+        />
+        <span className={HINT}>
+          {t("registers.apartment.reversals.referenceHint")}
+        </span>
+      </label>
+      <p className={HINT}>{t("registers.apartment.reversals.appendOnly")}</p>
+      <div className="flex gap-2">
+        <button type="submit" disabled={recording} className={PRIMARY_BUTTON}>
+          {t("registers.apartment.reversals.submit")}
+        </button>
+        <button type="button" onClick={onCancel} className={SECONDARY_BUTTON}>
+          {t("registers.apartment.reversals.cancel")}
+        </button>
+      </div>
+    </form>
   );
 }
 
