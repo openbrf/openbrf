@@ -487,6 +487,11 @@ describe("breaches", () => {
     const decided = await decide(view.breachId, {});
     expect(decided.statusCode).toBe(200);
 
+    // The row keeps it. Omitting a field is not clearing it, and this is the
+    // half that loses data rather than merely misreporting it: the instant IMY
+    // was told is the association's evidence that it met the bound.
+    expect(decided.json<BreachView>().imyNotifiedAt).toBe(notifiedAt);
+
     const entry = await prisma.auditLogEntry.findFirst({
       where: {
         action: "PERSONAL_DATA_BREACH_DECIDED",

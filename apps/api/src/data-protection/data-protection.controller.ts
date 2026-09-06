@@ -372,15 +372,27 @@ export class DataProtectionController {
     @Body() body: unknown,
   ): Promise<BreachView> {
     const input = decisionSchema.parse(body);
+    /*
+     * Omitted is not the same as cleared, which is why none of these four
+     * collapses to null. The schema makes each of them optional AND nullable,
+     * so the board has three things to say about a field - set it, clear it,
+     * or leave what is recorded alone - and `decide` is written for all three:
+     * `assertDelayReasons` resolves an omitted value against the row before it
+     * judges the art. 33(1) delay, and Prisma leaves an undefined field where
+     * it is. Collapsing to null took the third away and made it the second, so
+     * deciding a breach without mentioning the notification erased the instant
+     * IMY was actually told on. The update route beside this one has always
+     * passed these through.
+     */
     return this.breaches.decide(breachId, {
       risk: input.risk,
       imyNotificationRequired: input.imyNotificationRequired,
       imyDecisionGround: input.imyDecisionGround,
-      imyNotifiedAt: toDate(input.imyNotifiedAt) ?? null,
-      imyReference: input.imyReference ?? null,
-      delayReasons: input.delayReasons ?? null,
+      imyNotifiedAt: toDate(input.imyNotifiedAt),
+      imyReference: input.imyReference,
+      delayReasons: input.delayReasons,
       subjectsInformationRequired: input.subjectsInformationRequired,
-      subjectsDecisionGround: input.subjectsDecisionGround ?? null,
+      subjectsDecisionGround: input.subjectsDecisionGround,
       actorPersonId: actingPersonId(request),
     });
   }
