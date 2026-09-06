@@ -758,13 +758,16 @@ export interface DataSubjectReport {
     issueId: string | null;
   }[];
   /** Breaches that reached this person's data (GDPR art. 34). */
+  /**
+   * What reached this person's data, and never the board's account of the
+   * incident: `dataDescription`, `effects` and `measures` are one text per
+   * breach about everybody it touched, so they stay in the register and reach
+   * each person through the art. 34(2) communication instead.
+   */
   personalDataBreaches: {
     breachId: string;
     title: string;
-    dataDescription: string;
     discoveredAt: string;
-    effects: string;
-    measures: string;
     risk: "UNLIKELY" | "LIKELY" | "HIGH" | null;
     imyNotifiedAt: string | null;
     informedAt: string | null;

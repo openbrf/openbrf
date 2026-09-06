@@ -163,7 +163,10 @@ function RequestRow({
         </span>
         {request.dueOn === null ? null : (
           <span className="text-small text-ink-muted">
-            {t("register.person.requests.dueOn", { date: request.dueOn })}
+            {t("register.person.requests.dueOn")}{" "}
+            {/* Mono, like every other date the register shows. The label
+                stays in the UI face: it is the date that has to align. */}
+            <span className="font-data">{request.dueOn}</span>
           </span>
         )}
       </div>

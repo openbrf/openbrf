@@ -789,10 +789,7 @@ export class DataSubjectReportService {
           select: {
             id: true,
             title: true,
-            dataDescription: true,
             discoveredAt: true,
-            effects: true,
-            measures: true,
             risk: true,
             imyNotifiedAt: true,
           },
@@ -1177,10 +1174,7 @@ export class DataSubjectReportService {
         (subject): ReportPersonalDataBreach => ({
           breachId: subject.breach.id,
           title: subject.breach.title,
-          dataDescription: subject.breach.dataDescription,
           discoveredAt: subject.breach.discoveredAt.toISOString(),
-          effects: subject.breach.effects,
-          measures: subject.breach.measures,
           risk: subject.breach.risk,
           imyNotifiedAt: subject.breach.imyNotifiedAt?.toISOString() ?? null,
           informedAt: subject.informedAt?.toISOString() ?? null,

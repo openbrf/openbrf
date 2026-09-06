@@ -493,10 +493,7 @@ const FULL_REPORT: Report = {
     {
       breachId: "breach-1",
       title: "Felskickad medlemslista",
-      dataDescription: "Namn och adresser ur medlemsforteckningen.",
       discoveredAt: "2026-02-10T08:00:00.000Z",
-      effects: "Mottagaren kunde lasa namn och adresser.",
-      measures: "Mottagaren ombads radera meddelandet.",
       risk: "LIKELY",
       imyNotifiedAt: "2026-02-11T09:00:00.000Z",
       informedAt: "2026-02-12T09:00:00.000Z",
@@ -1232,16 +1229,33 @@ describe("what the person asked about their own data", () => {
 });
 
 describe("breaches that reached this person's data", () => {
-  it("prints the breach's own account of itself", async () => {
+  it("names the breach and states how it was assessed", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    expect(
-      screen.getByText("Namn och adresser ur medlemsforteckningen."),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Mottagaren ombads radera meddelandet."),
-    ).toBeTruthy();
+    expect(screen.getByText("Felskickad medlemslista")).toBeTruthy();
+    expect(screen.getByText("Vad incidenten gällde")).toBeTruthy();
+  });
+
+  it("carries none of the board's account of the incident", async () => {
+    /*
+     * The description, the consequences and the measures are one text per
+     * breach, written about everybody it touched. A breach that reached four
+     * flats has one account of all four, so serving it on each subject's own
+     * report would hand each of them the others' details - on the document the
+     * association produces as evidence that it handles personal data properly.
+     *
+     * Art. 34(2) has that account communicated to each affected person as its
+     * own act, and the section records the date of that instead. Asserted as
+     * absence, on the field names as well as the values, because a column added
+     * back would otherwise pass every case here.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    for (const heading of ["Vad incidenten omfattade", "Följder", "Åtgärder"]) {
+      expect(screen.queryByText(heading)).toBeNull();
+    }
   });
 
   it("carries nothing about why the board decided as it did", async () => {

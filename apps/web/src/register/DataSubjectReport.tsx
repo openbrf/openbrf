@@ -832,7 +832,15 @@ export function DataSubjectReport({
                   "register.person.report.field.apartment",
                   "register.person.report.field.event",
                   "register.person.report.field.triggeredOn",
-                  "register.person.report.field.dueOn",
+                  /*
+                   * Its own label, and not the one the data subject requests
+                   * use. This is the two-week window Lag (2026:484) 3 kap.
+                   * gives for filing with Lantmateriet, which 3 kap. 10 § lets
+                   * that authority order in under penalty of a fine; the other
+                   * is the month art. 12(3) gives for answering the person.
+                   * Two clocks, two duties, two sentences.
+                   */
+                  "register.person.report.field.reportDueOn",
                 ]}
               >
                 {report.registerReportObligations.map((obligation) => (
@@ -1481,19 +1489,23 @@ export function DataSubjectReport({
             {/*
              * Breaches that reached this person's data.
              *
-             * The breach's own account of itself, and nothing about why the
-             * board decided as it did: that is a fact about the association's
-             * compliance rather than about this person's data, and art. 15
-             * gives them the second.
+             * Nothing about why the board decided as it did: that is a fact
+             * about the association's compliance rather than about this
+             * person's data, and art. 15 gives them the second.
+             *
+             * And nothing of the board's account of the incident either. The
+             * description, the consequences and the measures are one text per
+             * breach, written about everybody it touched, so serving them here
+             * would hand each subject the others' details. Art. 34(2) has that
+             * account communicated to each affected person as its own act,
+             * which is what the last column records the date of.
              */}
             <Section titleKey="register.person.report.section.personalDataBreaches">
               <Rows
                 empty={report.personalDataBreaches.length === 0}
                 headings={[
                   "register.person.report.field.breachDiscovered",
-                  "register.person.report.field.breachData",
-                  "register.person.report.field.breachEffects",
-                  "register.person.report.field.breachMeasures",
+                  "register.person.report.field.breachTitle",
                   "register.person.report.field.breachRisk",
                   "register.person.report.field.imyNotified",
                   "register.person.report.field.informedOn",
@@ -1504,9 +1516,7 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>
                       {day(breach.discoveredAt) ?? nothing}
                     </td>
-                    <td className={TEXT_CELL}>{breach.dataDescription}</td>
-                    <td className={TEXT_CELL}>{breach.effects}</td>
-                    <td className={TEXT_CELL}>{breach.measures}</td>
+                    <td className={TEXT_CELL}>{breach.title}</td>
                     <td className={TEXT_CELL}>
                       {breach.risk === null
                         ? nothing

@@ -356,6 +356,21 @@ export class BreachService {
     );
 
     const discoveredAt = input.discoveredAt ?? existing.discoveredAt;
+    if (
+      input.discoveredAt !== undefined &&
+      input.discoveredAt.getTime() > Date.now()
+    ) {
+      /*
+       * The same rule `record` applies, and it matters more here: a corrected
+       * discovery date is a new clock, and the transaction below enqueues the
+       * reminder from it. A date in the future would give the association a
+       * bound it has not started counting towards and a reminder timed to it.
+       */
+      throw new BreachError(
+        "A breach cannot have been discovered in the future.",
+        "discovered-in-future",
+      );
+    }
     /*
      * The values the row will hold, not the ones this call names. An omitted
      * field leaves the stored one standing, so reading `null` for it would let
@@ -374,9 +389,21 @@ export class BreachService {
           : input.delayReasons,
     });
 
+    /*
+     * Whether this call touches a fact the decision rests on. The refusal above
+     * reads that outside the transaction, so a `decide` committing in the gap
+     * would let these fields change after the decision they were decided on -
+     * which is the whole of what `already-decided` exists to prevent. Writes
+     * that only add a later act stay unconditional, because those are the acts
+     * a decided breach is meant to accept.
+     */
+    const decidedFacts = changed.some((field) => !LATER_ACTS.has(field));
+
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.personalDataBreach.update({
-        where: { id: breachId },
+      const { count } = await tx.personalDataBreach.updateMany({
+        where: decidedFacts
+          ? { id: breachId, decidedAt: null }
+          : { id: breachId },
         data: {
           title: input.title,
           description: input.description,
@@ -393,8 +420,13 @@ export class BreachService {
           subjectsInformedAt: input.subjectsInformedAt,
           delayReasons: input.delayReasons,
         },
-        select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
       });
+      if (count === 0) {
+        throw new BreachError(
+          "The facts of a decided breach are the record of what was decided on.",
+          "already-decided",
+        );
+      }
 
       /*
        * A corrected discovery date is a new clock, so a new reminder is
@@ -426,6 +458,10 @@ export class BreachService {
         tx,
       );
 
+      const row = await tx.personalDataBreach.findUniqueOrThrow({
+        where: { id: breachId },
+        select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
+      });
       return toView(row, new Date());
     });
   }
@@ -512,8 +548,15 @@ export class BreachService {
     const now = new Date();
 
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.personalDataBreach.update({
-        where: { id: breachId },
+      /*
+       * Undecided is asked as part of the write. The refusal above reads it
+       * outside this transaction, so two board members deciding within the same
+       * moment would both pass it: the second would overwrite the first
+       * decision and append a second `PERSONAL_DATA_BREACH_DECIDED` to a log
+       * that has no uniqueness constraint and cannot be corrected.
+       */
+      const { count } = await tx.personalDataBreach.updateMany({
+        where: { id: breachId, decidedAt: null },
         data: {
           risk: input.risk,
           imyNotificationRequired: input.imyNotificationRequired,
@@ -526,6 +569,16 @@ export class BreachService {
           decidedAt: now,
           decidedByPersonId: input.actorPersonId,
         },
+      });
+      if (count === 0) {
+        throw new BreachError(
+          "This breach has already been decided.",
+          "already-decided",
+        );
+      }
+
+      const row = await tx.personalDataBreach.findUniqueOrThrow({
+        where: { id: breachId },
         select: { ...BREACH_SELECT, subjects: SUBJECT_SELECT },
       });
 

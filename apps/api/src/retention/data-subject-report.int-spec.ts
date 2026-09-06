@@ -1604,19 +1604,30 @@ describe("what the person asked, and what reached their data", () => {
 
       expect(report.personalDataBreaches).toHaveLength(1);
       expect(report.personalDataBreaches[0]).toMatchObject({
-        dataDescription: "Namn och adresser ur medlemsforteckningen.",
-        effects: "Mottagaren kunde lasa namn och adresser.",
+        title: `Felskickad lista ${suffix}`,
         risk: "LIKELY",
+        informedAt: "2026-02-12T09:00:00.000Z",
       });
 
       /*
+       * Two things stay in the register rather than travelling here.
+       *
        * Why the association notified IMY, and why it did not tell the people
        * affected, are facts about its own compliance rather than about this
        * person's data. Art. 15 gives them the second.
+       *
+       * And the board's account of the incident - what it covered, the
+       * consequences, the measures - is one text per breach written about
+       * everybody it touched, so each subject's own report would otherwise
+       * carry the others' details. Art. 34(2) has that communicated to each
+       * affected person as its own act, which `informedAt` above records.
        */
       const serialised = JSON.stringify(report.personalDataBreaches);
       expect(serialised).not.toContain("obehorig mottagare");
       expect(serialised).not.toContain("Risken bedomdes");
+      expect(serialised).not.toContain("Namn och adresser");
+      expect(serialised).not.toContain("Mottagaren kunde lasa");
+      expect(serialised).not.toContain("ombads radera");
     } finally {
       await prisma.personalDataBreachSubject.deleteMany({
         where: { breachId: breach.id },

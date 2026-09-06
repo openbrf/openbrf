@@ -116,16 +116,37 @@ export interface ReportDataSubjectRequest {
  * itself - never the board's grounds for its decisions, which are about the
  * association's compliance rather than about this person.
  */
+/**
+ * A breach that reached this person's data, and what the association did about
+ * it - not its account of what happened.
+ *
+ * `dataDescription`, `effects` and `measures` are deliberately absent, and this
+ * is the one place on the report where a section says less than the register
+ * behind it. Those three are one text per breach, written once about everybody
+ * it touched: a breach reaching four flats has one description of all four, and
+ * a board writing what it knows writes what it knows. Serving that text on each
+ * subject's own report would disclose the others' details to each of them, on
+ * the document the association produces as evidence that it handles personal
+ * data properly.
+ *
+ * The person is not left without them. Art. 34(2) requires the nature, the
+ * likely consequences and the measures to be communicated to each affected
+ * person where the risk is high, and that communication is its own act - the
+ * one `informedAt` below records the date of. This document answers art. 15,
+ * which gives a person their own data and information about the processing of
+ * it; the association's narrative of an incident is a record about the
+ * incident.
+ *
+ * What stays is what is theirs: that a breach reached their data, when it was
+ * discovered, how it was assessed, whether the supervisory authority was told
+ * and whether they themselves were. The title stays with them because a report
+ * has to name what it is telling them about, and it is one line rather than the
+ * board's account of everyone involved.
+ */
 export interface ReportPersonalDataBreach {
   breachId: string;
   title: string;
-  /** Which store and which rows, in the board's own words. */
-  dataDescription: string;
   discoveredAt: string;
-  /** The likely consequences, art. 33(3)(c). */
-  effects: string;
-  /** What was done about it, art. 33(3)(d). */
-  measures: string;
   risk: "UNLIKELY" | "LIKELY" | "HIGH" | null;
   imyNotifiedAt: string | null;
   /** When this person was told, or null where they have not been. */
