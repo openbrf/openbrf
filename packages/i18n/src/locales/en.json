@@ -366,7 +366,7 @@
           "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
           "newsComments": "News comments",
-          "boardMailbox": "Correspondence with the board's mailbox",
+          "boardMailbox": "Correspondence with the board mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
@@ -457,6 +457,8 @@
           "proxyGround": "Ground",
           "authorised": "Proxy authorisation dated",
           "attachments": "Attachments",
+          "correspondent": "Correspondent",
+          "threadStatus": "Thread",
           "reportBasis": "Case under 3 kap. 3 §",
           "reversalKind": "What happened",
           "reversedOn": "Reversed"

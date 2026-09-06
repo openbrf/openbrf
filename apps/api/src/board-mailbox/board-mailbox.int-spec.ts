@@ -106,8 +106,20 @@ const manager = {
  */
 const heldResident = {
   personId: `mailbox-held-${suffix}`,
-  email: `mailbox-held-${suffix}@exempel.se`,
+  /*
+   * Registered with capitals, and the letters below arrive in lower case.
+   *
+   * Which is the ordinary way round: a person types their address into a form
+   * however they write it, and a mail client sends the envelope in whatever case
+   * it likes. The blind index normalises, so the two still match - and that is
+   * exactly the case where the address the association holds on a thread is not
+   * the address it holds on the person.
+   */
+  email: `Mailbox-Held-${suffix}@Exempel.se`,
 };
+
+/** The same address as the envelope carries it, which is how a thread stores it. */
+const heldResidentEnvelope = heldResident.email.toLowerCase();
 
 const actors = [
   administrator,
@@ -1476,7 +1488,7 @@ describe("the data subject access report", () => {
       {
         uid: "uid-report",
         raw: letter({
-          from: heldResident.email,
+          from: heldResidentEnvelope,
           subject,
           body: "En fraga fran en boende.",
           messageId: `report-${suffix}@exempel.se`,
@@ -1509,7 +1521,13 @@ describe("the data subject access report", () => {
       (thread) => thread.subject === subject,
     );
     expect(listed).toBeDefined();
-    expect(listed?.correspondentEmail).toBe(heldResident.email);
+    // The address on the thread, not the one on the person. They index the same,
+    // which is what found this section at all, but only one of them is what the
+    // association is holding on the row the document is answering for - and a
+    // report that printed the registered spelling back would be stating a value
+    // it does not have, about a correspondent it deliberately does not resolve.
+    expect(listed?.correspondentEmail).toBe(heldResidentEnvelope);
+    expect(listed?.correspondentEmail).not.toBe(heldResident.email);
     expect(listed?.messages[0]?.body).toContain("En fraga fran en boende.");
     // The date the purge will reach it, derived rather than stored.
     expect(listed?.erasableFrom).not.toBe("");

@@ -457,6 +457,8 @@
           "proxyGround": "Grund",
           "authorised": "Fullmakt daterad",
           "attachments": "Bilagor",
+          "correspondent": "Korrespondent",
+          "threadStatus": "Tråd",
           "reportBasis": "Fall enligt 3 kap. 3 §",
           "reversalKind": "Vad som hände",
           "reversedOn": "Hävd eller återgången"

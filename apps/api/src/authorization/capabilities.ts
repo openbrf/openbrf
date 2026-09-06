@@ -316,7 +316,7 @@ export const CAPABILITIES = [
    */
   "meetings:manage",
   /**
-   * Read the board's shared mailbox (styrelsemail), take a thread on, answer it
+   * Read the board mailbox (styrelsens brevlada), take a thread on, answer it
    * and close it.
    *
    * The board's, and one capability for the whole of it rather than a pair, by

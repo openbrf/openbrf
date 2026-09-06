@@ -8,7 +8,7 @@ import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 
 /**
- * The shared board mailbox (styrelsemail): collecting the board's address into
+ * The board mailbox (styrelsens brevlada): collecting the board's address into
  * this instance, working the threads it produces, and erasing them when their
  * retention runs out.
  *

@@ -331,7 +331,7 @@ model Association {
   /// routes, so it is stored beside the driver rather than assumed.
   smsSenderName String?
 
-  /// The address the board publishes as its own (styrelsemail), and the
+  /// The address the board publishes as its own (styrelsens brevlada), and the
   /// mailbox this instance collects that address's mail from.
   ///
   /// One address and one mailbox, not a list. A housing cooperative has one
@@ -4628,7 +4628,7 @@ model MeetingNoticeDelivery {
 }
 
 // ---------------------------------------------------------------------------
-// The shared board mailbox (styrelsemail).
+// The board mailbox (styrelsens brevlada).
 // ---------------------------------------------------------------------------
 
 /// Where a thread in the board's mailbox stands.

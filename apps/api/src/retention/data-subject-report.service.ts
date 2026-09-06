@@ -679,6 +679,12 @@ export class DataSubjectReportService {
               id: true,
               subject: true,
               status: true,
+              // The address the thread itself holds, rather than the one the
+              // lookup was made with. They index to the same value, which is
+              // what matched them, but the index normalises - so the two can be
+              // spelled differently, and what this document has to state is the
+              // one the association is keeping.
+              correspondentEmailCipher: true,
               createdAt: true,
               lastMessageAt: true,
               messages: {
@@ -1048,42 +1054,52 @@ export class DataSubjectReportService {
           computeEventSignupPurgeDate(signup.occurrence.endsAt),
         ),
       })),
-      boardMailboxThreads: boardMailboxThreads.map(
-        (thread): ReportBoardMailboxThread => ({
-          threadId: thread.id,
-          // The address the report was matched on, which is this person's own
-          // and is already printed at the top of the document.
-          correspondentEmail: personEmail ?? "",
-          subject: thread.subject,
-          status: thread.status,
-          // In full, both directions. What was written to the association and
-          // what it answered are both personal data about the person this
-          // document is for, and a report that gave the question without the
-          // answer would be the half that is easier to produce rather than the
-          // half that was asked for.
-          messages: thread.messages.map((message) => ({
-            direction: message.direction,
-            body: message.body,
-            bodyFromHtml: message.bodyFromHtml,
-            bodyTruncated: message.bodyTruncated,
-            attachments: message._count.attachments,
-            occurredAt: message.occurredAt.toISOString(),
-          })),
-          startedAt: thread.createdAt.toISOString(),
-          lastMessageAt: thread.lastMessageAt.toISOString(),
-          /*
-           * Derived here rather than stored, exactly as the booking's and the
-           * comment's are: a shorter retention window moves every pending date
-           * by that act alone, and this document has to state the date that will
-           * actually apply.
-           *
-           * The earliest date the purge can reach the thread rather than the
-           * date it goes on, because a legal hold suspends the purge.
-           */
-          erasableFrom: computeBoardMailboxPurgeDate(
-            thread.lastMessageAt,
-          ).toISOString(),
-        }),
+      boardMailboxThreads: await Promise.all(
+        boardMailboxThreads.map(
+          async (thread): Promise<ReportBoardMailboxThread> => ({
+            threadId: thread.id,
+            // Read off the thread and not off the person. The lookup went the one
+            // direction this module allows - from a registered address outward to
+            // the threads whose own address indexes the same - and printing the
+            // registered spelling back would state a value the association does
+            // not hold on the row being reported. Decrypting the thread's own
+            // column resolves nothing to anybody: it is the address an envelope
+            // asserted, which is what the document has to answer for.
+            correspondentEmail: await this.encryption.decrypt(
+              "boardMailboxThread.correspondentEmail",
+              thread.correspondentEmailCipher,
+            ),
+            subject: thread.subject,
+            status: thread.status,
+            // In full, both directions. What was written to the association and
+            // what it answered are both personal data about the person this
+            // document is for, and a report that gave the question without the
+            // answer would be the half that is easier to produce rather than the
+            // half that was asked for.
+            messages: thread.messages.map((message) => ({
+              direction: message.direction,
+              body: message.body,
+              bodyFromHtml: message.bodyFromHtml,
+              bodyTruncated: message.bodyTruncated,
+              attachments: message._count.attachments,
+              occurredAt: message.occurredAt.toISOString(),
+            })),
+            startedAt: thread.createdAt.toISOString(),
+            lastMessageAt: thread.lastMessageAt.toISOString(),
+            /*
+             * Derived here rather than stored, exactly as the booking's and the
+             * comment's are: a shorter retention window moves every pending date
+             * by that act alone, and this document has to state the date that will
+             * actually apply.
+             *
+             * The earliest date the purge can reach the thread rather than the
+             * date it goes on, because a legal hold suspends the purge.
+             */
+            erasableFrom: computeBoardMailboxPurgeDate(
+              thread.lastMessageAt,
+            ).toISOString(),
+          }),
+        ),
       ),
       newsComments: newsComments.map((comment): ReportNewsComment => ({
         commentId: comment.id,
