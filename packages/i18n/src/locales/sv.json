@@ -3216,6 +3216,11 @@
         "localDisk": "Filerna ligger på instansens egen disk.",
         "s3": "Filerna ligger i objektlagring hos {{endpoint}}."
       }
+    },
+    "processors": {
+      "seed": {
+        "localDisk": "Foreningens egen lagring pa instansens disk. Ingen utomstaende tar emot filerna, sa det finns inget personuppgiftsbitrade har."
+      }
     }
   }
 }

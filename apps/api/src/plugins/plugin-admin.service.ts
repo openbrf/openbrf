@@ -9,6 +9,10 @@ import {
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { ProcessingActivityService } from "../data-protection/processing-activity.service";
+import { ProcessorAgreementService } from "../data-protection/processor-agreement.service";
+import { ProcessorFactsService } from "../data-protection/processor-facts.service";
+import { pluginProcessorKey } from "../data-protection/processor-key";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
@@ -23,6 +27,7 @@ import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
   PluginConsentMismatchError,
+  PluginRecipientRequiredError,
   PluginNotFoundError,
   PluginSettingsUnavailableError,
   PluginsDisabledError,
@@ -100,6 +105,33 @@ export interface InstallRequest {
    */
   permissions?: readonly PluginPermission[];
   personalData?: readonly PluginPersonalDataCategory[];
+  /**
+   * What the board answered about where the plugin sends personal data
+   * (GDPR art. 28).
+   *
+   * A plugin is not a processor by default: it runs inside the instance's own
+   * process, and code that sends nothing anywhere receives nothing on the
+   * association's behalf. So the consent step asks the one question the
+   * instance cannot answer for itself - whether this plugin sends personal data
+   * outside the instance, and to whom - and the classification follows from the
+   * answer.
+   *
+   * Omitted by the command-line tool, which records no classification: the
+   * recipient reads as not recorded until the board answers on the screen.
+   */
+  processorAgreement?: {
+    sendsPersonalDataOutside: boolean;
+    recipient?: string;
+    classification?: "PROCESSOR" | "INDEPENDENT_CONTROLLER";
+    status?: "IN_PLACE" | "PENDING";
+    counterparty?: string;
+    reference?: string;
+    signedOn?: string;
+    termsConfirmed?: boolean;
+    subProcessorsAuthorised?: boolean;
+    subProcessorNote?: string;
+    note?: string;
+  };
 }
 
 /**
@@ -121,7 +153,79 @@ export class PluginAdminService {
     private readonly catalog: CatalogClient,
     private readonly audit: AuditLogService,
     private readonly restart: RestartCoordinator,
+    /*
+     * The record of who receives personal data, and the record of what the
+     * association processes. A plugin is a recipient and a processing, so
+     * installing one writes to both - and removing one ends the processing
+     * while leaving the recipient's classification for the board to close.
+     */
+    private readonly processors: ProcessorAgreementService,
+    private readonly processing: ProcessingActivityService,
+    private readonly facts: ProcessorFactsService,
   ) {}
+
+  /**
+   * Turns the consent step's answer into a classification.
+   *
+   * "Sends nothing outside" is the ordinary case and is no processor at all:
+   * the plugin runs in the instance's own process, so nothing is handed to
+   * anybody. Answering "yes" makes it a recipient, and which kind is the
+   * board's own call - a service acting on the association's instructions is a
+   * processor, one deciding its own purposes is a controller in its own right.
+   */
+  private async recordPluginProcessor(
+    pluginId: string,
+    answer: NonNullable<InstallRequest["processorAgreement"]>,
+    context: { actorPersonId: string | null },
+  ): Promise<void> {
+    const facts = await this.facts.read();
+
+    if (!answer.sendsPersonalDataOutside) {
+      await this.processors.record(
+        pluginProcessorKey(pluginId),
+        {
+          classification: "NOT_A_PROCESSOR",
+          note:
+            answer.note ??
+            "Tillagget kors inuti instansen och skickar inga personuppgifter vidare.",
+          actorPersonId: context.actorPersonId ?? "",
+        },
+        facts,
+      );
+      return;
+    }
+
+    const recipient = answer.recipient ?? answer.counterparty;
+    if (recipient === undefined || recipient.trim() === "") {
+      throw new PluginRecipientRequiredError();
+    }
+
+    await this.processors.record(
+      pluginProcessorKey(pluginId),
+      {
+        classification: answer.classification ?? "PROCESSOR",
+        status:
+          (answer.classification ?? "PROCESSOR") === "PROCESSOR"
+            ? (answer.status ?? "PENDING")
+            : null,
+        counterparty: answer.counterparty ?? recipient,
+        reference: answer.reference ?? null,
+        signedOn: answer.signedOn == null ? null : new Date(answer.signedOn),
+        termsConfirmed:
+          (answer.classification ?? "PROCESSOR") === "PROCESSOR"
+            ? (answer.termsConfirmed ?? null)
+            : null,
+        subProcessorsAuthorised:
+          (answer.classification ?? "PROCESSOR") === "PROCESSOR"
+            ? (answer.subProcessorsAuthorised ?? null)
+            : null,
+        subProcessorNote: answer.subProcessorNote ?? null,
+        note: answer.note ?? null,
+        actorPersonId: context.actorPersonId ?? "",
+      },
+      facts,
+    );
+  }
 
   async overview(): Promise<PluginsOverview> {
     const records = await this.registry.list();
@@ -258,6 +362,34 @@ export class PluginAdminService {
       personalData: echoed ? (request.personalData ?? []) : entry.personalData,
     });
 
+    /*
+     * After the consent row, and deliberately outside it: the declaration a
+     * reinstall compares against is the permissions and the personal data, and
+     * a classification recorded beside them would make a board's answer about
+     * a mail server look like a change to what the plugin asked for.
+     *
+     * The recipient is keyed on the plugin id rather than on the installed row,
+     * so it survives the reinstall that rewrites that row.
+     */
+    if (request.processorAgreement !== undefined) {
+      await this.recordPluginProcessor(entry.id, request.processorAgreement, {
+        actorPersonId,
+      });
+    }
+
+    /*
+     * And the processing itself, in the art. 30 record. Update-or-create, so a
+     * plugin removed and installed again reads as running rather than ended:
+     * the row was closed with a date, and reinstalling reopens it and refreshes
+     * the declared categories while keeping any wording the board has written.
+     */
+    await this.processing.seedPlugin(entry.id, {
+      name: entry.packageName,
+      personalDataCategories: [
+        ...(echoed ? (request.personalData ?? []) : entry.personalData),
+      ],
+    });
+
     await this.audit.record({
       action: "PLUGIN_INSTALLED",
       actorPersonId,
@@ -293,6 +425,15 @@ export class PluginAdminService {
       targetKind: "plugin",
       targetId: id,
     });
+
+    /*
+     * The processing stops; the row stays with the date it stopped, because
+     * the record has to be able to say that the association did this and until
+     * when. The recipient's classification is left open deliberately: an
+     * agreement covered a period that happened, and closing it is the board's
+     * own act on the data protection screen.
+     */
+    await this.processing.endPlugin(id);
 
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
     return { restarting: true };

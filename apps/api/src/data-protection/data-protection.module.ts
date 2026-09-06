@@ -5,6 +5,7 @@ import { BreachService } from "./breach.service";
 import { DataProtectionController } from "./data-protection.controller";
 import { DataProtectionSeedService } from "./data-protection-seed.service";
 import { ProcessingActivityService } from "./processing-activity.service";
+import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
 import { DataSubjectRequestController } from "./data-subject-request.controller";
 import { DataSubjectRequestService } from "./data-subject-request.service";
@@ -40,11 +41,16 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
     DataSubjectRequestService,
     ProcessingActivityService,
     ProcessorFactsService,
+    ProcessorAgreementService,
     DataProtectionSeedService,
   ],
   exports: [
     DataSubjectRequestService,
     ProcessingActivityService,
+    ProcessorAgreementService,
+    // The plugin module records a recipient and a processing on install, and
+    // both need to know what this instance is configured to hand data to.
+    ProcessorFactsService,
     DataProtectionSeedService,
   ],
 })

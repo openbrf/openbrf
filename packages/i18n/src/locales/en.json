@@ -3216,6 +3216,11 @@
         "localDisk": "The files are on the instance's own disk.",
         "s3": "The files are in object storage at {{endpoint}}."
       }
+    },
+    "processors": {
+      "seed": {
+        "localDisk": "The association's own storage on the instance's disk. Nobody outside receives the files, so there is no processor here."
+      }
     }
   }
 }

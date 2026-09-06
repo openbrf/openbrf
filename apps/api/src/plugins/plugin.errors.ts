@@ -52,6 +52,22 @@ export class PluginConsentMismatchError extends DomainError {
   }
 }
 
+/**
+ * The board said the plugin sends personal data outside the instance and did
+ * not say to whom.
+ *
+ * A recipient with no name is not a record of anything: GDPR art. 30(1)(d)
+ * asks who receives the data, and art. 28 asks what agreement covers them.
+ */
+export class PluginRecipientRequiredError extends DomainError {
+  readonly status = HttpStatus.BAD_REQUEST;
+  readonly reason = "recipient-required";
+
+  constructor() {
+    super("Name who the plugin sends personal data to.");
+  }
+}
+
 export class PluginsDisabledError extends DomainError {
   readonly status = HttpStatus.CONFLICT;
   readonly reason = "plugins-disabled";

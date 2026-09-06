@@ -17,7 +17,9 @@ import {
 import { BreachReminderService } from "./breach-reminder.service";
 import { DataProtectionSeedService } from "./data-protection-seed.service";
 import { ProcessingActivityService } from "./processing-activity.service";
+import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
+import type { ProcessorView } from "./processor-agreement.service";
 import { SEED_KEYS } from "./processing-activity-seed";
 import type { ProcessingRecord } from "./processing-activity.service";
 import { BREACH_REMINDER_QUEUE } from "./breach-reminder.queue";
@@ -782,5 +784,164 @@ describe("record of processing", () => {
       await app.get(DataProtectionSeedService).seedIfConfigured();
       expect(await prisma.processingActivity.count()).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("processors", () => {
+  async function listProcessors(): Promise<ProcessorView[]> {
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/processors",
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json<ProcessorView[]>();
+  }
+
+  function classify(processorKey: string, payload: Record<string, unknown>) {
+    return inject({
+      method: "PUT",
+      url: `/api/data-protection/processor-agreements/${processorKey}`,
+      payload,
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("lists what the instance hands data to, unclassified until the board says", async () => {
+    const processors = await listProcessors();
+    const keys = processors.map((processor) => processor.processorKey);
+
+    // Storage and hosting always exist. Hosting because somebody runs the
+    // machine and the instance cannot see who; storage because there is always
+    // somewhere the files go.
+    expect(keys).toContain("storage");
+    expect(keys).toContain("hosting");
+
+    const hosting = processors.find((p) => p.processorKey === "hosting");
+    // Not recorded is the absence of a row: a question the screen asks rather
+    // than a gap it hides.
+    expect(hosting?.state).toBe("notRecorded");
+    expect(hosting?.agreement).toBeNull();
+  });
+
+  it("suggests that the association's own disk is no processor", async () => {
+    const processors = await listProcessors();
+    const storage = processors.find((p) => p.processorKey === "storage");
+
+    // Under the local driver only. Asking a board to research its own hard
+    // drive would be asking it to answer a question already answered.
+    expect(storage?.seededClassification).toBe("NOT_A_PROCESSOR");
+  });
+
+  it("refuses an agreement in place without the art. 28(3) terms confirmed", async () => {
+    /*
+     * art. 28(3) lists what the contract must set out. An agreement without
+     * them is not one the article recognises, so it cannot be recorded as in
+     * place - which is the difference between a record that demonstrates
+     * compliance and one that merely has rows in it.
+     */
+    const response = await classify("hosting", {
+      classification: "PROCESSOR",
+      status: "IN_PLACE",
+      counterparty: "Driftleverantoren AB",
+      signedOn: "2026-02-01",
+      termsConfirmed: false,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("terms-required");
+  });
+
+  it("refuses a processor with nobody named, and a non-processor with no reason", async () => {
+    const nameless = await classify("hosting", {
+      classification: "PROCESSOR",
+      status: "PENDING",
+    });
+    expect(nameless.statusCode).toBe(400);
+    expect(reasonOf(nameless)).toBe("counterparty-required");
+
+    const unexplained = await classify("hosting", {
+      classification: "NOT_A_PROCESSOR",
+    });
+    expect(unexplained.statusCode).toBe(400);
+    expect(reasonOf(unexplained)).toBe("note-required");
+  });
+
+  it("refuses the agreement fields on a classification that has no agreement", async () => {
+    const response = await classify("hosting", {
+      classification: "INDEPENDENT_CONTROLLER",
+      counterparty: "Nagon annan",
+      note: "Bestammer sina egna andamal.",
+      termsConfirmed: true,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("classification-inconsistent");
+  });
+
+  it("refuses a recipient this instance hands nothing to", async () => {
+    // No SMS provider is configured, so an agreement about an SMS gateway
+    // would be a false entry in a statutory record.
+    const response = await classify("sms", {
+      classification: "PROCESSOR",
+      status: "PENDING",
+      counterparty: "Nagon operator",
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(reasonOf(response)).toBe("processor-not-found");
+  });
+
+  it("records one, and replaces it by closing the row it stood on", async () => {
+    const first = await classify("hosting", {
+      classification: "PROCESSOR",
+      status: "PENDING",
+      counterparty: "Driftleverantoren AB",
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json<ProcessorView>().state).toBe("pending");
+    const firstId = first.json<ProcessorView>().agreement?.agreementId ?? "";
+
+    const second = await classify("hosting", {
+      classification: "PROCESSOR",
+      status: "IN_PLACE",
+      counterparty: "Driftleverantoren AB",
+      signedOn: "2026-02-01",
+      termsConfirmed: true,
+      subProcessorsAuthorised: true,
+      subProcessorNote: "Underbitraden enligt bilaga 2.",
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json<ProcessorView>().state).toBe("inPlace");
+
+    /*
+     * Dated rows rather than an edit in place: how a recipient was classified,
+     * and which agreement covered it, is a fact about a period.
+     */
+    const replaced = await prisma.processorAgreement.findUniqueOrThrow({
+      where: { id: firstId },
+      select: { endedAt: true, endReason: true },
+    });
+    expect(replaced.endedAt).not.toBeNull();
+    expect(replaced.endReason).toBe("replaced");
+  });
+
+  it("keeps the counterparty out of the audit log", async () => {
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PROCESSOR_AGREEMENT_RECORDED" },
+      orderBy: [{ createdAt: "desc" }],
+    });
+
+    const context = JSON.stringify(entry.context);
+    expect(context).not.toContain("Driftleverantoren");
+    expect(context).toContain("PROCESSOR");
+  });
+
+  it("answers the plugin views from the same rows", async () => {
+    const states = await app.get(ProcessorAgreementService).forPlugins();
+
+    // Nothing is installed in this suite, so the map is empty rather than
+    // absent: a plugin with no classification reads as not recorded.
+    expect(states.size).toBe(0);
   });
 });

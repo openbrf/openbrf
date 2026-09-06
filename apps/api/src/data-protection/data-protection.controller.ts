@@ -19,6 +19,11 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { actingPersonId } from "../registers/acting-person";
 import { BreachService, type BreachView } from "./breach.service";
 import {
+  ProcessorAgreementService,
+  type ProcessorView,
+} from "./processor-agreement.service";
+import { ProcessorFactsService } from "./processor-facts.service";
+import {
   ProcessingActivityService,
   type ProcessingActivityView,
   type ProcessingRecord,
@@ -101,6 +106,27 @@ const activitySchema = z.object({
   securityMeasures: z.string().trim().max(2000).nullable().optional(),
 });
 
+/** How a recipient is classified, and the agreement where there is one. */
+const agreementSchema = z.object({
+  classification: z.enum([
+    "PROCESSOR",
+    "NOT_A_PROCESSOR",
+    "INDEPENDENT_CONTROLLER",
+  ]),
+  status: z.enum(["IN_PLACE", "PENDING"]).nullable().optional(),
+  counterparty: z.string().trim().max(200).nullable().optional(),
+  reference: z.string().trim().max(200).nullable().optional(),
+  signedOn: z.iso.date().nullable().optional(),
+  termsConfirmed: z.boolean().nullable().optional(),
+  subProcessorsAuthorised: z.boolean().nullable().optional(),
+  subProcessorNote: z.string().trim().max(1000).nullable().optional(),
+  note: z.string().trim().max(1000).nullable().optional(),
+});
+
+const endSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
 const subjectSchema = z.object({
   personId: z.string().trim().min(1).max(64),
 });
@@ -127,7 +153,65 @@ export class DataProtectionController {
   constructor(
     private readonly breaches: BreachService,
     private readonly processing: ProcessingActivityService,
+    private readonly processors: ProcessorAgreementService,
+    private readonly facts: ProcessorFactsService,
   ) {}
+
+  @Get("processors")
+  async listProcessors(): Promise<ProcessorView[]> {
+    return this.processors.list(await this.facts.read());
+  }
+
+  @Put("processor-agreements/:processorKey")
+  @HttpCode(200)
+  async recordProcessorAgreement(
+    @Req() request: RequestWithPrincipal,
+    @Param("processorKey") processorKey: string,
+    @Body() body: unknown,
+  ): Promise<ProcessorView> {
+    const input = agreementSchema.parse(body);
+    return this.processors.record(
+      processorKey,
+      {
+        ...input,
+        signedOn: input.signedOn == null ? null : new Date(input.signedOn),
+        actorPersonId: actingPersonId(request),
+      },
+      await this.facts.read(),
+    );
+  }
+
+  @Post("processor-agreements/external")
+  async recordExternalProcessor(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<ProcessorView> {
+    const input = agreementSchema.parse(body);
+    return this.processors.recordExternal(
+      {
+        ...input,
+        signedOn: input.signedOn == null ? null : new Date(input.signedOn),
+        actorPersonId: actingPersonId(request),
+      },
+      await this.facts.read(),
+    );
+  }
+
+  @Post("processor-agreements/:agreementId/end")
+  @HttpCode(200)
+  async endProcessorAgreement(
+    @Req() request: RequestWithPrincipal,
+    @Param("agreementId") agreementId: string,
+    @Body() body: unknown,
+  ): Promise<{ ended: true }> {
+    const input = endSchema.parse(body);
+    await this.processors.end(
+      agreementId,
+      input.reason ?? null,
+      actingPersonId(request),
+    );
+    return { ended: true };
+  }
 
   @Get("processing-activities")
   async readProcessingRecord(): Promise<ProcessingRecord> {
