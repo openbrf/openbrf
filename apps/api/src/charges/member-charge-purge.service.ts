@@ -182,7 +182,9 @@ export class MemberChargePurgeService implements OnModuleInit {
         }
       } catch (error) {
         // The class of the failure and the party, and nothing the failure was
-        // holding: an exception message here can be quoting a row.
+        // holding: an exception message here can be quoting a row. The id stays
+        // because it is the only handle on an erasure that did not happen, and
+        // a failed transaction wrote no audit entry to carry it - ADR 0007.
         failed += 1;
         this.logger.error(
           `Member charge purge failed for ${party.kind} ${party.id}: ${failureName(
