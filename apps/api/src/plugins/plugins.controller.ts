@@ -30,6 +30,30 @@ const installSchema = z.object({
   /** Echoed from the consent screen so a changed entry is refused. */
   permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16),
   personalData: z.array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES)).max(16),
+  /**
+   * What the board answered about where this plugin sends personal data.
+   *
+   * Optional, because a board may install now and classify the recipient on the
+   * data protection screen afterwards. Until it does, the recipient reads as
+   * not recorded - a question the screen asks rather than a gap it hides.
+   */
+  processorAgreement: z
+    .object({
+      sendsPersonalDataOutside: z.boolean(),
+      recipient: z.string().trim().max(200).optional(),
+      classification: z
+        .enum(["PROCESSOR", "INDEPENDENT_CONTROLLER"])
+        .optional(),
+      status: z.enum(["IN_PLACE", "PENDING"]).optional(),
+      counterparty: z.string().trim().max(200).optional(),
+      reference: z.string().trim().max(200).optional(),
+      signedOn: z.iso.date().optional(),
+      termsConfirmed: z.boolean().optional(),
+      subProcessorsAuthorised: z.boolean().optional(),
+      subProcessorNote: z.string().trim().max(1000).optional(),
+      note: z.string().trim().max(1000).optional(),
+    })
+    .optional(),
 });
 
 const enabledSchema = z.object({ enabled: z.boolean() });

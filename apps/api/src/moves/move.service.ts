@@ -15,6 +15,7 @@ import {
   moveInMail,
   moveOutMail,
 } from "../mail/templates";
+import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
@@ -192,6 +193,13 @@ export class MoveService implements OnModuleInit {
      * screen and entered there.
      */
     private readonly apartmentRegister: ApartmentRegisterService,
+    /*
+     * And the data subject requests, for one thing a move-in has to settle: a
+     * granted erasure request that has not been carried out. The purge refuses
+     * anybody with a current residency, so without this the request would stand
+     * granted and unexecuted for ever.
+     */
+    private readonly dataSubjectRequests: DataSubjectRequestService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -296,6 +304,22 @@ export class MoveService implements OnModuleInit {
         },
         select: { id: true },
       });
+
+      /*
+       * Somebody moving back in has a relationship with the association again,
+       * so the ground a standing erasure request rested on has gone. Closed
+       * here, under the residency lock this transaction already holds, because
+       * the purge would otherwise never reach the request: it refuses anybody
+       * with a current residency, and the request would sit granted and
+       * unexecuted while the person's page kept promising an erasure.
+       *
+       * Not a refusal of the right. Asking again is a new request.
+       */
+      await this.dataSubjectRequests.closeForMoveIn(
+        tx,
+        person.id,
+        input.actorPersonId ?? null,
+      );
 
       let memberRegisterEntryRecorded = false;
       if (input.role === "MEMBER" && !alreadyMember) {

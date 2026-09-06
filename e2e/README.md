@@ -207,6 +207,32 @@ personal identity number is refused, the refusal reaches the screen as a
 sentence, and the sentence does not carry the number. The spec publishes a notice
 of its own and asks for no mailing, so it leaves the mailbox alone.
 
+`33-data-protection.spec.ts` drives what the association has to be able to show
+as controller, and its subject is a set of clocks and refusals that only exist
+against a real database. A breach recorded twelve hours after it was discovered
+is inside the 72 hours of GDPR art. 33(1) and the strip says how many are left;
+one discovered five days ago is over the bound the moment it is written up,
+which is the ordinary case, and the decision on it will not save until the
+reasons for the delay that paragraph requires are given - a refusal the board
+reads as a sentence rather than as a field turning red. Every recipient of
+personal data is then classified through the screen, the list coming from the
+deployment rather than from the test, until the strip says there is nothing left
+unanswered. The privacy notice gains the association's own contact details, and
+a second browser context with no session at all loads `/integritetspolicy` and
+reads them, which is the half that matters: art. 13 is owed to the person, not
+to the board's screen. Last, an erasure is refused for a member who still lives
+here, because the exception in art. 17(3) is the association's statutory duty to
+keep the member register, and the same request is recorded as refused with that
+ground; and the member herself takes her own data with her from her profile
+under art. 20, in a file that carries what she gave the association and not the
+statutory registers, the audit trail or her personal identity number.
+
+There is deliberately no path in it that records a breach through a screen,
+because there is none to drive: a breach is discovered in a hurry, often away
+from a desk, and the board writes it up afterwards. What the screen is for is
+the two decisions art. 33 and art. 34 ask for, and those the spec drives by
+clicking.
+
 `35-board-mailbox.spec.ts` drives the board's shared mailbox, and it is the only
 spec in this package that exercises mail in both directions. Mailpit stands in
 for an association's mail provider twice over: the application relays through its

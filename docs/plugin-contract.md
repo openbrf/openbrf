@@ -115,6 +115,36 @@ The consented set is a snapshot taken at install time. A republished version
 asking for more than the board agreed to is refused at load and reported on
 the admin screen; reinstalling it shows the new declaration for consent.
 
+## Where the plugin sends personal data
+
+The manifest cannot answer this one, so the consent screen asks the board.
+
+A plugin is not a data processor by default. It runs inside the instance's own
+process, on the association's own server, and code that sends nothing anywhere
+receives nothing on the association's behalf - there is no recipient, and GDPR
+art. 28 wants an agreement with a recipient. So the install step asks the single
+question the instance cannot settle for itself: does this plugin send personal
+data outside the instance, and if so to whom.
+
+"No" records the plugin as a recipient that is not a processor, with the reason
+written down. "Yes" names the recipient and asks the board to classify it - a
+service acting on the association's instructions is a processor and needs an
+agreement with the terms art. 28(3) requires and the prior authorisation of
+sub-processors art. 28(2) requires; one deciding its own purposes is an
+independent controller, which needs no such agreement. Either way the answer
+lands in the association's record of who receives personal data, next to the
+SMTP server, the SMS provider and the object storage.
+
+Installing a plugin also writes it into the record of processing activities
+(art. 30) with the categories the manifest declared, and removing one closes
+that processing while leaving the recipient's classification standing for the
+board to close: the plugin is gone, the fact that it once received data is not.
+
+The command-line tool answers neither question. Running the command is the
+consent, and there is no screen for a board to classify anything on, so the
+plugin reads as a recipient nobody has classified until somebody answers on the
+admin screen. That is the honest state rather than a silent "not a processor".
+
 ## The server entry point
 
 A **prebuilt CommonJS bundle** whose only externals are host packages. It

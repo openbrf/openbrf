@@ -204,6 +204,23 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "meetings:manage",
   },
   {
+    to: "/data-protection",
+    // Under the module's own namespace, like the meetings entry above: the
+    // label is this module's word for itself and moves with it.
+    labelKey: "dataProtection.navLabel",
+    // One capability. The four records behind this door are one duty - showing
+    // that the association processes lawfully, GDPR art. 5(2) - and a board
+    // that reached one of them and not the others could not answer for it.
+    //
+    // No any-of list, and the contrast with motions is the same one meetings
+    // draws: there is no member's half here to be shut out of. What a person
+    // holds about their own data is exercised on their own profile (the export)
+    // or recorded by the board on the person's page in the register, which is
+    // gated on the address book rather than here, because that is a fact about
+    // one named person rather than about the association.
+    capability: "dataProtection:manage",
+  },
+  {
     to: "/news",
     // The reading side's own word for itself, under its own namespace, so the
     // label moves with the feature. The board's writing side is a separate entry

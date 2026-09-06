@@ -1527,3 +1527,112 @@ describe("what producing the report records", () => {
     ).resolves.toBe(before);
   });
 });
+
+describe("what the person asked, and what reached their data", () => {
+  it("lists their requests with both grounds and the board's reasons", async () => {
+    /*
+     * Theirs by definition. Art. 15 gives a person what the association holds
+     * about them, and a decision the board took about their erasure is that -
+     * with its reasons, which art. 12(4) requires a refusal to state.
+     */
+    const request = await prisma.dataSubjectRequest.create({
+      data: {
+        personId: subject.personId,
+        kind: "ERASURE",
+        requestedOn: new Date("2026-03-01T00:00:00.000Z"),
+        ground: "Jag har flyttat och vill inte finnas kvar.",
+        erasureGround: "NO_LONGER_NECESSARY",
+        decision: "REFUSED",
+        erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+        decisionGround: "Medlemsforteckningen far inte gallras.",
+        decidedAt: new Date("2026-03-08T00:00:00.000Z"),
+        recordedByPersonId: board.personId,
+        decidedByPersonId: board.personId,
+      },
+    });
+
+    try {
+      const report = await reportFor(boardCookie);
+
+      expect(report.dataSubjectRequests).toHaveLength(1);
+      expect(report.dataSubjectRequests[0]).toMatchObject({
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+        erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+        decision: "REFUSED",
+        decisionGround: "Medlemsforteckningen far inte gallras.",
+        // The art. 12(3) month, derived from the request date.
+        dueOn: "2026-04-01",
+      });
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+    }
+  });
+
+  it("lists a breach that reached them, and none of the board's grounds", async () => {
+    const breach = await prisma.personalDataBreach.create({
+      data: {
+        title: `Felskickad lista ${suffix}`,
+        description: "En medlemslista gick till fel mottagare.",
+        discoveredAt: new Date("2026-02-10T08:00:00.000Z"),
+        personalDataCategories: ["name", "email"],
+        dataSubjectCategories: ["member"],
+        dataDescription: "Namn och adresser ur medlemsforteckningen.",
+        effects: "Mottagaren kunde lasa namn och adresser.",
+        measures: "Mottagaren ombads radera meddelandet.",
+        risk: "LIKELY",
+        imyNotificationRequired: true,
+        imyDecisionGround: "Uppgifterna nadde en obehorig mottagare.",
+        imyNotifiedAt: new Date("2026-02-11T09:00:00.000Z"),
+        subjectsInformationRequired: false,
+        subjectsDecisionGround: "Risken bedomdes inte som hog.",
+        decidedAt: new Date("2026-02-11T10:00:00.000Z"),
+        recordedByPersonId: board.personId,
+        subjects: {
+          create: [
+            {
+              personId: subject.personId,
+              informedAt: new Date("2026-02-12T09:00:00.000Z"),
+            },
+          ],
+        },
+      },
+    });
+
+    try {
+      const report = await reportFor(boardCookie);
+
+      expect(report.personalDataBreaches).toHaveLength(1);
+      expect(report.personalDataBreaches[0]).toMatchObject({
+        title: `Felskickad lista ${suffix}`,
+        risk: "LIKELY",
+        informedAt: "2026-02-12T09:00:00.000Z",
+      });
+
+      /*
+       * Two things stay in the register rather than travelling here.
+       *
+       * Why the association notified IMY, and why it did not tell the people
+       * affected, are facts about its own compliance rather than about this
+       * person's data. Art. 15 gives them the second.
+       *
+       * And the board's account of the incident - what it covered, the
+       * consequences, the measures - is one text per breach written about
+       * everybody it touched, so each subject's own report would otherwise
+       * carry the others' details. Art. 34(2) has that communicated to each
+       * affected person as its own act, which `informedAt` above records.
+       */
+      const serialised = JSON.stringify(report.personalDataBreaches);
+      expect(serialised).not.toContain("obehorig mottagare");
+      expect(serialised).not.toContain("Risken bedomdes");
+      expect(serialised).not.toContain("Namn och adresser");
+      expect(serialised).not.toContain("Mottagaren kunde lasa");
+      expect(serialised).not.toContain("ombads radera");
+    } finally {
+      await prisma.personalDataBreachSubject.deleteMany({
+        where: { breachId: breach.id },
+      });
+      await prisma.personalDataBreach.deleteMany({ where: { id: breach.id } });
+    }
+  });
+});

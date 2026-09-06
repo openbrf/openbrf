@@ -30,6 +30,7 @@ import {
   renderNotFound,
   renderPage,
   type SiteChrome,
+  type SiteControllerContact,
   type SiteDocument,
 } from "./site-html";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
@@ -310,20 +311,81 @@ export class SiteRenderer {
     page: SitePage,
     visit: SiteVisit,
   ): Promise<SiteChrome> {
-    const [newsTeasers, eventDates, documents, roster, facts] =
-      await Promise.all([
-        this.teasersFor(page, visit.hasSession),
-        this.eventDatesFor(page, visit.hasSession),
-        hasBlock(page.content, "documentList")
-          ? this.documentsFor(visit.personId)
-          : [],
-        hasBlock(page.content, "boardRoster") ? this.roster.published() : [],
-        hasBlock(page.content, "associationFacts")
-          ? this.associationFacts()
-          : null,
-      ]);
+    const [
+      newsTeasers,
+      eventDates,
+      documents,
+      roster,
+      facts,
+      controllerContact,
+    ] = await Promise.all([
+      this.teasersFor(page, visit.hasSession),
+      this.eventDatesFor(page, visit.hasSession),
+      hasBlock(page.content, "documentList")
+        ? this.documentsFor(visit.personId)
+        : [],
+      hasBlock(page.content, "boardRoster") ? this.roster.published() : [],
+      hasBlock(page.content, "associationFacts")
+        ? this.associationFacts()
+        : null,
+      hasBlock(page.content, "controllerContact")
+        ? this.controllerContact()
+        : null,
+    ]);
 
-    return { ...chrome, newsTeasers, eventDates, documents, roster, facts };
+    return {
+      ...chrome,
+      newsTeasers,
+      eventDates,
+      documents,
+      roster,
+      facts,
+      controllerContact,
+    };
+  }
+
+  /**
+   * How the association is reached as controller, for a notice that asks.
+   *
+   * Read here rather than typed into the page, because GDPR art. 13(1)(a) and
+   * (b) require these details on the notice and a typed copy would go stale the
+   * day the board changed them in settings. Read straight through Prisma, which
+   * is what keeps this inside the module boundary: src/site may not import the
+   * registers or the crypto module, and these columns are plaintext because
+   * both articles exist to have them published.
+   */
+  private async controllerContact(): Promise<SiteControllerContact | null> {
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: {
+        name: true,
+        organizationNumber: true,
+        controllerContactEmail: true,
+        controllerPostalAddress: true,
+        dataProtectionOfficerName: true,
+        dataProtectionOfficerEmail: true,
+        dataProtectionOfficerPhone: true,
+      },
+    });
+    if (association === null) {
+      return null;
+    }
+
+    return {
+      name: association.name,
+      organizationNumber: association.organizationNumber,
+      contactEmail: association.controllerContactEmail,
+      postalAddress: association.controllerPostalAddress,
+      // Appointed means there is an address to reach them at.
+      officer:
+        association.dataProtectionOfficerEmail == null
+          ? null
+          : {
+              name: association.dataProtectionOfficerName,
+              email: association.dataProtectionOfficerEmail,
+              phone: association.dataProtectionOfficerPhone,
+            },
+    };
   }
 
   /**
@@ -561,6 +623,7 @@ export class SiteRenderer {
       documents: [],
       roster: [],
       facts: null,
+      controllerContact: null,
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,

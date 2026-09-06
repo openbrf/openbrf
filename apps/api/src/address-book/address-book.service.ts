@@ -431,6 +431,13 @@ export class AddressBookService {
       firstName: string;
       lastName: string;
       protectedPersonalData: boolean;
+      /*
+       * Required, not optional. The second line of defence below reads the
+       * boolean derived from it, so a projection that stopped selecting the
+       * column has to fail here rather than derive `false` and let a restricted
+       * person into the neighbours' directory.
+       */
+      processingRestrictedAt: Date | null;
       emailCipher?: string | null;
       phoneCipher?: string | null;
       boardPositions: {
@@ -447,6 +454,7 @@ export class AddressBookService {
       firstName: input.person.firstName,
       lastName: input.person.lastName,
       protectedPersonalData: input.person.protectedPersonalData,
+      processingRestricted: input.person.processingRestrictedAt != null,
       apartment: input.apartment,
       role: input.role,
       movedInOn: input.movedInOn,
@@ -805,10 +813,25 @@ function activeBoardPosition(now: Date): Prisma.BoardPositionWhereInput {
 function residentVisibilityWhere(
   viewerPersonId: string | null,
 ): Prisma.PersonWhereInput {
+  /*
+   * A restriction under GDPR art. 18 takes the person out of the neighbours'
+   * directory, on the same rule as protected personal data and for a narrower
+   * reason: showing a name to every household is a use, and art. 18(2) permits
+   * storage rather than use.
+   *
+   * The viewer still sees themselves, exactly as somebody with protected
+   * personal data does. A restriction is about what the association does with
+   * the data, not about hiding it from the person it belongs to - and the board
+   * keeps seeing the row, with the RESTRICTED sign, because it has to be able
+   * to handle the request.
+   */
   if (viewerPersonId === null) {
-    return { protectedPersonalData: false };
+    return { protectedPersonalData: false, processingRestrictedAt: null };
   }
   return {
-    OR: [{ protectedPersonalData: false }, { id: viewerPersonId }],
+    OR: [
+      { protectedPersonalData: false, processingRestrictedAt: null },
+      { id: viewerPersonId },
+    ],
   };
 }

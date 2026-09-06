@@ -17,17 +17,38 @@ import {
  * What the seeded privacy notice asks the board to answer.
  *
  * The headings a data protection notice needs under GDPR art. 13-14: who the
- * controller is, what is processed, why, for how long, what rights the person
- * has, and where to ask. The order is the order those articles put them in.
+ * controller is, who its data protection officer is, what is processed and why,
+ * on what basis and - where that basis is a legitimate interest - which one,
+ * who receives it, whether any of it leaves the EU, how long it is kept, what
+ * rights the person has including withdrawing a consent, whether giving the
+ * data is required and what follows from not giving it, whether any decision is
+ * automated, where to complain, and where to ask. The order is the order those
+ * articles put them in.
+ *
+ * Fifteen headings, and the list is what the coverage check reads: a notice
+ * missing one is a notice that does not answer something art. 13 requires, and
+ * the board is told which one rather than left to compare the article against
+ * its own page.
  */
-const PRIVACY_NOTICE_SECTIONS = [
+export const PRIVACY_NOTICE_SECTIONS = [
   "controller",
+  "dataProtectionOfficer",
   "data",
   "purpose",
+  "legalBasis",
+  "legitimateInterest",
+  "recipients",
+  "thirdCountryTransfers",
   "retention",
   "rights",
+  "withdrawConsent",
+  "provisionRequirement",
+  "automatedDecisions",
+  "complaint",
   "contact",
 ] as const;
+
+export type PrivacyNoticeSection = (typeof PRIVACY_NOTICE_SECTIONS)[number];
 
 /** Far enough down that the notice is never the lowest, i.e. never the home page. */
 const PRIVACY_NOTICE_SORT_ORDER = 1000;

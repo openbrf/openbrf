@@ -705,6 +705,23 @@ export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
     ...(channel === "SMS"
       ? { phoneCipher: { not: null } }
       : { emailCipher: { not: null } }),
+    /*
+     * A standing objection under GDPR art. 21, and a restriction under art. 18.
+     *
+     * A news mailing rests on a legitimate interest (art. 6(1)(f)), which is
+     * exactly the processing art. 21 lets a person object to; the association
+     * could in principle answer with compelling legitimate grounds and does
+     * not, so an objection stops the mailing. A restriction stops it for a
+     * different reason: art. 18(2) permits storage and little else, and sending
+     * is a use.
+     *
+     * Here rather than only at the send, so the count the board is shown before
+     * it publishes and the snapshot the job works from agree by construction.
+     * Neither reaches the summons to a general meeting (kallelse), which rests
+     * on art. 6(1)(c) and is exempt - see meeting-notice.service.ts.
+     */
+    communicationObjectionAt: null,
+    processingRestrictedAt: null,
     residencies: {
       some: {
         role: "MEMBER" as const,

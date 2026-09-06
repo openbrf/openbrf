@@ -166,8 +166,50 @@ model Association {
 
   /// Service-tier retention: days after move-out before service data is
   /// purged. Configurable per association; a fresh instance starts at 365 days
-  /// (12 months), which the setup wizard shows. The purge job is phase 2.
+  /// (12 months), which the setup wizard shows. The purge runs nightly; an
+  /// erasure request brings it forward for one person and a restriction
+  /// suspends it, as a legal hold does.
   retentionDaysAfterMoveOut Int @default(365)
+
+  /// How the association is reached as controller (personuppgiftsansvarig).
+  ///
+  /// GDPR art. 13(1)(a) requires the controller's identity and contact details
+  /// on the privacy notice, and art. 30(1)(a) at the head of the record of
+  /// processing activities. The association's name and organisation number are
+  /// above; nothing here said how to reach it, so a notice could not be
+  /// complete.
+  ///
+  /// Not the SMTP from-address, which names whatever mailbox sends the
+  /// association's mail rather than where a person writes about their data.
+  ///
+  /// Plaintext, and deliberately not encrypted: src/site renders this on a
+  /// public page and may not import the crypto module, and both articles above
+  /// exist to have these details published.
+  controllerContactEmail  String?
+  /// The postal address as one text, written as it goes on an envelope.
+  controllerPostalAddress String?
+
+  /// The data protection officer (dataskyddsombud), where the association has
+  /// appointed one.
+  ///
+  /// GDPR art. 37-39. A housing cooperative rarely meets art. 37(1), so these
+  /// are null in the ordinary case; art. 13(1)(b) and art. 30(1)(a) require the
+  /// contact details wherever an appointment has been made. Appointed means
+  /// dataProtectionOfficerEmail is set: a name with no way to reach it is not
+  /// what either article asks for.
+  dataProtectionOfficerName  String?
+  dataProtectionOfficerEmail String?
+  dataProtectionOfficerPhone String?
+
+  /// A joint controller (gemensamt personuppgiftsansvarig, GDPR art. 26), where
+  /// there is one.
+  ///
+  /// Art. 30(1)(a) has the record name it with its contact details. Rare in a
+  /// housing cooperative, and written both or neither: a name without contact
+  /// details is not what the article asks for. It appears in the record and not
+  /// on the privacy notice, which art. 26(2) treats separately.
+  jointControllerName    String?
+  jointControllerContact String?
 
   /// Board-approved self-signup. Off by default: an instance holding a
   /// statutory register does not accept open registration.
@@ -484,6 +526,27 @@ model Person {
   transfersTo           Transfer[]            @relation("TransferToPerson")
   publicationConsents   PublicationConsent[]
   legalHolds            LegalHold[]
+  dataSubjectRequests   DataSubjectRequest[]
+
+  /// Standing objection to non-statutory communications (GDPR art. 21), dated
+  /// so the record says since when. Null means none stands.
+  ///
+  /// Written when an objection request is granted and cleared when it is
+  /// closed. The news mailers read it before they claim a delivery row; the
+  /// summons to a general meeting (kallelse) never reads it, because a
+  /// statutory summons rests on art. 6(1)(c) and art. 21 reaches neither that
+  /// nor the contract mail a person's own act triggers.
+  communicationObjectionAt DateTime?
+
+  /// Standing restriction of processing (GDPR art. 18), dated for the same
+  /// reason. Null means none stands.
+  ///
+  /// Art. 18(2) permits storage, so this stops uses rather than data: the
+  /// mailings, the resident directory, the published board roster, what a
+  /// plugin reads, and every purge, which is suspended as a legal hold
+  /// suspends it. The board's own screens keep showing the person, because the
+  /// board has to be able to handle the request.
+  processingRestrictedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1664,6 +1727,72 @@ enum AuditAction {
   /// particularly - and the entry carries the period and the row count, never a
   /// name or a figure.
   DEBITING_LIST_EXPORTED
+  /// A personal data breach was recorded (GDPR art. 33(5)). The entry names the
+  /// breach, the categories it touched, the count and the dates, and never the
+  /// title, the description or the board's grounds, which are on the row.
+  PERSONAL_DATA_BREACH_RECORDED
+  /// The facts of a recorded breach were corrected, or a later act on it - the
+  /// notification, the communication - was written down. The entry names which
+  /// fields changed and never their contents.
+  PERSONAL_DATA_BREACH_UPDATED
+  /// The board decided whether to notify IMY and whether to tell the people
+  /// affected. The entry carries the risk, the two answers and how long after
+  /// discovery it was decided; the grounds stay on the row.
+  PERSONAL_DATA_BREACH_DECIDED
+  /// One person the breach reached was told about it (art. 34). The subject is
+  /// that person, so their own access report shows it.
+  PERSONAL_DATA_BREACH_SUBJECT_INFORMED
+  /// The board closed a decided breach. No subject: closing is the
+  /// association's own act.
+  PERSONAL_DATA_BREACH_CLOSED
+
+  /// A processing was written into the record of processing activities
+  /// (GDPR art. 30). No subject: the record describes a processing rather than
+  /// a person. The entry names the row and never its text.
+  PROCESSING_ACTIVITY_RECORDED
+  /// A row of the record was edited by the board. The entry names which fields
+  /// changed and never their contents.
+  PROCESSING_ACTIVITY_UPDATED
+  /// A processing stopped, e.g. the plugin doing it was removed. The row stays
+  /// with its end date; the entry records who ended it.
+  PROCESSING_ACTIVITY_ENDED
+
+  /// A recipient of personal data was classified, and where it is a processor,
+  /// the agreement covering it recorded (GDPR art. 28). The entry names the
+  /// recipient, the classification and the status, never the counterparty.
+  PROCESSOR_AGREEMENT_RECORDED
+  /// A classification or agreement row was closed.
+  PROCESSOR_AGREEMENT_ENDED
+
+  /// A person asked for erasure, objected to a processing or asked for one to
+  /// be restricted (GDPR art. 17, 21, 18). The subject is that person. The
+  /// entry names the kind, the dates and the art. 17(1) ground as a code, and
+  /// never what the person wrote.
+  DATA_SUBJECT_REQUEST_RECORDED
+  /// The board granted or refused a request. The entry carries the decision and
+  /// the art. 17(3) assessment as codes; the board's reasons stay on the row,
+  /// where art. 12(4) needs them to be readable.
+  DATA_SUBJECT_REQUEST_DECIDED
+  /// A request was closed: withdrawn, lifted, executed by the purge, or
+  /// overtaken by the person moving in again. The entry says whether it was
+  /// executed.
+  DATA_SUBJECT_REQUEST_CLOSED
+
+  /// A person exported their own data (GDPR art. 20). Actor and subject are the
+  /// same person, which is what distinguishes it from the board-produced access
+  /// report the DATA_EXPORTED entry records.
+  DATA_PORTABILITY_EXPORTED
+
+  /// The association's contact details as controller, its data protection
+  /// officer or a joint controller were recorded (GDPR art. 13(1)(a)-(b),
+  /// art. 30(1)(a)). Audited although it is a settings write, because the
+  /// appointment is an act the board answers for. The entry names which fields
+  /// changed and never their values.
+  ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED
+  /// Missing art. 13 headings were appended to the privacy notice. The entry
+  /// names which headings; the text under them stays the board's own, written
+  /// in the site editor.
+  PRIVACY_NOTICE_HEADINGS_ADDED
   /// A board member took a thread in the shared mailbox on, so that every other
   /// seat can see who is dealing with it. No subject: the correspondent is an
   /// address the envelope asserted and is deliberately never resolved to a
@@ -2222,6 +2351,9 @@ model MediaFile {
   updatedAt DateTime @updatedAt
 
   @@index([createdAt])
+  /// Scanned by the purge for the same reason as the document index: the
+  /// uploader link is detached and the file stays.
+  @@index([uploadedByPersonId])
   @@map("media_file")
 }
 
@@ -2501,6 +2633,15 @@ model Issue {
 
   photos IssuePhoto[]
 
+  /// When the issue was closed, i.e. when its status became DONE, and null
+  /// again if it is reopened.
+  ///
+  /// Its own column rather than reading updatedAt, which is what a public-form
+  /// issue's retention clock has to run on: detaching a reporter from an issue
+  /// is an update, so updatedAt would push the purge date away every time the
+  /// purge touched a neighbouring row.
+  closedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2605,6 +2746,9 @@ model Document {
   updatedAt DateTime @updatedAt
 
   @@index([audience, category])
+  /// The purge scans this column to find the documents a person uploaded, so
+  /// that the link can be detached while the document itself stays.
+  @@index([uploadedByPersonId])
   @@map("document")
 }
 
@@ -2669,6 +2813,486 @@ model LegalHold {
 
   @@index([personId, releasedAt])
   @@map("legal_hold")
+}
+
+// ---------------------------------------------------------------------------
+// Data protection: the association's own obligations as controller.
+//
+// Everything below is service tier. No append-only trigger, no REVOKE in
+// sql/harden-runtime-role.sql and no retention floor: GDPR art. 33(5) and
+// art. 30 require these records to be kept and to be correctable, and nothing
+// in BRL or EFL makes them statutory archive. A row is closed with a date
+// rather than deleted, so the record explains itself afterwards, and every act
+// on one is audited in the same transaction, which is where the history stands
+// if a row is ever gone.
+//
+// Person references outside a subject column are plain String columns, for the
+// reason the audit log gives above: a referential action would either rewrite
+// the row or veto erasure of the person it names.
+// ---------------------------------------------------------------------------
+
+/// How likely a personal data breach is to harm the people it reached.
+///
+/// The threshold GDPR art. 33(1) sets for notifying IMY is a risk at all, and
+/// the one art. 34(1) sets for telling the people affected is a high risk, so
+/// the three values are the two thresholds and what falls below them.
+enum BreachRisk {
+  /// Unlikely to result in a risk: art. 33(1) does not require notification.
+  UNLIKELY
+  /// A risk, so IMY is notified; below the art. 34(1) threshold.
+  LIKELY
+  /// A high risk, so the people affected are told as well (art. 34(1)).
+  HIGH
+}
+
+/// The grounds GDPR art. 6(1) gives for processing personal data at all.
+enum LegalBasis {
+  /// Art. 6(1)(a).
+  CONSENT
+  /// Art. 6(1)(b): the membership contract.
+  CONTRACT
+  /// Art. 6(1)(c): the statutory registers and what other law requires.
+  LEGAL_OBLIGATION
+  /// Art. 6(1)(d).
+  VITAL_INTERESTS
+  /// Art. 6(1)(e).
+  PUBLIC_TASK
+  /// Art. 6(1)(f).
+  LEGITIMATE_INTEREST
+}
+
+/// Where a row of the record of processing activities came from.
+///
+/// Seeded rows describe what the instance itself does and are refreshed from
+/// its settings until the board edits them; a BOARD row is one the board wrote,
+/// because an association processes personal data outside the application too.
+enum ProcessingActivitySource {
+  STATUTORY_REGISTER
+  SERVICE_DATA
+  PLUGIN
+  BOARD
+}
+
+/// What kind of recipient a processor agreement row is about.
+enum ProcessorKind {
+  SMTP
+  SMS
+  STORAGE
+  /// Whoever runs the instance.
+  HOSTING
+  PLUGIN
+  /// A recipient the board recorded itself.
+  EXTERNAL
+}
+
+/// The art. 4(8) question, answered before an agreement is asked for.
+///
+/// Not every recipient is a processor, and asking for an agreement from one
+/// that is not would make the record wrong rather than complete.
+enum ProcessorClassification {
+  /// Processes personal data on the association's behalf (art. 4(8)), so
+  /// art. 28(3) requires a written agreement.
+  PROCESSOR
+  /// No processor at all: code running inside the instance's own process, or
+  /// storage on the association's own disk. Nothing to agree.
+  NOT_A_PROCESSOR
+  /// Decides its own purposes, so it is a controller in its own right and
+  /// art. 28 does not apply to it.
+  INDEPENDENT_CONTROLLER
+}
+
+/// Whether the agreement art. 28(3) requires is in place for a processor.
+enum ProcessorAgreementStatus {
+  IN_PLACE
+  /// Being made. A state the board can record honestly rather than leaving the
+  /// row blank, which would read as a question nobody had asked.
+  PENDING
+}
+
+/// What a person asked for about their own data.
+enum DataSubjectRequestKind {
+  /// GDPR art. 17.
+  ERASURE
+  /// GDPR art. 21.
+  OBJECTION
+  /// GDPR art. 18.
+  RESTRICTION
+}
+
+enum DataSubjectRequestDecision {
+  GRANTED
+  REFUSED
+}
+
+/// The ground in GDPR art. 17(1) an erasure request rests on.
+///
+/// Required on the request rather than derived, because art. 17(1) lists
+/// alternatives and which one the person invokes decides what the board has to
+/// weigh: consent withdrawn is answered by asking whether another basis
+/// remains, an objection upheld by art. 21, no longer necessary by the purpose.
+enum ErasureGround {
+  /// Art. 17(1)(a): no longer necessary for the purpose it was collected for.
+  NO_LONGER_NECESSARY
+  /// Art. 17(1)(b): the consent it rested on is withdrawn and no other basis
+  /// applies.
+  CONSENT_WITHDRAWN
+  /// Art. 17(1)(c): an objection under art. 21 that nothing overrides.
+  OBJECTION_UPHELD
+  /// Art. 17(1)(d): the processing was unlawful.
+  UNLAWFUL_PROCESSING
+  /// Art. 17(1)(e): erasure is itself required by law.
+  LEGAL_OBLIGATION_TO_ERASE
+}
+
+/// The art. 17(3) assessment recorded with every decision on an erasure.
+///
+/// An exception disapplies the right rather than supplying a reason to keep
+/// processing, so it is what refuses a request and never what grants one.
+enum ErasureException {
+  /// None applies.
+  NONE
+  /// Art. 17(3)(b): a legal obligation to keep the record. In a housing
+  /// cooperative that is the member register, the apartment register, the
+  /// meeting record, the reporting ledger and the audit log.
+  LEGAL_OBLIGATION_TO_KEEP
+  /// Art. 17(3)(e): a legal claim to establish, exercise or defend, which is
+  /// what a legal hold (rattsligt bevarandekrav) records.
+  LEGAL_CLAIMS
+}
+
+/// A personal data breach (personuppgiftsincident), GDPR art. 4(12).
+///
+/// Art. 33(5) requires the controller to document every breach - the facts, its
+/// effects and the remedial action - so a supervisory authority can verify that
+/// the association decided lawfully. That is what this table is: the record,
+/// the clock and the evidence of the decision. The notification itself is made
+/// in IMY's own e-service, so nothing here submits anything.
+///
+/// Two decisions are recorded with their grounds, because either can lawfully
+/// be "no" and a record that only carried the "yes" cases could not show it:
+/// whether IMY is notified (art. 33(1), which excuses notification only where
+/// the breach is unlikely to result in a risk), and whether the people affected
+/// are told (art. 34(1), with the exemptions in art. 34(3)).
+///
+/// The 72-hour bound, the reminder instant and the state are derived from
+/// discoveredAt, decidedAt and closedAt and never stored, the rule the purge
+/// date follows: a stored deadline would go stale the moment a date is
+/// corrected, and silently.
+model PersonalDataBreach {
+  id String @id @default(cuid())
+
+  title       String
+  /// The facts of the breach (art. 33(5)).
+  description String
+
+  /// When it happened, where the association can tell. Null is honest and
+  /// common: a breach is often found without its start being known.
+  occurredAt DateTime?
+
+  /// When the association became aware of it. The 72 hours of art. 33(1) run
+  /// from here and not from when the row was written, so a breach entered late
+  /// is late on the record rather than fresh.
+  discoveredAt DateTime
+
+  /// What it touched and whose it was: PersonalDataCategory and
+  /// DataSubjectCategory codes from @openbrf/shared, which the record of
+  /// processing activities uses as well (art. 33(3)(a)).
+  personalDataCategories String[]
+  dataSubjectCategories  String[]
+
+  /// Which store and which rows, in the board's own words.
+  dataDescription String
+
+  /// Approximate number of people concerned (art. 33(3)(a)). Null where it is
+  /// not known, which art. 33(4) allows.
+  affectedCount Int?
+
+  /// The likely consequences (art. 33(3)(c)) and the measures taken or proposed
+  /// (art. 33(3)(d)).
+  effects  String
+  measures String
+
+  /// Null until the board decides.
+  risk BreachRisk?
+
+  /// Whether IMY is notified, and why not where it is not (art. 33(1)).
+  imyNotificationRequired Boolean?
+  imyDecisionGround       String?
+  imyNotifiedAt           DateTime?
+  /// The reference IMY's e-service gave the notification.
+  imyReference            String?
+
+  /// Why a notification made later than 72 hours after discovery was late.
+  /// Art. 33(1) requires the reasons to accompany it, so the record carries
+  /// them; required exactly when imyNotifiedAt is past the bound.
+  delayReasons String?
+
+  /// Whether the people affected are told, and the art. 34(3) exemption relied
+  /// on where they are not.
+  subjectsInformationRequired Boolean?
+  subjectsDecisionGround      String?
+  /// When the communication went out, as one act: art. 34(3)(c) allows a public
+  /// notice in place of reaching each person.
+  subjectsInformedAt          DateTime?
+
+  decidedAt         DateTime?
+  decidedByPersonId String?
+
+  /// Closed once the association has nothing left to do about it. Closing
+  /// requires a decision: a breach closed without one would be the record of a
+  /// question nobody answered.
+  closedAt         DateTime?
+  closedByPersonId String?
+
+  recordedByPersonId String
+
+  subjects PersonalDataBreachSubject[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([discoveredAt])
+  @@index([decidedAt, closedAt])
+  @@map("personal_data_breach")
+}
+
+/// One person a breach reached, and whether they have been told.
+///
+/// A row per person rather than a count, because art. 34 is owed to each of
+/// them and their own data subject access report has to be able to find the
+/// breach: the report reads this by personId.
+model PersonalDataBreachSubject {
+  id String @id @default(cuid())
+
+  breachId String
+  breach   PersonalDataBreach @relation(fields: [breachId], references: [id], onDelete: Cascade)
+
+  /// Plain column, not a relation: the record of who a breach reached outlives
+  /// the person's service data, and must not veto their erasure.
+  personId String
+
+  /// Null until the person has been told.
+  informedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([breachId, personId])
+  @@index([personId])
+  @@map("personal_data_breach_subject")
+}
+
+/// One processing in the record of processing activities (registerforteckning),
+/// GDPR art. 30.
+///
+/// Art. 30(5) exempts an organisation with fewer than 250 employees only where
+/// the processing is occasional, carries no risk and holds no special
+/// categories; a housing cooperative's member register is none of those, so the
+/// record is required.
+///
+/// Seeded from what the instance already knows about itself and editable
+/// afterwards, because an association processes personal data outside the
+/// application too. A seeded row the board has not edited keeps following the
+/// instance's settings - a changed storage driver shows up in the record - and
+/// one the board has edited is never overwritten, which is what updatedByPersonId
+/// distinguishes.
+model ProcessingActivity {
+  id String @id @default(cuid())
+
+  name    String
+  /// Why the association processes it (art. 30(1)(b)).
+  purpose String
+
+  /// The basis under art. 6(1), and the statute or the legitimate interest
+  /// behind it. Art. 30 does not itself require the basis; it is here because
+  /// art. 13(1)(c) and (d) require it on the notice and the board should not
+  /// have to answer the same question twice.
+  legalBasis     LegalBasis
+  legalBasisNote String?
+
+  /// Art. 30(1)(c): the categories of data subjects and of personal data, as
+  /// DataSubjectCategory and PersonalDataCategory codes from @openbrf/shared.
+  dataSubjectCategories  String[]
+  personalDataCategories String[]
+
+  /// Art. 30(1)(d): who receives it.
+  recipients String?
+
+  /// Art. 30(1)(e): transfers to a third country and the safeguards for them.
+  thirdCountryTransfer   Boolean @default(false)
+  thirdCountrySafeguards String?
+
+  /// Art. 30(1)(f): the envisaged time limits for erasure.
+  retention String
+
+  /// Art. 30(1)(g): a general description of the art. 32(1) security measures.
+  securityMeasures String?
+
+  source ProcessingActivitySource
+
+  /// Stable identity of a seeded row ("memberRegister", "plugin:occupancy"),
+  /// null for a row the board wrote. Unique, so seeding is idempotent.
+  sourceKey String? @unique
+
+  /// Set when the processing stopped, e.g. a plugin was removed. The row stays:
+  /// the record has to be able to say that the association did this, and until
+  /// when.
+  endedAt DateTime?
+
+  recordedByPersonId String?
+  /// Null while no board member has edited the row, which is what allows the
+  /// seed to keep refreshing its fact-derived fields.
+  updatedByPersonId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source, endedAt])
+  @@map("processing_activity")
+}
+
+/// How one recipient of personal data is classified, and the agreement covering
+/// it where one is required (GDPR art. 28).
+///
+/// The classification comes first and the agreement second, because art. 28(3)
+/// applies to a processor (art. 4(8)) and not to every recipient: a plugin
+/// running inside the instance's own process sends nothing anywhere, an
+/// instance storing files on its own disk has no processor for storage, and a
+/// recipient that decides its own purposes is a controller in its own right.
+/// Asking every recipient for an agreement would make the record wrong.
+///
+/// Dated rows rather than one row edited in place: how a recipient was
+/// classified, and which agreement covered it, is a fact about a period.
+/// Recording a new row closes the open one.
+///
+/// Its own table rather than columns on installed_plugin, because that row is
+/// rewritten on every reinstall while a classification outlives a version.
+/// "Not recorded" is the absence of an open row: a view state, never stored.
+model ProcessorAgreement {
+  id String @id @default(cuid())
+
+  processorKind ProcessorKind
+
+  /// Stable identity of the recipient: "smtp", "sms", "storage", "hosting",
+  /// "plugin:<id>" or "external:<id>".
+  processorKey String
+
+  classification ProcessorClassification
+
+  /// Only for a processor; null for the other two classifications, which need
+  /// no agreement.
+  status ProcessorAgreementStatus?
+
+  /// Who the other party is. Required for a processor and an independent
+  /// controller; meaningless where there is no processor.
+  counterparty String?
+  reference    String?
+  signedOn     DateTime? @db.Date
+
+  /// Whether the agreement carries the terms art. 28(3) requires - subject
+  /// matter and duration, nature and purpose, the data and the subjects, the
+  /// controller's instructions, confidentiality, art. 32 security,
+  /// sub-processing, assistance, deletion or return at the end, and audit. An
+  /// agreement without them is not one art. 28(3) recognises, so it cannot be
+  /// recorded as in place.
+  termsConfirmed Boolean?
+
+  /// Whether the agreement carries the association's prior authorisation of
+  /// sub-processors (art. 28(2)), and which ones, or why there are none.
+  subProcessorsAuthorised Boolean?
+  subProcessorNote        String?
+
+  /// Why there is no processor here, or why the recipient is a controller of
+  /// its own. Required for those two classifications: the reasoning is the
+  /// record.
+  note String?
+
+  /// Closed rather than deleted. "replaced" when a newer row was recorded,
+  /// "driver-changed" when a seeded row stopped describing the instance.
+  endedAt         DateTime?
+  endReason       String?
+  endedByPersonId String?
+
+  /// Null on a seeded row, which no board member recorded.
+  recordedByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([processorKind, processorKey, endedAt])
+  @@map("processor_agreement")
+}
+
+/// What one person asked for about their own data, and what the board decided.
+///
+/// Erasure (art. 17), objection (art. 21) and restriction (art. 18) are one
+/// table because they are one conversation with one person and are answered on
+/// one clock: art. 12(3) gives a month from the request, which is derived from
+/// requestedOn rather than stored.
+///
+/// A refusal is recorded rather than thrown away, because art. 12(4) requires
+/// the person to be told the reasons; decisionGround is where they are.
+model DataSubjectRequest {
+  id String @id @default(cuid())
+
+  /// A relation, as a legal hold's subject is: the row must survive with the
+  /// person, and a person with a standing request must not be deleted out from
+  /// under it.
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Restrict)
+
+  kind        DataSubjectRequestKind
+  requestedOn DateTime               @db.Date
+
+  /// What the person said, in their words.
+  ground String
+
+  /// The art. 17(1) ground an erasure rests on. Required for ERASURE and
+  /// meaningless on the other two kinds.
+  erasureGround ErasureGround?
+
+  /// The issue whose description names the person, where that is what the
+  /// request is about. A person named in free text somebody else wrote has an
+  /// art. 17 request like anybody else, and it is decided here; the purge never
+  /// rewrites a description, so what is then done to the text is the board's own
+  /// act on the issue.
+  ///
+  /// A plain column, deletion-tolerant like the issue's own reporter link.
+  issueId String?
+
+  decision DataSubjectRequestDecision?
+
+  /// The art. 17(3) assessment, written with every decision on an erasure: NONE
+  /// on a grant, and on a refusal the exception relied on - or NONE where the
+  /// art. 17(1) ground itself was not made out, which decisionGround then says.
+  erasureException ErasureException?
+
+  /// The board's own ground for the decision. Required on a refusal (art. 12(4))
+  /// and on every erasure decision, so the record carries what was weighed.
+  decisionGround String?
+
+  decidedAt         DateTime?
+  decidedByPersonId String?
+
+  /// The night the purge executed a granted erasure.
+  executedAt DateTime?
+
+  /// Closed when there is nothing left to do: an objection withdrawn, a
+  /// restriction lifted, an erasure executed or overtaken by a move-in.
+  closedAt         DateTime?
+  closeReason      String?
+  /// Null when the purge closed it, which is what tells execution from a board
+  /// member closing it by hand.
+  closedByPersonId String?
+
+  recordedByPersonId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([personId, kind, closedAt])
+  @@index([kind, decision, closedAt])
+  @@index([issueId])
+  @@map("data_subject_request")
 }
 
 // ---------------------------------------------------------------------------

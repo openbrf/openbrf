@@ -636,6 +636,15 @@ describe("who a mailing goes to", () => {
       expect.objectContaining({
         where: {
           emailCipher: { not: null },
+          /*
+           * A standing objection (GDPR art. 21) or restriction (art. 18) keeps
+           * a member out of the snapshot entirely, rather than being answered
+           * at the send. Here is where the board's count and the job's ledger
+           * are made to agree: a member excluded only at the send would be
+           * counted as addressed and then reported as failed.
+           */
+          communicationObjectionAt: null,
+          processingRestrictedAt: null,
           residencies: {
             some: {
               role: "MEMBER",

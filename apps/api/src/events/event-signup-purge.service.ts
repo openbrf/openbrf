@@ -8,6 +8,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
+  erasureRequestedPersonIds,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
+import {
   EVENT_SIGNUP_RETENTION_DAYS,
   eventSignupPurgeCutoff,
 } from "./event-signup-retention";
@@ -19,11 +23,12 @@ export const EVENT_SIGNUP_PURGE_QUEUE = "event-signup-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own: the import session purge takes
- * 03:23, the motion purge 03:29, the service data purge 03:41 and the booking
- * purge 03:53, and jobs waking together on one small connection pool is a
- * contention nobody gains anything from. Earliest of the five, which leaves the
- * gaps between the others for whatever purges next.
+ * In the small hours, on a minute of its own.
+ *
+ * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues,
+ * 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53 service data.
+ * Jobs waking together on one small connection pool is a contention nobody
+ * gains anything from.
  */
 const PURGE_CRON = "11 3 * * *";
 
@@ -230,15 +235,26 @@ export class EventSignupPurgeService implements OnModuleInit {
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = eventSignupPurgeCutoff(now, retentionDays);
-    const held = await this.heldPersonIds();
+    const withheld = await withheldPersonIds(this.prisma);
+    const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
+      (personId) => !withheld.includes(personId),
+    );
 
     const groups = await this.prisma.eventSignup.groupBy({
       by: ["personId"],
       where: {
-        occurrence: { endsAt: { lte: cutoff } },
+        /*
+         * Either the sign-up's own window has run out, or the person has been
+         * granted erasure, in which case every sign-up of theirs goes however
+         * recent: bringing the purge forward is what the board granted.
+         */
+        OR: [
+          { occurrence: { endsAt: { lte: cutoff } } },
+          ...(requested.length > 0 ? [{ personId: { in: requested } }] : []),
+        ],
         // Spelled conditionally rather than as an empty `notIn`, so what the
         // query asks does not depend on how the client renders a list of none.
-        ...(held.length > 0 ? { personId: { notIn: held } } : {}),
+        ...(withheld.length > 0 ? { personId: { notIn: withheld } } : {}),
       },
       orderBy: [{ personId: "asc" }],
       take: MAX_PERSONS_PER_RUN,
@@ -277,18 +293,53 @@ export class EventSignupPurgeService implements OnModuleInit {
         where: { personId, releasedAt: null },
         select: { id: true },
       });
-      if (held !== null) {
+      const person = await tx.person.findUnique({
+        where: { id: personId },
+        select: { processingRestrictedAt: true },
+      });
+      if (held !== null || person?.processingRestrictedAt != null) {
         /*
-         * Re-checked here rather than trusted from the scan. A hold placed
-         * between the scan and this transaction has to win: the board member who
-         * placed it is entitled to assume it took effect, and this is the moment
-         * where that is either true or a promise nobody kept.
+         * Re-checked here rather than trusted from the scan. A hold placed, or a
+         * restriction recorded, between the scan and this transaction has to
+         * win: whoever asked for it is entitled to assume it took effect, and
+         * this is the moment where that is either true or a promise nobody kept.
+         * A restriction refuses for the reason art. 18(2) gives - the
+         * association may store the data, which makes erasing it the one act
+         * the person asked it not to perform.
          */
         return 0;
       }
 
+      /*
+       * A granted erasure request moves this job's cutoff to now, which is the
+       * whole of what bringing the purge forward means: the same rows, on the
+       * same rule, without waiting out a window the person asked to be freed
+       * from. The request is not closed here - the service-data purge runs last
+       * in the band and closes it, which is why this job still sees it open.
+       */
+      const request = await tx.dataSubjectRequest.findFirst({
+        where: {
+          personId,
+          kind: "ERASURE",
+          decision: "GRANTED",
+          executedAt: null,
+          closedAt: null,
+        },
+        select: { id: true },
+      });
+      /*
+       * A granted erasure drops the bound rather than moving it to now, for the
+       * reason `booking-purge.service.ts` gives: a sign-up to a future date is
+       * the ordinary content of this table, and the scan already matched every
+       * sign-up of theirs however recent.
+       */
       const { count } = await tx.eventSignup.deleteMany({
-        where: { personId, occurrence: { endsAt: { lte: cutoff } } },
+        where: {
+          personId,
+          ...(request === null
+            ? { occurrence: { endsAt: { lte: cutoff } } }
+            : {}),
+        },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them
@@ -323,22 +374,5 @@ export class EventSignupPurgeService implements OnModuleInit {
 
       return count;
     });
-  }
-
-  /**
-   * Everybody a legal hold currently stands against.
-   *
-   * Read whole rather than asked about a shortlist, because the scan needs them
-   * before it chooses its shortlist rather than after. One row per held person at
-   * most, and a hold is a dispute the board entered deliberately, so this is a
-   * handful of ids in a cooperative that has any at all.
-   */
-  private async heldPersonIds(): Promise<string[]> {
-    const holds = await this.prisma.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    return holds.map((hold) => hold.personId);
   }
 }

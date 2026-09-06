@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PluginAdminService } from "./plugin-admin.service";
-import { PluginConsentMismatchError } from "./plugin.errors";
+import {
+  PluginConsentMismatchError,
+  PluginRecipientRequiredError,
+} from "./plugin.errors";
 
 /**
  * The consent gate in front of an install.
@@ -39,6 +42,7 @@ const ENTRY = {
 
 function build() {
   const consent = vi.fn(async () => undefined);
+  const recordProcessor = vi.fn(async () => undefined);
   const service = new PluginAdminService(
     { OPENBRF_PLUGINS_ENABLED: true } as unknown as Env,
     { consent } as never,
@@ -51,15 +55,41 @@ function build() {
     { entry: async () => ENTRY } as never,
     { record: vi.fn(async () => undefined) } as never,
     {} as never,
+    // The recipient's classification, the processing it performs, and what the
+    // instance is configured to hand data to. Recorded on install; the
+    // assertions here are about the consent row, so these only have to exist.
+    { record: recordProcessor } as never,
+    { seedPlugin: vi.fn(async () => undefined) } as never,
+    { read: async () => FACTS } as never,
+    // The association's language for the note the instance writes on a plugin
+    // that hands nothing to anybody.
+    {
+      association: { findUnique: async () => ({ defaultLocale: "sv" }) },
+    } as never,
+    { translatorFor: () => (key: string) => key } as never,
   );
-  return { service, consent };
+  return { service, consent, recordProcessor };
 }
+
+/** What the instance hands personal data to; nothing here depends on it. */
+const FACTS = {
+  smtpHost: null,
+  smtpFromAddress: null,
+  smsDriver: null,
+  smsGatewayUrl: null,
+  storageDriver: "local" as const,
+  s3Endpoint: null,
+  s3Region: null,
+  s3Bucket: null,
+  installedPlugins: [],
+};
 
 let service: PluginAdminService;
 let consent: ReturnType<typeof vi.fn>;
+let recordProcessor: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  ({ service, consent } = build());
+  ({ service, consent, recordProcessor } = build());
 });
 
 /** The declaration the row ended up asserting. */
@@ -191,5 +221,104 @@ describe("the consent echo gate", () => {
 
     expect(recorded().permissions).toEqual(ENTRY.permissions);
     expect(recorded().personalData).toEqual(ENTRY.personalData);
+  });
+});
+
+describe("what the consent step records about the recipient", () => {
+  /** The classification the install wrote, if it wrote one. */
+  function classified(): { classification: string; status?: string | null } {
+    return recordProcessor.mock.calls[0]?.[1] as {
+      classification: string;
+      status?: string | null;
+    };
+  }
+
+  it("records no processor when the plugin sends nothing outside", async () => {
+    /*
+     * The ordinary case. A plugin runs inside the instance's own process, so
+     * code that sends nothing anywhere receives nothing on the association's
+     * behalf and GDPR art. 28(3) has no contract to require.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false },
+      },
+      null,
+    );
+
+    expect(classified().classification).toBe("NOT_A_PROCESSOR");
+  });
+
+  it("refuses to record a recipient nobody named", async () => {
+    /*
+     * art. 30(1)(d) asks who receives the data. "Somewhere outside" is not an
+     * answer a record can carry.
+     *
+     * The error class and not just "it threw": five different failures reach
+     * this path, and a bare assertion would stay green if the recipient stopped
+     * being required and something else refused the install instead. Nothing is
+     * classified either, and nothing is consented: the answer is refused before
+     * the first write, so a rejected install leaves no consent row behind
+     * claiming an install that never happened.
+     */
+    await expect(
+      service.install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: { sendsPersonalDataOutside: true },
+        },
+        null,
+      ),
+    ).rejects.toThrow(PluginRecipientRequiredError);
+
+    expect(recordProcessor).not.toHaveBeenCalled();
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("records a processor with the recipient the board named", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+        },
+      },
+      null,
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "PROCESSOR",
+      // Being made, not in place: the board has not said an agreement exists.
+      status: "PENDING",
+      counterparty: "Belaggningstjansten AB",
+    });
+  });
+
+  it("keeps the classification out of the declaration a reinstall compares", async () => {
+    /*
+     * The consent row asserts what the board was shown and agreed to. A
+     * classification recorded beside it would make an answer about a mail
+     * server look like a change to what the plugin asked for, and the next
+     * reinstall would refuse on a mismatch nobody made.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false },
+      },
+      null,
+    );
+
+    expect(Object.keys(recorded())).not.toContain("processorAgreement");
   });
 });

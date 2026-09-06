@@ -58,6 +58,15 @@ export class BoardRosterService {
         OR: [{ endedOn: null }, { endedOn: { gt: now } }],
         person: {
           protectedPersonalData: false,
+          /*
+           * A restriction (GDPR art. 18) takes the person off the published
+           * roster even where the consent stands. Publishing a name on the
+           * association's website is a use, and art. 18(2) permits storage
+           * rather than use; the consent says the person agreed to appear,
+           * which is a different question from whether the association may act
+           * on it today.
+           */
+          processingRestrictedAt: null,
           publicationConsents: {
             some: { scope: "BOARD_ROSTER", withdrawnAt: null },
           },

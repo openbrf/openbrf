@@ -61,6 +61,12 @@
       "body": "{{name}} moved out of apartment {{apartment}} on {{movedOutOn}}. Service data is scheduled for erasure on {{purgeOn}}.",
       "action": "Open the address book"
     },
+    "breachReminder": {
+      "subject": "A personal data breach is awaiting your decision: {{title}}",
+      "heading": "A personal data breach is awaiting a decision",
+      "body": "The association became aware of {{title}} on {{discoveredAt}}. IMY is notified without undue delay and, where feasible, within 72 hours of that, which falls on {{notifyBy}} - unless the board finds the breach unlikely to result in a risk to the people concerned. Nothing has been decided yet.",
+      "action": "Open the data protection records"
+    },
     "contactSubmission": {
       "subject": "{{sender}} has written to the association",
       "heading": "A message from the website",
@@ -371,6 +377,8 @@
           "proxyAuthorisations": "Proxy authorisations",
           "audit": "The audit log",
           "retention": "Retention",
+          "dataSubjectRequests": "What you have asked about your data",
+          "personalDataBreaches": "Personal data breaches that reached your data",
           "transferReversals": "Transfer reversals"
         },
         "field": {
@@ -404,7 +412,8 @@
           "tookEffectOn": "Ceased",
           "terminationReference": "Reference",
           "triggeredOn": "Window opened",
-          "dueOn": "Report due",
+          "dueOn": "To be answered by",
+          "reportDueOn": "To be filed by",
           "scope": "Scope",
           "granted": "Given",
           "withdrawn": "Withdrawn",
@@ -456,6 +465,22 @@
           "counterpart": "Other person",
           "proxyGround": "Ground",
           "authorised": "Proxy authorisation dated",
+          "requestKind": "Request",
+          "requestedOn": "Requested",
+          "requestGround": "Your ground",
+          "erasureGround": "Ground under art. 17(1)",
+          "erasureException": "Assessment under art. 17(3)",
+          "decision": "Decision",
+          "decisionGround": "The board's reasons",
+          "decidedAt": "Decided",
+          "executedAt": "Carried out",
+          "closedAt": "Closed",
+          "closeReason": "Closed because",
+          "breachDiscovered": "Discovered",
+          "breachTitle": "What the breach was",
+          "breachRisk": "Risk",
+          "imyNotified": "Notified to IMY",
+          "informedOn": "You were told",
           "attachments": "Attachments",
           "correspondent": "Correspondent",
           "threadStatus": "Thread",
@@ -530,6 +555,7 @@
           "MOTION_SUBMITTED": "Motion submitted",
           "MOTION_ACKNOWLEDGED": "Motion recorded as received",
           "MOTION_WITHDRAWN": "Motion withdrawn",
+          "MOTION_MEETING_SET": "Motion put to a general meeting",
           "SUBLET_APPLICATION_SUBMITTED": "Subletting application submitted",
           "SUBLET_APPLICATION_REVISED": "Subletting application changed",
           "SUBLET_APPLICATION_WITHDRAWN": "Subletting application withdrawn",
@@ -549,11 +575,28 @@
           "MEETING_ARRANGED": "General meeting arranged",
           "MEETING_HELD": "General meeting recorded as held",
           "MEETING_AGENDA_SET": "Agenda set",
+          "MEETING_NOTICE_ISSUED": "Notice of the general meeting issued",
           "MEETING_ATTENDANCE_RECORDED": "Recorded as present at the general meeting",
           "MEETING_ATTENDANCE_WITHDRAWN": "Struck off the list of those present",
           "MEETING_PROXY_REGISTERED": "Proxy authorisation registered",
           "MEETING_PROXY_WITHDRAWN": "Proxy authorisation withdrawn",
-          "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded"
+          "MEETING_DECISION_RECORDED": "Decision of the general meeting recorded",
+          "PERSONAL_DATA_BREACH_RECORDED": "Personal data breach recorded",
+          "PERSONAL_DATA_BREACH_UPDATED": "Personal data breach record changed",
+          "PERSONAL_DATA_BREACH_DECIDED": "Personal data breach decided",
+          "PERSONAL_DATA_BREACH_SUBJECT_INFORMED": "Told about a personal data breach",
+          "PERSONAL_DATA_BREACH_CLOSED": "Personal data breach closed",
+          "PROCESSING_ACTIVITY_RECORDED": "Processing entered in the record",
+          "PROCESSING_ACTIVITY_UPDATED": "Processing changed in the record",
+          "PROCESSING_ACTIVITY_ENDED": "Processing ended",
+          "PROCESSOR_AGREEMENT_RECORDED": "Recipient classified",
+          "PROCESSOR_AGREEMENT_ENDED": "Recipient classification closed",
+          "DATA_SUBJECT_REQUEST_RECORDED": "Request about own data recorded",
+          "DATA_SUBJECT_REQUEST_DECIDED": "Request decided",
+          "DATA_SUBJECT_REQUEST_CLOSED": "Request closed",
+          "DATA_PORTABILITY_EXPORTED": "Own data downloaded",
+          "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED": "Data protection contacts recorded",
+          "PRIVACY_NOTICE_HEADINGS_ADDED": "Headings added to the privacy notice"
         },
         "transferKind": {
           "GRANT": "Grant",
@@ -575,6 +618,82 @@
         },
         "yes": "Yes",
         "no": "No"
+      },
+      "requests": {
+        "kind": {
+          "ERASURE": "Erasure",
+          "OBJECTION": "Objection",
+          "RESTRICTION": "Restriction"
+        },
+        "decision": {
+          "GRANTED": "Granted",
+          "REFUSED": "Refused"
+        },
+        "erasureGround": {
+          "NO_LONGER_NECESSARY": "No longer necessary for its purpose",
+          "CONSENT_WITHDRAWN": "Consent withdrawn and no other basis applies",
+          "OBJECTION_UPHELD": "An objection nothing overrides",
+          "UNLAWFUL_PROCESSING": "The processing was unlawful",
+          "LEGAL_OBLIGATION_TO_ERASE": "Erasure is required by law"
+        },
+        "erasureException": {
+          "NONE": "No exception",
+          "LEGAL_OBLIGATION_TO_KEEP": "A legal obligation to keep the record",
+          "LEGAL_CLAIMS": "A legal claim"
+        },
+        "title": "Requests about own data",
+        "explained": "What this person has asked about their data, and what the board decided. Erasure, objection and restriction under GDPR art. 17, 21 and 18.",
+        "none": "No request is recorded.",
+        "record": "Record a request",
+        "decide": "Decide",
+        "close": "Close",
+        "save": "Save",
+        "saving": "Saving...",
+        "kindLabel": "What the person asks for",
+        "requestedOn": "Requested on",
+        "groundLabel": "The person's own ground",
+        "erasureGroundLabel": "Ground under art. 17(1)",
+        "issueLabel": "An issue that names the person (optional)",
+        "issueNote": "The request is about a name in an issue's description. What is done to the text is the board's own decision on that issue; the purge never rewrites a description.",
+        "decisionLabel": "Decision",
+        "decisionGroundLabel": "The board's ground",
+        "exceptionLabel": "Assessment under art. 17(3)",
+        "dueOn": "To be answered by",
+        "state": {
+          "open": "Awaiting an answer",
+          "overdue": "Past the month",
+          "granted": "Granted",
+          "refused": "Refused",
+          "executed": "Carried out",
+          "closed": "Closed"
+        },
+        "closeReason": {
+          "purged": "Closed when the purge carried it out.",
+          "movedIn": "Closed when the person moved in again."
+        },
+        "reasons": {
+          "personNotFound": "There is no such person in the register.",
+          "issueNotFound": "There is no such issue.",
+          "requestNotFound": "There is no such request.",
+          "erasureGroundRequired": "An erasure request states the ground in art. 17(1) it rests on.",
+          "groundNotApplicable": "An art. 17(1) ground belongs to an erasure request alone.",
+          "issueKindInconsistent": "Only an erasure request is about an issue.",
+          "erasureExceptionRequired": "A decision on an erasure records the art. 17(3) assessment.",
+          "exceptionInconsistent": "An exception under art. 17(3) refuses a request rather than granting it.",
+          "exceptionNotApplicable": "The art. 17(3) assessment belongs to an erasure alone.",
+          "decisionGroundRequired": "A decision states the ground it rests on.",
+          "alreadyOpen": "This person already has a request of that kind open.",
+          "alreadyDecided": "This request has already been decided.",
+          "alreadyClosed": "This request is already closed.",
+          "currentlyResident": "This person still lives here. The data is needed while the residency runs.",
+          "onLegalHold": "A legal hold stands against this person (art. 17(3)(e)).",
+          "boardPositionCurrent": "This person still holds a position of trust.",
+          "systemRoleCurrent": "This person still administers the instance.",
+          "processingRestricted": "This person has asked for a restriction, which means the data is kept and not used.",
+          "dateNotACalendarDate": "That is not a calendar date.",
+          "requestedInFuture": "A request cannot have been made on a day that has not arrived.",
+          "unknown": "The request could not be saved just now."
+        }
       }
     },
     "reveal": {
@@ -914,7 +1033,15 @@
       "description": "Your own language and how the interface looks on this device.",
       "preferredLocale": "Language for emails and extracts",
       "name": "Name",
-      "appearance": "Light or dark"
+      "appearance": "Light or dark",
+      "portability": {
+        "heading": "Your own data",
+        "description": "Download what you have given the association, in a machine-readable format (GDPR art. 20). The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
+        "action": "Download my data",
+        "working": "Preparing...",
+        "failed": "Your data could not be prepared just now."
+      },
+      "exportFileName": "my-data"
     },
     "security": {
       "title": "Sign-in and security",
@@ -1128,6 +1255,23 @@
       "assistantWidenedHint": "Under the statute a member may bring only their spouse or cohabitant or another member (BRL 9 kap. 14 §). Reported at check-in and applied by the meeting: an assistant needs no authority in writing, so there is no document for the board to attest.",
       "errors": {
         "proxyLimitInvalid": "That is not a number of members a bylaws clause could name."
+      }
+    },
+    "dataProtectionContacts": {
+      "title": "Data protection contacts",
+      "description": "How the association is reached as controller, and who its data protection officer is. Used in the record of processing activities and in the privacy notice.",
+      "contactEmail": "Email to the association",
+      "postalAddress": "Postal address",
+      "officerHint": "A housing cooperative rarely needs a data protection officer (art. 37(1)). Leave the fields empty if the association has appointed none.",
+      "officerName": "Data protection officer's name",
+      "officerEmail": "Data protection officer's email",
+      "officerPhone": "Data protection officer's telephone",
+      "jointHint": "Joint controllership (art. 26) is unusual in a housing cooperative. Fill in both fields or neither.",
+      "jointName": "Joint controller",
+      "jointContact": "The joint controller's contact details",
+      "errors": {
+        "jointIncomplete": "A joint controller is recorded with its contact details.",
+        "unknown": "The details could not be saved just now."
       }
     }
   },
@@ -2009,10 +2153,19 @@
       "intro": "The board writes this page. The headings below are what a privacy notice has to answer, and the text under each of them is the association's own.",
       "sections": {
         "controller": "Who is responsible for the personal data",
+        "dataProtectionOfficer": "The association's data protection officer",
         "data": "What personal data the association processes",
         "purpose": "Why the association processes it",
+        "legalBasis": "The legal basis for each purpose",
+        "legitimateInterest": "The legitimate interest the association relies on",
+        "recipients": "Who receives the data",
+        "thirdCountryTransfers": "Transfers outside the EU and the EEA",
         "retention": "How long it is kept",
         "rights": "Your rights",
+        "withdrawConsent": "How to withdraw a consent",
+        "provisionRequirement": "Whether you have to give the data, and what happens if you do not",
+        "automatedDecisions": "Automated decision-making",
+        "complaint": "How to complain to IMY",
         "contact": "How to reach the board"
       }
     },
@@ -2105,6 +2258,14 @@
         "legalPersonsAccepted": "Accepted",
         "legalPersonsRefused": "Not accepted"
       }
+    },
+    "controllerContact": {
+      "heading": "Controller",
+      "name": "Association",
+      "organizationNumber": "Organisation number",
+      "postalAddress": "Postal address",
+      "contactEmail": "Email",
+      "officer": "Data protection officer"
     }
   },
   "signup": {
@@ -2469,7 +2630,8 @@
         "documentList": "Document list",
         "boardRoster": "The board",
         "associationFacts": "The association's facts",
-        "faq": "Questions and answers"
+        "faq": "Questions and answers",
+        "controllerContact": "Controller contact"
       },
       "add": {
         "paragraph": "Add a paragraph",
@@ -2479,7 +2641,8 @@
         "documentList": "Add a document list",
         "boardRoster": "Add the board",
         "associationFacts": "Add the association's facts",
-        "faq": "Add questions and answers"
+        "faq": "Add questions and answers",
+        "controllerContact": "Add the controller's contact details"
       }
     },
     "preview": {
@@ -3545,6 +3708,299 @@
       "rangeInvalid": "The period cannot end before it begins.",
       "invalidBody": "Something in the form could not be read. Check the amount and the dates.",
       "unknown": "The charge could not be saved just now."
+    }
+  },
+  "dataProtection": {
+    "navLabel": "Data protection",
+    "title": "Data protection",
+    "intro": "What the association has to be able to show as controller: the personal data breaches it has recorded, the record of its processing activities, how every recipient of personal data is classified, and what people have asked about their own data.",
+    "loading": "Reading the data protection records...",
+    "loadFailed": "The data protection records could not be read just now.",
+    "processing": {
+      "seed": {
+        "memberRegister": {
+          "name": "Member register",
+          "purpose": "Keeping the member register the law requires of the association.",
+          "legalBasisNote": "Legal obligation: BRL 9 kap. 8-9 §§ and EFL 5 kap.",
+          "retention": "For as long as the law requires the register. Never purged."
+        },
+        "apartmentRegister": {
+          "name": "Apartment register",
+          "purpose": "Keeping the apartment register the law requires of the association.",
+          "legalBasisNote": "Legal obligation: BRL 9 kap. 10-11 §§.",
+          "retention": "For as long as the law requires the register. Never purged."
+        },
+        "cooperativeHousingRegisterReporting": {
+          "name": "Reporting to the cooperative housing register",
+          "purpose": "Reporting grants and transfers to Lantmateriet.",
+          "legalBasisNote": "Legal obligation: Lag (2026:484) 3 kap.",
+          "retention": "The reporting ledger is kept with the registers."
+        },
+        "meetingRecords": {
+          "name": "General meeting records",
+          "purpose": "Summoning the general meeting and keeping its minutes.",
+          "legalBasisNote": "Legal obligation: EFL 6 kap. 21-22 and 39-40 §§ via BRL 9 kap. 14 §.",
+          "retention": "The minutes are kept. The notice ledger, which shows who was summoned and when, is kept with them and is not purged."
+        },
+        "auditLog": {
+          "name": "Audit log",
+          "purpose": "Being able to show who did what with whose data.",
+          "legalBasisNote": "Legal obligation: GDPR art. 5(2) and art. 32.",
+          "retention": "The log is append-only and is never purged."
+        },
+        "addressBookAndAccounts": {
+          "name": "Address book and accounts",
+          "purpose": "Reaching the residents and giving them access to the association's services.",
+          "legalBasisNote": "Contract for members (art. 6(1)(b)); legitimate interest for other residents.",
+          "retention": "Purged on the association's retention window after a move-out."
+        },
+        "residentDirectory": {
+          "name": "Resident directory",
+          "purpose": "Letting the residents see who lives in the building.",
+          "legalBasisNote": "Legitimate interest: knowing whom one lives with.",
+          "retention": "Follows the address book."
+        },
+        "newsMailings": {
+          "name": "News mailings",
+          "purpose": "Telling the members what the board publishes.",
+          "legalBasisNote": "Legitimate interest: keeping the members informed.",
+          "retention": "The delivery ledger is kept as the association's record of what it sent."
+        },
+        "issues": {
+          "name": "Issue reports",
+          "purpose": "Receiving and dealing with problems in the building.",
+          "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
+          "retention": "The link to the person is detached by the purge; the issue and its photographs are kept. A public-form report is purged 365 days after it is closed."
+        },
+        "documents": {
+          "name": "Document archive",
+          "purpose": "Keeping the association's own records.",
+          "legalBasisNote": "Legitimate interest: preserving the association's records.",
+          "retention": "The link to the uploader is detached by the purge; the document is kept."
+        },
+        "bookings": {
+          "name": "Bookings",
+          "purpose": "Sharing out the building's common resources.",
+          "legalBasisNote": "Contract: the right to use the association's spaces.",
+          "retention": "365 days after the booked period."
+        },
+        "events": {
+          "name": "Events and sign-ups",
+          "purpose": "Arranging the association's events and keeping track of them.",
+          "legalBasisNote": "Contract: taking part in the association's activities.",
+          "retention": "365 days after the occurrence."
+        },
+        "motions": {
+          "name": "Motions",
+          "purpose": "Receiving the members' motions to the general meeting.",
+          "legalBasisNote": "Contract: a member's right to put an item to the meeting.",
+          "retention": "730 days after the motion is closed. An open motion is never purged."
+        },
+        "websitePublication": {
+          "name": "Publication on the website",
+          "purpose": "Showing names and photographs on the association's own website.",
+          "legalBasisNote": "Consent: a publication consent per person and per scope.",
+          "retention": "Until the consent is withdrawn. The dates it applied between are kept."
+        },
+        "contactSubmissions": {
+          "name": "Contact form",
+          "purpose": "Receiving messages from the public.",
+          "legalBasisNote": "Legitimate interest: being able to answer whoever writes.",
+          "retention": "Deleted by the board once the matter is finished."
+        },
+        "signupRequestsAndInvitations": {
+          "name": "Sign-up requests and invitations",
+          "purpose": "Deciding who is given an account on the instance.",
+          "legalBasisNote": "Legitimate interest: the association decides who gets access.",
+          "retention": "A decided request is deleted by the board. An invitation never accepted is purged with the person's other service data."
+        },
+        "recipients": {
+          "noMailServer": "No mail server is configured.",
+          "localDisk": "The association's own storage on the instance's disk.",
+          "s3": "Object storage at {{endpoint}}, bucket {{bucket}}."
+        },
+        "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."
+      },
+      "security": {
+        "encryptionAtRest": "Contact details and personal identity numbers are encrypted at rest and searchable through blind indexes.",
+        "auditLog": "Every access and change is written to the append-only audit log.",
+        "capabilityGates": "Every call is checked against what the signed-in person may do.",
+        "protectedPersons": "People with protected personal data are masked everywhere.",
+        "localDisk": "The files are on the instance's own disk.",
+        "s3": "The files are in object storage at {{endpoint}}."
+      },
+      "title": "Record of processing activities",
+      "description": "The association's processing of personal data, under GDPR art. 30.",
+      "ended": "Ended",
+      "seeded": "Follows the instance's settings until the board edits the row.",
+      "retentionPrefix": "Kept:",
+      "recipientsPrefix": "Recipients:",
+      "dataSubjectsPrefix": "Data subjects:",
+      "personalDataPrefix": "Personal data:",
+      "thirdCountry": "Data may be transferred outside the EU and the EEA.",
+      "controller": {
+        "name": "Controller",
+        "contact": "Contact details",
+        "noContact": "No contact details recorded",
+        "officer": "Data protection officer",
+        "noOfficer": "No data protection officer appointed",
+        "jointController": "Joint controller",
+        "jointControllerNone": "None"
+      },
+      "legalBasis": {
+        "CONSENT": "Consent",
+        "CONTRACT": "Contract",
+        "LEGAL_OBLIGATION": "Legal obligation",
+        "VITAL_INTERESTS": "Vital interests",
+        "PUBLIC_TASK": "Public task",
+        "LEGITIMATE_INTEREST": "Legitimate interest"
+      }
+    },
+    "processors": {
+      "seed": {
+        "localDisk": "The association's own storage on the instance's disk. Nobody outside receives the files, so there is no processor here.",
+        "pluginLocal": "The plugin runs inside the instance and passes no personal data on."
+      },
+      "title": "Recipients of personal data",
+      "description": "Who receives data, how each is classified and what agreement covers them.",
+      "classify": "Classify",
+      "classifyNamed": "Classify {{identity}}",
+      "classification": "Classification",
+      "counterparty": "Other party",
+      "status": "Agreement status",
+      "signedOn": "Signed",
+      "termsConfirmed": "The agreement carries the terms art. 28(3) requires",
+      "subProcessorsAuthorised": "Sub-processors are authorised in advance (art. 28(2))",
+      "note": "Why no agreement is needed",
+      "localDiskHint": "The files are on the association's own disk. Nobody outside receives them, so there is no processor here.",
+      "save": "Save",
+      "saving": "Saving...",
+      "kind": {
+        "SMTP": "Mail server",
+        "SMS": "SMS gateway",
+        "STORAGE": "File storage",
+        "HOSTING": "Hosting",
+        "PLUGIN": "Plugin",
+        "EXTERNAL": "Recorded by the board"
+      },
+      "state": {
+        "inPlace": "Agreement in place",
+        "pending": "Agreement being made",
+        "notAProcessor": "No processor",
+        "independentController": "Independent controller",
+        "notRecorded": "Not classified",
+        "processor": "Processor"
+      },
+      "errors": {
+        "notFound": "This instance hands nothing to that recipient.",
+        "classificationInconsistent": "Those answers belong to a processor's agreement.",
+        "termsRequired": "An agreement is in place once it carries the terms art. 28(3) requires.",
+        "counterpartyRequired": "Name the other party.",
+        "noteRequired": "Say why this recipient needs no agreement.",
+        "signedOnRequired": "State when the agreement was signed.",
+        "personalIdentityNumber": "Write it without a personal identity number.",
+        "unknown": "The classification could not be saved just now."
+      }
+    },
+    "breaches": {
+      "risk": {
+        "UNLIKELY": "Unlikely to result in a risk",
+        "LIKELY": "A risk",
+        "HIGH": "A high risk"
+      },
+      "title": "Personal data breaches",
+      "description": "What happened, what you decided and on what ground.",
+      "deadlineNote": "IMY is notified without undue delay and, where feasible, within 72 hours of the association becoming aware - unless the breach is unlikely to result in a risk to the people concerned.",
+      "none": "No breach is recorded.",
+      "decide": "Decide",
+      "decideNamed": "Decide on {{title}}",
+      "save": "Save the decision",
+      "saving": "Saving...",
+      "hoursLeft": "{{hours}} hours left of the 72.",
+      "discoveredOn": "Discovered {{date}}.",
+      "riskLabel": "Risk to the people concerned",
+      "imyRequired": "IMY is to be notified",
+      "imyGround": "Ground for the decision about IMY",
+      "imyNotifiedAt": "Notified to IMY",
+      "delayReasons": "Reasons for the delay (art. 33(1))",
+      "subjectsRequired": "The people affected are to be told",
+      "subjectsGround": "Exemption under art. 34(3)",
+      "state": {
+        "awaitingDecision": "Awaiting a decision",
+        "overdue": "Past the bound",
+        "decided": "Decided",
+        "closed": "Closed"
+      },
+      "errors": {
+        "riskInconsistent": "IMY is notified unless the breach is unlikely to result in a risk. Change the risk or the decision.",
+        "subjectsGroundRequired": "At a high risk, not telling the people affected needs a ground under art. 34(3).",
+        "delayReasonsRequired": "A notification made after 72 hours carries the reasons for the delay.",
+        "alreadyDecided": "This breach has already been decided.",
+        "alreadySubject": "That person is already recorded on this breach.",
+        "personalIdentityNumber": "Write it without a personal identity number.",
+        "unknown": "The decision could not be saved just now."
+      }
+    },
+    "overview": {
+      "breachesOverdue": "{{count}} personal data breach is past the 72 hours with no decision.",
+      "breachesOverdue_other": "{{count}} personal data breaches are past the 72 hours with no decision.",
+      "breachesWaiting": "{{count}} personal data breach awaits a decision, {{hours}} hours left.",
+      "breachesWaiting_other": "{{count}} personal data breaches await a decision, {{hours}} hours left on the nearest.",
+      "breachesNone": "No personal data breach awaits a decision.",
+      "requestsOverdue": "{{count}} request is past the month you have to answer in.",
+      "requestsOverdue_other": "{{count}} requests are past the month you have to answer in.",
+      "requestsOpen": "{{count}} request awaits an answer.",
+      "requestsOpen_other": "{{count}} requests await an answer.",
+      "requestsNone": "No request awaits an answer.",
+      "processorsNotRecorded": "{{count}} recipient of personal data is not classified yet.",
+      "processorsNotRecorded_other": "{{count}} recipients of personal data are not classified yet.",
+      "processorsPending": "{{count}} processor agreement is being made.",
+      "processorsPending_other": "{{count}} processor agreements are being made.",
+      "processorsRecorded": "Every recipient of personal data is classified.",
+      "noticeUnpublished": "The privacy notice is not published.",
+      "noticeMissing": "The privacy notice is missing {{count}} heading art. 13 requires.",
+      "noticeMissing_other": "The privacy notice is missing {{count}} headings art. 13 requires.",
+      "noticeComplete": "The privacy notice answers everything art. 13 requires."
+    },
+    "coverage": {
+      "title": "The privacy notice",
+      "description": "What GDPR art. 13 requires the notice to answer, and what it answers today.",
+      "present": "Present",
+      "absent": "Missing",
+      "noticeMissing": "The association has no privacy notice yet.",
+      "unpublished": "The notice is not published, so nobody outside can read it.",
+      "appendBoundary": "The button adds the missing headings and the block with the association's contact details. It writes no text: the answer under each heading is the board's own, written in the site editor.",
+      "append": "Add the missing headings",
+      "appending": "Adding...",
+      "appendFailed": "The headings could not be added just now."
+    },
+    "portability": {
+      "transmission": "Handed to you to transmit yourself. A direct transfer to another controller under art. 20(2) applies where technically feasible, and no receiving standard exists between housing cooperative platforms."
+    },
+    "categories": {
+      "personalData": {
+        "name": "Name",
+        "apartment": "Apartment",
+        "residency": "Residency",
+        "email": "Email address",
+        "phone": "Telephone number",
+        "postalAddress": "Postal address",
+        "personalIdentityNumber": "Personal identity number",
+        "account": "Account and sessions",
+        "financial": "Charges and payments",
+        "health": "Health",
+        "photograph": "Photograph",
+        "freeText": "Free text",
+        "auditTrail": "Audit trail"
+      },
+      "dataSubject": {
+        "member": "Members",
+        "resident": "Residents",
+        "formerResident": "Former residents",
+        "boardMember": "Board members",
+        "applicant": "Applicants",
+        "external": "People outside the association"
+      }
     }
   }
 }

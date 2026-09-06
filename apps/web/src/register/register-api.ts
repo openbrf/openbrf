@@ -16,6 +16,8 @@
  */
 
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
+import type { DataSubjectRequestView } from "../api/data-protection";
+
 export type RegisterSign =
   | "CHAIR"
   | "BOARD_MEMBER"
@@ -305,6 +307,7 @@ export type ReportAuditAction =
   | "MOTION_SUBMITTED"
   | "MOTION_ACKNOWLEDGED"
   | "MOTION_WITHDRAWN"
+  | "MOTION_MEETING_SET"
   | "SUBLET_APPLICATION_SUBMITTED"
   | "SUBLET_APPLICATION_REVISED"
   | "SUBLET_APPLICATION_WITHDRAWN"
@@ -324,11 +327,28 @@ export type ReportAuditAction =
   | "MEETING_ARRANGED"
   | "MEETING_HELD"
   | "MEETING_AGENDA_SET"
+  | "MEETING_NOTICE_ISSUED"
   | "MEETING_ATTENDANCE_RECORDED"
   | "MEETING_ATTENDANCE_WITHDRAWN"
   | "MEETING_PROXY_REGISTERED"
   | "MEETING_PROXY_WITHDRAWN"
-  | "MEETING_DECISION_RECORDED";
+  | "MEETING_DECISION_RECORDED"
+  | "PERSONAL_DATA_BREACH_RECORDED"
+  | "PERSONAL_DATA_BREACH_UPDATED"
+  | "PERSONAL_DATA_BREACH_DECIDED"
+  | "PERSONAL_DATA_BREACH_SUBJECT_INFORMED"
+  | "PERSONAL_DATA_BREACH_CLOSED"
+  | "PROCESSING_ACTIVITY_RECORDED"
+  | "PROCESSING_ACTIVITY_UPDATED"
+  | "PROCESSING_ACTIVITY_ENDED"
+  | "PROCESSOR_AGREEMENT_RECORDED"
+  | "PROCESSOR_AGREEMENT_ENDED"
+  | "DATA_SUBJECT_REQUEST_RECORDED"
+  | "DATA_SUBJECT_REQUEST_DECIDED"
+  | "DATA_SUBJECT_REQUEST_CLOSED"
+  | "DATA_PORTABILITY_EXPORTED"
+  | "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED"
+  | "PRIVACY_NOTICE_HEADINGS_ADDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -736,6 +756,48 @@ export interface DataSubjectReport {
     /** Field names, identifiers and counts. Never a value. */
     context: Record<string, unknown> | null;
   }[];
+  /** What this person asked about their own data, and what was decided. */
+  dataSubjectRequests: {
+    requestId: string;
+    kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
+    requestedOn: string | null;
+    /** The month GDPR art. 12(3) gives, derived from the request date. */
+    dueOn: string | null;
+    ground: string;
+    /** The art. 17(1) alternative the person invoked. */
+    erasureGround:
+      | "NO_LONGER_NECESSARY"
+      | "CONSENT_WITHDRAWN"
+      | "OBJECTION_UPHELD"
+      | "UNLAWFUL_PROCESSING"
+      | "LEGAL_OBLIGATION_TO_ERASE"
+      | null;
+    /** The art. 17(3) assessment recorded with the decision. */
+    erasureException:
+      "NONE" | "LEGAL_OBLIGATION_TO_KEEP" | "LEGAL_CLAIMS" | null;
+    decision: "GRANTED" | "REFUSED" | null;
+    decisionGround: string | null;
+    decidedAt: string | null;
+    executedAt: string | null;
+    closedAt: string | null;
+    closeReason: string | null;
+    issueId: string | null;
+  }[];
+  /** Breaches that reached this person's data (GDPR art. 34). */
+  /**
+   * What reached this person's data, and never the board's account of the
+   * incident: `dataDescription`, `effects` and `measures` are one text per
+   * breach about everybody it touched, so they stay in the register and reach
+   * each person through the art. 34(2) communication instead.
+   */
+  personalDataBreaches: {
+    breachId: string;
+    title: string;
+    discoveredAt: string;
+    risk: "UNLIKELY" | "LIKELY" | "HIGH" | null;
+    imyNotifiedAt: string | null;
+    informedAt: string | null;
+  }[];
   retention: {
     daysAfterMoveOut: number;
     purgeOn: string | null;
@@ -775,6 +837,17 @@ export interface PersonDetail {
    * happen.
    */
   legalHold: LegalHold | null;
+  /**
+   * What this person has asked about their own data (GDPR art. 17, 18, 21).
+   *
+   * Beside the hold and the purge date for the same reason those two are beside
+   * each other: the three are one answer to what happens to this person's data
+   * and when.
+   */
+  dataSubjectRequests: DataSubjectRequestView[];
+  /** Dated, so the panel can say since when. Null means none stands. */
+  communicationObjectionAt: string | null;
+  processingRestrictedAt: string | null;
 }
 
 export interface RevealedFields {

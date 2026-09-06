@@ -1349,4 +1349,60 @@ describe("the purge", () => {
       await prisma.bookableResource.findUnique({ where: { id: commonRoomId } }),
     ).not.toBeNull();
   });
+
+  it("reaches a recent booking on a granted erasure request, and only before the service-data purge closes it", async () => {
+    /*
+     * Why this purge runs at 03:41 and the service-data purge at 03:53.
+     *
+     * A granted erasure request brings every service-tier purge forward for
+     * one person. The request is the instruction, and the service-data purge is
+     * what marks it executed and closes it - so a module purge running after
+     * that one would find the request already closed, not select the person,
+     * and leave their bookings to sit out the rest of their own window. Erased
+     * eventually, but not by the request that asked for it.
+     *
+     * The two halves are asserted together because the ordering is the whole
+     * of the guarantee and neither half states it alone.
+     */
+    const recent = await bookingEndedDaysAgo(resident.personId, 10, 7);
+
+    const request = await prisma.dataSubjectRequest.create({
+      data: {
+        personId: resident.personId,
+        kind: "ERASURE",
+        requestedOn: NOW,
+        ground: "Jag vill inte finnas kvar hos foreningen.",
+        erasureGround: "NO_LONGER_NECESSARY",
+        decision: "GRANTED",
+        erasureException: "NONE",
+        decisionGround: "Inget lagligt krav hindrar radering.",
+        decidedAt: NOW,
+        recordedByPersonId: board.personId,
+        decidedByPersonId: board.personId,
+      },
+    });
+
+    // 03:41: the booking goes although its own window has months left.
+    await purge.run(NOW, RETENTION_DAYS);
+    expect(
+      await prisma.booking.findUnique({ where: { id: recent } }),
+    ).toBeNull();
+
+    // 03:53 closes the request, and the next night's run no longer sees it.
+    await prisma.dataSubjectRequest.update({
+      where: { id: request.id },
+      data: { executedAt: NOW, closedAt: NOW, closeReason: "purged" },
+    });
+    const later = await bookingEndedDaysAgo(resident.personId, 9, 8);
+
+    await expect(purge.eligible(NOW, RETENTION_DAYS)).resolves.not.toContain(
+      resident.personId,
+    );
+    expect(
+      await prisma.booking.findUnique({ where: { id: later } }),
+    ).not.toBeNull();
+
+    await prisma.booking.deleteMany({ where: { id: later } });
+    await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+  });
 });

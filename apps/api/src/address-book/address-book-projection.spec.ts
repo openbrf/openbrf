@@ -33,11 +33,16 @@ describe("the resident-facing projection", () => {
     expect(encryptedColumns(RESIDENT_PERSON_FIELDS)).toEqual([]);
   });
 
-  it("loads only names, the person id and the protected flag", () => {
+  it("loads only names, the person id and the two flags that hide a row", () => {
+    // The restriction is here for the same reason the protected flag is: it
+    // decides whether the row is shown to a neighbour at all, and the rule is
+    // asserted a second time in application code rather than trusted to a
+    // query.
     expect(Object.keys(RESIDENT_PERSON_FIELDS).sort()).toEqual([
       "firstName",
       "id",
       "lastName",
+      "processingRestrictedAt",
       "protectedPersonalData",
     ]);
   });
