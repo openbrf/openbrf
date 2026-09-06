@@ -12,6 +12,7 @@ import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { BookingsRoute } from "./BookingsRoute";
+import { ChargesRoute } from "./ChargesRoute";
 import { DocumentsRoute } from "./DocumentsRoute";
 import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
@@ -301,6 +302,21 @@ const eventsRoute = createRoute({
 });
 
 /**
+ * Charges to members. Signed in here, the capability inside the screen.
+ *
+ * One route and one audience, unlike the events and motions routes above: there
+ * is no resident half of this module to be shut out of. A member learns what
+ * they are charged from the notice the accounting system sends them, and what
+ * this screen holds is the basis the board records and hands over.
+ */
+const chargesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/charges",
+  beforeLoad: requireSession,
+  component: ChargesRoute,
+});
+
+/**
  * Motions to the general meeting. Signed in here, capabilities inside the
  * screen.
  *
@@ -463,6 +479,7 @@ const routeTree = rootRoute.addChildren([
   issuesRoute,
   bookingsRoute,
   eventsRoute,
+  chargesRoute,
   motionsRoute,
   meetingsRoute,
   newsRoute,

@@ -324,6 +324,83 @@ export interface ReportEventSignup {
 }
 
 /**
+ * A charge (debitering) the association put on this person, or on the apartment
+ * they were living in on the day it was dated.
+ *
+ * Purged, like the bookings and the sign-ups above, and on a clock of its own:
+ * a charge is erased at the end of the seventh calendar year after the one it
+ * falls in, because that is how long the accounting record it was the basis for
+ * is preserved. So each row states when that window runs out rather than
+ * leaving the date at the foot of the document to govern it.
+ *
+ * ## Both ways it can be theirs
+ *
+ * `basis` says which. A charge on a named person reached this section from its
+ * own column; a charge on an apartment reached it through the residencies this
+ * person held, because such a row names no person at all and which of them are
+ * theirs is an inference - `chargesDuringResidency` in
+ * `charges/apartment-charges.ts` is the rule, and it closes both boundaries
+ * for the reason argued there. That is the pattern the lien note and the
+ * termination sections already follow, on a different archive and for a
+ * different reason.
+ *
+ * A charge on the apartment is not necessarily this person's to pay: a household
+ * is several people and the association charges the flat. It is on the report
+ * regardless, because it is a record the association holds that says something
+ * about where this person lived and what was charged there, and `basis` is what
+ * keeps the document from claiming more than that.
+ *
+ * ## No payment, here either
+ *
+ * There is no paid field and no balance, because the association holds neither:
+ * the basis is what Open BRF keeps, and the accounting system is where the debt
+ * is settled. `handedToManagerOn` says when the basis went to whoever keeps the
+ * books, which is a disclosure this person is entitled to know about, and says
+ * nothing about whether the charge was ever paid.
+ *
+ * The reason is carried in full, like the motion body and the news comment
+ * above. It is what the association says this person - or their household - was
+ * charged for, and a report stating a sum without it would tell somebody they
+ * were charged without telling them why.
+ */
+export interface ReportMemberCharge {
+  chargeId: string;
+  /** Whether the charge names this person, or the apartment they lived in. */
+  basis: "person" | "apartment";
+  /** "YYYY-MM-DD" on the association's own calendar. */
+  chargedOn: string;
+  /** Kronor as recorded, e.g. "450.00". */
+  amount: string;
+  vatTreatment: "EXEMPT" | "RATE";
+  /** Whole percent, and null exactly when the treatment is EXEMPT. */
+  vatRatePercent: number | null;
+  reason: string;
+  /**
+   * The apartment the charge was put on, on an apartment-keyed row. Null on a
+   * charge naming this person: such a row names no apartment, and stating where
+   * they lived at the time would be this document inferring something the charge
+   * does not say.
+   */
+  apartment: string | null;
+  /**
+   * "YYYY-MM-DD" the basis went to the economic manager, or null while it has
+   * not. A recipient outside the association, which is why it is on the report
+   * at all (GDPR art. 15(1)(c)).
+   */
+  handedToManagerOn: string | null;
+  /**
+   * The earliest date the purge can reach this charge, derived from the
+   * retention window and never stored.
+   *
+   * The earliest, and deliberately not "the date it is erased on", for the
+   * reason {@link ReportBooking.erasableFrom} gives: a legal hold suspends every
+   * purge for the person it stands against, and `retention.onLegalHold` on this
+   * same report says whether one does.
+   */
+  erasableFrom: string;
+}
+
+/**
  * A comment this person wrote on one of the association's news items.
  *
  * Purged, like the bookings above and on the same shape of clock: a comment is
@@ -546,6 +623,7 @@ export interface DataSubjectReport {
   bookings: ReportBooking[];
   motions: ReportMotion[];
   eventSignups: ReportEventSignup[];
+  memberCharges: ReportMemberCharge[];
   newsComments: ReportNewsComment[];
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];

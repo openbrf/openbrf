@@ -3090,5 +3090,100 @@
       "SPOUSE_OR_COHABITANT": "Spouse or cohabitant",
       "BYLAWS": "Permitted by the bylaws"
     }
+  },
+  "charges": {
+    "navLabel": "Charges",
+    "heading": "Charges to members",
+    "description": "One-off costs the board puts on a member or on an apartment: a key to the bike room, a replacement tag, a subletting fee, a repair charged on. The list is the debiting list you hand to whoever keeps the association's books.",
+    "notALedger": "Open BRF holds the basis for a charge, not the ledger. Nothing here records a payment or an outstanding amount - the accounting system is where a debt is settled.",
+    "loadFailed": "The charges could not be read just now.",
+    "forbidden": "Charges are the board's. What a member is charged reaches them through the notice the accounting system sends, and a member's own copy of what is held about them is on their data subject access report.",
+    "loading": "Loading the charges",
+    "print": "Print",
+    "printHint": "Prints as a document. The navigation, the form and the buttons are left out of the page.",
+    "documentTitle": "Debiting list",
+    "basisOnly": "This list states what has been charged and on what basis. It says nothing about what has been paid.",
+    "maskedApartment": "Protected, not printed",
+    "apartmentItself": "The apartment",
+    "remove": "Remove",
+    "stamp": "Debiting list - {{from}} to {{to}} - produced {{date}}",
+    "total": "Total {{total}} kr",
+    "period": {
+      "from": "From",
+      "to": "To"
+    },
+    "export": {
+      "produce": "Produce the file",
+      "download": "Download the file"
+    },
+    "empty": {
+      "title": "No charges in this period",
+      "description": "Charges you record appear here, ordered by the day they are dated."
+    },
+    "column": {
+      "chargedOn": "Date",
+      "chargedTo": "Charged to",
+      "apartment": "Apartment",
+      "reason": "Reason",
+      "vat": "VAT",
+      "amount": "Amount",
+      "handedToManagerOn": "Sent to the manager",
+      "actions": "Actions"
+    },
+    "noValue": {
+      "apartment": "No apartment recorded",
+      "handedToManagerOn": "Not yet sent to the economic manager"
+    },
+    "vat": {
+      "EXEMPT": "No VAT",
+      "RATE": "VAT at a rate",
+      "rateOf": "{{percent}}%"
+    },
+    "record": {
+      "heading": "Record a charge",
+      "description": "The amount, the day it is dated, what it is for and how it is treated for VAT.",
+      "party": {
+        "legend": "Charged to",
+        "person": "A member",
+        "apartment": "An apartment",
+        "hint": "A charge is put on a named person or on an apartment, whoever holds it - never on both."
+      },
+      "person": "Member",
+      "apartment": "Apartment",
+      "choose": "Choose",
+      "chargedOn": "Date of the charge",
+      "amount": "Amount in kronor",
+      "reason": "What the charge is for",
+      "vatTreatment": "VAT",
+      "vatRatePercent": "Rate in per cent",
+      "handedToManagerOn": "Sent to the economic manager",
+      "handedHint": "The day the basis was sent over. It says nothing about payment.",
+      "submit": "Record the charge",
+      "saving": "Recording",
+      "saved": "The charge is recorded."
+    },
+    "errors": {
+      "notFound": "That charge no longer exists.",
+      "personNotFound": "The register does not hold that person.",
+      "apartmentNotFound": "The register does not hold that apartment.",
+      "partyRequired": "State the member or the apartment the charge is put on.",
+      "partyAmbiguous": "A charge is put on a member or on an apartment, not on both.",
+      "personalIdentityNumber": "The reason contains a personal identity number. Remove it before recording the charge - the list is handed to whoever keeps the books.",
+      "personalIdentityNumberCount": "One number was found in the text.",
+      "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
+      "dateNotACalendarDate": "That is not a date.",
+      "dateInTheFuture": "A charge cannot be dated ahead of today.",
+      "amountNotASum": "State the amount in kronor, with at most two decimal places and no thousands separator.",
+      "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
+      "reasonRequired": "State what the charge is for.",
+      "vatRateRequired": "State the rate for a charge that carries VAT.",
+      "vatRateNotApplicable": "A charge with no VAT on it carries no rate.",
+      "vatRateOutOfRange": "State the rate as a whole percentage between 1 and 100.",
+      "handedOverBeforeCharge": "The basis cannot have been sent over before the charge was made.",
+      "handedOverInTheFuture": "The basis cannot have been sent over on a day that has not come.",
+      "rangeInvalid": "The period cannot end before it begins.",
+      "invalidBody": "Something in the form could not be read. Check the amount and the dates.",
+      "unknown": "The charge could not be saved just now."
+    }
   }
 }

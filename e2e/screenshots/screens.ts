@@ -1242,4 +1242,45 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Rösten närvarande" },
     capture: { panel: "Röstlängden" },
   },
+  {
+    /*
+     * Charges to members, with one charge on the debiting list.
+     *
+     * The whole page rather than a card, because what the screen is is two
+     * things standing together: the form the board records a charge in, and the
+     * document it hands to whoever keeps the books. A picture of either half
+     * alone would leave out the thing that makes the other one make sense.
+     *
+     * The charge is put on Elin Hammar, who is the one person in the walk with
+     * a tenant-ownership, so the row states an apartment. The option carries her
+     * apartment beside her name - two households share a surname often enough
+     * that the address is what tells them apart - and Playwright matches an
+     * option label exactly, which is why it is spelled in full here.
+     *
+     * The date is left as the form's own default, which is today. Every document
+     * in this walk carries the day it was produced, so an image that moves with
+     * the calendar is what these screens already are.
+     */
+    name: "member-charges",
+    as: "administrator",
+    goto: appPath("/charges"),
+    prepare: [
+      { see: { combobox: "Medlem" } },
+      {
+        select: { combobox: "Medlem" },
+        option: `${MEMBER.name} - ${MEMBER.designation}`,
+      },
+      { fill: { label: "Belopp i kronor" }, value: "450.00" },
+      {
+        fill: { label: "Vad debiteringen avser" },
+        value: "Nyckel till cykelrummet",
+      },
+      { click: { button: "Registrera debiteringen" } },
+    ],
+    // The row itself, which exists only once the charge has been written and the
+    // list read back with it. The confirmation beside the button would arrive
+    // first and say nothing about the document.
+    waitFor: { text: "Nyckel till cykelrummet" },
+    capture: "page",
+  },
 ];

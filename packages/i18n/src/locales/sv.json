@@ -3090,5 +3090,100 @@
       "SPOUSE_OR_COHABITANT": "Make, maka eller sambo",
       "BYLAWS": "Tillåtet enligt stadgarna"
     }
+  },
+  "charges": {
+    "navLabel": "Debiteringar",
+    "heading": "Debiteringar mot medlem",
+    "description": "Engångskostnader som styrelsen lägger på en medlem eller en lägenhet: en nyckel till cykelrummet, en ny tagg, en andrahandsavgift, en vidaredebiterad reparation. Listan är den debiteringslängd ni lämnar till den som sköter föreningens bokföring.",
+    "notALedger": "Open BRF håller underlaget för en debitering, inte reskontran. Ingenting här registrerar en betalning eller ett utestående belopp - skulden regleras i bokföringssystemet.",
+    "loadFailed": "Debiteringarna kunde inte läsas just nu.",
+    "forbidden": "Debiteringar hanteras av styrelsen. Vad en medlem debiteras kommer till medlemmen genom aviseringen från bokföringssystemet, och medlemmens egen kopia av det som lagras finns i registerutdraget.",
+    "loading": "Läser in debiteringarna",
+    "print": "Skriv ut",
+    "printHint": "Skrivs ut som ett dokument. Navigeringen, formuläret och knapparna följer inte med.",
+    "documentTitle": "Debiteringslängd",
+    "basisOnly": "Listan visar vad som har debiterats och på vilken grund. Den säger ingenting om vad som har betalats.",
+    "maskedApartment": "Skyddad, skrivs inte ut",
+    "apartmentItself": "Lägenheten",
+    "remove": "Ta bort",
+    "stamp": "Debiteringslängd - {{from}} till {{to}} - framställd {{date}}",
+    "total": "Summa {{total}} kr",
+    "period": {
+      "from": "Från",
+      "to": "Till"
+    },
+    "export": {
+      "produce": "Ta fram filen",
+      "download": "Hämta filen"
+    },
+    "empty": {
+      "title": "Inga debiteringar i perioden",
+      "description": "Debiteringar ni registrerar visas här, sorterade efter den dag de är daterade."
+    },
+    "column": {
+      "chargedOn": "Datum",
+      "chargedTo": "Debiteras",
+      "apartment": "Lägenhet",
+      "reason": "Orsak",
+      "vat": "Moms",
+      "amount": "Belopp",
+      "handedToManagerOn": "Skickat till förvaltaren",
+      "actions": "Åtgärder"
+    },
+    "noValue": {
+      "apartment": "Ingen lägenhet registrerad",
+      "handedToManagerOn": "Ännu inte skickat till ekonomisk förvaltare"
+    },
+    "vat": {
+      "EXEMPT": "Ingen moms",
+      "RATE": "Moms med sats",
+      "rateOf": "{{percent}} %"
+    },
+    "record": {
+      "heading": "Registrera en debitering",
+      "description": "Beloppet, dagen den dateras, vad den avser och hur den hanteras momsmässigt.",
+      "party": {
+        "legend": "Debiteras",
+        "person": "En medlem",
+        "apartment": "En lägenhet",
+        "hint": "En debitering läggs på en namngiven person eller på en lägenhet, vem som än bor där - aldrig på båda."
+      },
+      "person": "Medlem",
+      "apartment": "Lägenhet",
+      "choose": "Välj",
+      "chargedOn": "Debiteringsdatum",
+      "amount": "Belopp i kronor",
+      "reason": "Vad debiteringen avser",
+      "vatTreatment": "Moms",
+      "vatRatePercent": "Sats i procent",
+      "handedToManagerOn": "Skickat till ekonomisk förvaltare",
+      "handedHint": "Dagen underlaget skickades över. Det säger ingenting om betalning.",
+      "submit": "Registrera debiteringen",
+      "saving": "Registrerar",
+      "saved": "Debiteringen är registrerad."
+    },
+    "errors": {
+      "notFound": "Debiteringen finns inte längre.",
+      "personNotFound": "Registret innehåller inte den personen.",
+      "apartmentNotFound": "Registret innehåller inte den lägenheten.",
+      "partyRequired": "Ange medlemmen eller lägenheten som debiteras.",
+      "partyAmbiguous": "En debitering läggs på en medlem eller på en lägenhet, inte på båda.",
+      "personalIdentityNumber": "Orsaken innehåller ett personnummer. Ta bort det innan debiteringen registreras - listan lämnas till den som sköter bokföringen.",
+      "personalIdentityNumberCount": "Ett nummer hittades i texten.",
+      "personalIdentityNumberCount_other": "{{count}} nummer hittades i texten.",
+      "dateNotACalendarDate": "Det är inget datum.",
+      "dateInTheFuture": "En debitering kan inte dateras framåt i tiden.",
+      "amountNotASum": "Ange beloppet i kronor, med högst två decimaler och utan tusentalsavgränsare.",
+      "amountNotPositive": "En debitering är ett positivt belopp. En kreditering görs i bokföringssystemet.",
+      "reasonRequired": "Ange vad debiteringen avser.",
+      "vatRateRequired": "Ange satsen för en debitering som bär moms.",
+      "vatRateNotApplicable": "En debitering utan moms bär ingen sats.",
+      "vatRateOutOfRange": "Ange satsen som ett helt procenttal mellan 1 och 100.",
+      "handedOverBeforeCharge": "Underlaget kan inte ha skickats över innan debiteringen gjordes.",
+      "handedOverInTheFuture": "Underlaget kan inte ha skickats över en dag som inte har kommit.",
+      "rangeInvalid": "Perioden kan inte sluta innan den börjar.",
+      "invalidBody": "Något i formuläret kunde inte läsas. Kontrollera beloppet och datumen.",
+      "unknown": "Debiteringen kunde inte sparas just nu."
+    }
   }
 }

@@ -28,6 +28,7 @@ interface Counts {
   memberRegisterEntries?: number;
   transfers?: number;
   lienNotes?: number;
+  memberCharges?: number;
 }
 
 function build(
@@ -64,6 +65,7 @@ function build(
                 memberRegisterEntries: 0,
                 transfers: 0,
                 lienNotes: 0,
+                memberCharges: 0,
                 ...options.apartment.counts,
               },
             },
@@ -326,6 +328,14 @@ describe("removing an apartment", () => {
     ["a member register entry", { memberRegisterEntries: 1 }],
     ["a transfer", { transfers: 1 }],
     ["a lien note", { lienNotes: 1 }],
+    /*
+     * A charge put on the apartment itself. The only one of the five whose
+     * foreign key would refuse the delete on its own - the column is Restrict -
+     * and it is counted here anyway, because a board is entitled to be told
+     * which record stands in the way rather than meeting a constraint
+     * violation.
+     */
+    ["a charge", { memberCharges: 1 }],
   ])("refuses one with %s", async (_label, counts: Counts) => {
     const { service, prisma } = build({
       apartment: { id: "apartment-1", number: "1101", counts },

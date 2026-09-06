@@ -317,6 +317,7 @@ model Apartment {
   signupRequests        SignupRequest[]
   issues                Issue[]
   bookings              Booking[]
+  memberCharges         MemberCharge[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1221,6 +1222,36 @@ enum AuditAction {
   /// access report shows the meeting their item was put to. The entry names the
   /// meeting and never the motion's text.
   MOTION_MEETING_SET
+
+  /// A charge (debitering) was recorded against a member or an apartment. The
+  /// subject is the person charged, so their own access report shows that the
+  /// association put a cost on them; a charge on an apartment has no subject,
+  /// because which of its residents that would be is a question the log must not
+  /// answer by guessing. The entry carries the amount and the VAT treatment and
+  /// never the reason: that is the board's free text about a named person, and
+  /// the log is append-only and exempt from every purge.
+  MEMBER_CHARGE_RECORDED
+
+  /// A recorded charge was corrected - a figure, a date, the VAT treatment, or
+  /// the day the basis went to the economic manager. The subject stays the
+  /// person charged. One action for every correction rather than one per field:
+  /// which fields moved is in the entry's context, and a second action for the
+  /// hand-over alone would suggest a state machine this module does not have.
+  MEMBER_CHARGE_CORRECTED
+
+  /// A charge was removed. Removal and not a cancellation flag, because the
+  /// basis is the association's own note and a charge entered by mistake was
+  /// never owed; what the log keeps is the entry saying it existed and went.
+  MEMBER_CHARGE_REMOVED
+
+  /// The debiting list (debiteringslangd) was exported for a period. Read back
+  /// the way MEMBER_REGISTER_EXTRACT_GENERATED is: the file leaves the
+  /// association for whoever keeps its books carrying names, apartments and
+  /// sums, so the log has to be able to say who took a copy and for which
+  /// period. No subject - it names every person on it and none of them
+  /// particularly - and the entry carries the period and the row count, never a
+  /// name or a figure.
+  DEBITING_LIST_EXPORTED
 }
 
 /// Access log. Writes happen in the same transaction as the access they record.
@@ -4146,4 +4177,127 @@ model MeetingNoticeDelivery {
   /// The worker's queue, and the board's count of what got through.
   @@index([noticeId, channel, status])
   @@map("meeting_notice_delivery")
+}
+
+// ---------------------------------------------------------------------------
+// Charges to members (debiteringar mot medlem).
+// ---------------------------------------------------------------------------
+
+/// How a charge is treated for value added tax (moms).
+///
+/// Two values and not a rate per value, because the rates are set by
+/// mervardesskattelagen and an amending act moves them. An enum naming 6, 12
+/// and 25 would turn a rate change into a migration over rows the board has
+/// already handed to its bookkeeper, and would refuse a rate the board is told
+/// to apply in the meantime. So the treatment says whether the charge carries
+/// tax at all and `MemberCharge.vatRatePercent` says at what rate, which is the
+/// pair the accounting system is given.
+///
+/// EXEMPT is not "the board has not decided yet". A charge with no VAT on it is
+/// a statement the bookkeeper acts on, so the column has no default and the
+/// board states one of the two every time.
+enum MemberChargeVatTreatment {
+  /// No value added tax on this charge.
+  EXEMPT
+
+  /// Value added tax at the rate on `vatRatePercent`.
+  RATE
+}
+
+/// One charge put on a member or on an apartment (debitering).
+///
+/// The basis for a charge and never the ledger. There is no paid column, no
+/// status that stands in for one and no balance: the accounting system is where
+/// a debt is settled, and a second answer to "has this been paid" is worse than
+/// none. `handedToManagerOn` is the nearest thing to a workflow field and is
+/// deliberately not that - it says when the basis left the association for
+/// whoever keeps its books, which is a fact about this row rather than about the
+/// debt.
+///
+/// ## The charged party is one thing or the other
+///
+/// Exactly one of `personId` and `apartmentId` is set, enforced by a check
+/// constraint in the migration. A charge is on a named person - the member who
+/// asked for a second key - or on an apartment, whoever holds it, which is what
+/// a repair charged on to the flat is. Recording both would give two answers to
+/// "who is being charged" the day the apartment changes hands, and the board
+/// would have no way to say which of them the row meant.
+///
+/// An apartment-keyed charge is still personal data, because the apartment
+/// leads back to whoever lives there. It reaches the data subject access report
+/// through the residencies covering the charge date, and the purge through the
+/// same link, which is why it sits in the service tier with the bookings and the
+/// sign-ups rather than beside the association's own records.
+///
+/// `personId` and `recordedByPersonId` are plain columns and not relations, for
+/// the reason `Booking.bookedByPersonId` and `EventSignup.personId` give: every
+/// referential action a foreign key can carry either rewrites this row when a
+/// person is erased or vetoes the erasure outright, and service-tier data has to
+/// be purgeable without the purge having to negotiate with the debiting list.
+/// The apartment IS a relation, and Restrict rather than the SetNull
+/// `Booking.apartmentId` carries. The two differ because the apartment means
+/// different things on them: a booking is made BY somebody FOR a flat, so a
+/// booking whose apartment was corrected out of the register still says who
+/// booked the sauna, while an apartment-keyed charge has no other party at all -
+/// nulling the column would leave a sum the association charged nobody. So the
+/// register keeps the apartment while a charge names it, and
+/// `AddressService.removeApartment` counts the charges and says so, which is why
+/// the refusal names the record in the way rather than surfacing as a foreign
+/// key error.
+model MemberCharge {
+  id String @id @default(cuid())
+
+  /// The person charged, or null on a charge against the apartment itself.
+  personId String?
+
+  /// The apartment charged, or null on a charge against a named person.
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
+  /// The day the charge is dated, on the association's own calendar.
+  ///
+  /// A date column and not an instant: this is the day the bookkeeper posts it
+  /// to, and it decides which financial year the charge falls in - which is what
+  /// the retention window is anchored on.
+  chargedOn DateTime @db.Date
+
+  /// What is being charged, in kronor. Positive; a credit is not a charge.
+  amount Decimal @db.Decimal(14, 2)
+
+  /// Why, in the board's own words. Board-written free text, so it is scanned
+  /// for a personal identity number on the way in and on every later edit.
+  reason String
+
+  vatTreatment MemberChargeVatTreatment
+
+  /// The rate in whole percent, set exactly when `vatTreatment` is RATE.
+  ///
+  /// Whole percent because that is how the rates are expressed and how a board
+  /// reads them off an invoice. Bounded 1 to 100 by the migration's check: zero
+  /// is EXEMPT said twice, and the column is not the place to enumerate which
+  /// rates are in force.
+  vatRatePercent Int?
+
+  /// The day the basis went to the economic manager, or null while it has not.
+  ///
+  /// A date and not a boolean, because the board's question is when it went as
+  /// often as whether: the manager asks which period was sent over, and a flag
+  /// could not answer. It says nothing about payment - the manager receiving the
+  /// basis is not the member having paid.
+  handedToManagerOn DateTime? @db.Date
+
+  /// Who recorded it. A plain column, per the model comment.
+  recordedByPersonId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The debiting list for a period, which is the read the whole module exists
+  /// for, and the purge's scan over the same column.
+  @@index([chargedOn])
+  /// This person's charges: the access report section and the purge's grouping.
+  @@index([personId, chargedOn])
+  /// This apartment's charges, reached the same two ways.
+  @@index([apartmentId, chargedOn])
+  @@map("member_charge")
 }

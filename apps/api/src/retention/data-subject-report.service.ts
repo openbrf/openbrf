@@ -8,6 +8,8 @@ import { computeMotionPurgeDate } from "../motions/motion-retention";
 import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { chargesDuringResidency } from "../charges/apartment-charges";
+import { computeMemberChargePurgeDate } from "../charges/member-charge-retention";
 import { computeEventSignupPurgeDate } from "../events/event-signup-retention";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
@@ -16,6 +18,7 @@ import type {
   DataSubjectReport,
   ReportAuditEntry,
   ReportMeetingAttendance,
+  ReportMemberCharge,
   ReportNewsComment,
   ReportPostalAddress,
   ReportProxyAuthorisation,
@@ -59,6 +62,7 @@ const SECTIONS = [
   "bookings",
   "motions",
   "eventSignups",
+  "memberCharges",
   "newsComments",
   "meetingAttendances",
   "proxyAuthorisations",
@@ -211,6 +215,10 @@ export class DataSubjectReportService {
             movedOutOn: true,
             apartment: {
               select: {
+                // The identifier is the charges section's, not this one's: a
+                // charge put on an apartment names no person, so which of them
+                // are this person's is answered by where they were living.
+                id: true,
                 number: true,
                 address: { select: { street: true, number: true } },
               },
@@ -509,6 +517,64 @@ export class DataSubjectReportService {
         },
       },
     });
+
+    /*
+     * Charges the association put on this person, and the ones it put on an
+     * apartment while they were living in it.
+     *
+     * Two readings of one table because a charge names one or the other and
+     * never both. `personId` is a plain column and not a relation, for the
+     * reason `bookedByPersonId` is, so the first is a query of its own; the
+     * second reaches the rows through the apartments this person's residencies
+     * name and is then bounded by the dates of those residencies, because an
+     * apartment-keyed charge from before they moved in is the previous
+     * household's.
+     *
+     * The apartment IS a relation on the charge, so its designation is read
+     * along rather than copied onto the row.
+     */
+    const residencyPeriods = person.residencies.map((residency) => ({
+      apartmentId: residency.apartment.id,
+      from: residency.movedInOn,
+      until: residency.movedOutOn,
+    }));
+    const residentApartmentIds = [
+      ...new Set(residencyPeriods.map((period) => period.apartmentId)),
+    ];
+    const chargeFields = {
+      id: true,
+      personId: true,
+      apartmentId: true,
+      chargedOn: true,
+      amount: true,
+      reason: true,
+      vatTreatment: true,
+      vatRatePercent: true,
+      handedToManagerOn: true,
+      apartment: {
+        select: {
+          number: true,
+          address: { select: { street: true, number: true } },
+        },
+      },
+    } as const;
+
+    const ownCharges = await tx.memberCharge.findMany({
+      where: { personId },
+      orderBy: [{ chargedOn: "desc" }],
+      select: chargeFields,
+    });
+    const apartmentCharges =
+      residentApartmentIds.length === 0
+        ? []
+        : chargesDuringResidency(
+            await tx.memberCharge.findMany({
+              where: { apartmentId: { in: residentApartmentIds } },
+              orderBy: [{ chargedOn: "desc" }],
+              select: chargeFields,
+            }),
+            residencyPeriods,
+          );
 
     /*
      * Comments this person wrote under the association's news. `authorPersonId`
@@ -825,6 +891,32 @@ export class DataSubjectReportService {
           computeEventSignupPurgeDate(signup.occurrence.endsAt),
         ),
       })),
+      memberCharges: [...ownCharges, ...apartmentCharges].map(
+        (charge): ReportMemberCharge => ({
+          chargeId: charge.id,
+          basis: charge.personId === null ? "apartment" : "person",
+          chargedOn: toIsoDate(charge.chargedOn) ?? "",
+          // toFixed and not toString: a DECIMAL(14, 2) holding 450 renders as
+          // "450" through the latter, and this document states ore.
+          amount: charge.amount.toFixed(2),
+          vatTreatment: charge.vatTreatment,
+          vatRatePercent: charge.vatRatePercent,
+          reason: charge.reason,
+          apartment:
+            charge.apartment === null
+              ? null
+              : `${charge.apartment.address.street} ${charge.apartment.address.number} ${charge.apartment.number}`,
+          handedToManagerOn: toIsoDate(charge.handedToManagerOn),
+          /*
+           * Derived here rather than stored, exactly as the booking's is, and
+           * anchored on the charge's own date rather than on a move-out: the row
+           * belongs to a financial year, and it is that year that decides when
+           * the association has no further use for it.
+           */
+          erasableFrom:
+            toIsoDate(computeMemberChargePurgeDate(charge.chargedOn)) ?? "",
+        }),
+      ),
       newsComments: newsComments.map((comment): ReportNewsComment => ({
         commentId: comment.id,
         newsTitle: comment.news.title,

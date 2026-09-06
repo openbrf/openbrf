@@ -251,6 +251,7 @@ export class AddressService {
             memberRegisterEntries: true,
             transfers: true,
             lienNotes: true,
+            memberCharges: true,
           },
         },
       },
@@ -264,7 +265,15 @@ export class AddressService {
       counts.residencies +
       counts.memberRegisterEntries +
       counts.transfers +
-      counts.lienNotes;
+      counts.lienNotes +
+      /*
+       * Counted here rather than left to the foreign key, which is Restrict on
+       * that column. A charge put on the apartment itself names no other party,
+       * so an apartment carrying one cannot be removed without leaving a sum the
+       * association charged nobody - and the board is entitled to be told which
+       * record stands in the way rather than meeting a constraint violation.
+       */
+      counts.memberCharges;
 
     if (referenced > 0) {
       throw new AddressError(
