@@ -12,10 +12,10 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.0",
     "@types/pg": "^8.23.1",
     "fflate": "^0.8.3",
-    "oxlint": "^1.81.0",
+    "oxlint": "^1.82.0",
     "oxlint-tsgolint": "^7.0.2001",
     "pg": "^8.23.0",
     "pg-boss": "12.30.0",
