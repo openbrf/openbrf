@@ -1,8 +1,8 @@
 {
   "name": "Open BRF",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-bookworm@sha256:3171cac7c483b2dcbbab44b49e6cbc2d52e2b2b7faf81177c2bcb3648b957cf3",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-bookworm@sha256:4187a9d50e7a208659e9b56677ae764edb98cb6dc243f21e851aab2ca4d103ba",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {}
   },
   "postCreateCommand": "bash -lc 'bash .devcontainer/post-create.sh'",
   "postStartCommand": "bash -lc 'docker compose up -d db'",
