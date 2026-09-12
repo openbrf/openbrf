@@ -47,6 +47,7 @@ minimumReleaseAgeExclude:
   - "@swc/core@1.16.2"
   - playwright-core@1.63.0
   - playwright@1.63.0
+  - adm-zip@0.6.1
 
 # Optional peers whose declared range trails the version this repository runs.
 # Both are optional and neither is loaded here, so the range is a statement
@@ -62,6 +63,13 @@ peerDependencyRules:
 
 # Transitive dependency advisories we resolve ahead of the upstream package.
 overrides:
+  # GHSA-vwc7-r8mq-g2x9: extraction follows a symlink already present in the
+  # destination, so an archive can overwrite a file outside it. Fixed in 0.6.1.
+  # @module-federation/dts-plugin pins adm-zip at an exact 0.6.0 and extracts
+  # with it only when a build downloads a remote's type archive. The web app
+  # declares no remotes at build time, so no archive is downloaded here, but the
+  # pin is what the plugin ships and only an override moves it.
+  adm-zip: "^0.6.1"
   # better-sqlite3 12 reaches its prebuilt binary through prebuild-install,
   # which its author deprecated as unmaintained; 13 dropped the dependency and
   # is the only reason this pin exists. Nothing here loads better-sqlite3 and

@@ -349,9 +349,9 @@ reviews:
       enabled: false
     biome:
       enabled: false
-    # Dependency advisories arrive through Dependabot alerts, and Renovate owns
-    # the updates. Repeating them per pull request would flag transitive issues
-    # that a review cannot act on.
+    # Dependency advisories arrive through Dependabot alerts, and Dependabot
+    # opens the updates too. Repeating them per pull request would flag
+    # transitive issues that a review cannot act on.
     osvScanner:
       enabled: false
 

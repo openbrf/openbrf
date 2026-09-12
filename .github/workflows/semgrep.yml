@@ -63,10 +63,14 @@ jobs:
       # cannot write code scanning results, so the log is the only place a
       # finding can be read.
       - name: Run Semgrep
-        env:
-          # renovate: datasource=docker depName=semgrep/semgrep
-          SEMGREP_IMAGE: semgrep/semgrep:1.176.1@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823
         run: |
+          # Pinned in docker/semgrep/Dockerfile, where Dependabot keeps the
+          # digest current. Only the image on its FROM line is read.
+          SEMGREP_IMAGE=$(sed -n 's/^FROM //p' docker/semgrep/Dockerfile)
+          if [ -z "$SEMGREP_IMAGE" ]; then
+            echo "docker/semgrep/Dockerfile names no image." >&2
+            exit 1
+          fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
             --config=p/typescript \
@@ -155,7 +159,7 @@ jobs:
           name: semgrep-sarif
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: semgrep.sarif
           category: semgrep

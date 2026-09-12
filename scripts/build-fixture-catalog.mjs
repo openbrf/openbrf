@@ -91,9 +91,15 @@ if (!existsSync(sdkTypes)) {
 }
 
 // The fixture is not a workspace member: it is packaged and installed exactly
-// like a third-party plugin, so it carries its own dependency tree.
+// like a third-party plugin, so it carries its own dependency tree. Its own
+// pnpm-workspace.yaml makes its directory a workspace root, which is what lets
+// a plain install resolve the fixture's dependencies and apply the fixture's
+// settings. Without that file, pnpm 12 resolves an install here against the
+// repository's workspace two directories up and links none of the fixture's
+// dependencies - `vite` included. `--ignore-workspace` is no substitute: it
+// skips the fixture's settings along with the repository's.
 console.log("Installing the fixture's build dependencies.");
-run("pnpm", ["install", "--ignore-workspace"], pluginDir);
+run("pnpm", ["install"], pluginDir);
 
 const manifestSource = JSON.parse(
   readFileSync(join(pluginDir, "package.json"), "utf8"),

@@ -28,9 +28,7 @@ updates:
 
   # Compose files are a separate ecosystem rather than part of the one above,
   # and this is what keeps the Postgres digest in docker-compose.prod.yml
-  # current. The Semgrep image is still not covered by anything: it sits in a
-  # workflow environment variable, which no updater reads, and is bumped by
-  # hand.
+  # current.
   - package-ecosystem: docker-compose
     directory: /
     schedule:
@@ -40,6 +38,20 @@ updates:
       include: scope
     groups:
       compose:
+        patterns: ["*"]
+
+  # The Semgrep image the scan runs in. A workflow names an image only in a
+  # variable, which no updater reads, so the pin is the FROM line of a
+  # Dockerfile of its own that is never built; semgrep.yml reads it from there.
+  - package-ecosystem: docker
+    directory: /docker/semgrep
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      semgrep:
         patterns: ["*"]
 
   # The `uses:` pins in .github/workflows, which are commit SHAs. Dependabot

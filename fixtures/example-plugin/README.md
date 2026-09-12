@@ -41,9 +41,12 @@ provider's constructor.
 end-to-end harness run the real install path with no network.
 
 The package is not a workspace member and carries its own dependency tree,
-installed with `pnpm install --ignore-workspace`. That is the point: a plugin
+installed from this directory with `pnpm install`. That is the point: a plugin
 is built by its own toolchain and installed from a tarball, so anything it
 could only do from inside this repository would not be part of the contract.
+Its own `pnpm-workspace.yaml` makes this directory a workspace root, so the
+install resolves this package's dependencies and applies this package's
+settings rather than the repository's.
 `@openbrf/plugin-sdk` is a devDependency pointed at the workspace copy, which
 is all a plugin ever needs it to be: the SDK carries the types and the manifest
 schema for the author's own build, and the host injects everything a plugin

@@ -1,0 +1,16 @@
+# This package is not a member of the repository's workspace. This file makes
+# its directory a workspace root of its own, so an install here resolves this
+# package's dependencies and reads the settings below, not the repository's.
+
+# Versions this package asked for while pnpm still held them back as freshly
+# published. pnpm records each exemption itself on the install that took it,
+# naming an exact version.
+minimumReleaseAgeExclude:
+  - adm-zip@0.6.1
+
+# Transitive dependency advisories resolved ahead of the upstream package.
+overrides:
+  # GHSA-vwc7-r8mq-g2x9, as in the repository's pnpm-workspace.yaml.
+  # @module-federation/dts-plugin pins adm-zip at an exact 0.6.0. The federation
+  # build here sets `dts: false`, so no type archive is downloaded or extracted.
+  adm-zip: "^0.6.1"

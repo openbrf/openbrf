@@ -1,6 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import { betterAuth } from "better-auth";
-import { createLocalAccountIssuer } from "better-auth/db";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -162,7 +161,6 @@ export class AuthService {
       await context.internalAdapter.linkAccount({
         userId: user.id,
         providerId: "credential",
-        issuer: createLocalAccountIssuer("credential"),
         accountId: user.id,
         password: await context.password.hash(input.password),
       });

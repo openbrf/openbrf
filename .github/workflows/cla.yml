@@ -44,4 +44,4 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/openbrf/openbrf/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: neeo,dependabot[bot],renovate[bot]
+          allowlist: neeo,dependabot[bot]
