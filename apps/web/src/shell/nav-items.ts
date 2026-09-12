@@ -106,6 +106,22 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["events:attend", "events:manage"],
   },
   {
+    to: "/charges",
+    // Under the charges namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "charges.navLabel",
+    // One capability and no any-of list, because there is one audience. The
+    // module has no resident half: a member learns what they are charged from
+    // the notice the accounting system sends, and what Open BRF holds is the
+    // basis the board records and hands to whoever keeps the books.
+    //
+    // Deliberately not the external property manager, on the motions:handle
+    // precedent: they handle the association's issues, and what the association
+    // charges its members is its own business with its own members. Nor the
+    // economic manager who receives the list, who has no account here at all.
+    capability: "memberCharges:manage",
+  },
+  {
     to: "/motions",
     // Under the motions namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
