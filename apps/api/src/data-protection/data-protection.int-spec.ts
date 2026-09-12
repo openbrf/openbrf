@@ -981,6 +981,54 @@ describe("record of processing", () => {
     expect(after?.seeded).toBe(false);
   });
 
+  it("leaves a seeded row following the instance when a save repeats what it says", async () => {
+    /*
+     * Detaching a row is what stops the seed refreshing it, and the seed now
+     * refreshes every field it wrote, so a detached row misses corrections to
+     * the product's own wording as well as changes to the configuration. A
+     * save that alters nothing must therefore leave it attached: a client
+     * sending the whole row back unchanged has not written the board's words.
+     *
+     * The row is asserted seeded before the save, so the case cannot pass on a
+     * row something else had already detached. The category lists go back in
+     * reverse order, because their order carries no meaning and a different
+     * order is not a different processing.
+     */
+    await seedRecord();
+    const target = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "bookings",
+    );
+    if (target === undefined) {
+      throw new Error("the seed did not write the bookings row");
+    }
+    expect(target.seeded).toBe(true);
+
+    const saved = await inject({
+      method: "PUT",
+      url: `/api/data-protection/processing-activities/${target.activityId}`,
+      payload: {
+        name: target.name,
+        purpose: target.purpose,
+        legalBasis: target.legalBasis,
+        legalBasisNote: target.legalBasisNote,
+        dataSubjectCategories: [...target.dataSubjectCategories].reverse(),
+        personalDataCategories: [...target.personalDataCategories].reverse(),
+        recipients: target.recipients,
+        thirdCountryTransfer: target.thirdCountryTransfer,
+        thirdCountrySafeguards: target.thirdCountrySafeguards,
+        retention: target.retention,
+        securityMeasures: target.securityMeasures,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const after = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "bookings",
+    );
+    expect(after?.seeded).toBe(true);
+  });
+
   it("takes a processing the board performs outside the application", async () => {
     const response = await inject({
       method: "POST",
