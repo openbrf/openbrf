@@ -2071,7 +2071,6 @@ model Session {
 
 model Account {
   id                    String    @id @default(cuid())
-  issuer                String
   accountId             String
   providerId            String
   accessToken           String?

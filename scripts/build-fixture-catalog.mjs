@@ -91,9 +91,17 @@ if (!existsSync(sdkTypes)) {
 }
 
 // The fixture is not a workspace member: it is packaged and installed exactly
-// like a third-party plugin, so it carries its own dependency tree.
+// like a third-party plugin, so it carries its own dependency tree. Ignoring
+// the workspace is not enough to say so: pnpm 12 still resolves the install
+// against the workspace root two directories up, and links none of the
+// fixture's own dependencies - `vite` included. Naming the fixture as the
+// lockfile directory makes it the project being installed.
 console.log("Installing the fixture's build dependencies.");
-run("pnpm", ["install", "--ignore-workspace"], pluginDir);
+run(
+  "pnpm",
+  ["install", "--ignore-workspace", "--lockfile-dir", pluginDir],
+  pluginDir,
+);
 
 const manifestSource = JSON.parse(
   readFileSync(join(pluginDir, "package.json"), "utf8"),

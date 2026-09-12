@@ -41,9 +41,13 @@ provider's constructor.
 end-to-end harness run the real install path with no network.
 
 The package is not a workspace member and carries its own dependency tree,
-installed with `pnpm install --ignore-workspace`. That is the point: a plugin
+installed from this directory with
+`pnpm install --ignore-workspace --lockfile-dir .`. That is the point: a plugin
 is built by its own toolchain and installed from a tarball, so anything it
 could only do from inside this repository would not be part of the contract.
+The lockfile directory is named as well as the workspace ignored, because
+pnpm 12 otherwise resolves the install against the workspace root and links
+none of this package's dependencies.
 `@openbrf/plugin-sdk` is a devDependency pointed at the workspace copy, which
 is all a plugin ever needs it to be: the SDK carries the types and the manifest
 schema for the author's own build, and the host injects everything a plugin
