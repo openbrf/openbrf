@@ -156,7 +156,10 @@ export class KeyOrderPurgeService implements OnModuleInit {
         }
       } catch (error) {
         // The class of the failure and the person id, and nothing the failure
-        // was holding: an exception message here can be quoting a row.
+        // was holding: an exception message here can be quoting a row. The id
+        // stays because it is the only handle on an erasure that did not
+        // happen, and a failed transaction wrote no audit entry to carry it -
+        // ADR 0007.
         failed += 1;
         this.logger.error(
           `Key order purge failed for person ${personId}: ${failureName(error)}`,

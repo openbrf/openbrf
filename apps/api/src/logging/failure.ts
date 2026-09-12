@@ -24,6 +24,15 @@
  * plugin that will not load into one that cannot be fixed. All of it is chosen
  * when code is written rather than composed from what is being processed, and
  * that is the distinction this file draws.
+ *
+ * The caller's own identifier may be the data subject's. A surrogate key this
+ * application minted to address a row says nothing about the person to a reader
+ * without the database, and in the nightly purges it is the only handle on an
+ * erasure that did not happen - a failure rolls back the transaction that would
+ * have recorded it, so nothing outside the log names it at all. What may never
+ * travel is a value held on somebody's behalf rather than chosen to address
+ * them: a name, contact data, a personal identity number, an apartment, or free
+ * text out of a row. The boundary and its consequences are ADR 0007.
  */
 
 /**

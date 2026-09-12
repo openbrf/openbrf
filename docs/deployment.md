@@ -214,6 +214,16 @@ the data rather than from a flag.
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.
 
+A purge that fails on one person reports two things to the container log: the
+class of the failure with the runtime's code for it, and the surrogate id this
+application addresses that person by. Not their name, their contact details or
+their personal identity number, nothing out of the rows being erased, and never
+the exception's own message. The transaction that would have recorded the
+erasure rolled back with it, so that line is the only trace of an erasure still
+outstanding - which makes how long these logs are kept and who may read them
+part of this instance's retention posture rather than an operational detail
+beside it. ADR 0007 draws the boundary and says why it falls there.
+
 ## Plugins and themes
 
 `OPENBRF_CATALOG_URL` points at the curated catalog. While the catalog

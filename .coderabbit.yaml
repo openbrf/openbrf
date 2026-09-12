@@ -167,7 +167,13 @@ reviews:
         @Public(), and flag any @Public() route that touches personal data.
 
         Flag personal data written to logs, error messages or exception
-        payloads.
+        payloads. An identifier this application minted to address a row - a
+        person id, residency id, booking id, thread id, file id, session id -
+        logged beside failureName() must NOT be flagged: ADR 0007 decided it,
+        and in the nightly purges it is the only handle on an erasure that did
+        not happen. Names, contact data, personal identity numbers, apartment
+        identity, free text from a row and raw exception messages are still
+        findings wherever they appear.
 
     - path: "apps/web/src/**"
       instructions: >-
