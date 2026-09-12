@@ -1029,6 +1029,95 @@ describe("record of processing", () => {
     expect(after?.seeded).toBe(true);
   });
 
+  it("accounts in the audit log for every change when two saves overlap", async () => {
+    /*
+     * Two saves of one seeded row run together: one sends its purpose back
+     * unchanged, the other changes it. Serialised, they leave one of two
+     * states. The change lands last, and one entry names `purpose`. Or the
+     * resend lands last, putting the seeded purpose back over the change, and
+     * two entries name it - one for each save that moved it.
+     *
+     * Unserialised, the resend compares its payload against the row it read
+     * before the change committed, finds nothing different, and writes the
+     * seeded purpose back over the change with an entry naming no field. The
+     * row ends at the seeded purpose with a single entry naming `purpose`, and
+     * the log no longer accounts for the save that undid the change.
+     *
+     * Which interleaving occurs is not in the test's control, so the pair runs
+     * repeatedly and the invariant is asserted on every round. Each round's
+     * entries are told apart by id rather than by time, because the entries are
+     * stamped by the database's clock and a filter would be read against this
+     * process's.
+     */
+    await seedRecord();
+    const initial = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "motions",
+    );
+    if (initial === undefined) {
+      throw new Error("the seed did not write the motions row");
+    }
+    const seededPurpose = initial.purpose;
+    const changedPurpose = "Styrelsens egen beskrivning av motionerna.";
+    const url = `/api/data-protection/processing-activities/${initial.activityId}`;
+    const where = {
+      action: "PROCESSING_ACTIVITY_UPDATED" as const,
+      targetId: initial.activityId,
+    };
+
+    for (let round = 0; round < 15; round += 1) {
+      await prisma.processingActivity.update({
+        where: { id: initial.activityId },
+        data: { purpose: seededPurpose, updatedByPersonId: null },
+      });
+      const before = new Set(
+        (
+          await prisma.auditLogEntry.findMany({ where, select: { id: true } })
+        ).map((entry) => entry.id),
+      );
+
+      const responses = await Promise.all([
+        inject({
+          method: "PUT",
+          url,
+          payload: { purpose: seededPurpose },
+          headers: { cookie: boardCookie },
+        }),
+        inject({
+          method: "PUT",
+          url,
+          payload: { purpose: changedPurpose },
+          headers: { cookie: boardCookie },
+        }),
+      ]);
+      expect(responses.map((response) => response.statusCode)).toEqual([
+        200, 200,
+      ]);
+
+      const row = await prisma.processingActivity.findUniqueOrThrow({
+        where: { id: initial.activityId },
+        select: { purpose: true },
+      });
+      const namingPurpose = (
+        await prisma.auditLogEntry.findMany({
+          where,
+          select: { id: true, context: true },
+        })
+      ).filter(
+        (entry) =>
+          !before.has(entry.id) &&
+          (
+            (entry.context as { fields?: string[] } | null)?.fields ?? []
+          ).includes("purpose"),
+      ).length;
+
+      expect({ round, purpose: row.purpose, namingPurpose }).toEqual({
+        round,
+        purpose: row.purpose,
+        namingPurpose: row.purpose === seededPurpose ? 2 : 1,
+      });
+    }
+  });
+
   it("takes a processing the board performs outside the application", async () => {
     const response = await inject({
       method: "POST",

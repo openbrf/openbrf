@@ -8,6 +8,7 @@ import type { LegalBasis } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { pluginProcessorKey } from "./processor-key";
 import type { ProcessorFacts } from "./processors";
+import { lockProcessingActivity } from "./processing-activity-lock";
 import { SEED_KEYS, seedRows } from "./processing-activity-seed";
 
 export class ProcessingActivityError extends DomainError {
@@ -360,46 +361,57 @@ export class ProcessingActivityService {
     activityId: string,
     input: Partial<ActivityInput> & { actorPersonId: string },
   ): Promise<ProcessingActivityView> {
-    const existing = await this.prisma.processingActivity.findUnique({
-      where: { id: activityId },
-      select: {
-        id: true,
-        name: true,
-        purpose: true,
-        legalBasis: true,
-        legalBasisNote: true,
-        dataSubjectCategories: true,
-        personalDataCategories: true,
-        recipients: true,
-        thirdCountryTransfer: true,
-        thirdCountrySafeguards: true,
-        retention: true,
-        securityMeasures: true,
-      },
-    });
-    if (existing === null) {
-      throw new ProcessingActivityError(
-        "There is no such processing.",
-        "activity-not-found",
-      );
-    }
-
-    assertNoIdentityNumber(input);
-
-    /*
-     * The fields this write actually changes, read against the row rather than
-     * against the payload. A field the payload carries with the value the row
-     * already holds is not a change: counting it as one marked the row edited
-     * on a save that altered nothing, and an edited row is one the seed stops
-     * refreshing - so it would miss every later correction to the product's
-     * own wording, and every change to the configuration it describes.
-     */
-    const changed = ACTIVITY_FIELDS.filter(
-      (field) =>
-        input[field] !== undefined && !sameValue(existing[field], input[field]),
-    );
-
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Before the read, so the comparison below and the write after it see the
+       * same row. Read outside the transaction, a second save committing in
+       * between left `changed` describing a row that was no longer there: the
+       * write overwrote the newer fields, while `updatedByPersonId` and the
+       * audit entry both described the older one.
+       */
+      await lockProcessingActivity(tx, activityId);
+
+      const existing = await tx.processingActivity.findUnique({
+        where: { id: activityId },
+        select: {
+          id: true,
+          name: true,
+          purpose: true,
+          legalBasis: true,
+          legalBasisNote: true,
+          dataSubjectCategories: true,
+          personalDataCategories: true,
+          recipients: true,
+          thirdCountryTransfer: true,
+          thirdCountrySafeguards: true,
+          retention: true,
+          securityMeasures: true,
+        },
+      });
+      if (existing === null) {
+        throw new ProcessingActivityError(
+          "There is no such processing.",
+          "activity-not-found",
+        );
+      }
+
+      assertNoIdentityNumber(input);
+
+      /*
+       * The fields this write actually changes, read against the row rather
+       * than against the payload. A field the payload carries with the value
+       * the row already holds is not a change: counting it as one marked the
+       * row edited on a save that altered nothing, and an edited row is one the
+       * seed stops refreshing - so it would miss every later correction to the
+       * product's own wording, and every change to the configuration it
+       * describes.
+       */
+      const changed = ACTIVITY_FIELDS.filter(
+        (field) =>
+          input[field] !== undefined &&
+          !sameValue(existing[field], input[field]),
+      );
+
       const row = await tx.processingActivity.update({
         where: { id: activityId },
         data: {
