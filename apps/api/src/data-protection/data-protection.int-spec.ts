@@ -785,6 +785,83 @@ describe("record of processing", () => {
     expect(second.activities).toHaveLength(first.activities.length);
   });
 
+  it("carries a corrected wording into a row it already wrote", async () => {
+    /*
+     * The record is persisted rather than rendered, so a value fixed only in
+     * the locale file repairs nothing already written. The authority's name was
+     * seeded misspelled into this record once; the correction had to reach the
+     * rows that carried it.
+     *
+     * The old value is put back on a seeded row here rather than waited for,
+     * because what is being tested is that the next seed repairs a row holding
+     * text the product no longer uses.
+     */
+    await seedRecord();
+    const key = "cooperativeHousingRegisterReporting";
+
+    await prisma.processingActivity.updateMany({
+      where: { sourceKey: key, updatedByPersonId: null },
+      data: { purpose: "Anmala till Lantmateriet." },
+    });
+
+    await seedRecord();
+
+    const row = await prisma.processingActivity.findFirst({
+      where: { sourceKey: key },
+      select: { purpose: true },
+    });
+    expect(row?.purpose).not.toBe("Anmala till Lantmateriet.");
+    expect(row?.purpose).toContain("Lantmäteriet");
+  });
+
+  it("leaves every word of a row the board has edited", async () => {
+    /*
+     * The other half, and the one that decides whether widening the refresh was
+     * safe: `updatedByPersonId` is what protects the board's own words, and it
+     * is set by any edit that changes something. A row carrying it must come
+     * out of a seed exactly as the board left it, text and derived fields
+     * alike - the board is answerable for the record under art. 5(2), and a
+     * background job rewriting its account of its own processing would be the
+     * association contradicting itself.
+     */
+    await seedRecord();
+    const before = await readRecord();
+    const target = before.activities.find(
+      (activity) => activity.sourceKey === "issues",
+    );
+    if (target === undefined) {
+      throw new Error("the seed did not write the issues row");
+    }
+
+    const edited = await inject({
+      method: "PUT",
+      url: `/api/data-protection/processing-activities/${target.activityId}`,
+      payload: {
+        name: "Felanmalningar, som styrelsen beskriver dem",
+        purpose: "Styrelsens egen beskrivning av vad den gor med anmalningar.",
+        legalBasis: target.legalBasis,
+        dataSubjectCategories: target.dataSubjectCategories,
+        personalDataCategories: target.personalDataCategories,
+        thirdCountryTransfer: target.thirdCountryTransfer,
+        retention: "Sa lange styrelsen har beslutat.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(edited.statusCode).toBe(200);
+
+    await seedRecord();
+
+    const row = await prisma.processingActivity.findFirst({
+      where: { sourceKey: "issues" },
+      select: { name: true, purpose: true, retention: true },
+    });
+    expect(row?.name).toBe("Felanmalningar, som styrelsen beskriver dem");
+    expect(row?.purpose).toBe(
+      "Styrelsens egen beskrivning av vad den gor med anmalningar.",
+    );
+    expect(row?.retention).toBe("Sa lange styrelsen har beslutat.");
+  });
+
   it("names the controller with its contact details at the head", async () => {
     /*
      * art. 30(1)(a). The name and the organisation number were always on the
@@ -902,6 +979,143 @@ describe("record of processing", () => {
     // And it has stopped following the instance's settings, which is what the
     // screen tells the board about a row it has edited.
     expect(after?.seeded).toBe(false);
+  });
+
+  it("leaves a seeded row following the instance when a save repeats what it says", async () => {
+    /*
+     * Detaching a row is what stops the seed refreshing it, and the seed now
+     * refreshes every field it wrote, so a detached row misses corrections to
+     * the product's own wording as well as changes to the configuration. A
+     * save that alters nothing must therefore leave it attached: a client
+     * sending the whole row back unchanged has not written the board's words.
+     *
+     * The row is asserted seeded before the save, so the case cannot pass on a
+     * row something else had already detached. The category lists go back in
+     * reverse order, because their order carries no meaning and a different
+     * order is not a different processing.
+     */
+    await seedRecord();
+    const target = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "bookings",
+    );
+    if (target === undefined) {
+      throw new Error("the seed did not write the bookings row");
+    }
+    expect(target.seeded).toBe(true);
+
+    const saved = await inject({
+      method: "PUT",
+      url: `/api/data-protection/processing-activities/${target.activityId}`,
+      payload: {
+        name: target.name,
+        purpose: target.purpose,
+        legalBasis: target.legalBasis,
+        legalBasisNote: target.legalBasisNote,
+        dataSubjectCategories: [...target.dataSubjectCategories].reverse(),
+        personalDataCategories: [...target.personalDataCategories].reverse(),
+        recipients: target.recipients,
+        thirdCountryTransfer: target.thirdCountryTransfer,
+        thirdCountrySafeguards: target.thirdCountrySafeguards,
+        retention: target.retention,
+        securityMeasures: target.securityMeasures,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const after = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "bookings",
+    );
+    expect(after?.seeded).toBe(true);
+  });
+
+  it("accounts in the audit log for every change when two saves overlap", async () => {
+    /*
+     * Two saves of one seeded row run together: one sends its purpose back
+     * unchanged, the other changes it. Serialised, they leave one of two
+     * states. The change lands last, and one entry names `purpose`. Or the
+     * resend lands last, putting the seeded purpose back over the change, and
+     * two entries name it - one for each save that moved it.
+     *
+     * Unserialised, the resend compares its payload against the row it read
+     * before the change committed, finds nothing different, and writes the
+     * seeded purpose back over the change with an entry naming no field. The
+     * row ends at the seeded purpose with a single entry naming `purpose`, and
+     * the log no longer accounts for the save that undid the change.
+     *
+     * Which interleaving occurs is not in the test's control, so the pair runs
+     * repeatedly and the invariant is asserted on every round. Each round's
+     * entries are told apart by id rather than by time, because the entries are
+     * stamped by the database's clock and a filter would be read against this
+     * process's.
+     */
+    await seedRecord();
+    const initial = (await readRecord()).activities.find(
+      (activity) => activity.sourceKey === "motions",
+    );
+    if (initial === undefined) {
+      throw new Error("the seed did not write the motions row");
+    }
+    const seededPurpose = initial.purpose;
+    const changedPurpose = "Styrelsens egen beskrivning av motionerna.";
+    const url = `/api/data-protection/processing-activities/${initial.activityId}`;
+    const where = {
+      action: "PROCESSING_ACTIVITY_UPDATED" as const,
+      targetId: initial.activityId,
+    };
+
+    for (let round = 0; round < 15; round += 1) {
+      await prisma.processingActivity.update({
+        where: { id: initial.activityId },
+        data: { purpose: seededPurpose, updatedByPersonId: null },
+      });
+      const before = new Set(
+        (
+          await prisma.auditLogEntry.findMany({ where, select: { id: true } })
+        ).map((entry) => entry.id),
+      );
+
+      const responses = await Promise.all([
+        inject({
+          method: "PUT",
+          url,
+          payload: { purpose: seededPurpose },
+          headers: { cookie: boardCookie },
+        }),
+        inject({
+          method: "PUT",
+          url,
+          payload: { purpose: changedPurpose },
+          headers: { cookie: boardCookie },
+        }),
+      ]);
+      expect(responses.map((response) => response.statusCode)).toEqual([
+        200, 200,
+      ]);
+
+      const row = await prisma.processingActivity.findUniqueOrThrow({
+        where: { id: initial.activityId },
+        select: { purpose: true },
+      });
+      const namingPurpose = (
+        await prisma.auditLogEntry.findMany({
+          where,
+          select: { id: true, context: true },
+        })
+      ).filter(
+        (entry) =>
+          !before.has(entry.id) &&
+          (
+            (entry.context as { fields?: string[] } | null)?.fields ?? []
+          ).includes("purpose"),
+      ).length;
+
+      expect({ round, purpose: row.purpose, namingPurpose }).toEqual({
+        round,
+        purpose: row.purpose,
+        namingPurpose: row.purpose === seededPurpose ? 2 : 1,
+      });
+    }
   });
 
   it("takes a processing the board performs outside the application", async () => {

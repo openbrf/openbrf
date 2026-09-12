@@ -8,6 +8,7 @@ import type { LegalBasis } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { pluginProcessorKey } from "./processor-key";
 import type { ProcessorFacts } from "./processors";
+import { lockProcessingActivity } from "./processing-activity-lock";
 import { SEED_KEYS, seedRows } from "./processing-activity-seed";
 
 export class ProcessingActivityError extends DomainError {
@@ -48,6 +49,40 @@ const ACTIVITY_SELECT = {
   updatedByPersonId: true,
 } as const;
 
+/** The fields a board writes, in the order the record lists them. */
+const ACTIVITY_FIELDS = [
+  "name",
+  "purpose",
+  "legalBasis",
+  "legalBasisNote",
+  "dataSubjectCategories",
+  "personalDataCategories",
+  "recipients",
+  "thirdCountryTransfer",
+  "thirdCountrySafeguards",
+  "retention",
+  "securityMeasures",
+] as const satisfies readonly (keyof ActivityInput)[];
+
+/**
+ * Whether a supplied value says what the row already says.
+ *
+ * The two category lists are compared as sets. Their order carries no
+ * meaning, so a client that sends them in a different order has not changed
+ * the processing they describe.
+ */
+function sameValue(current: unknown, next: unknown): boolean {
+  if (Array.isArray(current) && Array.isArray(next)) {
+    const order = (left: unknown, right: unknown): number =>
+      String(left) < String(right) ? -1 : String(left) > String(right) ? 1 : 0;
+    return (
+      JSON.stringify([...current].sort(order)) ===
+      JSON.stringify([...next].sort(order))
+    );
+  }
+  return current === next;
+}
+
 export interface ProcessingActivityView {
   activityId: string;
   name: string;
@@ -64,7 +99,7 @@ export interface ProcessingActivityView {
   source: string;
   sourceKey: string | null;
   endedAt: string | null;
-  /** True while the seed still refreshes this row's fact-derived fields. */
+  /** True while the seed still refreshes this row, i.e. nobody has edited it. */
   seeded: boolean;
 }
 
@@ -90,10 +125,20 @@ export interface ProcessingRecord {
  * product. So the instance writes down what it does with personal data, and the
  * board corrects it and adds what happens outside the application.
  *
- * The seed is idempotent on `sourceKey` and refreshes only the fact-derived
- * fields, and only while `updatedByPersonId` is null. That is what makes a
- * changed storage driver show up in the record without a background job ever
- * overwriting a board's own wording.
+ * The seed is idempotent on `sourceKey` and refreshes every field it authored,
+ * and only while `updatedByPersonId` is null. That is what makes a changed
+ * storage driver show up in the record without a background job ever
+ * overwriting a board's own wording: the column says whether the board has
+ * touched the row, and `update` sets it on any edit that changes something.
+ *
+ * Text the product wrote is refreshed for the same reason the derived fields
+ * are. A row nobody has edited is the product's statement of what the instance
+ * does, so a correction to that statement has to reach it - the record is
+ * persisted rather than rendered, and a value only fixed in the locale file
+ * would leave every instance seeded before the fix stating the old one for
+ * good. That is not hypothetical: the authority's name was seeded misspelled
+ * into this record until it was corrected, and correcting the string alone
+ * would have repaired nothing already written.
  *
  * Art. 30(5) exempts an organisation with fewer than 250 employees only where
  * the processing is occasional, carries no risk and holds no special
@@ -198,6 +243,19 @@ export class ProcessingActivityService {
         await tx.processingActivity.updateMany({
           where: { sourceKey: row.sourceKey, updatedByPersonId: null },
           data: {
+            /*
+             * Everything the seed authored, not only what it derives from the
+             * configuration. `updatedByPersonId` is what protects the board's
+             * own words, and it is set by every edit that changes anything, so
+             * a row reaching here has nothing of the board's in it to lose.
+             */
+            name: row.name,
+            purpose: row.purpose,
+            legalBasis: row.legalBasis,
+            legalBasisNote: row.legalBasisNote,
+            dataSubjectCategories: row.dataSubjectCategories,
+            personalDataCategories: row.personalDataCategories,
+            retention: row.retention,
             recipients: row.recipients,
             thirdCountryTransfer: row.thirdCountryTransfer,
             thirdCountrySafeguards: row.thirdCountrySafeguards,
@@ -303,26 +361,57 @@ export class ProcessingActivityService {
     activityId: string,
     input: Partial<ActivityInput> & { actorPersonId: string },
   ): Promise<ProcessingActivityView> {
-    const existing = await this.prisma.processingActivity.findUnique({
-      where: { id: activityId },
-      select: { id: true },
-    });
-    if (existing === null) {
-      throw new ProcessingActivityError(
-        "There is no such processing.",
-        "activity-not-found",
-      );
-    }
-
-    assertNoIdentityNumber(input);
-
-    const changed = Object.keys(input).filter(
-      (field) =>
-        field !== "actorPersonId" &&
-        input[field as keyof typeof input] !== undefined,
-    );
-
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Before the read, so the comparison below and the write after it see the
+       * same row. Read outside the transaction, a second save committing in
+       * between left `changed` describing a row that was no longer there: the
+       * write overwrote the newer fields, while `updatedByPersonId` and the
+       * audit entry both described the older one.
+       */
+      await lockProcessingActivity(tx, activityId);
+
+      const existing = await tx.processingActivity.findUnique({
+        where: { id: activityId },
+        select: {
+          id: true,
+          name: true,
+          purpose: true,
+          legalBasis: true,
+          legalBasisNote: true,
+          dataSubjectCategories: true,
+          personalDataCategories: true,
+          recipients: true,
+          thirdCountryTransfer: true,
+          thirdCountrySafeguards: true,
+          retention: true,
+          securityMeasures: true,
+        },
+      });
+      if (existing === null) {
+        throw new ProcessingActivityError(
+          "There is no such processing.",
+          "activity-not-found",
+        );
+      }
+
+      assertNoIdentityNumber(input);
+
+      /*
+       * The fields this write actually changes, read against the row rather
+       * than against the payload. A field the payload carries with the value
+       * the row already holds is not a change: counting it as one marked the
+       * row edited on a save that altered nothing, and an edited row is one the
+       * seed stops refreshing - so it would miss every later correction to the
+       * product's own wording, and every change to the configuration it
+       * describes.
+       */
+      const changed = ACTIVITY_FIELDS.filter(
+        (field) =>
+          input[field] !== undefined &&
+          !sameValue(existing[field], input[field]),
+      );
+
       const row = await tx.processingActivity.update({
         where: { id: activityId },
         data: {
@@ -343,8 +432,9 @@ export class ProcessingActivityService {
            * should never find it replaced by a background job.
            *
            * Only where the payload changes something. A `PUT` carrying no
-           * fields would otherwise detach a seeded row from the instance's
-           * configuration without altering a word of it, and the record would
+           * fields, or carrying the values the row already holds, would
+           * otherwise detach a seeded row from the instance's configuration
+           * without altering a word of it, and the record would
            * quietly stop following a changed storage driver or a new third
            * country transfer while the board remained answerable for it under
            * art. 5(2).
