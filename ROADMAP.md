@@ -417,11 +417,14 @@ free.
 - [ ] Action registry in the plugin API. Core features and plugins register
       what they can do - an input schema, the capability it needs, whether it
       reads, writes or deletes, and which personal data it touches - and the
-      registry checks the capability on every call rather than trusting the
-      caller. An action is offered to MCP clients and to the AI package only
-      once it is marked for them. A plugin registers actions for its own
-      features; an action that writes register data is a core action, since
-      no plugin permission grants write access to the register
+      registry checks the calling person's capability on every call rather
+      than trusting the caller. An action is offered to MCP clients and to the
+      AI package only once it is marked for them. A plugin registers actions
+      for its own features, and each action stays bound to the plugin that
+      registered it: it runs within the permissions the board consented to for
+      that plugin and disappears when the plugin is removed. An action that
+      writes register data is a core action, since no plugin permission grants
+      write access to the register
 - [ ] Sign-in for MCP clients: OAuth 2.1, with tokens whose scopes never exceed
       the current capabilities of the person who granted them, so every token
       acts as a person. The audit log records the channel each change came
@@ -1037,11 +1040,12 @@ available to anyone.
 - [ ] Document signing
 - [ ] MCP Connector: an AI client that supports the Model Context Protocol
       posts news, edits pages, rearranges the website menu and carries out any
-      other action in the action registry, as the person who signed it in and
-      never with more. A plugin reaches it by registering actions in the core
-      registry rather than by building on the connector. No token can delete
-      from the member register, reveal protected personal data, change roles or
-      permissions, or install or remove a plugin. Paid as a per-instance
+      other action marked for MCP clients in the action registry, as the person
+      who signed it in and never with more. A plugin reaches it by registering
+      actions in the core registry rather than by building on the connector. No
+      token can delete from the member register, reveal protected personal
+      data, change who holds a system role, a position of trust or a
+      capability, or install or remove a plugin. Paid as a per-instance
       licence, sold on its own and included in the AI package; the registry and
       the sign-in it relies on are core
 - [ ] AI package: document assistant, issue triage, meeting support, and
