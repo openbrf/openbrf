@@ -410,6 +410,27 @@ same lint gate a downloaded package passes.
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
 
+Not built yet: the action registry and sign-in for MCP clients, which the MCP
+Connector and the AI package under Paid modules are built on. Both are core and
+free.
+
+- [ ] Action registry in the plugin API. Core features and plugins register
+      what they can do - an input schema, the capability it needs, whether it
+      reads, writes or deletes, and which personal data it touches - and the
+      registry checks the calling person's capability on every call rather
+      than trusting the caller. An action is offered to MCP clients and to the
+      AI package only once it is marked for them. A plugin registers actions
+      for its own features, and each action stays bound to the plugin that
+      registered it: it runs within the permissions the board consented to for
+      that plugin and disappears when the plugin is removed. An action that
+      writes register data is a core action, since no plugin permission grants
+      write access to the register
+- [ ] Sign-in for MCP clients: OAuth 2.1, with tokens whose scopes never exceed
+      the current capabilities of the person who granted them, so every token
+      acts as a person. The audit log records the channel each change came
+      through - the web interface, an MCP token or the AI package - and records
+      every change made through MCP or AI, menu edits included
+
 ## Core v1
 
 Free, open source, and never moved behind a paywall.
@@ -1010,13 +1031,31 @@ no, and the pilot is the thing that will change it.
 
 Apteo AB maintains Open BRF and funds it by selling hosting and modules. The
 boundary is published rather than discovered: paid means it needs Apteo's own
-infrastructure, contracts or app store presence. Every module is built against
-the same public plugin API that is available to anyone.
+infrastructure, contracts or app store presence, or carries per-instance
+licensing. Every module is built against the same public plugin API that is
+available to anyone.
 
 - [ ] Mobile app (iOS and Android)
 - [ ] BankID and Freja sign-in
 - [ ] Document signing
-- [ ] AI package: document assistant, issue triage, meeting support
+- [ ] MCP Connector: an AI client that supports the Model Context Protocol
+      posts news, edits pages, rearranges the website menu and carries out any
+      other action marked for MCP clients in the action registry, as the person
+      who signed it in and never with more. A plugin reaches it by registering
+      actions in the core registry rather than by building on the connector. No
+      token can delete from the member register, reveal protected personal
+      data, change who holds a system role, a position of trust or a
+      capability, or install or remove a plugin. Paid as a per-instance
+      licence, sold on its own and included in the AI package; the registry and
+      the sign-in it relies on are core
+- [ ] AI package: document assistant, issue triage, meeting support, and
+      editing the site from a prompt. A board member describes a change, sees
+      it as a preview and confirms it before anything is written, and
+      publishing a news item together with its news mailing is confirmed as a
+      mailing in its own right. Text residents wrote - issue reports, contact
+      form messages - is read as content and never followed as an instruction.
+      Every change made through it or through the MCP Connector is in the audit
+      log with the channel it came through. Includes the MCP Connector
 - [ ] Recurring address book import with review
 - [ ] Parking space sharing between neighbours
 - [ ] Digital signage: a display mode for screens in the entrance, stairwell
