@@ -119,6 +119,16 @@ export const envSchema = z.object({
    * database is the only record of what should be running.
    */
   OPENBRF_PLUGINS_REINSTALL_ON_BOOT: envBoolean(false),
+  /**
+   * Refuse every action that writes, whatever the caller may do.
+   *
+   * An instance-wide switch above every per-caller check, for the operator who
+   * wants a connected app read-only while they watch what it does. It is not a
+   * permission and it cannot be narrowed per person: the point is that the
+   * answer does not depend on who asked, so a refusal cannot be used to probe
+   * what a token would otherwise reach.
+   */
+  OPENBRF_ACTIONS_READ_ONLY: envBoolean(false),
 });
 
 /**

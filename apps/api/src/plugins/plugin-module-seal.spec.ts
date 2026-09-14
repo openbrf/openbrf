@@ -541,3 +541,93 @@ describe("sealing a plugin's module", () => {
     });
   });
 });
+
+/**
+ * The core services a plugin's provider may not be constructed with.
+ *
+ * Two of the platform's modules are global, so their providers sit in the root
+ * injector where any loaded plugin's constructor can ask for them by type.
+ * Nothing above closes that: the global refusal stops a plugin EXPORTING
+ * something everywhere, and the application-wide token check stops it acting on
+ * the core's routes. This stops it IMPORTING what it was never given.
+ */
+describe("what a plugin's provider may be constructed with", () => {
+  it("refuses one that asks for the audit log", () => {
+    // The service that writes the append-only log. A plugin holding it could
+    // record acts that did not happen and choose the channel they are recorded
+    // under, which is the one field the audit change exists to make
+    // unforgeable.
+    class AuditLogService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly audit: AuditLogService) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("AuditLogService");
+  });
+
+  it("refuses one that asks for the action registry", () => {
+    // Dispatch without the plugin's identity attached: a plugin holding it
+    // could register actions as somebody else and invoke as anybody.
+    class ActionRegistryService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly registry: ActionRegistryService) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
+  it("refuses one reached through a nested module of its own", () => {
+    // The graph is walked, so hiding the provider one import deeper does not
+    // help.
+    class PrincipalService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly principals: PrincipalService) {}
+    }
+    @Module({ providers: [Sneaky] })
+    class Inner {}
+    @Module({ imports: [Inner] })
+    class PluginModule {}
+
+    const result = sealPluginModule({ module: PluginModule }, OPTIONS);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
+  it("accepts a provider constructed with the plugin's own services", () => {
+    class OwnHelper {}
+    @Injectable()
+    class Ordinary {
+      constructor(private readonly helper: OwnHelper) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [OwnHelper, Ordinary] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(true);
+  });
+});

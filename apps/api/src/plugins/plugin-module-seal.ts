@@ -58,6 +58,42 @@ const APPLICATION_WIDE_TOKENS: ReadonlyMap<unknown, string> = new Map([
   [APP_PIPE, "APP_PIPE"],
 ]);
 
+/**
+ * Core services a plugin's provider may not be constructed with.
+ *
+ * Two of the platform's modules are `@Global()` - the audit log and the
+ * authorization module - which puts their providers in the root injector where
+ * any loaded plugin's constructor can ask for them by type. Neither the global
+ * refusal above nor the application-wide token check prevents that: those stop
+ * a plugin EXPORTING something everywhere, and this stops it IMPORTING
+ * something it was never given.
+ *
+ * What each would be. `AuditLogService` writes the append-only log, so a plugin
+ * holding it could record acts that did not happen, attribute one to a person
+ * who did not perform it, and choose the channel - which is the one field the
+ * whole audit change exists to make unforgeable. `PrincipalService` answers
+ * what any person may do, which is the question a plugin is supposed to have
+ * answered for it rather than ask for itself. `ActionRegistryService` is
+ * dispatch without the plugin's identity attached, so a plugin holding it could
+ * register actions as somebody else and invoke as anybody.
+ *
+ * Matched by class name rather than by identity, because the seal runs over a
+ * module the plugin's own bundle produced and comparing constructors across a
+ * realm boundary is exactly what the module-identity check exists to catch
+ * separately. A plugin reaching for these gets `forbidden-injection`.
+ *
+ * This covers constructor injection, which is how a provider is normally
+ * given a service. Resolving the same class through `ModuleRef` at runtime is
+ * not covered and is its own change, named in ADR 0008.
+ */
+const FORBIDDEN_INJECTIONS: ReadonlySet<string> = new Set([
+  "AuditLogService",
+  "PrincipalService",
+  "ActionRegistryService",
+  "ActionCallerFactory",
+  "PrismaService",
+]);
+
 /** How deep a plugin's own module graph may go before it is refused. */
 const MAX_MODULE_DEPTH = 16;
 
@@ -71,7 +107,7 @@ export type SealResult =
   | { ok: true; module: DynamicModule; controllers: string[] }
   | {
       ok: false;
-      reason: "module-invalid" | "module-refused";
+      reason: "module-invalid" | "module-refused" | "forbidden-injection";
       /**
        * The operator's line, in English.
        *
@@ -117,13 +153,26 @@ export function sealPluginModule(
   }
 
   const controllers: unknown[] = [];
-  const refusal = walk(candidate, {
+  const state: WalkState = {
     controllers,
     seen: new Set<unknown>(),
     depth: 0,
-  });
+    outcome: {},
+  };
+  const refusal = walk(candidate, state);
   if (refusal !== null) {
-    return { ok: false, reason: "module-refused", log: refusal };
+    /*
+     * Reaching for a core service the platform never offered is its own
+     * reason, because it is the one refusal here that is about what the plugin
+     * wanted rather than about how its module was built - and a board reading
+     * "it asks for a service a plugin may not hold" can act on that, where
+     * "its module was refused" tells them only to ask the author.
+     */
+    return {
+      ok: false,
+      reason: state.outcome.refusedFor ?? "module-refused",
+      log: refusal,
+    };
   }
 
   const prefix = pluginRoutePrefix(options.pluginId);
@@ -144,6 +193,21 @@ interface WalkState {
   controllers: unknown[];
   seen: Set<unknown>;
   depth: number;
+  /**
+   * Where a refusal records a reason of its own, rather than the general one.
+   *
+   * An object rather than a field, because the walk recurses with a SPREAD of
+   * this state to carry the depth - so anything written onto the state itself
+   * is written onto a copy and lost, exactly as `seen` would be were it not a
+   * Set shared by reference. A refusal found three modules down has to reach
+   * the caller.
+   *
+   * The reason it carries: almost every refusal the walk can produce means the
+   * same thing to a board, that the module was built in a way a plugin's module
+   * may not be. Reaching for a core service is different - it says what the
+   * plugin wanted - and a board can act on that.
+   */
+  outcome: { refusedFor?: "forbidden-injection" };
 }
 
 /** Collects the module graph's controllers, or returns why it is refused. */
@@ -204,6 +268,15 @@ function walk(entry: unknown, state: WalkState): string | null {
       return (
         `The module "${moduleClass.name}" registers an application-wide ` +
         `${name}, which would act on the application's own routes.`
+      );
+    }
+
+    const reached = forbiddenInjection(providerToken(provider));
+    if (reached !== null) {
+      state.outcome.refusedFor = "forbidden-injection";
+      return (
+        `A provider in "${moduleClass.name}" is constructed with ` +
+        `${reached}, which a plugin may not hold.`
       );
     }
   }
@@ -443,6 +516,29 @@ function isDynamicModule(value: unknown): value is DynamicModule {
     "module" in value &&
     typeof (value as { module: unknown }).module === "function"
   );
+}
+
+/**
+ * The first core service a provider's constructor names, if it names one.
+ *
+ * `design:paramtypes` is what TypeScript emits for a decorated class, and it is
+ * what NestJS itself reads to decide what to inject - so reading the same
+ * metadata asks exactly the question the container is about to answer.
+ */
+function forbiddenInjection(token: unknown): string | null {
+  if (typeof token !== "function") {
+    return null;
+  }
+  const parameters = asArray<unknown>(reflect(token, "design:paramtypes"));
+  for (const parameter of parameters) {
+    if (
+      typeof parameter === "function" &&
+      FORBIDDEN_INJECTIONS.has(parameter.name)
+    ) {
+      return parameter.name;
+    }
+  }
+  return null;
 }
 
 function providerToken(provider: unknown): unknown {

@@ -28,6 +28,7 @@ import {
   type PluginHostContext,
   routeCapabilityFloor,
 } from "./plugin-host";
+import { checkDeclaredActions } from "./plugin-action-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -366,6 +367,34 @@ async function register(
     return;
   }
 
+  /*
+   * The same gate again, on the third half of the declaration.
+   *
+   * An action is the widest thing a manifest can declare: it names a
+   * capability and offers it to callers the board decided on. A republished
+   * version that keeps its permissions and its personal-data categories
+   * unchanged can still declare an action the board never saw, so the stored
+   * snapshot is what it agreed to and anything beyond it needs fresh consent.
+   *
+   * The manifest-only refusals ride with it, for the loader's own reason:
+   * nothing that can refuse a plugin may run after the code that executes it.
+   */
+  const actionRefusal = checkDeclaredActions(
+    discovered.manifest,
+    record.consentedActions,
+  );
+  if (actionRefusal !== null) {
+    fail(
+      boot,
+      logger,
+      discovered,
+      actionRefusal.reason,
+      { actions: actionRefusal.actions },
+      actionRefusal.reason === "action-refused" ? actionRefusal.why : undefined,
+    );
+    return;
+  }
+
   const conflicts = findResolutionConflicts(discovered.directory);
   if (conflicts.length > 0) {
     // Identity, not the absence of an error: a duplicate copy of a host
@@ -394,6 +423,7 @@ async function register(
     manifest: discovered.manifest,
     consented: record.consentedPermissions,
     serving: true,
+    bufferedActions: [],
   };
   const host = createPluginHost(binding, context);
   const locales = await readLocales(logger, discovered);

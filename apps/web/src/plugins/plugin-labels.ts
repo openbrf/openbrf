@@ -1,4 +1,6 @@
 import {
+  ACTION_EFFECTS,
+  type ActionEffect,
   PLUGIN_FINDING_REASONS,
   type PluginFindingReason,
   type PluginPermission,
@@ -64,6 +66,40 @@ export function personalDataLabel(category: string): TranslationKey {
 }
 
 /**
+ * What an action does to the records, in one word.
+ *
+ * The word is the whole of what separates an action that reads the register
+ * from one that deletes out of it, so it is stated wherever a declaration is:
+ * on the consent screen before an install, and beside the arming toggle
+ * afterwards. Keyed by the contract's own union, so an effect added there
+ * fails to compile here until the word exists.
+ */
+export const ACTION_EFFECT_LABELS: Readonly<
+  Record<ActionEffect, TranslationKey>
+> = {
+  read: "plugins.actions.effect.read",
+  write: "plugins.actions.effect.write",
+  delete: "plugins.actions.effect.delete",
+};
+
+/**
+ * The word an effect is read as, or null when this build has none for it.
+ *
+ * Walked rather than indexed, so an effect arriving as a string is narrowed to
+ * the union without a cast. Null rather than the code itself: an effect this
+ * version does not recognise has no sentence to put on a board member's
+ * screen, and the row still names the action and its capability.
+ */
+export function actionEffectLabel(effect: string): TranslationKey | null {
+  for (const known of ACTION_EFFECTS) {
+    if (effect === known) {
+      return ACTION_EFFECT_LABELS[known];
+    }
+  }
+  return null;
+}
+
+/**
  * Why a plugin on the data volume is not running.
  *
  * The server reports a code; the board reads a sentence. Typed against the
@@ -90,6 +126,9 @@ export const FINDING_LABELS: Readonly<
   "module-refused": "plugins.findings.reasons.moduleRefused",
   "module-failed": "plugins.findings.reasons.moduleFailed",
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
+  "actions-widened": "plugins.findings.reasons.actionsWidened",
+  "action-refused": "plugins.findings.reasons.actionRefused",
+  "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
 };
 
 /**

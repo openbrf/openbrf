@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 
+import { ActionsModule } from "../actions/actions.module";
+import { NewsActionsRegistrar } from "./news-actions.registrar";
 import { NewsAdminController } from "./news-admin.controller";
 import { NewsCommentPurgeService } from "./news-comment-purge.service";
 import {
@@ -35,10 +37,12 @@ import { NewsWriteService } from "./news-write.service";
  * graph instead of a rule somebody has to remember.
  *
  * The database client, the audit log, the queue, the encryption layer and the
- * mail and SMS services are all global modules, which is why nothing is
- * imported here.
+ * mail and SMS services are all global modules, which is why only one module is
+ * imported here. ActionsModule is deliberately not global - see the note on it -
+ * so a feature that offers actions names it.
  */
 @Module({
+  imports: [ActionsModule],
   controllers: [
     NewsAdminController,
     NewsReaderController,
@@ -51,6 +55,7 @@ import { NewsWriteService } from "./news-write.service";
     NewsSmsService,
     NewsCommentService,
     NewsCommentPurgeService,
+    NewsActionsRegistrar,
   ],
   exports: [
     NewsWriteService,

@@ -9,6 +9,32 @@
  */
 
 export {
+  ACTION_CHANNELS,
+  ACTION_EFFECTS,
+  ACTION_NAME_PATTERN,
+  ACTION_PERSONAL_DATA,
+  ACTION_SURFACES,
+  type ActionChannel,
+  type ActionClient,
+  type ActionContext,
+  type ActionDefinition,
+  type ActionEffect,
+  type ActionErrorSpec,
+  type ActionPersonalData,
+  type ActionPrincipal,
+  type ActionRequest,
+  type ActionSummary,
+  type ActionSurface,
+  type PluginActionFilter,
+  type PluginActionRegistration,
+  type PluginActions,
+} from "./actions.ts";
+export {
+  actionInputJsonSchema,
+  actionOutputJsonSchema,
+  isHostZodSchema,
+} from "./action-schema.ts";
+export {
   isSupportedApiVersion,
   PLUGIN_API_VERSION,
   SUPPORTED_PLUGIN_API_VERSIONS,
@@ -38,8 +64,11 @@ export {
 export type { PluginModuleFactory } from "./module.ts";
 export {
   assertPluginPackage,
+  composedActionName,
   CURRENT_PLUGIN_API_VERSION,
   type ManifestParseResult,
+  type PluginActionDeclaration,
+  pluginActionSchema,
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,
@@ -49,6 +78,11 @@ export {
   pluginPackageSchema,
   parsePluginPackage,
 } from "./manifest.ts";
+export type {
+  StandardSchemaIssue,
+  StandardSchemaResult,
+  StandardSchemaV1,
+} from "./standard-schema.ts";
 export {
   isPluginPermission,
   PLUGIN_PERMISSIONS,

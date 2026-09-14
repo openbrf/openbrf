@@ -1,0 +1,24 @@
+-- A recorded ask that a published news item be mailed to the members.
+--
+-- The separation this exists for: something acting through a connected app may
+-- write and publish a news item, and may never mail the members. An email
+-- reaches everybody in the register whose address the association holds, it
+-- cannot be recalled, and the mailing is claimed exactly once - so the decision
+-- to send belongs to a person, on a screen, every time.
+--
+-- The request is about the email mailing (nyhetsutskick) and not the text
+-- message (smsutskick), which is asked for and claimed separately. A board
+-- member who publishes with SMS alone therefore leaves the request standing,
+-- which is correct: the thing that was asked for has not happened.
+--
+-- A plain column for the person who asked, like News.authorPersonId beside it.
+-- A foreign key would carry a referential action, and both available ones are
+-- wrong here: one would rewrite this row when the person is purged, the other
+-- would make the news item veto the erasure. Who asked is in the audit entry,
+-- which is where it is answerable from; the column is for clearing the request
+-- and for nothing else, and no screen renders it.
+--
+-- Service tier: a news item is purged with the rest of the service data, and
+-- so is this.
+ALTER TABLE "news" ADD COLUMN "mailingRequestedAt" TIMESTAMP(3);
+ALTER TABLE "news" ADD COLUMN "mailingRequestedByPersonId" TEXT;

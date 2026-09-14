@@ -1,10 +1,15 @@
+import type { PluginActionDeclaration } from "@openbrf/plugin-sdk";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import type { CatalogPlugin, PluginsOverview } from "./plugin-api";
+import type {
+  CatalogPlugin,
+  PluginsOverview,
+  PluginSummary,
+} from "./plugin-api";
 import { PluginsScreen } from "./PluginsScreen";
 
 /**
@@ -24,13 +29,25 @@ import { PluginsScreen } from "./PluginsScreen";
 const fetchPlugins = vi.fn();
 const fetchCatalog = vi.fn();
 const installPlugin = vi.fn();
+const setPluginActionArmed = vi.fn();
 
 vi.mock("./plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./plugin-api")>()),
   fetchPlugins: () => fetchPlugins(),
   fetchCatalog: () => fetchCatalog(),
   installPlugin: (input: unknown) => installPlugin(input),
+  setPluginActionArmed: (id: string, actionId: string, armed: boolean) =>
+    setPluginActionArmed(id, actionId, armed),
 }));
+
+/** The one action the catalog entry proposes, as the consent screen shows it. */
+const DECLARED_ACTION: PluginActionDeclaration = {
+  id: "request_mailing",
+  capability: "news:write",
+  effect: "write",
+  personalData: ["name"],
+  surfaces: ["ui", "mcp"],
+};
 
 const ENTRY: CatalogPlugin = {
   id: "grannsamverkan",
@@ -46,6 +63,7 @@ const ENTRY: CatalogPlugin = {
   apiVersion: 1,
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
+  actions: [DECLARED_ACTION],
   supported: true,
   installedVersion: null,
 };
@@ -56,6 +74,37 @@ const OVERVIEW: PluginsOverview = {
   plugins: [],
   findings: [],
 };
+
+/**
+ * An installed plugin whose declaration the board consented to.
+ *
+ * The consented entries are canonical strings, exactly as the server holds the
+ * snapshot it compares an installed manifest against:
+ * `id:capability:effect:personalData:surfaces`, the last two pipe-separated.
+ * The capability carries a colon of its own, which is the part a reader of the
+ * row has to get right.
+ */
+const INSTALLED: PluginSummary = {
+  id: "grannsamverkan",
+  packageName: "@openbrf/plugin-grannsamverkan",
+  version: "1.2.0",
+  enabled: true,
+  status: "INSTALLED",
+  lastError: null,
+  loaded: true,
+  permissions: ["addressBook:read", "mail:send"],
+  personalData: ["name", "email"],
+  consentedActions: [
+    "list_letters:news:read:read:name:ui",
+    "request_mailing:news:write:write:name|email:ui|mcp",
+  ],
+  armedActions: ["list_letters"],
+  installedAt: "2026-08-20T09:00:00.000Z",
+  hasSettings: false,
+  view: null,
+};
+
+const WITH_ACTIONS: PluginsOverview = { ...OVERVIEW, plugins: [INSTALLED] };
 
 function viewerWith(capabilities: string[]): Viewer {
   return {
@@ -102,6 +151,9 @@ beforeEach(() => {
   installPlugin
     .mockReset()
     .mockResolvedValue({ ok: true, value: { restarting: false } });
+  setPluginActionArmed
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: undefined });
 });
 
 describe("a board member who may only read", () => {
@@ -186,6 +238,11 @@ describe("confirming the consent", () => {
         id: "grannsamverkan",
         permissions: ["addressBook:read", "mail:send"],
         personalData: ["name", "email"],
+        // The actions travel with the other two. The API compares the whole
+        // declaration the moment any part of it is echoed, so leaving the
+        // list the consent screen showed out of the request is an install
+        // refused on a consent that was in fact given.
+        actions: [DECLARED_ACTION],
       });
     });
   });
@@ -235,6 +292,129 @@ describe("confirming the consent", () => {
     expect(
       screen.queryByText("Listan över tillägg kunde inte läsas just nu."),
     ).toBeNull();
+  });
+});
+
+describe("the actions a plugin has declared", () => {
+  const actionsHeading = () =>
+    screen.queryByRole("heading", { name: "Åtgärder" });
+
+  beforeEach(() => {
+    fetchPlugins.mockResolvedValue({ ok: true, value: WITH_ACTIONS });
+  });
+
+  it("says what arming an action means", async () => {
+    /*
+     * The only place a board member is told. Without the sentence a row of
+     * toggles reads as switches for turning features on, rather than as the
+     * decision to put one action within reach of a connected app and the AI
+     * package - which is what it is, who may make it, and what clears it.
+     */
+    renderScreen(["association:read", "association:manage"]);
+
+    expect(
+      await screen.findByText(
+        "Tillägget har anmält de här åtgärderna. En åtgärd erbjuds anslutna appar och AI-paketet först när en administratör aktiverar den, och aktiveringen nollställs när styrelsen godkänner en ny version.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("reads each one out of the declaration the board consented to", async () => {
+    // The capability carries a colon of its own, so a row that read the
+    // declaration from the left would call `news:write` a capability named
+    // `news` and put the rest of it somewhere else.
+    renderScreen(["association:read", "association:manage"]);
+
+    expect(await screen.findByText("request_mailing")).toBeTruthy();
+    expect(screen.getByText("news:write")).toBeTruthy();
+    expect(screen.getByText("Skriver")).toBeTruthy();
+    expect(screen.getByText("list_letters")).toBeTruthy();
+    expect(screen.getByText("news:read")).toBeTruthy();
+    expect(screen.getByText("Läser")).toBeTruthy();
+  });
+
+  it("reads as not armed until an administrator arms it", async () => {
+    // Declared and idle is the ordinary state of an action: consenting to the
+    // plugin is not consenting to offer what it declared.
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    expect(await screen.findByText("Inte aktiverad")).toBeTruthy();
+    expect(screen.getByText("Aktiverad")).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Aktivera" }));
+
+    await waitFor(() => {
+      expect(setPluginActionArmed).toHaveBeenCalledWith(
+        "grannsamverkan",
+        "request_mailing",
+        true,
+      );
+    });
+  });
+
+  it("takes the armed one out of reach again", async () => {
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Avaktivera" }),
+    );
+
+    await waitFor(() => {
+      expect(setPluginActionArmed).toHaveBeenCalledWith(
+        "grannsamverkan",
+        "list_letters",
+        false,
+      );
+    });
+  });
+
+  it("says so rather than going quiet when the change is refused", async () => {
+    setPluginActionArmed.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Aktivera" }),
+    );
+
+    expect(await screen.findByText("Åtgärden kunde inte ändras")).toBeTruthy();
+  });
+
+  it("shows a board member who may only read what is armed, and no toggle", async () => {
+    /*
+     * Arming is an administrator's. Hiding the control is courtesy - the API
+     * refuses the call either way - but what is offered to a connected app is
+     * exactly what the rest of the board answers for, so the list itself is
+     * not hidden.
+     */
+    renderScreen(["association:read"]);
+
+    expect(await screen.findByText("request_mailing")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Aktivera" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Avaktivera" })).toBeNull();
+  });
+
+  it("is absent on an instance where nothing declares one", async () => {
+    // An empty heading would introduce a mechanism this instance does not use.
+    fetchPlugins.mockResolvedValue({
+      ok: true,
+      value: {
+        ...OVERVIEW,
+        plugins: [{ ...INSTALLED, consentedActions: [], armedActions: [] }],
+      },
+    });
+
+    renderScreen(["association:read", "association:manage"]);
+
+    await waitFor(() => {
+      expect(installedHeading()).toBeTruthy();
+    });
+    expect(actionsHeading()).toBeNull();
   });
 });
 

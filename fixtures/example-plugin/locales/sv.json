@@ -13,5 +13,8 @@
   "settings.rowLimit.label": "Högsta antal rader",
   "settings.grouping.label": "Gruppera efter",
   "settings.grouping.address": "Adress",
-  "settings.grouping.floor": "Våning"
+  "settings.grouping.floor": "Våning",
+  "actions.group.occupancy.title": "Beläggning",
+  "actions.summary.title": "Sammanställ beläggningen",
+  "actions.summary.description": "Räknar hur många lägenheter, boende och medlemmar föreningen har just nu. Den ändrar ingenting och namnger ingen person. Ingen förutsättning krävs."
 }

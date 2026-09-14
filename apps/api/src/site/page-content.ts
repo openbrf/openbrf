@@ -374,7 +374,23 @@ const textRunSchema = z.strictObject({
   text: z.string().max(LIMITS.runText),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
-  link: z.string().refine(isPublishableUrl).optional(),
+  /*
+   * The pattern and the refine both, deliberately.
+   *
+   * A refine is erased when this schema is converted to the JSON Schema an
+   * action publishes - silently, with no marker - so a caller reading the
+   * published document would be told any string is acceptable while
+   * isPublishableUrl refuses javascript:, data: and protocol-relative
+   * addresses. The pattern is a superset the refine still narrows: it survives
+   * conversion and carries the structural half of the rule, and a spec asserts
+   * that it accepts everything the refine accepts and rejects those three
+   * shapes.
+   */
+  link: z
+    .string()
+    .regex(/^(?:https?:\/\/|mailto:|\/)/)
+    .refine(isPublishableUrl)
+    .optional(),
 });
 
 const runsSchema = z.array(textRunSchema).max(LIMITS.runsPerBlock);
@@ -449,6 +465,24 @@ const blockSchema = z.discriminatedUnion("type", [
 export const submittedContentSchema = z.strictObject({
   blocks: z.array(blockSchema).max(LIMITS.blocks),
 });
+
+/**
+ * The blocks a news item may be written in, as a schema.
+ *
+ * The runtime already refuses everything else - onlyProse throws
+ * unsupported-block for any block isTextBlock rejects - and the published
+ * schema has to say the same thing. Publishing all twelve block types to a
+ * caller that is a model produces a 400 the document promised was valid, which
+ * is the one failure a published contract exists to prevent.
+ */
+export const proseBlockSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("paragraph"), runs: runsSchema }),
+  z.strictObject({
+    type: z.literal("heading"),
+    level: z.union([z.literal(2), z.literal(3)]),
+    runs: runsSchema,
+  }),
+]);
 
 /** Reads a submitted body into the stored shape, refusing what it may not hold. */
 export function submittedContent(value: unknown): PageContent {

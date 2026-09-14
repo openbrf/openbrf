@@ -66,6 +66,15 @@ export interface NewsItem {
    */
   smsQueuedAt: string | null;
   delivery: NewsMailingReport;
+  /**
+   * Whether something that may not mail the members has asked for this item to
+   * be mailed.
+   *
+   * A boolean and not a person. Who asked is in the audit log and reaches no
+   * screen: the board is answering "should this go out", and a name here would
+   * invite it to answer "who asked" instead.
+   */
+  mailingRequested: boolean;
   updatedAt: string;
 }
 
@@ -129,6 +138,26 @@ export function publishNews(
     "POST",
     `/api/news/${encodeURIComponent(id)}/publish`,
     fields,
+  );
+}
+
+/*
+ * There is deliberately no call here that PLACES a mailing request.
+ *
+ * The board never asks itself to send something - it just publishes with the
+ * mailing. A request is what something that may not mail the members writes,
+ * and the board's side of it is the notice on the item and the two answers to
+ * it: publish, or dismiss. A function here would be a control nobody has asked
+ * for on a screen where the ordinary publish is already the answer.
+ */
+
+/** Clears a standing request: a board member deciding not to send. */
+export function dismissNewsMailingRequest(
+  id: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "DELETE",
+    `/api/news/${encodeURIComponent(id)}/mailing-request`,
   );
 }
 

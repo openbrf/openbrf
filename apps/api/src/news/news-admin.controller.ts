@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
   Put,
@@ -112,12 +113,15 @@ export class NewsAdminController {
     @Req() request: RequestWithPrincipal,
   ): Promise<NewsAdminView> {
     const input = bodySchema.parse(body);
-    return this.news.create({
-      slug: input.slug,
-      title: input.title,
-      content: submittedContent(input.content),
-      authorPersonId: requirePrincipal(request).personId,
-    });
+    return this.news.create(
+      {
+        slug: input.slug,
+        title: input.title,
+        content: submittedContent(input.content),
+        authorPersonId: requirePrincipal(request).personId,
+      },
+      webActor(request),
+    );
   }
 
   @Get(":id")
@@ -129,13 +133,18 @@ export class NewsAdminController {
   async update(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<NewsAdminView> {
     const input = bodySchema.parse(body);
-    return this.news.update(id, {
-      slug: input.slug,
-      title: input.title,
-      content: submittedContent(input.content),
-    });
+    return this.news.update(
+      id,
+      {
+        slug: input.slug,
+        title: input.title,
+        content: submittedContent(input.content),
+      },
+      webActor(request),
+    );
   }
 
   @Post(":id/publish")
@@ -146,6 +155,32 @@ export class NewsAdminController {
   ): Promise<PublishNewsResult> {
     const input = publishSchema.parse(body);
     return this.news.publish(id, input, webActor(request));
+  }
+
+  /**
+   * Records that this item should be mailed to the members, and clears it.
+   *
+   * Board-facing routes onto the same two methods an action reaches, so a
+   * state that only a connected app can otherwise enter is reachable and
+   * testable from the board's own interface - and so dismissing a request is
+   * something a board member can actually do.
+   */
+  @Post(":id/mailing-request")
+  @HttpCode(200)
+  async requestMailing(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ requestedAt: string }> {
+    return this.news.requestMailing(id, webActor(request));
+  }
+
+  @Delete(":id/mailing-request")
+  @HttpCode(204)
+  async dismissMailingRequest(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.news.dismissMailingRequest(id, webActor(request));
   }
 
   @Delete(":id")

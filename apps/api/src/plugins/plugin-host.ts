@@ -1,6 +1,11 @@
 import { Logger } from "@nestjs/common";
 import {
+  type ActionRequest,
+  type ActionSummary,
   defaultSettings,
+  type PluginActionFilter,
+  type PluginActionRegistration,
+  type PluginActions,
   type PluginAddressBook,
   type PluginHost,
   PluginHostUnavailableError,
@@ -18,6 +23,11 @@ import {
   settingsValidator,
 } from "@openbrf/plugin-sdk";
 
+import type {
+  ActionCallerFactory,
+  RequestWithToken,
+} from "../actions/action-caller";
+import type { ActionRegistryService } from "../actions/action-registry.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
@@ -51,6 +61,8 @@ export interface PluginHostServices {
   mail: MailService;
   sms: SmsService;
   addressBook: PluginAddressBookService;
+  actions: ActionRegistryService;
+  callers: ActionCallerFactory;
 }
 
 /**
@@ -106,6 +118,16 @@ export interface PluginHostContext {
   manifest: PluginManifest;
   consented: readonly PluginPermission[];
   serving: boolean;
+  /**
+   * Registrations made before the application existed.
+   *
+   * A plugin's module factory runs long before the container is built, and
+   * `register` is the one host member a plugin will reasonably want to call
+   * there - it is a declaration, not work. So it is buffered here and flushed
+   * into the registry by the binder, inside the same window the other services
+   * are bound in. Every other member keeps the ordinary gate.
+   */
+  bufferedActions: PluginActionRegistration[];
 }
 
 export function createPluginHost(
@@ -153,6 +175,7 @@ export function createPluginHost(
     id: pluginId,
     permissions: [...granted],
     logger: pluginLogger(pluginId),
+    actions: pluginActions(context, services),
     settings: pluginSettings(context, services),
     mail: pluginMailService(pluginId, services),
     sms: pluginSmsService(services),
@@ -367,4 +390,45 @@ export function routeCapabilityFloor(
     return "addressBook:read";
   }
   return "self:manage";
+}
+
+/**
+ * Dispatch, as a plugin sees it.
+ *
+ * `register` is the exception to the rule that the host answers nothing before
+ * the application is built: a declaration made in a module factory is buffered
+ * and flushed by the binder. `list` and `invoke` keep the ordinary gate, since
+ * a route serving a request means the application exists.
+ *
+ * Neither `list` nor `invoke` takes a person. They take the request the
+ * plugin's own route received, and the caller is read from the mark core put on
+ * it - so a plugin dispatches as whoever is actually on the other end of the
+ * request it is serving, and cannot dispatch as anybody else.
+ */
+function pluginActions(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginActions {
+  return {
+    register(registration: PluginActionRegistration): void {
+      context.bufferedActions.push(registration);
+    },
+    async list(
+      request: ActionRequest,
+      filter?: PluginActionFilter,
+    ): Promise<ActionSummary[]> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      return resolved.actions.list(caller, filter);
+    },
+    async invoke<Output>(
+      request: ActionRequest,
+      name: string,
+      input: unknown,
+    ): Promise<Output> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      return resolved.actions.invoke<Output>(caller, name, input);
+    },
+  };
 }

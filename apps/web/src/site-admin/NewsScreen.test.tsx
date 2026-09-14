@@ -48,6 +48,7 @@ const DRAFT: NewsItem = {
     email: { pending: 0, sent: 0, failed: 0, notConfigured: false },
     sms: { pending: 0, sent: 0, failed: 0, notConfigured: false },
   },
+  mailingRequested: false,
   updatedAt: "2026-09-01T10:00:00.000Z",
 };
 

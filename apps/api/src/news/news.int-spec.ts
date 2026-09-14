@@ -652,7 +652,11 @@ describe("publishing with the mailing asked for", () => {
       orderBy: { createdAt: "asc" },
       select: { action: true, actorPersonId: true },
     });
+    // Writing the item is recorded too, and before the publication: who wrote
+    // what a member is about to be emailed is its own question from who
+    // decided to send it.
     expect(entries).toEqual([
+      { action: "NEWS_CONTENT_CHANGED", actorPersonId: boardMember.personId },
       { action: "NEWS_PUBLISHED", actorPersonId: boardMember.personId },
       { action: "NEWS_EMAILED", actorPersonId: boardMember.personId },
     ]);
@@ -913,7 +917,12 @@ describe("the SMS mailing, which happens once and separately", () => {
         select: { action: true },
       })
     ).map((entry) => entry.action);
-    expect(actions).toEqual(["NEWS_PUBLISHED", "NEWS_EMAILED", "NEWS_TEXTED"]);
+    expect(actions).toEqual([
+      "NEWS_CONTENT_CHANGED",
+      "NEWS_PUBLISHED",
+      "NEWS_EMAILED",
+      "NEWS_TEXTED",
+    ]);
   });
 
   it("is not claimed a second time, and does not re-claim the mailing", async () => {

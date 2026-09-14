@@ -38,6 +38,22 @@ const ENTRY: CatalogPlugin = {
     "sms:send",
   ],
   personalData: ["name", "apartment", "email"],
+  actions: [
+    {
+      id: "list_letters",
+      capability: "news:read",
+      effect: "read",
+      personalData: ["name"],
+      surfaces: ["ui"],
+    },
+    {
+      id: "request_mailing",
+      capability: "news:write",
+      effect: "write",
+      personalData: ["name", "email"],
+      surfaces: ["ui", "mcp"],
+    },
+  ],
   supported: true,
   installedVersion: null,
 };
@@ -100,6 +116,41 @@ describe("the declaration", () => {
     expect(screen.getByText("E-postadress")).toBeTruthy();
 
     expect(container.textContent).not.toContain("apartment");
+  });
+
+  it("states each action it proposes with what it does to the records", () => {
+    /*
+     * The widest part of the declaration: an action names a capability and
+     * offers it to callers outside the board's own screens. The effect is what
+     * separates one that reads the register from one that deletes out of it,
+     * so it is a word rather than a code, and it is on screen before anything
+     * is downloaded - the catalog entry carries the declaration for exactly
+     * that reason.
+     */
+    renderPanel();
+
+    expect(screen.getByRole("heading", { name: "Åtgärder" })).toBeTruthy();
+    expect(screen.getByText("list_letters - news:read - Läser")).toBeTruthy();
+    expect(
+      screen.getByText("request_mailing - news:write - Skriver"),
+    ).toBeTruthy();
+  });
+
+  it("says nothing at all about actions when a plugin proposes none", () => {
+    /*
+     * Absent rather than empty, unlike the two lists above it. Those answer a
+     * question a board has whatever the plugin asked for - what may it do,
+     * whose data does it touch - and "nothing" is an answer to it. A plugin
+     * that proposes no action has not raised the question, and a heading with
+     * a sentence under it saying so would introduce a mechanism this install
+     * does not use.
+     */
+    renderPanel({ entry: { ...ENTRY, actions: [] } });
+
+    expect(screen.queryByRole("heading", { name: "Åtgärder" })).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Det här tillägget får" }),
+    ).toBeTruthy();
   });
 
   it("says what a plugin asking for nothing amounts to", () => {

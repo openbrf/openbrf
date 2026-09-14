@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  ACTION_EFFECTS,
+  ACTION_NAME_PATTERN,
+  ACTION_PERSONAL_DATA,
+  ACTION_SURFACES,
+} from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -73,34 +79,97 @@ export const pluginEntrySchema = z
     "a plugin must declare at least one entry point",
   );
 
-export const pluginManifestSchema = z.object({
-  /**
-   * The contract version this plugin was built against. The loader refuses
-   * anything it does not implement rather than loading it and hoping.
-   */
-  apiVersion: z.int().min(1),
-  id: pluginIdSchema,
-  entry: pluginEntrySchema,
-  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16).default([]),
-  personalData: z
-    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
-    .max(16)
-    .default([]),
-  settingsSchema: pluginSettingsSchema.optional(),
-  /**
-   * Where the view is mounted in the admin interface, when the plugin has
-   * one. The label is an i18n key in the plugin's own namespace.
-   */
-  view: z
-    .object({
-      /** Named export of the remote module, per Module Federation. */
-      module: z.string().min(1).max(100).default("./View"),
-      titleKey: z.string().min(1).max(200),
-    })
-    .optional(),
+/**
+ * One action the plugin proposes.
+ *
+ * Declared in the manifest rather than at registration, because the board reads
+ * it on the install consent screen before anything has been downloaded, and
+ * nothing that can refuse a plugin may run after the code that executes it. The
+ * plugin's bundle supplies the schemas and the handler; what it may ask for is
+ * settled here.
+ *
+ * `capability` is a free string because this package cannot import the core
+ * capability union - it is published to plugin authors and the union is the
+ * instance's. It is resolved against the real list at the boot gate, which also
+ * refuses the ones no action of any kind may hold.
+ */
+export const pluginActionSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9_]{2,31}$/),
+  capability: z.string().min(1).max(64),
+  effect: z.enum(ACTION_EFFECTS),
+  personalData: z.array(z.enum(ACTION_PERSONAL_DATA)).max(14).default([]),
+  surfaces: z.array(z.enum(ACTION_SURFACES)).max(3).default(["ui"]),
 });
 
+/**
+ * The public name a declared action is offered under.
+ *
+ * The plugin's id with dashes folded to underscores, then the action's id. The
+ * folding has a consequence worth knowing: a plugin `a-b` declaring `c` and a
+ * plugin `a` declaring `b_c` compose the same name, so the registry refuses the
+ * second one to arrive and docs/plugin-contract.md says so.
+ */
+export function composedActionName(pluginId: string, actionId: string): string {
+  return `${pluginId.replaceAll("-", "_")}_${actionId}`;
+}
+
+export const pluginManifestSchema = z
+  .object({
+    /**
+     * The contract version this plugin was built against. The loader refuses
+     * anything it does not implement rather than loading it and hoping.
+     */
+    apiVersion: z.int().min(1),
+    id: pluginIdSchema,
+    entry: pluginEntrySchema,
+    permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16).default([]),
+    personalData: z
+      .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+      .max(16)
+      .default([]),
+    settingsSchema: pluginSettingsSchema.optional(),
+    /**
+     * Where the view is mounted in the admin interface, when the plugin has
+     * one. The label is an i18n key in the plugin's own namespace.
+     */
+    view: z
+      .object({
+        /** Named export of the remote module, per Module Federation. */
+        module: z.string().min(1).max(100).default("./View"),
+        titleKey: z.string().min(1).max(200),
+      })
+      .optional(),
+    /** What this plugin proposes the platform be able to do. */
+    actions: z.array(pluginActionSchema).max(16).default([]),
+  })
+  .superRefine((manifest, ctx) => {
+    /*
+     * The composed name has to fit the public pattern, and only the pair can
+     * know whether it does: a plugin id runs to 48 characters and an action id to
+     * 32, which composes to 81 against a limit of 64. Checked pairwise rather
+     * than by shortening the action id to a worst case, because that would charge
+     * every plugin for the longest possible plugin id and forbid
+     * `monthly_occupancy_report` to a plugin called `brf`, where the composed
+     * name is 28 characters.
+     *
+     * Refused here rather than at registration so that it is manifest-invalid
+     * before the install consent screen, instead of a finding after the plugin's
+     * code has already run.
+     */
+    for (const [index, action] of manifest.actions.entries()) {
+      const composed = composedActionName(manifest.id, action.id);
+      if (!ACTION_NAME_PATTERN.test(composed)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["actions", index, "id"],
+          message: `the public name "${composed}" is ${String(composed.length)} characters; a plugin id and an action id compose to at most 64`,
+        });
+      }
+    }
+  });
+
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;
+export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 
 /**

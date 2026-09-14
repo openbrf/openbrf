@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import type {
+  PluginActionDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 
 import { PrismaService } from "../database/prisma.service";
+import { canonicalAction } from "./plugin-action-gate";
 import type { InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
 
@@ -30,6 +32,10 @@ export interface PluginRecord {
   lastError: string | null;
   consentedPermissions: PluginPermission[];
   declaredPersonalData: PluginPersonalDataCategory[];
+  /** The actions the board consented to when this version was installed. */
+  consentedActions: string[];
+  /** The ones an administrator has switched on beyond this instance. */
+  armedActions: string[];
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -42,6 +48,7 @@ export interface PluginConsent {
   checksum: string;
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
+  actions: readonly PluginActionDeclaration[];
 }
 
 @Injectable()
@@ -76,6 +83,24 @@ export class PluginRegistryService {
       checksum: input.checksum,
       consentedPermissions: [...input.permissions],
       declaredPersonalData: [...input.personalData],
+      /*
+       * The whole declaration, canonically, because that is what the boot gate
+       * compares an installed manifest against: an action keeping its id while
+       * changing the capability it needs is a different action, and comparing
+       * ids alone would let it through.
+       */
+      consentedActions: input.actions.map((action) => canonicalAction(action)),
+      /*
+       * And the arming is cleared, every time.
+       *
+       * Without this, a republished version keeping the id `summary` while
+       * changing its capability from self:manage to site:manage would keep its
+       * arming and go live at the wider capability with nobody deciding.
+       * Adding a channel may never expose an action by itself, and an action
+       * that quietly became a different action is the same fault. Re-arming
+       * after an upgrade is one toggle.
+       */
+      armedActions: [],
       status: "PENDING" as const,
       lastError: null,
     };
@@ -84,6 +109,46 @@ export class PluginRegistryService {
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
+    });
+    return toRecord(row);
+  }
+
+  /**
+   * Switches one of a plugin's actions on or off beyond this instance.
+   *
+   * Refuses an id outside the consented declaration, which is the subset rule:
+   * arming is a decision about something the board agreed to, so an id the
+   * board never saw cannot be armed even by an administrator - and an id left
+   * behind by a version that no longer declares it stops being armable the
+   * moment that version is consented to.
+   *
+   * Returns null when there is no such plugin or no such consented action, so
+   * the caller answers 404 rather than reporting a change nobody made.
+   */
+  async setActionArmed(
+    id: string,
+    actionId: string,
+    armed: boolean,
+  ): Promise<PluginRecord | null> {
+    const record = await this.find(id);
+    if (record === null) {
+      return null;
+    }
+
+    const consented = new Set(
+      record.consentedActions.map((canonical) => canonical.split(":")[0]),
+    );
+    if (!consented.has(actionId)) {
+      return null;
+    }
+
+    const armedActions = armed
+      ? [...new Set([...record.armedActions, actionId])].sort()
+      : record.armedActions.filter((held) => held !== actionId);
+
+    const row = await this.prisma.installedPlugin.update({
+      where: { id },
+      data: { armedActions },
     });
     return toRecord(row);
   }
@@ -156,6 +221,11 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedPermissions: row.consentedPermissions as PluginPermission[],
     declaredPersonalData:
       row.declaredPersonalData as PluginPersonalDataCategory[],
+    // Plain strings for the reason the two lists above are: an id left behind
+    // by a version that no longer declares it reads back as a string the
+    // loader ignores, rather than as a failed decode.
+    consentedActions: row.consentedActions,
+    armedActions: row.armedActions,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

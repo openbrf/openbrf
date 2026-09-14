@@ -1,4 +1,5 @@
 import type {
+  PluginActionDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginSettingsSchema,
@@ -28,6 +29,18 @@ export interface PluginSummary {
   loaded: boolean;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * The action declaration the board consented to, canonically.
+   *
+   * Each entry is `id:capability:effect:personalData:surfaces`, the last two
+   * pipe-separated, exactly as the server compares an installed manifest
+   * against it. Carried as the string rather than as parts because it is the
+   * snapshot the consent is held in: splitting it on the server would make the
+   * browser's idea of the declaration the one that could drift.
+   */
+  consentedActions: string[];
+  /** The ids an administrator has armed, a subset of the above. */
+  armedActions: string[];
   installedAt: string;
   hasSettings: boolean;
   view: { module: string; titleKey: string } | null;
@@ -68,6 +81,11 @@ export interface CatalogPlugin {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * What the plugin proposes the platform be able to do, repeated in the
+   * catalog so the consent screen can state it before anything is downloaded.
+   */
+  actions: PluginActionDeclaration[];
   supported: boolean;
   installedVersion: string | null;
 }
@@ -107,15 +125,18 @@ export function fetchPluginViews(): Promise<
 /**
  * Installs a plugin.
  *
- * The permissions and personal data categories the consent screen showed are
- * sent back with the request. The API refuses the install when they no longer
- * match the catalog, so a board never installs on the strength of a screen
- * that has since become wrong.
+ * The whole declaration the consent screen showed is sent back with the
+ * request. The API refuses the install when any of it no longer matches the
+ * catalog, so a board never installs on the strength of a screen that has
+ * since become wrong - and it compares all three the moment one is echoed,
+ * which is why the actions travel with the other two rather than being left
+ * out as a list nobody pressed a button about.
  */
 export function installPlugin(input: {
   id: string;
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
+  actions: readonly PluginActionDeclaration[];
 }): Promise<ApiResult<{ restarting: boolean }>> {
   return apiRequest("POST", "/api/plugins", input);
 }
@@ -133,6 +154,25 @@ export function setPluginEnabled(
   return apiRequest("PUT", `/api/plugins/${encodeURIComponent(id)}/enabled`, {
     enabled,
   });
+}
+
+/**
+ * Arms or disarms one of a plugin's declared actions.
+ *
+ * Arming is what offers the action to a connected app and to the AI package;
+ * the consent the board gave at install is what makes it offerable at all.
+ * Both halves are kept, so an action nobody has armed is declared and idle.
+ */
+export function setPluginActionArmed(
+  id: string,
+  actionId: string,
+  armed: boolean,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "PUT",
+    `/api/plugins/${encodeURIComponent(id)}/actions/${encodeURIComponent(actionId)}`,
+    { armed },
+  );
 }
 
 export function fetchPluginSettings(

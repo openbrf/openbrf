@@ -188,6 +188,7 @@ async function consent(
     checksum: "sha512-unused-in-this-suite",
     permissions: permissions as never,
     personalData: personalData as never,
+    actions: [],
   });
 }
 
@@ -472,6 +473,8 @@ describe("loading plugins at boot", () => {
       expect(host).toBeDefined();
       binding.bind({
         registry,
+        actions: {} as never,
+        callers: {} as never,
         jobs: {} as never,
         mail: {} as never,
         sms: {} as never,

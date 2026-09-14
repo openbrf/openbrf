@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { ActionsModule } from "../actions/actions.module";
 import { BoardModule } from "../board/board.module";
 import { ContactModule } from "../contact/contact.module";
 import { DocumentsModule } from "../documents/documents.module";
@@ -18,6 +19,7 @@ import {
 import { PagesModule } from "./pages.module";
 import { PagesWriteService } from "./pages-write.service";
 import { SiteController } from "./site.controller";
+import { SiteActionsRegistrar } from "./site-actions.registrar";
 import { SiteCalendarController } from "./site-calendar.controller";
 import { SiteEventsService } from "./site-events.service";
 import { SiteFormsController } from "./site-forms.controller";
@@ -45,6 +47,12 @@ import { SiteRenderer } from "./site-renderer.service";
  * site:manage, which is why they are separate classes rather than one with a
  * mixture: a class carrying both would make the website's openness a per-route
  * detail instead of a property of the class.
+ *
+ * The same writes are reachable as actions, which is what the action registry
+ * is imported for. The registrar binds them to the write services these
+ * controllers call, so a page published through a connected app goes through
+ * the publication guardrails and the audit entry that a board member in a
+ * browser does.
  */
 @Module({
   imports: [
@@ -68,6 +76,9 @@ import { SiteRenderer } from "./site-renderer.service";
      * the answer.
      */
     BoardModule,
+    // The registry the board's writes are registered with. Not global, and
+    // imported by each feature that owns actions of its own.
+    ActionsModule,
   ],
   controllers: [
     // The four public ones first, then the board's.
@@ -87,6 +98,7 @@ import { SiteRenderer } from "./site-renderer.service";
     PagesWriteService,
     MenuWriteService,
     AssociationFactsService,
+    SiteActionsRegistrar,
   ],
   exports: [SiteRenderer],
 })

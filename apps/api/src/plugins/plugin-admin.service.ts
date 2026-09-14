@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
   isSupportedApiVersion,
+  type PluginActionDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
   type PluginSettingsSchema,
@@ -26,6 +27,7 @@ import {
   type PluginFinding,
   PluginLoaderService,
 } from "./plugin-loader.service";
+import { sameActionDeclaration } from "./plugin-action-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
 import {
   CatalogEntryNotFoundError,
@@ -49,6 +51,10 @@ export interface PluginSummary {
   loaded: boolean;
   permissions: string[];
   personalData: string[];
+  /** The declaration the board consented to, canonically. */
+  consentedActions: string[];
+  /** The ids an administrator has armed, a subset of the above. */
+  armedActions: string[];
   installedAt: string;
   hasSettings: boolean;
   view: { module: string; titleKey: string } | null;
@@ -84,6 +90,8 @@ export interface CatalogPluginView {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /** What the plugin proposes the platform be able to do, if anything. */
+  actions: PluginActionDeclaration[];
   /** False when the entry needs a contract version this host does not have. */
   supported: boolean;
   /** The version currently installed, when there is one. */
@@ -109,6 +117,12 @@ export interface InstallRequest {
    */
   permissions?: readonly PluginPermission[];
   personalData?: readonly PluginPersonalDataCategory[];
+  /**
+   * The actions the consent screen showed, echoed back on the same terms.
+   *
+   * Omitted by the command-line tool, like the two above it.
+   */
+  actions?: readonly PluginActionDeclaration[];
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -264,6 +278,14 @@ export class PluginAdminService {
           loaded: loaded !== null,
           permissions: record.consentedPermissions,
           personalData: record.declaredPersonalData,
+          /*
+           * What the board agreed this plugin may be asked to do, and which of
+           * those an administrator has since switched on beyond this instance.
+           * Both are on the screen because they answer different questions:
+           * the first is what was consented to, the second is what is live.
+           */
+          consentedActions: record.consentedActions,
+          armedActions: record.armedActions,
           installedAt: record.installedAt.toISOString(),
           hasSettings: manifest?.settingsSchema !== undefined,
           view: manifest?.view ?? null,
@@ -315,6 +337,11 @@ export class PluginAdminService {
           deprecated: entry.deprecated,
           apiVersion: entry.apiVersion,
           permissions: entry.permissions,
+          // The third part of the declaration the consent screen shows, and the
+          // third the install echo compares: omitting it here would leave the
+          // browser echoing an empty list against a catalog entry that declares
+          // actions, which the echo refuses as a consent mismatch.
+          actions: entry.actions,
           personalData: entry.personalData,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
@@ -347,16 +374,20 @@ export class PluginAdminService {
     if (!isSupportedApiVersion(entry.apiVersion)) {
       throw new PluginApiVersionError(entry.id, entry.apiVersion);
     }
-    // Either both halves of the declaration are echoed or neither is. A
-    // request carrying one field and omitting the other would otherwise skip
-    // the comparison for the half it left out and install on consent that was
-    // never checked.
+    // Any part of the declaration echoed means all of it is compared. A
+    // request carrying one field and omitting another would otherwise skip the
+    // comparison for the part it left out and install on consent that was
+    // never checked - which is why this is an OR over three fields rather than
+    // a check per field.
     const echoed =
-      request.permissions !== undefined || request.personalData !== undefined;
+      request.permissions !== undefined ||
+      request.personalData !== undefined ||
+      request.actions !== undefined;
     if (
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
-        !sameDeclaration(entry.personalData, request.personalData ?? []))
+        !sameDeclaration(entry.personalData, request.personalData ?? []) ||
+        !sameActionDeclaration(entry.actions, request.actions ?? []))
     ) {
       throw new PluginConsentMismatchError();
     }
@@ -390,6 +421,7 @@ export class PluginAdminService {
       checksum: entry.artifact.sha512,
       permissions: echoed ? (request.permissions ?? []) : entry.permissions,
       personalData: echoed ? (request.personalData ?? []) : entry.personalData,
+      actions: echoed ? (request.actions ?? []) : entry.actions,
     });
 
     /*
@@ -483,6 +515,39 @@ export class PluginAdminService {
    * next boot, which is a property of loading CommonJS at all; what it can
    * reach the association's data through is not.
    */
+  /**
+   * Arms or disarms one of a plugin's declared actions.
+   *
+   * The act that exposes an action beyond this instance, and the reason a
+   * manifest declaring one changes nothing on its own: adding a channel may
+   * never make an existing action reachable, so somebody has to decide, per
+   * action, that this plugin may be asked to do this by a connected app.
+   *
+   * It takes effect at once and needs no restart, because the registry reads
+   * the arming at the moment of the call rather than caching it - which is
+   * also what makes disarming bite immediately.
+   */
+  async setActionArmed(
+    id: string,
+    actionId: string,
+    armed: boolean,
+    actorPersonId: string,
+  ): Promise<void> {
+    const record = await this.registry.setActionArmed(id, actionId, armed);
+    if (record === null) {
+      throw new PluginNotFoundError(id);
+    }
+
+    await this.audit.record({
+      action: armed ? "PLUGIN_ACTION_ARMED" : "PLUGIN_ACTION_DISARMED",
+      channel: "WEB",
+      actorPersonId,
+      targetKind: "plugin",
+      targetId: id,
+      context: { actionId },
+    });
+  }
+
   async setEnabled(
     id: string,
     enabled: boolean,

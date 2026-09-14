@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { PLUGIN_API_VERSION } from "./api-version.ts";
-import { assertPluginPackage, parsePluginPackage } from "./manifest.ts";
+import {
+  assertPluginPackage,
+  composedActionName,
+  parsePluginPackage,
+} from "./manifest.ts";
 
 function manifest(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -123,5 +127,79 @@ describe("assertPluginPackage", () => {
 
   it("returns the parsed manifest when valid", () => {
     expect(assertPluginPackage(manifest()).openbrf.id).toBe("example");
+  });
+});
+
+describe("the actions a manifest proposes", () => {
+  it("defaults to none, and to the in-process surface when one is declared", () => {
+    const result = parsePluginPackage(
+      manifest({
+        actions: [{ id: "summary", capability: "self:manage", effect: "read" }],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const [action] = result.value.openbrf.actions;
+    expect(action?.surfaces).toEqual(["ui"]);
+    expect(action?.personalData).toEqual([]);
+  });
+
+  it("refuses a composed name too long to be offered", () => {
+    /*
+     * A plugin id runs to 48 characters and an action id to 32, which composes
+     * to 81 against a public limit of 64. Only the pair knows, so the refusal
+     * is pairwise rather than a shorter bound on the action id: that would
+     * charge every plugin for the longest possible plugin id.
+     *
+     * Refused at parse time, which is before the install consent screen, rather
+     * than as a finding after the plugin's code has run.
+     */
+    const result = parsePluginPackage(
+      manifest({
+        id: "a".repeat(48),
+        actions: [
+          {
+            id: `b${"c".repeat(31)}`,
+            capability: "self:manage",
+            effect: "read",
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(JSON.stringify(result.issues)).toContain("64");
+  });
+
+  it("accepts a long action id for a short plugin id", () => {
+    const result = parsePluginPackage(
+      manifest({
+        id: "brf",
+        actions: [
+          {
+            id: "monthly_occupancy_report",
+            capability: "addressBook:read",
+            effect: "read",
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("folds the dashes in a plugin id, and says so", () => {
+    // The folding is why two different plugins can compose the same public
+    // name: `a-b` declaring `c` and `a` declaring `b_c`. The registry refuses
+    // the second to arrive; here the shape is pinned.
+    expect(composedActionName("mcp-connector", "post_news")).toBe(
+      "mcp_connector_post_news",
+    );
   });
 });

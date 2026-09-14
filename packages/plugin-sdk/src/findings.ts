@@ -41,6 +41,12 @@ export const PLUGIN_FINDING_REASONS = [
   "load-failed",
   /** Recorded as installed but not present. */
   "not-on-volume",
+  /** The installed version declares an action the board did not consent to. */
+  "actions-widened",
+  /** An action the manifest declares could not be registered. */
+  "action-refused",
+  /** One of its providers reaches for a core service a plugin may not hold. */
+  "forbidden-injection",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

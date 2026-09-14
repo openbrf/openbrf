@@ -16,6 +16,7 @@ import type {
   PluginModuleFactory,
   PluginSettingsValues,
 } from "@openbrf/plugin-sdk";
+import { z } from "zod";
 
 /**
  * The reference plugin's server entry point.
@@ -202,6 +203,54 @@ export const createPlugin: PluginModuleFactory = (
       };
     }
   }
+
+  /*
+   * The action this plugin proposes.
+   *
+   * Registered from the module factory, which runs long before the application
+   * exists - the host buffers a registration made here and flushes it once
+   * there is a registry to put it in. Everything else on the host object still
+   * refuses until onModuleInit, because a declaration is not work.
+   *
+   * What this plugin may ask for is settled in the manifest rather than here:
+   * the capability, the effect, the personal-data categories and the surfaces
+   * are what the board reads on the install consent screen, before any of this
+   * code has been downloaded. Declaring the action does not offer it beyond the
+   * instance either - an administrator arms it, per action, on the plugin's own
+   * screen.
+   *
+   * The schemas are built with the host's zod, which the resolution bridge
+   * supplies for the same reason it supplies NestJS: a second copy would
+   * produce schemas from a second realm, which the host cannot convert and
+   * refuses to register.
+   */
+  host.actions.register({
+    id: "summary",
+    definition: {
+      name: "summary",
+      titleKey: "actions.summary.title",
+      descriptionKey: "actions.summary.description",
+      group: "occupancy",
+      groupTitleKey: "actions.group.occupancy.title",
+      idempotent: true,
+      additive: false,
+      needsConfirmation: false,
+      openWorld: false,
+      errors: [],
+      input: z.strictObject({}).describe("Takes no arguments."),
+      output: z
+        .strictObject({
+          apartments: z
+            .number()
+            .int()
+            .describe("How many apartments there are."),
+          residents: z.number().int().describe("How many people live here."),
+          members: z.number().int().describe("How many of them are members."),
+        })
+        .describe("Counts, and never a person."),
+      handler: async () => host.addressBook.summary(),
+    },
+  });
 
   @Module({})
   class OccupancyModule {}

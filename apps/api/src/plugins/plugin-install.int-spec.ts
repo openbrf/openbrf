@@ -214,6 +214,7 @@ async function consent(
     checksum: digest,
     permissions: ["addressBook:read"],
     personalData: ["name", "apartment"],
+    actions: [],
   });
 }
 
@@ -420,6 +421,7 @@ describe("the plugin install flow", () => {
       checksum: formatSha512(sha512(Buffer.from("not this archive"))),
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
+      actions: [],
     });
 
     const outcome = await installer.reconcile();

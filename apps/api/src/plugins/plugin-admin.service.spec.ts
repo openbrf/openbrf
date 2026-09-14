@@ -37,6 +37,7 @@ const ENTRY = {
   apiVersion: 1,
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "apartment"],
+  actions: [],
   artifact: { url: "https://example.test/occupancy.tgz", sha512: "sha512-x" },
 } as unknown as CatalogPluginEntry;
 

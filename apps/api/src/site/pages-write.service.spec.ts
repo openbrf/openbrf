@@ -32,6 +32,7 @@ interface Fakes {
   };
   mediaFile: { findMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
+  prisma: { $transaction: ReturnType<typeof vi.fn> };
 }
 
 const DRAFT = {
@@ -72,16 +73,21 @@ function build(): Fakes {
   const mediaFile = { findMany: vi.fn().mockResolvedValue([]) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
+  const client = { page, mediaFile };
+
   const prisma = {
-    page,
-    mediaFile,
-    // The transaction client is the same fake: what these tests check is that
-    // the audit entry is written with the change, not that Postgres isolates
-    // them.
-    $transaction: vi.fn(async (arg: unknown) =>
-      Array.isArray(arg)
-        ? Promise.all(arg)
-        : await (arg as (tx: unknown) => Promise<unknown>)(prisma),
+    ...client,
+    /*
+     * The interactive form, because every write here now carries its audit
+     * entry inside the transaction. The callback is handed the same fakes the
+     * service holds, so a spec can read what was written either way: what these
+     * tests check is that the entry is written with the change, not that
+     * Postgres isolates them.
+     */
+    $transaction: vi.fn(async (run: unknown) =>
+      typeof run === "function"
+        ? await (run as (tx: typeof client) => Promise<unknown>)(client)
+        : run,
     ),
   };
 
@@ -93,6 +99,7 @@ function build(): Fakes {
     page,
     mediaFile,
     audit,
+    prisma,
   };
 }
 
@@ -151,12 +158,15 @@ describe("writing a page", () => {
     const { service } = build();
 
     const refusal = await refusalOf(
-      service.create({
-        slug: "api",
-        title: "Hej",
-        content: paragraphsContent(["Hej."]),
-        visibility: "PUBLIC",
-      }),
+      service.create(
+        {
+          slug: "api",
+          title: "Hej",
+          content: paragraphsContent(["Hej."]),
+          visibility: "PUBLIC",
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("invalid-slug");
@@ -167,12 +177,15 @@ describe("writing a page", () => {
     page.findUnique.mockResolvedValue({ id: "page-9" });
 
     const refusal = await refusalOf(
-      service.create({
-        slug: "hem",
-        title: "Hej",
-        content: paragraphsContent(["Hej."]),
-        visibility: "PUBLIC",
-      }),
+      service.create(
+        {
+          slug: "hem",
+          title: "Hej",
+          content: paragraphsContent(["Hej."]),
+          visibility: "PUBLIC",
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("slug-taken");
@@ -182,18 +195,96 @@ describe("writing a page", () => {
   it("writes a new page unpublished whatever else it says", async () => {
     const { service, page } = build();
 
-    await service.create({
-      slug: "styrelsen",
-      title: "Styrelsen",
-      content: paragraphsContent(["Hej."]),
-      visibility: "MEMBER",
-    });
+    await service.create(
+      {
+        slug: "styrelsen",
+        title: "Styrelsen",
+        content: paragraphsContent(["Hej."]),
+        visibility: "MEMBER",
+      },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     const written = page.create.mock.calls[0]?.[0] as {
       data: { published: boolean; sortOrder: number };
     };
     expect(written.data.published).toBe(false);
     expect(written.data.sortOrder).toBe(4);
+  });
+
+  it("records the content change, saying how much page there is and never what it says", async () => {
+    const { service, audit } = build();
+
+    await service.create(
+      {
+        slug: "styrelsen",
+        title: "Styrelsen",
+        content: paragraphsContent(["Ordförande är Anna.", "Kassör är Bo."]),
+        visibility: "MEMBER",
+      },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    const [entry] = audit.record.mock.calls[0] as [
+      {
+        action: string;
+        actorPersonId: string;
+        targetKind: string;
+        context: Record<string, unknown>;
+      },
+    ];
+    expect(entry.action).toBe("PAGE_CONTENT_CHANGED");
+    expect(entry.actorPersonId).toBe("person-1");
+    expect(entry.targetKind).toBe("page");
+    // Which page it was and how much of it there now is. The text itself has a
+    // home on the row, and this table outlives that row.
+    expect(entry.context).toEqual({
+      slug: "styrelsen",
+      blockCount: 2,
+      published: false,
+      created: true,
+    });
+    expect(JSON.stringify(entry.context)).not.toContain("Anna");
+  });
+
+  it("records a rewrite once, inside the transaction that wrote it", async () => {
+    // Not beside it: an entry that outlived a rolled-back save would name a
+    // page nobody rewrote.
+    const { service, page, audit, prisma } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    page.findUniqueOrThrow.mockResolvedValue({
+      ...DRAFT,
+      content: paragraphsContent(["Hej.", "Och välkommen."]),
+      revision: 5,
+    });
+
+    await service.update(
+      "page-1",
+      {
+        slug: DRAFT.slug,
+        title: DRAFT.title,
+        content: paragraphsContent(["Hej.", "Och välkommen."]),
+      },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    const [entry, tx] = audit.record.mock.calls[0] as [
+      { action: string; targetId: string; context: Record<string, unknown> },
+      unknown,
+    ];
+    expect(entry.action).toBe("PAGE_CONTENT_CHANGED");
+    expect(entry.targetId).toBe("page-1");
+    // Counted off the page as it stands once the claim has held, which is what
+    // the service reads back: a conditional write answers with a count and not
+    // with a row.
+    expect(entry.context).toEqual({
+      slug: "om-foreningen",
+      blockCount: 2,
+      published: false,
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx).toBeDefined();
   });
 
   it("saves a draft that carries a personal identity number", async () => {
@@ -204,11 +295,15 @@ describe("writing a page", () => {
     page.findUnique.mockResolvedValue(DRAFT);
 
     await expect(
-      service.update("page-1", {
-        slug: DRAFT.slug,
-        title: DRAFT.title,
-        content: WITH_PERSONNUMMER,
-      }),
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: WITH_PERSONNUMMER,
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
     ).resolves.toMatchObject({ slug: "om-foreningen" });
   });
 
@@ -217,11 +312,15 @@ describe("writing a page", () => {
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
     const refusal = await refusalOf(
-      service.update("page-1", {
-        slug: DRAFT.slug,
-        title: DRAFT.title,
-        content: WITH_PERSONNUMMER,
-      }),
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: WITH_PERSONNUMMER,
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
@@ -511,7 +610,10 @@ describe("the order the pages sit in", () => {
   it("writes each id the position it arrived at", async () => {
     const { service, page } = build();
 
-    await service.reorder(["page-2", "page-1"]);
+    await service.reorder(["page-2", "page-1"], {
+      personId: "person-1",
+      channel: "WEB",
+    });
 
     expect(page.updateMany).toHaveBeenNthCalledWith(1, {
       where: { id: "page-2" },
@@ -534,7 +636,10 @@ describe("the order the pages sit in", () => {
       .mockResolvedValueOnce({ count: 0 })
       .mockResolvedValueOnce({ count: 1 });
 
-    await service.reorder(["page-9", "page-1"]);
+    await service.reorder(["page-9", "page-1"], {
+      personId: "person-1",
+      channel: "WEB",
+    });
 
     expect(page.updateMany).toHaveBeenNthCalledWith(1, {
       where: { id: "page-9" },
@@ -544,6 +649,34 @@ describe("the order the pages sit in", () => {
       where: { id: "page-1" },
       data: { sortOrder: 1 },
     });
+  });
+
+  it("records the arrangement, counting the ids the board sent", async () => {
+    // Ids the instance does not have are ignored, so how many rows moved is
+    // not a number this call knows. What it does know is what it was asked to
+    // arrange, and an entry either way is the honest record that the board
+    // rearranged the website.
+    const { service, page, audit } = build();
+    page.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.reorder(["page-9", "page-2", "page-1"], {
+      personId: "person-1",
+      channel: "WEB",
+    });
+
+    const [entry] = audit.record.mock.calls[0] as [
+      {
+        action: string;
+        targetKind: string;
+        targetId: string | null;
+        context: Record<string, unknown>;
+      },
+    ];
+    expect(entry.action).toBe("PAGE_REORDERED");
+    expect(entry.targetKind).toBe("page");
+    // No one page was the act.
+    expect(entry.targetId).toBeNull();
+    expect(entry.context).toEqual({ count: 3 });
   });
 });
 
@@ -611,6 +744,33 @@ describe("a write that was checked and then overtaken", () => {
 
     expect(refusal.reason).toBe("page-changed");
     // The log says a page was published only where one was.
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses the save and records nothing when the claim finds no row", async () => {
+    // The entry rolls back with the write it records. A log saying the page
+    // was rewritten, where the rewrite never landed, would be worse than no
+    // log at all: it is read as evidence of who changed what.
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+    // Somebody saved between the read above and this write, so the revision
+    // the caller is claiming on is gone.
+    fakes.page.updateMany.mockResolvedValue({ count: 0 });
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: paragraphsContent(["Rättad."]),
+          expectedRevision: 4,
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
     expect(fakes.audit.record).not.toHaveBeenCalled();
   });
 

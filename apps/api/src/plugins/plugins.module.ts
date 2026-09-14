@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { DataProtectionModule } from "../data-protection/data-protection.module";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
+import { ActionsModule } from "../actions/actions.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAdminService } from "./plugin-admin.service";
@@ -45,7 +46,9 @@ import { RestartCoordinator } from "./restart-coordinator.service";
  * the platform. Both ignore every route that is not a plugin's.
  */
 @Module({
-  imports: [PackagingModule, DataProtectionModule],
+  // ActionsModule is imported explicitly rather than made global, so that a
+  // loaded plugin cannot resolve the registry by type from the root injector.
+  imports: [ActionsModule, PackagingModule, DataProtectionModule],
   controllers: [
     PluginsReadController,
     PluginsWriteController,
