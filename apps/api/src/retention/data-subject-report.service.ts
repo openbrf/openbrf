@@ -20,6 +20,7 @@ import { computeBoardMailboxPurgeDate } from "../board-mailbox/board-mailbox-ret
 import type {
   DataSubjectReport,
   ReportAuditEntry,
+  ReportConnectedAppScope,
   ReportDataSubjectRequest,
   ReportBoardMailboxThread,
   ReportMeetingAttendance,
@@ -35,6 +36,7 @@ import {
   terminationsDuringHolding,
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
+import { connectedAppHost } from "../data-protection/processors";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -57,6 +59,7 @@ const SECTIONS = [
   "boardPositions",
   "systemRoles",
   "account",
+  "connectedApps",
   "memberRegisterEntries",
   "transfers",
   "transferReversals",
@@ -277,7 +280,15 @@ export class DataSubjectReportService {
         },
         systemRoles: { select: { role: true } },
         userAccount: {
-          select: { email: true, twoFactorEnabled: true, createdAt: true },
+          // The id as well as the account's own fields: a consent to a
+          // connected app names the account rather than the person, so the
+          // grants below are reached one step further out.
+          select: {
+            id: true,
+            email: true,
+            twoFactorEnabled: true,
+            createdAt: true,
+          },
         },
         memberRegisterEntries: {
           orderBy: [{ eventOn: "asc" }],
@@ -340,6 +351,36 @@ export class DataSubjectReportService {
       where: { id: 1 },
       select: { name: true, organizationNumber: true },
     });
+
+    /*
+     * The apps this person allowed to act for them.
+     *
+     * Reached through the account rather than through the person: a consent
+     * names the account it was given from, because that is what the app was
+     * authorised against. Somebody with no account has authorised nothing, and
+     * the query is not asked at all rather than asked with an id that cannot
+     * match.
+     */
+    const account = person.userAccount;
+    const connectedAppConsents =
+      account === null
+        ? []
+        : await tx.oauthConsent.findMany({
+            where: { userId: account.id },
+            orderBy: [{ createdAt: "desc" }],
+            select: {
+              clientId: true,
+              scopes: true,
+              createdAt: true,
+              client: {
+                select: { name: true, clientDiscoveryId: true, uri: true },
+              },
+            },
+          });
+    const tokenIssuedAt =
+      account === null || connectedAppConsents.length === 0
+        ? new Map<string, Date>()
+        : await latestTokenIssuedPerClient(tx, account.id);
 
     const transfers = await tx.transfer.findMany({
       where: { OR: [{ fromPersonId: personId }, { toPersonId: personId }] },
@@ -989,6 +1030,25 @@ export class DataSubjectReportService {
               twoFactorEnabled: person.userAccount.twoFactorEnabled === true,
               createdAt: person.userAccount.createdAt.toISOString(),
             },
+      connectedApps: connectedAppConsents.map((consent) => ({
+        clientName: consent.client.name,
+        clientHost: connectedAppHost(consent.client),
+        /*
+         * Narrowed to the scopes the provider issues. A client may only ask for
+         * one the provider advertises, so this drops nothing a grant can hold;
+         * what it buys is a closed set the document can state in words rather
+         * than a bare string printed as the protocol spells it.
+         */
+        scopes: consent.scopes.filter(isConnectedAppScope),
+        connectedAt: consent.createdAt.toISOString(),
+        /*
+         * When a token was last issued for this grant, and never a token. The
+         * date says the app came back for access around then; what it did with
+         * it is in the entries section, which is the only place this document
+         * answers that.
+         */
+        lastUsedAt: tokenIssuedAt.get(consent.clientId)?.toISOString() ?? null,
+      })),
       memberRegisterEntries: person.memberRegisterEntries.map((entry) => ({
         entryId: entry.id,
         eventType: entry.eventType,
@@ -1389,6 +1449,68 @@ export class DataSubjectReportService {
       },
     };
   }
+}
+
+/** The scopes the provider issues, which is what a consent row can hold. */
+const CONNECTED_APP_SCOPES: readonly ReportConnectedAppScope[] = [
+  "mcp:read",
+  "mcp:write",
+  "offline_access",
+];
+
+function isConnectedAppScope(value: string): value is ReportConnectedAppScope {
+  return (CONNECTED_APP_SCOPES as readonly string[]).includes(value);
+}
+
+/**
+ * The newest token row held per client for one account, by the day it was
+ * issued.
+ *
+ * Both tables, because the two run out on different clocks: an access row lasts
+ * minutes and a refresh row a week, so the access rows alone would answer "not
+ * lately" for an app that was refreshing its access yesterday. The newest of
+ * the two is the last moment the association handed this app anything.
+ *
+ * Tokens that were taken back are left out. A disconnect deletes the access
+ * rows and marks the refresh rows revoked, and the revoked ones are kept for a
+ * week so a replay of them is still recognised - so somebody who disconnected
+ * an app and connected it again would otherwise have the grant they hold now
+ * dated by the one they gave up, on a day before they gave this one.
+ *
+ * Two grouped queries rather than one per grant: somebody with several apps
+ * would otherwise cost a query each on the most disclosure-heavy read in the
+ * product. Nothing but the timestamp is selected - a token row's own column
+ * holds a digest of a live credential, which no report may carry.
+ */
+async function latestTokenIssuedPerClient(
+  tx: Prisma.TransactionClient,
+  userId: string,
+): Promise<Map<string, Date>> {
+  const [access, refresh] = await Promise.all([
+    tx.oauthAccessToken.groupBy({
+      by: ["clientId"],
+      where: { userId, revoked: null },
+      _max: { createdAt: true },
+    }),
+    tx.oauthRefreshToken.groupBy({
+      by: ["clientId"],
+      where: { userId, revoked: null },
+      _max: { createdAt: true },
+    }),
+  ]);
+
+  const latest = new Map<string, Date>();
+  for (const row of [...access, ...refresh]) {
+    const issuedAt = row._max.createdAt;
+    if (issuedAt === null) {
+      continue;
+    }
+    const held = latest.get(row.clientId);
+    if (held === undefined || issuedAt.getTime() > held.getTime()) {
+      latest.set(row.clientId, issuedAt);
+    }
+  }
+  return latest;
 }
 
 /**

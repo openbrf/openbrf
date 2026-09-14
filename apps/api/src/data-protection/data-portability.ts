@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 
 import type {
   DataSubjectReport,
+  ReportConnectedAppScope,
   ReportDataSubjectRequest,
   ReportKeyOrder,
 } from "../retention/data-subject-report";
@@ -64,6 +65,15 @@ export interface DataPortabilityExport {
   };
   residencies: DataSubjectReport["residencies"];
   publicationConsents: DataSubjectReport["publicationConsents"];
+  /**
+   * The apps they allowed to act for them, and what each may do.
+   *
+   * Carried for the same reason the publication consents above are: a grant to
+   * a connected app is a consent this person gave, on a processing that rests
+   * on it, and which apps somebody connected and what they allowed each of them
+   * is their own decision rather than the association's account of them.
+   */
+  connectedApps: PortableConnectedApp[];
   issues: DataSubjectReport["issues"];
   documents: DataSubjectReport["documents"];
   bookings: DataSubjectReport["bookings"];
@@ -105,6 +115,26 @@ export interface PortableSubletApplication {
   reason: string;
   /** ISO instant. */
   submittedAt: string;
+}
+
+/**
+ * One connected app, narrowed to the grant the person gave.
+ *
+ * Nothing from a token row, and `lastUsedAt` is the field that says so. A token
+ * row holds a digest of a live credential, which never leaves the instance in
+ * any form; and when the association last issued one is the association's own
+ * observation of the connection working rather than something the person
+ * provided, which is the same line that keeps a board's note off the two
+ * sections below.
+ */
+export interface PortableConnectedApp {
+  /** As the client declared itself, or null where it declared no name. */
+  clientName: string | null;
+  /** The host it is reached at, or null where it names no URL that parses. */
+  clientHost: string | null;
+  scopes: ReportConnectedAppScope[];
+  /** ISO instant the person consented. */
+  connectedAt: string;
 }
 
 /** One key or tag order, narrowed the same way: not the board's `boardNote`. */
@@ -177,6 +207,12 @@ export function toDataPortabilityExport(
     },
     residencies: report.residencies,
     publicationConsents: report.publicationConsents,
+    connectedApps: report.connectedApps.map((app) => ({
+      clientName: app.clientName,
+      clientHost: app.clientHost,
+      scopes: app.scopes,
+      connectedAt: app.connectedAt,
+    })),
     issues: report.issues,
     documents: report.documents,
     bookings: report.bookings,

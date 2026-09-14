@@ -8,6 +8,14 @@ import {
 
 import { fetchSetupState } from "../api/instance";
 import { authClient } from "../auth/auth-client";
+import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
+import {
+  APP_BASE_PATH,
+  authorizationRequestIn,
+  consentHref,
+  signInHref,
+  validateAuthorizationSearch,
+} from "./authorization-request";
 import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
@@ -27,6 +35,7 @@ import { KeyOrdersRoute } from "./KeyOrdersRoute";
 import { MotionsRoute } from "./MotionsRoute";
 import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
+import { OAuthConsentRoute } from "./OAuthConsentRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
 import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
@@ -73,12 +82,36 @@ const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });
 
+/**
+ * Sign-in, which is also the first stop of a connected app's authorization.
+ *
+ * `validateSearch` declares the whole authorization request beside `returnTo`
+ * rather than `returnTo` alone. A route sees only what it declares, and the
+ * address bar is rebuilt from that the next time the router builds a location,
+ * so a narrower declaration would drop a signed request that this screen is
+ * the middle of - see the note in authorization-request.ts.
+ */
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
+  validateSearch: validateAuthorizationSearch,
   beforeLoad: async () => {
-    // Someone already signed in has no business on this screen.
     if (await hasSession()) {
+      /*
+       * Already signed in, and an app is waiting to be told whether it may
+       * act for this person: the answer is the consent screen rather than the
+       * start page, which would abandon the authorization silently and leave
+       * the app looking broken.
+       *
+       * The unparsed search string, and a document navigation, for the reason
+       * authorization-request.ts sets out: anything the router builds keeps
+       * one value per parameter name and the request repeats one.
+       */
+      const request = authorizationRequestIn(window.location.search);
+      if (request !== null) {
+        throw redirect({ href: consentHref(request), reloadDocument: true });
+      }
+      // Otherwise: someone already signed in has no business on this screen.
       throw redirect({ to: "/" });
     }
     // On an unclaimed instance there is no account to sign in with, so the
@@ -153,12 +186,63 @@ const activateRoute = createRoute({
   component: ActivateRoute,
 });
 
-/** Sends anyone without a session to sign in, before the screen renders. */
-async function requireSession(): Promise<void> {
+/**
+ * Sends anyone without a session to sign in, before the screen renders.
+ *
+ * The address they asked for goes with them as `returnTo`, so that signing in
+ * lands them there rather than at the start. Without it every deep link in the
+ * product - a document, a booking, a thread, anything carrying a query - is
+ * silently exchanged for the address book by the act of signing in, and the
+ * person has to go and find the link again.
+ *
+ * `location.href` is the path inside this application: the basepath is a
+ * rewrite the router strips on the way in and puts back on the way out, so
+ * what is carried here is what `navigate` expects to be given back. It is
+ * validated again where it is used - see return-to.ts.
+ */
+async function requireSession({
+  location,
+}: {
+  location: { href: string };
+}): Promise<void> {
   if (!(await hasSession())) {
-    throw redirect({ to: "/sign-in" });
+    throw redirect({ to: "/sign-in", search: { returnTo: location.href } });
   }
 }
+
+/**
+ * Whether to let a connected app act as you.
+ *
+ * A session and nothing more. Which apps a member may connect is not a
+ * question the board answers - deciding it is the member's own - and the API
+ * takes the granting person from the session rather than from this screen.
+ *
+ * The same search declaration as the sign-in route, because the authorization
+ * request reaches this screen through that one and has to survive both.
+ */
+const oauthConsentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/oauth/consent",
+  validateSearch: validateAuthorizationSearch,
+  beforeLoad: async (context) => {
+    if (await hasSession()) {
+      return;
+    }
+    /*
+     * Reached without a session: the sign-in that was meant to come first has
+     * lapsed, or the address was opened on its own. The request goes back to
+     * the sign-in screen with them rather than a `returnTo` pointing here,
+     * because a returnTo is composed by the router and a signed request does
+     * not survive being composed.
+     */
+    const request = authorizationRequestIn(window.location.search);
+    if (request !== null) {
+      throw redirect({ href: signInHref(request), reloadDocument: true });
+    }
+    await requireSession(context);
+  },
+  component: OAuthConsentRoute,
+});
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -170,12 +254,29 @@ const settingsRoute = createRoute({
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/plugins",
-  beforeLoad: async () => {
-    if (!(await hasSession())) {
-      throw redirect({ to: "/sign-in" });
-    }
-  },
+  beforeLoad: requireSession,
   component: PluginsRoute,
+});
+
+/**
+ * Every connection on the instance, for the board.
+ *
+ * A session and nothing more in the guard, which is this file's rule and is
+ * load-bearing here: seeing that a member has connected something is
+ * `association:read`, and cutting somebody else's connection is
+ * `dataProtection:manage`. One capability on the route would either shut out
+ * the people who may read the list or let readers reach a control they may not
+ * use, and the screen already renders what this account is entitled to.
+ *
+ * A member's own connections are not here. They are a section of /settings,
+ * because managing your own credentials is not the same question as knowing
+ * what leaves the association.
+ */
+const connectedAppsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/connected-apps",
+  beforeLoad: requireSession,
+  component: ConnectedAppsRoute,
 });
 
 /**
@@ -189,11 +290,7 @@ const pluginsRoute = createRoute({
 const pluginViewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/plugin/$pluginId",
-  beforeLoad: async () => {
-    if (!(await hasSession())) {
-      throw redirect({ to: "/sign-in" });
-    }
-  },
+  beforeLoad: requireSession,
   component: PluginViewRoute,
 });
 
@@ -533,11 +630,13 @@ const importRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
+  oauthConsentRoute,
   requestAccountRoute,
   setupRoute,
   activateRoute,
   settingsRoute,
   pluginsRoute,
+  connectedAppsRoute,
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,
@@ -569,7 +668,7 @@ const routeTree = rootRoute.addChildren([
  * the root. The basepath is applied to navigation and to redirects alike, so
  * the route definitions above are written - and read - as the paths they are.
  */
-export const router = createRouter({ routeTree, basepath: "/app" });
+export const router = createRouter({ routeTree, basepath: APP_BASE_PATH });
 
 declare module "@tanstack/react-router" {
   interface Register {

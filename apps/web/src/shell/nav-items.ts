@@ -58,6 +58,23 @@ const ENTRIES: readonly NavEntry[] = [
     labelKey: "plugins.navLabel",
     capability: "association:read",
   },
+  {
+    to: "/connected-apps",
+    // Under the module's own namespace rather than nav, because the label is
+    // that module's word for itself and moves with it.
+    labelKey: "connectedApps.navLabel",
+    // The same seat as plugins above, and for the same reason: what an external
+    // program may reach is part of how the instance is configured, and the
+    // board answers for what leaves the association. One capability rather than
+    // an any-of list - a member's own connections are on their settings screen,
+    // which every account already reaches, so there is no member's half of this
+    // destination to be shut out of.
+    //
+    // Deliberately not dataProtection:manage, although cutting somebody else's
+    // connection needs it: gating the door on the stronger of the screen's two
+    // capabilities would hide the list from the seat that may read it.
+    capability: "association:read",
+  },
   { to: "/settings", labelKey: "nav.settings" },
   {
     to: "/board-mailbox",

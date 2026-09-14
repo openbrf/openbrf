@@ -71,6 +71,18 @@ export default defineConfig({
      * over the difference with permissive CORS.
      */
     proxy: {
+      /*
+       * The discovery documents sit at the root of the origin rather than under
+       * /api, because RFC 8414 and RFC 9728 fix their paths there and a client
+       * given one address has to find everything else from it. Without an entry
+       * of their own the development server would answer them itself, and the
+       * screen that reads the resource address would be reading the client
+       * bundle.
+       */
+      "/.well-known": {
+        target: API_ORIGIN,
+        changeOrigin: false,
+      },
       "/api": {
         target: API_ORIGIN,
         /*

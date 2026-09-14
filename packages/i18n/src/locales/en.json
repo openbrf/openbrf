@@ -357,6 +357,7 @@
           "boardPositions": "Positions of trust",
           "systemRoles": "System roles",
           "account": "Account",
+          "connectedApps": "Connected apps",
           "memberRegister": "The member register",
           "transfers": "Grants and transfers",
           "terminations": "Terminations",
@@ -487,7 +488,16 @@
           "threadStatus": "Thread",
           "reportBasis": "Case under 3 kap. 3 §",
           "reversalKind": "What happened",
-          "reversedOn": "Reversed"
+          "reversedOn": "Reversed",
+          "appName": "App",
+          "appHost": "Domain",
+          "connectedOn": "Connected",
+          "accessLastIssued": "Access last issued"
+        },
+        "appScope": {
+          "read": "Read data",
+          "write": "Write data",
+          "offlineAccess": "Keep working while you are not signed in"
         },
         "event": {
           "ENTRY": "Membership granted",
@@ -3831,6 +3841,12 @@
           "legalBasisNote": "Contract for members (art. 6(1)(b)); legitimate interest for other residents.",
           "retention": "Purged on the association's retention window after a move-out."
         },
+        "connectedApps": {
+          "name": "Connected apps",
+          "purpose": "Letting a resident give a program of their own the right to do what they may do themselves in the association's services.",
+          "legalBasisNote": "Contract (art. 6(1)(b)): the connection is part of the service the resident asked for. What the app may do is checked on every call against the resident's own capabilities.",
+          "retention": "A consent stays until the resident disconnects the app, or until the person's data is purged. Access tokens and refresh tokens stay until they expire or are revoked; the nightly sweep deletes them."
+        },
         "residentDirectory": {
           "name": "Resident directory",
           "purpose": "Letting the residents see who lives in the building.",
@@ -3894,8 +3910,10 @@
         "recipients": {
           "noMailServer": "No mail server is configured.",
           "localDisk": "The association's own storage on the instance's disk.",
-          "s3": "Object storage at {{endpoint}}, bucket {{bucket}}."
+          "s3": "Object storage at {{endpoint}}, bucket {{bucket}}.",
+          "noConnectedApps": "No resident has connected an app."
         },
+        "clientTransfer": "Data is handed to {{clients}} once a resident has connected the app. The instance cannot tell where an app runs; the board states where it is, or which safeguard under art. 46 applies.",
         "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."
       },
       "security": {
@@ -4188,6 +4206,94 @@
     "menu_remove": {
       "title": "Remove a menu entry",
       "description": "Removes a menu entry. It cannot be undone. The entry must exist, and whatever hangs under it goes with it."
+    }
+  },
+  "connectedApps": {
+    "navLabel": "Connected apps",
+    "title": "Connected apps",
+    "intro": "External programs the members have allowed to act in their place. A connected app can never do more than the member who connected it may do at that moment, and a disconnect takes effect on the app's next call.",
+    "listTitle": "Connections in the association",
+    "loading": "Loading connected apps",
+    "empty": "Nobody in the association has connected an app.",
+    "loadFailed": "The list of connected apps could not be read just now.",
+    "forbidden": "Your account may not see this screen.",
+    "person": "Connected by",
+    "connectedAt": "Connected",
+    "lastTokenIssued": "Last token",
+    "noToken": "No token in force right now",
+    "unnamedApp": "Unnamed app",
+    "unknownHost": "No address given",
+    "disconnect": "Disconnect",
+    "disconnectLabel": "Disconnect {{app}}",
+    "disconnectLabelFor": "Disconnect {{app}}, connected by {{person}}",
+    "disconnectConfirm": "Yes, disconnect",
+    "disconnectCancel": "Keep",
+    "disconnecting": "Disconnecting...",
+    "disconnectWarning": "The app stops reaching the association on its next call. Whoever connected it has to connect it again before they can use it. The disconnect is recorded in the audit log.",
+    "errors": {
+      "notFound": "That connection is gone. Read the list again.",
+      "forbidden": "Your account may not cut somebody else's connection.",
+      "failed": "The connection could not be cut just now. Try again."
+    },
+    "mine": {
+      "title": "Connected apps",
+      "description": "Programs you have allowed to act in your place. An app sees neither your password nor your session, and it can never do more than you may do yourself.",
+      "empty": "You have not connected any app.",
+      "loadFailed": "Your connected apps could not be read just now.",
+      "disconnectWarning": "The app stops reaching the association on its next call. You have to connect it again before you can use it.",
+      "disconnected": "The app is disconnected."
+    },
+    "register": {
+      "title": "Register an app",
+      "description": "For an app that cannot register itself, typically something the association had written. Registering an app grants it nothing: it becomes known to the instance, so that a member can then be asked whether to let it act in their place. The client secret is shown once, when the app is registered.",
+      "resource": "Resource the app must ask for",
+      "resourceHint": "The app has to request this address as its resource. A token issued for anything else is refused.",
+      "resourceLoading": "Reading the address",
+      "resourceUnknown": "The address could not be read just now.",
+      "clientName": "Name of the app",
+      "redirectUris": "Addresses to send the answer back to",
+      "redirectUrisHint": "One address per line, at most eight. This is where the answer goes once a member has approved the app.",
+      "submit": "Register the app",
+      "submitting": "Registering...",
+      "registered": "The app is registered.",
+      "clientId": "Client id",
+      "clientSecret": "Client secret",
+      "secretOnce": "The secret is shown this once and cannot be shown again. Save it where the app reads it; an app that has lost its secret has to be registered afresh.",
+      "noSecret": "This app was given no secret.",
+      "errors": {
+        "invalidRedirectUri": "One of the addresses to send the answer back to is not a complete address. Write one address per line, at most eight.",
+        "nameTaken": "An app by that name already exists. Choose another.",
+        "resourceMissing": "This instance advertises no address for connected apps to sign in to, so the app could not be tied to one. Install a plugin that serves that address first.",
+        "failed": "The app could not be registered just now. Try again."
+      }
+    },
+    "consent": {
+      "title": "Let this app act as you?",
+      "intro": "{{name}} wants to act as you in the association's system.",
+      "privacyNote": "The app can never do more than you may do yourself, and it is not told who you are: neither your name nor your address is handed over. It holds a credential of its own, never your password.",
+      "loading": "Reading what the app would be able to do",
+      "someApp": "An app",
+      "clientHost": "The app is at",
+      "redirectHost": "The answer is sent to",
+      "hostUnknown": "No address to show.",
+      "loopbackWarning": "The answer is sent to this computer. That is how it should be for an app running on your own machine. If you do not recognise the app, cancel.",
+      "actionsTitle": "What the app would be able to do",
+      "noActions": "Nothing. With the permissions you hold today there is nothing an app could do on your behalf.",
+      "scopeNotice": "The list shows what the app can do right now. The app acts as you and can never do more than you may do yourself. If the association switches more actions on later, the app reaches those as well. You can disconnect the app at any time under Settings, Sign-in and security.",
+      "acknowledge": "I have read what the app would be able to do and want to connect it to my account.",
+      "confirm": "Connect the app",
+      "working": "Connecting...",
+      "cancel": "Cancel",
+      "back": "Back to the start page",
+      "errors": {
+        "loadFailed": "What the app would be able to do could not be read.",
+        "failed": "The connection did not go through just now. Try again.",
+        "invalidRequest": "The app's request is missing details it needs. Start the connection again in the app.",
+        "expired": "The app's request is too old. Start the connection again in the app.",
+        "unknownClient": "This instance does not know the app. An administrator has to register it first.",
+        "signatureInvalid": "The app's request was altered on its way here and cannot be trusted. Start the connection again in the app.",
+        "unusable": "The app's request cannot be used. Start the connection again in the app."
+      }
     }
   }
 }

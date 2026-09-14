@@ -119,6 +119,23 @@ const openMotionSubmittedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
  * calendar rather than from an instant - a date column read as an instant is
  * yesterday's date for the two hours a night Stockholm runs ahead of UTC.
  */
+/**
+ * The app the subject connected, the day they connected it, and the moment the
+ * association last issued it a token.
+ *
+ * The grant is dated a month back because a consent is not held on a clock at
+ * all. The token is issued now and expires an hour from now, for the reason the
+ * booking's dates are relative: the nightly purge sweeps access rows past their
+ * expiry, and a fixture dated in the past would survive or vanish depending on
+ * which suite ran first.
+ */
+const CONNECTED_APP_CLIENT_ID = `https://app.exempel.test/${suffix}/klient.json`;
+const connectedAppRowId = `dsar-client-${suffix}`;
+const connectedAppTokenDigest = `dsar-token-digest-${suffix}`;
+const connectedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+const tokenIssuedAt = new Date();
+const tokenExpiresAt = new Date(tokenIssuedAt.getTime() + 60 * 60 * 1000);
+
 const meetingHeldOn = dateColumnOf(
   localDayOf(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
 );
@@ -833,6 +850,51 @@ beforeAll(async () => {
     });
   }
 
+  /*
+   * An app the subject allowed to act for them, with one live access token
+   * issued for it. Both are reached through the account rather than through the
+   * person - a consent names the account it was given from - which is the step
+   * the report's own query has to take, and the reason this fixture comes after
+   * the accounts above.
+   */
+  const subjectAccount = await prisma.user.findUniqueOrThrow({
+    where: { personId: subject.personId },
+    select: { id: true },
+  });
+  await prisma.oauthClient.create({
+    data: {
+      id: connectedAppRowId,
+      clientId: CONNECTED_APP_CLIENT_ID,
+      clientDiscoveryId: CONNECTED_APP_CLIENT_ID,
+      name: `Anteckningsappen ${suffix}`,
+      scopes: ["mcp:read", "mcp:write", "offline_access"],
+      createdAt: connectedAt,
+      updatedAt: connectedAt,
+      consents: {
+        create: {
+          userId: subjectAccount.id,
+          // Narrower than what the client may ask for, which is what makes the
+          // report's scope column say something about this person's decision.
+          scopes: ["mcp:read", "offline_access"],
+          createdAt: connectedAt,
+          updatedAt: connectedAt,
+        },
+      },
+    },
+  });
+  await prisma.oauthAccessToken.create({
+    data: {
+      // A digest, which is all the table ever holds, and the value the report
+      // is asserted not to carry.
+      token: connectedAppTokenDigest,
+      clientId: CONNECTED_APP_CLIENT_ID,
+      userId: subjectAccount.id,
+      scopes: ["mcp:read"],
+      createdAt: tokenIssuedAt,
+      expiresAt: tokenExpiresAt,
+    },
+  });
+
   boardCookie = await signIn(board.email);
   managerCookie = await signIn(manager.email);
   residentCookie = await signIn(resident.email);
@@ -898,6 +960,14 @@ afterAll(async () => {
         () =>
           prisma.legalHold.deleteMany({
             where: { personId: { in: personIds } },
+          }),
+        /*
+         * The client takes its consents and its tokens with it, through the
+         * cascades every table in that section reaches a client by.
+         */
+        () =>
+          prisma.oauthClient.deleteMany({
+            where: { clientId: CONNECTED_APP_CLIENT_ID },
           }),
         () =>
           prisma.session.deleteMany({
@@ -1019,6 +1089,33 @@ describe("what the report contains", () => {
     );
 
     expect(report.account?.email).toBe(subject.email);
+  });
+
+  it("lists the app the person connected, and never the token behind it", async () => {
+    /*
+     * A grant is a record the association holds about this person, and the app
+     * is a recipient their data goes to - which GDPR art. 15(1)(c) asks the
+     * report to name. It is reached through the account rather than through the
+     * person, so a report that queried the person column alone would find
+     * nothing and say so, which is the failure this section exists against.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(report.connectedApps).toHaveLength(1);
+    const app = report.connectedApps[0];
+    expect(app?.clientName).toBe(`Anteckningsappen ${suffix}`);
+    // The host of the client-id URL, which is what says which app this is.
+    expect(app?.clientHost).toBe("app.exempel.test");
+    // What this person allowed, not what the client may ask for.
+    expect(app?.scopes).toEqual(["mcp:read", "offline_access"]);
+    expect(app?.connectedAt).toBe(connectedAt.toISOString());
+    // The newest token row, which is the whole of what the token rows can say
+    // about when the app last had access.
+    expect(app?.lastUsedAt).toBe(tokenIssuedAt.toISOString());
+
+    // And never the credential itself. A document printed and handed over must
+    // carry no way back into the account it is about.
+    expect(JSON.stringify(report)).not.toContain(connectedAppTokenDigest);
   });
 
   it("carries the statutory tier, which the purge is exempt from but access is not", async () => {

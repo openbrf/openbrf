@@ -194,6 +194,7 @@ describe("the other seats", () => {
     ).toEqual([
       "/",
       "/plugins",
+      "/connected-apps",
       "/settings",
       "/board-mailbox",
       "/issues",
@@ -274,6 +275,27 @@ describe("the other seats", () => {
     );
     expect(destinations(["motions:submit"])).not.toContain("/data-protection");
     expect(destinations(["issues:handle"])).not.toContain("/data-protection");
+  });
+
+  it("offers connected apps on the capability that reads the instance", () => {
+    /*
+     * The same seat as plugins, and deliberately not the stronger of the
+     * screen's two capabilities. Cutting somebody else's connection needs
+     * dataProtection:manage, but gating the door on that would hide the list
+     * from the seat entitled to read it - and holding the stronger capability
+     * alone is not a way in, because what is behind the door is a list of what
+     * the instance is configured to let out.
+     */
+    expect(destinations(["association:read"])).toContain("/connected-apps");
+    expect(destinations(["dataProtection:manage"])).not.toContain(
+      "/connected-apps",
+    );
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/connected-apps",
+    );
+    // A member's own connections are on the settings screen every account
+    // already reaches, so there is no member's half of this destination.
+    expect(destinations(["self:manage"])).not.toContain("/connected-apps");
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {

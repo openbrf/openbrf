@@ -26,6 +26,7 @@ import {
   TEXT_CELL,
 } from "./report-document";
 import {
+  type ConnectedAppScope,
   type ConsentScope,
   type DataSubjectReport as Report,
   type RegisterReportKind,
@@ -77,6 +78,19 @@ const CONSENT_SCOPE_LABEL = {
   NAME_ON_SITE: "register.person.consentScope.nameOnSite",
   BOARD_ROSTER: "register.person.consentScope.boardRoster",
 } as const satisfies Record<ConsentScope, TranslationKey>;
+
+/**
+ * What each scope on a grant to a connected app lets the app do, in words.
+ *
+ * Keyed on the closed set the server declares, so a scope added to the provider
+ * without a sentence here fails to compile rather than printing an empty cell
+ * in a document handed to the person it is about.
+ */
+const CONNECTED_APP_SCOPE_LABEL = {
+  "mcp:read": "register.person.report.appScope.read",
+  "mcp:write": "register.person.report.appScope.write",
+  offline_access: "register.person.report.appScope.offlineAccess",
+} as const satisfies Record<ConnectedAppScope, TranslationKey>;
 
 const ISSUE_STATUS_LABEL = {
   NEW: "issues.status.NEW",
@@ -737,6 +751,53 @@ export function DataSubjectReport({
                   />
                 </dl>
               )}
+            </Section>
+
+            <Section titleKey="register.person.report.section.connectedApps">
+              <Rows
+                empty={report.connectedApps.length === 0}
+                headings={[
+                  "register.person.report.field.appName",
+                  "register.person.report.field.appHost",
+                  "register.person.report.field.scope",
+                  "register.person.report.field.connectedOn",
+                  "register.person.report.field.accessLastIssued",
+                ]}
+              >
+                {report.connectedApps.map((app) => (
+                  <tr
+                    key={`${app.clientName ?? ""}-${app.clientHost ?? ""}-${app.connectedAt}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>{app.clientName ?? nothing}</td>
+                    <td className={TEXT_CELL}>{app.clientHost ?? nothing}</td>
+                    {/*
+                      Each scope as a sentence rather than as the protocol
+                      spells it. What the person agreed to is what this column
+                      answers, and "mcp:write" answers it in a vocabulary the
+                      document uses nowhere else.
+                    */}
+                    <td className={TEXT_CELL}>
+                      {app.scopes.length === 0
+                        ? nothing
+                        : app.scopes
+                            .map((scope) => t(CONNECTED_APP_SCOPE_LABEL[scope]))
+                            .join(", ")}
+                    </td>
+                    <td className={DATA_CELL}>{day(app.connectedAt)}</td>
+                    {/*
+                      When the app was last given access, which is what the
+                      token rows can say. Absent where every one of them has
+                      run out and been swept, which reads as "not lately"
+                      rather than as "never": what the app did is in the
+                      entries section, which no purge reaches.
+                    */}
+                    <td className={DATA_CELL}>
+                      {day(app.lastUsedAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
             </Section>
 
             <Section titleKey="register.person.report.section.memberRegister">

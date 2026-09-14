@@ -37,6 +37,7 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
     s3Region: null,
     s3Bucket: null,
     installedPlugins: [],
+    connectedApps: [],
     ...overrides,
   };
 }
@@ -46,6 +47,14 @@ const S3 = facts({
   s3Endpoint: "https://s3.example.test",
   s3Bucket: "granngarden",
   s3Region: "eu-north-1",
+});
+
+/** An instance two members have connected apps to, one of them unnamed. */
+const CONNECTED = facts({
+  connectedApps: [
+    { id: "client-1", name: "Anteckningsappen", host: "app.example.test" },
+    { id: "client-2", name: null, host: "assistent.example.test" },
+  ],
 });
 
 function rowFor(key: string, from: ProcessorFacts = facts()) {
@@ -73,6 +82,7 @@ describe("SEED_KEYS", () => {
       "meetingRecords",
       "auditLog",
       "addressBookAndAccounts",
+      "connectedApps",
       "residentDirectory",
       "newsMailings",
       "issues",
@@ -191,6 +201,59 @@ describe("seedRows", () => {
   it("leaves rows that store no files out of the transfer question", () => {
     expect(rowFor("memberRegister", S3).thirdCountryTransfer).toBe(false);
     expect(rowFor("bookings", S3).recipients).toBeNull();
+  });
+
+  it("names every connected app as a recipient, by where it is reached", () => {
+    /*
+     * The one processing whose whole purpose is handing data to something
+     * outside the instance. A row naming no recipients would be the record
+     * being silent about exactly the disclosure it exists to describe.
+     */
+    expect(rowFor("connectedApps", CONNECTED).recipients).toBe(
+      "app.example.test, assistent.example.test",
+    );
+  });
+
+  it("flags a transfer the board has to answer for once an app is connected", () => {
+    /*
+     * Conservative for the same reason the bucket is, and more so: a client is
+     * a program the member runs, at an address the app chose, on a machine the
+     * instance has no way of locating at all. The board clears the flag for the
+     * apps its members use, or names the art. 46 safeguard.
+     */
+    const row = rowFor("connectedApps", CONNECTED);
+
+    expect(row.thirdCountryTransfer).toBe(true);
+    expect(row.thirdCountrySafeguards).toBe(
+      "dataProtection.processing.seed.clientTransfer(clients=app.example.test, assistent.example.test)",
+    );
+  });
+
+  it("says so, and records no transfer, when nobody has connected anything", () => {
+    // Nothing is handed anywhere while there is nobody to hand it to, and a
+    // transfer recorded against an empty list would be a false entry.
+    const row = rowFor("connectedApps");
+
+    expect(row.recipients).toBe(
+      "dataProtection.processing.seed.recipients.noConnectedApps",
+    );
+    expect(row.thirdCountryTransfer).toBe(false);
+    expect(row.thirdCountrySafeguards).toBeNull();
+  });
+
+  it("keeps the storage sentence off the connected apps row", () => {
+    // Two kinds of transfer on one record, and each has to say where its own
+    // data went: the bucket sentence here would name a recipient this row has
+    // nothing to do with.
+    const row = seedRows(t, {
+      ...S3,
+      connectedApps: CONNECTED.connectedApps,
+    }).find((candidate) => candidate.sourceKey === "connectedApps");
+
+    expect(row?.thirdCountrySafeguards).toContain(
+      "dataProtection.processing.seed.clientTransfer",
+    );
+    expect(row?.thirdCountrySafeguards).not.toContain("storageTransfer");
   });
 });
 

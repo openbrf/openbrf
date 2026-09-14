@@ -14,8 +14,8 @@ import type { ProcessorKind } from "../generated/prisma/enums";
  *
  * Four of them are fixed, because an instance has exactly one of each: the mail
  * server it sends through, the SMS gateway, its file storage, and whoever runs
- * it. The other two are open: one key per installed plugin, and one per
- * recipient the board recorded itself.
+ * it. The other three are open: one key per installed plugin, one per connected
+ * app, and one per recipient the board recorded itself.
  */
 
 /** The recipients every instance has exactly one of. */
@@ -38,11 +38,36 @@ export function externalProcessorKey(rowId: string): string {
   return `external:${rowId}`;
 }
 
+/**
+ * The key for one client a member has connected.
+ *
+ * Built from the client row's own id rather than from the client id, which is
+ * where this differs from the plugin key beside it. A client registering
+ * through the metadata document flow presents a URL as its client id, and a URL
+ * is not a path segment: a key built from one could not be addressed on the
+ * route that records a classification, which is the only thing a key is for.
+ */
+export function connectedAppProcessorKey(clientRowId: string): string {
+  return `connectedApp:${clientRowId}`;
+}
+
+/**
+ * The id a client row carries, which its key is built from.
+ *
+ * Wider than the plugin id pattern above it and than the board-recorded key
+ * below, on purpose: a plugin id is a name the contract fixes and a
+ * board-recorded row carries an id this application generated, while a client
+ * row is written by the provider and its id is whatever that generated. Every
+ * character this admits is safe in a path segment, and it admits no dot and no
+ * slash, so no key can name anything but a row.
+ */
+const CLIENT_ROW_ID = "[A-Za-z0-9_-]+";
+
 export const processorKeySchema = z
   .string()
   .regex(
     new RegExp(
-      `^(?:smtp|sms|storage|hosting|plugin:${PLUGIN_ID}|external:[a-z0-9]+)$`,
+      `^(?:smtp|sms|storage|hosting|plugin:${PLUGIN_ID}|connectedApp:${CLIENT_ROW_ID}|external:[a-z0-9]+)$`,
     ),
   );
 
@@ -80,6 +105,17 @@ export function parseProcessorKey(key: string): ParsedProcessorKey | null {
     : null;
   if (pluginId !== null) {
     return { kind: "PLUGIN", pluginId };
+  }
+
+  /*
+   * A connected app reads back as EXTERNAL, because that is what it is: a
+   * recipient outside the instance that the association never engaged. The kind
+   * is what an agreement row stores, and there is no narrower one - the enum
+   * has a value for a plugin because a plugin runs inside this process, and an
+   * app a member connected does not.
+   */
+  if (key.startsWith("connectedApp:")) {
+    return { kind: "EXTERNAL", id: key.slice("connectedApp:".length) };
   }
 
   return { kind: "EXTERNAL", id: key.slice("external:".length) };

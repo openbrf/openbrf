@@ -14,6 +14,7 @@ import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
 import { BookingsModule } from "./bookings/bookings.module";
 import { ChargesModule } from "./charges/charges.module";
 import { ConfigModule } from "./config/config.module";
+import { ConnectedAppsModule } from "./connected-apps/connected-apps.module";
 import { ContactModule } from "./contact/contact.module";
 import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
@@ -95,6 +96,7 @@ import { ThemesModule } from "./themes/themes.module";
     KeyOrdersModule,
     MeetingsModule,
     ChargesModule,
+    ConnectedAppsModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

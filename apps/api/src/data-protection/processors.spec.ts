@@ -17,6 +17,7 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
     s3Region: null,
     s3Bucket: null,
     installedPlugins: [],
+    connectedApps: [],
     ...overrides,
   };
 }
@@ -165,6 +166,97 @@ describe("currentProcessors", () => {
       detail: "1.2.0",
       state: "notRecorded",
     });
+  });
+
+  it("lists one recipient per connected app, and suggests what it is", () => {
+    /*
+     * An app a member connected is their own tool: they chose it and it acts on
+     * their instruction, so it decides its own purposes and art. 28 does not
+     * reach it. The association engaged nobody, so there is no agreement to
+     * seek - the classification is suggested rather than asked for, which is
+     * what makes these rows different from the plugins above.
+     */
+    const descriptors = currentProcessors(
+      facts({
+        connectedApps: [
+          {
+            id: "client-1",
+            name: "Anteckningsappen",
+            host: "app.example.test",
+          },
+        ],
+      }),
+      [],
+    );
+
+    expect(
+      descriptors.find((d) => d.processorKey === "connectedApp:client-1"),
+    ).toMatchObject({
+      processorKind: "EXTERNAL",
+      identity: "Anteckningsappen",
+      detail: "app.example.test",
+      seededClassification: "INDEPENDENT_CONTROLLER",
+      state: "notRecorded",
+    });
+  });
+
+  it("names an app that declared no name by the host it is reached at", () => {
+    // A recipient the record cannot call anything is worse than one called by
+    // where it lives, and where it lives is what says which app it is.
+    const descriptors = currentProcessors(
+      facts({
+        connectedApps: [
+          { id: "client-2", name: null, host: "assistent.example.test" },
+        ],
+      }),
+      [],
+    );
+
+    expect(
+      descriptors.find((d) => d.processorKey === "connectedApp:client-2"),
+    ).toMatchObject({ identity: "assistent.example.test", detail: null });
+  });
+
+  it("lists no connected app on an instance where nobody has connected one", () => {
+    // A registered client nobody consented to has been handed nothing, so it is
+    // not in the facts at all - the rule the SMS gateway above follows.
+    expect(
+      keys(currentProcessors(facts(), [])).some((key) =>
+        key.startsWith("connectedApp:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("joins a connected app to what the board recorded about it", () => {
+    // One descriptor, not two: the row is joined to the app the facts already
+    // name rather than producing a second recipient of its own.
+    const descriptors = currentProcessors(
+      facts({
+        connectedApps: [
+          {
+            id: "client-1",
+            name: "Anteckningsappen",
+            host: "app.example.test",
+          },
+        ],
+      }),
+      [
+        row({
+          processorKey: "connectedApp:client-1",
+          classification: "INDEPENDENT_CONTROLLER",
+          status: null,
+          counterparty: "Anteckningsappen AB",
+        }),
+      ],
+    );
+
+    expect(
+      descriptors.filter((d) => d.processorKey === "connectedApp:client-1"),
+    ).toHaveLength(1);
+    expect(
+      descriptors.find((d) => d.processorKey === "connectedApp:client-1")
+        ?.state,
+    ).toBe("independentController");
   });
 
   it("names a gateway that will not parse as a URL as it is written", () => {
