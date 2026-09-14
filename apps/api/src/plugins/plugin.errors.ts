@@ -40,6 +40,53 @@ export class PluginApiVersionError extends DomainError {
   }
 }
 
+/**
+ * A second plugin declaring the OAuth protected resource.
+ *
+ * The resource's full URL is the audience every access token is issued for, so
+ * a second declaration can only either move the audience - which strands every
+ * connection the members have already granted, because their tokens name the
+ * old one - or be ignored, which is a plugin installed on a promise the
+ * instance will not keep. Refused at install because that is where a board can
+ * still act on it: the answer is to remove the other connector, and removing
+ * one after the fact is the same disruption by a longer route.
+ */
+export class PluginResourceConflictError extends DomainError {
+  readonly status = HttpStatus.CONFLICT;
+  readonly reason = "plugin-resource-conflict";
+
+  constructor(id: string, incumbent: string) {
+    super(
+      `"${id}" declares the OAuth protected resource and "${incumbent}" is ` +
+        "already installed declaring one. At most one installed plugin may.",
+    );
+  }
+}
+
+/**
+ * A plugin taking the reserved connector id without serving the resource.
+ *
+ * An instance with no connector still advertises the default resource under
+ * this id, so that sign-in is configurable and discoverable before a connector
+ * exists; nothing is mounted there and no Bearer route is installed. But plugin
+ * routes are mounted under `/api/plugin/<id>/`, nothing else reserves the id,
+ * and `pluginIdSchema` accepts it - so an unrelated plugin taking it and
+ * serving `mcp` would turn a route that answers the browser's own session into
+ * a Bearer-only one, with nothing having declared that it should.
+ */
+export class PluginReservedIdError extends DomainError {
+  readonly status = HttpStatus.CONFLICT;
+  readonly reason = "plugin-id-reserved";
+
+  constructor(id: string) {
+    super(
+      `The plugin id "${id}" is reserved for the OAuth protected resource. ` +
+        "Only a plugin whose manifest declares oauthProtectedResource may " +
+        "take it.",
+    );
+  }
+}
+
 export class PluginConsentMismatchError extends DomainError {
   readonly status = HttpStatus.CONFLICT;
   readonly reason = "plugin-consent-mismatch";

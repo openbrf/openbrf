@@ -120,3 +120,66 @@ describe("the body an install is parsed from", () => {
     ).rejects.toThrow();
   });
 });
+
+/**
+ * The same rule, for the route a connector declares.
+ *
+ * It travels for the reason the three lists above do, and it is the one field
+ * where a silent loss is not a refusal but the opposite: the route decides
+ * which address connected apps sign in to, so an echo stripped on the way in
+ * would let a board confirm a screen that never mentioned it.
+ */
+describe("the connected-app sign-in route in an install body", () => {
+  it("carries the route the consent screen showed", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "connector",
+      permissions: [],
+      personalData: [],
+      actions: [],
+      oauthProtectedResource: "mcp",
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { oauthProtectedResource?: unknown },
+    ];
+    expect(parsed.oauthProtectedResource).toBe("mcp");
+  });
+
+  it("carries the statement that the screen showed no such route", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "occupancy",
+      permissions: [],
+      personalData: [],
+      actions: [],
+      oauthProtectedResource: null,
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { oauthProtectedResource?: unknown },
+    ];
+    // Null rather than stripped: the comparison has to be able to tell "the
+    // screen showed none" from "the field never arrived".
+    expect(parsed.oauthProtectedResource).toBeNull();
+  });
+
+  it("refuses a route a manifest could not have declared", async () => {
+    const { controller, install, request } = build();
+
+    // Parsed with the manifest's own schema, so an echo cannot name an address
+    // outside the plugin's own mount.
+    await expect(
+      controller.install(request, {
+        id: "connector",
+        permissions: [],
+        personalData: [],
+        actions: [],
+        oauthProtectedResource: "../../admin",
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});

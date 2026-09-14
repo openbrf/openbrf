@@ -64,6 +64,7 @@ const ENTRY: CatalogPlugin = {
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
+  oauthProtectedResource: null,
   supported: true,
   installedVersion: null,
 };
@@ -243,7 +244,39 @@ describe("confirming the consent", () => {
         // list the consent screen showed out of the request is an install
         // refused on a consent that was in fact given.
         actions: [DECLARED_ACTION],
+        // Null is the statement that the screen showed no connected-app
+        // sign-in address. Sending nothing would let an entry that has come to
+        // declare one install on a screen that never said so.
+        oauthProtectedResource: null,
       });
+    });
+  });
+
+  it("sends back the sign-in address the screen disclosed", async () => {
+    /*
+     * The declaration the board is least able to infer from the rest of the
+     * screen, and the one an entry can acquire between being browsed and being
+     * confirmed. Echoing what was displayed is what lets the API refuse that
+     * entry rather than hand it the address connected apps sign in to.
+     */
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, oauthProtectedResource: "mcp" }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ oauthProtectedResource: "mcp" }),
+      );
     });
   });
 
@@ -292,6 +325,56 @@ describe("confirming the consent", () => {
     expect(
       screen.queryByText("Listan över tillägg kunde inte läsas just nu."),
     ).toBeNull();
+  });
+});
+
+/**
+ * What a board member is told when the API refuses the install.
+ *
+ * The general sentence sends them back to the catalog, which is right for an
+ * entry that changed under the screen and wrong for the two refusals about the
+ * sign-in resource: reading the catalog again changes nothing there, and what
+ * has to happen next - remove the connector that holds the resource, or take
+ * the plugin back to its author because the id is not its to take - is
+ * different in each case.
+ */
+describe("an install the API refuses", () => {
+  async function refuse(reason: string): Promise<void> {
+    installPlugin.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+  }
+
+  it("says to remove the plugin that already serves the resource", async () => {
+    await refuse("plugin-resource-conflict");
+
+    await waitFor(() => {
+      expect(screen.getByText(/Avinstallera det tillägget först/)).toBeTruthy();
+    });
+  });
+
+  it("says the connector id is reserved", async () => {
+    await refuse("plugin-id-reserved");
+
+    await waitFor(() => {
+      expect(screen.getByText(/mcp-connector är reserverat/)).toBeTruthy();
+    });
+  });
+
+  it("falls back to the general sentence for a refusal it has no words for", async () => {
+    // Every other refusal, and the ones a later version of the API will add.
+    await refuse("plugin-consent-mismatch");
+
+    await waitFor(() => {
+      expect(screen.getByText(/Läs katalogen igen/)).toBeTruthy();
+    });
   });
 });
 

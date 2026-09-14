@@ -620,7 +620,10 @@
           "NEWS_MAILING_REQUESTED": "A mailing was requested",
           "NEWS_MAILING_REQUEST_DISMISSED": "A mailing request was dismissed",
           "PLUGIN_ACTION_ARMED": "A plugin's action was armed",
-          "PLUGIN_ACTION_DISARMED": "A plugin's action was disarmed"
+          "PLUGIN_ACTION_DISARMED": "A plugin's action was disarmed",
+          "CONNECTED_APP_CONNECTED": "An app was allowed to act for the person",
+          "CONNECTED_APP_DISCONNECTED": "An app was disconnected",
+          "OAUTH_CLIENT_REGISTERED": "An app registered itself with the association"
         },
         "channel": {
           "WEB": "The web interface",
@@ -1367,13 +1370,21 @@
       "personalDataTitle": "Personal data it will handle",
       "noPermissions": "Nothing beyond its own settings.",
       "noPersonalData": "None.",
+      "oauthResource": {
+        "title": "Sign-in for connected apps",
+        "serves": "This plugin will serve the address that connected apps sign in to.",
+        "onlyOne": "Only one installed plugin at a time can.",
+        "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
+      },
       "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
       "acknowledge": "I have read what this plugin may do and which personal data it will handle.",
       "confirm": "Install",
       "installing": "Installing...",
       "cancel": "Cancel",
       "errors": {
-        "failed": "The plugin could not be installed. The catalog entry may have changed since this screen was opened; read the catalog again and try once more."
+        "failed": "The plugin could not be installed. The catalog entry may have changed since this screen was opened; read the catalog again and try once more.",
+        "resourceConflict": "The plugin was not installed. Another installed plugin already serves the address that connected apps sign in to, and only one at a time can. Remove that plugin first, or every connection the members have already granted stops working.",
+        "reservedId": "The plugin was not installed. The plugin id mcp-connector is reserved: the instance points connected apps at that address to sign in, so only a plugin that serves it itself may take the id."
       }
     },
     "permissions": {
@@ -1413,7 +1424,8 @@
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}",
         "actionsWidened": "The installed version declares an action the board has not consented to.",
         "actionRefused": "An action the plugin declares could not be registered.",
-        "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach."
+        "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
+        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
       }
     },
     "settings": {

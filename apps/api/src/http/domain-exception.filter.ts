@@ -104,6 +104,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
       this.logger.error(exception.message, exception.stack);
     }
 
+    // Before the status and the body, because a header set after the reply has
+    // been sent is dropped.
+    for (const [name, value] of Object.entries(headersOf(exception))) {
+      void reply.header(name, value);
+    }
+
     void reply.status(status).send({
       statusCode: status,
       error: exception.name,
@@ -140,6 +146,21 @@ function detailOf(exception: object): Record<string, readonly unknown[]> {
   return Object.fromEntries(
     Object.entries(exception.details()).filter(([, value]) => value.length > 0),
   );
+}
+
+/**
+ * The headers a domain error declares.
+ *
+ * Opt-in like the particulars above, and for the same reason: what an answer
+ * must say is known by the rule that refused, not by the code that serialises
+ * it. A refusal that declares none answers with headers Fastify set and
+ * nothing more.
+ */
+function headersOf(exception: object): Record<string, string> {
+  if (!(exception instanceof DomainError) || exception.headers === undefined) {
+    return {};
+  }
+  return exception.headers();
 }
 
 /**

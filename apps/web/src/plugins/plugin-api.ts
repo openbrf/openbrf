@@ -86,6 +86,15 @@ export interface CatalogPlugin {
    * catalog so the consent screen can state it before anything is downloaded.
    */
   actions: PluginActionDeclaration[];
+  /**
+   * The route this plugin would serve connected-app sign-in on, or null for
+   * one that serves none.
+   *
+   * The path under the plugin's own mount rather than the whole address: what
+   * the full URL is composed of is the server's, and a second composition here
+   * would be a second answer to what the address is.
+   */
+  oauthProtectedResource: string | null;
   supported: boolean;
   installedVersion: string | null;
 }
@@ -128,15 +137,21 @@ export function fetchPluginViews(): Promise<
  * The whole declaration the consent screen showed is sent back with the
  * request. The API refuses the install when any of it no longer matches the
  * catalog, so a board never installs on the strength of a screen that has
- * since become wrong - and it compares all three the moment one is echoed,
- * which is why the actions travel with the other two rather than being left
- * out as a list nobody pressed a button about.
+ * since become wrong - and it compares all of it the moment one part is
+ * echoed, which is why the actions travel with the other two rather than being
+ * left out as a list nobody pressed a button about.
+ *
+ * The protected resource travels as null when the screen showed none, because
+ * that is a statement about what the board read: an entry that has come to
+ * declare one since is then refused rather than installed on a screen that
+ * never mentioned the address connected apps sign in to.
  */
 export function installPlugin(input: {
   id: string;
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  oauthProtectedResource: string | null;
 }): Promise<ApiResult<{ restarting: boolean }>> {
   return apiRequest("POST", "/api/plugins", input);
 }

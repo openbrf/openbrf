@@ -48,6 +48,15 @@ export class ActionError extends DomainError {
     readonly reason: ActionErrorReason,
     message: string,
     private readonly particulars?: Record<string, readonly unknown[]>,
+    /**
+     * The bearer challenge, for a refusal a connected app can act on.
+     *
+     * Set only where the caller presented a token and the refusal is about
+     * the token rather than about the person: a client reading it can ask for
+     * the scopes it is missing, which is the remedy. A refusal about what the
+     * person may do carries none, because no challenge would help.
+     */
+    private readonly challenge?: string,
   ) {
     super(message);
     this.status = STATUS[reason];
@@ -55,6 +64,12 @@ export class ActionError extends DomainError {
 
   override details(): Record<string, readonly unknown[]> {
     return this.particulars ?? {};
+  }
+
+  override headers(): Record<string, string> {
+    return this.challenge === undefined
+      ? {}
+      : { "www-authenticate": this.challenge };
   }
 }
 

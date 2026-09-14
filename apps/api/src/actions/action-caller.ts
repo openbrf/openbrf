@@ -38,17 +38,15 @@ export interface ResolvedCaller {
 /**
  * A request the Bearer path authenticated.
  *
- * Written by the guard beside the principal, and read here. Declared as its own
- * shape rather than widening RequestWithPrincipal, because a cookie request
- * never carries one and nothing should be tempted to read it optimistically.
+ * The same shape the guard writes, named here for what it means at this call
+ * site. Its one definition is on the guard, because the guard is the only
+ * thing that may write it: a second declaration would be a second opinion
+ * about what a token established, and the two would be free to drift.
+ *
+ * The property stays optional because a cookie request never carries one, and
+ * its absence is what `forRequest` reads to decide the channel.
  */
-export interface RequestWithToken extends RequestWithPrincipal {
-  token?: {
-    clientId: string;
-    clientHost: string | null;
-    scopes: readonly string[];
-  };
-}
+export type RequestWithToken = RequestWithPrincipal;
 
 @Injectable()
 export class ActionCallerFactory {

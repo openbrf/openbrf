@@ -13,6 +13,7 @@ import {
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginActionsSchema,
   pluginIdSchema,
+  pluginManifestSchema,
 } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
@@ -43,6 +44,15 @@ const installSchema = z.object({
    * are: a default would put the empty list back and the refusal with it.
    */
   actions: pluginActionsSchema,
+  /**
+   * The route the screen showed, where it showed one, on the same terms.
+   *
+   * Null and absent are both "the screen showed none", and the manifest's own
+   * schema rather than a second spelling of it: this value decides an address
+   * an unauthenticated caller is pointed at, which is what that schema settles.
+   */
+  oauthProtectedResource:
+    pluginManifestSchema.shape.oauthProtectedResource.nullable(),
   /**
    * What the board answered about where this plugin sends personal data.
    *

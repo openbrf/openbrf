@@ -80,6 +80,24 @@ export const pluginEntrySchema = z
   );
 
 /**
+ * A route under the plugin's own mount at `/api/plugin/<id>/`.
+ *
+ * Written without a leading slash and joined onto that mount by the host, for
+ * the reason the package-relative schema exists: the value arrives in a
+ * manifest fetched over the network, and it decides a URL an unauthenticated
+ * caller will be pointed at, so what it may contain is settled here rather
+ * than at each place that joins it.
+ */
+const pluginRoutePathSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(
+    /^[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)*$/,
+    "must be lowercase path segments separated by single slashes, with no leading or trailing slash",
+  );
+
+/**
  * One action the plugin proposes.
  *
  * Declared in the manifest rather than at registration, because the board reads
@@ -183,6 +201,19 @@ export const pluginManifestSchema = z
       .optional(),
     /** What this plugin proposes the platform be able to do. */
     actions: pluginActionsSchema.default([]),
+    /**
+     * The route, under this plugin's own mount, that serves MCP.
+     *
+     * Declaring it makes that route the instance's OAuth protected resource:
+     * its full URL becomes the audience every issued token is bound to, the
+     * discovery documents point at it, and the route stops accepting the
+     * browser's session cookie and accepts only a Bearer token issued for it.
+     *
+     * At most one installed plugin may declare it, because the audience is a
+     * single URL and moving it would strand every token already issued. A
+     * second one is refused at install.
+     */
+    oauthProtectedResource: pluginRoutePathSchema.optional(),
   })
   .superRefine((manifest, ctx) => {
     /*

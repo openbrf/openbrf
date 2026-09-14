@@ -11,6 +11,7 @@ import {
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
@@ -35,6 +36,8 @@ import {
   PluginConsentMismatchError,
   PluginRecipientRequiredError,
   PluginNotFoundError,
+  PluginReservedIdError,
+  PluginResourceConflictError,
   PluginSettingsUnavailableError,
   PluginsDisabledError,
 } from "./plugin.errors";
@@ -92,6 +95,17 @@ export interface CatalogPluginView {
   personalData: PluginPersonalDataCategory[];
   /** What the plugin proposes the platform be able to do, if anything. */
   actions: PluginActionDeclaration[];
+  /**
+   * The route that would serve connected-app sign-in, or null for an entry
+   * that declares none.
+   *
+   * On the view because installing it decides something no other part of the
+   * declaration does: the route's full URL becomes the one address connected
+   * apps sign in to, at most one installed plugin may hold it, and the route
+   * stops answering a browser session. A board that is not shown it consents
+   * to the rest of the declaration and to that as well.
+   */
+  oauthProtectedResource: string | null;
   /** False when the entry needs a contract version this host does not have. */
   supported: boolean;
   /** The version currently installed, when there is one. */
@@ -123,6 +137,16 @@ export interface InstallRequest {
    * Omitted by the command-line tool, like the two above it.
    */
   actions?: readonly PluginActionDeclaration[];
+  /**
+   * The route the screen showed as serving connected-app sign-in, or null
+   * where it showed none.
+   *
+   * Null and absent mean the same thing here, unlike the three above: an entry
+   * declaring nothing is echoed as nothing, so the two cannot be told apart.
+   * Both therefore read as "the screen showed none", which refuses an entry
+   * that has since come to declare one.
+   */
+  oauthProtectedResource?: string | null;
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -343,6 +367,11 @@ export class PluginAdminService {
           // actions, which the echo refuses as a consent mismatch.
           actions: entry.actions,
           personalData: entry.personalData,
+          // Null where the entry declares none, rather than left off the view:
+          // the browser echoes what the screen showed, and an absent field and
+          // a declaration of nothing have to arrive as the same answer for the
+          // install to be able to compare them.
+          oauthProtectedResource: entry.oauthProtectedResource ?? null,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
         })),
@@ -350,13 +379,47 @@ export class PluginAdminService {
   }
 
   /**
+   * The installed plugin other than this one that declares the OAuth protected
+   * resource, or null when none does.
+   *
+   * The manifest is not on the InstalledPlugin row, so it is read from the
+   * loader, which holds one for every package on the volume whether it is
+   * running or not. Installed rather than serving is the right set: a disabled
+   * connector is still a plugin the board would have to decide about, and
+   * switching it back on must not be the act that moves the audience out from
+   * under every token already issued.
+   *
+   * The same plugin id is not a holder. Re-installing and upgrading write the
+   * same row, and a connector that could not be upgraded to its own next
+   * version would be a connector nobody could ever patch.
+   *
+   * A row consented in this process whose package has not reached the volume
+   * yet carries no manifest anywhere, so a second connector installed between
+   * one install and the restart it asked for is not seen here. That pair is
+   * caught at the next boot, where the older install keeps the resource and the
+   * newcomer is reported as `oauth-resource-conflict`.
+   */
+  private async resourceHolder(id: string): Promise<string | null> {
+    const installed = await this.registry.list();
+    const holder = installed.find(
+      (record) =>
+        record.id !== id &&
+        this.loader.manifestFor(record.id)?.oauthProtectedResource !==
+          undefined,
+    );
+    return holder?.id ?? null;
+  }
+
+  /**
    * Installs from the catalog.
    *
-   * Three gates before anything is written: the entry has to exist, its
-   * contract version has to be one this host implements, and what the board
-   * confirmed has to still match what the catalog says. The third exists
-   * because the consent screen and the confirmation are two requests, and a
-   * catalog is a file somebody can commit to in between.
+   * Five gates before anything is written: the entry has to exist, its
+   * contract version has to be one this host implements, it may take the
+   * reserved connector id only by serving the resource that id names, no other
+   * installed plugin may already declare that resource, and what the board
+   * confirmed has to still match what the catalog says. The last exists because
+   * the consent screen and the confirmation are two requests, and a catalog is
+   * a file somebody can commit to in between.
    */
   async install(
     request: InstallRequest,
@@ -374,11 +437,42 @@ export class PluginAdminService {
     if (!isSupportedApiVersion(entry.apiVersion)) {
       throw new PluginApiVersionError(entry.id, entry.apiVersion);
     }
-    // Any part of the declaration echoed means all of it is compared. A
-    // request carrying one field and omitting another would otherwise skip the
-    // comparison for the part it left out and install on consent that was
-    // never checked - which is why this is an OR over three fields rather than
-    // a check per field.
+
+    /*
+     * What the entry declares about the OAuth protected resource, refused here
+     * for the reason the version gate is refused here: the index says it, so
+     * nothing has to be downloaded to know it, and a board reading the refusal
+     * still has the choice in front of it.
+     */
+    if (
+      entry.id === DEFAULT_RESOURCE_PLUGIN_ID &&
+      entry.oauthProtectedResource === undefined
+    ) {
+      throw new PluginReservedIdError(entry.id);
+    }
+    if (entry.oauthProtectedResource !== undefined) {
+      const incumbent = await this.resourceHolder(entry.id);
+      if (incumbent !== null) {
+        throw new PluginResourceConflictError(entry.id, incumbent);
+      }
+    }
+
+    /*
+     * Any part of the declaration echoed means all of it is compared. A
+     * request carrying one field and omitting another would otherwise skip the
+     * comparison for the part it left out and install on consent that was
+     * never checked - which is why this is an OR over three fields rather than
+     * a check per field.
+     *
+     * The protected resource is compared on the strength of those three rather
+     * than joining the OR: it is the one part of the declaration whose absence
+     * is itself a value, so an omitted field cannot be read as "not echoed"
+     * without letting a request that names nothing skip it. It is read as "the
+     * screen showed none" instead, which refuses an install where the entry
+     * came to declare one after the screen was drawn - the case that would
+     * otherwise hand a plugin the address connected apps sign in to on a
+     * consent that never mentioned it.
+     */
     const echoed =
       request.permissions !== undefined ||
       request.personalData !== undefined ||
@@ -387,7 +481,9 @@ export class PluginAdminService {
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
-        !sameActionDeclaration(entry.actions, request.actions ?? []))
+        !sameActionDeclaration(entry.actions, request.actions ?? []) ||
+        (entry.oauthProtectedResource ?? null) !==
+          (request.oauthProtectedResource ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }

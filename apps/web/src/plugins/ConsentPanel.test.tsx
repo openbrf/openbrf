@@ -54,6 +54,7 @@ const ENTRY: CatalogPlugin = {
       surfaces: ["ui", "mcp"],
     },
   ],
+  oauthProtectedResource: null,
   supported: true,
   installedVersion: null,
 };
@@ -191,6 +192,60 @@ describe("the declaration", () => {
     expect(
       screen.getByRole("heading", { name: "Det här tillägget får" }),
     ).toBeTruthy();
+  });
+
+  it("says what serving the connected-app sign-in address amounts to", () => {
+    /*
+     * The one declaration that decides something about the instance rather
+     * than about the plugin. A board reading the lists above it has no way to
+     * tell that this install also moves where connected apps sign in, that no
+     * second plugin can serve it, and that the address stops answering the
+     * session they are signed in with - so the screen says all three before
+     * the acknowledgement, in words a board member can act on.
+     */
+    renderPanel({ entry: { ...ENTRY, oauthProtectedResource: "mcp" } });
+
+    expect(
+      screen.getByRole("heading", { name: "Inloggning för anslutna appar" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Det här tillägget kommer att betjäna den adress som anslutna appar loggar in mot.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Bara ett installerat tillägg i taget kan göra det."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("states it without the route or the machinery behind it", () => {
+    // What full address the route composes to is the server's answer, and a
+    // board member is not the one who acts on the path or on the protocol the
+    // sign-in uses.
+    const { container } = renderPanel({
+      entry: { ...ENTRY, oauthProtectedResource: "mcp" },
+    });
+
+    expect(container.textContent).not.toContain("mcp");
+    expect(container.textContent).not.toMatch(/oauth|bearer|token/i);
+  });
+
+  it("says nothing about sign-in when the plugin serves no such route", () => {
+    /*
+     * Absent rather than empty, like the actions list. A plugin that serves no
+     * connected-app sign-in has not raised the question, and a heading about
+     * it would put a mechanism on the screen that this install does not use.
+     */
+    renderPanel();
+
+    expect(
+      screen.queryByRole("heading", { name: "Inloggning för anslutna appar" }),
+    ).toBeNull();
   });
 
   it("says what a plugin asking for nothing amounts to", () => {

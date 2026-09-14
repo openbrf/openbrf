@@ -8,6 +8,10 @@ import {
 } from "@nestjs/platform-fastify";
 
 import { AppModule } from "./app.module";
+import {
+  resolveProtectedResource,
+  setProtectedResource,
+} from "./auth/protected-resource";
 import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
@@ -68,11 +72,25 @@ export async function loadPluginsAtBoot(
   binding: PluginHostBinding = pluginHostBinding,
 ): Promise<PluginBoot> {
   const skip = !env.OPENBRF_PLUGINS_ENABLED || processRole() === "cli";
-  return loadPlugins({
+  const boot = await loadPlugins({
     env,
     records: skip ? [] : await readPluginRecords(env),
     binding,
   });
+
+  /*
+   * Which route connected apps sign in to is decided here, where the loaded
+   * plugins and the environment are both in hand, and deliberately before
+   * createApplication's drop loop: a plugin whose module fails to build once
+   * must not move the audience, because every token already issued carries the
+   * old one and would stop being accepted. A resource pointing at a route that
+   * is temporarily not mounted answers 404 and recovers when the plugin does.
+   */
+  const resolved = resolveProtectedResource(boot.plugins, env);
+  setProtectedResource(resolved.resource);
+  boot.findings.push(...resolved.findings);
+
+  return boot;
 }
 
 /**

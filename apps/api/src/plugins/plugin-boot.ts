@@ -72,6 +72,12 @@ export interface BootPlugin {
   controllers: string[];
   /** The plugin's merged locale files, served lazily to the browser. */
   locales: Partial<Record<Locale, Record<string, unknown>>>;
+  /**
+   * When the board installed it. Carried through from the record because the
+   * OAuth protected resource is decided by seniority: where two plugins both
+   * declare one, the older install keeps it.
+   */
+  installedAt: Date;
 }
 
 /**
@@ -441,6 +447,7 @@ async function register(
       host,
       controllers: [],
       locales,
+      installedAt: record.installedAt,
     });
     return;
   }
@@ -484,6 +491,7 @@ async function register(
     host,
     controllers: sealed.controllers,
     locales,
+    installedAt: record.installedAt,
   });
 
   if (sealed.controllers.length > 0) {

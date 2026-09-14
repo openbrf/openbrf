@@ -38,6 +38,16 @@ wrong value here produces links that go nowhere. It is the origin and nothing
 more: the association's own website is served at that address, and the
 application at `/app` below it.
 
+The instance refuses to start if it is neither an `https://` address nor a
+loopback one. That is not style: it is also the origin external programs sign in
+against, and an address that is not reachable over TLS cannot be one.
+
+**Changing `APP_URL` later disconnects every connected app.** An access token is
+issued for one address, and a token issued for the old one is refused after the
+change - by design, since a token must not be accepted by a server it was not
+issued for. Members reconnect their apps afterwards; nothing else is affected,
+and nothing is lost. Worth knowing before moving an instance to a new domain.
+
 Then:
 
 ```sh
@@ -234,3 +244,30 @@ from tarballs (see [ADR 0003](adr/0003-plugin-loading-and-module-resolution.md))
 
 Installing from sources outside the curated catalog is off by default, and
 turning it on is a deliberate opt-out rather than a setting.
+
+## Letting members connect external apps
+
+A member can point a program they chose - a chat client, an assistant - at the
+instance and let it act as them, within what they may do themselves. This needs
+nothing configured beyond a reachable `APP_URL`: the sign-in endpoints and the
+discovery documents are served by every instance.
+
+What it does need is a connector plugin installed, because the address such a
+program actually talks to is that plugin's own route under `/api/plugin/`, not
+one the platform serves itself. Only one installed plugin may serve it; a second
+is refused at install, because the address is what every token already issued is
+bound to and moving it would break every connection the members have granted.
+
+Until a connector is installed, the instance advertises
+`/api/plugin/mcp-connector/mcp` as the address and nothing is mounted there, so
+discovery works and no program can connect.
+
+`OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE` bounds what one connection may spend, and
+defaults to 60. It is counted in memory per process, so it resets when the
+instance restarts - and installing a plugin restarts it. It bounds what one
+connection can do to an instance rather than being a quota anybody is billed
+against.
+
+Every connection is visible to the board under Connected apps, and the board can
+cut one off; a member can see and cut their own. A disconnect takes effect on
+the next call the app makes, not when its token would have expired.

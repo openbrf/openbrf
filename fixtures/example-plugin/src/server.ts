@@ -9,6 +9,7 @@ import {
   type OnApplicationShutdown,
   type OnModuleInit,
   Query,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import type {
@@ -36,6 +37,20 @@ import { z } from "zod";
  * running NestJS instance and not a second copy, and refuses to register the
  * plugin if it resolved anything else.
  */
+
+/**
+ * What the host's authorization guard leaves on a request it admitted.
+ *
+ * Read off the request object structurally rather than imported: these are the
+ * host's own fields, set on the request before the route runs, and a plugin has
+ * no package to import them from. Both are optional because a plugin sees only
+ * what the branch that admitted the request established - a request admitted on
+ * the browser's session cookie carries a person and no connected app.
+ */
+interface HostRequest {
+  principal?: { personId?: string };
+  token?: { clientId?: string };
+}
 
 /** The settings this plugin declares, narrowed from what the host stores. */
 interface OccupancySettings {
@@ -76,6 +91,24 @@ function readSettings(values: PluginSettingsValues): OccupancySettings {
         ? rowLimit
         : FALLBACK.rowLimit,
     grouping: typeof grouping === "string" ? grouping : FALLBACK.grouping,
+  };
+}
+
+/**
+ * Who the host admitted, as the resource routes report it.
+ *
+ * The route is named in the answer so that a caller can tell which of the two
+ * handlers replied: the declared route and the path beneath it are two
+ * registrations, and only one of them is the one the manifest names.
+ */
+function seenBy(
+  route: string,
+  request: HostRequest,
+): { route: string; personId: string | null; clientId: string | null } {
+  return {
+    route,
+    personId: request.principal?.personId ?? null,
+    clientId: request.token?.clientId ?? null,
   };
 }
 
@@ -201,6 +234,43 @@ export const createPlugin: PluginModuleFactory = (
         apartments: rows.slice(0, settings.rowLimit),
         grouping: grouping ?? settings.grouping,
       };
+    }
+
+    /*
+     * The two routes below exist for one property and nothing else.
+     *
+     * This manifest declares `oauthProtectedResource: "mcp"`, which makes
+     * `/api/plugin/occupancy/mcp` the instance's OAuth protected resource: the
+     * audience every access token is issued for, and a route that stops
+     * accepting the browser's session cookie and accepts only a Bearer token
+     * issued for it. So does every path beneath it, which is why there are two
+     * - a connector serves an endpoint rather than a single route, and a
+     * sub-path that fell through to the cookie path would be reachable with the
+     * session the member's own browser already holds.
+     *
+     * None of that is written here. The host's guard does all of it, from the
+     * manifest field alone, so what these answer with is what the guard
+     * established rather than anything this bundle decided: the person the
+     * credential acts for, and the connected app it was issued to. The client
+     * is the half that says which branch ran, because a request admitted on a
+     * session cookie carries a person and no client at all.
+     */
+    @Get("mcp")
+    connector(@Req() request: HostRequest): {
+      route: string;
+      personId: string | null;
+      clientId: string | null;
+    } {
+      return seenBy("mcp", request);
+    }
+
+    @Get("mcp/messages")
+    connectorMessages(@Req() request: HostRequest): {
+      route: string;
+      personId: string | null;
+      clientId: string | null;
+    } {
+      return seenBy("mcp/messages", request);
     }
   }
 

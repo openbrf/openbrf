@@ -43,6 +43,10 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     // Empty for the reason module-failed is: what the provider asked for goes
     // to the server log, and only the code crosses the wire.
     "forbidden-injection": {},
+    "oauth-resource-conflict": {
+      incumbent: "mcp-connector",
+      path: "/api/plugin/mcp-connector/mcp",
+    },
     "not-on-volume": {},
   };
 

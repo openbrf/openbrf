@@ -76,7 +76,12 @@ const APPLICATION_WIDE_TOKENS: ReadonlyMap<unknown, string> = new Map([
  * what any person may do, which is the question a plugin is supposed to have
  * answered for it rather than ask for itself. `ActionRegistryService` is
  * dispatch without the plugin's identity attached, so a plugin holding it could
- * register actions as somebody else and invoke as anybody.
+ * register actions as somebody else and invoke as anybody. `AuthService`
+ * resolves a person from request headers, which is the whole of what the
+ * connector's own route must not do: that route is Bearer-only, and a
+ * connector holding this could read the browser's session cookie inside its
+ * own handler and decide by it - reaching around the one guarantee the route
+ * exists to make.
  *
  * Matched by class name rather than by identity, because the seal runs over a
  * module the plugin's own bundle produced and comparing constructors across a
@@ -89,6 +94,7 @@ const APPLICATION_WIDE_TOKENS: ReadonlyMap<unknown, string> = new Map([
  */
 const FORBIDDEN_INJECTIONS: ReadonlySet<string> = new Set([
   "AuditLogService",
+  "AuthService",
   "PrincipalService",
   "ActionRegistryService",
   "ActionCallerFactory",

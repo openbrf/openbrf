@@ -15,17 +15,28 @@ once so that a change to any of them fails a test rather than an instance.
 | Scoped register access        | `GET /summary` and `GET /apartments` read through the host's address book service.        |
 | Validated settings            | Both routes read `host.settings.read()` and honour the declared `rowLimit`.               |
 | Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count. |
+| OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.        |
 | Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                      |
 | Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.        |
 | Theming                       | The view styles itself with design tokens only, so a theme restyles it.                   |
 
-Neither route declares a capability. The host raises every plugin route to the
+No route declares a capability. The host raises every plugin route to the
 floor implied by the plugin's own permissions, so a route that named one could
 only ever ask for less than `addressBook:read` already requires.
 
 The controller declares no path of its own either. The host mounts every
-plugin controller under `/api/plugin/<id>/`, so these two routes answer at
+plugin controller under `/api/plugin/<id>/`, so those two routes answer at
 `/api/plugin/occupancy/summary` and `/api/plugin/occupancy/apartments`.
+
+`mcp` and `mcp/messages` are the exception, and they are here for one property.
+The manifest names `mcp` as the OAuth protected resource, which makes
+`/api/plugin/occupancy/mcp` the audience every access token is issued for and
+turns that route - and every path beneath it - into one that refuses the
+browser's session cookie and accepts only a Bearer token issued for it. The
+host's guard does all of that from the manifest field alone, so the two
+handlers only report what it established: the person the credential acts for,
+and the connected app the token was issued to. A request admitted on a session
+cookie carries no connected app, so the pair says which branch ran.
 
 `onModuleInit` reading the host's settings is the part worth copying. The host
 object is late-bound - the application that answers it is built after this

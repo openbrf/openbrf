@@ -72,17 +72,18 @@ the package it sits in, or be left behind by a partial extraction.
 }
 ```
 
-| Field            | Required       | Meaning                                                                                                                                                    |
-| ---------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apiVersion`     | yes            | The contract version. Currently `1`.                                                                                                                       |
-| `id`             | yes            | Lowercase letters, digits and single hyphens. It becomes a URL segment, an i18n namespace, a database key and a directory name, so no dots and no slashes. |
-| `entry.server`   | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
-| `entry.client`   | one of the two | Module Federation remote entry.                                                                                                                            |
-| `permissions`    | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
-| `personalData`   | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
-| `view`           | no             | The exposed module name and the i18n key for its title.                                                                                                    |
-| `settingsSchema` | no             | The settings form the host renders.                                                                                                                        |
-| `actions`        | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
+| Field                    | Required       | Meaning                                                                                                                                                    |
+| ------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiVersion`             | yes            | The contract version. Currently `1`.                                                                                                                       |
+| `id`                     | yes            | Lowercase letters, digits and single hyphens. It becomes a URL segment, an i18n namespace, a database key and a directory name, so no dots and no slashes. |
+| `entry.server`           | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
+| `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
+| `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
+| `personalData`           | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
+| `view`                   | no             | The exposed module name and the i18n key for its title.                                                                                                    |
+| `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
+| `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
+| `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
 
 Entry paths are relative and may not step outside the package.
 
@@ -101,6 +102,33 @@ than sixty-four characters is manifest-invalid, and the folding means a plugin
 `a-b` declaring `c` collides with a plugin `a` declaring `b_c` - the second to
 arrive is refused. [Actions](actions.md) has the arithmetic and the rest of what
 an action must meet.
+
+`oauthProtectedResource` is written without a leading slash, in lowercase path
+segments, and the host joins it onto the plugin's own mount: a plugin `connector`
+declaring `"mcp"` serves the resource at `/api/plugin/connector/mcp`. Declaring
+it has three consequences worth understanding before doing so.
+
+The route's full URL becomes the instance's OAuth protected resource. It is the
+audience every access token is issued for, the address both discovery documents
+point at, and the value a client must send as `resource` - a token minted for
+anything else is refused. The route therefore also stops accepting the browser's
+session cookie: it accepts a Bearer token issued for it and nothing else, and so
+does every path beneath it.
+
+At most one installed, enabled plugin may declare it. An install is refused
+outright when another installed plugin already declares one, and if two ever
+reach the volume the one installed first keeps it while the newcomer carries
+`oauth-resource-conflict`. Moving the audience would strand every connection the
+members have already granted, so it is never moved automatically.
+
+The plugin id `mcp-connector` is reserved. An instance that has no connector
+installed still advertises `/api/plugin/mcp-connector/mcp` as its resource, so
+that sign-in is configurable and discoverable on a bare instance; nothing is
+mounted there and no Bearer route exists. A plugin may take that id only if its
+manifest declares `oauthProtectedResource`, and the install is refused otherwise
+
+- without that, installing an unrelated plugin that happened to claim the id and
+  serve `mcp` would silently convert a real route into a Bearer-only one.
 
 ## Permissions
 
@@ -514,12 +542,13 @@ lists everything on the data volume that is not running and why:
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
 | `forbidden-injection`     | One of its providers reaches for a core service a plugin may not hold. |
+| `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
 | `not-consented`           | On the volume with no record of consent.                               |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |
 
-Three of these need an answer rather than a restart:
+Four of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -535,6 +564,12 @@ Three of these need an answer rather than a restart:
   core service by type. The audit log, the principal service and dispatch itself
   are reachable that way and a plugin may not hold any of them, so the module is
   refused rather than loaded. The fix belongs to the author.
+- `oauth-resource-conflict` means the plugin declares `oauthProtectedResource`
+  and another installed, enabled plugin already does. At most one may: the
+  resource's full URL is the audience every issued token is bound to, so moving
+  it would make every connection a member has already granted stop working. The
+  plugin installed first keeps it and the newcomer carries the finding. The
+  answer is to remove the other connector, not to reinstall this one.
 
 The set is exported as `PLUGIN_FINDING_REASONS` from `@openbrf/plugin-sdk`. A
 finding carries one of these codes and a `detail` object holding the values its

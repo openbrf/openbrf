@@ -23,6 +23,12 @@ import {
   ActionCallerFactory,
   type ResolvedCaller,
 } from "./action-caller";
+import {
+  insufficientScopeChallenge,
+  resourceMetadataUrl,
+} from "../auth/resource-challenge";
+import type { ProtectedResource } from "../auth/protected-resource";
+import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import { ActionError, type ActionErrorReason } from "./action.error";
 
 /**
@@ -76,6 +82,14 @@ export interface ActionListFilter {
 }
 
 /** The surface a call through each channel is entitled to reach. */
+/**
+ * Every scope this instance will issue.
+ *
+ * Named in one insufficient-scope challenge rather than one at a time, so a
+ * client that is missing more than one learns all of them at once.
+ */
+const ISSUABLE_SCOPES = ["mcp:read", "mcp:write"] as const;
+
 const SURFACE_FOR_CHANNEL: Record<ActionChannel, ActionSurface> = {
   web: "ui",
   plugin: "ui",
@@ -103,6 +117,7 @@ export class ActionRegistryService {
     private readonly principals: PrincipalService,
     private readonly i18n: I18nService,
     @Inject(ENV) private readonly env: Env,
+    @Inject(PROTECTED_RESOURCE) private readonly resource: ProtectedResource,
   ) {}
 
   /**
@@ -403,6 +418,17 @@ export class ActionRegistryService {
           "insufficient-scope",
           `This token does not carry ${required}.`,
           { scopes: [required] },
+          /*
+           * Every scope this instance issues, not the one missing here. A
+           * client told only the next missing scope would be refused again for
+           * each of the others, and each refusal is a round trip the person is
+           * watching; one challenge lets it ask once for everything it needs.
+           */
+          insufficientScopeChallenge(
+            resourceMetadataUrl(this.resource, this.env.APP_URL),
+            ISSUABLE_SCOPES,
+            `This connection does not carry ${required}.`,
+          ),
         );
       }
     }
@@ -536,13 +562,14 @@ export class ActionRegistryService {
     reason: ActionErrorReason,
     message: string,
     details?: Record<string, readonly unknown[]>,
+    challenge?: string,
   ): ActionError {
     this.logger.log(
       `refused ${name} (${reason}) for ${caller.personId} through ${caller.channel}` +
         (caller.client === null ? "" : ` as ${caller.client.clientId}`) +
         ` [${caller.requestId}]`,
     );
-    return new ActionError(reason, message, details);
+    return new ActionError(reason, message, details, challenge);
   }
 
   private assertNameFree(name: string): void {
@@ -714,6 +741,7 @@ function summarise(
     descriptionKey: definition.descriptionKey,
     group: definition.group,
     groupTitle: translate(definition.groupTitleKey),
+    groupTitleKey: definition.groupTitleKey,
     capability: definition.capability,
     effect: definition.effect,
     idempotent: definition.idempotent,
