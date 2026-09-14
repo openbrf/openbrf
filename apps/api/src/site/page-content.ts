@@ -309,6 +309,26 @@ export const PAGE_CONTENT_VERSION = 1;
 const LIMITS = PAGE_CONTENT_LIMITS;
 
 /**
+ * The structural half of the link rule, as the published document states it.
+ *
+ * Exported so a spec can hold the two halves against each other: a refine is
+ * erased by the JSON Schema conversion, so this pattern is all a caller reading
+ * the document has, and it has to accept everything `isPublishableUrl` accepts -
+ * uppercase schemes included, because `new URL` lowercases one before
+ * `isPublishableUrl` sees it.
+ *
+ * The case is written out rather than carried by the `i` flag, and that is the
+ * whole reason this looks the way it does. JSON Schema's `pattern` has no flags,
+ * and `z.toJSONSchema` drops the `i` SILENTLY - so a flagged pattern accepts
+ * `HTTPS://` at runtime while the document a caller reads refuses it, which is
+ * the erasure rule in docs/actions.md reappearing on the one construct that was
+ * supposed to survive it. Character classes survive, so the document says what
+ * the service does.
+ */
+export const LINK_PATTERN =
+  /^(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/|[Mm][Aa][Ii][Ll][Tt][Oo]:|\/)/;
+
+/**
  * Whether a URL may be published.
  *
  * An allowlist of schemes rather than a denylist of dangerous ones. There is no
@@ -374,7 +394,25 @@ const textRunSchema = z.strictObject({
   text: z.string().max(LIMITS.runText),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
-  link: z.string().refine(isPublishableUrl).optional(),
+  /*
+   * The pattern and the refine both, deliberately.
+   *
+   * A refine is erased when this schema is converted to the JSON Schema an
+   * action publishes - silently, with no marker - so a caller reading the
+   * published document would be told any string is acceptable while
+   * isPublishableUrl refuses javascript:, data: and protocol-relative
+   * addresses. The pattern is a superset the refine still narrows: it survives
+   * conversion and carries the structural half of the rule, and a spec asserts
+   * that it accepts everything the refine accepts and rejects those three
+   * shapes.
+   *
+   * Case-insensitive because the refine is: `new URL` lowercases a scheme
+   * before `isPublishableUrl` reads it, so `HTTPS://exempel.se` is one of the
+   * addresses the service takes. Written as character classes rather than with
+   * the `i` flag, which `z.toJSONSchema` drops without saying so - see
+   * LINK_PATTERN.
+   */
+  link: z.string().regex(LINK_PATTERN).refine(isPublishableUrl).optional(),
 });
 
 const runsSchema = z.array(textRunSchema).max(LIMITS.runsPerBlock);
@@ -449,6 +487,24 @@ const blockSchema = z.discriminatedUnion("type", [
 export const submittedContentSchema = z.strictObject({
   blocks: z.array(blockSchema).max(LIMITS.blocks),
 });
+
+/**
+ * The blocks a news item may be written in, as a schema.
+ *
+ * The runtime already refuses everything else - onlyProse throws
+ * unsupported-block for any block isTextBlock rejects - and the published
+ * schema has to say the same thing. Publishing all twelve block types to a
+ * caller that is a model produces a 400 the document promised was valid, which
+ * is the one failure a published contract exists to prevent.
+ */
+export const proseBlockSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("paragraph"), runs: runsSchema }),
+  z.strictObject({
+    type: z.literal("heading"),
+    level: z.union([z.literal(2), z.literal(3)]),
+    runs: runsSchema,
+  }),
+]);
 
 /** Reads a submitted body into the stored shape, refusing what it may not hold. */
 export function submittedContent(value: unknown): PageContent {

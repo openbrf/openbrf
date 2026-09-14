@@ -1561,6 +1561,29 @@ enum AuditAction {
   MENU_ITEM_REORDERED
   /// A menu entry was removed, and whatever hung under it went with it.
   MENU_ITEM_REMOVED
+  /// The body, title or address of a page was rewritten.
+  ///
+  /// Recorded from the moment something other than a board member in a browser
+  /// can rewrite a published page: who changed what a visitor reads is a
+  /// question the log has to be able to answer, and publication alone did not
+  /// answer it.
+  PAGE_CONTENT_CHANGED
+  /// The body, title or address of a news item was rewritten.
+  NEWS_CONTENT_CHANGED
+  /// The pages were put in a new order.
+  PAGE_REORDERED
+  /// Something asked for a published news item to be mailed to the members.
+  ///
+  /// The ask, never the sending: what may place a request may not send one, and
+  /// the mailing itself is NEWS_EMAILED when a board member confirms it.
+  NEWS_MAILING_REQUESTED
+  /// A board member dismissed a request for a mailing.
+  NEWS_MAILING_REQUEST_DISMISSED
+  /// An administrator switched one of a plugin's actions on for connected apps
+  /// and the AI package.
+  PLUGIN_ACTION_ARMED
+  /// An administrator switched one off again.
+  PLUGIN_ACTION_DISARMED
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.
@@ -1994,6 +2017,26 @@ model InstalledPlugin {
   /// republished version cannot widen its own reach.
   consentedPermissions String[]
   declaredPersonalData String[]
+
+  /// The actions the board consented to when this version was installed, and
+  /// the ones an administrator has since switched on for connected apps and
+  /// the AI package.
+  ///
+  /// Two lists rather than one flag per action: the consented list is the
+  /// snapshot the loader compares an installed manifest against, and the armed
+  /// list is the deliberate act that exposes an action beyond this instance.
+  /// Arming is cleared whenever the board consents to a republished version,
+  /// because an action whose capability changed is a different action wearing
+  /// the same id.
+  ///
+  /// String[] rather than an enum, keeping the property toRecord relies on: a
+  /// value left behind by an uninstalled plugin reads back as an unknown string
+  /// the loader ignores, rather than as a migration.
+  /// Defaulted rather than left bare, so the column is NOT NULL. An arming
+  /// write is conditional on the consent snapshot it was decided against, and
+  /// a scalar list filter does not match NULL against an empty array.
+  consentedActions String[] @default([])
+  armedActions     String[] @default([])
 
   /// Values for the manifest's settingsSchema.
   settings Json?
@@ -3557,6 +3600,21 @@ model News {
   /// A plain column rather than a relation, for the reason the audit log and
   /// the archived document both give: a referential action would either rewrite
   /// this row or veto erasure of the person it names.
+  /// When something that may not mail the members asked for this item to be
+  /// mailed, and who asked.
+  ///
+  /// The request is about the email mailing (nyhetsutskick) and not the text
+  /// message, which is asked for and claimed separately: a board member who
+  /// publishes with SMS alone leaves the request standing, because what was
+  /// asked for has not happened. Cleared when the email mailing is claimed, or
+  /// when a board member dismisses it.
+  ///
+  /// A plain column for the person, as beside authorPersonId below: a
+  /// referential action would either rewrite this row or veto the erasure of
+  /// the person it names, and who asked is in the audit entry regardless.
+  mailingRequestedAt         DateTime?
+  mailingRequestedByPersonId String?
+
   authorPersonId String?
 
   createdAt DateTime @default(now())

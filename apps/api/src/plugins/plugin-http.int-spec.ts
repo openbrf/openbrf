@@ -189,6 +189,7 @@ beforeAll(async () => {
     checksum: entry.artifact.sha512,
     permissions: entry.permissions,
     personalData: entry.personalData,
+    actions: entry.actions,
   });
 
   await new PluginInstallerService(

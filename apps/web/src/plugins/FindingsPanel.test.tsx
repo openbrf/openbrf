@@ -38,6 +38,11 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
     "not-consented": {},
     disabled: {},
     "load-failed": {},
+    "actions-widened": { actions: ["occupancy_summary"] },
+    "action-refused": { actions: ["occupancy_summary"] },
+    // Empty for the reason module-failed is: what the provider asked for goes
+    // to the server log, and only the code crosses the wire.
+    "forbidden-injection": {},
     "not-on-volume": {},
   };
 

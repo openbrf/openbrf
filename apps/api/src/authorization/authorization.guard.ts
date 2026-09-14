@@ -8,6 +8,7 @@ import {
 import { Reflector } from "@nestjs/core";
 import type { FastifyRequest } from "fastify";
 
+import { markAuthenticated } from "../actions/authenticated-request";
 import { AuthService } from "../auth/auth.service";
 import type { Capability, Principal } from "./capabilities";
 import { PrincipalService } from "./principal.service";
@@ -67,6 +68,13 @@ export class AuthorizationGuard implements CanActivate {
       );
     }
     request.principal = principal;
+    /*
+     * The mark a plugin cannot forge. A plugin dispatches an action by handing
+     * back the request its own route received, and the registry reads the
+     * person from it; without this, an object the plugin built itself would do
+     * just as well and could name anybody.
+     */
+    markAuthenticated(request);
 
     const required = this.reflector.getAllAndMerge<Capability[]>(
       REQUIRED_CAPABILITIES,

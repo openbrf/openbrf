@@ -1,4 +1,5 @@
 import {
+  pluginActionsSchema,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginIdSchema,
@@ -79,6 +80,18 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
     .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
     .max(16)
     .default([]),
+  /**
+   * The actions the plugin proposes, on the same terms as the two above.
+   *
+   * The widest part of the declaration, and so the part the consent screen
+   * most needs before anything is downloaded: an action names a capability and
+   * offers it to callers the board decides on.
+   *
+   * The manifest's own schema, not a second array of the same thing: the
+   * uniqueness rule on the ids has to hold at whichever boundary is read
+   * first, and two copies is two places for it to stop holding.
+   */
+  actions: pluginActionsSchema.default([]),
 });
 
 /**

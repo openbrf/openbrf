@@ -92,6 +92,7 @@ const MANIFEST: PluginManifest = {
   entry: { server: "./dist/server.cjs" },
   permissions: ["addressBook:read"],
   personalData: ["name"],
+  actions: [],
 };
 
 /**
@@ -136,6 +137,7 @@ describe("the late-bound host object", () => {
       manifest: MANIFEST,
       consented: ["addressBook:read"],
       serving: true,
+      bufferedActions: [],
     };
   });
 

@@ -170,6 +170,29 @@ describe("parseCatalog", () => {
     ).toBe("catalog-malformed");
   });
 
+  it("rejects an entry declaring two actions under one id", () => {
+    /*
+     * Refused at this boundary as well as at the manifest's, through the same
+     * schema. The consent screen renders from here, and a pair sharing an id
+     * is a declaration it cannot show truthfully: consent compares the set, so
+     * a later version that only swaps the two over is agreed to without asking,
+     * and arming - which stores the bare id - then names whichever one the
+     * binder's Map happened to keep.
+     */
+    expect(
+      refusalReason(
+        index([
+          pluginEntry({
+            actions: [
+              { id: "summary", capability: "self:manage", effect: "read" },
+              { id: "summary", capability: "site:manage", effect: "write" },
+            ],
+          }),
+        ]),
+      ),
+    ).toBe("catalog-malformed");
+  });
+
   // The id becomes a URL segment, an i18n namespace, a database key and a
   // directory name, and the archive file name is built from it.
   it.each([

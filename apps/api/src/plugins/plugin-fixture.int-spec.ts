@@ -145,6 +145,8 @@ beforeAll(async () => {
   binding = new PluginHostBinding();
   binding.bind({
     registry,
+    actions: {} as never,
+    callers: {} as never,
     jobs: {} as never,
     mail: {} as never,
     sms: {} as never,
@@ -206,6 +208,10 @@ describe("the reference plugin", () => {
       checksum: entry.artifact.sha512,
       permissions: entry.permissions,
       personalData: entry.personalData,
+      // What the catalog declares, which is what a board consents to on the
+      // install screen. Consenting to an empty list while the manifest
+      // declares an action is the widening the boot gate exists to refuse.
+      actions: entry.actions,
     });
 
     const outcome = await installer.reconcile();

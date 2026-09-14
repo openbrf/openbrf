@@ -43,6 +43,8 @@ function pluginWith(overrides: Partial<PluginSummary> = {}): PluginSummary {
     loaded: true,
     permissions: ["addressBook:read", "mail:send"],
     personalData: ["name", "email"],
+    consentedActions: [],
+    armedActions: [],
     installedAt: "2026-08-20T09:00:00.000Z",
     hasSettings: false,
     view: null,

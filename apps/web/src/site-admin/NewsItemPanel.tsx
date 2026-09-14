@@ -1,11 +1,13 @@
 import { useId, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import {
+  dismissNewsMailingRequest,
   type NewsDeliveryReport,
   type NewsItem,
   type NewsRecipients,
@@ -34,6 +36,12 @@ import {
  * reaches only those who have given the association a number. An instance with
  * no SMS provider is told so where the toggle would be, rather than being
  * offered a switch that cannot work.
+ *
+ * A mailing something else asked for is a notice above those controls and
+ * nothing more. Answering it is the publish the board already does, with the
+ * checkbox where it already stands: a second way to send would be a second
+ * path to the one act that cannot be taken back, and it would not be the path
+ * the server claims the mailing on.
  */
 
 const PUBLISH_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -44,6 +52,35 @@ const PUBLISH_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const REMOVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-found": "news.errors.notFound",
 };
+
+/**
+ * The sentence each refusal of a mailing request gets.
+ *
+ * The API answers with a code and the browser chooses the words, the same
+ * split every other table here keeps: the API is English throughout, so
+ * anything it phrased would arrive in English on a screen that is Swedish by
+ * default. The table cannot be total - the server may answer with a code this
+ * build has never heard of - so an unrecognised one falls back to the general
+ * sentence rather than being printed. A board member has nothing to do with
+ * "already-mailed".
+ */
+const MAILING_REQUEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  /*
+   * Its own sentence rather than the label beside a mailed item. That label
+   * names the day the mailing went out, and in this path the browser holds no
+   * day - the refusal says only that one has - so it would render with an
+   * empty gap where the date belongs. This answers the question that was asked.
+   */
+  "already-mailed": "siteAdmin.news.mailingRequest.alreadyMailed",
+  "not-found": "news.errors.notFound",
+};
+
+/** A refused call, with the table and the general sentence it answers by. */
+interface Refusal {
+  failure: ApiFailure;
+  reasons: Readonly<Record<string, TranslationKey>>;
+  fallback: TranslationKey;
+}
 
 export interface NewsItemPanelProps {
   item: NewsItem;
@@ -109,17 +146,73 @@ export function NewsItemPanel({
     onChanged();
   });
 
-  const failure =
+  /*
+   * The board's answer, held until the re-read carries it.
+   *
+   * The notice has to go the moment the board answers it - one that stayed up
+   * until the read landed would read as a request nobody had dealt with, and
+   * invite a second press. The answer is dropped again as soon as the item
+   * says something other than what it said when the answer was given, so a
+   * second request placed after this one was dismissed is shown rather than
+   * hidden by the answer to the first.
+   */
+  const [dismissed, setDismissed] = useState(false);
+  const [requestAsRead, setRequestAsRead] = useState(item.mailingRequested);
+  if (requestAsRead !== item.mailingRequested) {
+    setRequestAsRead(item.mailingRequested);
+    setDismissed(false);
+  }
+
+  const dismissal = useSaveAction(dismissNewsMailingRequest, () => {
+    setDismissed(true);
+    setOutcome("siteAdmin.news.mailingRequest.dismissed");
+    onChanged();
+  });
+
+  /**
+   * Clears what the other controls left behind, before a new one starts.
+   *
+   * The panel shows one sentence, chosen from the three save states in a fixed
+   * order, so a failure that is still sitting in one of them is not merely
+   * stale - it decides what the board reads about a different act. A
+   * publication that failed earlier would stand beside a dismissal that
+   * succeeded, and would hide one that failed. Only one of these is ever in
+   * flight, so the one starting owns the answer.
+   */
+  const startAlone = (current: { reset: () => void }): void => {
+    for (const action of [publication, removal, dismissal]) {
+      if (action !== current) {
+        action.reset();
+      }
+    }
+    setOutcome(null);
+  };
+
+  const refusal: Refusal | null =
     publication.state.kind === "failed"
-      ? publication.state.failure
+      ? {
+          failure: publication.state.failure,
+          reasons: PUBLISH_FAILURES,
+          fallback: "news.errors.unknown",
+        }
       : removal.state.kind === "failed"
-        ? removal.state.failure
-        : null;
-  const failureKeys =
-    publication.state.kind === "failed" ? PUBLISH_FAILURES : REMOVE_FAILURES;
+        ? {
+            failure: removal.state.failure,
+            reasons: REMOVE_FAILURES,
+            fallback: "news.errors.unknown",
+          }
+        : dismissal.state.kind === "failed"
+          ? {
+              failure: dismissal.state.failure,
+              reasons: MAILING_REQUEST_FAILURES,
+              fallback: "siteAdmin.news.mailingRequest.failed",
+            }
+          : null;
 
   const busy =
-    publication.state.kind === "saving" || removal.state.kind === "saving";
+    publication.state.kind === "saving" ||
+    removal.state.kind === "saving" ||
+    dismissal.state.kind === "saving";
 
   return (
     <article className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
@@ -145,6 +238,29 @@ export function NewsItemPanel({
           </p>
         )}
       </header>
+
+      {item.mailingRequested && !dismissed ? (
+        /* The sentence says that something asked and never which person did.
+           Who asked is in the audit log; putting a name here would turn the
+           board's question - should this go out - into a question about the
+           requester, and the wire shape carries no person for it to name. */
+        <Notice tone="warn">
+          <span className="flex flex-col items-start gap-2">
+            {t("siteAdmin.news.mailingRequest.notice")}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                startAlone(dismissal);
+                void dismissal.submit(item.id);
+              }}
+              className={SECONDARY_BUTTON}
+            >
+              {t("siteAdmin.news.mailingRequest.dismiss")}
+            </button>
+          </span>
+        </Notice>
+      ) : null}
 
       <fieldset className="flex flex-col gap-2">
         <legend className="text-label text-ink-muted uppercase">
@@ -264,9 +380,18 @@ export function NewsItemPanel({
         </Notice>
       )}
 
-      {failure === null ? null : (
+      {refusal === null ? null : (
         <Notice tone="danger" live>
-          {t(failureMessageKey(failure, failureKeys, "news.errors.unknown"))}
+          {/* The date is what the "already mailed" sentence names. The
+              sentences that do not name it ignore the value. */}
+          {t(
+            failureMessageKey(
+              refusal.failure,
+              refusal.reasons,
+              refusal.fallback,
+            ),
+            { date: formatDate(item.emailQueuedAt ?? "", i18n.language) },
+          )}
         </Notice>
       )}
 
@@ -275,7 +400,7 @@ export function NewsItemPanel({
           type="button"
           disabled={busy}
           onClick={() => {
-            setOutcome(null);
+            startAlone(publication);
             void publication.submit(item.id, {
               published: true,
               visibility,
@@ -305,7 +430,7 @@ export function NewsItemPanel({
             type="button"
             disabled={busy}
             onClick={() => {
-              setOutcome(null);
+              startAlone(publication);
               void publication.submit(item.id, { published: false });
             }}
             className={QUIET_BUTTON}
@@ -327,6 +452,7 @@ export function NewsItemPanel({
                 t("news.item.removeConfirm", { title: item.title }),
               )
             ) {
+              startAlone(removal);
               void removal.submit(item.id);
             }
           }}

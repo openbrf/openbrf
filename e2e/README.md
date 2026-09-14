@@ -256,6 +256,34 @@ spec needs no place on the root-navigation allowlist in `93-public-site`. Last,
 the access report answers for correspondence with a resident's own registered
 address, which is the one place the platform goes from a person to a thread.
 
+`36-action-registry.spec.ts` drives the first slice of the action registry, and
+its subject is a refusal with no screen of its own. A connected app may write the
+association's news and publish it, and it may not mail the members: the most it
+can do is ask, and what an ask leaves behind is a notice on the board's own item.
+What this spec drives is the board's own route and the catalogue, and the reason
+is worth stating rather than leaving to be inferred: nothing in this build
+carries a call from a connected app to the registry, because sign-in for MCP
+clients is the change after this one. So dispatch itself - the capability check,
+the arming, the refusals - is held by the unit and integration tests, and this
+spec covers the half that needs a deployed instance.
+The spec places the request over the API, reads the notice on the board's screen -
+which says that something asked and never who, because the row the screen renders
+from carries no person for it to name - dismisses it, places it again, and answers
+it the only way there is, with the ordinary publish and the mailing where it
+already stands. Two things follow that only a deployed instance can show: nothing
+reaches a member's mailbox while the request stands, and exactly one message does
+once the board has published, after which the item states in words that a news
+item is mailed once and a further request is refused on those grounds. The other
+half is the catalogue a connected app reads before it does anything.
+`?surface=mcp` offers exactly the twenty-four first-slice names, each with its
+text resolved into the association's own language rather than the key i18next
+falls back to, and `page_update` publishes an input that refuses a key it does
+not declare, requires the revision that was read, and carries no
+`photoConsentConfirmed` anywhere: a consent attestation is a board member's
+statement about the people in a photograph, and an input offering it would be
+the platform inviting a caller to assert it on their behalf. The spec removes
+the notice it wrote.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
@@ -447,3 +475,14 @@ changes the screen, not later:
 - **The appearance panel's logo states.** No logo, a logo set, and a logo that
   was refused. `{ panel: "Utseende" }` already photographs that card on its own,
   so these are three entries differing only in what `prepare` sets up.
+- **A news item with a standing mailing request.** `site-news-mailing-request`:
+  the notice a board member reads when a connected app has asked for the item to
+  be mailed, and the control that dismisses it. The walk cannot reach the state.
+  A request is placed by `POST /api/news/:id/mailing-request`, the board's own
+  interface offers no control that places one - deliberately, since the board's
+  answer to a request is the publish it already does - and an entry in
+  `screens.ts` declares clicks and fills rather than calls. It needs an `Action`
+  kind that asks the instance for something before the picture is taken, added
+  to the union and to `perform` in `capture.spec.ts` once, as the section above
+  describes; the entry itself is then three lines. `36-action-registry.spec.ts`
+  covers the state.

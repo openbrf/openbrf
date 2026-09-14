@@ -1,4 +1,8 @@
 import {
+  ACTION_EFFECTS,
+  type ActionEffect,
+  type ActionPersonalData,
+  type ActionSurface,
   PLUGIN_FINDING_REASONS,
   type PluginFindingReason,
   type PluginPermission,
@@ -64,6 +68,40 @@ export function personalDataLabel(category: string): TranslationKey {
 }
 
 /**
+ * What an action does to the records, in one word.
+ *
+ * The word is the whole of what separates an action that reads the register
+ * from one that deletes out of it, so it is stated wherever a declaration is:
+ * on the consent screen before an install, and beside the arming toggle
+ * afterwards. Keyed by the contract's own union, so an effect added there
+ * fails to compile here until the word exists.
+ */
+export const ACTION_EFFECT_LABELS: Readonly<
+  Record<ActionEffect, TranslationKey>
+> = {
+  read: "plugins.actions.effect.read",
+  write: "plugins.actions.effect.write",
+  delete: "plugins.actions.effect.delete",
+};
+
+/**
+ * The word an effect is read as, or null when this build has none for it.
+ *
+ * Walked rather than indexed, so an effect arriving as a string is narrowed to
+ * the union without a cast. Null rather than the code itself: an effect this
+ * version does not recognise has no sentence to put on a board member's
+ * screen, and the row still names the action and its capability.
+ */
+export function actionEffectLabel(effect: string): TranslationKey | null {
+  for (const known of ACTION_EFFECTS) {
+    if (effect === known) {
+      return ACTION_EFFECT_LABELS[known];
+    }
+  }
+  return null;
+}
+
+/**
  * Why a plugin on the data volume is not running.
  *
  * The server reports a code; the board reads a sentence. Typed against the
@@ -90,6 +128,9 @@ export const FINDING_LABELS: Readonly<
   "module-refused": "plugins.findings.reasons.moduleRefused",
   "module-failed": "plugins.findings.reasons.moduleFailed",
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
+  "actions-widened": "plugins.findings.reasons.actionsWidened",
+  "action-refused": "plugins.findings.reasons.actionRefused",
+  "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
 };
 
 /**
@@ -108,4 +149,79 @@ export function findingLabel(reason: string): TranslationKey {
     }
   }
   return "plugins.findings.reasons.unknown";
+}
+
+/**
+ * The personal data an action can touch, in the association's own words.
+ *
+ * The platform's own category names rather than a set written for this screen.
+ * The thirteen are the ones the record of processing already states, and
+ * `dataProtection.categories.personalData` is where those sentences live; a
+ * second set here would be a second thing to keep true, and the first time the
+ * two disagreed a board would read one word on the consent screen and another
+ * on the document it answers with.
+ *
+ * `protected` is the action list's own fourteenth value. It marks an action
+ * that can return a field of a person carrying protected personal data, which
+ * is the one category that may never be offered beyond this instance at all.
+ *
+ * Keyed by the SDK's union, so a category added there fails to compile here
+ * until the word a board reads before consenting to it exists.
+ */
+export const ACTION_PERSONAL_DATA_LABELS: Readonly<
+  Record<ActionPersonalData, TranslationKey>
+> = {
+  name: "dataProtection.categories.personalData.name",
+  apartment: "dataProtection.categories.personalData.apartment",
+  residency: "dataProtection.categories.personalData.residency",
+  email: "dataProtection.categories.personalData.email",
+  phone: "dataProtection.categories.personalData.phone",
+  postalAddress: "dataProtection.categories.personalData.postalAddress",
+  personalIdentityNumber:
+    "dataProtection.categories.personalData.personalIdentityNumber",
+  account: "dataProtection.categories.personalData.account",
+  financial: "dataProtection.categories.personalData.financial",
+  health: "dataProtection.categories.personalData.health",
+  photograph: "dataProtection.categories.personalData.photograph",
+  freeText: "dataProtection.categories.personalData.freeText",
+  auditTrail: "dataProtection.categories.personalData.auditTrail",
+  protected: "dataProtection.categories.personalData.protected",
+};
+
+/**
+ * Where an action may be offered, in one phrase.
+ *
+ * The distinction the board is actually deciding on. "ui" is inside this
+ * instance and needs no arming; the other two are the ones an administrator
+ * switches on, and they are what carries an action beyond the association's own
+ * screens.
+ */
+export const ACTION_SURFACE_LABELS: Readonly<
+  Record<ActionSurface, TranslationKey>
+> = {
+  ui: "plugins.actions.surface.ui",
+  mcp: "plugins.actions.surface.mcp",
+  ai: "plugins.actions.surface.ai",
+};
+
+/**
+ * The words for a declared category, however it arrives.
+ *
+ * Total at runtime for the reason `permissionLabel` is: the value comes from a
+ * stored consent row or a catalog written for another version, and a
+ * declaration a board is reading must not quietly lose an entry this build has
+ * no word for.
+ */
+export function actionPersonalDataLabel(category: string): TranslationKey {
+  return (
+    ACTION_PERSONAL_DATA_LABELS[category as ActionPersonalData] ??
+    "plugins.personalData.unknown"
+  );
+}
+
+export function actionSurfaceLabel(surface: string): TranslationKey {
+  return (
+    ACTION_SURFACE_LABELS[surface as ActionSurface] ??
+    "plugins.actions.surface.unknown"
+  );
 }

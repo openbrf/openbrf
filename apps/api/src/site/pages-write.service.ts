@@ -85,6 +85,26 @@ export class PageWriteError extends DomainError {
 }
 
 /** A page as the board's own screen shows it: everything, drafts included. */
+/**
+ * A page without its body.
+ *
+ * What a caller gets when it asks which pages exist. Everything here is a fact
+ * about the page rather than its content, including `revision`, because a
+ * caller that means to rewrite a page needs the number before it reads the
+ * body.
+ */
+export interface PageSummary {
+  id: string;
+  slug: string;
+  title: string;
+  visibility: PageVisibility;
+  published: boolean;
+  publishedAt: string | null;
+  sortOrder: number;
+  revision: number;
+  updatedAt: string;
+}
+
 export interface PageAdminView {
   id: string;
   slug: string;
@@ -213,6 +233,64 @@ export class PagesWriteService {
   }
 
   /**
+   * A bounded page of pages, without their bodies.
+   *
+   * Its own method rather than a bound on `list()` above, which the board's
+   * editor calls and which has to return every page to arrange them. The
+   * difference is who is asking: the editor is one board member looking at
+   * their own association, while this answers a caller that may be a model
+   * with a context window, and `PAGE_COLUMNS` carries `content` - so one
+   * unbounded call could return the association's whole website. The per-page
+   * ceiling alone is 200 blocks of 200 runs of 5000 characters.
+   *
+   * Summary rows, so reading a body is a second, deliberate call.
+   */
+  async listSummaries(options: {
+    limit: number;
+    cursor?: string | undefined;
+    publishedOnly?: boolean | undefined;
+  }): Promise<{ pages: PageSummary[]; nextCursor: string | null }> {
+    // One more than asked for, so "is there another page" is answered by the
+    // read rather than by a second count query.
+    const rows = await this.prisma.page.findMany({
+      where: options.publishedOnly === true ? { published: true } : {},
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      take: options.limit + 1,
+      ...(options.cursor === undefined
+        ? {}
+        : { cursor: { id: options.cursor }, skip: 1 }),
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        visibility: true,
+        published: true,
+        publishedAt: true,
+        sortOrder: true,
+        revision: true,
+        updatedAt: true,
+      },
+    });
+
+    const page = rows.slice(0, options.limit);
+    return {
+      pages: page.map((row) => ({
+        id: row.id,
+        slug: row.slug,
+        title: row.title,
+        visibility: row.visibility,
+        published: row.published,
+        publishedAt: row.publishedAt?.toISOString() ?? null,
+        sortOrder: row.sortOrder,
+        revision: row.revision,
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+      nextCursor:
+        rows.length > options.limit ? (page.at(-1)?.id ?? null) : null,
+    };
+  }
+
+  /**
    * Writes a new page.
    *
    * Unpublished, always. A page is written before it is meant to be read, and
@@ -220,23 +298,44 @@ export class PagesWriteService {
    * which is also why creating one needs no guardrail run: nothing it holds is
    * readable by anyone yet.
    */
-  async create(input: CreatePageInput): Promise<PageAdminView> {
+  async create(
+    input: CreatePageInput,
+    actor: ActorContext,
+  ): Promise<PageAdminView> {
     await this.requireFreeSlug(input.slug, null);
 
-    const highest = await this.prisma.page.aggregate({
-      _max: { sortOrder: true },
-    });
+    const row = await this.prisma.$transaction(async (tx) => {
+      const highest = await tx.page.aggregate({ _max: { sortOrder: true } });
 
-    const row = await this.prisma.page.create({
-      data: {
-        slug: input.slug,
-        title: input.title,
-        content: asJson(input.content),
-        visibility: input.visibility,
-        published: false,
-        sortOrder: (highest._max.sortOrder ?? 0) + 1,
-      },
-      select: PAGE_COLUMNS,
+      const created = await tx.page.create({
+        data: {
+          slug: input.slug,
+          title: input.title,
+          content: asJson(input.content),
+          visibility: input.visibility,
+          published: false,
+          sortOrder: (highest._max.sortOrder ?? 0) + 1,
+        },
+        select: PAGE_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "PAGE_CONTENT_CHANGED",
+          ...auditActor(actor),
+          targetKind: "page",
+          targetId: created.id,
+          context: {
+            slug: created.slug,
+            blockCount: input.content.blocks.length,
+            published: false,
+            created: true,
+          },
+        },
+        tx,
+      );
+
+      return created;
     });
 
     return toAdminView(row);
@@ -253,7 +352,11 @@ export class PagesWriteService {
    * Who rewrote the body of a published page is a separate question from who
    * may read it, and one this write does not answer.
    */
-  async update(id: string, input: UpdatePageInput): Promise<PageAdminView> {
+  async update(
+    id: string,
+    input: UpdatePageInput,
+    actor: ActorContext,
+  ): Promise<PageAdminView> {
     const page = await this.require(id);
     await this.requireFreeSlug(input.slug, id);
 
@@ -273,36 +376,31 @@ export class PagesWriteService {
      * between them that the precondition exists to close.
      */
     if (input.expectedRevision !== undefined) {
-      const claimed = await this.prisma.page.updateMany({
-        /*
-         * The publication state as well as the revision. The guardrails above
-         * ran against the page this transaction read, and they are skipped for
-         * a draft: a page published between that read and this write would take
-         * content nothing checked. Claiming on it too means such a save is
-         * refused rather than applied - and the caller reads the page again,
-         * where the guardrails will run.
-         */
-        where: {
-          id,
-          revision: input.expectedRevision,
-          published: page.published,
-        },
-        data: {
-          slug: input.slug,
-          title: input.title,
-          content: asJson(input.content),
-          // In the same statement as the content it belongs to, so the next
-          // caller's claim reads a number that moved with the page.
-          revision: { increment: 1 },
-        },
-      });
-      if (claimed.count === 0) {
-        throw new PageWriteError(
-          "The page changed after it was read.",
-          "page-changed",
-        );
-      }
-      return toAdminView(await this.require(id));
+      return this.claimAndRecord(id, actor, (tx) =>
+        tx.page.updateMany({
+          /*
+           * The publication state as well as the revision. The guardrails above
+           * ran against the page this transaction read, and they are skipped for
+           * a draft: a page published between that read and this write would take
+           * content nothing checked. Claiming on it too means such a save is
+           * refused rather than applied - and the caller reads the page again,
+           * where the guardrails will run.
+           */
+          where: {
+            id,
+            revision: input.expectedRevision,
+            published: page.published,
+          },
+          data: {
+            slug: input.slug,
+            title: input.title,
+            content: asJson(input.content),
+            // In the same statement as the content it belongs to, so the next
+            // caller's claim reads a number that moved with the page.
+            revision: { increment: 1 },
+          },
+        }),
+      );
     }
 
     /*
@@ -310,27 +408,72 @@ export class PagesWriteService {
      * it says the page is not the one somebody else read, and a save that left
      * it alone would let their stale claim match afterwards.
      */
-    const claimed = await this.prisma.page.updateMany({
-      // No revision to claim on, but the publication state this write was
-      // checked against is still a precondition: without it a caller that sends
-      // no revision could put content past the guardrails onto a page somebody
-      // published in between.
-      where: { id, published: page.published },
-      data: {
-        slug: input.slug,
-        title: input.title,
-        content: asJson(input.content),
-        revision: { increment: 1 },
-      },
-    });
-    if (claimed.count === 0) {
-      throw new PageWriteError(
-        "The page changed after it was read.",
-        "page-changed",
-      );
-    }
+    return this.claimAndRecord(id, actor, (tx) =>
+      tx.page.updateMany({
+        // No revision to claim on, but the publication state this write was
+        // checked against is still a precondition: without it a caller that
+        // sends no revision could put content past the guardrails onto a page
+        // somebody published in between.
+        where: { id, published: page.published },
+        data: {
+          slug: input.slug,
+          title: input.title,
+          content: asJson(input.content),
+          revision: { increment: 1 },
+        },
+      }),
+    );
+  }
 
-    return toAdminView(await this.require(id));
+  /**
+   * Runs one claim and records the content change it made, together.
+   *
+   * Both branches of the save above need the same thing: a conditional write
+   * that either matches the page as it still stands or matches nothing, and an
+   * audit entry that commits with it. A rewritten page whose entry was lost
+   * would leave a published page changed by nobody, which is the whole gap
+   * PAGE_CONTENT_CHANGED closes.
+   */
+  private async claimAndRecord(
+    id: string,
+    actor: ActorContext,
+    claim: (tx: Prisma.TransactionClient) => Promise<{ count: number }>,
+  ): Promise<PageAdminView> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const claimed = await claim(tx);
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
+
+      const updated = await tx.page.findUniqueOrThrow({
+        where: { id },
+        select: PAGE_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "PAGE_CONTENT_CHANGED",
+          ...auditActor(actor),
+          targetKind: "page",
+          targetId: id,
+          // Facts about the act, never the text: which page, and how much of
+          // it there now is.
+          context: {
+            slug: updated.slug,
+            blockCount: readPageContent(updated.content).blocks.length,
+            published: updated.published,
+          },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    return toAdminView(row);
   }
 
   /**
@@ -512,14 +655,49 @@ export class PagesWriteService {
    * drag on a list, and a stale row in the browser must not lose the whole
    * arrangement.
    */
-  async reorder(ids: readonly string[]): Promise<PageAdminView[]> {
+  async reorder(
+    ids: readonly string[],
+    actor: ActorContext,
+  ): Promise<PageAdminView[]> {
+    /*
+     * Interactive rather than the array form, which cannot carry the audit
+     * entry: the entry has to commit or roll back with the arrangement it
+     * records.
+     */
     await this.prisma.$transaction(
-      ids.map((id, index) =>
-        this.prisma.page.updateMany({
-          where: { id },
-          data: { sortOrder: index },
-        }),
-      ),
+      async (tx) => {
+        for (const [index, id] of ids.entries()) {
+          await tx.page.updateMany({
+            where: { id },
+            data: { sortOrder: index },
+          });
+        }
+
+        // The count of ids the board sent, not of rows that moved: ids the
+        // instance does not have are ignored, so how many rows changed is not a
+        // number this call knows.
+        await this.audit.record(
+          {
+            action: "PAGE_REORDERED",
+            ...auditActor(actor),
+            targetKind: "page",
+            targetId: null,
+            context: { count: ids.length },
+          },
+          tx,
+        );
+      },
+      /*
+       * The interactive form costs one round trip per id where the array form
+       * sent one batch, and both the route and `page_reorder` cap the list at
+       * 500 - so the default five-second budget is reachable on a loaded
+       * database. Exceeding it aborts the whole arrangement with P2028 after
+       * the row locks have been held for the duration, which tells the board
+       * nothing it can act on. The budget is stated rather than the loop
+       * removed, because what forces the loop is the audit entry committing
+       * with the arrangement.
+       */
+      { timeout: 30_000 },
     );
     return this.list();
   }

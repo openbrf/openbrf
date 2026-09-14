@@ -113,14 +113,20 @@ export class PagesAdminController {
   }
 
   @Post()
-  async create(@Body() body: unknown): Promise<PageAdminView> {
+  async create(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PageAdminView> {
     const input = createSchema.parse(body);
-    return this.pages.create({
-      slug: input.slug,
-      title: input.title,
-      content: submittedContent(input.content),
-      visibility: input.visibility,
-    });
+    return this.pages.create(
+      {
+        slug: input.slug,
+        title: input.title,
+        content: submittedContent(input.content),
+        visibility: input.visibility,
+      },
+      webActor(request),
+    );
   }
 
   /**
@@ -173,8 +179,11 @@ export class PagesAdminController {
 
   /** Puts the pages in the order the ids arrive in. */
   @Post("order")
-  async reorder(@Body() body: unknown): Promise<PageAdminView[]> {
-    return this.pages.reorder(reorderSchema.parse(body).ids);
+  async reorder(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PageAdminView[]> {
+    return this.pages.reorder(reorderSchema.parse(body).ids, webActor(request));
   }
 
   @Get(":id")
@@ -186,19 +195,24 @@ export class PagesAdminController {
   async update(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<PageAdminView> {
     const input = updateSchema.parse(body);
-    return this.pages.update(id, {
-      slug: input.slug,
-      title: input.title,
-      content: submittedContent(input.content),
-      ...(input.photoConsentConfirmed === undefined
-        ? {}
-        : { photoConsentConfirmed: input.photoConsentConfirmed }),
-      ...(input.expectedRevision === undefined
-        ? {}
-        : { expectedRevision: input.expectedRevision }),
-    });
+    return this.pages.update(
+      id,
+      {
+        slug: input.slug,
+        title: input.title,
+        content: submittedContent(input.content),
+        ...(input.photoConsentConfirmed === undefined
+          ? {}
+          : { photoConsentConfirmed: input.photoConsentConfirmed }),
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
+      },
+      webActor(request),
+    );
   }
 
   @Post(":id/publish")

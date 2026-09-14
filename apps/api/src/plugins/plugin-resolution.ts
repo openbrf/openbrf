@@ -28,14 +28,26 @@ import { basename, dirname, join, resolve } from "node:path";
  */
 
 /**
- * Packages a plugin must share with the host rather than carry its own copy
- * of. Everything here holds process-wide state - a DI container, a metadata
- * registry - so a second copy is not a duplicate, it is a second and
- * disconnected system.
+ * Packages a plugin must share with the host rather than carry its own copy of.
+ *
+ * Two reasons a package belongs here, and they are different.
+ *
+ * The Nest packages hold process-wide state - a DI container, a metadata
+ * registry - so a second copy is not a duplicate but a second and disconnected
+ * system: decorators from one are invisible to the other.
+ *
+ * zod holds no state at all, and is here for a reason about identity rather
+ * than about state. An action's input and output schemas cross from the plugin
+ * into the host, which converts them to the JSON Schema a caller is published
+ * and validates against them on every call. A schema built by a second copy
+ * carries that copy's internals, so the host's realm check refuses it and its
+ * converter could not read it. What matters here is therefore which module the
+ * object came from, not what that module remembers.
  */
 export const HOST_SHARED_PACKAGES: readonly string[] = [
   "@nestjs/common",
   "@nestjs/core",
+  "zod",
 ];
 
 /**

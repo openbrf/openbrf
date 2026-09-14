@@ -1,6 +1,7 @@
 import { type DynamicModule, Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 
+import { ActionCatalogueModule } from "./actions/action-catalogue.module";
 import { AddressBookModule } from "./address-book/address-book.module";
 import { AddressesModule } from "./addresses/addresses.module";
 import { AuditModule } from "./audit/audit.module";
@@ -91,6 +92,7 @@ import { ThemesModule } from "./themes/themes.module";
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.
+    ActionCatalogueModule,
     SiteModule,
   ],
   controllers: [HealthController],

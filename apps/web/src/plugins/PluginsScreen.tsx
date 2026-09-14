@@ -8,8 +8,10 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { QUIET_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
+import { Panel } from "../ui/Panel";
 import { CatalogPanel } from "./CatalogPanel";
 import { ConsentPanel } from "./ConsentPanel";
 import { FindingsPanel } from "./FindingsPanel";
@@ -19,7 +21,14 @@ import {
   fetchPlugins,
   installPlugin,
   type PluginsOverview,
+  type PluginSummary,
+  setPluginActionArmed,
 } from "./plugin-api";
+import {
+  actionEffectLabel,
+  actionPersonalDataLabel,
+  actionSurfaceLabel,
+} from "./plugin-labels";
 
 export interface PluginsScreenProps {
   viewer: Viewer;
@@ -194,6 +203,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       id: pending.id,
       permissions: pending.permissions,
       personalData: pending.personalData,
+      actions: pending.actions,
     });
 
     setInstalling(false);
@@ -264,6 +274,12 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
             }}
           />
 
+          <ActionsPanel
+            plugins={overview.plugins}
+            editable={canManage}
+            onChanged={reload}
+          />
+
           <FindingsPanel findings={overview.findings} />
         </>
       )}
@@ -304,5 +320,221 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
         )
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One consented action, read out of the canonical string it is held as.
+ *
+ * Parsed from the end rather than from the front. The string is
+ * `id:capability:effect:personalData:surfaces`, and a capability carries a
+ * colon of its own - so counting from the left would read the whole capability
+ * of `news:write` as `news`. The id cannot contain a colon and the three
+ * trailing fields are fixed, which leaves everything between them as the
+ * capability however many colons it has.
+ */
+interface ConsentedAction {
+  id: string;
+  capability: string;
+  effect: string;
+  /**
+   * The last two fields, which the row states rather than drops.
+   *
+   * Which personal data this particular action can touch, and how far it may be
+   * offered, are what an administrator is deciding about when they arm one -
+   * and the aggregate list on the plugin's own card cannot answer either
+   * question, because it says what the plugin touches somewhere rather than
+   * what this action receives. Both are stored, pipe-separated, by
+   * `canonicalAction`.
+   */
+  personalData: string[];
+  surfaces: string[];
+}
+
+function parseConsentedAction(canonical: string): ConsentedAction {
+  const parts = canonical.split(":");
+  const id = parts[0] ?? canonical;
+
+  // Fewer than the five fields is a string this build cannot read. It is still
+  // shown, by its id: the entry is part of a declaration the board consented
+  // to, and a list that quietly drops one is worse than a row that says less.
+  if (parts.length < 5) {
+    return { id, capability: "", effect: "", personalData: [], surfaces: [] };
+  }
+
+  // Empty rather than [""]: a declaration touching no personal data stores an
+  // empty field, and splitting one yields a single blank entry.
+  const list = (field: string | undefined): string[] =>
+    field === undefined || field === "" ? [] : field.split("|");
+
+  return {
+    id,
+    capability: parts.slice(1, parts.length - 3).join(":"),
+    effect: parts[parts.length - 3] ?? "",
+    personalData: list(parts[parts.length - 2]),
+    surfaces: list(parts[parts.length - 1]),
+  };
+}
+
+/**
+ * What the plugins on this instance may be asked to do, and what is offered.
+ *
+ * Declaring an action and offering it are two decisions. The board consented
+ * to the declaration when it installed the plugin; arming is what puts one
+ * action within reach of a connected app and the AI package, and it is an
+ * administrator's to give. The panel states that in a sentence, because this
+ * is the only place a board member is told what arming means - a row of
+ * toggles with no sentence would read as switches for turning features on.
+ *
+ * Absent entirely when nothing declares an action, on the findings panel's
+ * precedent: an empty heading about a mechanism that is not in play on this
+ * instance is a question the board would have to go and answer.
+ */
+function ActionsPanel({
+  plugins,
+  editable,
+  onChanged,
+}: {
+  plugins: readonly PluginSummary[];
+  editable: boolean;
+  onChanged: () => void;
+}): ReactElement | null {
+  const { t } = useTranslation();
+
+  const declaring = plugins.filter(
+    (plugin) => plugin.consentedActions.length > 0,
+  );
+  if (declaring.length === 0) {
+    return null;
+  }
+
+  return (
+    <Panel
+      title={t("plugins.actions.title")}
+      description={t("plugins.actions.description")}
+    >
+      {declaring.map((plugin) => (
+        <section key={plugin.id} className="flex flex-col gap-2">
+          <h3 className="text-label text-ink-muted uppercase">{plugin.id}</h3>
+          <ul className="flex flex-col gap-3">
+            {plugin.consentedActions.map((canonical) => {
+              const action = parseConsentedAction(canonical);
+              return (
+                <ActionRow
+                  key={canonical}
+                  pluginId={plugin.id}
+                  action={action}
+                  armed={plugin.armedActions.includes(action.id)}
+                  editable={editable}
+                  onChanged={onChanged}
+                />
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+    </Panel>
+  );
+}
+
+function ActionRow({
+  pluginId,
+  action,
+  armed,
+  editable,
+  onChanged,
+}: {
+  pluginId: string;
+  action: ConsentedAction;
+  armed: boolean;
+  editable: boolean;
+  onChanged: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  /**
+   * The effect in words, when this build has words for it.
+   *
+   * What an action does to the records is the part of a declaration a board
+   * acts on, and "write" is not it.
+   */
+  const effect = actionEffectLabel(action.effect);
+
+  const toggle = async (): Promise<void> => {
+    setBusy(true);
+    setFailed(false);
+    const result = await setPluginActionArmed(pluginId, action.id, !armed);
+    setBusy(false);
+    if (!result.ok) {
+      setFailed(true);
+      return;
+    }
+    // Re-read rather than flipped here: what is armed is the server's answer,
+    // and the row is one of several things the read settles.
+    onChanged();
+  };
+
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="font-data text-small text-ink">{action.id}</span>
+        <span className="font-data text-small text-ink-muted">
+          {action.capability}
+        </span>
+        {effect === null ? null : (
+          <span className="text-small text-ink-muted">{t(effect)}</span>
+        )}
+        <span className="text-chip text-ink-muted uppercase">
+          {t(armed ? "plugins.actions.armed" : "plugins.actions.notArmed")}
+        </span>
+      </div>
+
+      {/*
+        What this action touches and how far it may go, on the row where the
+        decision is made. Arming is what carries an action beyond the
+        association's own screens, so the two facts that decide whether it
+        should be belong beside the toggle rather than only on the install
+        screen the board read once.
+      */}
+      <div className="flex flex-wrap items-baseline gap-2 text-small text-ink-muted">
+        <span>
+          {action.personalData.length === 0
+            ? t("plugins.actions.noPersonalData")
+            : action.personalData
+                .map((category) => t(actionPersonalDataLabel(category)))
+                .join(", ")}
+        </span>
+        {action.surfaces.length === 0 ? null : (
+          <span>
+            {action.surfaces
+              .map((surface) => t(actionSurfaceLabel(surface)))
+              .join(", ")}
+          </span>
+        )}
+      </div>
+
+      {editable ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void toggle();
+            }}
+            className={QUIET_BUTTON}
+          >
+            {t(armed ? "plugins.actions.disarm" : "plugins.actions.arm")}
+          </button>
+        </div>
+      ) : null}
+
+      {failed ? (
+        <Notice tone="danger" live>
+          {t("plugins.actions.failed")}
+        </Notice>
+      ) : null}
+    </li>
   );
 }

@@ -9,6 +9,7 @@ import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PluginAdminService } from "./plugin-admin.service";
 import {
   PluginConsentMismatchError,
+  PluginNotFoundError,
   PluginRecipientRequiredError,
 } from "./plugin.errors";
 
@@ -37,15 +38,31 @@ const ENTRY = {
   apiVersion: 1,
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "apartment"],
+  actions: [],
   artifact: { url: "https://example.test/occupancy.tgz", sha512: "sha512-x" },
 } as unknown as CatalogPluginEntry;
 
 function build() {
   const consent = vi.fn(async () => undefined);
   const recordProcessor = vi.fn(async () => undefined);
+  const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
+  const record = vi.fn(async () => undefined);
+  /*
+   * The transaction client, as its own object. Arming and the entry that
+   * records it have to commit together, and an assertion that the entry was
+   * written with "something" cannot tell that apart from the root client.
+   */
+  const txClient = { marker: "tx" };
+  const prisma = {
+    association: { findUnique: async () => ({ defaultLocale: "sv" }) },
+    $transaction: vi.fn(
+      async (run: unknown) =>
+        await (run as (tx: unknown) => Promise<unknown>)(txClient),
+    ),
+  };
   const service = new PluginAdminService(
     { OPENBRF_PLUGINS_ENABLED: true } as unknown as Env,
-    { consent } as never,
+    { consent, setActionArmed } as never,
     {
       report: () => [],
       get: () => null,
@@ -53,7 +70,7 @@ function build() {
     } as never,
     { enqueue: vi.fn(async () => undefined) } as never,
     { entry: async () => ENTRY } as never,
-    { record: vi.fn(async () => undefined) } as never,
+    { record } as never,
     {} as never,
     // The recipient's classification, the processing it performs, and what the
     // instance is configured to hand data to. Recorded on install; the
@@ -63,12 +80,18 @@ function build() {
     { read: async () => FACTS } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
-    {
-      association: { findUnique: async () => ({ defaultLocale: "sv" }) },
-    } as never,
+    prisma as never,
     { translatorFor: () => (key: string) => key } as never,
   );
-  return { service, consent, recordProcessor };
+  return {
+    service,
+    consent,
+    recordProcessor,
+    setActionArmed,
+    record,
+    prisma,
+    txClient,
+  };
 }
 
 /** What the instance hands personal data to; nothing here depends on it. */
@@ -357,5 +380,66 @@ describe("what the consent step records about the recipient", () => {
     );
 
     expect(Object.keys(recorded())).not.toContain("processorAgreement");
+  });
+});
+
+describe("arming an action, which is what exposes it", () => {
+  it("writes the change and the entry naming who made it in one transaction", async () => {
+    /*
+     * Arming is the act that puts an action within reach of a connected app or
+     * the AI package. If the change committed on its own and the entry then
+     * failed, the action would be armed with nobody named for it - and
+     * audit_log_entry is what the association answers with, not a log.
+     */
+    const built = build();
+
+    await built.service.setActionArmed("occupancy", "summary", true, "admin-1");
+
+    expect(built.prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(built.setActionArmed).toHaveBeenCalledWith(
+      "occupancy",
+      "summary",
+      true,
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_ACTION_ARMED",
+        actorPersonId: "admin-1",
+        targetKind: "plugin",
+        targetId: "occupancy",
+        context: { actionId: "summary" },
+      }),
+      built.txClient,
+    );
+  });
+
+  it("writes no entry where the arming was refused", async () => {
+    // A refusal is a 404, and the transaction rolls back with it: there is no
+    // change for an entry to record.
+    const built = build();
+    built.setActionArmed.mockResolvedValue(null as never);
+
+    await expect(
+      built.service.setActionArmed("occupancy", "summary", true, "admin-1"),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+
+    expect(built.record).not.toHaveBeenCalled();
+  });
+
+  it("names the disarming for what it is", async () => {
+    const built = build();
+
+    await built.service.setActionArmed(
+      "occupancy",
+      "summary",
+      false,
+      "admin-1",
+    );
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_ACTION_DISARMED" }),
+      built.txClient,
+    );
   });
 });

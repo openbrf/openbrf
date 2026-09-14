@@ -410,21 +410,30 @@ same lint gate a downloaded package passes.
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
 
-Not built yet: the action registry and sign-in for MCP clients, which the MCP
-Connector and the AI package under Paid modules are built on. Both are core and
-free. The audit log's channel, which both rest on, is built.
+Not built yet: sign-in for MCP clients, which the MCP Connector and the AI
+package under Paid modules are built on. It is core and free. The audit log's
+channel and the action registry, which it rests on, are built.
 
-- [ ] Action registry in the plugin API. Core features and plugins register
+- [x] Action registry in the plugin API. Core features and plugins register
       what they can do - an input schema, the capability it needs, whether it
       reads, writes or deletes, and which personal data it touches - and the
       registry checks the calling person's capability on every call rather
-      than trusting the caller. An action is offered to MCP clients and to the
-      AI package only once it is marked for them. A plugin registers actions
-      for its own features, and each action stays bound to the plugin that
-      registered it: it runs within the permissions the board consented to for
-      that plugin and disappears when the plugin is removed. An action that
-      writes register data is a core action, since no plugin permission grants
-      write access to the register
+      than trusting the caller, re-deriving it from the register each time so
+      a board term ending narrows what a token may do the same night it
+      narrows the person. An action is offered to connected apps and to the AI
+      package only once an administrator has switched it on, one action at a
+      time: declaring an action proposes it, and arming it is what exposes it,
+      so adding a channel can never expose an action by itself. A plugin
+      declares its actions in its manifest, the board sees them on the install
+      consent screen before anything is downloaded, and each action stays bound
+      to the plugin that registered it: it runs within the permissions the
+      board consented to, is never reachable by a caller the plugin's own
+      routes would refuse, and disappears when the plugin is removed. An action
+      that writes register data is a core action, since no plugin permission
+      grants write access to the register. The first slice is the website: the
+      association's news, pages and menu, with no way to mail the members -
+      something acting through a connected app may create a mailing request,
+      and a board member confirms the mailing in the web interface
 - [ ] Sign-in for MCP clients: OAuth 2.1, with tokens whose scopes never exceed
       the current capabilities of the person who granted them, so every token
       acts as a person

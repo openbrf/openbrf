@@ -59,6 +59,15 @@ the package it sits in, or be left behind by a partial extraction.
         },
       ],
     },
+    "actions": [
+      {
+        "id": "summary",
+        "capability": "addressBook:read",
+        "effect": "read",
+        "personalData": [],
+        "surfaces": ["ui", "mcp"],
+      },
+    ],
   },
 }
 ```
@@ -73,8 +82,25 @@ the package it sits in, or be left behind by a partial extraction.
 | `personalData`   | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
 | `view`           | no             | The exposed module name and the i18n key for its title.                                                                                                    |
 | `settingsSchema` | no             | The settings form the host renders.                                                                                                                        |
+| `actions`        | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 
 Entry paths are relative and may not step outside the package.
+
+One action is an `id` (lowercase letters, digits and underscores, three to
+thirty-two characters), the single `capability` it needs, its `effect` - `read`,
+`write` or `delete` - the `personalData` categories it can touch, and the
+`surfaces` it may be offered on. The last two default to `[]` and `["ui"]`. The
+capability, the effect, the categories and the surfaces are declared here rather
+than in the bundle because the board reads them on the install consent screen,
+before anything has been downloaded; the bundle supplies only the schemas, the
+text keys and the handler.
+
+The public name is composed by the host: the plugin's id with dashes folded to
+underscores, an underscore, then the action's id. A pair that composes to more
+than sixty-four characters is manifest-invalid, and the folding means a plugin
+`a-b` declaring `c` collides with a plugin `a` declaring `b_c` - the second to
+arrive is refused. [Actions](actions.md) has the arithmetic and the rest of what
+an action must meet.
 
 ## Permissions
 
@@ -184,12 +210,19 @@ export const createPlugin: PluginModuleFactory = (host) => {
 };
 ```
 
-`@nestjs/common` and `@nestjs/core` are **peer dependencies**. Declare them as
-such and never bundle them: the host puts its own `node_modules` on
-`NODE_PATH` so a plugin resolves the one running NestJS instance, and it
-refuses to register a plugin that resolved a second copy - a duplicate breaks
-dependency injection in ways that surface long after the install looked
-successful (ADR 0003).
+`@nestjs/common`, `@nestjs/core` and `zod` are **peer dependencies**. Declare
+them as such and never bundle them: the host puts its own `node_modules` on
+`NODE_PATH` so a plugin resolves the one running instance, and it refuses to
+register a plugin that resolved a second copy (ADR 0003).
+
+The two have different reasons. A second copy of NestJS is not a duplicate but a
+second and disconnected system - its own container, its own metadata registry -
+and it breaks dependency injection in ways that surface long after the install
+looked successful. zod holds no state at all and is shared for a reason about
+identity: an action's schemas cross from the plugin into the host, which converts
+them into the JSON Schema a caller is published and validates against them on
+every call. A schema built with a bundled copy comes from a second realm, which
+the host cannot read, so it is refused.
 
 Everything else must come from `@openbrf/plugin-sdk` as a **type-only** import.
 The SDK is a build-time dependency: everything a plugin uses at runtime is
@@ -216,6 +249,76 @@ for start-up work in any case. A call made too early throws
 The same error is thrown after the board switches the plugin off. Its module
 stays constructed until the next boot, so a timer or job worker it started of
 its own keeps running, and must not still be reading the register.
+
+`host.actions.register` is the one exception. It is callable from the module
+factory, because a declaration is not work: a registration made that early is
+buffered and flushed into the registry once the application exists, inside the
+same window the other services are bound in. `host.actions.list` and
+`host.actions.invoke` keep the ordinary gate, and need no exception - a route
+serving a request means the application is up.
+
+### Actions
+
+An action is one thing the platform can be asked to do, dispatched through one
+place that checks the calling person's capability on every call. A plugin
+declares its actions in the manifest and registers the matching definitions -
+the schemas, the text keys and the handler - from its module factory. What an
+action's name, description, schemas and refusals must meet is in
+[Actions](actions.md).
+
+```ts
+host.actions.register({
+  id: "summary",
+  definition: {
+    name: "summary",
+    titleKey: "actions.summary.title",
+    descriptionKey: "actions.summary.description",
+    group: "occupancy",
+    groupTitleKey: "actions.group.occupancy.title",
+    idempotent: true,
+    additive: false,
+    needsConfirmation: false,
+    openWorld: false,
+    errors: [],
+    input: z.strictObject({}).describe("Takes no arguments."),
+    output: z.strictObject({ apartments: z.number().int() }),
+    handler: async () => host.addressBook.summary(),
+  },
+});
+```
+
+Text keys are written bare and the host qualifies them into the plugin's own
+namespace. An id the manifest does not declare is refused, and so is a schema
+that cannot be published; either stops the plugin serving and is reported as
+`action-refused`.
+
+Neither `list` nor `invoke` takes a person. Both take the request the plugin's
+own route received, and the caller is read from a mark the host put on it, so a
+plugin dispatches as whoever is on the other end of the request it is serving and
+cannot dispatch as anybody else.
+
+**Declaring an action is a proposal.** It reaches connected apps and the AI
+package only once an administrator arms it, individually, on the plugin's own
+screen - the same authority that installed the plugin and consented to what it
+may do. Arming is read at the moment of the call, so disarming bites at once, and
+it is cleared whenever the board consents to a republished version: an action
+that keeps its id while changing the capability it needs is a different action
+wearing the same name. Re-arming after an upgrade is one toggle. A plugin's own
+route may reach its own actions without any of this, because that is in process.
+
+`host.actions` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect:
+
+```ts
+if (host.actions === undefined) {
+  // This instance is older than the member. Do without it.
+}
+```
+
+`isSupportedApiVersion` cannot see a member added to an interface, so nothing
+refuses such a plugin at load. Without the check the failure surfaces as a
+`load-failed` finding whose message is deliberately withheld from the board and
+written to the server log instead.
 
 ### Routes
 
@@ -396,22 +499,42 @@ plugin must not be able to take the housing cooperative's statutory registers -
 the member register and the apartment register - offline. The admin screen
 lists everything on the data volume that is not running and why:
 
-| Reason                    | Meaning                                                            |
-| ------------------------- | ------------------------------------------------------------------ |
-| `manifest-invalid`        | The `openbrf` field failed validation.                             |
-| `api-version-unsupported` | Built against a contract version this instance does not implement. |
-| `entry-missing`           | A declared entry file is not in the package.                       |
-| `entry-invalid`           | The server bundle does not export `createPlugin`.                  |
-| `module-invalid`          | `createPlugin` returned no NestJS dynamic module.                  |
-| `module-refused`          | Its module declares behaviour a plugin may not register.           |
-| `module-failed`           | Its module could not be built into the application.                |
-| `module-identity`         | The package carries its own copy of a host package it must share.  |
-| `permissions-widened`     | It asks for more than was consented to.                            |
-| `personal-data-widened`   | It handles a personal-data category not consented to.              |
-| `not-consented`           | On the volume with no record of consent.                           |
-| `disabled`                | Switched off in the admin interface.                               |
-| `load-failed`             | It threw while being loaded.                                       |
-| `not-on-volume`           | Recorded as installed but not present.                             |
+| Reason                    | Meaning                                                                |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `manifest-invalid`        | The `openbrf` field failed validation.                                 |
+| `api-version-unsupported` | Built against a contract version this instance does not implement.     |
+| `entry-missing`           | A declared entry file is not in the package.                           |
+| `entry-invalid`           | The server bundle does not export `createPlugin`.                      |
+| `module-invalid`          | `createPlugin` returned no NestJS dynamic module.                      |
+| `module-refused`          | Its module declares behaviour a plugin may not register.               |
+| `module-failed`           | Its module could not be built into the application.                    |
+| `module-identity`         | The package carries its own copy of a host package it must share.      |
+| `permissions-widened`     | It asks for more than was consented to.                                |
+| `personal-data-widened`   | It handles a personal-data category not consented to.                  |
+| `actions-widened`         | It declares an action the board has not consented to.                  |
+| `action-refused`          | An action it declares could not be registered.                         |
+| `forbidden-injection`     | One of its providers reaches for a core service a plugin may not hold. |
+| `not-consented`           | On the volume with no record of consent.                               |
+| `disabled`                | Switched off in the admin interface.                                   |
+| `load-failed`             | It threw while being loaded.                                           |
+| `not-on-volume`           | Recorded as installed but not present.                                 |
+
+Three of these need an answer rather than a restart:
+
+- `actions-widened` is the same gate `permissions-widened` and
+  `personal-data-widened` are. The board consented to a stated set of actions,
+  compared by the whole declaration rather than by id, so a republished version
+  that keeps an id while changing the capability it needs has widened its reach.
+  Reinstalling shows the new declaration for consent; arming starts from nothing
+  afterwards.
+- `action-refused` means a declaration the board did consent to could not be
+  registered. The finding names the action id; the reason - a name the instance
+  will not take, a capability a plugin's action may not ask for, a schema that
+  cannot be published - is in the server log, and the fix belongs to the author.
+- `forbidden-injection` means one of the plugin's providers asks NestJS for a
+  core service by type. The audit log, the principal service and dispatch itself
+  are reachable that way and a plugin may not hold any of them, so the module is
+  refused rather than loaded. The fix belongs to the author.
 
 The set is exported as `PLUGIN_FINDING_REASONS` from `@openbrf/plugin-sdk`. A
 finding carries one of these codes and a `detail` object holding the values its

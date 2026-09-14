@@ -177,6 +177,7 @@ beforeAll(async () => {
       checksum: "sha512-unused-in-this-suite",
       permissions: [],
       personalData: [],
+      actions: [],
     });
   }
 

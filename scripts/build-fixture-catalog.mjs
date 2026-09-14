@@ -161,7 +161,7 @@ if (!bundleSource.includes("exports.createPlugin")) {
 // property of the emit: a bundle reaching for anything else would resolve it
 // from /data/plugins, where the host's node_modules cannot be seen and the
 // install deliberately places no copy.
-const HOST_PACKAGES = new Set(["@nestjs/common", "@nestjs/core"]);
+const HOST_PACKAGES = new Set(["@nestjs/common", "@nestjs/core", "zod"]);
 const required = [
   ...bundleSource.matchAll(/\brequire\(\s*["']([^"']+)["']\s*\)/g),
 ].map(([, specifier]) => specifier);
@@ -215,6 +215,10 @@ const catalog = {
       description: DESCRIPTION,
       permissions: manifest.permissions,
       personalData: manifest.personalData,
+      // The third part of the declaration, copied for the same reason: the
+      // consent screen renders from the catalog, before anything is
+      // downloaded, and the install echo compares what it showed.
+      actions: manifest.actions ?? [],
       artifact: {
         // Absolute, and computed here rather than written down: the harness
         // resolves it with no network, and a checked-in path would be wrong on

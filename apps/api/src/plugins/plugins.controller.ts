@@ -11,6 +11,7 @@ import {
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  pluginActionsSchema,
   pluginIdSchema,
 } from "@openbrf/plugin-sdk";
 import { z } from "zod";
@@ -30,6 +31,18 @@ const installSchema = z.object({
   /** Echoed from the consent screen so a changed entry is refused. */
   permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16),
   personalData: z.array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES)).max(16),
+  /**
+   * The third of the three, and it has to be named here to survive.
+   *
+   * `z.object` strips what it does not declare, so an omission is not a field
+   * that arrives unchecked - it is a field that never arrives at all. The
+   * service compares the echo as one unit, so actions reaching it as undefined
+   * reads as a board that consented to no action, and every install of a plugin
+   * that declares one is refused with a mismatch nothing on the screen can
+   * satisfy. Required rather than defaulted, for the same reason the two above
+   * are: a default would put the empty list back and the refusal with it.
+   */
+  actions: pluginActionsSchema,
   /**
    * What the board answered about where this plugin sends personal data.
    *
@@ -59,6 +72,11 @@ const installSchema = z.object({
 const enabledSchema = z.object({ enabled: z.boolean() });
 const settingsSchema = z.object({ values: z.record(z.string(), z.unknown()) });
 const idSchema = z.object({ id: pluginIdSchema });
+const actionParamsSchema = z.object({
+  id: pluginIdSchema,
+  actionId: z.string().regex(/^[a-z][a-z0-9_]{2,31}$/),
+});
+const armedSchema = z.object({ armed: z.boolean() });
 
 /**
  * The acting person, or a fault.
@@ -171,6 +189,30 @@ export class PluginsWriteController {
     return this.plugins.setEnabled(
       idSchema.parse(params).id,
       enabledSchema.parse(body).enabled,
+    );
+  }
+
+  /**
+   * Arms or disarms one of a plugin's declared actions.
+   *
+   * On this controller rather than beside the connected-apps screens, and so
+   * at association:manage: arming is the same authority that installed the
+   * plugin and consented to what it may do, exercised on the same screen. The
+   * board's reach over what a connected app has already been given is a
+   * different question, answered by the connected-apps screen.
+   */
+  @Put(":id/actions/:actionId")
+  async setActionArmed(
+    @Param() params: unknown,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    const { id, actionId } = actionParamsSchema.parse(params);
+    await this.plugins.setActionArmed(
+      id,
+      actionId,
+      armedSchema.parse(body).armed,
+      requirePersonId(request),
     );
   }
 

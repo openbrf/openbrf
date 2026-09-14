@@ -624,9 +624,14 @@ describe("publishing a page", () => {
 
     const entries = await prisma.auditLogEntry.findMany({
       where: { targetKind: "page", targetId: page?.id },
+      orderBy: { createdAt: "asc" },
       select: { action: true, actorPersonId: true },
     });
+    // Writing the page and publishing it are two acts and two entries. Before
+    // the content entry existed, rewriting the body of a published page left
+    // no record at all.
     expect(entries).toEqual([
+      { action: "PAGE_CONTENT_CHANGED", actorPersonId: boardMember.personId },
       { action: "PAGE_PUBLISHED", actorPersonId: boardMember.personId },
     ]);
   });

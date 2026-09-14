@@ -1,6 +1,11 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import type { PluginManifest } from "@openbrf/plugin-sdk";
+import type {
+  PluginFindingDetail,
+  PluginFindingReason,
+  PluginManifest,
+} from "@openbrf/plugin-sdk";
 
+import { ActionRegistryService } from "../actions/action-registry.service";
 import { I18nService } from "../i18n/i18n.service";
 import {
   type BootPlugin,
@@ -41,6 +46,7 @@ export class PluginLoaderService implements OnModuleInit {
   constructor(
     @Inject(PLUGIN_BOOT) private readonly boot: PluginBoot,
     private readonly i18n: I18nService,
+    private readonly actions: ActionRegistryService,
   ) {
     for (const plugin of boot.plugins) {
       this.loaded.set(plugin.id, plugin);
@@ -107,6 +113,24 @@ export class PluginLoaderService implements OnModuleInit {
    * cache until the next boot, which is a property of loading CommonJS at all;
    * what it can reach through the host is not.
    */
+  /**
+   * Stops a plugin serving and records why, for a refusal found after boot.
+   *
+   * The boot gates run before a plugin's code does and report through the boot
+   * object. A refusal that can only be found once the code has run - an action
+   * whose schema cannot be published, say - has nowhere else to report to, so
+   * it is added to the same list the board reads.
+   */
+  refuse(
+    id: string,
+    reason: PluginFindingReason,
+    detail: PluginFindingDetail,
+  ): void {
+    const directory = this.loaded.get(id)?.directory ?? "";
+    this.boot.findings.push({ id, directory, reason, detail });
+    this.unload(id);
+  }
+
   unload(id: string): void {
     const plugin = this.loaded.get(id);
     if (plugin === undefined) {
@@ -115,6 +139,16 @@ export class PluginLoaderService implements OnModuleInit {
     plugin.context.serving = false;
     this.loaded.delete(id);
     this.dormant.set(id, plugin.manifest);
+    /*
+     * And its actions go with it.
+     *
+     * Liveness alone already makes them unreachable and unlistable, because
+     * every call asks whether the plugin is serving. This takes the names back
+     * as well, so that nothing can ask the registry for a schema belonging to
+     * a plugin the board has switched off, and so that the names are free
+     * again.
+     */
+    this.actions.unregisterOwner({ kind: "plugin", pluginId: id });
     this.logger.log(`Plugin "${id}" stopped serving.`);
   }
 }

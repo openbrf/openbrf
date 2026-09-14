@@ -74,7 +74,19 @@
           ]
         }
       ]
-    }
+    },
+    "actions": [
+      {
+        "id": "summary",
+        "capability": "addressBook:read",
+        "effect": "read",
+        "personalData": [],
+        "surfaces": [
+          "ui",
+          "mcp"
+        ]
+      }
+    ]
   },
   "devDependencies": {
     "@module-federation/vite": "1.21.6",
@@ -88,9 +100,11 @@
     "react-i18next": "17.0.13",
     "rxjs": "7.8.2",
     "typescript": "7.0.2",
-    "vite": "8.3.0"
+    "vite": "8.3.0",
+    "zod": "^4.6.2"
   },
   "peerDependencies": {
-    "@nestjs/common": "^12.0.0"
+    "@nestjs/common": "^12.0.0",
+    "zod": "^4.6.2"
   }
 }

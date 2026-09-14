@@ -1,10 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import type {
+  PluginActionDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 
 import { PrismaService } from "../database/prisma.service";
+import { canonicalAction } from "./plugin-action-gate";
 import type { InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
 
@@ -30,6 +32,10 @@ export interface PluginRecord {
   lastError: string | null;
   consentedPermissions: PluginPermission[];
   declaredPersonalData: PluginPersonalDataCategory[];
+  /** The actions the board consented to when this version was installed. */
+  consentedActions: string[];
+  /** The ones an administrator has switched on beyond this instance. */
+  armedActions: string[];
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -42,6 +48,7 @@ export interface PluginConsent {
   checksum: string;
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
+  actions: readonly PluginActionDeclaration[];
 }
 
 @Injectable()
@@ -76,6 +83,24 @@ export class PluginRegistryService {
       checksum: input.checksum,
       consentedPermissions: [...input.permissions],
       declaredPersonalData: [...input.personalData],
+      /*
+       * The whole declaration, canonically, because that is what the boot gate
+       * compares an installed manifest against: an action keeping its id while
+       * changing the capability it needs is a different action, and comparing
+       * ids alone would let it through.
+       */
+      consentedActions: input.actions.map((action) => canonicalAction(action)),
+      /*
+       * And the arming is cleared, every time.
+       *
+       * Without this, a republished version keeping the id `summary` while
+       * changing its capability from self:manage to site:manage would keep its
+       * arming and go live at the wider capability with nobody deciding.
+       * Adding a channel may never expose an action by itself, and an action
+       * that quietly became a different action is the same fault. Re-arming
+       * after an upgrade is one toggle.
+       */
+      armedActions: [],
       status: "PENDING" as const,
       lastError: null,
     };
@@ -85,6 +110,77 @@ export class PluginRegistryService {
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
     });
+    return toRecord(row);
+  }
+
+  /**
+   * Switches one of a plugin's actions on or off beyond this instance.
+   *
+   * Refuses an id outside the consented declaration, which is the subset rule:
+   * arming is a decision about something the board agreed to, so an id the
+   * board never saw cannot be armed even by an administrator - and an id left
+   * behind by a version that no longer declares it stops being armable the
+   * moment that version is consented to.
+   *
+   * Returns null when there is no such plugin, no such consented action, or the
+   * consent the decision was read against is no longer the one on the row - so
+   * the caller answers 404 rather than reporting a change nobody made.
+   *
+   * `client` is the caller's transaction, so the arming and the audit entry
+   * that records who did it commit together. Arming is the act that exposes an
+   * action to connected apps and to the AI package, and an entry written after
+   * a committed change is an entry a failure can drop.
+   */
+  async setActionArmed(
+    id: string,
+    actionId: string,
+    armed: boolean,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord | null> {
+    const db = client ?? this.prisma;
+    const held = await db.installedPlugin.findUnique({ where: { id } });
+    if (held === null) {
+      return null;
+    }
+    const record = toRecord(held);
+
+    const consented = new Set(
+      record.consentedActions.map((canonical) => canonical.split(":")[0]),
+    );
+    if (!consented.has(actionId)) {
+      return null;
+    }
+
+    const armedActions = armed
+      ? [...new Set([...record.armedActions, actionId])].sort()
+      : record.armedActions.filter((held) => held !== actionId);
+
+    /*
+     * Conditional on both lists still being the ones this decision was made
+     * from, rather than an update by id alone.
+     *
+     * The consent snapshot is the one that matters. A reinstall landing between
+     * the read and the write consents to a republished declaration and clears
+     * the arming, precisely because an action whose capability changed is a
+     * different action wearing the same id; a write by id would then put the id
+     * back after the reset, and the new action would be live at its new
+     * capability with nobody having decided that. The armed list is in the
+     * condition for the ordinary reason beside it: two administrators arming
+     * two different actions must not each overwrite the other's.
+     */
+    const written = await db.installedPlugin.updateMany({
+      where: {
+        id,
+        consentedActions: { equals: record.consentedActions },
+        armedActions: { equals: record.armedActions },
+      },
+      data: { armedActions },
+    });
+    if (written.count === 0) {
+      return null;
+    }
+
+    const row = await db.installedPlugin.findUniqueOrThrow({ where: { id } });
     return toRecord(row);
   }
 
@@ -156,6 +252,11 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     consentedPermissions: row.consentedPermissions as PluginPermission[],
     declaredPersonalData:
       row.declaredPersonalData as PluginPersonalDataCategory[],
+    // Plain strings for the reason the two lists above are: an id left behind
+    // by a version that no longer declares it reads back as a string the
+    // loader ignores, rather than as a failed decode.
+    consentedActions: row.consentedActions,
+    armedActions: row.armedActions,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

@@ -13,5 +13,8 @@
   "settings.rowLimit.label": "Maximum number of rows",
   "settings.grouping.label": "Group by",
   "settings.grouping.address": "Address",
-  "settings.grouping.floor": "Floor"
+  "settings.grouping.floor": "Floor",
+  "actions.group.occupancy.title": "Occupancy",
+  "actions.summary.title": "Summarise the occupancy",
+  "actions.summary.description": "Counts how many apartments, residents and members the association has right now. It changes nothing and names no person. It needs nothing beforehand."
 }

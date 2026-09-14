@@ -27,6 +27,8 @@ const ITEM = {
   publishedAt: null,
   emailQueuedAt: null as Date | null,
   smsQueuedAt: null as Date | null,
+  mailingRequestedAt: null as Date | null,
+  mailingRequestedByPersonId: null as string | null,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
   deliveries: [] as {
     channel: string;
@@ -40,6 +42,7 @@ interface Fakes {
   news: {
     findMany: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    findUniqueOrThrow: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     updateMany: ReturnType<typeof vi.fn>;
@@ -77,6 +80,12 @@ function build(
     findUnique: vi.fn(async (args: { where: { id?: string } }) =>
       args.where.id === undefined ? null : stored,
     ),
+    /*
+     * The re-read a claim makes inside its own transaction. It answers with
+     * whatever the row holds NOW, so a case that wants to stand a concurrent
+     * publish up replaces this one rather than the row above it.
+     */
+    findUniqueOrThrow: vi.fn(async () => stored),
     create: vi.fn(async (args: { data: object }) => ({
       ...stored,
       ...args.data,
@@ -171,12 +180,15 @@ describe("writing a news item", () => {
   it("stores it unpublished, so nothing is readable before it is meant to be", async () => {
     const { service, news } = build();
 
-    await service.create({
-      slug: "hej",
-      title: "Hej",
-      content: PLAIN,
-      authorPersonId: AUTHOR,
-    });
+    await service.create(
+      {
+        slug: "hej",
+        title: "Hej",
+        content: PLAIN,
+        authorPersonId: AUTHOR,
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -188,12 +200,15 @@ describe("writing a news item", () => {
   it("writes down who wrote it, which no later save could tell us", async () => {
     const { service, news } = build();
 
-    await service.create({
-      slug: "hej",
-      title: "Hej",
-      content: PLAIN,
-      authorPersonId: AUTHOR,
-    });
+    await service.create(
+      {
+        slug: "hej",
+        title: "Hej",
+        content: PLAIN,
+        authorPersonId: AUTHOR,
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -202,16 +217,56 @@ describe("writing a news item", () => {
     );
   });
 
+  it("records what was written, saying how long it is and never what it says", async () => {
+    const { service, audit } = build();
+
+    await service.create(
+      {
+        slug: "hej",
+        title: "Hej",
+        content: paragraphsContent(["Hej på er.", "Vi ses på gården."]),
+        authorPersonId: AUTHOR,
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    const [entry] = audit.record.mock.calls[0] as [
+      {
+        action: string;
+        actorPersonId: string;
+        targetKind: string;
+        targetId: string;
+        context: Record<string, unknown>;
+      },
+    ];
+    expect(entry.action).toBe("NEWS_CONTENT_CHANGED");
+    expect(entry.actorPersonId).toBe("board-1");
+    expect(entry.targetKind).toBe("news");
+    expect(entry.targetId).toBe("news-1");
+    // Which notice it was and how long it is. The notice itself is on the row,
+    // and this table outlives that row.
+    expect(entry.context).toEqual({
+      slug: "hej",
+      blockCount: 2,
+      published: false,
+      created: true,
+    });
+    expect(JSON.stringify(entry.context)).not.toContain("gården");
+  });
+
   it("refuses an address that is not shaped like one", async () => {
     const { service } = build();
 
     const refusal = await refusalOf(
-      service.create({
-        slug: "Inte En Adress",
-        title: "Hej",
-        content: PLAIN,
-        authorPersonId: AUTHOR,
-      }),
+      service.create(
+        {
+          slug: "Inte En Adress",
+          title: "Hej",
+          content: PLAIN,
+          authorPersonId: AUTHOR,
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("invalid-slug");
@@ -223,12 +278,15 @@ describe("writing a news item", () => {
     news.findUnique.mockResolvedValue({ id: "news-other" });
 
     const refusal = await refusalOf(
-      service.create({
-        slug: "hej",
-        title: "Hej",
-        content: PLAIN,
-        authorPersonId: AUTHOR,
-      }),
+      service.create(
+        {
+          slug: "hej",
+          title: "Hej",
+          content: PLAIN,
+          authorPersonId: AUTHOR,
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("slug-taken");
@@ -238,18 +296,21 @@ describe("writing a news item", () => {
     const { service } = build();
 
     const refusal = await refusalOf(
-      service.create({
-        slug: "hej",
-        title: "Hej",
-        authorPersonId: AUTHOR,
-        content: {
-          version: 1,
-          blocks: [
-            { type: "paragraph", runs: [{ text: "Hej." }] },
-            { type: "image", mediaFileId: "file-1", alt: "" },
-          ],
+      service.create(
+        {
+          slug: "hej",
+          title: "Hej",
+          authorPersonId: AUTHOR,
+          content: {
+            version: 1,
+            blocks: [
+              { type: "paragraph", runs: [{ text: "Hej." }] },
+              { type: "image", mediaFileId: "file-1", alt: "" },
+            ],
+          },
         },
-      }),
+        { personId: "board-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("unsupported-block");
@@ -262,11 +323,15 @@ describe("the personal identity number guardrail", () => {
     const { service } = build({ published: true });
 
     const refusal = await refusalOf(
-      service.update("news-1", {
-        slug: "tvattstugan",
-        title: "Tvättstugan",
-        content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
-      }),
+      service.update(
+        "news-1",
+        {
+          slug: "tvattstugan",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
@@ -278,11 +343,15 @@ describe("the personal identity number guardrail", () => {
   it("lets a draft hold anything, because nobody can read a draft", async () => {
     const { service, news } = build({ published: false });
 
-    await service.update("news-1", {
-      slug: "tvattstugan",
-      title: "Tvättstugan",
-      content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
-    });
+    await service.update(
+      "news-1",
+      {
+        slug: "tvattstugan",
+        title: "Tvättstugan",
+        content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.update).toHaveBeenCalled();
   });
@@ -293,11 +362,15 @@ describe("the personal identity number guardrail", () => {
     });
 
     const refusal = await refusalOf(
-      service.update("news-1", {
-        slug: "tvattstugan-nya-tider",
-        title: "Tvättstugan",
-        content: paragraphsContent(["Nya tider gäller från måndag."]),
-      }),
+      service.update(
+        "news-1",
+        {
+          slug: "tvattstugan-nya-tider",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Nya tider gäller från måndag."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("address-mailed");
@@ -309,11 +382,15 @@ describe("the personal identity number guardrail", () => {
       emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
     });
 
-    await service.update("news-1", {
-      slug: "tvattstugan",
-      title: "Tvättstugan, rättad",
-      content: paragraphsContent(["Nya tider gäller från måndag."]),
-    });
+    await service.update(
+      "news-1",
+      {
+        slug: "tvattstugan",
+        title: "Tvättstugan, rättad",
+        content: paragraphsContent(["Nya tider gäller från måndag."]),
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.update).toHaveBeenCalled();
   });
@@ -475,11 +552,15 @@ describe("editing a published item", () => {
       emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
     });
 
-    await service.update("news-1", {
-      slug: "tvattstugan",
-      title: "Tvättstugan igen",
-      content: paragraphsContent(["En rättelse."]),
-    });
+    await service.update(
+      "news-1",
+      {
+        slug: "tvattstugan",
+        title: "Tvättstugan igen",
+        content: paragraphsContent(["En rättelse."]),
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     const written = news.update.mock.calls[0]?.[0] as { data: object };
     expect(Object.keys(written.data).sort()).toEqual([
@@ -488,6 +569,41 @@ describe("editing a published item", () => {
       "title",
     ]);
     expect(news.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("records the correction against the item, in the write's own transaction", async () => {
+    // A correction to something the members have read is a change to what the
+    // association published, so it is recorded as one - and beside the write
+    // rather than inside it, the entry could stand for a correction that
+    // rolled back.
+    const { service, audit } = build({
+      published: true,
+      emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
+    });
+
+    await service.update(
+      "news-1",
+      {
+        slug: "tvattstugan",
+        title: "Tvättstugan igen",
+        content: paragraphsContent(["En rättelse."]),
+      },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    const [entry, tx] = audit.record.mock.calls[0] as [
+      { action: string; targetId: string; context: Record<string, unknown> },
+      unknown,
+    ];
+    expect(entry.action).toBe("NEWS_CONTENT_CHANGED");
+    expect(entry.targetId).toBe("news-1");
+    expect(entry.context).toEqual({
+      slug: "tvattstugan",
+      blockCount: 1,
+      published: true,
+    });
+    expect(tx).toBeDefined();
   });
 });
 
@@ -614,11 +730,15 @@ describe("the SMS mailing, which happens once and separately", () => {
     });
 
     await expect(
-      service.update("news-1", {
-        slug: "nya-tider",
-        title: "Tvättstugan",
-        content: paragraphsContent(["Nya tider."]),
-      }),
+      service.update(
+        "news-1",
+        {
+          slug: "nya-tider",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Nya tider."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
     ).rejects.toMatchObject({ reason: "address-mailed" });
   });
 });
@@ -684,5 +804,75 @@ describe("who a mailing goes to", () => {
     person.count.mockResolvedValueOnce(40).mockResolvedValueOnce(12);
 
     expect(await service.recipientCounts()).toEqual({ email: 40, sms: 12 });
+  });
+});
+
+describe("a mailing request against a publish that lands beside it", () => {
+  it("does not write an ask for an item the members have just had", async () => {
+    /*
+     * The window the claim has to close. `requestMailing` reads the row, sees
+     * no mailing, and then writes; a publish landing between those two claims
+     * the email and clears the request. An unconditional write would put the
+     * ask back afterwards, standing for an item that has already gone out -
+     * and nothing on the board's screen can then answer it, because the one
+     * answer there is has already happened.
+     */
+    const { service, news, audit } = build();
+    news.updateMany.mockResolvedValue({ count: 0 });
+    news.findUniqueOrThrow.mockResolvedValue({ mailingRequestedAt: null });
+
+    await expect(
+      service.requestMailing("news-1", { personId: "app-1", channel: "MCP" }),
+    ).rejects.toMatchObject({ reason: "already-mailed" });
+
+    expect(news.updateMany).toHaveBeenCalledWith({
+      where: { id: "news-1", mailingRequestedAt: null, emailQueuedAt: null },
+      data: {
+        mailingRequestedAt: expect.any(Date),
+        mailingRequestedByPersonId: "app-1",
+      },
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("records no dismissal for a request the publish already answered", async () => {
+    /*
+     * The other direction, and the reason it matters is the log rather than
+     * the column: publishing with the mailing clears the request, so a
+     * dismissal arriving just after it would record a board member declining
+     * to send something that had gone out seconds earlier. The audit log is
+     * what the association answers with, so an entry is written only where
+     * this call is what cleared the request.
+     */
+    const standing = new Date("2026-09-02T08:00:00.000Z");
+    const { service, news, audit } = build({ mailingRequestedAt: standing });
+    news.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.dismissMailingRequest("news-1", {
+      personId: "board-1",
+      channel: "WEB",
+    });
+
+    expect(news.updateMany).toHaveBeenCalledWith({
+      where: { id: "news-1", mailingRequestedAt: standing },
+      data: { mailingRequestedAt: null, mailingRequestedByPersonId: null },
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("records the dismissal the board member did make", async () => {
+    const standing = new Date("2026-09-02T08:00:00.000Z");
+    const { service, news, audit } = build({ mailingRequestedAt: standing });
+    news.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.dismissMailingRequest("news-1", {
+      personId: "board-1",
+      channel: "WEB",
+    });
+
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "NEWS_MAILING_REQUEST_DISMISSED" }),
+      expect.anything(),
+    );
   });
 });

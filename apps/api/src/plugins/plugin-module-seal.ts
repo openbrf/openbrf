@@ -6,6 +6,7 @@ import {
   METHOD_METADATA,
   MODULE_METADATA,
   PATH_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 
@@ -58,6 +59,42 @@ const APPLICATION_WIDE_TOKENS: ReadonlyMap<unknown, string> = new Map([
   [APP_PIPE, "APP_PIPE"],
 ]);
 
+/**
+ * Core services a plugin's provider may not be constructed with.
+ *
+ * Two of the platform's modules are `@Global()` - the audit log and the
+ * authorization module - which puts their providers in the root injector where
+ * any loaded plugin's constructor can ask for them by type. Neither the global
+ * refusal above nor the application-wide token check prevents that: those stop
+ * a plugin EXPORTING something everywhere, and this stops it IMPORTING
+ * something it was never given.
+ *
+ * What each would be. `AuditLogService` writes the append-only log, so a plugin
+ * holding it could record acts that did not happen, attribute one to a person
+ * who did not perform it, and choose the channel - which is the one field the
+ * whole audit change exists to make unforgeable. `PrincipalService` answers
+ * what any person may do, which is the question a plugin is supposed to have
+ * answered for it rather than ask for itself. `ActionRegistryService` is
+ * dispatch without the plugin's identity attached, so a plugin holding it could
+ * register actions as somebody else and invoke as anybody.
+ *
+ * Matched by class name rather than by identity, because the seal runs over a
+ * module the plugin's own bundle produced and comparing constructors across a
+ * realm boundary is exactly what the module-identity check exists to catch
+ * separately. A plugin reaching for these gets `forbidden-injection`.
+ *
+ * This covers constructor injection, which is how a provider is normally
+ * given a service. Resolving the same class through `ModuleRef` at runtime is
+ * not covered and is its own change, named in ADR 0008.
+ */
+const FORBIDDEN_INJECTIONS: ReadonlySet<string> = new Set([
+  "AuditLogService",
+  "PrincipalService",
+  "ActionRegistryService",
+  "ActionCallerFactory",
+  "PrismaService",
+]);
+
 /** How deep a plugin's own module graph may go before it is refused. */
 const MAX_MODULE_DEPTH = 16;
 
@@ -71,7 +108,7 @@ export type SealResult =
   | { ok: true; module: DynamicModule; controllers: string[] }
   | {
       ok: false;
-      reason: "module-invalid" | "module-refused";
+      reason: "module-invalid" | "module-refused" | "forbidden-injection";
       /**
        * The operator's line, in English.
        *
@@ -117,13 +154,26 @@ export function sealPluginModule(
   }
 
   const controllers: unknown[] = [];
-  const refusal = walk(candidate, {
+  const state: WalkState = {
     controllers,
     seen: new Set<unknown>(),
     depth: 0,
-  });
+    outcome: {},
+  };
+  const refusal = walk(candidate, state);
   if (refusal !== null) {
-    return { ok: false, reason: "module-refused", log: refusal };
+    /*
+     * Reaching for a core service the platform never offered is its own
+     * reason, because it is the one refusal here that is about what the plugin
+     * wanted rather than about how its module was built - and a board reading
+     * "it asks for a service a plugin may not hold" can act on that, where
+     * "its module was refused" tells them only to ask the author.
+     */
+    return {
+      ok: false,
+      reason: state.outcome.refusedFor ?? "module-refused",
+      log: refusal,
+    };
   }
 
   const prefix = pluginRoutePrefix(options.pluginId);
@@ -144,6 +194,21 @@ interface WalkState {
   controllers: unknown[];
   seen: Set<unknown>;
   depth: number;
+  /**
+   * Where a refusal records a reason of its own, rather than the general one.
+   *
+   * An object rather than a field, because the walk recurses with a SPREAD of
+   * this state to carry the depth - so anything written onto the state itself
+   * is written onto a copy and lost, exactly as `seen` would be were it not a
+   * Set shared by reference. A refusal found three modules down has to reach
+   * the caller.
+   *
+   * The reason it carries: almost every refusal the walk can produce means the
+   * same thing to a board, that the module was built in a way a plugin's module
+   * may not be. Reaching for a core service is different - it says what the
+   * plugin wanted - and a board can act on that.
+   */
+  outcome: { refusedFor?: "forbidden-injection" };
 }
 
 /** Collects the module graph's controllers, or returns why it is refused. */
@@ -204,6 +269,15 @@ function walk(entry: unknown, state: WalkState): string | null {
       return (
         `The module "${moduleClass.name}" registers an application-wide ` +
         `${name}, which would act on the application's own routes.`
+      );
+    }
+
+    const reached = forbiddenInjection(provider);
+    if (reached !== null) {
+      state.outcome.refusedFor = "forbidden-injection";
+      return (
+        `A provider in "${moduleClass.name}" reaches ` +
+        `${reached}, which a plugin may not hold.`
       );
     }
   }
@@ -443,6 +517,143 @@ function isDynamicModule(value: unknown): value is DynamicModule {
     "module" in value &&
     typeof (value as { module: unknown }).module === "function"
   );
+}
+
+/**
+ * The first core service a provider declaration would reach, if it reaches one.
+ *
+ * The whole declaration rather than only its token, because a token is not what
+ * the container resolves. `{ provide: "anything", useClass: Sneaky }` is
+ * constructed as `Sneaky`, `{ useFactory, inject: [...] }` is handed exactly
+ * what `inject` names, and `{ useExisting }` resolves to whatever it aliases -
+ * so reading `provide` alone answers a question the container never asks. That
+ * matters here rather than in the abstract: AuditModule, AuthorizationModule and
+ * the database module are `@Global()`, which puts their providers in the root
+ * injector where any of these forms would have been given one.
+ *
+ * `design:paramtypes` is what TypeScript emits for a decorated class and what
+ * NestJS itself reads, and `SELF_DECLARED_DEPS_METADATA` is where `@Inject()`
+ * puts a token instead. Both are read, because one constructor can mix them.
+ *
+ * Still only what a declaration DECLARES. A provider resolving the same class
+ * through `ModuleRef` at runtime is not covered and is its own change, named in
+ * ADR 0008.
+ */
+function forbiddenInjection(provider: unknown): string | null {
+  for (const entry of declarationReaches(provider)) {
+    const reached = resolveInjectionToken(entry);
+    if (reached === UNRESOLVED) {
+      return "a forward reference that could not be resolved";
+    }
+    if (
+      typeof reached === "function" &&
+      FORBIDDEN_INJECTIONS.has(reached.name)
+    ) {
+      return reached.name;
+    }
+  }
+  return null;
+}
+
+/** A forward reference whose thunk would not produce a token. */
+const UNRESOLVED = Symbol("openbrf.unresolvedForwardReference");
+
+/**
+ * A token as the container will finally see it.
+ *
+ * `forwardRef(() => X)` is `{ forwardRef: thunk }`, and NestJS calls the thunk
+ * when it resolves the dependency. Left wrapped, the name check never sees X -
+ * and both metadata paths carry the wrapper unchanged:
+ * `@Inject(forwardRef(() => PrismaService))` writes it into the self-declared
+ * list, and `inject: [forwardRef(() => AuditLogService)]` puts it straight in
+ * the array. Both are ordinary NestJS, so the check has to follow them.
+ *
+ * A thunk that throws is refused rather than passed over, on the same footing
+ * as `resolveForwardReference` gives a module import: a reference this cannot
+ * resolve is one whose target it cannot vouch for. The chain is followed rather
+ * than unwrapped once, because a thunk may return another forward reference,
+ * and the bound is what stops one that returns itself.
+ */
+function resolveInjectionToken(token: unknown): unknown {
+  let held = token;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof held !== "object" || held === null) {
+      return held;
+    }
+    const thunk = (held as { forwardRef?: unknown }).forwardRef;
+    if (typeof thunk !== "function") {
+      return held;
+    }
+    try {
+      held = (thunk as () => unknown)();
+    } catch {
+      // The thunk is the plugin's, so what it threw is the plugin's text and
+      // stays out of the refusal, which is written to the log.
+      return UNRESOLVED;
+    }
+  }
+  return UNRESOLVED;
+}
+
+/** Every token one provider declaration names, in any of NestJS's forms. */
+function declarationReaches(provider: unknown): unknown[] {
+  if (typeof provider === "function") {
+    // A bare class is both the token and what is constructed.
+    return [provider, ...constructorReaches(provider)];
+  }
+  if (typeof provider !== "object" || provider === null) {
+    return [];
+  }
+
+  const declaration = provider as {
+    provide?: unknown;
+    useClass?: unknown;
+    useExisting?: unknown;
+    inject?: unknown;
+  };
+  const reached: unknown[] = [];
+
+  if (typeof declaration.provide === "function") {
+    reached.push(
+      declaration.provide,
+      ...constructorReaches(declaration.provide),
+    );
+  }
+  if (typeof declaration.useClass === "function") {
+    // What is actually constructed when the token is not the class itself.
+    reached.push(
+      declaration.useClass,
+      ...constructorReaches(declaration.useClass),
+    );
+  }
+  if (declaration.useExisting !== undefined) {
+    // An alias resolves to what it names, so naming one is holding it.
+    reached.push(declaration.useExisting);
+  }
+  if (Array.isArray(declaration.inject)) {
+    // A factory's arguments, resolved exactly as a constructor's are.
+    reached.push(...declaration.inject.map(injectedToken));
+  }
+  return reached;
+}
+
+function constructorReaches(token: unknown): unknown[] {
+  if (typeof token !== "function") {
+    return [];
+  }
+  return [
+    ...asArray<unknown>(reflect(token, "design:paramtypes")),
+    ...asArray<{ param?: unknown }>(
+      reflect(token, SELF_DECLARED_DEPS_METADATA),
+    ).map((entry) => entry.param),
+  ];
+}
+
+/** An inject entry is a token, or `{ token, optional }` around one. */
+function injectedToken(entry: unknown): unknown {
+  return typeof entry === "object" && entry !== null && "token" in entry
+    ? (entry as { token: unknown }).token
+    : entry;
 }
 
 function providerToken(provider: unknown): unknown {

@@ -373,6 +373,16 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.BOARD_MAILBOX_THREAD_CLOSED",
   BOARD_MAILBOX_THREAD_REOPENED:
     "register.person.report.action.BOARD_MAILBOX_THREAD_REOPENED",
+  PAGE_CONTENT_CHANGED: "register.person.report.action.PAGE_CONTENT_CHANGED",
+  NEWS_CONTENT_CHANGED: "register.person.report.action.NEWS_CONTENT_CHANGED",
+  PAGE_REORDERED: "register.person.report.action.PAGE_REORDERED",
+  NEWS_MAILING_REQUESTED:
+    "register.person.report.action.NEWS_MAILING_REQUESTED",
+  NEWS_MAILING_REQUEST_DISMISSED:
+    "register.person.report.action.NEWS_MAILING_REQUEST_DISMISSED",
+  PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
+  PLUGIN_ACTION_DISARMED:
+    "register.person.report.action.PLUGIN_ACTION_DISARMED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**

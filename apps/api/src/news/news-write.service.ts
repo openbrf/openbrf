@@ -36,6 +36,8 @@ export type NewsWriteReason =
   | "invalid-slug"
   | "slug-taken"
   | "address-mailed"
+  /** The email mailing this item was asked for has already gone out. */
+  | "already-mailed"
   | "personal-identity-number"
   | "unsupported-block";
 
@@ -123,6 +125,15 @@ export interface NewsAdminView {
    */
   smsQueuedAt: string | null;
   delivery: NewsMailingReport;
+  /**
+   * Whether something that may not mail the members has asked for this item to
+   * be mailed.
+   *
+   * A boolean and not a person: who asked is in the audit entry and reaches no
+   * screen. The board is answering "should this go out", and naming the
+   * requester would invite them to answer "who asked" instead.
+   */
+  mailingRequested: boolean;
   updatedAt: string;
 }
 
@@ -162,6 +173,23 @@ export interface PublishNewsInput {
   sendSms?: boolean;
 }
 
+/**
+ * A news item without its body.
+ *
+ * `mailingRequested` rather than who asked: the person is in the audit entry,
+ * and no screen and no caller is told which of them placed the request.
+ */
+export interface NewsSummary {
+  id: string;
+  slug: string;
+  title: string;
+  published: boolean;
+  visibility: PageVisibility;
+  publishedAt: string | null;
+  updatedAt: string;
+  mailingRequested: boolean;
+}
+
 export interface PublishNewsResult extends NewsAdminView {
   /**
    * How many members the mailing was claimed for, or null when this publish
@@ -189,6 +217,7 @@ const NEWS_COLUMNS = {
   publishedAt: true,
   emailQueuedAt: true,
   smsQueuedAt: true,
+  mailingRequestedAt: true,
   updatedAt: true,
 } as const;
 
@@ -251,6 +280,55 @@ export class NewsWriteService {
     return rows.map((row) => toAdminView(row));
   }
 
+  /**
+   * A bounded page of news items, without their bodies.
+   *
+   * Its own method rather than a bound on `list()` above, for the reason the
+   * pages have one: the board's screen shows every item, and this answers a
+   * caller that may be a model reading into a context window. Summary rows, so
+   * reading a body is a second, deliberate call.
+   */
+  async listSummaries(options: {
+    limit: number;
+    cursor?: string | undefined;
+    publishedOnly?: boolean | undefined;
+  }): Promise<{ news: NewsSummary[]; nextCursor: string | null }> {
+    const rows = await this.prisma.news.findMany({
+      where: options.publishedOnly === true ? { published: true } : {},
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: options.limit + 1,
+      ...(options.cursor === undefined
+        ? {}
+        : { cursor: { id: options.cursor }, skip: 1 }),
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        published: true,
+        visibility: true,
+        publishedAt: true,
+        updatedAt: true,
+        mailingRequestedAt: true,
+      },
+    });
+
+    const page = rows.slice(0, options.limit);
+    return {
+      news: page.map((row) => ({
+        id: row.id,
+        slug: row.slug,
+        title: row.title,
+        published: row.published,
+        visibility: row.visibility,
+        publishedAt: row.publishedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString(),
+        mailingRequested: row.mailingRequestedAt !== null,
+      })),
+      nextCursor:
+        rows.length > options.limit ? (page.at(-1)?.id ?? null) : null,
+    };
+  }
+
   async byId(id: string): Promise<NewsAdminView> {
     return toAdminView(await this.require(id));
   }
@@ -285,18 +363,41 @@ export class NewsWriteService {
    * is also why creating one runs no guardrail: nothing it holds is readable by
    * anyone yet.
    */
-  async create(input: CreateNewsInput): Promise<NewsAdminView> {
+  async create(
+    input: CreateNewsInput,
+    actor: ActorContext,
+  ): Promise<NewsAdminView> {
     await this.requireFreeSlug(input.slug, null);
 
-    const row = await this.prisma.news.create({
-      data: {
-        slug: input.slug,
-        title: input.title,
-        content: asJson(onlyProse(input.content)),
-        published: false,
-        authorPersonId: input.authorPersonId,
-      },
-      select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.news.create({
+        data: {
+          slug: input.slug,
+          title: input.title,
+          content: asJson(onlyProse(input.content)),
+          published: false,
+          authorPersonId: input.authorPersonId,
+        },
+        select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+      });
+
+      await this.audit.record(
+        {
+          action: "NEWS_CONTENT_CHANGED",
+          ...auditActor(actor),
+          targetKind: "news",
+          targetId: created.id,
+          context: {
+            slug: created.slug,
+            blockCount: onlyProse(input.content).blocks.length,
+            published: false,
+            created: true,
+          },
+        },
+        tx,
+      );
+
+      return created;
     });
 
     return toAdminView(row);
@@ -318,7 +419,11 @@ export class NewsWriteService {
    * it, and a text message settles it harder - it is a bare link with no
    * sender to write back to and no thread to correct it in.
    */
-  async update(id: string, input: NewsInput): Promise<NewsAdminView> {
+  async update(
+    id: string,
+    input: NewsInput,
+    actor: ActorContext,
+  ): Promise<NewsAdminView> {
     const news = await this.require(id);
     const addressSent =
       news.emailQueuedAt !== null || news.smsQueuedAt !== null;
@@ -335,17 +440,156 @@ export class NewsWriteService {
       this.refusePersonalIdentityNumbers(input.title, content);
     }
 
-    const row = await this.prisma.news.update({
-      where: { id },
-      data: {
-        slug: input.slug,
-        title: input.title,
-        content: asJson(content),
-      },
-      select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.news.update({
+        where: { id },
+        data: {
+          slug: input.slug,
+          title: input.title,
+          content: asJson(content),
+        },
+        select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+      });
+
+      await this.audit.record(
+        {
+          action: "NEWS_CONTENT_CHANGED",
+          ...auditActor(actor),
+          targetKind: "news",
+          targetId: id,
+          context: {
+            slug: updated.slug,
+            blockCount: content.blocks.length,
+            published: updated.published,
+          },
+        },
+        tx,
+      );
+
+      return updated;
     });
 
     return toAdminView(row);
+  }
+
+  /**
+   * Records that a published news item should be mailed to the members.
+   *
+   * The whole point of the separation: something acting through a connected
+   * app may write and publish a news item and may never mail anybody. An email
+   * reaches every member whose address the association holds, it cannot be
+   * recalled, and the mailing is claimed exactly once - so the decision to send
+   * belongs to a person on a screen, every time.
+   *
+   * What this writes is the ask. A board member sees it on the item and
+   * publishes with the mailing in the ordinary way, which is the path that
+   * claims it.
+   */
+  async requestMailing(
+    id: string,
+    actor: ActorContext,
+  ): Promise<{ requestedAt: string }> {
+    const news = await this.require(id);
+    if (news.emailQueuedAt !== null) {
+      /*
+       * Read from emailQueuedAt rather than from either column: the request is
+       * for the email, so an item already texted to the members has still not
+       * had the thing done that is being asked for.
+       */
+      throw new NewsWriteError(
+        "The members have already been mailed about this item.",
+        "already-mailed",
+      );
+    }
+
+    const requestedAt = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      /*
+       * Conditional on the column still being null, so a second ask writes
+       * nothing and the first asker stays the one on the record - and on the
+       * mailing still being unsent, because the check above it ran before this
+       * transaction. A publish landing in between claims the email and clears
+       * the request, and without this condition the ask would be written back
+       * afterwards: a request standing for an item the members have already
+       * had, which is the one state the board can do nothing about.
+       */
+      const claimed = await tx.news.updateMany({
+        where: { id, mailingRequestedAt: null, emailQueuedAt: null },
+        data: {
+          mailingRequestedAt: requestedAt,
+          mailingRequestedByPersonId: actor.personId,
+        },
+      });
+
+      if (claimed.count === 1) {
+        await this.audit.record(
+          {
+            action: "NEWS_MAILING_REQUESTED",
+            ...auditActor(actor),
+            targetKind: "news",
+            targetId: id,
+            context: { slug: news.slug },
+          },
+          tx,
+        );
+      }
+
+      const held = await tx.news.findUniqueOrThrow({
+        where: { id },
+        select: { mailingRequestedAt: true },
+      });
+      if (held.mailingRequestedAt === null) {
+        /*
+         * Nothing was claimed and nothing stands, which only a publish landing
+         * in the window above can produce: it sends the mailing and clears the
+         * request in one act. Answered with the refusal the check before the
+         * transaction gives, because what was being asked for has happened -
+         * reporting a request that was never written would be worse.
+         */
+        throw new NewsWriteError(
+          "The members have already been mailed about this item.",
+          "already-mailed",
+        );
+      }
+      return { requestedAt: held.mailingRequestedAt.toISOString() };
+    });
+  }
+
+  /** Clears a standing request, which is a board member deciding not to send. */
+  async dismissMailingRequest(id: string, actor: ActorContext): Promise<void> {
+    const news = await this.require(id);
+    if (news.mailingRequestedAt === null) {
+      return;
+    }
+
+    const standing = news.mailingRequestedAt;
+    await this.prisma.$transaction(async (tx) => {
+      /*
+       * Conditional on the request still being the one that was read. A publish
+       * landing in between answers the request by sending the mailing and
+       * clears it, and an unconditional write would then record a board member
+       * declining to send something that had just gone out. The entry is
+       * written only where the clearing was this call's doing, because the
+       * audit log is what the association answers with.
+       */
+      const cleared = await tx.news.updateMany({
+        where: { id, mailingRequestedAt: standing },
+        data: { mailingRequestedAt: null, mailingRequestedByPersonId: null },
+      });
+      if (cleared.count === 0) {
+        return;
+      }
+      await this.audit.record(
+        {
+          action: "NEWS_MAILING_REQUEST_DISMISSED",
+          ...auditActor(actor),
+          targetKind: "news",
+          targetId: id,
+          context: { slug: news.slug },
+        },
+        tx,
+      );
+    });
   }
 
   /**
@@ -469,6 +713,19 @@ export class NewsWriteService {
               input.published && news.publishedAt === null
                 ? now
                 : news.publishedAt,
+            /*
+             * A standing request is answered by the email mailing and by
+             * nothing else.
+             *
+             * The request is for the mailing (nyhetsutskick), which is the
+             * email; the text message is asked for and claimed separately. So
+             * publishing with SMS alone leaves the request standing, which is
+             * correct - the thing that was asked for has not happened - and
+             * the board still sees the notice on the item.
+             */
+            ...(claimedEmail
+              ? { mailingRequestedAt: null, mailingRequestedByPersonId: null }
+              : {}),
           },
           select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
         });
@@ -777,6 +1034,7 @@ function toAdminView(row: {
   publishedAt: Date | null;
   emailQueuedAt: Date | null;
   smsQueuedAt: Date | null;
+  mailingRequestedAt: Date | null;
   updatedAt: Date;
   deliveries: readonly {
     channel: string;
@@ -796,6 +1054,7 @@ function toAdminView(row: {
     publishedAt: row.publishedAt?.toISOString() ?? null,
     emailQueuedAt: row.emailQueuedAt?.toISOString() ?? null,
     smsQueuedAt: row.smsQueuedAt?.toISOString() ?? null,
+    mailingRequested: row.mailingRequestedAt !== null,
     delivery: {
       email: channelReport(
         row.deliveries,

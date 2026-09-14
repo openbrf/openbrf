@@ -1,3 +1,4 @@
+import type { PluginActions } from "./actions.ts";
 import type { PluginPermission } from "./permissions.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -206,6 +207,17 @@ export interface PluginHost {
   sms: PluginSms;
   jobs: PluginJobs;
   addressBook: PluginAddressBook;
+  /**
+   * The actions this plugin declared, and dispatch for every action it may
+   * reach.
+   *
+   * Added after this contract version shipped, so a plugin built against a
+   * newer host than the one it is installed on must feature-detect before
+   * using it - `isSupportedApiVersion` cannot see a member added to an
+   * interface, and the failure would otherwise surface as a load-failed
+   * finding with the message deliberately withheld.
+   */
+  actions: PluginActions;
 }
 
 /**
