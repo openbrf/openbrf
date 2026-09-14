@@ -1,6 +1,8 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
+import type { ActorContext } from "../audit/actor-context";
+import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -247,6 +249,9 @@ export class PagesWriteService {
    * decide who can read it, they are what the audit log records, and giving
    * them a second way in through the ordinary save would be a second way for
    * the record to be missed.
+   *
+   * Who rewrote the body of a published page is a separate question from who
+   * may read it, and one this write does not answer.
    */
   async update(id: string, input: UpdatePageInput): Promise<PageAdminView> {
     const page = await this.require(id);
@@ -341,8 +346,8 @@ export class PagesWriteService {
     input: {
       published: boolean;
       photoConsentConfirmed?: boolean;
-      actorPersonId: string;
     },
+    actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
 
@@ -406,7 +411,7 @@ export class PagesWriteService {
       await this.audit.record(
         {
           action: "PAGE_PUBLISHED",
-          actorPersonId: input.actorPersonId,
+          ...auditActor(actor),
           targetKind: "page",
           targetId: id,
           context: {
@@ -430,8 +435,8 @@ export class PagesWriteService {
     input: {
       visibility: PageVisibility;
       photoConsentConfirmed?: boolean;
-      actorPersonId: string;
     },
+    actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
 
@@ -477,7 +482,7 @@ export class PagesWriteService {
       await this.audit.record(
         {
           action: "PAGE_VISIBILITY_CHANGED",
-          actorPersonId: input.actorPersonId,
+          ...auditActor(actor),
           targetKind: "page",
           targetId: id,
           context: {
@@ -527,7 +532,7 @@ export class PagesWriteService {
    * one. A draft nobody could read leaves no entry: there was nothing published
    * to stop being so.
    */
-  async remove(id: string, actorPersonId: string): Promise<void> {
+  async remove(id: string, actor: ActorContext): Promise<void> {
     const page = await this.require(id);
 
     await this.prisma.$transaction(async (tx) => {
@@ -537,7 +542,7 @@ export class PagesWriteService {
         await this.audit.record(
           {
             action: "PAGE_PUBLISHED",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "page",
             targetId: id,
             context: { slug: page.slug, published: false, deleted: true },

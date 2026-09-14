@@ -358,6 +358,7 @@ export class BoardMailboxService {
       await this.audit.record(
         {
           action: "BOARD_MAILBOX_THREAD_TAKEN",
+          channel: "WEB",
           actorPersonId: principal.personId,
           // No subject: the correspondent is an address the envelope asserted
           // and is never resolved to a person, so naming one here would be the
@@ -408,6 +409,7 @@ export class BoardMailboxService {
       await this.audit.record(
         {
           action: "BOARD_MAILBOX_THREAD_RELEASED",
+          channel: "WEB",
           actorPersonId: principal.personId,
           targetKind: "boardMailboxThread",
           targetId: thread.id,
@@ -523,6 +525,7 @@ export class BoardMailboxService {
       await this.audit.record(
         {
           action: "BOARD_MAILBOX_REPLY_SENT",
+          channel: "WEB",
           actorPersonId: principal.personId,
           targetKind: "boardMailboxThread",
           targetId: thread.id,
@@ -599,6 +602,7 @@ export class BoardMailboxService {
           action: closed
             ? "BOARD_MAILBOX_THREAD_CLOSED"
             : "BOARD_MAILBOX_THREAD_REOPENED",
+          channel: "WEB",
           actorPersonId: principal.personId,
           targetKind: "boardMailboxThread",
           targetId: thread.id,

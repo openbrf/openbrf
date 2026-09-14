@@ -1,6 +1,8 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
+import type { ActorContext } from "../audit/actor-context";
+import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -158,7 +160,6 @@ export interface PublishNewsInput {
    * default.
    */
   sendSms?: boolean;
-  actorPersonId: string;
 }
 
 export interface PublishNewsResult extends NewsAdminView {
@@ -362,6 +363,7 @@ export class NewsWriteService {
   async publish(
     id: string,
     input: PublishNewsInput,
+    actor: ActorContext,
   ): Promise<PublishNewsResult> {
     const news = await this.require(id);
     const visibility = input.visibility ?? news.visibility;
@@ -474,7 +476,7 @@ export class NewsWriteService {
         await this.audit.record(
           {
             action: "NEWS_PUBLISHED",
-            actorPersonId: input.actorPersonId,
+            ...auditActor(actor),
             targetKind: "news",
             targetId: id,
             context: {
@@ -521,7 +523,7 @@ export class NewsWriteService {
           await this.audit.record(
             {
               action: channel === "SMS" ? "NEWS_TEXTED" : "NEWS_EMAILED",
-              actorPersonId: input.actorPersonId,
+              ...auditActor(actor),
               targetKind: "news",
               targetId: id,
               context: { slug: updated.slug, recipients: recipients.length },
@@ -573,7 +575,7 @@ export class NewsWriteService {
    * exists - while the audit entries stay, because the log is evidence and is
    * append-only.
    */
-  async remove(id: string, actorPersonId: string): Promise<void> {
+  async remove(id: string, actor: ActorContext): Promise<void> {
     const news = await this.require(id);
 
     await this.prisma.$transaction(async (tx) => {
@@ -583,7 +585,7 @@ export class NewsWriteService {
         await this.audit.record(
           {
             action: "NEWS_PUBLISHED",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "news",
             targetId: id,
             context: {

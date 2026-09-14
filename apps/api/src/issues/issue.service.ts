@@ -417,6 +417,7 @@ export class IssueService {
        */
       showsIdentifiablePersons: true,
       uploadedByPersonId: input.reporterPersonId,
+      channel: "WEB",
     });
 
     const photo = await this.prisma.issuePhoto.create({

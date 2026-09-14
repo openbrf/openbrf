@@ -506,6 +506,7 @@ export class ThemeService {
       await this.audit.record(
         {
           action: "THEME_ACTIVATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: "theme",
           targetId: target ?? PORTTAVLAN_ID,

@@ -324,7 +324,11 @@ describe("the personal identity number guardrail", () => {
     });
 
     const refusal = await refusalOf(
-      service.publish("news-1", { published: true, actorPersonId: "board-1" }),
+      service.publish(
+        "news-1",
+        { published: true },
+        { personId: "board-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
@@ -335,11 +339,11 @@ describe("the mailing, which happens once", () => {
   it("claims the column only while it is null", async () => {
     const { service, news } = build();
 
-    await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -351,11 +355,11 @@ describe("the mailing, which happens once", () => {
   it("snapshots the members into the ledger and enqueues in the transaction", async () => {
     const { service, newsDelivery, mailer, audit } = build();
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.mailedTo).toBe(2);
     expect(newsDelivery.createMany).toHaveBeenCalledWith({
@@ -374,11 +378,11 @@ describe("the mailing, which happens once", () => {
   it("creates the queues before the transaction opens", async () => {
     const { service, order } = build();
 
-    await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(order).toEqual(["ensureQueues", "enqueue"]);
   });
@@ -391,11 +395,11 @@ describe("the mailing, which happens once", () => {
       },
     );
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.mailedTo).toBeNull();
     expect(newsDelivery.createMany).not.toHaveBeenCalled();
@@ -411,11 +415,11 @@ describe("the mailing, which happens once", () => {
       emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
     });
 
-    await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.updateMany).not.toHaveBeenCalled();
     expect(newsDelivery.createMany).not.toHaveBeenCalled();
@@ -424,11 +428,11 @@ describe("the mailing, which happens once", () => {
   it("is not claimed when the board did not ask for it", async () => {
     const { service, news, mailer } = build();
 
-    await service.publish("news-1", {
-      published: true,
-      sendEmail: false,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendEmail: false },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.updateMany).not.toHaveBeenCalled();
     expect(mailer.ensureQueues).not.toHaveBeenCalled();
@@ -441,12 +445,11 @@ describe("the mailing, which happens once", () => {
       emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
     });
 
-    await service.publish("news-1", {
-      published: true,
-      visibility: "PUBLIC",
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, visibility: "PUBLIC", sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
@@ -455,11 +458,11 @@ describe("the mailing, which happens once", () => {
   it("is not claimed by taking the item down", async () => {
     const { service, news } = build({ published: true });
 
-    await service.publish("news-1", {
-      published: false,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: false, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(news.updateMany).not.toHaveBeenCalled();
   });
@@ -492,11 +495,11 @@ describe("the SMS mailing, which happens once and separately", () => {
   it("claims its own column, and only when the board asks for it", async () => {
     const { service, news } = build();
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.textedTo).toBe(2);
     expect(news.updateMany).toHaveBeenCalledWith({
@@ -510,11 +513,11 @@ describe("the SMS mailing, which happens once and separately", () => {
     // available must not re-send the one that is not.
     const { service, news, mailer } = build();
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.mailedTo).toBeNull();
     expect(mailer.enqueueInTransaction).not.toHaveBeenCalled();
@@ -531,12 +534,11 @@ describe("the SMS mailing, which happens once and separately", () => {
       emailQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
     });
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendEmail: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.mailedTo).toBeNull();
     expect(published.textedTo).toBe(2);
@@ -547,11 +549,11 @@ describe("the SMS mailing, which happens once and separately", () => {
   it("writes its own ledger rows, its own audit entry and its own job", async () => {
     const { service, newsDelivery, texter, audit } = build();
 
-    await service.publish("news-1", {
-      published: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(newsDelivery.createMany).toHaveBeenCalledWith({
       data: [
@@ -569,12 +571,11 @@ describe("the SMS mailing, which happens once and separately", () => {
   it("claims both channels in one publish, each on its own condition", async () => {
     const { service, mailer, texter, audit } = build();
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendEmail: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.mailedTo).toBe(2);
     expect(published.textedTo).toBe(2);
@@ -593,11 +594,11 @@ describe("the SMS mailing, which happens once and separately", () => {
       smsQueuedAt: new Date("2026-09-01T09:00:00.000Z"),
     });
 
-    const published = await service.publish("news-1", {
-      published: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    const published = await service.publish(
+      "news-1",
+      { published: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(published.textedTo).toBeNull();
     expect(texter.ensureQueues).not.toHaveBeenCalled();
@@ -626,11 +627,11 @@ describe("who a mailing goes to", () => {
   it("is the members with an address, and nobody else", async () => {
     const { service, person } = build();
 
-    await service.publish("news-1", {
-      published: true,
-      sendEmail: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendEmail: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(person.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -665,11 +666,11 @@ describe("who a mailing goes to", () => {
     // absence from that ledger, not a column of failures on the board's screen.
     const { service, person } = build();
 
-    await service.publish("news-1", {
-      published: true,
-      sendSms: true,
-      actorPersonId: "board-1",
-    });
+    await service.publish(
+      "news-1",
+      { published: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
 
     expect(person.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

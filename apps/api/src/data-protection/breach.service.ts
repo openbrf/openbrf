@@ -253,6 +253,7 @@ export class BreachService {
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "personalDataBreach",
           targetId: row.id,
@@ -464,6 +465,7 @@ export class BreachService {
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_UPDATED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "personalDataBreach",
           targetId: breachId,
@@ -626,6 +628,7 @@ export class BreachService {
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_DECIDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "personalDataBreach",
           targetId: breachId,
@@ -691,6 +694,7 @@ export class BreachService {
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_UPDATED",
+          channel: "WEB",
           actorPersonId,
           targetPersonId: personId,
           targetKind: "personalDataBreach",
@@ -764,6 +768,7 @@ export class BreachService {
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_SUBJECT_INFORMED",
+          channel: "WEB",
           actorPersonId,
           targetPersonId: personId,
           targetKind: "personalDataBreach",
@@ -826,6 +831,7 @@ export class BreachService {
       await this.audit.record(
         {
           action: "PERSONAL_DATA_BREACH_CLOSED",
+          channel: "WEB",
           actorPersonId,
           targetKind: "personalDataBreach",
           targetId: breachId,

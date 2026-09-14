@@ -800,6 +800,8 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           visibility: "INTERNAL",
           showsIdentifiablePersons: accept === "image" ? true : undefined,
           uploadedByPersonId: null,
+          // The collector is a job: no person asked for this file to be stored.
+          channel: "SYSTEM",
         });
       } catch (error) {
         if (

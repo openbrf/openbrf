@@ -222,6 +222,7 @@ export class ProcessorAgreementService {
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "processorAgreement",
           targetId: row.id,
@@ -293,6 +294,7 @@ export class ProcessorAgreementService {
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_ENDED",
+          channel: "WEB",
           actorPersonId,
           targetKind: "processorAgreement",
           targetId: agreementId,
@@ -417,6 +419,7 @@ export class ProcessorAgreementService {
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "processorAgreement",
           targetId: created.id,

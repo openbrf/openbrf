@@ -223,6 +223,7 @@ describe("uploading", () => {
       fileName: "logotyp.png",
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
+      channel: "WEB",
     });
 
     expect(file.contentType).toBe("image/png");
@@ -237,6 +238,7 @@ describe("uploading", () => {
       fileName: "../../etc/passwd",
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
+      channel: "WEB",
     });
 
     const key = [...fakes.objects.keys()][0] ?? "";
@@ -250,6 +252,7 @@ describe("uploading", () => {
       fileName: '../logo"; drop.png',
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
+      channel: "WEB",
     });
 
     expect(file.fileName).toBe("..logo; drop.png");
@@ -262,6 +265,7 @@ describe("uploading", () => {
         fileName: "logotyp.png",
         visibility: "PUBLIC",
         showsIdentifiablePersons: false,
+        channel: "WEB",
       }),
     ).rejects.toMatchObject({ reason: "unsupported-type" });
   });
@@ -273,6 +277,7 @@ describe("uploading", () => {
         fileName: "x.png",
         visibility: "PUBLIC",
         showsIdentifiablePersons: false,
+        channel: "WEB",
       })
       .catch(() => undefined);
 
@@ -286,6 +291,7 @@ describe("uploading", () => {
         fileName: "x.png",
         visibility: "PUBLIC",
         showsIdentifiablePersons: false,
+        channel: "WEB",
       }),
     ).rejects.toMatchObject({ reason: "empty-file" });
   });
@@ -301,6 +307,7 @@ describe("uploading", () => {
         bytes: pngBytes(10, 10),
         fileName: "gard.png",
         visibility: "INTERNAL",
+        channel: "WEB",
       }),
     ).rejects.toMatchObject({ reason: "declaration-required" });
   });
@@ -311,6 +318,7 @@ describe("uploading", () => {
       fileName: "stadgar.pdf",
       accept: "document",
       visibility: "PUBLIC",
+      channel: "WEB",
       prefix: "documents",
     });
 
@@ -330,6 +338,7 @@ describe("uploading", () => {
       accept: "document",
       visibility: "PUBLIC",
       showsIdentifiablePersons: true,
+      channel: "WEB",
     });
 
     expect(file.showsIdentifiablePersons).toBeNull();
@@ -348,6 +357,7 @@ describe("uploading", () => {
         fileName: "logotyp.png",
         visibility: "PUBLIC",
         showsIdentifiablePersons: false,
+        channel: "WEB",
       }),
     ).rejects.toMatchObject({ reason: "unsupported-type" });
 
@@ -357,6 +367,7 @@ describe("uploading", () => {
         fileName: "stadgar.pdf",
         accept: "document",
         visibility: "PUBLIC",
+        channel: "WEB",
       }),
     ).rejects.toMatchObject({ reason: "unsupported-type" });
   });
@@ -367,6 +378,7 @@ describe("uploading", () => {
       fileName: "sommarfest.png",
       visibility: "INTERNAL",
       showsIdentifiablePersons: true,
+      channel: "WEB",
     });
 
     expect(file.showsIdentifiablePersons).toBe(true);
@@ -379,6 +391,7 @@ describe("uploading", () => {
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
       uploadedByPersonId: "person-1",
+      channel: "WEB",
     });
 
     expect(fakes.audited).toContainEqual(
@@ -395,6 +408,7 @@ describe("uploading", () => {
         fileName: "logotyp.png",
         visibility: "PUBLIC",
         showsIdentifiablePersons: false,
+        channel: "WEB",
       })
       .catch(() => undefined);
 
@@ -417,6 +431,7 @@ describe("serving", () => {
       visibility: overrides.visibility ?? "INTERNAL",
       requiredCapability: overrides.requiredCapability,
       showsIdentifiablePersons: false,
+      channel: "WEB",
     });
     return file.id;
   }
@@ -626,6 +641,7 @@ describe("removing", () => {
       fileName: "logotyp.png",
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
+      channel: "WEB",
     });
     return file.id;
   }
@@ -633,7 +649,7 @@ describe("removing", () => {
   it("removes the row, the bytes and writes the audit entry", async () => {
     const id = await stored();
 
-    await fakes.service.remove(id, "person-1");
+    await fakes.service.remove(id, "person-1", "WEB");
 
     expect(fakes.rows.size).toBe(0);
     expect(fakes.objects.size).toBe(0);
@@ -651,7 +667,7 @@ describe("removing", () => {
      */
     const id = await stored();
 
-    await fakes.service.remove(id, "person-1");
+    await fakes.service.remove(id, "person-1", "WEB");
 
     expect(fakes.transactionMediaFile.delete).toHaveBeenCalledWith({
       where: { id },
@@ -671,7 +687,9 @@ describe("removing", () => {
     const failing = build({ auditFailsOn: "MEDIA_DELETED" });
     const id = await stored(failing);
 
-    await expect(failing.service.remove(id, "person-1")).rejects.toThrow();
+    await expect(
+      failing.service.remove(id, "person-1", "WEB"),
+    ).rejects.toThrow();
 
     // The entry cannot be added afterwards, so the file must still be there to
     // be deleted again once the log can accept it. The bytes in particular are
@@ -682,7 +700,9 @@ describe("removing", () => {
   });
 
   it("does nothing for a file that is not there", async () => {
-    await expect(fakes.service.remove("file-absent")).resolves.toBeUndefined();
+    await expect(
+      fakes.service.remove("file-absent", undefined, "WEB"),
+    ).resolves.toBeUndefined();
 
     /*
      * Stated as the absence of the side effects rather than as the absence of

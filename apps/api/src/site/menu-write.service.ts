@@ -1,5 +1,8 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
 
+import type { ActorContext } from "../audit/actor-context";
+import { auditActor } from "../audit/actor-context";
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { MenuItemKind, PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
@@ -24,11 +27,24 @@ import { isMenuExternalUrl, isMenuGeneratedKey } from "./menu.service";
  *   leaves the instance, printed on every page, and http would be the
  *   association sending its readers somewhere over the open wire.
  *
- * There is deliberately no audit entry here. The menu decides what is offered
- * and never what may be read: an entry is rendered only to a visitor who could
- * open its target anyway, so rearranging the menu publishes nothing and
- * conceals nothing. Publication itself is recorded where it happens, on the
- * page.
+ * Every write here is recorded in the audit log, in the same transaction as the
+ * write itself.
+ *
+ * The argument for not recording them was about disclosure and it still holds:
+ * the menu decides what is offered and never what may be read, an entry is
+ * rendered only to a visitor who could open its target anyway, and publication
+ * itself is recorded where it happens, on the page. Attribution is a separate
+ * question, and it is a real one once something other than a board member in a
+ * browser can write here. The menu is the one place on a public page where an
+ * address leaving the instance can be planted, every visitor sees it, and
+ * nobody reads it closely.
+ *
+ * So the entry records what the entry points at, including the address for an
+ * external target: a menu target is published site content rather than personal
+ * data, and a record that could not say where a planted link pointed would not
+ * answer the question it exists for. The label is never recorded - it is text a
+ * board member wrote, it has a home of its own on the row, and rule 3 on
+ * AuditLogService keeps copies of such text out of a table that outlives it.
  */
 
 export type MenuWriteReason =
@@ -127,7 +143,10 @@ const LABEL_LIMIT = 60;
 
 @Injectable()
 export class MenuWriteService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditLogService,
+  ) {}
 
   /**
    * The whole menu, both levels, in the order it is rendered in.
@@ -145,29 +164,49 @@ export class MenuWriteService {
   }
 
   /** Adds an entry at the end of its level. */
-  async create(input: MenuItemInput): Promise<MenuItemView> {
+  async create(
+    input: MenuItemInput,
+    actor: ActorContext,
+  ): Promise<MenuItemView> {
     const parentId = await this.requirePlaceableParent(
       input.parentId ?? null,
       null,
     );
     const target = await this.resolveTarget(input);
 
-    const highest = await this.prisma.menuItem.aggregate({
-      where: { parentId },
-      _max: { sortOrder: true },
-    });
+    const row = await this.prisma.$transaction(async (tx) => {
+      // Read inside the transaction, with the insert it decides the position
+      // for: the two are one act, and the entry below records that act.
+      const highest = await tx.menuItem.aggregate({
+        where: { parentId },
+        _max: { sortOrder: true },
+      });
 
-    const row = await this.prisma.menuItem.create({
-      data: {
-        label: target.label,
-        kind: input.kind,
-        pageId: target.pageId,
-        generatedKey: target.generatedKey,
-        url: target.url,
-        parentId,
-        sortOrder: (highest._max.sortOrder ?? -1) + 1,
-      },
-      select: ITEM_COLUMNS,
+      const created = await tx.menuItem.create({
+        data: {
+          label: target.label,
+          kind: input.kind,
+          pageId: target.pageId,
+          generatedKey: target.generatedKey,
+          url: target.url,
+          parentId,
+          sortOrder: (highest._max.sortOrder ?? -1) + 1,
+        },
+        select: ITEM_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "MENU_ITEM_ADDED",
+          ...auditActor(actor),
+          targetKind: "menuItem",
+          targetId: created.id,
+          context: menuEntryFacts(input.kind, parentId, target),
+        },
+        tx,
+      );
+
+      return created;
     });
 
     return toView(row);
@@ -188,7 +227,11 @@ export class MenuWriteService {
    * arranging a dropdown can never take an entry out of it, while saying where
    * an entry hangs is exactly what this call is for.
    */
-  async update(id: string, input: MenuItemInput): Promise<MenuItemView> {
+  async update(
+    id: string,
+    input: MenuItemInput,
+    actor: ActorContext,
+  ): Promise<MenuItemView> {
     const existing = await this.require(id);
     const parentId = await this.requirePlaceableParent(
       input.parentId ?? null,
@@ -196,24 +239,39 @@ export class MenuWriteService {
     );
     const target = await this.resolveTarget(input);
 
-    const row = await this.prisma.menuItem.update({
-      where: { id },
-      data: {
-        label: target.label,
-        kind: input.kind,
-        pageId: target.pageId,
-        generatedKey: target.generatedKey,
-        url: target.url,
-        parentId,
-        // Moving between levels puts the entry at the end of the level it
-        // arrives in, rather than at whatever position it held in the one it
-        // left - which would otherwise land it in the middle of its new
-        // siblings for no reason the board could see.
-        ...(parentId === existing.parentId
-          ? {}
-          : { sortOrder: await this.nextSortOrder(parentId) }),
-      },
-      select: ITEM_COLUMNS,
+    const row = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.menuItem.update({
+        where: { id },
+        data: {
+          label: target.label,
+          kind: input.kind,
+          pageId: target.pageId,
+          generatedKey: target.generatedKey,
+          url: target.url,
+          parentId,
+          // Moving between levels puts the entry at the end of the level it
+          // arrives in, rather than at whatever position it held in the one it
+          // left - which would otherwise land it in the middle of its new
+          // siblings for no reason the board could see.
+          ...(parentId === existing.parentId
+            ? {}
+            : { sortOrder: await this.nextSortOrder(parentId) }),
+        },
+        select: ITEM_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "MENU_ITEM_CHANGED",
+          ...auditActor(actor),
+          targetKind: "menuItem",
+          targetId: id,
+          context: menuEntryFacts(input.kind, parentId, target),
+        },
+        tx,
+      );
+
+      return updated;
     });
 
     return toView(row);
@@ -231,15 +289,41 @@ export class MenuWriteService {
   async reorder(
     parentId: string | null,
     ids: readonly string[],
+    actor: ActorContext,
   ): Promise<MenuItemView[]> {
-    await this.prisma.$transaction(
-      ids.map((id, index) =>
-        this.prisma.menuItem.updateMany({
+    /*
+     * Interactive rather than the array form, which cannot carry the audit
+     * entry: the entry has to commit or roll back with the arrangement it
+     * records, and the array form has no place to put a write that depends on
+     * the ones before it.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      for (const [index, id] of ids.entries()) {
+        await tx.menuItem.updateMany({
           where: { id, parentId },
           data: { sortOrder: index },
-        }),
-      ),
-    );
+        });
+      }
+
+      /*
+       * Written for every reorder, a no-op included. Ids outside the level are
+       * silently ignored above, so how many rows actually moved is not a
+       * number this call knows; the count of ids the board sent is the honest
+       * record of what was asked for.
+       */
+      await this.audit.record(
+        {
+          action: "MENU_ITEM_REORDERED",
+          ...auditActor(actor),
+          // The act is on a level of the menu rather than on one entry: the
+          // parent names the level, and null is the top one.
+          targetKind: "menuLevel",
+          targetId: parentId,
+          context: { parentId, count: ids.length },
+        },
+        tx,
+      );
+    });
     return this.list();
   }
 
@@ -251,9 +335,35 @@ export class MenuWriteService {
    * keeping its items as orphaned top-level entries would silently promote
    * things the board had put away.
    */
-  async remove(id: string): Promise<void> {
-    await this.require(id);
-    await this.prisma.menuItem.delete({ where: { id } });
+  async remove(id: string, actor: ActorContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.menuItem.findUnique({
+        where: { id },
+        select: { id: true, kind: true },
+      });
+      if (existing === null) {
+        throw new MenuWriteError("There is no such menu entry.", "not-found");
+      }
+
+      // Counted before the delete, because the cascade is what takes them and
+      // afterwards there is nothing left to count.
+      const childrenRemoved = await tx.menuItem.count({
+        where: { parentId: id },
+      });
+
+      await tx.menuItem.delete({ where: { id } });
+
+      await this.audit.record(
+        {
+          action: "MENU_ITEM_REMOVED",
+          ...auditActor(actor),
+          targetKind: "menuItem",
+          targetId: id,
+          context: { kind: existing.kind, childrenRemoved },
+        },
+        tx,
+      );
+    });
   }
 
   /** The position at the end of one level. */
@@ -411,6 +521,32 @@ export class MenuWriteService {
     }
     return row;
   }
+}
+
+/**
+ * What the log keeps about an entry that was added or changed.
+ *
+ * Facts about the destination and the level, and no label: see the note at the
+ * top of this file for which of the two is text with a home of its own. The
+ * address is recorded for an external target and only for one, because that is
+ * the target that leaves the instance and the only one an id could not identify
+ * later.
+ */
+function menuEntryFacts(
+  kind: MenuItemKind,
+  parentId: string | null,
+  target: {
+    pageId: string | null;
+    generatedKey: string | null;
+    url: string | null;
+  },
+): Record<string, unknown> {
+  return {
+    kind,
+    parentId,
+    target: target.pageId ?? target.generatedKey,
+    ...(target.url === null ? {} : { href: target.url }),
+  };
 }
 
 function requireFittingLabel(label: string): string {

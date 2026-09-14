@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { isTooLarge, readSingleFile } from "../http/multipart";
+import { webActor } from "../audit/actor-context";
 import { MediaError, MediaService } from "../media/media.service";
 import { submittedContent, submittedContentSchema } from "./page-content";
 import { type PageAdminView, PagesWriteService } from "./pages-write.service";
@@ -207,10 +208,7 @@ export class PagesAdminController {
     @Req() request: RequestWithPrincipal,
   ): Promise<PageAdminView> {
     const input = publishSchema.parse(body);
-    return this.pages.setPublished(id, {
-      ...input,
-      actorPersonId: requirePrincipal(request).personId,
-    });
+    return this.pages.setPublished(id, input, webActor(request));
   }
 
   @Post(":id/visibility")
@@ -220,10 +218,7 @@ export class PagesAdminController {
     @Req() request: RequestWithPrincipal,
   ): Promise<PageAdminView> {
     const input = visibilitySchema.parse(body);
-    return this.pages.setVisibility(id, {
-      ...input,
-      actorPersonId: requirePrincipal(request).personId,
-    });
+    return this.pages.setVisibility(id, input, webActor(request));
   }
 
   @Delete(":id")
@@ -231,7 +226,7 @@ export class PagesAdminController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<void> {
-    await this.pages.remove(id, requirePrincipal(request).personId);
+    await this.pages.remove(id, webActor(request));
   }
 }
 
@@ -279,6 +274,7 @@ export class SiteImagesController {
       visibility: "PUBLIC",
       showsIdentifiablePersons,
       uploadedByPersonId: principal.personId,
+      channel: "WEB",
       prefix: "media",
     });
 

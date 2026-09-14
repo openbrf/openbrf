@@ -1,3 +1,4 @@
+import type { AuditChannelName } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -6,6 +7,7 @@ import type { ReactElement, ReactNode } from "react";
 import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { NotRecorded } from "../ui/NotRecorded";
 import {
   DATA_CELL,
   DOCUMENT,
@@ -344,7 +346,50 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED",
   PRIVACY_NOTICE_HEADINGS_ADDED:
     "register.person.report.action.PRIVACY_NOTICE_HEADINGS_ADDED",
+  APARTMENT_REGISTER_TRANSFER_REPORT_BASIS_RECORDED:
+    "register.person.report.action.APARTMENT_REGISTER_TRANSFER_REPORT_BASIS_RECORDED",
+  APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED:
+    "register.person.report.action.APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED",
+  ASSOCIATION_LAND_TENURE_RECORDED:
+    "register.person.report.action.ASSOCIATION_LAND_TENURE_RECORDED",
+  MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
+  MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
+  MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",
+  MENU_ITEM_REMOVED: "register.person.report.action.MENU_ITEM_REMOVED",
+  MEMBER_CHARGE_RECORDED:
+    "register.person.report.action.MEMBER_CHARGE_RECORDED",
+  MEMBER_CHARGE_CORRECTED:
+    "register.person.report.action.MEMBER_CHARGE_CORRECTED",
+  MEMBER_CHARGE_REMOVED: "register.person.report.action.MEMBER_CHARGE_REMOVED",
+  DEBITING_LIST_EXPORTED:
+    "register.person.report.action.DEBITING_LIST_EXPORTED",
+  BOARD_MAILBOX_THREAD_TAKEN:
+    "register.person.report.action.BOARD_MAILBOX_THREAD_TAKEN",
+  BOARD_MAILBOX_THREAD_RELEASED:
+    "register.person.report.action.BOARD_MAILBOX_THREAD_RELEASED",
+  BOARD_MAILBOX_REPLY_SENT:
+    "register.person.report.action.BOARD_MAILBOX_REPLY_SENT",
+  BOARD_MAILBOX_THREAD_CLOSED:
+    "register.person.report.action.BOARD_MAILBOX_THREAD_CLOSED",
+  BOARD_MAILBOX_THREAD_REOPENED:
+    "register.person.report.action.BOARD_MAILBOX_THREAD_REOPENED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
+
+/**
+ * Which way each act reached the records, in the association's own words.
+ *
+ * The null case is its own sentence rather than a blank: an entry written
+ * before the log recorded the channel is not an entry with nothing to say about
+ * it, and a blank cell on a statutory document reads as though nothing
+ * happened. NotRecorded says the narrow true thing instead.
+ */
+const AUDIT_CHANNEL_LABEL = {
+  WEB: "register.person.report.channel.WEB",
+  MCP: "register.person.report.channel.MCP",
+  AI: "register.person.report.channel.AI",
+  SYSTEM: "register.person.report.channel.SYSTEM",
+  PLUGIN: "register.person.report.channel.PLUGIN",
+} as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /** The day out of an instant. A document states days, not milliseconds. */
 function day(instant: string | null): string | null {
@@ -1498,6 +1543,7 @@ export function DataSubjectReport({
                 headings={[
                   "register.person.report.field.action",
                   "register.person.report.field.at",
+                  "register.person.report.field.through",
                   "register.person.report.field.about",
                   "register.person.report.field.detail",
                 ]}
@@ -1508,6 +1554,15 @@ export function DataSubjectReport({
                       {t(AUDIT_ACTION_LABEL[entry.action])}
                     </td>
                     <td className={DATA_CELL}>{day(entry.at)}</td>
+                    <td className={TEXT_CELL}>
+                      {entry.channel === null ? (
+                        <NotRecorded
+                          meaning={t("register.person.report.channel.unknown")}
+                        />
+                      ) : (
+                        t(AUDIT_CHANNEL_LABEL[entry.channel])
+                      )}
+                    </td>
                     <td className={TEXT_CELL}>
                       {t(`register.person.report.auditRole.${entry.role}`)}
                     </td>

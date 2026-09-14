@@ -501,6 +501,7 @@ export class NewsCommentService {
       await this.audit.record(
         {
           action: "NEWS_COMMENT_POSTED",
+          channel: "WEB",
           // Both, because this is the author's own act and their own data. Their
           // access report has to be able to say when they wrote what, and it
           // reads the actor column for what a person did and the subject column
@@ -620,6 +621,7 @@ export class NewsCommentService {
       await this.audit.record(
         {
           action: "NEWS_COMMENT_HIDDEN",
+          channel: "WEB",
           actorPersonId,
           // The subject is whoever wrote it: this is something done to them, and
           // their access report has to show a moderation somebody else decided

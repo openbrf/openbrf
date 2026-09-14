@@ -294,6 +294,7 @@ export class SignupRequestService {
       await this.audit.record(
         {
           action: "SIGNUP_REQUEST_APPROVED",
+          channel: "WEB",
           actorPersonId: input.decidedByPersonId,
           targetPersonId: id,
           targetKind: "signupRequest",
@@ -372,6 +373,7 @@ export class SignupRequestService {
       await this.audit.record(
         {
           action: "SIGNUP_REQUEST_REJECTED",
+          channel: "WEB",
           actorPersonId: input.decidedByPersonId,
           targetKind: "signupRequest",
           targetId: input.requestId,

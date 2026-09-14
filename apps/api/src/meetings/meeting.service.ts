@@ -300,6 +300,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_ARRANGED",
+          channel: "WEB",
           actorPersonId,
           // No subject: a general meeting is the association's own act and is
           // about nobody in particular.
@@ -357,6 +358,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_HELD",
+          channel: "WEB",
           actorPersonId,
           targetKind: "meeting",
           targetId: meetingId,
@@ -426,6 +428,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_AGENDA_SET",
+          channel: "WEB",
           actorPersonId,
           targetKind: "meeting",
           targetId: meetingId,
@@ -531,6 +534,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_ATTENDANCE_RECORDED",
+          channel: "WEB",
           actorPersonId,
           // The person present is the subject, so their own access report shows
           // that the association recorded them in the room.
@@ -586,6 +590,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_ATTENDANCE_WITHDRAWN",
+          channel: "WEB",
           actorPersonId,
           targetPersonId: existing.personId,
           targetKind: "meetingAttendance",
@@ -721,6 +726,7 @@ export class MeetingService {
         await this.audit.record(
           {
             action: "MEETING_PROXY_WITHDRAWN",
+            channel: "WEB",
             actorPersonId,
             targetPersonId: input.memberPersonId,
             targetKind: "proxyAuthorisation",
@@ -765,6 +771,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_PROXY_REGISTERED",
+          channel: "WEB",
           actorPersonId,
           /*
            * The member whose right it authorises is the subject. It is their
@@ -829,6 +836,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_PROXY_WITHDRAWN",
+          channel: "WEB",
           actorPersonId,
           targetPersonId: existing.memberPersonId,
           targetKind: "proxyAuthorisation",
@@ -905,6 +913,7 @@ export class MeetingService {
       await this.audit.record(
         {
           action: "MEETING_DECISION_RECORDED",
+          channel: "WEB",
           actorPersonId,
           // No subject: what the meeting resolved is the association's business
           // and not an act about a person, even where the item was somebody's

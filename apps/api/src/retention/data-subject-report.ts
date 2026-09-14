@@ -13,6 +13,10 @@
  * a reviewer can read this file to see whether the report is still complete.
  */
 
+import type { AuditChannelName } from "@openbrf/shared";
+
+import type { ReportAuditAction } from "./report-audit-actions";
+
 /** ISO calendar date (YYYY-MM-DD) or instant, as each field documents. */
 export interface ReportPostalAddress {
   street: string | null;
@@ -783,8 +787,25 @@ export interface ReportLienNote {
 export interface ReportAuditEntry {
   entryId: string;
   role: "subject" | "actor";
-  action: string;
+  /**
+   * The closed set rather than `string`, for the reason `erasureGround` above
+   * is spelled out: the browser declares the same set to turn each value into a
+   * sentence, and a producer typed wider lets a new action reach a consumer
+   * that has no case for it while both builds stay green. That is not
+   * hypothetical here - it is how twelve actions came to print as an empty cell
+   * in a statutory document.
+   */
+  action: ReportAuditAction;
   at: string;
+  /**
+   * Which way the act reached the records.
+   *
+   * Null for an entry written before the log recorded the channel. The report
+   * says that in words rather than leaving the cell blank, because a blank cell
+   * in this document reads as "nothing happened" rather than "this was not
+   * recorded at the time".
+   */
+  channel: AuditChannelName | null;
   targetKind: string | null;
   targetId: string | null;
   /** Field names, identifiers and counts. Never a value: see AuditLogService. */

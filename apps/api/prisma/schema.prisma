@@ -1546,6 +1546,21 @@ enum AuditAction {
   /// somebody wrote is a record of what was said, so moderation strikes it
   /// through and the entry names who decided that.
   NEWS_COMMENT_HIDDEN
+  /// An entry was added to the website's menu.
+  ///
+  /// The menu decides what is offered and not what may be read, which is why
+  /// it went unrecorded for as long as a board member in a browser was the
+  /// only writer. It is also the one place on a public page where an address
+  /// leaving the instance can be planted, and once something other than a
+  /// person can write it, who arranged the menu is a question the log has to
+  /// be able to answer.
+  MENU_ITEM_ADDED
+  /// A menu entry was renamed, repointed, or moved between levels.
+  MENU_ITEM_CHANGED
+  /// One level of the menu was put in a new order.
+  MENU_ITEM_REORDERED
+  /// A menu entry was removed, and whatever hung under it went with it.
+  MENU_ITEM_REMOVED
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.
@@ -1854,7 +1869,33 @@ enum AuditAction {
   KEY_ORDER_DECLINED
 }
 
-/// Access log. Writes happen in the same transaction as the access they record.
+/// Which way a change reached the association's records (granskningskanal).
+///
+/// A fact about the route and never about the person: the same board member
+/// working in the web interface and working through a connected app is one
+/// person reaching the records two ways. Spelled the same as AUDIT_CHANNELS in
+/// @openbrf/shared, which is what the browser prints on the data subject
+/// access report; a spec asserts the two hold the same values.
+enum AuditChannel {
+  /// A person working in the web interface.
+  WEB
+  /// A token presented by a connected app, acting as the person who connected
+  /// it.
+  MCP
+  /// The AI package, acting as the person who prompted it. Anticipatory: no
+  /// such package exists yet, and the value is minted now because this table
+  /// is append-only and a value added later could never be written onto the
+  /// rows that needed it.
+  AI
+  /// The system itself: a nightly job whose clock struck, a seed, the command
+  /// line. It replaces the inference that an entry with no actor was the
+  /// system's, which held only while every other writer had one.
+  SYSTEM
+  /// A plugin's own write through the host.
+  PLUGIN
+}
+
+/// Audit log. Writes happen in the same transaction as the access they record.
 model AuditLogEntry {
   id String @id @default(cuid())
 
@@ -1870,6 +1911,17 @@ model AuditLogEntry {
   actorPersonId String?
 
   action AuditAction
+
+  /// Which way the act reached the records.
+  ///
+  /// Nullable with no default, and it stays nullable: this table is
+  /// append-only, so the rows written before the column existed cannot be
+  /// given one, and a default would have them all claim the web interface.
+  /// Null reads as "written before the log recorded the channel", which is
+  /// what the data subject access report prints for them. Every write from
+  /// this migration onwards names a channel, because AuditEntryInput requires
+  /// one.
+  channel AuditChannel?
 
   /// The person acted upon. A plain column for the same reason as
   /// actorPersonId above.
@@ -1887,6 +1939,7 @@ model AuditLogEntry {
   @@index([actorPersonId, createdAt])
   @@index([targetPersonId, createdAt])
   @@index([action, createdAt])
+  @@index([channel, createdAt])
   @@map("audit_log_entry")
 }
 

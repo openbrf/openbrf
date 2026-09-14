@@ -62,6 +62,7 @@ describe("AuditLogService", () => {
     await service.recordProtectedDataReveal({
       actorPersonId: ACTOR_ID,
       targetPersonId: TARGET_ID,
+      channel: "WEB",
       fields: ["phone", "email"],
       reason: "Contacting the resident about a water leak",
     });
@@ -82,6 +83,7 @@ describe("AuditLogService", () => {
     const person = await service.withAuditedRead(
       {
         action: "MEMBER_REGISTER_EXTRACT_GENERATED",
+        channel: "WEB",
         actorPersonId: ACTOR_ID,
       },
       async (tx) => tx.person.findUniqueOrThrow({ where: { id: TARGET_ID } }),
@@ -105,7 +107,7 @@ describe("AuditLogService", () => {
 
     await expect(
       service.withAuditedRead(
-        { action: "DATA_EXPORTED", actorPersonId: ACTOR_ID },
+        { action: "DATA_EXPORTED", channel: "WEB", actorPersonId: ACTOR_ID },
         async () => {
           throw new Error("export failed halfway through");
         },

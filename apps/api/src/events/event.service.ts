@@ -457,6 +457,7 @@ export class EventService {
       await this.audit.record(
         {
           action: "EVENT_SERIES_CREATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: EVENT_TARGET_KIND,
           targetId: created.id,
@@ -595,6 +596,7 @@ export class EventService {
       await this.audit.record(
         {
           action: "EVENT_SERIES_UPDATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: EVENT_TARGET_KIND,
           targetId: id,
@@ -678,6 +680,7 @@ export class EventService {
       await this.audit.record(
         {
           action: "EVENT_SERIES_PUBLISHED",
+          channel: "WEB",
           actorPersonId,
           targetKind: EVENT_TARGET_KIND,
           targetId: id,
@@ -736,6 +739,7 @@ export class EventService {
       await this.audit.record(
         {
           action: "EVENT_OCCURRENCE_CANCELLED",
+          channel: "WEB",
           actorPersonId,
           targetKind: OCCURRENCE_TARGET_KIND,
           targetId: occurrenceId,
@@ -850,6 +854,7 @@ export class EventService {
       await this.audit.record(
         {
           action: "EVENT_OCCURRENCE_REINSTATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: OCCURRENCE_TARGET_KIND,
           targetId: occurrenceId,
@@ -927,6 +932,7 @@ export class EventService {
         await this.audit.record(
           {
             action: "EVENT_SERIES_PUBLISHED",
+            channel: "WEB",
             actorPersonId,
             targetKind: EVENT_TARGET_KIND,
             targetId: id,

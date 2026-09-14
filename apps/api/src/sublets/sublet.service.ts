@@ -310,6 +310,7 @@ export class SubletService {
       await this.audit.record(
         {
           action: "SUBLET_APPLICATION_SUBMITTED",
+          channel: "WEB",
           // Actor and subject are the same person: the act is theirs and nobody
           // applies on anybody's behalf.
           actorPersonId: principal.personId,
@@ -407,6 +408,7 @@ export class SubletService {
       await this.audit.record(
         {
           action: "SUBLET_APPLICATION_REVISED",
+          channel: "WEB",
           actorPersonId: personId,
           targetPersonId: personId,
           targetKind: "subletApplication",
@@ -618,6 +620,7 @@ export class SubletService {
       await this.audit.record(
         {
           action: "SUBLET_TRIBUNAL_PERMISSION_RECORDED",
+          channel: "WEB",
           actorPersonId,
           // The subject stays the applicant: the permission is about their
           // letting, and their own access report is where it has to be visible.
@@ -700,6 +703,7 @@ export class SubletService {
       await this.audit.record(
         {
           action: input.action,
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.subjectPersonId,
           targetKind: "subletApplication",

@@ -206,6 +206,7 @@ export class BookableResourceService {
       await this.audit.record(
         {
           action: "BOOKING_RESOURCE_CREATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: RESOURCE_TARGET_KIND,
           targetId: created.id,
@@ -308,6 +309,7 @@ export class BookableResourceService {
       await this.audit.record(
         {
           action: "BOOKING_RESOURCE_UPDATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: RESOURCE_TARGET_KIND,
           targetId: id,
@@ -365,6 +367,7 @@ export class BookableResourceService {
       await this.audit.record(
         {
           action: "BOOKING_RESOURCE_DEACTIVATED",
+          channel: "WEB",
           actorPersonId,
           targetKind: RESOURCE_TARGET_KIND,
           targetId: id,

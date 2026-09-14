@@ -12,6 +12,8 @@ export type {
   ApartmentNumberRow,
   GenerateApartmentNumbersInput,
 } from "./apartment-numbering.ts";
+export { AUDIT_CHANNELS } from "./audit-channels.ts";
+export type { AuditChannelName } from "./audit-channels.ts";
 export {
   DATA_SUBJECT_CATEGORIES,
   PERSONAL_DATA_CATEGORIES,

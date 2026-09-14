@@ -235,6 +235,7 @@ export class MemberChargeService {
       await this.audit.record(
         {
           action: "MEMBER_CHARGE_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           /*
            * The person charged, so the charge appears on their own access report
@@ -372,6 +373,7 @@ export class MemberChargeService {
       await this.audit.record(
         {
           action: "MEMBER_CHARGE_CORRECTED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: charge.personId,
           targetKind: MEMBER_CHARGE_TARGET_KIND,
@@ -419,6 +421,7 @@ export class MemberChargeService {
       await this.audit.record(
         {
           action: "MEMBER_CHARGE_REMOVED",
+          channel: "WEB",
           actorPersonId,
           targetPersonId: charge.personId,
           targetKind: MEMBER_CHARGE_TARGET_KIND,
@@ -470,6 +473,7 @@ export class MemberChargeService {
     const list = await this.audit.withAuditedRead<DebitingList>(
       {
         action: "DEBITING_LIST_EXPORTED",
+        channel: "WEB",
         actorPersonId: input.actorPersonId,
         // The period asked for and how many rows it answered with. No name and
         // no figure: this entry says who took a copy of what, which is the

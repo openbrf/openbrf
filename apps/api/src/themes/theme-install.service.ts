@@ -361,6 +361,7 @@ export class ThemeInstallService {
         await this.audit.record(
           {
             action: "THEME_INSTALLED",
+            channel: "WEB",
             actorPersonId,
             targetKind: "theme",
             targetId: manifest.name,
@@ -386,6 +387,7 @@ export class ThemeInstallService {
           await this.audit.record(
             {
               action: "THEME_COMPOSED",
+              channel: "WEB",
               actorPersonId,
               targetKind: "theme",
               targetId: manifest.name,
