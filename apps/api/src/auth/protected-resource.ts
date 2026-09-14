@@ -101,9 +101,17 @@ export function resolveProtectedResource(
       // millisecond - a seeded instance, a restored backup - resolve the same
       // way on every boot. A resource that moved between restarts would
       // invalidate tokens without anything having changed.
-      return byAge === 0
-        ? left.plugin.id.localeCompare(right.plugin.id)
-        : byAge;
+      //
+      // By code unit, and not localeCompare, which reads the process default
+      // locale: under LANG=da_DK the ids aa-connector and ab-connector order
+      // the other way round, because Danish collates "aa" after "z". A
+      // collation can also call two different ids equal, which hands the
+      // winner back to the scan order this sort exists to take it away from.
+      // The audience every live token carries must not depend on an
+      // operator's locale.
+      if (byAge !== 0) return byAge;
+      if (left.plugin.id === right.plugin.id) return 0;
+      return left.plugin.id < right.plugin.id ? -1 : 1;
     });
 
   const [incumbent, ...rest] = declaring;

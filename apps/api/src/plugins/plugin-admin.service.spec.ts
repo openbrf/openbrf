@@ -535,6 +535,60 @@ describe("the gates on the OAuth protected resource", () => {
     };
   }
 
+  it("refuses an echo that agrees on everything but names no resource", async () => {
+    /*
+     * The echo confirms the permissions, the personal data and the actions,
+     * and says nothing about the resource - which is exactly what a screen
+     * drawn before the entry came to declare one produces. Installing on it
+     * would hand a plugin the address connected apps sign in to, on a consent
+     * that never mentioned it.
+     *
+     * Not reachable through `installing()`, which sends no echo at all: with
+     * `echoed` false the whole comparison is skipped, so the resource term
+     * needs a request that turns the gate on.
+     */
+    const { service, consent } = build({
+      entry: entryFor("connector-a", "mcp"),
+    });
+
+    await expect(
+      service.install(
+        {
+          id: "connector-a",
+          permissions: ["addressBook:read", "mail:send"],
+          personalData: ["name", "apartment"],
+          actions: [],
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("accepts an echo that names the resource the entry declares", async () => {
+    // The other direction, so the comparison cannot be satisfied by refusing
+    // every echo that reaches it: a board that was shown the resource and
+    // confirmed it installs.
+    const { service, consent } = build({
+      entry: entryFor("connector-a", "mcp"),
+    });
+
+    await service.install(
+      {
+        id: "connector-a",
+        permissions: ["addressBook:read", "mail:send"],
+        personalData: ["name", "apartment"],
+        actions: [],
+        oauthProtectedResource: "mcp",
+      },
+      null,
+      "WEB",
+    );
+
+    expect(consent).toHaveBeenCalledOnce();
+  });
+
   it("refuses a second plugin that declares the resource", async () => {
     const { done, consent } = installing({
       entry: entryFor("connector-b", "mcp"),

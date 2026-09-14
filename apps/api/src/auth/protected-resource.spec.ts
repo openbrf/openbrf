@@ -234,6 +234,27 @@ describe("resolveProtectedResource", () => {
       "omega-connector",
     ]);
   });
+
+  it("breaks a tie the same way whatever locale the process runs under", () => {
+    /*
+     * The pair a collation actually disagrees about. Danish sorts "aa" as "å",
+     * after "z", so localeCompare orders these two the other way round the
+     * moment LANG=da_DK is set on the container - and the winner is the
+     * audience every issued token is bound to, so an operator's locale would
+     * silently disconnect every connected app in the association. Both ids are
+     * valid under the manifest's own id pattern.
+     */
+    const moment = "2026-01-01T00:00:00Z";
+    const plugins = [
+      plugin({ id: "ab-connector", installedAt: moment, declares: "mcp" }),
+      plugin({ id: "aa-connector", installedAt: moment, declares: "mcp" }),
+    ];
+
+    const { resource, findings } = resolveProtectedResource(plugins, ENV);
+
+    expect(resource.path).toBe("/api/plugin/aa-connector/mcp");
+    expect(findings.map((finding) => finding.id)).toEqual(["ab-connector"]);
+  });
 });
 
 describe("isResourcePath", () => {

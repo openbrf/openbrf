@@ -40,6 +40,27 @@ function isReachableAppUrl(value: string): boolean {
   } catch {
     return false;
   }
+  /*
+   * A bare origin and nothing else. This value is not only dialled: it is the
+   * base every sign-in link is built on, it is published verbatim in the
+   * discovery documents, and it is the audience every access token is bound
+   * to. Credentials written into it would be published to anyone who reads a
+   * discovery document, and a path would be dropped silently rather than
+   * honoured - the resource URL is resolved from an absolute path, so
+   * `https://brf.example/base` yields `https://brf.example/api/...` and an
+   * operator who meant to mount the instance under a prefix gets an audience
+   * that is not where their instance is. Refusing the value names the variable
+   * at boot instead.
+   */
+  if (
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    return false;
+  }
   if (url.protocol === "https:") return true;
   if (url.protocol !== "http:") return false;
   // The parser always returns an IPv6 host bracketed, so the bracketed form is
@@ -105,7 +126,10 @@ export const envSchema = z.object({
   APP_URL: z
     .string()
     .min(1)
-    .refine(isReachableAppUrl, "must be an https URL, or http on localhost")
+    .refine(
+      isReachableAppUrl,
+      "must be an https URL, or http on localhost, and carry no credentials, path, query or fragment",
+    )
     .default("http://localhost:5173"),
 
   /** Holds uploads, keys, installed plugins and installed themes. */

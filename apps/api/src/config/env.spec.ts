@@ -107,7 +107,44 @@ describe("the APP_URL check", () => {
 
     expect(message).toBe(
       "Invalid environment configuration:\n" +
-        "  APP_URL: must be an https URL, or http on localhost",
+        "  APP_URL: must be an https URL, or http on localhost, and carry no " +
+        "credentials, path, query or fragment",
+    );
+  });
+
+  it("refuses an address carrying credentials", () => {
+    // The value is published verbatim in the discovery documents, so a
+    // password written into it is a password handed to every client that reads
+    // one.
+    expect(rejection("https://someone:hunter2@brf.example.se")).toBeInstanceOf(
+      EnvValidationError,
+    );
+  });
+
+  it("refuses an address with a path, a query or a fragment", () => {
+    /*
+     * A prefix here is not honoured, it is dropped: the resource URL is built
+     * by resolving an absolute path against this value, so a base path never
+     * reaches the audience. An operator mounting the instance under a prefix
+     * would get tokens bound to an address their instance does not serve, and
+     * nothing would say so. Refused at boot instead.
+     */
+    expect(rejection("https://brf.example.se/openbrf")).toBeInstanceOf(
+      EnvValidationError,
+    );
+    expect(rejection("https://brf.example.se/?tenant=1")).toBeInstanceOf(
+      EnvValidationError,
+    );
+    expect(rejection("https://brf.example.se/#top")).toBeInstanceOf(
+      EnvValidationError,
+    );
+  });
+
+  it("accepts the bare origin with a trailing slash", () => {
+    // What an operator copies out of a browser's address bar. The path is
+    // empty, so nothing is being asked for that cannot be honoured.
+    expect(withAppUrl("https://brf.example.se/")).toBe(
+      "https://brf.example.se/",
     );
   });
 });

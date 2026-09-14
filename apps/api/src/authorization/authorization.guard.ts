@@ -34,6 +34,13 @@ import { IS_PUBLIC_ROUTE } from "./public.decorator";
 import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
 
 /**
+ * The authentication scheme the resource route accepts, already lower-cased
+ * for the comparison. Only the scheme is case-insensitive; the credential
+ * after it is not.
+ */
+const BEARER_SCHEME = "bearer ";
+
+/**
  * What a bearer token established about the caller.
  *
  * Present only on the resource route, and only from the guard: the caller
@@ -183,11 +190,24 @@ export class AuthorizationGuard implements CanActivate {
      * is a refusal, which is what an ambiguous credential deserves.
      */
     const presented = request.headers.authorization;
-    if (typeof presented !== "string" || !presented.startsWith("Bearer ")) {
+    if (typeof presented !== "string") {
       throw refusal();
     }
 
-    const token = presented.slice("Bearer ".length).trim();
+    /*
+     * The scheme is matched without regard to case, because RFC 9110 makes an
+     * authentication scheme case-insensitive. A conforming client that sends
+     * `bearer` was refused here with a 401 it could do nothing about. The
+     * credential after the scheme is not case-folded and is left exactly as it
+     * arrived - only the scheme is.
+     */
+    if (
+      presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
+    ) {
+      throw refusal();
+    }
+
+    const token = presented.slice(BEARER_SCHEME.length).trim();
     if (token === "") {
       throw refusal();
     }

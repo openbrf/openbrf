@@ -621,8 +621,8 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "A mailing request was dismissed",
           "PLUGIN_ACTION_ARMED": "A plugin's action was armed",
           "PLUGIN_ACTION_DISARMED": "A plugin's action was disarmed",
-          "CONNECTED_APP_CONNECTED": "An app was allowed to act for the person",
-          "CONNECTED_APP_DISCONNECTED": "An app was disconnected",
+          "CONNECTED_APP_CONNECTED": "A connected app was allowed to act for the person",
+          "CONNECTED_APP_DISCONNECTED": "A connected app was disconnected",
           "OAUTH_CLIENT_REGISTERED": "An app registered itself with the association"
         },
         "channel": {

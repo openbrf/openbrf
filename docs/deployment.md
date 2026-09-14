@@ -245,7 +245,7 @@ from tarballs (see [ADR 0003](adr/0003-plugin-loading-and-module-resolution.md))
 Installing from sources outside the curated catalog is off by default, and
 turning it on is a deliberate opt-out rather than a setting.
 
-## Letting members connect external apps
+## Connected apps
 
 A member can point a program they chose - a chat client, an assistant - at the
 instance and let it act as them, within what they may do themselves. This needs

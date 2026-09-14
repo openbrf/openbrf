@@ -273,6 +273,19 @@ describe("what the resource route refuses", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  it("accepts the scheme in any case, and leaves the credential alone", async () => {
+    // RFC 9110 makes an authentication scheme case-insensitive, so a
+    // conforming client sending "bearer" is not presenting a broken
+    // credential. Only the scheme is folded: the token is looked up exactly as
+    // it arrived, or a value differing only in case would resolve to somebody
+    // else's row.
+    const { guard, resolve } = build({});
+    const request = requestAt(RESOURCE, { authorization: "bEaReR AbC" });
+
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+    expect(resolve).toHaveBeenCalledWith("AbC");
+  });
+
   it("refuses an empty Bearer value without a lookup", async () => {
     const { guard, resolve } = build({});
     const request = requestAt(RESOURCE, { authorization: "Bearer    " });

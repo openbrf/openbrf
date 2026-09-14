@@ -235,12 +235,21 @@ describe("the tables the sign-in plugins need", () => {
   });
 
   it("resolves every one of them on the generated client", () => {
-    // A type-level assertion: this line stops compiling if a model in
-    // schema.prisma is renamed away from the name the adapter looks up.
+    /*
+     * A type-level assertion: this stops compiling if a model in
+     * schema.prisma is renamed away from the name the adapter looks up.
+     *
+     * A conditional type rather than `const missing: Missing[] = []`. An empty
+     * array literal is assignable to every array type, a non-empty `Missing[]`
+     * included, so that form compiles and passes whatever the exclusion leaves
+     * behind - it reads as the assertion it is not. The tuple wrappers keep
+     * `never` from distributing, so this asks whether `Missing` is empty
+     * rather than asking nothing at all.
+     */
     type Missing = Exclude<RequiredDelegate, keyof PrismaClient>;
-    const missing: Missing[] = [];
+    const noneMissing: [Missing] extends [never] ? true : false = true;
 
-    expect(missing).toEqual([]);
+    expect(noneMissing).toBe(true);
   });
 });
 

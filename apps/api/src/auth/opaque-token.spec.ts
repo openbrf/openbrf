@@ -9,8 +9,8 @@ import { hashOpaqueToken } from "./opaque-token";
  * the construction ever changes, every one of them stops resolving at once,
  * and it does so silently: a lookup miss is indistinguishable from a token
  * that was revoked, so the interface would report that every member had
- * disconnected every app rather than reporting a fault. A literal is what
- * turns that into a failing test.
+ * disconnected every connected app rather than reporting a fault. A literal is
+ * what turns that into a failing test.
  */
 describe("hashOpaqueToken", () => {
   it("is sha256, base64url, unpadded", () => {

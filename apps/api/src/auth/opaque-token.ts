@@ -19,8 +19,8 @@ import { createHash } from "node:crypto";
  * same construction today, but a default is an implementation detail a minor
  * version may change, and a changed digest would not fail loudly: every live
  * token would simply stop resolving, reading as though every member had
- * disconnected every app at once. Naming the function makes that a decision
- * somebody has to take rather than something an upgrade can do.
+ * disconnected every connected app at once. Naming the function makes that a
+ * decision somebody has to take rather than something an upgrade can do.
  *
  * SHA-256 with no salt and no key, deliberately. The input is a high-entropy
  * random value the server minted, not a password, so there is no dictionary to
