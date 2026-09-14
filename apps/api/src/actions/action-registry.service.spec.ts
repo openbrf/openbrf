@@ -153,16 +153,14 @@ describe("what a caller reaches", () => {
     expect(await registry.list(callers.forRequest(request()))).toEqual([]);
   });
 
-  it("narrows on a filter's surface without ever leaving the channel's own", async () => {
+  it("lets a person on a session ask what another surface would offer", async () => {
     /*
-     * The filter is a narrowing of what this caller may reach, never a
-     * substitute for it. Both are required, so asking for a surface the action
-     * does not declare offers nothing, and asking for one the CALLER cannot
-     * reach cannot put an action back into the list.
-     *
-     * This is what lets a board member - and the end-to-end suite - read the
-     * catalogue a connected app would be served on an instance where connected
-     * app sign-in does not exist yet.
+     * The direction that stays open, and the reason it is open. A member being
+     * shown what an external app would be able to do as them, before they grant
+     * it, is what informed consent on the sign-in screen is made of - so a web
+     * caller may name a surface. It is safe because naming "mcp" makes
+     * `permits()` demand the arming, and because the list is filtered to this
+     * person's own live capabilities whichever surface is asked for.
      */
     const { registry, callers } = build();
     registry.register(definition({ surfaces: ["ui", "mcp"] }), {
@@ -382,11 +380,15 @@ describe("what a plugin's action depends on", () => {
 
   it("does not let a connected app ask for the surface it is not on", async () => {
     /*
-     * The catalogue's filter narrows; it must never widen. "ui" is the one
-     * surface a plugin's action is reached on without arming, so a connected
-     * app allowed to name it would read back every action an administrator
-     * deliberately did not offer it - the names, the descriptions and the
-     * capabilities of the plugins this association has installed.
+     * "ui" is the one surface a plugin's action is reached on with no arming
+     * test at all, which is right for something inside this process and exactly
+     * wrong for something outside it. A program allowed to name it would read
+     * back the names, descriptions and capabilities of every plugin action an
+     * administrator deliberately did not offer it.
+     *
+     * That branch is the whole of the leak: on "mcp" and "ai" the filter was
+     * always honoured correctly, because those two make `permits()` demand the
+     * arming.
      */
     const { registry, callers } = withPlugin({
       serving: true,
@@ -399,6 +401,69 @@ describe("what a plugin's action depends on", () => {
     );
 
     expect(await registry.list(caller, { surface: "ui" })).toEqual([]);
+  });
+
+  it("does not let a plugin choose one either, though it runs in process", async () => {
+    /*
+     * The channel that is easy to get wrong. `plugin` maps to "ui", so a rule
+     * keyed on the entitled surface rather than on the channel would have let a
+     * plugin name "mcp" and read back what an administrator armed for connected
+     * apps. It is a program, and only a person on a session may ask.
+     */
+    const { registry, callers } = withPlugin({
+      serving: true,
+      armedActions: ["occupancy_summary"],
+      capabilityFloor: "self:manage",
+    });
+
+    const inProcess = callers.forPlugin(request());
+    registry.register(definition({ name: "news_ui_only", surfaces: ["ui"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    // The "ui" listing, whatever was asked for: the ui-only action is in it.
+    expect(
+      (await registry.list(inProcess, { surface: "mcp" })).map(
+        (one) => one.name,
+      ),
+    ).toEqual(["news_ui_only", "occupancy_summary"]);
+  });
+
+  it("still honours arming when a person asks about another surface", async () => {
+    /*
+     * The case that must not regress, and the reason `permits()` is asked about
+     * the surface being LISTED rather than about the caller's own channel.
+     * Judging by the channel would make this read "ui", where arming is not
+     * tested - and the sign-in consent screen would then show a member actions
+     * the app could not in fact perform, at the moment they are deciding
+     * whether to grant it.
+     */
+    const { registry, callers } = withPlugin({
+      serving: true,
+      armedActions: [],
+      capabilityFloor: "self:manage",
+    });
+    const onSession = callers.forRequest(request());
+
+    // Unarmed: in process it is reachable, and to a connected app it is not.
+    expect((await registry.list(onSession)).map((one) => one.name)).toEqual([
+      "occupancy_summary",
+    ]);
+    expect(await registry.list(onSession, { surface: "mcp" })).toEqual([]);
+
+    registry.bindLiveness({
+      get: async () => ({
+        serving: true,
+        armedActions: ["occupancy_summary"],
+        capabilityFloor: "self:manage",
+      }),
+    });
+    expect(
+      (await registry.list(onSession, { surface: "mcp" })).map(
+        (one) => one.name,
+      ),
+    ).toEqual(["occupancy_summary"]);
   });
 
   it("refuses a caller the plugin's own routes would refuse", async () => {

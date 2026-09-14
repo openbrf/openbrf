@@ -252,32 +252,43 @@ export class ActionRegistryService {
     }
 
     /*
-     * The surface this caller is entitled to, and the filter as a narrowing of
-     * it rather than a substitute for it.
+     * Which surface this listing is of, and who may choose it.
      *
-     * The query string is where a caller could otherwise widen its own answer:
-     * `?surface=ui` from a connected app replaced the channel's entitlement,
-     * and `permits()` grants "ui" to any serving plugin without reading
-     * `armedActions` at all - so the catalogue would have named the plugin
-     * actions no administrator armed. That is exactly the disclosure arming
-     * exists to prevent, since adding a channel may never expose an existing
-     * action.
+     * A person on a session may name one; a program may not. That asymmetry is
+     * the rule, and it is worth stating as a rule rather than as "the filter
+     * narrows", because the two directions are not the same question and a
+     * later reader without the distinction will collapse them.
      *
-     * So the entitlement is always required, and an asked-for surface only
-     * narrows within it. The listing then answers what dispatch would: invoke()
-     * reads `SURFACE_FOR_CHANNEL` and ignores the filter entirely, so a
-     * catalogue that named anything this caller could not call would be
-     * advertising a refusal.
+     * A program may not, because of what "ui" means to `permits()`: on that
+     * surface a serving plugin's action is offered without any arming test at
+     * all, which is right for something inside this process and is exactly
+     * wrong for something outside it. A caller on `mcp` asking `?surface=ui`
+     * was therefore handed the actions offered nowhere beyond the instance and
+     * the plugin actions no administrator had armed. Arming IS what offers an
+     * action beyond this instance, so that branch is the whole of the leak -
+     * not the filter as such, which is honoured correctly for `mcp` and `ai`.
+     *
+     * A person may, because that read is informed consent: the sign-in screen
+     * shows a member what an external app would be able to do AS THEM before
+     * they grant it, and it is safe for the same reason the leak is not - on
+     * `mcp` and `ai` `permits()` demands the arming, and the list is filtered
+     * to the person's own live capabilities either way.
+     *
+     * Which is why the surface chosen here is the one `permits()` is then asked
+     * about, below. Judging arming by the CALLER's channel instead would make
+     * that consent screen show actions the app could not in fact perform, which
+     * misleads a person at the moment they decide - worse than the leak.
      */
-    const entitled = SURFACE_FOR_CHANNEL[resolved.channel];
-    const asked = filter?.surface;
+    const surface =
+      resolved.channel === "web"
+        ? (filter?.surface ?? SURFACE_FOR_CHANNEL.web)
+        : SURFACE_FOR_CHANNEL[resolved.channel];
     const translate = this.i18n.translatorFor(locale);
 
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
       return (
-        definition.surfaces.includes(entitled) &&
-        (asked === undefined || definition.surfaces.includes(asked)) &&
+        definition.surfaces.includes(surface) &&
         (filter?.group === undefined || definition.group === filter.group) &&
         holdsCapability(principal, definition.capability)
       );
@@ -307,13 +318,9 @@ export class ActionRegistryService {
         if (held.owner.kind !== "plugin") {
           return true;
         }
-        /*
-         * At the ENTITLED surface, never at the asked-for one. Arming governs
-         * what a channel may reach, so a filter must not be able to change the
-         * rule it is judged by - which is the other half of the widening a
-         * caller-supplied surface could do.
-         */
-        return permits(states.get(held.owner.pluginId) ?? null, held, entitled);
+        // Against the surface actually being listed, so a listing of "mcp"
+        // answers what a connected app could really be asked to do.
+        return permits(states.get(held.owner.pluginId) ?? null, held, surface);
       })
       .map((held) => summarise(held.definition, translate));
 
