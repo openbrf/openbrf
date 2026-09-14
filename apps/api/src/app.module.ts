@@ -6,6 +6,8 @@ import { AddressBookModule } from "./address-book/address-book.module";
 import { AddressesModule } from "./addresses/addresses.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
+import { ProtectedResourceModule } from "./auth/protected-resource.module";
+import { WellKnownModule } from "./auth/well-known.module";
 import { AuthorizationModule } from "./authorization/authorization.module";
 import { BoardModule } from "./board/board.module";
 import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
@@ -52,6 +54,10 @@ import { ThemesModule } from "./themes/themes.module";
     ConfigModule,
     DatabaseModule,
     CryptoModule,
+    // Global, and early: the authorization guard, the sign-in options and the
+    // discovery controller sit in three injectors and all three resolve the
+    // one protected resource decided at boot.
+    ProtectedResourceModule,
     AuditModule,
     I18nModule,
     JobsModule,
@@ -93,6 +99,9 @@ import { ThemesModule } from "./themes/themes.module";
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.
     ActionCatalogueModule,
+    // Ahead of SiteModule for the same reason, and stated in its own file: it
+    // claims paths at the root of the origin.
+    WellKnownModule,
     SiteModule,
   ],
   controllers: [HealthController],

@@ -24,6 +24,56 @@ function envBoolean(defaultValue: boolean) {
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
 
 /**
+ * Whether a client could reach this instance at the address given.
+ *
+ * Loopback is allowed unencrypted because that is what a development instance
+ * and the end-to-end stack run on; everything else must be https, since the
+ * address leaves this process in a discovery document and a token's audience.
+ * Deliberately not a regular expression: a URL is parsed by the parser, and a
+ * pattern that agreed with it on the easy cases would disagree on the ones
+ * that matter.
+ */
+function isReachableAppUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  /*
+   * A bare origin and nothing else. This value is not only dialled: it is the
+   * base every sign-in link is built on, it is published verbatim in the
+   * discovery documents, and it is the audience every access token is bound
+   * to. Credentials written into it would be published to anyone who reads a
+   * discovery document, and a path would be dropped silently rather than
+   * honoured - the resource URL is resolved from an absolute path, so
+   * `https://brf.example/base` yields `https://brf.example/api/...` and an
+   * operator who meant to mount the instance under a prefix gets an audience
+   * that is not where their instance is. Refusing the value names the variable
+   * at boot instead.
+   */
+  if (
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  if (url.protocol !== "http:") return false;
+  // The parser always returns an IPv6 host bracketed, so the bracketed form is
+  // the only one that can appear here; an unbracketed one does not survive
+  // parsing to reach this line.
+  return (
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "[::1]"
+  );
+}
+
+/**
  * Hard ceiling on the configured upload limit, 32 MiB.
  *
  * The limit is what stops a request from filling the disk or the heap, and an
@@ -62,8 +112,25 @@ export const envSchema = z.object({
    */
   DATABASE_URL_RUNTIME: z.string().min(1).optional(),
 
-  /** Public base URL, used to build invitation and magic links. */
-  APP_URL: z.string().min(1).default("http://localhost:5173"),
+  /**
+   * Public base URL, used to build invitation and magic links.
+   *
+   * Also the origin of the OAuth protected resource, which is the audience
+   * every access token is issued for, so it must be an address a client can
+   * actually reach: https, or loopback for a development instance. That mirrors
+   * what the sign-in library validates when it is constructed, and turns a
+   * stack trace out of somebody else's package into an error naming this
+   * variable. Changing it after tokens have been issued invalidates them all,
+   * which docs/deployment.md states.
+   */
+  APP_URL: z
+    .string()
+    .min(1)
+    .refine(
+      isReachableAppUrl,
+      "must be an https URL, or http on localhost, and carry no credentials, path, query or fragment",
+    )
+    .default("http://localhost:5173"),
 
   /** Holds uploads, keys, installed plugins and installed themes. */
   OPENBRF_DATA_DIR: z.string().min(1).default("./.data"),
@@ -104,6 +171,22 @@ export const envSchema = z.object({
     .positive()
     .max(MAX_UPLOAD_CEILING_BYTES)
     .default(10 * 1024 * 1024),
+
+  /**
+   * How many calls one connected app's token may make in a minute.
+   *
+   * A bound on what a single connection can do to an instance, not a quota a
+   * cooperative is billed against. Each call costs a token lookup, an account
+   * lookup and a capability query, and the connections this bounds are
+   * programs rather than people, so an unbounded one is a load an association
+   * never agreed to. Counted per process; token-rate-limit.ts says what that
+   * means.
+   */
+  OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
 
   OPENBRF_PLUGINS_ENABLED: envBoolean(true),
   OPENBRF_CATALOG_URL: z.string().min(1).optional(),

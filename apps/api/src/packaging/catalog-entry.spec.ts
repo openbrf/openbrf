@@ -231,6 +231,47 @@ describe("parseCatalog", () => {
     ).toBe("catalog-malformed");
   });
 
+  it("keeps the protected resource route a connector declares", () => {
+    /*
+     * Carried through the index because both rules about it are decided before
+     * anything is downloaded: a second plugin declaring one is refused at
+     * install, and the reserved id may be taken only by a plugin that declares
+     * one. Dropped here, both refusals would have nothing to read and would
+     * never fire.
+     */
+    const plugin = onlyPlugin(
+      parseCatalog(
+        index([pluginEntry({ oauthProtectedResource: "mcp/stream" })]),
+      ),
+    );
+
+    expect(plugin.oauthProtectedResource).toBe("mcp/stream");
+  });
+
+  it("leaves the protected resource unset on an entry that declares none", () => {
+    // Most plugins are not connectors, and "declares none" has to be
+    // distinguishable from "declares something", because that is the whole of
+    // what both install gates turn on.
+    expect(
+      onlyPlugin(parseCatalog(index([pluginEntry()]))).oauthProtectedResource,
+    ).toBeUndefined();
+  });
+
+  // The value is joined onto the plugin's own mount and becomes a URL an
+  // unauthenticated caller is pointed at, so what it may contain is settled by
+  // the schema rather than by whoever joins it.
+  it.each([
+    ["/mcp", "a leading slash"],
+    ["mcp/", "a trailing slash"],
+    ["../mcp", "a parent segment"],
+    ["MCP", "uppercase"],
+    ["", "an empty route"],
+  ])("rejects the protected resource route %j (%s)", (route) => {
+    expect(
+      refusalReason(index([pluginEntry({ oauthProtectedResource: route })])),
+    ).toBe("catalog-malformed");
+  });
+
   it("accepts an index with no entries at all", () => {
     // A catalog that has delisted everything is well-formed and says so.
     expect(parseCatalog(index([])).entries).toEqual([]);

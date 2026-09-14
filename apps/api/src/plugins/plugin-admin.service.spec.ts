@@ -11,6 +11,8 @@ import {
   PluginConsentMismatchError,
   PluginNotFoundError,
   PluginRecipientRequiredError,
+  PluginReservedIdError,
+  PluginResourceConflictError,
 } from "./plugin.errors";
 
 /**
@@ -42,7 +44,23 @@ const ENTRY = {
   artifact: { url: "https://example.test/occupancy.tgz", sha512: "sha512-x" },
 } as unknown as CatalogPluginEntry;
 
-function build() {
+interface InstalledPluginFixture {
+  id: string;
+  manifest: { oauthProtectedResource?: string } | null;
+}
+
+interface Options {
+  /** What the catalog answers with for the id being installed. */
+  entry?: CatalogPluginEntry;
+  installed?: readonly InstalledPluginFixture[];
+  /** What the index lists, when the subject is browsing rather than installing. */
+  listed?: readonly CatalogPluginEntry[];
+}
+
+function build(options: Options = {}) {
+  const entry = options.entry ?? ENTRY;
+  const installed = options.installed ?? [];
+  const listed = options.listed ?? [entry];
   const consent = vi.fn(async () => undefined);
   const recordProcessor = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
@@ -62,14 +80,23 @@ function build() {
   };
   const service = new PluginAdminService(
     { OPENBRF_PLUGINS_ENABLED: true } as unknown as Env,
-    { consent, setActionArmed } as never,
+    {
+      consent,
+      setActionArmed,
+      list: async () => installed.map(({ id }) => ({ id })),
+    } as never,
     {
       report: () => [],
       get: () => null,
-      manifestFor: () => undefined,
+      manifestFor: (id: string) =>
+        installed.find((record) => record.id === id)?.manifest ?? null,
     } as never,
     { enqueue: vi.fn(async () => undefined) } as never,
-    { entry: async () => ENTRY } as never,
+    {
+      entry: async () => entry,
+      read: async () => ({ version: 1, entries: listed }),
+      resolveUrl: () => "https://catalog.openbrf.test/index.json",
+    } as never,
     { record } as never,
     {} as never,
     // The recipient's classification, the processing it performs, and what the
@@ -441,5 +468,206 @@ describe("arming an action, which is what exposes it", () => {
       expect.objectContaining({ action: "PLUGIN_ACTION_DISARMED" }),
       built.txClient,
     );
+  });
+});
+
+describe("the catalog entries the consent screen reads", () => {
+  it("carries the connected-app sign-in route an entry declares", async () => {
+    const { service } = build({
+      listed: [{ ...ENTRY, oauthProtectedResource: "mcp" }],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.oauthProtectedResource).toBe("mcp");
+  });
+
+  it("says none for an entry that serves no such route", async () => {
+    // Null rather than absent: the browser echoes it back as the statement
+    // that the screen showed no address, and that is what an entry acquiring
+    // one after the screen was drawn is compared against.
+    const { service } = build({ listed: [ENTRY] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+});
+
+describe("the gates on the OAuth protected resource", () => {
+  const RESERVED = "mcp-connector";
+
+  /** A catalog entry at `id`, serving the resource when one is given. */
+  function entryFor(id: string, resource?: string): CatalogPluginEntry {
+    return {
+      ...ENTRY,
+      id,
+      ...(resource === undefined ? {} : { oauthProtectedResource: resource }),
+    };
+  }
+
+  /** An installed connector, as the loader reports it. */
+  const CONNECTOR: InstalledPluginFixture = {
+    id: "connector-a",
+    manifest: { oauthProtectedResource: "mcp" },
+  };
+
+  /**
+   * Installs with no echo, which is the route the command-line tool takes: the
+   * echo gate is the subject of the block above, and nothing here turns on it.
+   *
+   * The promise is returned rather than awaited so a refusal can be asserted on
+   * it, and the consent mock beside it so a successful install can be asserted
+   * to have written the row.
+   */
+  function installing(options: Options): {
+    done: Promise<{ restarting: boolean }>;
+    consent: ReturnType<typeof vi.fn>;
+  } {
+    const built = build(options);
+    return {
+      done: built.service.install(
+        { id: (options.entry ?? ENTRY).id },
+        null,
+        "SYSTEM",
+      ),
+      consent: built.consent,
+    };
+  }
+
+  it("refuses an echo that agrees on everything but names no resource", async () => {
+    /*
+     * The echo confirms the permissions, the personal data and the actions,
+     * and says nothing about the resource - which is exactly what a screen
+     * drawn before the entry came to declare one produces. Installing on it
+     * would hand a plugin the address connected apps sign in to, on a consent
+     * that never mentioned it.
+     *
+     * Not reachable through `installing()`, which sends no echo at all: with
+     * `echoed` false the whole comparison is skipped, so the resource term
+     * needs a request that turns the gate on.
+     */
+    const { service, consent } = build({
+      entry: entryFor("connector-a", "mcp"),
+    });
+
+    await expect(
+      service.install(
+        {
+          id: "connector-a",
+          permissions: ["addressBook:read", "mail:send"],
+          personalData: ["name", "apartment"],
+          actions: [],
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("accepts an echo that names the resource the entry declares", async () => {
+    // The other direction, so the comparison cannot be satisfied by refusing
+    // every echo that reaches it: a board that was shown the resource and
+    // confirmed it installs.
+    const { service, consent } = build({
+      entry: entryFor("connector-a", "mcp"),
+    });
+
+    await service.install(
+      {
+        id: "connector-a",
+        permissions: ["addressBook:read", "mail:send"],
+        personalData: ["name", "apartment"],
+        actions: [],
+        oauthProtectedResource: "mcp",
+      },
+      null,
+      "WEB",
+    );
+
+    expect(consent).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a second plugin that declares the resource", async () => {
+    const { done, consent } = installing({
+      entry: entryFor("connector-b", "mcp"),
+      installed: [CONNECTOR],
+    });
+
+    await expect(done).rejects.toBeInstanceOf(PluginResourceConflictError);
+    // Refused before the first write, so nothing is left behind claiming a
+    // consent that produced no install.
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("lets the plugin that already holds the resource be installed again", async () => {
+    /*
+     * The case most easily got wrong, and the one that matters most. An upgrade
+     * and a repeated install write the same row, so reading "this id is already
+     * installed declaring a resource" as a conflict would leave a connector
+     * nobody could ever patch: the only ways out would be to uninstall it
+     * first, which strands every token issued in the meantime, or to edit the
+     * row by hand.
+     */
+    const { done, consent } = installing({
+      entry: entryFor(CONNECTOR.id, "mcp"),
+      installed: [CONNECTOR],
+    });
+
+    await done;
+    expect(consent).toHaveBeenCalledOnce();
+  });
+
+  it("refuses the reserved id to a plugin that does not serve the resource", async () => {
+    /*
+     * The error class rather than "it threw". The reserved id and the conflict
+     * are different refusals with different answers - one says the id is not
+     * this plugin's to take, the other says another connector has to go first -
+     * and a board member reads one sentence or the other.
+     */
+    const { done, consent } = installing({ entry: entryFor(RESERVED) });
+
+    await expect(done).rejects.toBeInstanceOf(PluginReservedIdError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("allows the reserved id to a plugin that does serve the resource", async () => {
+    // What the id is reserved for. An instance with no connector advertises
+    // this mount as its resource already, and the plugin that takes the id is
+    // the one making that advertisement true.
+    const { done, consent } = installing({ entry: entryFor(RESERVED, "mcp") });
+
+    await done;
+    expect(consent).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a plugin that declares no resource alone", async () => {
+    // The ordinary install, alongside a connector that does hold the resource.
+    // Only a declaration competes with a declaration; a plugin serving no MCP
+    // route is not asking for the audience.
+    const { done, consent } = installing({
+      entry: ENTRY,
+      installed: [CONNECTOR],
+    });
+
+    await done;
+    expect(consent).toHaveBeenCalledOnce();
+  });
+
+  it("ignores an installed plugin whose manifest declares nothing", async () => {
+    // An instance full of ordinary plugins is not an instance that has a
+    // connector, and the row alone cannot tell the two apart - which is why the
+    // manifest is what is read.
+    const { done, consent } = installing({
+      entry: entryFor("connector-a", "mcp"),
+      installed: [
+        { id: "occupancy", manifest: {} },
+        { id: "grannsamverkan", manifest: null },
+      ],
+    });
+
+    await done;
+    expect(consent).toHaveBeenCalledOnce();
   });
 });

@@ -597,6 +597,28 @@ describe("what a plugin's provider may be constructed with", () => {
     expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
   });
 
+  it("refuses a provider that asks for the service resolving a session", () => {
+    /*
+     * The connector's own route is Bearer-only, and the guard is what makes it
+     * so. A plugin holding the service that resolves a person from request
+     * headers could read the browser's cookie inside its own handler and
+     * decide by it, which reaches around the one guarantee that route exists
+     * to make - so it is refused where every other core service is.
+     */
+    class AuthService {}
+    @Injectable()
+    class Connector {
+      constructor(private readonly auth: AuthService) {}
+    }
+    @Module({ providers: [Connector] })
+    class PluginModule {}
+
+    const result = sealPluginModule({ module: PluginModule }, OPTIONS);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
   it("refuses one reached through a nested module of its own", () => {
     // The graph is walked, so hiding the provider one import deeper does not
     // help.

@@ -12,6 +12,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { hashOpaqueToken } from "../auth/opaque-token";
+import type { ProtectedResource } from "../auth/protected-resource";
+import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
@@ -65,6 +68,25 @@ const REPO_ROOT = repositoryRoot();
 const CATALOG = join(REPO_ROOT, "fixtures", "catalog", "catalog.json");
 const PLUGIN_ID = "occupancy";
 
+/**
+ * The route the fixture's manifest declares as the OAuth protected resource,
+ * and one path beneath it.
+ *
+ * Written out here rather than read back from the resolved resource, because
+ * the agreement between the two is the property under test: the manifest's
+ * `oauthProtectedResource`, what `resolveProtectedResource` made of it, and the
+ * path the module seal actually mounted the controller on are three decisions
+ * taken in three different places, and the guard's Bearer branch only fires
+ * where all three meet. A constant derived from one of them could not fail.
+ */
+const RESOURCE_PATH = `/api/plugin/${PLUGIN_ID}/mcp`;
+const RESOURCE_SUB_PATH = `${RESOURCE_PATH}/messages`;
+/** A route of the same plugin the manifest says nothing about. */
+const SIBLING_PATH = `/api/plugin/${PLUGIN_ID}/summary`;
+
+/** What a token for this resource may carry, per the sign-in options. */
+const SCOPES = ["mcp:read", "mcp:write"];
+
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
 const admin = {
@@ -75,6 +97,8 @@ const outsider = {
   personId: `plugin-outsider-${suffix}`,
   email: `plugin-outsider-${suffix}@exempel.se`,
 };
+/** The connected app the tokens below are issued to. */
+const connectedApp = `https://klient-${suffix}.exempel.se/id`;
 
 let app: NestFastifyApplication | undefined;
 let prisma: PrismaService | undefined;
@@ -131,6 +155,87 @@ async function signIn(email: string): Promise<string> {
       ? []
       : [setCookie];
   return cookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+/** The resource this process resolved, as the three injectors read it. */
+function resolvedResource(): ProtectedResource {
+  return application().get<ProtectedResource>(PROTECTED_RESOURCE);
+}
+
+/**
+ * Writes the rows an authorization would have written.
+ *
+ * The flow itself needs a browser and a client that can be redirected to, and
+ * none of that is what this suite is about: what it needs is a token row that
+ * really exists, so that what reaches the plugin's route is a credential the
+ * resolver found rather than a stub.
+ *
+ * Two things it must not fake. The digest, because the column holds
+ * `hashOpaqueToken(value)` and never the value - a row written with the
+ * plaintext is a row the resolver can never find, and every assertion below
+ * would then fail for a reason that has nothing to do with the guard. And the
+ * audience, because a token is only accepted where its `resources` carry this
+ * instance's own resource URL, which is read from the resolved resource here
+ * for the same reason the paths above are not.
+ *
+ * The refresh row `connected-apps.int-spec.ts` also writes is left out: it is
+ * what keeps a fifteen-minute access token usable, and nothing on this path
+ * reads it.
+ */
+async function grant(options: {
+  personId: string;
+  token: string;
+}): Promise<void> {
+  const client = application().get(PrismaService);
+  const account = await client.user.findUniqueOrThrow({
+    where: { personId: options.personId },
+    select: { id: true },
+  });
+  const audience = [resolvedResource().url];
+  const now = new Date();
+
+  await client.oauthClient.upsert({
+    where: { clientId: connectedApp },
+    create: {
+      clientId: connectedApp,
+      name: "En ansluten app",
+      clientDiscoveryId: connectedApp,
+      scopes: SCOPES,
+      contacts: [],
+      redirectUris: [`${new URL(connectedApp).origin}/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      createdAt: now,
+      updatedAt: now,
+    },
+    update: {},
+  });
+
+  await client.oauthConsent.create({
+    data: {
+      clientId: connectedApp,
+      userId: account.id,
+      resources: audience,
+      requestedUserInfoClaims: [],
+      scopes: SCOPES,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+
+  await client.oauthAccessToken.create({
+    data: {
+      token: hashOpaqueToken(options.token),
+      clientId: connectedApp,
+      userId: account.id,
+      resources: audience,
+      requestedUserInfoClaims: [],
+      scopes: SCOPES,
+      expiresAt: new Date(Date.now() + 900_000),
+      createdAt: now,
+    },
+  });
 }
 
 async function ensureFixture(): Promise<void> {
@@ -256,6 +361,11 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       const personIds = [admin.personId, outsider.personId];
+      // First, because every consent and token this suite wrote hangs off it
+      // by clientId and goes with it.
+      await prisma.oauthClient.deleteMany({
+        where: { clientId: connectedApp },
+      });
       await prisma.systemRole.deleteMany({
         where: { personId: { in: personIds } },
       });
@@ -463,6 +573,219 @@ describe("a plugin's own controllers", () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+/**
+ * The route this plugin's manifest declared as the OAuth protected resource.
+ *
+ * This is the one thing about that route no unit test can establish, because it
+ * holds only if three decisions taken in three different places agree at boot:
+ * the installed manifest declaring `oauthProtectedResource`,
+ * `resolveProtectedResource` picking that up from the plugins this process
+ * actually loaded, and the module seal mounting the plugin's controller on the
+ * path the first two named. The guard's branch is driven by the resolved path
+ * alone and by nothing about the route itself, so if any of the three disagrees
+ * the branch never fires - and what is then answering at the connector's
+ * address is an ordinary plugin route, reachable with the session cookie the
+ * member's own browser already holds. Nothing that tests the guard against a
+ * resource it was handed can see that, which is why the first assertion below
+ * presents the cookie rather than a token.
+ *
+ * The plugin is installed from a real tarball and loaded by the real boot
+ * sequence, above, so each of the three is the one the process would use.
+ */
+describe("the plugin route declared as the OAuth protected resource", () => {
+  it("is the route the installed manifest names, at the path it is mounted on", () => {
+    const resource = resolvedResource();
+
+    // `declared` is what arms the branch at all: an instance with no connector
+    // advertises a default path, mounts nothing on it, and installs no branch.
+    expect(resource.declared).toBe(true);
+    expect(resource.path).toBe(RESOURCE_PATH);
+    expect(resource.url).toBe(new URL(RESOURCE_PATH, env.APP_URL).toString());
+  });
+
+  /**
+   * The assertion the rest of this file exists to make possible.
+   *
+   * The sibling is presented in the same test and with the same cookie, for two
+   * reasons. It is the control: a 401 from a cookie that had simply stopped
+   * working would satisfy the first half on its own. And it is the scope: the
+   * seal makes every plugin controller a non-public, cookie-authenticated route
+   * at one capability floor, so the two routes differ in nothing except that
+   * the manifest names one of them - if the branch had been armed on the
+   * plugin's mount rather than on the declared path, the summary would be 401
+   * too and the plugin's own screens would have stopped working.
+   */
+  it("refuses the session cookie that works one route along", async () => {
+    const refused = await inject({
+      method: "GET",
+      url: RESOURCE_PATH,
+      headers: { cookie: adminCookie },
+    });
+    const sibling = await inject({
+      method: "GET",
+      url: SIBLING_PATH,
+      headers: { cookie: adminCookie },
+    });
+
+    expect(refused.statusCode).toBe(401);
+    // Not a handler that ran and was unwound afterwards: it never ran at all,
+    // so the person it would have named is nowhere in the answer.
+    expect(refused.body).not.toContain(admin.personId);
+    expect(sibling.statusCode).toBe(200);
+  });
+
+  /**
+   * RFC 9728's challenge, and the whole remedy a refused client is given: it
+   * has an address and a 401, and without the pointer nothing it can do about
+   * either. Followed rather than merely matched, because a pointer at a
+   * document this instance does not serve would look identical to a correct
+   * one.
+   */
+  it("points a refused caller at a document that names this resource", async () => {
+    const refused = await inject({ method: "GET", url: RESOURCE_PATH });
+
+    expect(refused.statusCode).toBe(401);
+    const challenge = String(refused.headers["www-authenticate"]);
+    const pointer = /resource_metadata="([^"]+)"/.exec(challenge)?.[1];
+    expect(pointer).toBe(
+      new URL(
+        `/.well-known/oauth-protected-resource${RESOURCE_PATH}`,
+        env.APP_URL,
+      ).toString(),
+    );
+
+    const document = await inject({
+      method: "GET",
+      url: new URL(pointer ?? "").pathname,
+    });
+    expect(document.statusCode).toBe(200);
+    expect(document.json()).toMatchObject({
+      resource: resolvedResource().url,
+    });
+  });
+
+  /**
+   * Both forms of the document, and what they name.
+   *
+   * The bare path is what a client given only the origin will try; the sub-path
+   * form is what the challenge points at. Both have to answer, and both have to
+   * name the plugin's own route - the sign-in library is mounted under
+   * `/api/auth`, and a resource resolved from the library's base path rather
+   * than from the loaded plugins would produce an address under there that no
+   * route serves and no token would ever be accepted at.
+   */
+  it("publishes the plugin's route as the resource, at both discovery paths", async () => {
+    const bare = await inject({
+      method: "GET",
+      url: "/.well-known/oauth-protected-resource",
+    });
+    const beneath = await inject({
+      method: "GET",
+      url: `/.well-known/oauth-protected-resource${RESOURCE_PATH}`,
+    });
+
+    expect(bare.statusCode).toBe(200);
+    expect(beneath.statusCode).toBe(200);
+    for (const document of [bare, beneath]) {
+      const named = document.json<{ resource: string }>().resource;
+      expect(new URL(named).pathname).toBe(RESOURCE_PATH);
+      expect(named).not.toContain("/api/auth");
+    }
+  });
+
+  /**
+   * A token issued for this resource, and what the route sees when one arrives.
+   *
+   * The client id is the half that says which branch ran: the cookie path
+   * attaches a principal and no token at all, so a route reporting a connected
+   * app was reached through the Bearer branch and could not have been reached
+   * any other way. The person is the other half - the token acts for whoever
+   * granted it, and the plugin's route runs at the capability floor its
+   * permissions imply, so this is also the path that has to survive the
+   * principal being rebuilt from the register on every call.
+   */
+  it("accepts a token issued for it and serves the person it acts for", async () => {
+    const token = `plugin-resource-${suffix}`;
+    await grant({ personId: admin.personId, token });
+
+    const response = await inject({
+      method: "GET",
+      url: RESOURCE_PATH,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      route: "mcp",
+      personId: admin.personId,
+      clientId: connectedApp,
+    });
+  });
+
+  /**
+   * A connector serves an endpoint rather than a single route, so the paths
+   * beneath the declared one have to behave the same way. Both halves in one
+   * test: the sub-path really is a route this plugin serves - the token proves
+   * it by getting an answer out of it and naming which handler replied - and
+   * that same route refuses the browser's cookie. Separately, the first would
+   * be indistinguishable from a 404.
+   */
+  it("covers the paths beneath it, which is where the endpoint lives", async () => {
+    const token = `plugin-sub-path-${suffix}`;
+    await grant({ personId: admin.personId, token });
+
+    const refused = await inject({
+      method: "GET",
+      url: RESOURCE_SUB_PATH,
+      headers: { cookie: adminCookie },
+    });
+    const accepted = await inject({
+      method: "GET",
+      url: RESOURCE_SUB_PATH,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(refused.statusCode).toBe(401);
+    expect(refused.headers["www-authenticate"]).toContain("resource_metadata=");
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toEqual({
+      route: "mcp/messages",
+      personId: admin.personId,
+      clientId: connectedApp,
+    });
+  });
+
+  /**
+   * A token is for its own resource and for nothing else.
+   *
+   * The same token, in the same moment, against the route it was issued for and
+   * against an ordinary one. `/api/me` is the mildest route on the instance -
+   * it answers the caller their own record - and it is still 401, because the
+   * cookie path is the only path it has and a bearer header is not a session.
+   * Were it otherwise, a connected app granted `mcp:read` would hold a
+   * credential for the whole API.
+   */
+  it("is not a credential on any other route", async () => {
+    const token = `plugin-elsewhere-${suffix}`;
+    await grant({ personId: admin.personId, token });
+
+    const ownResource = await inject({
+      method: "GET",
+      url: RESOURCE_PATH,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const ordinary = await inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(ownResource.statusCode).toBe(200);
+    expect(ordinary.statusCode).toBe(401);
+    expect(ordinary.body).not.toContain(admin.personId);
   });
 });
 

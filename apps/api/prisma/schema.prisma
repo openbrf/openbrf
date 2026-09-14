@@ -1584,6 +1584,17 @@ enum AuditAction {
   PLUGIN_ACTION_ARMED
   /// An administrator switched one off again.
   PLUGIN_ACTION_DISARMED
+  /// A person allowed an external client to act for them.
+  ///
+  /// Recorded against the person who consented, not against the client: the
+  /// client is in the entry's context, and what the entry says is that this
+  /// member handed out the ability to act under their own capabilities.
+  CONNECTED_APP_CONNECTED
+  /// A connection was cut, by the person themselves or by an administrator.
+  CONNECTED_APP_DISCONNECTED
+  /// A client registered itself against the instance by presenting the URL of
+  /// its own metadata document. No person has consented to anything yet.
+  OAUTH_CLIENT_REGISTERED
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.
@@ -2146,6 +2157,16 @@ model User {
   twoFactors TwoFactor[]
   passkeys   Passkey[]
 
+  /// Clients this account registered. Cleared rather than deleted when the
+  /// account goes; the reason is on OauthClient.user.
+  oauthClients OauthClient[]
+
+  /// Connected apps and their tokens. All three cascade, which is what makes
+  /// the single delete in the purge complete.
+  oauthConsents      OauthConsent[]
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthAccessTokens  OauthAccessToken[]
+
   @@map("auth_user")
 }
 
@@ -2160,6 +2181,12 @@ model Session {
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Tokens granted while signed in with this session. Both are detached
+  /// rather than deleted when it ends: a connected app outlives the browser
+  /// session the person happened to consent from.
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthAccessTokens  OauthAccessToken[]
 
   @@index([userId])
   @@map("auth_session")
@@ -2236,6 +2263,264 @@ model Passkey {
 
   @@index([userId])
   @@map("auth_passkey")
+}
+
+// ---------------------------------------------------------------------------
+// The OAuth 2.1 provider.
+//
+// Eight more tables owned by Better Auth, this time by jwt(), mcp() and
+// cimd(). The rules above hold here too: the shape is the library's, the model
+// names are load-bearing because the adapter reaches the delegate as
+// db[model], only the table names are ours, and no domain column belongs in
+// any of them - the person is reached through User.personId.
+//
+// Service tier, deliberately: no append-only trigger, no revoked UPDATE, no
+// line in harden-runtime-role.sql. A token table that cannot be deleted from
+// cannot be revoked from, and cutting a connection off at once is the whole
+// point of an opaque token. What a token did stays in audit_log_entry, which
+// is append-only and carries both the channel and, in its context, the client
+// that acted.
+// ---------------------------------------------------------------------------
+
+/// The key pair behind the instance's JSON Web Key Set.
+model Jwks {
+  id         String    @id @default(cuid())
+  publicKey  String
+  privateKey String
+  createdAt  DateTime
+  expiresAt  DateTime?
+  alg        String?
+  crv        String?
+
+  @@map("auth_jwks")
+}
+
+/// A client that may ask to act for a person.
+///
+/// Most rows are written by the client id metadata flow rather than by hand:
+/// the client presents a URL, the instance fetches the document it names, and
+/// registers what that document declares.
+model OauthClient {
+  id                String   @id @default(cuid())
+  clientId          String   @unique
+  clientSecret      String?
+  clientDiscoveryId String?
+  disabled          Boolean? @default(false)
+  skipConsent       Boolean?
+  enableEndSession  Boolean?
+  subjectType       String?
+
+  scopes                  String[] @default([])
+  clientCredentialsScopes String[] @default([])
+
+  /// The account that registered the client, where one did.
+  ///
+  /// Pinned to SetNull against the library's own Cascade, and the only place
+  /// in this section where the generated schema is not followed. Every other
+  /// table here reaches a client by clientId with Cascade, so deleting one
+  /// client row deletes every member's consents and tokens for that client
+  /// along with its resource link. Erasing the single person who happens to
+  /// be recorded here would therefore disconnect the app for everybody else,
+  /// with no audit entry and no board decision behind it. The column is
+  /// nullable, so SetNull is available, and a client registered by hand
+  /// leaves it null in any case.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime?
+  updatedAt DateTime?
+
+  name              String?
+  uri               String?
+  icon              String?
+  contacts          String[] @default([])
+  tos               String?
+  policy            String?
+  softwareId        String?
+  softwareVersion   String?
+  softwareStatement String?
+
+  redirectUris                     String[] @default([])
+  postLogoutRedirectUris           String[] @default([])
+  backchannelLogoutUri             String?
+  backchannelLogoutSessionRequired Boolean?
+
+  tokenEndpointAuthMethod String?
+  applicationType         String?
+  jwks                    String?
+  jwksUri                 String?
+  grantTypes              String[] @default([])
+  responseTypes           String[] @default([])
+  requirePKCE             Boolean?
+  dpopBoundAccessTokens   Boolean? @default(false)
+  referenceId             String?
+  metadata                Json?
+
+  resources     OauthClientResource[]
+  refreshTokens OauthRefreshToken[]
+  accessTokens  OauthAccessToken[]
+  consents      OauthConsent[]
+
+  @@index([userId])
+  @@map("auth_oauth_client")
+}
+
+/// A protected resource a token can be issued for. One row on this instance:
+/// the connector plugin's own MCP route.
+model OauthResource {
+  id              String @id @default(cuid())
+  identifier      String @unique
+  name            String
+  accessTokenTtl  Int?
+  refreshTokenTtl Int?
+
+  signingAlgorithm String?
+  signingKeyId     String?
+  allowedScopes    String[] @default([])
+  customClaims     Json?
+
+  dpopBoundAccessTokensRequired Boolean?  @default(false)
+  disabled                      Boolean?  @default(false)
+  createdAt                     DateTime?
+  updatedAt                     DateTime?
+  policyVersion                 Int?      @default(1)
+  metadata                      Json?
+
+  clients OauthClientResource[]
+
+  @@map("auth_oauth_resource")
+}
+
+/// Which resources a client may ask for.
+model OauthClientResource {
+  id String @id @default(cuid())
+
+  clientId String
+  client   OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  resourceId String
+  resource   OauthResource @relation(fields: [resourceId], references: [identifier], onDelete: Cascade)
+
+  metadata  Json?
+  createdAt DateTime?
+
+  @@unique([clientId, resourceId])
+  @@index([clientId])
+  @@index([resourceId])
+  @@map("auth_oauth_client_resource")
+}
+
+/// A refresh token, stored as a digest rather than as the token itself.
+model OauthRefreshToken {
+  id    String @id @default(cuid())
+  token String @unique
+
+  clientId String
+  client   OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  /// The browser session the person was signed in with when they consented.
+  /// Cleared rather than followed when that session ends, so signing out of
+  /// the interface does not disconnect the app.
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[] @default([])
+  requestedUserInfoClaims String[] @default([])
+  scopes                  String[] @default([])
+
+  expiresAt               DateTime
+  createdAt               DateTime
+  revoked                 DateTime?
+  rotatedAt               DateTime?
+  rotationReplayResponse  String?
+  rotationReplayExpiresAt DateTime?
+  authTime                DateTime?
+  confirmation            Json?
+
+  accessTokens OauthAccessToken[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@map("auth_oauth_refresh_token")
+}
+
+/// An access token, stored as a digest rather than as the token itself. Every
+/// call presents one and every call looks it up, which is what makes a
+/// disconnect take effect at once.
+model OauthAccessToken {
+  id    String @id @default(cuid())
+  token String @unique
+
+  clientId String
+  client   OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[] @default([])
+  requestedUserInfoClaims String[] @default([])
+  scopes                  String[] @default([])
+
+  refreshId    String?
+  refreshToken OauthRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+
+  expiresAt    DateTime
+  createdAt    DateTime
+  revoked      DateTime?
+  confirmation Json?
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@index([refreshId])
+  @@map("auth_oauth_access_token")
+}
+
+/// What a person agreed to when they connected an app. Deleting the row is
+/// what a disconnect does; the tokens go with it through the client-side
+/// cascade and the person's own erasure takes it through User.
+model OauthConsent {
+  id String @id @default(cuid())
+
+  clientId String
+  client   OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  referenceId             String?
+  resources               String[] @default([])
+  requestedUserInfoClaims String[] @default([])
+  scopes                  String[] @default([])
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("auth_oauth_consent")
+}
+
+/// A client assertion already presented, held until it expires so the same
+/// one cannot be replayed.
+model OauthClientAssertion {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+
+  @@map("auth_oauth_client_assertion")
 }
 
 // ---------------------------------------------------------------------------

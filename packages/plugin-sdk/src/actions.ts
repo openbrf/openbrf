@@ -190,6 +190,17 @@ export interface ActionSummary {
   readonly descriptionKey: string;
   readonly group: string;
   readonly groupTitle: string;
+  /**
+   * The key behind `groupTitle`, alongside the two above.
+   *
+   * Both forms travel for the reason `titleKey` does: the resolved string is
+   * for a caller with no translations of its own - a connected app, a model -
+   * while a screen in this product translates the key itself. The interface's
+   * language and the language a request happens to declare are not the same
+   * thing, so a screen rendering the resolved string can show one heading in
+   * the browser's language above a page in the association's.
+   */
+  readonly groupTitleKey: string;
   readonly capability: string;
   readonly effect: ActionEffect;
   readonly idempotent: boolean;

@@ -59,9 +59,16 @@ function build(options: { capabilities?: string[]; readOnly?: boolean } = {}) {
   } as unknown as I18nService;
   const env = {
     OPENBRF_ACTIONS_READ_ONLY: options.readOnly ?? false,
+    // The insufficient-scope refusal builds a challenge against this, so a
+    // fixture without it turns a clean 403 into a URL parse failure.
+    APP_URL: "https://brf.example",
   } as unknown as Env;
 
-  const registry = new ActionRegistryService(callers, principals, i18n, env);
+  const registry = new ActionRegistryService(callers, principals, i18n, env, {
+    declared: true,
+    path: "/api/plugin/connector/mcp",
+    url: "https://brf.example/api/plugin/connector/mcp",
+  });
   return { registry, callers, forPerson };
 }
 
@@ -140,7 +147,12 @@ describe("what a caller reaches", () => {
     });
 
     const caller = callers.forRequest(
-      request({ clientId: "c", clientHost: null, scopes: ["mcp:write"] }),
+      request({
+        clientId: "c",
+        clientHost: null,
+        scopes: ["mcp:write"],
+        tokenRowId: "token-c",
+      }),
     );
 
     expect(await registry.list(caller)).toEqual([]);
@@ -205,7 +217,12 @@ describe("the order the refusals come in", () => {
     registry.register(held, { kind: "core", module: "news" });
 
     const caller = callers.forRequest(
-      request({ clientId: "c", clientHost: null, scopes: ["mcp:write"] }),
+      request({
+        clientId: "c",
+        clientHost: null,
+        scopes: ["mcp:write"],
+        tokenRowId: "token-c",
+      }),
     );
 
     await expect(
@@ -253,7 +270,12 @@ describe("the order the refusals come in", () => {
     registry.register(definition(), { kind: "core", module: "news" });
 
     const caller = callers.forRequest(
-      request({ clientId: "c", clientHost: null, scopes: ["mcp:read"] }),
+      request({
+        clientId: "c",
+        clientHost: null,
+        scopes: ["mcp:read"],
+        tokenRowId: "token-c",
+      }),
     );
 
     await expect(
@@ -356,7 +378,12 @@ describe("what a plugin's action depends on", () => {
     });
 
     const caller = callers.forRequest(
-      request({ clientId: "c", clientHost: null, scopes: ["mcp:write"] }),
+      request({
+        clientId: "c",
+        clientHost: null,
+        scopes: ["mcp:write"],
+        tokenRowId: "token-c",
+      }),
     );
 
     await expect(
@@ -397,7 +424,12 @@ describe("what a plugin's action depends on", () => {
     });
 
     const caller = callers.forRequest(
-      request({ clientId: "c", clientHost: null, scopes: ["mcp:read"] }),
+      request({
+        clientId: "c",
+        clientHost: null,
+        scopes: ["mcp:read"],
+        tokenRowId: "token-c",
+      }),
     );
 
     expect(await registry.list(caller, { surface: "ui" })).toEqual([]);

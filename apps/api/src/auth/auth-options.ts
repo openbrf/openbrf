@@ -1,11 +1,20 @@
+import { cimd } from "@better-auth/cimd";
+import { mcp } from "@better-auth/mcp";
 import { passkey } from "@better-auth/passkey";
 import type { BetterAuthOptions } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { jwt } from "better-auth/plugins/jwt";
 import { magicLink } from "better-auth/plugins/magic-link";
 import { twoFactor } from "better-auth/plugins/two-factor";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
+import {
+  guardedMetadataFetch,
+  isMetadataDocumentUrlAllowed,
+} from "./cimd-fetch";
+import { hashOpaqueToken } from "./opaque-token";
+import type { ProtectedResource } from "./protected-resource";
 
 /** How long a magic link stays valid, in seconds. */
 const MAGIC_LINK_TTL_SECONDS = 15 * 60;
@@ -172,6 +181,7 @@ export function buildAuthOptions(
   env: Env,
   prisma: PrismaService,
   magicLinkDelivery: MagicLinkDelivery,
+  resource: ProtectedResource,
 ) {
   // Deliberately `satisfies` rather than an annotated return type: the
   // additionalFields declaration below only reaches the typed API surface
@@ -277,6 +287,102 @@ export function buildAuthOptions(
 
       passkey({
         rpName: "Open BRF",
+      }),
+
+      jwt({ disableSettingJwtHeader: true }),
+
+      // mcp() registers under the plugin id "oauth-provider": it spreads
+      // oauthProvider(...) and overrides only onRequest, so registering
+      // oauthProvider() beside it is impossible.
+      mcp({
+        // The audience of every token issued, and the only value a client may
+        // ask for. It is a connector plugin's own route rather than a path
+        // core mounts; protected-resource.ts decides which.
+        resource: resource.url,
+
+        /*
+         * The same resource, declared in full, and both are needed: `resource`
+         * is what makes the plugin answer the protected-resource document,
+         * while the row it would write from that alone leaves `allowedScopes`
+         * unset, meaning "this resource restricts nothing".
+         *
+         * Naming them bounds what a token for this resource may carry at the
+         * resource itself, underneath the client and the person - so a client
+         * registered with a wider scope list still cannot obtain one here.
+         * `offline_access` is absent on purpose: it governs whether a refresh
+         * token is issued and is not something this resource is reached with.
+         */
+        resources: [
+          {
+            identifier: resource.url,
+            name: "Open BRF",
+            allowedScopes: ["mcp:read", "mcp:write"],
+          },
+        ],
+
+        loginPage: "/app/sign-in",
+        consentPage: "/app/oauth/consent",
+
+        // Opaque access tokens: every call is a row lookup, so a disconnect
+        // takes effect on the next request rather than at the end of the
+        // token's lifetime. This also forces storeClientSecret: "encrypted".
+        disableJwtPlugin: true,
+        storeClientSecret: "encrypted",
+
+        // Ours rather than the library's default, so that an upstream change
+        // to the digest cannot silently stop every live token resolving.
+        storeTokens: { hash: (token: string) => hashOpaqueToken(token) },
+
+        // A client registers by presenting the URL of its own metadata
+        // document, which the plugin below fetches. Neither of these is the
+        // path we use, and both would let a caller register on its own terms.
+        allowDynamicClientRegistration: false,
+        allowUnauthenticatedClientRegistration: false,
+
+        // Coarse, and deliberately so. The capability check in the action
+        // registry is the boundary; a scope is a ceiling on it and never a
+        // grant. offline_access is in scopes because a refresh token is what
+        // keeps a fifteen-minute access token usable, and out of the
+        // advertised list because it is not something a client chooses to
+        // ask for on its own.
+        //
+        // openid, profile and email are absent on purpose: without them the
+        // authorization-server document is the plain OAuth one rather than the
+        // OpenID variant, no id token is issued, the audience is the resource
+        // alone, and a client never receives the person's name or address.
+        scopes: ["mcp:read", "mcp:write", "offline_access"],
+        advertisedMetadata: { scopes_supported: ["mcp:read", "mcp:write"] },
+
+        accessTokenExpiresIn: 900,
+        refreshTokenExpiresIn: 60 * 60 * 24 * 7,
+        refreshTokenReuseInterval: 30,
+        codeExpiresIn: 600,
+        clientRegistrationRequirePKCE: true,
+
+        // In-memory and per-process, so these bound a burst rather than a
+        // campaign: installing a plugin replaces the process. The layer that
+        // answers for sustained use is the per-token limiter in the
+        // authorization guard. The three endpoints left off take no
+        // unauthenticated traffic here.
+        rateLimit: {
+          token: { window: 60, max: 20 },
+          authorize: { window: 60, max: 10 },
+          revoke: { window: 60, max: 10 },
+          introspect: false,
+          register: false,
+          userinfo: false,
+        },
+      }),
+
+      // Contributes no schema and no endpoint of its own. What it does is make
+      // the authorization server advertise that a client may identify itself
+      // by the URL of its own metadata document - which makes this the one
+      // place an unauthenticated party chooses a URL this server fetches, so
+      // the fetch is bounded by us rather than left to the library's defaults.
+      cimd({
+        fetchClientMetadataResource: guardedMetadataFetch,
+        isMetadataDocumentUrlAllowed,
+        metadataProfile: "mcp-2026-07-28",
       }),
     ],
   } satisfies BetterAuthOptions;

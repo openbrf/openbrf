@@ -86,7 +86,8 @@
           "mcp"
         ]
       }
-    ]
+    ],
+    "oauthProtectedResource": "mcp"
   },
   "devDependencies": {
     "@module-federation/vite": "1.21.6",

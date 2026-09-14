@@ -3,24 +3,16 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { Public } from "../authorization/public.decorator";
 import { AuthService } from "./auth.service";
+import { sendWebResponse, toWebRequest } from "./fastify-bridge";
 
 /**
- * Bridges Better Auth into Fastify.
+ * Mounts Better Auth's own endpoints.
  *
- * Better Auth exposes a Web Fetch handler (Request in, Response out) while
- * Fastify speaks Node request and reply objects, so this translates between
- * them. Three details matter and are easy to get wrong:
- *
- *   The request URL is rebuilt from the incoming host rather than from a
- *   configured base, so Better Auth sees the origin the browser actually used.
- *
- *   Fastify has already parsed the JSON body by the time we get here, so it is
- *   re-serialized. Passing the parsed object would give Better Auth nothing to
- *   read.
- *
- *   Set-Cookie must be copied with getSetCookie(), which preserves multiple
- *   cookies. Iterating headers normally collapses them into one comma-joined
- *   value, and a browser then silently drops the session.
+ * Everything under the sign-in base path is the library's: sign-in, the second
+ * factor, passkeys, the magic link, and the OAuth authorize, token, revoke and
+ * introspect endpoints. The translation between Fastify and the Web Fetch pair
+ * the library speaks is in fastify-bridge.ts, shared with the discovery
+ * controller.
  */
 @Public()
 @Controller("api/auth")
@@ -35,82 +27,4 @@ export class AuthController {
     const response = await this.auth.handler(toWebRequest(request));
     await sendWebResponse(reply, response);
   }
-}
-
-/** Headers that describe the incoming transfer and never survive re-encoding. */
-const TRANSPORT_HEADERS = new Set([
-  "content-length",
-  "content-encoding",
-  "transfer-encoding",
-]);
-
-function toWebRequest(request: FastifyRequest): Request {
-  const host = request.headers.host ?? "localhost";
-  const url = new URL(request.url, `${request.protocol}://${host}`);
-
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (value === undefined) {
-      continue;
-    }
-    if (TRANSPORT_HEADERS.has(name.toLowerCase())) {
-      // These describe the bytes Fastify received, not the bytes below:
-      // serializeBody re-encodes an already-parsed body, so the original
-      // length and encoding no longer hold and would misdescribe the request.
-      continue;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        headers.append(name, item);
-      }
-    } else {
-      headers.append(name, value);
-    }
-  }
-
-  const method = request.method.toUpperCase();
-  const hasBody = method !== "GET" && method !== "HEAD";
-  const body = hasBody ? serializeBody(request.body as unknown) : undefined;
-
-  return new Request(url, {
-    method,
-    headers,
-    body,
-  });
-}
-
-function serializeBody(body: unknown): string | undefined {
-  if (body === undefined || body === null) {
-    return undefined;
-  }
-  if (typeof body === "string") {
-    return body;
-  }
-  if (Buffer.isBuffer(body)) {
-    return body.toString("utf8");
-  }
-  return JSON.stringify(body);
-}
-
-async function sendWebResponse(
-  reply: FastifyReply,
-  response: Response,
-): Promise<void> {
-  const setCookies = response.headers.getSetCookie();
-
-  response.headers.forEach((value, name) => {
-    if (name.toLowerCase() === "set-cookie") {
-      return;
-    }
-    void reply.header(name, value);
-  });
-
-  if (setCookies.length > 0) {
-    // Set through the raw response so each cookie stays its own header.
-    reply.raw.setHeader("set-cookie", setCookies);
-  }
-
-  void reply.status(response.status);
-  const text = await response.text();
-  await reply.send(text === "" ? null : text);
 }

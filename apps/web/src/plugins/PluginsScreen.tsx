@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import type { TranslationKey } from "../i18n/translation-key";
 import { QUIET_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -62,6 +63,21 @@ const RESTART_POLL_INTERVAL_MS = 2000;
 const RESTART_POLL_ATTEMPTS = 30;
 
 /**
+ * The refusals an install answers with that have an answer of their own.
+ *
+ * Everything else falls back to the general sentence, which tells a board to
+ * read the catalog again - right for an entry that changed under the screen and
+ * wrong for these two, where reading the catalog again changes nothing. One
+ * names the plugin that has to be removed first, the other says the id is not
+ * this plugin's to take; the board's next act is different in each case, so the
+ * sentence has to be.
+ */
+const INSTALL_ERRORS: Readonly<Record<string, TranslationKey>> = {
+  "plugin-resource-conflict": "plugins.consent.errors.resourceConflict",
+  "plugin-id-reserved": "plugins.consent.errors.reservedId",
+};
+
+/**
  * Plugin management.
  *
  * Reading the list needs association:read, because the board answers for what
@@ -85,7 +101,8 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
   const currentRead = useRef(0);
   const [pending, setPending] = useState<CatalogPlugin | null>(null);
   const [installing, setInstalling] = useState(false);
-  const [installFailed, setInstallFailed] = useState(false);
+  /** The code the last install was refused with, held so it can be read out. */
+  const [installFailure, setInstallFailure] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [catalogToken, setCatalogToken] = useState(0);
 
@@ -197,18 +214,19 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       return;
     }
     setInstalling(true);
-    setInstallFailed(false);
+    setInstallFailure(null);
 
     const result = await installPlugin({
       id: pending.id,
       permissions: pending.permissions,
       personalData: pending.personalData,
       actions: pending.actions,
+      oauthProtectedResource: pending.oauthProtectedResource,
     });
 
     setInstalling(false);
     if (!result.ok) {
-      setInstallFailed(true);
+      setInstallFailure(result.failure.reason);
       return;
     }
 
@@ -299,11 +317,14 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
           />
         ) : (
           <>
-            {installFailed ? (
+            {installFailure === null ? null : (
               <Notice tone="danger" live>
-                {t("plugins.consent.errors.failed")}
+                {t(
+                  INSTALL_ERRORS[installFailure] ??
+                    "plugins.consent.errors.failed",
+                )}
               </Notice>
-            ) : null}
+            )}
             <ConsentPanel
               entry={pending}
               locale={i18n.language}
@@ -313,7 +334,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
               }}
               onCancel={() => {
                 setPending(null);
-                setInstallFailed(false);
+                setInstallFailure(null);
               }}
             />
           </>

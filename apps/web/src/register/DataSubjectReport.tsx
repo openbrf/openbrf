@@ -383,6 +383,12 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  CONNECTED_APP_CONNECTED:
+    "register.person.report.action.CONNECTED_APP_CONNECTED",
+  CONNECTED_APP_DISCONNECTED:
+    "register.person.report.action.CONNECTED_APP_DISCONNECTED",
+  OAUTH_CLIENT_REGISTERED:
+    "register.person.report.action.OAUTH_CLIENT_REGISTERED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**

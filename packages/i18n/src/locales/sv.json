@@ -620,7 +620,10 @@
           "NEWS_MAILING_REQUESTED": "Nyhetsutskick begärdes",
           "NEWS_MAILING_REQUEST_DISMISSED": "Begäran om nyhetsutskick avfärdades",
           "PLUGIN_ACTION_ARMED": "En åtgärd i ett tillägg aktiverades",
-          "PLUGIN_ACTION_DISARMED": "En åtgärd i ett tillägg avaktiverades"
+          "PLUGIN_ACTION_DISARMED": "En åtgärd i ett tillägg avaktiverades",
+          "CONNECTED_APP_CONNECTED": "En ansluten app fick agera för personen",
+          "CONNECTED_APP_DISCONNECTED": "En ansluten app kopplades bort",
+          "OAUTH_CLIENT_REGISTERED": "En app registrerade sig hos föreningen"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -1367,13 +1370,21 @@
       "personalDataTitle": "Personuppgifter det kommer att hantera",
       "noPermissions": "Ingenting utöver sina egna inställningar.",
       "noPersonalData": "Inga.",
+      "oauthResource": {
+        "title": "Inloggning för anslutna appar",
+        "serves": "Det här tillägget kommer att betjäna den adress som anslutna appar loggar in mot.",
+        "onlyOne": "Bara ett installerat tillägg i taget kan göra det.",
+        "session": "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar."
+      },
       "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
       "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",
       "confirm": "Installera",
       "installing": "Installerar...",
       "cancel": "Avbryt",
       "errors": {
-        "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till."
+        "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till.",
+        "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
+        "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t."
       }
     },
     "permissions": {
@@ -1413,7 +1424,8 @@
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}",
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
-        "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå."
+        "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
+        "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
       }
     },
     "settings": {

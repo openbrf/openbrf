@@ -102,6 +102,7 @@ describe("what the channel is derived from", () => {
           clientId: "client-1",
           clientHost: "claude.ai",
           scopes: ["mcp:read"],
+          tokenRowId: "token-client-1",
         }),
       ),
     );
@@ -137,6 +138,7 @@ describe("what the channel is derived from", () => {
           clientId: "client-1",
           clientHost: null,
           scopes: ["mcp:write"],
+          tokenRowId: "token-client-1",
         }),
       ),
     );

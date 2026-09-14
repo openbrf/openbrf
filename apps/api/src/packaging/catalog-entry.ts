@@ -1,5 +1,6 @@
 import {
   pluginActionsSchema,
+  pluginManifestSchema,
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginIdSchema,
@@ -92,6 +93,17 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    * first, and two copies is two places for it to stop holding.
    */
   actions: pluginActionsSchema.default([]),
+  /**
+   * The route that serves MCP, repeated on the same terms as the three above.
+   *
+   * Both rules about it are decided before anything is downloaded - a second
+   * plugin declaring it is refused, and the reserved id `mcp-connector` may be
+   * taken only by a plugin that does declare it - so the index has to carry it.
+   * The manifest's own field schema rather than a second spelling of it: the
+   * value becomes a URL an unauthenticated caller is pointed at, and one
+   * definition of what it may contain is the point of that schema.
+   */
+  oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
 });
 
 /**

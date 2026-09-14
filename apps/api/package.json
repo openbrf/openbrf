@@ -20,6 +20,9 @@
     "db:seed": "tsc -p tsconfig.build.json && node dist/seed/main.js"
   },
   "dependencies": {
+    "@better-auth/cimd": "^1.7.4",
+    "@better-auth/mcp": "^1.7.4",
+    "@better-auth/oauth-provider": "^1.7.4",
     "@better-auth/passkey": "^1.7.4",
     "@fastify/multipart": "^10.1.1",
     "@fastify/static": "^10.1.3",

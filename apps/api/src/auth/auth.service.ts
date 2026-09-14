@@ -7,6 +7,8 @@ import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
 import { buildAuthOptions, type MagicLinkDelivery } from "./auth-options";
+import type { ProtectedResource } from "./protected-resource";
+import { PROTECTED_RESOURCE } from "./protected-resource.module";
 
 /**
  * The instance type, pinned to our concrete options.
@@ -35,9 +37,10 @@ export class AuthService {
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    @Inject(PROTECTED_RESOURCE) resource: ProtectedResource,
   ) {
     this.instance = betterAuth(
-      buildAuthOptions(env, prisma, this.magicLinkDelivery()),
+      buildAuthOptions(env, prisma, this.magicLinkDelivery(), resource),
     );
   }
 

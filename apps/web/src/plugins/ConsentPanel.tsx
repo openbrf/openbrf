@@ -141,6 +141,32 @@ export function ConsentPanel({
         )}
       />
 
+      {/*
+        The part of the declaration that decides something about the instance
+        rather than about this plugin: the route it names becomes the one
+        address connected apps sign in to, only one installed plugin may hold
+        it, and it stops answering a signed-in session. Last, so it is what a
+        board reads immediately before ticking the acknowledgement.
+
+        Absent for a plugin that declares none, on the actions list's terms: a
+        plugin serving no such route has not raised the question, and a heading
+        about connected-app sign-in would put a mechanism on the screen that
+        this install does not use.
+
+        The route itself is not shown. What full address it composes to is the
+        server's answer, and a second composition here could disagree with it.
+      */}
+      {entry.oauthProtectedResource === null ? null : (
+        <Declaration
+          title={t("plugins.consent.oauthResource.title")}
+          items={[
+            t("plugins.consent.oauthResource.serves"),
+            t("plugins.consent.oauthResource.onlyOne"),
+            t("plugins.consent.oauthResource.session"),
+          ]}
+        />
+      )}
+
       {/* min-h-11 is the 44px touch target: this checkbox is the control that
           records the board's consent, so it must not be the one control on the
           screen that is hard to hit on a phone. */}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Env } from "../config/env";
+import type { PrismaClient } from "../generated/prisma/client";
 import type { PrismaService } from "../database/prisma.service";
 import {
   type AccountState,
@@ -12,6 +13,31 @@ import {
   SESSION_READ_PATH,
   SESSION_READ_WINDOW_SECONDS,
 } from "./auth-options";
+import { hashOpaqueToken } from "./opaque-token";
+
+/**
+ * One options object, built the way the application builds it, for every
+ * assertion below that reads configuration rather than behaviour.
+ */
+const options = buildAuthOptions(
+  {
+    NODE_ENV: "test",
+    APP_URL: "https://brf.example",
+    BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+  } as Env,
+  {} as PrismaService,
+  {
+    accountState: () =>
+      Promise.resolve({ exists: false, hasSecondFactor: false }),
+    send: () => Promise.resolve(),
+    sendSecondFactorNotice: () => Promise.resolve(),
+  },
+  {
+    declared: true,
+    path: "/api/plugin/mcp-connector/mcp",
+    url: "https://brf.example/api/plugin/mcp-connector/mcp",
+  },
+);
 
 /**
  * The magic-link policy, tested on its own.
@@ -125,21 +151,6 @@ describe("deliverMagicLink", () => {
  * because it is the limiter's counting that decides it and not this object.
  */
 describe("the auth rate-limit configuration", () => {
-  const options = buildAuthOptions(
-    {
-      NODE_ENV: "test",
-      APP_URL: "https://brf.example",
-      BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
-    } as Env,
-    {} as PrismaService,
-    {
-      accountState: () =>
-        Promise.resolve({ exists: false, hasSecondFactor: false }),
-      send: () => Promise.resolve(),
-      sendSecondFactorNotice: () => Promise.resolve(),
-    },
-  );
-
   it("carries a rule for the session read and for nothing else", () => {
     expect(Object.keys(options.rateLimit.customRules)).toEqual([
       SESSION_READ_PATH,
@@ -163,5 +174,179 @@ describe("the auth rate-limit configuration", () => {
       max: SESSION_READ_MAX,
       window: SESSION_READ_WINDOW_SECONDS,
     });
+  });
+});
+
+/**
+ * The tables the sign-in library reaches for, against the ones the schema
+ * declares.
+ *
+ * The adapter resolves a model by name - it reaches the delegate as
+ * `db[model]` - so the model names in schema.prisma are not a naming choice
+ * but part of the contract with the library. A rename that reads as tidying
+ * produces no type error at the call site and no failure until a member tries
+ * to connect an app, where it surfaces as the table not existing.
+ *
+ * Both halves are needed and they fail for opposite reasons. The runtime
+ * assertion catches the library adding or renaming a table, by comparing
+ * against what the plugins themselves declare. The type assertion catches us
+ * renaming a model, because the union below then stops being assignable to the
+ * client's own keys.
+ */
+describe("the tables the sign-in plugins need", () => {
+  type RequiredDelegate =
+    | "jwks"
+    | "oauthAccessToken"
+    | "oauthClient"
+    | "oauthClientAssertion"
+    | "oauthClientResource"
+    | "oauthConsent"
+    | "oauthRefreshToken"
+    | "oauthResource"
+    | "passkey"
+    | "twoFactor"
+    | "user";
+
+  // Every table any configured plugin declares, not only the OAuth ones: the
+  // second factor and passkeys declare their own, and the account model is
+  // extended with the field that links an account to a person.
+  const REQUIRED: readonly RequiredDelegate[] = [
+    "jwks",
+    "oauthAccessToken",
+    "oauthClient",
+    "oauthClientAssertion",
+    "oauthClientResource",
+    "oauthConsent",
+    "oauthRefreshToken",
+    "oauthResource",
+    "passkey",
+    "twoFactor",
+    "user",
+  ];
+
+  it("declares exactly the delegates the schema provides", () => {
+    const declared = options.plugins
+      .flatMap((plugin) =>
+        "schema" in plugin ? Object.keys(plugin.schema ?? {}) : [],
+      )
+      .toSorted();
+
+    expect(declared).toEqual([...REQUIRED]);
+  });
+
+  it("resolves every one of them on the generated client", () => {
+    /*
+     * A type-level assertion: this stops compiling if a model in
+     * schema.prisma is renamed away from the name the adapter looks up.
+     *
+     * A conditional type rather than `const missing: Missing[] = []`. An empty
+     * array literal is assignable to every array type, a non-empty `Missing[]`
+     * included, so that form compiles and passes whatever the exclusion leaves
+     * behind - it reads as the assertion it is not. The tuple wrappers keep
+     * `never` from distributing, so this asks whether `Missing` is empty
+     * rather than asking nothing at all.
+     */
+    type Missing = Exclude<RequiredDelegate, keyof PrismaClient>;
+    const noneMissing: [Missing] extends [never] ? true : false = true;
+
+    expect(noneMissing).toBe(true);
+  });
+});
+
+/**
+ * The sign-in options a connected app is issued a token under.
+ *
+ * Read off the plugin object rather than restated, so that these are
+ * assertions about what the library was actually configured with.
+ */
+describe("the OAuth provider configuration", () => {
+  const provider = options.plugins.find(
+    (plugin) => plugin.id === "oauth-provider",
+  );
+
+  it("is registered", () => {
+    // Registered under "oauth-provider" rather than under "mcp": the plugin
+    // spreads the provider's own definition and overrides one hook, so there
+    // is no second provider plugin to register beside it.
+    expect(provider).toBeDefined();
+  });
+
+  it("binds every token to the resolved protected resource, and to nothing else", () => {
+    // One entry, so no second audience was configured beside it.
+    expect(provider?.options.resources).toHaveLength(1);
+    expect(provider?.options.resources?.[0]).toMatchObject({
+      identifier: "https://brf.example/api/plugin/mcp-connector/mcp",
+    });
+  });
+
+  it("bounds what a token for that resource may carry", () => {
+    const declared = provider?.options.resources?.[0];
+
+    // Declared at the resource, underneath the client and the person, so a
+    // client registered with a wider list still cannot obtain one here.
+    // Without this the row is written with no restriction at all.
+    expect(declared).toMatchObject({
+      allowedScopes: ["mcp:read", "mcp:write"],
+    });
+    // offline_access governs whether a refresh token is issued; it is not
+    // something this resource is reached with.
+    expect(
+      (declared as { allowedScopes?: string[] }).allowedScopes,
+    ).not.toContain("offline_access");
+  });
+
+  it("issues opaque tokens", () => {
+    // The whole reason a disconnect takes effect on the next call rather than
+    // when the token would have expired: there are no claims to trust, so
+    // every call resolves the row.
+    expect(provider?.options.disableJwtPlugin).toBe(true);
+    expect(provider?.options.storeClientSecret).toBe("encrypted");
+  });
+
+  it("hashes a token with our own digest", () => {
+    // Pinned rather than left to the default, so an upstream change cannot
+    // silently stop every live token resolving. The alternative the option
+    // also accepts is the string "hashed", which is the default this replaces.
+    const stored = provider?.options.storeTokens;
+
+    expect(typeof stored).toBe("object");
+    if (typeof stored !== "object") return;
+    expect(stored.hash("openbrf", "access_token")).toBe(
+      hashOpaqueToken("openbrf"),
+    );
+  });
+
+  it("lets no client register itself on its own terms", () => {
+    expect(provider?.options.allowDynamicClientRegistration).toBe(false);
+    expect(provider?.options.allowUnauthenticatedClientRegistration).toBe(
+      false,
+    );
+  });
+
+  it("advertises no scope that would yield the person's identity", () => {
+    const advertised = provider?.options.advertisedMetadata?.scopes_supported;
+
+    // openid, profile and email are absent on purpose: with them the document
+    // becomes the OpenID variant, an id token is issued and the client
+    // receives the person's name and address.
+    expect(advertised).toEqual(["mcp:read", "mcp:write"]);
+    for (const scope of ["openid", "profile", "email"]) {
+      expect(provider?.options.scopes).not.toContain(scope);
+    }
+  });
+
+  it("keeps offline_access grantable but unadvertised", () => {
+    // A refresh token is what keeps a fifteen-minute access token usable, so
+    // it must be grantable; it is not something a client chooses to ask for.
+    expect(provider?.options.scopes).toContain("offline_access");
+    expect(
+      provider?.options.advertisedMetadata?.scopes_supported,
+    ).not.toContain("offline_access");
+  });
+
+  it("drops the rules for the endpoints that take no unauthenticated traffic", () => {
+    // Six by default; introspect, register and userinfo are switched off, and
+    // switching one off removes its rule rather than widening it.
+    expect(provider?.rateLimit).toHaveLength(3);
   });
 });

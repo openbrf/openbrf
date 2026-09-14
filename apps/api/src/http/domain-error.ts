@@ -34,6 +34,22 @@ export abstract class DomainError extends Error {
    */
   details?(): Record<string, readonly unknown[]>;
 
+  /**
+   * Response headers this failure has to carry.
+   *
+   * Declared here for the same reason `details` is: the rule that produced the
+   * failure knows what the answer must say, and the filter that serialises it
+   * does not. Two refusals need it, and in both the header is the whole
+   * remedy rather than decoration - a bearer challenge naming where a token
+   * comes from, without which a refused client has an address and nothing to
+   * do about it, and the delay a rate-limited caller should wait.
+   *
+   * Header names and fixed values only. Nothing read from the request, and
+   * never personal data: these are written before the body and are not
+   * filtered by anything downstream.
+   */
+  headers?(): Record<string, string>;
+
   constructor(message: string) {
     super(message);
     this.name = new.target.name;

@@ -373,7 +373,10 @@ export type ReportAuditAction =
   | "NEWS_MAILING_REQUESTED"
   | "NEWS_MAILING_REQUEST_DISMISSED"
   | "PLUGIN_ACTION_ARMED"
-  | "PLUGIN_ACTION_DISARMED";
+  | "PLUGIN_ACTION_DISARMED"
+  | "CONNECTED_APP_CONNECTED"
+  | "CONNECTED_APP_DISCONNECTED"
+  | "OAUTH_CLIENT_REGISTERED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

@@ -219,6 +219,13 @@ const catalog = {
       // consent screen renders from the catalog, before anything is
       // downloaded, and the install echo compares what it showed.
       actions: manifest.actions ?? [],
+      // Copied for the same reason, and it decides a refusal rather than a
+      // display: an install is refused outright when a second plugin declares
+      // the sign-in address, so a fixture that lost the field would make that
+      // refusal look untested end to end.
+      ...(manifest.oauthProtectedResource === undefined
+        ? {}
+        : { oauthProtectedResource: manifest.oauthProtectedResource }),
       artifact: {
         // Absolute, and computed here rather than written down: the harness
         // resolves it with no network, and a checked-in path would be wrong on

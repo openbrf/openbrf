@@ -131,6 +131,7 @@ export const FINDING_LABELS: Readonly<
   "actions-widened": "plugins.findings.reasons.actionsWidened",
   "action-refused": "plugins.findings.reasons.actionRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
+  "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",
 };
 
 /**

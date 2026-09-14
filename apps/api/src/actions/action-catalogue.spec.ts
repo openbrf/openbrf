@@ -81,6 +81,11 @@ function catalogueWithRegistry(): {
     { forPerson: vi.fn(async () => null) } as unknown as PrincipalService,
     { translatorFor: () => (key: string) => key } as unknown as I18nService,
     { OPENBRF_ACTIONS_READ_ONLY: false } as unknown as Env,
+    {
+      declared: true,
+      path: "/api/plugin/connector/mcp",
+      url: "https://brf.example/api/plugin/connector/mcp",
+    },
   );
   const registrar = new CoreActionRegistrar(registry);
 
@@ -320,6 +325,11 @@ describe("the document a caller actually reads", () => {
     { forPerson: vi.fn(async () => null) } as unknown as PrincipalService,
     { translatorFor: () => (key: string) => key } as unknown as I18nService,
     { OPENBRF_ACTIONS_READ_ONLY: false } as unknown as Env,
+    {
+      declared: true,
+      path: "/api/plugin/connector/mcp",
+      url: "https://brf.example/api/plugin/connector/mcp",
+    },
   );
   const registrar = new CoreActionRegistrar(registry);
   const service = (): never => {

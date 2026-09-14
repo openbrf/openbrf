@@ -47,6 +47,12 @@ export const PLUGIN_FINDING_REASONS = [
   "action-refused",
   /** One of its providers reaches for a core service a plugin may not hold. */
   "forbidden-injection",
+  /**
+   * It declares the OAuth protected resource, and another installed plugin
+   * already does. The one installed first keeps it: the resource URL is the
+   * audience every issued token carries, so moving it would strand them all.
+   */
+  "oauth-resource-conflict",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];
