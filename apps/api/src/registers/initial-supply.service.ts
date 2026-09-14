@@ -158,6 +158,7 @@ export class InitialSupplyService {
       await this.audit.record(
         {
           action: "REGISTER_INITIAL_SUPPLY_EXPORTED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "registerInitialSupply",
           context: {
@@ -185,6 +186,7 @@ export class InitialSupplyService {
       await this.audit.record(
         {
           action: "PROTECTED_DATA_REVEALED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "registerInitialSupply",
           context: {

@@ -222,6 +222,7 @@ export class DataSubjectRequestService {
       await this.audit.record(
         {
           action: "DATA_SUBJECT_REQUEST_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           targetKind: "dataSubjectRequest",
@@ -358,6 +359,7 @@ export class DataSubjectRequestService {
       await this.audit.record(
         {
           action: "DATA_SUBJECT_REQUEST_DECIDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: existing.personId,
           targetKind: "dataSubjectRequest",
@@ -443,6 +445,7 @@ export class DataSubjectRequestService {
       await this.audit.record(
         {
           action: "DATA_SUBJECT_REQUEST_CLOSED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: row.personId,
           targetKind: "dataSubjectRequest",
@@ -509,6 +512,7 @@ export class DataSubjectRequestService {
     await this.audit.record(
       {
         action: "DATA_SUBJECT_REQUEST_CLOSED",
+        channel: "WEB",
         actorPersonId,
         targetPersonId: personId,
         targetKind: "dataSubjectRequest",

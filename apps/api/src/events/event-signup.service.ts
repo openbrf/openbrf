@@ -408,6 +408,7 @@ export class EventSignupService {
       await this.audit.record(
         {
           action: "EVENT_SIGNUP_MADE",
+          channel: "WEB",
           actorPersonId: personId,
           // Both the actor and the subject: nobody signs up on anybody else's
           // behalf, and the entry belongs in this person's own access report.
@@ -773,6 +774,7 @@ export class EventSignupService {
     await this.audit.record(
       {
         action: "EVENT_SIGNUP_WITHDRAWN",
+        channel: "WEB",
         actorPersonId: withdrawal.actorPersonId,
         // The person whose sign-up it was, whoever withdrew it. That is what
         // puts the entry in their access report as something about them.

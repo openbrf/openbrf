@@ -16,6 +16,8 @@
  */
 
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
+import type { AuditChannelName } from "@openbrf/shared";
+
 import type { DataSubjectRequestView } from "../api/data-protection";
 
 export type RegisterSign =
@@ -348,7 +350,23 @@ export type ReportAuditAction =
   | "DATA_SUBJECT_REQUEST_CLOSED"
   | "DATA_PORTABILITY_EXPORTED"
   | "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED"
-  | "PRIVACY_NOTICE_HEADINGS_ADDED";
+  | "PRIVACY_NOTICE_HEADINGS_ADDED"
+  | "APARTMENT_REGISTER_TRANSFER_REPORT_BASIS_RECORDED"
+  | "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED"
+  | "ASSOCIATION_LAND_TENURE_RECORDED"
+  | "MENU_ITEM_ADDED"
+  | "MENU_ITEM_CHANGED"
+  | "MENU_ITEM_REORDERED"
+  | "MENU_ITEM_REMOVED"
+  | "MEMBER_CHARGE_RECORDED"
+  | "MEMBER_CHARGE_CORRECTED"
+  | "MEMBER_CHARGE_REMOVED"
+  | "DEBITING_LIST_EXPORTED"
+  | "BOARD_MAILBOX_THREAD_TAKEN"
+  | "BOARD_MAILBOX_THREAD_RELEASED"
+  | "BOARD_MAILBOX_REPLY_SENT"
+  | "BOARD_MAILBOX_THREAD_CLOSED"
+  | "BOARD_MAILBOX_THREAD_REOPENED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -751,6 +769,13 @@ export interface DataSubjectReport {
     role: "subject" | "actor";
     action: ReportAuditAction;
     at: string;
+    /**
+     * Which way the act reached the records.
+     *
+     * Null for an entry written before the log recorded the channel, which the
+     * report says in words rather than leaving blank.
+     */
+    channel: AuditChannelName | null;
     targetKind: string | null;
     targetId: string | null;
     /** Field names, identifiers and counts. Never a value. */

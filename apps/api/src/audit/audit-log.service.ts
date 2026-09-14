@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 import type { Prisma } from "../generated/prisma/client";
-import type { AuditAction } from "../generated/prisma/enums";
+import type { AuditAction, AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 
 /**
@@ -17,6 +17,28 @@ export type AuditDbClient = PrismaService | Prisma.TransactionClient;
 
 export interface AuditEntryInput {
   action: AuditAction;
+  /**
+   * Which way the act reached the records.
+   *
+   * Required rather than defaulted, so that a new call site decides rather than
+   * inherits. WEB is a person in the web interface, MCP a token presented by a
+   * connected app, AI the AI package, SYSTEM a job whose clock struck or a
+   * seed, PLUGIN a plugin's own write through the host. An optional field
+   * defaulting to WEB would be wrong in exactly the places that matter: the
+   * nightly purges and the seeds have no person behind them, and they are the
+   * writes SYSTEM exists to make explicit.
+   */
+  channel: AuditChannel;
+  /**
+   * The connected app that acted, when one did, and the host it published its
+   * description at. Merged into `context` under a reserved `client` key by
+   * {@link AuditLogService.record}, so that which app acted is a property of
+   * the writer rather than of a call site's care - and so that it comes from
+   * the token the request presented, never from anything the caller said about
+   * itself on the wire.
+   */
+  clientId?: string | null;
+  clientHost?: string | null;
   /** Omitted for actions taken by the system rather than a signed-in person. */
   actorPersonId?: string | null;
   targetPersonId?: string | null;
@@ -96,9 +118,11 @@ export class AuditLogService {
    */
   async record(entry: AuditEntryInput, client?: AuditDbClient): Promise<void> {
     const db = client ?? this.prisma;
+    const context = withActingClient(entry);
     await db.auditLogEntry.create({
       data: {
         action: entry.action,
+        channel: entry.channel,
         actorPersonId: entry.actorPersonId ?? null,
         targetPersonId: entry.targetPersonId ?? null,
         targetKind: entry.targetKind ?? null,
@@ -107,9 +131,9 @@ export class AuditLogService {
         // key/value detail, and Prisma types JSON columns with its own
         // recursive InputJsonValue that a plain Record does not satisfy.
         context:
-          entry.context === undefined
+          context === undefined
             ? undefined
-            : (entry.context as Prisma.InputJsonValue),
+            : (context as Prisma.InputJsonValue),
       },
     });
   }
@@ -131,6 +155,9 @@ export class AuditLogService {
     input: {
       actorPersonId: string;
       targetPersonId: string;
+      channel: AuditChannel;
+      clientId?: string | null;
+      clientHost?: string | null;
       fields: readonly string[];
       reason?: string;
     },
@@ -139,6 +166,9 @@ export class AuditLogService {
     await this.record(
       {
         action: "PROTECTED_DATA_REVEALED",
+        channel: input.channel,
+        clientId: input.clientId,
+        clientHost: input.clientHost,
         actorPersonId: input.actorPersonId,
         targetPersonId: input.targetPersonId,
         context: {
@@ -165,4 +195,26 @@ export class AuditLogService {
       return result;
     });
   }
+}
+
+/**
+ * The entry's context with the acting connected app merged in.
+ *
+ * `client` is a reserved key: an entry naming a client gets it from the token
+ * the request presented, and a context that happened to carry a key of that
+ * name is overwritten rather than trusted. Written here rather than at the call
+ * sites so that a write through a connected app cannot record the act and lose
+ * which app made it.
+ */
+function withActingClient(
+  entry: AuditEntryInput,
+): Record<string, unknown> | undefined {
+  const clientId = entry.clientId ?? null;
+  if (clientId === null) {
+    return entry.context;
+  }
+  return {
+    ...entry.context,
+    client: { id: clientId, host: entry.clientHost ?? null },
+  };
 }

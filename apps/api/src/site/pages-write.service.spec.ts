@@ -239,10 +239,11 @@ describe("writing a page", () => {
     page.findUnique.mockResolvedValue(DRAFT);
 
     await expect(
-      service.setPublished("page-1", {
-        published: true,
-        actorPersonId: "person-1",
-      }),
+      service.setPublished(
+        "page-1",
+        { published: true },
+        { personId: "person-1", channel: "WEB" },
+      ),
     ).resolves.toMatchObject({ published: true });
 
     page.findUnique.mockResolvedValue({
@@ -251,10 +252,11 @@ describe("writing a page", () => {
     });
 
     const second = await refusalOf(
-      service.setPublished("page-1", {
-        published: true,
-        actorPersonId: "person-1",
-      }),
+      service.setPublished(
+        "page-1",
+        { published: true },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
     expect(second.reason).toBe("personal-identity-number");
     expect(second.details()["locations"]).toEqual([
@@ -268,10 +270,11 @@ describe("publishing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
 
-    await service.setPublished("page-1", {
-      published: true,
-      actorPersonId: "person-1",
-    });
+    await service.setPublished(
+      "page-1",
+      { published: true },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(audit.record).toHaveBeenCalledTimes(1);
     const [entry] = audit.record.mock.calls[0] as [
@@ -294,10 +297,11 @@ describe("publishing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
-    await service.setPublished("page-1", {
-      published: false,
-      actorPersonId: "person-1",
-    });
+    await service.setPublished(
+      "page-1",
+      { published: false },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { published: boolean } },
@@ -312,10 +316,11 @@ describe("publishing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
-    await service.setPublished("page-1", {
-      published: true,
-      actorPersonId: "person-1",
-    });
+    await service.setPublished(
+      "page-1",
+      { published: true },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(page.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
@@ -330,10 +335,11 @@ describe("publishing a page", () => {
       publishedAt: firstPublished,
     });
 
-    await service.setPublished("page-1", {
-      published: true,
-      actorPersonId: "person-1",
-    });
+    await service.setPublished(
+      "page-1",
+      { published: true },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     // Through the claimed write, which is what publishing uses so that a save
     // landing after the guardrails ran cannot be published unread.
@@ -350,10 +356,11 @@ describe("changing who may read a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
-    await service.setVisibility("page-1", {
-      visibility: "MEMBER",
-      actorPersonId: "person-1",
-    });
+    await service.setVisibility(
+      "page-1",
+      { visibility: "MEMBER" },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { from: string; to: string } },
@@ -372,10 +379,11 @@ describe("changing who may read a page", () => {
     });
 
     const refusal = await refusalOf(
-      service.setVisibility("page-1", {
-        visibility: "PUBLIC",
-        actorPersonId: "person-1",
-      }),
+      service.setVisibility(
+        "page-1",
+        { visibility: "PUBLIC" },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
@@ -385,10 +393,11 @@ describe("changing who may read a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
 
-    await service.setVisibility("page-1", {
-      visibility: "PUBLIC",
-      actorPersonId: "person-1",
-    });
+    await service.setVisibility(
+      "page-1",
+      { visibility: "PUBLIC" },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(audit.record).not.toHaveBeenCalled();
   });
@@ -420,10 +429,11 @@ describe("a picture on a published page", () => {
     ]);
 
     const refusal = await refusalOf(
-      service.setPublished("page-1", {
-        published: true,
-        actorPersonId: "person-1",
-      }),
+      service.setPublished(
+        "page-1",
+        { published: true },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("photo-consent-required");
@@ -438,11 +448,11 @@ describe("a picture on a published page", () => {
       { id: "file-1", visibility: "PUBLIC", showsIdentifiablePersons: true },
     ]);
 
-    await service.setPublished("page-1", {
-      published: true,
-      photoConsentConfirmed: true,
-      actorPersonId: "person-1",
-    });
+    await service.setPublished(
+      "page-1",
+      { published: true, photoConsentConfirmed: true },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
@@ -453,10 +463,11 @@ describe("a picture on a published page", () => {
       { id: "file-1", visibility: "PUBLIC", showsIdentifiablePersons: false },
     ]);
 
-    await service.setPublished("page-1", {
-      published: true,
-      actorPersonId: "person-1",
-    });
+    await service.setPublished(
+      "page-1",
+      { published: true },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(audit.record).toHaveBeenCalledTimes(1);
   });
@@ -466,10 +477,11 @@ describe("a picture on a published page", () => {
     mediaFile.findMany.mockResolvedValue([]);
 
     const refusal = await refusalOf(
-      service.setPublished("page-1", {
-        published: true,
-        actorPersonId: "person-1",
-      }),
+      service.setPublished(
+        "page-1",
+        { published: true },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("image-not-found");
@@ -484,10 +496,11 @@ describe("a picture on a published page", () => {
     ]);
 
     const refusal = await refusalOf(
-      service.setPublished("page-1", {
-        published: true,
-        actorPersonId: "person-1",
-      }),
+      service.setPublished(
+        "page-1",
+        { published: true },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("image-not-public");
@@ -539,7 +552,7 @@ describe("removing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
-    await service.remove("page-1", "person-1");
+    await service.remove("page-1", { personId: "person-1", channel: "WEB" });
 
     expect(page.delete).toHaveBeenCalledWith({ where: { id: "page-1" } });
     const [entry] = audit.record.mock.calls[0] as [
@@ -553,14 +566,16 @@ describe("removing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
 
-    await service.remove("page-1", "person-1");
+    await service.remove("page-1", { personId: "person-1", channel: "WEB" });
 
     expect(audit.record).not.toHaveBeenCalled();
   });
 
   it("refuses a page that is not there", async () => {
     const { service } = build();
-    const refusal = await refusalOf(service.remove("page-9", "person-1"));
+    const refusal = await refusalOf(
+      service.remove("page-9", { personId: "person-1", channel: "WEB" }),
+    );
 
     expect(refusal.reason).toBe("not-found");
     expect(refusal.status).toBe(404);
@@ -587,10 +602,11 @@ describe("a write that was checked and then overtaken", () => {
     fakes.page.updateMany.mockResolvedValue({ count: 0 });
 
     const refusal = await refusalOf(
-      fakes.service.setPublished("page-1", {
-        published: true,
-        actorPersonId: "person-1",
-      }),
+      fakes.service.setPublished(
+        "page-1",
+        { published: true },
+        { personId: "person-1", channel: "WEB" },
+      ),
     );
 
     expect(refusal.reason).toBe("page-changed");
@@ -607,10 +623,11 @@ describe("a write that was checked and then overtaken", () => {
       revision: 5,
     });
 
-    await fakes.service.setPublished("page-1", {
-      published: true,
-      actorPersonId: "person-1",
-    });
+    await fakes.service.setPublished(
+      "page-1",
+      { published: true },
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(fakes.page.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({

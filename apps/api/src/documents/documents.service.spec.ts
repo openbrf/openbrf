@@ -322,7 +322,7 @@ describe("filing a document", () => {
     await expect(file("PUBLIC")).rejects.toThrow();
     // Otherwise the instance keeps bytes nothing references and nobody can
     // reach, which is the one outcome an upload must not leave behind twice.
-    expect(fakes.remove).toHaveBeenCalledWith("file-1", "person-1");
+    expect(fakes.remove).toHaveBeenCalledWith("file-1", "person-1", "WEB");
     expect(fakes.files.size).toBe(0);
   });
 });
@@ -402,7 +402,7 @@ describe("taking a document out of the archive", () => {
 
     await fakes.service.remove(document.id, "person-2");
 
-    expect(fakes.remove).toHaveBeenCalledWith("file-1", "person-2");
+    expect(fakes.remove).toHaveBeenCalledWith("file-1", "person-2", "WEB");
     expect(fakes.documents.size).toBe(0);
     expect(fakes.files.size).toBe(0);
   });

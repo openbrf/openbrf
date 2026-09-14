@@ -213,6 +213,7 @@ export class SetupService implements OnModuleInit {
       await this.audit.record(
         {
           action: "SYSTEM_ROLE_GRANTED",
+          channel: "WEB",
           actorPersonId: person.id,
           targetPersonId: person.id,
           context: { role: "ADMIN", grantedBy: "setup-wizard" },
@@ -390,6 +391,7 @@ export class SetupService implements OnModuleInit {
         await this.audit.record(
           {
             action: "SYSTEM_ROLE_REVOKED",
+            channel: "WEB",
             actorPersonId: personId,
             targetPersonId: personId,
             context: {

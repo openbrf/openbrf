@@ -453,6 +453,7 @@ const FULL_REPORT: Report = {
       role: "subject",
       action: "PROTECTED_DATA_REVEALED",
       at: "2026-02-11T09:00:00.000Z",
+      channel: "MCP",
       targetKind: null,
       targetId: null,
       context: { fields: ["phone"] },
@@ -465,6 +466,9 @@ const FULL_REPORT: Report = {
       role: "subject",
       action: "NEWS_COMMENT_HIDDEN",
       at: "2026-01-22T09:00:00.000Z",
+      // Written before the log recorded the channel, which no backfill can
+      // repair: the table is append-only.
+      channel: null,
       targetKind: "newsComment",
       targetId: "comment-2",
       context: { newsId: "news-1" },
@@ -671,6 +675,51 @@ describe("what the document prints", () => {
     // pointing at the wrong action still prints the wrong sentence.
     expect(screen.getByText("Nyhetskommentar doldes")).not.toBeNull();
     expect(screen.queryByText("NEWS_COMMENT_HIDDEN")).toBeNull();
+  });
+
+  it("says which way each act reached the records", async () => {
+    // The same board member acting in the web interface and acting through a
+    // connected app is one person reaching the records two ways, and the
+    // document the person is handed has to be able to tell them apart.
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Via")).not.toBeNull();
+    expect(screen.getByText("En ansluten app")).not.toBeNull();
+
+    // Five columns, not four: action, day, way, about, detail.
+    const row = screen.getByText("Skyddade uppgifter visades").closest("tr");
+    expect(row?.querySelectorAll("td")).toHaveLength(5);
+  });
+
+  it("says an entry from before the channel was recorded is not a blank", async () => {
+    /*
+     * The log is append-only and the runtime role holds no UPDATE on it, so
+     * these rows cannot be given a channel afterwards and must not claim one.
+     * A blank cell on a statutory document reads as though nothing happened,
+     * which is a different statement from "this was not recorded at the time".
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText("Skrevs innan loggen började registrera kanalen."),
+    ).not.toBeNull();
+  });
+
+  it("says it in the language the document is written in", async () => {
+    // The sentence belongs to the document, so it follows the subject's
+    // language like every label around it rather than the reader's.
+    renderReport({
+      ...FULL_REPORT,
+      person: { ...FULL_REPORT.person, preferredLocale: "en" },
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText("Written before the log recorded the channel."),
+    ).not.toBeNull();
+    expect(screen.getByText("A connected app")).not.toBeNull();
   });
 
   it("prints a standing lien note, and says that it stands", async () => {

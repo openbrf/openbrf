@@ -310,6 +310,7 @@ export class ApartmentRegisterService {
     return this.audit.withAuditedRead<ApartmentRegisterExtract>(
       {
         action: "APARTMENT_REGISTER_EXTRACT_GENERATED",
+        channel: "WEB",
         actorPersonId: query.actorPersonId,
         context: {
           audience: query.audience,
@@ -340,6 +341,7 @@ export class ApartmentRegisterService {
           await this.audit.record(
             {
               action: "PROTECTED_DATA_REVEALED",
+              channel: "WEB",
               actorPersonId: query.actorPersonId,
               targetKind: "apartmentRegister",
               context: {
@@ -403,6 +405,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "APARTMENT_REGISTER_LIEN_NOTED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "lienNote",
           targetId: lien.id,
@@ -472,6 +475,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "APARTMENT_REGISTER_LIEN_RELEASED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "lienNote",
           targetId: lien.id,
@@ -550,6 +554,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "APARTMENT_REGISTER_TERMINATION_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "termination",
           targetId: termination.id,
@@ -743,6 +748,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "APARTMENT_REGISTER_TRANSFER_REPORT_BASIS_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "transfer",
           targetId: transfer.id,
@@ -768,6 +774,7 @@ export class ApartmentRegisterService {
         await this.audit.record(
           {
             action: "APARTMENT_REGISTER_MEMBERSHIP_DECISION_RECORDED",
+            channel: "WEB",
             actorPersonId: input.actorPersonId,
             targetKind: "transfer",
             targetId: transfer.id,
@@ -893,6 +900,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "transferReversal",
           targetId: reversal.id,
@@ -1077,6 +1085,7 @@ export class ApartmentRegisterService {
     await this.audit.record(
       {
         action: "REGISTER_REPORT_OBLIGATION_RECORDED",
+        channel: "WEB",
         actorPersonId: input.actorPersonId,
         targetKind: "registerReportObligation",
         targetId: obligation.id,
@@ -1152,6 +1161,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "ASSOCIATION_PROPERTY_DESIGNATION_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "association",
           targetId: "1",
@@ -1290,6 +1300,7 @@ export class ApartmentRegisterService {
       await this.audit.record(
         {
           action: "ASSOCIATION_LAND_TENURE_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "association",
           targetId: "1",

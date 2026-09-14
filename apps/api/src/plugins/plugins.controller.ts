@@ -147,6 +147,7 @@ export class PluginsWriteController {
     return this.plugins.install(
       installSchema.parse(body),
       requirePersonId(request),
+      "WEB",
     );
   }
 
@@ -158,6 +159,7 @@ export class PluginsWriteController {
     return this.plugins.uninstall(
       idSchema.parse(params).id,
       requirePersonId(request),
+      "WEB",
     );
   }
 

@@ -147,6 +147,7 @@ export class BoardPositionService {
       await this.audit.record(
         {
           action: "BOARD_POSITION_ELECTED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           targetKind: "boardPosition",
@@ -251,6 +252,7 @@ export class BoardPositionService {
       await this.audit.record(
         {
           action: "BOARD_POSITION_ENDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: existing.personId,
           targetKind: "boardPosition",

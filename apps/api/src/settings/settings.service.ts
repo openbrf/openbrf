@@ -477,6 +477,7 @@ export class SettingsService {
       await this.audit.record(
         {
           action: "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "association",
           targetId: String(updated.id),
@@ -650,12 +651,13 @@ export class SettingsService {
       visibility: "PUBLIC",
       showsIdentifiablePersons: false,
       uploadedByPersonId: input.actorPersonId,
+      channel: "WEB",
       prefix: "branding",
     });
 
     const previous = await this.replaceLogoReference(input.slot, uploaded.id);
     if (previous !== null) {
-      await this.media.remove(previous, input.actorPersonId);
+      await this.media.remove(previous, input.actorPersonId, "WEB");
     }
 
     this.logger.log(`Updated the ${input.slot} logo`);
@@ -671,7 +673,7 @@ export class SettingsService {
 
     const previous = await this.replaceLogoReference(slot, null);
     if (previous !== null) {
-      await this.media.remove(previous, actorPersonId);
+      await this.media.remove(previous, actorPersonId, "WEB");
     }
 
     this.logger.log(`Cleared the ${slot} logo`);

@@ -299,6 +299,7 @@ export class MeetingNoticeService {
         await this.audit.record(
           {
             action: "MEETING_NOTICE_ISSUED",
+            channel: "WEB",
             actorPersonId,
             // No subject: summoning the members is the association's own act.
             targetKind: "meeting",

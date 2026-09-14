@@ -539,6 +539,7 @@ describe("serving a file with S3 behind it", () => {
       visibility: "INTERNAL",
       showsIdentifiablePersons: true,
       uploadedByPersonId: admin.personId,
+      channel: "WEB",
     });
 
     const anonymous = await inject({ method: "GET", url: internal.url });
@@ -569,6 +570,7 @@ describe("serving a file with S3 behind it", () => {
       requiredCapability: "memberRegister:read",
       showsIdentifiablePersons: false,
       uploadedByPersonId: admin.personId,
+      channel: "WEB",
     });
 
     const asResident = await inject({

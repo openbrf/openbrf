@@ -291,6 +291,12 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await clearMenu();
+      /*
+       * The entries the menu edits wrote are left where they are, as every
+       * other suite leaves its own. The log is append-only and outlives the
+       * rows it describes by design - including the people it names, which is
+       * why it holds their ids rather than a foreign key.
+       */
       await prisma.page.deleteMany({
         where: { id: { in: Object.values(pageIds) } },
       });
@@ -468,6 +474,113 @@ describe("arranging the menu", () => {
     await prisma.page.delete({ where: { id: spareId } });
 
     expect(await prisma.menuItem.count({ where: { id: entry.id } })).toBe(0);
+  });
+});
+
+describe("what the log keeps about the board's own menu edits", () => {
+  /** This run's entries, newest first. Never a count over the whole table. */
+  async function entries() {
+    return prisma.auditLogEntry.findMany({
+      where: { actorPersonId: boardMember.personId },
+      orderBy: { createdAt: "desc" },
+      select: { action: true, channel: true, targetId: true, context: true },
+    });
+  }
+
+  it("records one entry per write, through the web interface", async () => {
+    const before = (await entries()).length;
+
+    const entry = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+
+    const written_ = await entries();
+    expect(written_.length).toBe(before + 1);
+    expect(written_[0]).toMatchObject({
+      action: "MENU_ITEM_ADDED",
+      channel: "WEB",
+      targetId: entry.id,
+    });
+  });
+
+  it("records a reorder once, however many entries moved", async () => {
+    // The entry is about the act the board performed, not about the rows the
+    // database happened to touch: three entries for one drag would read as
+    // three decisions.
+    const first = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.home,
+    });
+    const second = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.member,
+    });
+    const third = await addEntry(boardCookie, {
+      kind: "PAGE",
+      pageId: pageIds.child,
+    });
+    const before = (await entries()).length;
+
+    const reordered = await inject({
+      method: "POST",
+      url: "/api/site/menu/order",
+      payload: { parentId: null, ids: [third.id, second.id, first.id] },
+      headers: { cookie: boardCookie },
+    });
+    expect(reordered.statusCode).toBe(201);
+
+    const after = await entries();
+    expect(after.length).toBe(before + 1);
+    expect(after[0]).toMatchObject({
+      action: "MENU_ITEM_REORDERED",
+      channel: "WEB",
+    });
+    expect(after[0]?.context).toMatchObject({ count: 3 });
+  });
+
+  it("records the address of an entry that points off the website", async () => {
+    // The reason the menu is audited at all: it is the one place on a public
+    // page where an address leaving the instance can be planted.
+    await addEntry(boardCookie, {
+      kind: "EXTERNAL",
+      label: "Boverket",
+      url: "https://boverket.invalid",
+    });
+
+    const [newest] = await entries();
+    expect(newest?.context).toMatchObject({
+      kind: "EXTERNAL",
+      href: "https://boverket.invalid",
+    });
+  });
+
+  it("keeps no copy of what the entry says", async () => {
+    const label = `Hemligt ${suffix}`;
+    await addEntry(boardCookie, {
+      kind: "EXTERNAL",
+      label,
+      url: "https://boverket.invalid",
+    });
+
+    // The label lives on the row and is erased with it. This table is not,
+    // which is why it never holds a second copy of anybody's text.
+    const [newest] = await entries();
+    expect(JSON.stringify(newest?.context)).not.toContain(label);
+  });
+
+  it("writes nothing when the write it records was refused", async () => {
+    const before = (await entries()).length;
+
+    const refused = await inject({
+      method: "POST",
+      url: "/api/site/menu",
+      payload: { kind: "PAGE", pageId: `no-such-page-${suffix}` },
+      headers: { cookie: boardCookie },
+    });
+    expect(refused.statusCode).toBe(404);
+
+    expect((await entries()).length).toBe(before);
   });
 });
 

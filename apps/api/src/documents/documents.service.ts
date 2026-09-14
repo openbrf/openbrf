@@ -188,6 +188,7 @@ export class DocumentsService {
       visibility: transport.visibility,
       requiredCapability: transport.requiredCapability ?? undefined,
       uploadedByPersonId: input.actorPersonId,
+      channel: "WEB",
       prefix: "documents",
     });
 
@@ -215,7 +216,7 @@ export class DocumentsService {
     } catch (cause) {
       // The upload is already in the audit log, and so is this removal. That
       // pair is the honest record of what happened.
-      await this.media.remove(file.id, input.actorPersonId).catch(() => {
+      await this.media.remove(file.id, input.actorPersonId, "WEB").catch(() => {
         /* Reported by the media service; the original failure is the one to
            raise. */
       });
@@ -294,7 +295,7 @@ export class DocumentsService {
       throw new DocumentError("No such document.", "not-found");
     }
 
-    await this.media.remove(document.mediaFileId, actorPersonId);
+    await this.media.remove(document.mediaFileId, actorPersonId, "WEB");
   }
 }
 

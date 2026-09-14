@@ -412,7 +412,7 @@ same lint gate a downloaded package passes.
 
 Not built yet: the action registry and sign-in for MCP clients, which the MCP
 Connector and the AI package under Paid modules are built on. Both are core and
-free.
+free. The audit log's channel, which both rest on, is built.
 
 - [ ] Action registry in the plugin API. Core features and plugins register
       what they can do - an input schema, the capability it needs, whether it
@@ -427,9 +427,16 @@ free.
       write access to the register
 - [ ] Sign-in for MCP clients: OAuth 2.1, with tokens whose scopes never exceed
       the current capabilities of the person who granted them, so every token
-      acts as a person. The audit log records the channel each change came
-      through - the web interface, an MCP token or the AI package - and records
-      every change made through MCP or AI, menu edits included
+      acts as a person
+- [x] The audit log records the channel each change came through - the web
+      interface, a connected app's token, the AI package, the association's own
+      nightly jobs, or a plugin. It is recorded on every entry written from now
+      on and never inferred afterwards: the log is append-only, so entries
+      written before the column existed say that they were, and the data
+      subject access report prints that sentence rather than claiming a channel
+      nobody recorded. An entry made through a connected app also names which
+      app it was. Every menu edit is recorded whoever makes it, the board's own
+      edits included
 
 ## Core v1
 

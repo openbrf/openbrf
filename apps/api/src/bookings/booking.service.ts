@@ -459,6 +459,7 @@ export class BookingService {
       await this.audit.record(
         {
           action: "BOOKING_MADE",
+          channel: "WEB",
           actorPersonId: personId,
           targetPersonId: personId,
           targetKind: BOOKING_TARGET_KIND,
@@ -601,6 +602,7 @@ export class BookingService {
       await this.audit.record(
         {
           action: "BOOKING_CANCELLED",
+          channel: "WEB",
           actorPersonId,
           // The person whose booking it was, whoever cancelled it. That is what
           // puts the entry in their access report as something about them.

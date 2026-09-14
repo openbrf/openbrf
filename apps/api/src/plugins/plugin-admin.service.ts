@@ -10,6 +10,7 @@ import {
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
@@ -181,7 +182,7 @@ export class PluginAdminService {
   private async recordPluginProcessor(
     pluginId: string,
     answer: NonNullable<InstallRequest["processorAgreement"]>,
-    context: { actorPersonId: string | null },
+    context: { actorPersonId: string | null; channel: AuditChannel },
   ): Promise<void> {
     const facts = await this.facts.read();
 
@@ -198,6 +199,7 @@ export class PluginAdminService {
           classification: "NOT_A_PROCESSOR",
           note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
           actorPersonId: context.actorPersonId,
+          channel: context.channel,
         },
         facts,
       );
@@ -227,6 +229,7 @@ export class PluginAdminService {
         subProcessorNote: answer.subProcessorNote ?? null,
         note: answer.note ?? null,
         actorPersonId: context.actorPersonId,
+        channel: context.channel,
       },
       facts,
     );
@@ -331,6 +334,7 @@ export class PluginAdminService {
   async install(
     request: InstallRequest,
     actorPersonId: string | null,
+    channel: AuditChannel,
   ): Promise<{ restarting: boolean }> {
     if (!this.env.OPENBRF_PLUGINS_ENABLED) {
       throw new PluginsDisabledError();
@@ -400,6 +404,7 @@ export class PluginAdminService {
     if (request.processorAgreement !== undefined) {
       await this.recordPluginProcessor(entry.id, request.processorAgreement, {
         actorPersonId,
+        channel,
       });
     }
 
@@ -418,6 +423,7 @@ export class PluginAdminService {
 
     await this.audit.record({
       action: "PLUGIN_INSTALLED",
+      channel,
       actorPersonId,
       targetKind: "plugin",
       targetId: entry.id,
@@ -439,6 +445,7 @@ export class PluginAdminService {
   async uninstall(
     id: string,
     actorPersonId: string | null,
+    channel: AuditChannel,
   ): Promise<{ restarting: boolean }> {
     const removed = await this.registry.remove(id);
     if (!removed) {
@@ -447,6 +454,7 @@ export class PluginAdminService {
 
     await this.audit.record({
       action: "PLUGIN_REMOVED",
+      channel,
       actorPersonId,
       targetKind: "plugin",
       targetId: id,

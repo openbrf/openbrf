@@ -100,6 +100,7 @@ export class SystemRoleService {
         await this.audit.record(
           {
             action: "SYSTEM_ROLE_GRANTED",
+            channel: "WEB",
             actorPersonId: input.actorPersonId,
             targetPersonId: input.personId,
             context: { role: input.role },
@@ -155,6 +156,7 @@ export class SystemRoleService {
       await this.audit.record(
         {
           action: "SYSTEM_ROLE_REVOKED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           context: { role: input.role },

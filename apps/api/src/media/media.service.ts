@@ -9,6 +9,7 @@ import {
   type Principal,
 } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
+import type { AuditChannel } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { generateStorageKey } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
@@ -71,6 +72,16 @@ export interface UploadInput {
    */
   showsIdentifiablePersons?: boolean;
   uploadedByPersonId?: string | null;
+  /**
+   * Which way the upload reached the instance.
+   *
+   * Named by the caller because this is a shared entry point: a board member
+   * uploading a picture and the mail collector storing an attachment both land
+   * here, and only the caller knows which it is. A missing person is not the
+   * test - the collector has none, and neither does a file a resident uploads
+   * anonymously through a form.
+   */
+  channel: AuditChannel;
   /** Groups the object in storage. Not part of the file's identity. */
   prefix?: "branding" | "documents" | "media";
 }
@@ -211,6 +222,7 @@ export class MediaService {
 
     await this.audit.record({
       action: "MEDIA_UPLOADED",
+      channel: input.channel,
       actorPersonId: input.uploadedByPersonId ?? null,
       targetKind: "media",
       targetId: file.id,
@@ -289,6 +301,7 @@ export class MediaService {
          */
         await this.audit.record({
           action: "MEDIA_ACCESSED",
+          channel: "WEB",
           actorPersonId: viewer.personId,
           targetKind: "media",
           targetId: file.id,
@@ -336,7 +349,11 @@ export class MediaService {
    * deleted. Storage cannot take part in the transaction, so removing the
    * object before the commit would destroy a file the database still holds.
    */
-  async remove(id: string, actorPersonId?: string | null): Promise<void> {
+  async remove(
+    id: string,
+    actorPersonId: string | null | undefined,
+    channel: AuditChannel,
+  ): Promise<void> {
     const file = await this.prisma.mediaFile.findUnique({ where: { id } });
     if (file === null) {
       return;
@@ -347,6 +364,7 @@ export class MediaService {
       await this.audit.record(
         {
           action: "MEDIA_DELETED",
+          channel,
           actorPersonId: actorPersonId ?? null,
           targetKind: "media",
           targetId: id,

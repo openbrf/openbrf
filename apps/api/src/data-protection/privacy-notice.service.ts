@@ -182,6 +182,7 @@ export class PrivacyNoticeService {
       await this.audit.record(
         {
           action: "PRIVACY_NOTICE_HEADINGS_ADDED",
+          channel: "WEB",
           actorPersonId,
           targetKind: "page",
           targetId: page.id,

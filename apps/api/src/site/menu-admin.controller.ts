@@ -6,9 +6,12 @@ import {
   Param,
   Post,
   Put,
+  Req,
 } from "@nestjs/common";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { type MenuItemView, MenuWriteService } from "./menu-write.service";
 
@@ -63,8 +66,11 @@ export class MenuAdminController {
   }
 
   @Post()
-  async create(@Body() body: unknown): Promise<MenuItemView> {
-    return this.menu.create(itemSchema.parse(body));
+  async create(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<MenuItemView> {
+    return this.menu.create(itemSchema.parse(body), webActor(request));
   }
 
   /**
@@ -74,21 +80,28 @@ export class MenuAdminController {
    * an entry's id.
    */
   @Post("order")
-  async reorder(@Body() body: unknown): Promise<MenuItemView[]> {
+  async reorder(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<MenuItemView[]> {
     const input = orderSchema.parse(body);
-    return this.menu.reorder(input.parentId, input.ids);
+    return this.menu.reorder(input.parentId, input.ids, webActor(request));
   }
 
   @Put(":id")
   async update(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<MenuItemView> {
-    return this.menu.update(id, itemSchema.parse(body));
+    return this.menu.update(id, itemSchema.parse(body), webActor(request));
   }
 
   @Delete(":id")
-  async remove(@Param("id") id: string): Promise<void> {
-    await this.menu.remove(id);
+  async remove(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.menu.remove(id, webActor(request));
   }
 }

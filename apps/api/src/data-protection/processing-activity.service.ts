@@ -343,6 +343,7 @@ export class ProcessingActivityService {
       await this.audit.record(
         {
           action: "PROCESSING_ACTIVITY_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "processingActivity",
           targetId: row.id,
@@ -448,6 +449,7 @@ export class ProcessingActivityService {
       await this.audit.record(
         {
           action: "PROCESSING_ACTIVITY_UPDATED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "processingActivity",
           targetId: activityId,
@@ -492,6 +494,7 @@ export class ProcessingActivityService {
       await this.audit.record(
         {
           action: "PROCESSING_ACTIVITY_ENDED",
+          channel: "WEB",
           actorPersonId,
           targetKind: "processingActivity",
           targetId: activityId,

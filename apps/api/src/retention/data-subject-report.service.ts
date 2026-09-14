@@ -182,6 +182,7 @@ export class DataSubjectReportService {
     const report = await this.audit.withAuditedRead<DataSubjectReport>(
       {
         action: "DATA_EXPORTED",
+        channel: "WEB",
         actorPersonId: input.actorPersonId,
         targetPersonId: input.personId,
         // What was assembled, never what it held.
@@ -217,6 +218,7 @@ export class DataSubjectReportService {
     const report = await this.audit.withAuditedRead<DataSubjectReport>(
       {
         action: "DATA_PORTABILITY_EXPORTED",
+        channel: "WEB",
         actorPersonId: personId,
         targetPersonId: personId,
         context: { export: "dataPortability" },
@@ -867,6 +869,7 @@ export class DataSubjectReportService {
       select: {
         id: true,
         action: true,
+        channel: true,
         createdAt: true,
         actorPersonId: true,
         targetPersonId: true,
@@ -1346,6 +1349,7 @@ export class DataSubjectReportService {
         role: entry.targetPersonId === personId ? "subject" : "actor",
         action: entry.action,
         at: entry.createdAt.toISOString(),
+        channel: entry.channel,
         targetKind: entry.targetKind,
         targetId: entry.targetId,
         context: subjectScopedContext(asContext(entry.context), personId),

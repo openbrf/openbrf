@@ -136,6 +136,7 @@ export class InvitationService {
       await this.audit.record(
         {
           action: "INVITATION_SENT",
+          channel: "WEB",
           actorPersonId: input.invitedByPersonId,
           targetPersonId: person.id,
           context: { expiresAt: expiresAt.toISOString() },
@@ -243,6 +244,7 @@ export class InvitationService {
       await this.audit.record(
         {
           action: "INVITATION_ACCEPTED",
+          channel: "WEB",
           actorPersonId: invitation.personId,
           targetPersonId: invitation.personId,
         },

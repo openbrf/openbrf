@@ -727,16 +727,16 @@ describe("publishing with the mailing asked for", () => {
     // claim against PostgreSQL. The second blocks on the row and then matches
     // nothing.
     const [first, second] = await Promise.all([
-      writes.publish(item.id, {
-        published: true,
-        sendEmail: true,
-        actorPersonId: boardMember.personId,
-      }),
-      writes.publish(item.id, {
-        published: true,
-        sendEmail: true,
-        actorPersonId: boardMember.personId,
-      }),
+      writes.publish(
+        item.id,
+        { published: true, sendEmail: true },
+        { personId: boardMember.personId, channel: "WEB" },
+      ),
+      writes.publish(
+        item.id,
+        { published: true, sendEmail: true },
+        { personId: boardMember.personId, channel: "WEB" },
+      ),
     ]);
 
     const claims = [first.mailedTo, second.mailedTo].filter(
@@ -775,11 +775,11 @@ describe("the worker that mails it", () => {
 
   it("marks what is left of an abandoned mailing as interrupted", async () => {
     const item = await createNews(boardCookie, slugs.abandoned);
-    await writes.publish(item.id, {
-      published: true,
-      sendEmail: true,
-      actorPersonId: boardMember.personId,
-    });
+    await writes.publish(
+      item.id,
+      { published: true, sendEmail: true },
+      { personId: boardMember.personId, channel: "WEB" },
+    );
 
     // What the dead-letter queue does once the retries are spent.
     await mailer.recordAbandoned(item.id);
@@ -945,16 +945,16 @@ describe("the SMS mailing, which happens once and separately", () => {
     const item = await createNews(boardCookie, slugs.smsAbandoned);
 
     const [first, second] = await Promise.all([
-      writes.publish(item.id, {
-        published: true,
-        sendSms: true,
-        actorPersonId: boardMember.personId,
-      }),
-      writes.publish(item.id, {
-        published: true,
-        sendSms: true,
-        actorPersonId: boardMember.personId,
-      }),
+      writes.publish(
+        item.id,
+        { published: true, sendSms: true },
+        { personId: boardMember.personId, channel: "WEB" },
+      ),
+      writes.publish(
+        item.id,
+        { published: true, sendSms: true },
+        { personId: boardMember.personId, channel: "WEB" },
+      ),
     ]);
 
     const claims = [first.textedTo, second.textedTo].filter(
@@ -1023,11 +1023,11 @@ describe("the worker that texts it", () => {
     // No withSmsGateway: this is the ordinary state of an instance that has not
     // bought SMS, and it is the case the board has to be told about plainly.
     const item = await createNews(boardCookie, slugs.smsUnconfigured);
-    await writes.publish(item.id, {
-      published: true,
-      sendSms: true,
-      actorPersonId: boardMember.personId,
-    });
+    await writes.publish(
+      item.id,
+      { published: true, sendSms: true },
+      { personId: boardMember.personId, channel: "WEB" },
+    );
 
     const result = await texter.runMailing(item.id);
     expect(result.sent).toBe(0);

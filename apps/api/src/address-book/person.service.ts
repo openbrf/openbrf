@@ -452,6 +452,7 @@ export class PersonService {
     const revealed = await this.audit.withAuditedRead<RevealedFields>(
       {
         action: "PROTECTED_DATA_REVEALED",
+        channel: "WEB",
         actorPersonId: input.actorPersonId,
         targetPersonId: input.personId,
         context: {
@@ -609,6 +610,7 @@ export class PersonService {
         await this.audit.record(
           {
             action: "PROTECTED_FLAG_CHANGED",
+            channel: "WEB",
             actorPersonId,
             targetPersonId: created.id,
             context: { protectedPersonalData: true, atCreation: true },
@@ -660,6 +662,7 @@ export class PersonService {
       await this.audit.record(
         {
           action: "PROTECTED_FLAG_CHANGED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           context: {

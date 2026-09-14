@@ -247,6 +247,7 @@ export class KeyOrderService {
       await this.audit.record(
         {
           action: "KEY_ORDER_PLACED",
+          channel: "WEB",
           // Actor and subject are the same person: the order is theirs and
           // nobody places it on anybody's behalf.
           actorPersonId: principal.personId,
@@ -337,6 +338,7 @@ export class KeyOrderService {
       await this.audit.record(
         {
           action: "KEY_ORDER_REVISED",
+          channel: "WEB",
           actorPersonId: personId,
           targetPersonId: personId,
           targetKind: "keyOrder",
@@ -512,6 +514,7 @@ export class KeyOrderService {
       await this.audit.record(
         {
           action: input.action,
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.subjectPersonId,
           targetKind: "keyOrder",

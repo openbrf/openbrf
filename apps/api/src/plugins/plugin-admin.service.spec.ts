@@ -112,6 +112,7 @@ describe("the consent echo gate", () => {
         personalData: ["apartment", "name"],
       },
       null,
+      "WEB",
     );
 
     // Order is not a gate: the catalog is free to list a declaration in any
@@ -135,6 +136,7 @@ describe("the consent echo gate", () => {
           personalData: ["name", "apartment"],
         },
         null,
+        "WEB",
       ),
     ).rejects.toBeInstanceOf(PluginConsentMismatchError);
     expect(consent).not.toHaveBeenCalled();
@@ -149,6 +151,7 @@ describe("the consent echo gate", () => {
           personalData: ["name", "name"],
         },
         null,
+        "WEB",
       ),
     ).rejects.toBeInstanceOf(PluginConsentMismatchError);
     expect(consent).not.toHaveBeenCalled();
@@ -161,6 +164,7 @@ describe("the consent echo gate", () => {
       service.install(
         { id: "occupancy", permissions: ["addressBook:read", "mail:send"] },
         null,
+        "WEB",
       ),
     ).rejects.toBeInstanceOf(PluginConsentMismatchError);
     expect(consent).not.toHaveBeenCalled();
@@ -171,6 +175,7 @@ describe("the consent echo gate", () => {
       service.install(
         { id: "occupancy", personalData: ["name", "apartment"] },
         null,
+        "WEB",
       ),
     ).rejects.toBeInstanceOf(PluginConsentMismatchError);
     expect(consent).not.toHaveBeenCalled();
@@ -185,6 +190,7 @@ describe("the consent echo gate", () => {
           personalData: ["name", "apartment"],
         },
         null,
+        "WEB",
       ),
     ).rejects.toBeInstanceOf(PluginConsentMismatchError);
     expect(consent).not.toHaveBeenCalled();
@@ -207,6 +213,7 @@ describe("the consent echo gate", () => {
     await service.install(
       { id: "occupancy", permissions: confirmed, personalData: confirmedData },
       null,
+      "WEB",
     );
 
     expect(recorded().permissions).toEqual(confirmed);
@@ -217,7 +224,7 @@ describe("the consent echo gate", () => {
     // The command-line tool: running the command is the consent, there is no
     // earlier screen for the catalog to have changed since, and the tool
     // prints the entry's declaration before it acts.
-    await service.install({ id: "occupancy" }, null);
+    await service.install({ id: "occupancy" }, null, "SYSTEM");
 
     expect(recorded().permissions).toEqual(ENTRY.permissions);
     expect(recorded().personalData).toEqual(ENTRY.personalData);
@@ -226,10 +233,15 @@ describe("the consent echo gate", () => {
 
 describe("what the consent step records about the recipient", () => {
   /** The classification the install wrote, if it wrote one. */
-  function classified(): { classification: string; status?: string | null } {
+  function classified(): {
+    classification: string;
+    status?: string | null;
+    channel: string;
+  } {
     return recordProcessor.mock.calls[0]?.[1] as {
       classification: string;
       status?: string | null;
+      channel: string;
     };
   }
 
@@ -247,9 +259,31 @@ describe("what the consent step records about the recipient", () => {
         processorAgreement: { sendsPersonalDataOutside: false },
       },
       null,
+      "WEB",
     );
 
     expect(classified().classification).toBe("NOT_A_PROCESSOR");
+  });
+
+  it("classifies the recipient through the channel the install came by", async () => {
+    /*
+     * The command-line install reaches the art. 28 record through the same
+     * method the board screen does. Naming WEB where the row is written would
+     * put a person in a browser behind a change no person made, which is the
+     * one thing the channel exists to stop.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false },
+      },
+      null,
+      "SYSTEM",
+    );
+
+    expect(classified()).toMatchObject({ channel: "SYSTEM" });
   });
 
   it("refuses to record a recipient nobody named", async () => {
@@ -273,6 +307,7 @@ describe("what the consent step records about the recipient", () => {
           processorAgreement: { sendsPersonalDataOutside: true },
         },
         null,
+        "WEB",
       ),
     ).rejects.toThrow(PluginRecipientRequiredError);
 
@@ -292,6 +327,7 @@ describe("what the consent step records about the recipient", () => {
         },
       },
       null,
+      "WEB",
     );
 
     expect(classified()).toMatchObject({
@@ -317,6 +353,7 @@ describe("what the consent step records about the recipient", () => {
         processorAgreement: { sendsPersonalDataOutside: false },
       },
       null,
+      "WEB",
     );
 
     expect(Object.keys(recorded())).not.toContain("processorAgreement");

@@ -216,7 +216,7 @@ async function add(
     return 0;
   }
 
-  await admin.install({ id }, null);
+  await admin.install({ id }, null, "SYSTEM");
   const outcome = await installer.reconcile();
 
   const failure = outcome.failed.find((entryFailed) => entryFailed.id === id);
@@ -242,7 +242,7 @@ async function remove(
     return 1;
   }
 
-  await admin.uninstall(id, null);
+  await admin.uninstall(id, null, "SYSTEM");
   await installer.reconcile();
 
   console.log(`Removed "${id}". A running application restarts to unload it.`);

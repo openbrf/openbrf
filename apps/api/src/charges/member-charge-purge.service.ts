@@ -340,6 +340,7 @@ export class MemberChargePurgeService implements OnModuleInit {
       await this.audit.record(
         {
           action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
           // No actor: nobody clicked this. The job ran because a date arrived,
           // which is what the retention window promised would happen.
           actorPersonId: null,

@@ -114,6 +114,7 @@ export class MemberRegisterService {
     return this.audit.withAuditedRead<MemberRegisterExtract>(
       {
         action: "MEMBER_REGISTER_EXTRACT_GENERATED",
+        channel: "WEB",
         actorPersonId: input.actorPersonId,
         context: { scope: input.scope },
       },

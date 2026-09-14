@@ -171,6 +171,7 @@ export class LegalHoldService {
       await this.audit.record(
         {
           action: "LEGAL_HOLD_PLACED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           targetKind: "legalHold",
@@ -257,6 +258,7 @@ export class LegalHoldService {
       await this.audit.record(
         {
           action: "LEGAL_HOLD_RELEASED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           targetKind: "legalHold",

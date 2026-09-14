@@ -197,6 +197,7 @@ export class MotionService {
       await this.audit.record(
         {
           action: "MOTION_SUBMITTED",
+          channel: "WEB",
           // Actor and subject are the same person: the right is theirs to
           // exercise and nobody submits on anybody's behalf.
           actorPersonId: principal.personId,
@@ -469,6 +470,7 @@ export class MotionService {
       await this.audit.record(
         {
           action: "MOTION_MEETING_SET",
+          channel: "WEB",
           actorPersonId,
           // The subject stays the member who submitted it, as at
           // acknowledgement: what the board did with their item has to be
@@ -667,6 +669,7 @@ export class MotionService {
       await this.audit.record(
         {
           action: input.action,
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.subjectPersonId,
           targetKind: "motion",

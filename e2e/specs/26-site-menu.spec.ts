@@ -180,6 +180,41 @@ test("the board arranges the menu and the website answers each visitor with thei
       }),
     ).toBeDisabled();
 
+    /*
+     * --- what the log says about the arranging ----------------------------
+     *
+     * The menu was deliberately unaudited until something other than a board
+     * member in a browser could write it. This is the end-to-end proof that
+     * the edits above are recorded and that the record says how they were
+     * made: the board member asks for their own data subject access report -
+     * the document the association hands a person under art. 15 - and reads
+     * their own menu edit on it, attributed to the web interface.
+     */
+    await boardPage.goto(appPath("/"));
+    await boardPage.getByLabel("Sök i registret").fill(ADMINISTRATOR.lastName);
+    await boardPage
+      .getByRole("cell", {
+        name: `Öppna ${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
+      })
+      .click();
+    await boardPage
+      .getByRole("button", { name: "Ta fram registerutdraget" })
+      .click();
+
+    await expect(
+      boardPage.getByRole("heading", { name: "Registerutdrag" }),
+    ).toBeVisible();
+    const audit = boardPage
+      .getByRole("row")
+      .filter({ hasText: "Menypost tillagd" })
+      .first();
+    await expect(audit).toBeVisible();
+    // The column exists and this act came through the web interface, in the
+    // association's own words rather than as an enum value.
+    await expect(audit.getByText("Webbgränssnittet")).toBeVisible();
+
+    await boardPage.goto(appPath("/admin/site/menu"));
+
     // --- the visitor with no account ---------------------------------------
     const anonymous = await browser.newContext({
       baseURL: stack.baseUrl,

@@ -322,6 +322,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
       await this.audit.record(
         {
           action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
           // No actor: nobody clicked this. The job ran because a date arrived,
           // which is what the retention window promised would happen.
           actorPersonId: null,
@@ -399,7 +400,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         }
         // No actor, for the reason the erasure entry above gives: a date
         // arrived, and nobody pressed anything.
-        await this.media.remove(fileId, null);
+        await this.media.remove(fileId, null, "SYSTEM");
       } catch (error) {
         // The id and the class of the failure. An id is opaque and says nothing
         // about the letter; a file name would be the sender's own words.

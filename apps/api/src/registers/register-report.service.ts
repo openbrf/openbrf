@@ -411,6 +411,7 @@ export class RegisterReportService {
 
     await this.audit.record({
       action: "REGISTER_REPORT_MADE",
+      channel: "WEB",
       actorPersonId: input.actorPersonId,
       targetKind: "registerReportObligation",
       targetId: obligation.id,

@@ -122,6 +122,7 @@ export class ConsentService {
         await this.audit.record(
           {
             action: "CONSENT_RECORDED",
+            channel: "WEB",
             actorPersonId: input.actorPersonId,
             targetPersonId: input.personId,
             context: {
@@ -181,6 +182,7 @@ export class ConsentService {
       await this.audit.record(
         {
           action: "CONSENT_WITHDRAWN",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           context: {

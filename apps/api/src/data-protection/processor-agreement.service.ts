@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type {
+  AuditChannel,
   ProcessorAgreementStatus,
   ProcessorClassification,
   ProcessorKind,
@@ -149,10 +150,19 @@ export class ProcessorAgreementService {
    * Refuses a key naming nothing the instance actually hands data to: a record
    * describing an agreement with a mail server this instance does not use would
    * be a false entry in a statutory document.
+   *
+   * Takes the channel rather than naming one, because both a board member on
+   * the art. 28 screen and a plugin install reach it, and the install can come
+   * from the command line. {@link recordExternal} and {@link end} name WEB at
+   * the write instead: a recipient the instance cannot see is one only a board
+   * member can describe, and only that screen closes a row.
    */
   async record(
     processorKey: string,
-    input: ProcessorAgreementInput & { actorPersonId: string | null },
+    input: ProcessorAgreementInput & {
+      actorPersonId: string | null;
+      channel: AuditChannel;
+    },
     facts: ProcessorFacts,
   ): Promise<ProcessorView> {
     const parsed = parseProcessorKey(processorKey);
@@ -222,6 +232,7 @@ export class ProcessorAgreementService {
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_RECORDED",
+          channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetKind: "processorAgreement",
           targetId: row.id,
@@ -293,6 +304,7 @@ export class ProcessorAgreementService {
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_ENDED",
+          channel: "WEB",
           actorPersonId,
           targetKind: "processorAgreement",
           targetId: agreementId,
@@ -370,7 +382,10 @@ export class ProcessorAgreementService {
   private async write(
     processorKey: string,
     processorKind: ProcessorKind,
-    input: ProcessorAgreementInput & { actorPersonId: string | null },
+    input: ProcessorAgreementInput & {
+      actorPersonId: string | null;
+      channel: AuditChannel;
+    },
     facts: ProcessorFacts,
   ): Promise<ProcessorView> {
     let replaced = false;
@@ -417,6 +432,7 @@ export class ProcessorAgreementService {
       await this.audit.record(
         {
           action: "PROCESSOR_AGREEMENT_RECORDED",
+          channel: input.channel,
           actorPersonId: input.actorPersonId,
           targetKind: "processorAgreement",
           targetId: created.id,

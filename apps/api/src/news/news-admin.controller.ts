@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { submittedContent, submittedContentSchema } from "../site/page-content";
@@ -144,10 +145,7 @@ export class NewsAdminController {
     @Req() request: RequestWithPrincipal,
   ): Promise<PublishNewsResult> {
     const input = publishSchema.parse(body);
-    return this.news.publish(id, {
-      ...input,
-      actorPersonId: requirePrincipal(request).personId,
-    });
+    return this.news.publish(id, input, webActor(request));
   }
 
   @Delete(":id")
@@ -155,6 +153,6 @@ export class NewsAdminController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<void> {
-    await this.news.remove(id, requirePrincipal(request).personId);
+    await this.news.remove(id, webActor(request));
   }
 }
