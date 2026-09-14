@@ -214,6 +214,7 @@ export class DataProtectionController {
         ...input,
         signedOn: input.signedOn == null ? null : new Date(input.signedOn),
         actorPersonId: actingPersonId(request),
+        channel: "WEB",
       },
       await this.facts.read(),
     );

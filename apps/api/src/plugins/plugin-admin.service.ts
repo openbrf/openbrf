@@ -182,7 +182,7 @@ export class PluginAdminService {
   private async recordPluginProcessor(
     pluginId: string,
     answer: NonNullable<InstallRequest["processorAgreement"]>,
-    context: { actorPersonId: string | null },
+    context: { actorPersonId: string | null; channel: AuditChannel },
   ): Promise<void> {
     const facts = await this.facts.read();
 
@@ -199,6 +199,7 @@ export class PluginAdminService {
           classification: "NOT_A_PROCESSOR",
           note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
           actorPersonId: context.actorPersonId,
+          channel: context.channel,
         },
         facts,
       );
@@ -228,6 +229,7 @@ export class PluginAdminService {
         subProcessorNote: answer.subProcessorNote ?? null,
         note: answer.note ?? null,
         actorPersonId: context.actorPersonId,
+        channel: context.channel,
       },
       facts,
     );
@@ -402,6 +404,7 @@ export class PluginAdminService {
     if (request.processorAgreement !== undefined) {
       await this.recordPluginProcessor(entry.id, request.processorAgreement, {
         actorPersonId,
+        channel,
       });
     }
 

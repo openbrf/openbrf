@@ -16,13 +16,13 @@ package, the association's own nightly jobs, or a plugin. Where a connected app
 acted, the entry also names which app.
 
 Entries written before the column existed carry no channel, and cannot be given
-one: the log is append-only, which is what makes it evidence. The access report
-says so in words rather than leaving the cell blank, because a blank cell on a
-statutory document reads as though nothing happened.
+one: the log is append-only, which is what makes it evidence. The data subject
+access report says so in words rather than leaving the cell blank, because a
+blank cell on a statutory document reads as though nothing happened.
 
 The report also names sixteen acts it could not name before. Twelve of them the
 log had been recording all along and the document printed as an empty cell -
-charges entered and corrected, the debiting list exported, the board's mailbox
+charges entered and corrected, the debiting list exported, the board mailbox
 worked, a transfer reversed, how the association holds its land. Those cells now
 carry a sentence in the association's own words, and an act added to the log in
 future cannot reach the report unnamed.
