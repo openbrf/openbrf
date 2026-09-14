@@ -118,6 +118,13 @@ export const pluginActionSchema = z.object({
  * declaration's capability, personal data and surfaces, with nobody having
  * decided that. An action is one operation with one capability; two of them
  * wearing one id is not a declaration this can read.
+ *
+ * Undefaulted, so each use site says for itself whether an absent list means
+ * "none declared" or "you did not answer". A manifest and a catalog entry mean
+ * the first and add `.default([])`; the install request means the second, since
+ * a board's echo that silently became an empty list would read as consent to no
+ * action at all - and a plugin that declares one would then be refused with a
+ * mismatch nothing the board could do would satisfy.
  */
 export const pluginActionsSchema = z
   .array(pluginActionSchema)
@@ -134,8 +141,7 @@ export const pluginActionsSchema = z
       }
       seen.add(action.id);
     }
-  })
-  .default([]);
+  });
 
 /**
  * The public name a declared action is offered under.
@@ -176,7 +182,7 @@ export const pluginManifestSchema = z
       })
       .optional(),
     /** What this plugin proposes the platform be able to do. */
-    actions: pluginActionsSchema,
+    actions: pluginActionsSchema.default([]),
   })
   .superRefine((manifest, ctx) => {
     /*

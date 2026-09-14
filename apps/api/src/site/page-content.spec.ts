@@ -1,14 +1,16 @@
+import { actionInputJsonSchema } from "@openbrf/plugin-sdk";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   hasBlock,
   imageReferences,
   isPublishableUrl,
-  LINK_PATTERN,
   pageTextParts,
   paragraphsContent,
   readPageContent,
   submittedContent,
+  submittedContentSchema,
   textBlocksOnly,
 } from "./page-content";
 
@@ -47,15 +49,29 @@ describe("a publishable URL", () => {
 
   it("publishes a pattern that accepts everything the refine accepts", () => {
     /*
-     * The refine is erased by the JSON Schema conversion, so the pattern is the
-     * whole of what a caller reading the published document has to go on. It is
-     * a superset on purpose - it does not express the three refusals above - but
-     * a pattern NARROWER than the refine is the same defect pointing the other
-     * way: a document refusing an address the service would have taken.
+     * Asserted against the CONVERTED document rather than against the regular
+     * expression, because the two can differ and did.
      *
-     * The scheme's case is where the two came apart. `new URL` lowercases it
-     * before isPublishableUrl looks, so these are accepted at runtime.
+     * The refine is erased by the JSON Schema conversion, so the pattern is the
+     * whole of what a caller reading the document has to go on. It is a superset
+     * on purpose - it does not express the three refusals above - but a pattern
+     * NARROWER than the refine is the same defect pointing the other way: a
+     * document refusing an address the service would have taken.
+     *
+     * The scheme's case is where they came apart, twice over. `new URL`
+     * lowercases it before isPublishableUrl looks, so an uppercase scheme is an
+     * address the service takes; and JSON Schema's `pattern` carries no flags,
+     * so `z.toJSONSchema` drops an `i` without a word. A test over the
+     * JavaScript RegExp would pass while the published document refused these.
      */
+    const document = actionInputJsonSchema(
+      z.strictObject({ content: submittedContentSchema }),
+      "page_update",
+    );
+    const pattern = publishedLinkPattern(document);
+    expect(pattern, "no link pattern in the published document").not.toBe(null);
+    const published = new RegExp(pattern ?? "");
+
     for (const accepted of [
       "https://boverket.se",
       "http://exempel.se/sida",
@@ -66,12 +82,49 @@ describe("a publishable URL", () => {
       "MAILTO:styrelsen@exempel.se",
     ]) {
       expect(isPublishableUrl(accepted), `${accepted} at runtime`).toBe(true);
-      expect(LINK_PATTERN.test(accepted), `${accepted} in the document`).toBe(
+      expect(published.test(accepted), `${accepted} in the document`).toBe(
         true,
       );
     }
   });
 });
+
+/**
+ * The `pattern` a published document states for a text run's link.
+ *
+ * Walked rather than indexed by a fixed path: the link sits under the paragraph
+ * branch of a discriminated union inside an array inside the block list, and a
+ * path written out here would break on any reshaping of the body while the rule
+ * it guards still held.
+ */
+function publishedLinkPattern(node: unknown): string | null {
+  if (typeof node !== "object" || node === null) {
+    return null;
+  }
+  const held = node as Record<string, unknown>;
+  const properties = held.properties;
+  if (typeof properties === "object" && properties !== null) {
+    const link = (properties as Record<string, unknown>).link;
+    if (typeof link === "object" && link !== null) {
+      const pattern = (link as Record<string, unknown>).pattern;
+      if (typeof pattern === "string") {
+        return pattern;
+      }
+    }
+  }
+  for (const value of Object.values(held)) {
+    const found = Array.isArray(value)
+      ? value.reduce<string | null>(
+          (held2, entry) => held2 ?? publishedLinkPattern(entry),
+          null,
+        )
+      : publishedLinkPattern(value);
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
 
 describe("reading a stored body", () => {
   it("returns nothing rather than throwing on a body that is not one", () => {

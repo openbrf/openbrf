@@ -432,8 +432,8 @@ channel and the action registry, which it rests on, are built.
       that writes register data is a core action, since no plugin permission
       grants write access to the register. The first slice is the website: the
       association's news, pages and menu, with no way to mail the members -
-      something acting through a connected app may ask for a mailing, and a
-      board member confirms it in the web interface
+      something acting through a connected app may create a mailing request,
+      and a board member confirms the mailing in the web interface
 - [ ] Sign-in for MCP clients: OAuth 2.1, with tokens whose scopes never exceed
       the current capabilities of the person who granted them, so every token
       acts as a person

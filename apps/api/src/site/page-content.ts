@@ -313,9 +313,20 @@ const LIMITS = PAGE_CONTENT_LIMITS;
  *
  * Exported so a spec can hold the two halves against each other: a refine is
  * erased by the JSON Schema conversion, so this pattern is all a caller reading
- * the document has, and it has to accept everything `isPublishableUrl` accepts.
+ * the document has, and it has to accept everything `isPublishableUrl` accepts -
+ * uppercase schemes included, because `new URL` lowercases one before
+ * `isPublishableUrl` sees it.
+ *
+ * The case is written out rather than carried by the `i` flag, and that is the
+ * whole reason this looks the way it does. JSON Schema's `pattern` has no flags,
+ * and `z.toJSONSchema` drops the `i` SILENTLY - so a flagged pattern accepts
+ * `HTTPS://` at runtime while the document a caller reads refuses it, which is
+ * the erasure rule in docs/actions.md reappearing on the one construct that was
+ * supposed to survive it. Character classes survive, so the document says what
+ * the service does.
  */
-export const LINK_PATTERN = /^(?:https?:\/\/|mailto:|\/)/i;
+export const LINK_PATTERN =
+  /^(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/|[Mm][Aa][Ii][Ll][Tt][Oo]:|\/)/;
 
 /**
  * Whether a URL may be published.
@@ -395,11 +406,11 @@ const textRunSchema = z.strictObject({
    * that it accepts everything the refine accepts and rejects those three
    * shapes.
    *
-   * Case-insensitive because the refine is. `new URL` lowercases a scheme
-   * before `isPublishableUrl` reads it, so `HTTPS://exempel.se` is accepted at
-   * runtime; a pattern without the flag would refuse in the published document
-   * what the service takes, which is the superset rule broken in the direction
-   * that tells a caller a working link is invalid.
+   * Case-insensitive because the refine is: `new URL` lowercases a scheme
+   * before `isPublishableUrl` reads it, so `HTTPS://exempel.se` is one of the
+   * addresses the service takes. Written as character classes rather than with
+   * the `i` flag, which `z.toJSONSchema` drops without saying so - see
+   * LINK_PATTERN.
    */
   link: z.string().regex(LINK_PATTERN).refine(isPublishableUrl).optional(),
 });

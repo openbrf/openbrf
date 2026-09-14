@@ -91,7 +91,7 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    * uniqueness rule on the ids has to hold at whichever boundary is read
    * first, and two copies is two places for it to stop holding.
    */
-  actions: pluginActionsSchema,
+  actions: pluginActionsSchema.default([]),
 });
 
 /**

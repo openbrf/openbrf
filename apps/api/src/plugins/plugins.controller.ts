@@ -11,6 +11,7 @@ import {
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
+  pluginActionsSchema,
   pluginIdSchema,
 } from "@openbrf/plugin-sdk";
 import { z } from "zod";
@@ -30,6 +31,18 @@ const installSchema = z.object({
   /** Echoed from the consent screen so a changed entry is refused. */
   permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16),
   personalData: z.array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES)).max(16),
+  /**
+   * The third of the three, and it has to be named here to survive.
+   *
+   * `z.object` strips what it does not declare, so an omission is not a field
+   * that arrives unchecked - it is a field that never arrives at all. The
+   * service compares the echo as one unit, so actions reaching it as undefined
+   * reads as a board that consented to no action, and every install of a plugin
+   * that declares one is refused with a mismatch nothing on the screen can
+   * satisfy. Required rather than defaulted, for the same reason the two above
+   * are: a default would put the empty list back and the refusal with it.
+   */
+  actions: pluginActionsSchema,
   /**
    * What the board answered about where this plugin sends personal data.
    *

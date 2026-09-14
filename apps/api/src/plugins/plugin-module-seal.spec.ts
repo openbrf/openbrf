@@ -2,8 +2,10 @@ import {
   type CanActivate,
   Controller,
   type DynamicModule,
+  forwardRef,
   Get,
   Global,
+  Inject,
   Injectable,
   type MiddlewareConsumer,
   Module,
@@ -701,6 +703,116 @@ describe("what a plugin's provider may be constructed with", () => {
 
     expect(result.ok).toBe(false);
     expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
+  it("refuses it behind a forwardRef in an inject array", () => {
+    /*
+     * `forwardRef(() => X)` is `{ forwardRef: thunk }`, and NestJS calls the
+     * thunk when it resolves. A check that read the wrapper as an opaque object
+     * would see no class at all, so the name it hides walks through - one
+     * wrapper deep, in ordinary NestJS a plugin author would write without
+     * thinking about it.
+     */
+    class PrismaService {}
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [
+          {
+            provide: "DB",
+            useFactory: (db: unknown) => db,
+            inject: [forwardRef(() => PrismaService)],
+          },
+        ],
+      },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses it behind a forwardRef in constructor metadata", () => {
+    // The other path: `@Inject(forwardRef(...))` writes the wrapper into
+    // SELF_DECLARED_DEPS_METADATA rather than into design:paramtypes.
+    class AuditLogService {}
+    @Injectable()
+    class Sneaky {
+      constructor(
+        @Inject(forwardRef(() => AuditLogService))
+        private readonly audit: unknown,
+      ) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("AuditLogService");
+  });
+
+  it("refuses a forward reference whose thunk will not resolve", () => {
+    // A reference the seal cannot follow is one whose target it cannot vouch
+    // for, which is the same answer a module import that throws already gets.
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [
+          {
+            provide: "WHAT",
+            useFactory: (x: unknown) => x,
+            inject: [
+              {
+                forwardRef: () => {
+                  throw new Error("not yet");
+                },
+              },
+            ],
+          },
+        ],
+      },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
+  it("accepts a forwardRef to the plugin's own service", () => {
+    // Circular references between a plugin's own providers are ordinary and
+    // stay allowed: what is refused is the five names, however they arrive.
+    class OwnHelper {}
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [
+          OwnHelper,
+          {
+            provide: "OWN",
+            useFactory: (own: unknown) => own,
+            inject: [forwardRef(() => OwnHelper)],
+          },
+        ],
+      },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(true);
   });
 
   it("accepts a provider constructed with the plugin's own services", () => {

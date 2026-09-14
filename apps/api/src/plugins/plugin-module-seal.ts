@@ -540,7 +540,11 @@ function isDynamicModule(value: unknown): value is DynamicModule {
  * ADR 0008.
  */
 function forbiddenInjection(provider: unknown): string | null {
-  for (const reached of declarationReaches(provider)) {
+  for (const entry of declarationReaches(provider)) {
+    const reached = resolveInjectionToken(entry);
+    if (reached === UNRESOLVED) {
+      return "a forward reference that could not be resolved";
+    }
     if (
       typeof reached === "function" &&
       FORBIDDEN_INJECTIONS.has(reached.name)
@@ -549,6 +553,46 @@ function forbiddenInjection(provider: unknown): string | null {
     }
   }
   return null;
+}
+
+/** A forward reference whose thunk would not produce a token. */
+const UNRESOLVED = Symbol("openbrf.unresolvedForwardReference");
+
+/**
+ * A token as the container will finally see it.
+ *
+ * `forwardRef(() => X)` is `{ forwardRef: thunk }`, and NestJS calls the thunk
+ * when it resolves the dependency. Left wrapped, the name check never sees X -
+ * and both metadata paths carry the wrapper unchanged:
+ * `@Inject(forwardRef(() => PrismaService))` writes it into the self-declared
+ * list, and `inject: [forwardRef(() => AuditLogService)]` puts it straight in
+ * the array. Both are ordinary NestJS, so the check has to follow them.
+ *
+ * A thunk that throws is refused rather than passed over, on the same footing
+ * as `resolveForwardReference` gives a module import: a reference this cannot
+ * resolve is one whose target it cannot vouch for. The chain is followed rather
+ * than unwrapped once, because a thunk may return another forward reference,
+ * and the bound is what stops one that returns itself.
+ */
+function resolveInjectionToken(token: unknown): unknown {
+  let held = token;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof held !== "object" || held === null) {
+      return held;
+    }
+    const thunk = (held as { forwardRef?: unknown }).forwardRef;
+    if (typeof thunk !== "function") {
+      return held;
+    }
+    try {
+      held = (thunk as () => unknown)();
+    } catch {
+      // The thunk is the plugin's, so what it threw is the plugin's text and
+      // stays out of the refusal, which is written to the log.
+      return UNRESOLVED;
+    }
+  }
+  return UNRESOLVED;
 }
 
 /** Every token one provider declaration names, in any of NestJS's forms. */
