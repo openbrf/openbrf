@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { Env } from "../config/env";
 import type { BootPlugin } from "../plugins/plugin-boot";
@@ -243,7 +243,17 @@ describe("resolveProtectedResource", () => {
      * audience every issued token is bound to, so an operator's locale would
      * silently disconnect every connected app in the association. Both ids are
      * valid under the manifest's own id pattern.
+     *
+     * The spy is what makes this a regression test rather than a statement
+     * about the machine it runs on. Under the en-US the suite runs with,
+     * localeCompare agrees with code-unit order for this pair, so the two
+     * value assertions below would pass just as well after a revert. What must
+     * not come back is the call: this decision consults no collation at all,
+     * and only a test that says so fails outside a Danish locale.
      */
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare");
+    onTestFinished(() => localeCompare.mockRestore());
+
     const moment = "2026-01-01T00:00:00Z";
     const plugins = [
       plugin({ id: "ab-connector", installedAt: moment, declares: "mcp" }),
@@ -254,6 +264,7 @@ describe("resolveProtectedResource", () => {
 
     expect(resource.path).toBe("/api/plugin/aa-connector/mcp");
     expect(findings.map((finding) => finding.id)).toEqual(["ab-connector"]);
+    expect(localeCompare).not.toHaveBeenCalled();
   });
 });
 
