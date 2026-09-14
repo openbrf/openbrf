@@ -24,7 +24,11 @@ import {
   type PluginSummary,
   setPluginActionArmed,
 } from "./plugin-api";
-import { actionEffectLabel } from "./plugin-labels";
+import {
+  actionEffectLabel,
+  actionPersonalDataLabel,
+  actionSurfaceLabel,
+} from "./plugin-labels";
 
 export interface PluginsScreenProps {
   viewer: Viewer;
@@ -333,6 +337,18 @@ interface ConsentedAction {
   id: string;
   capability: string;
   effect: string;
+  /**
+   * The last two fields, which the row states rather than drops.
+   *
+   * Which personal data this particular action can touch, and how far it may be
+   * offered, are what an administrator is deciding about when they arm one -
+   * and the aggregate list on the plugin's own card cannot answer either
+   * question, because it says what the plugin touches somewhere rather than
+   * what this action receives. Both are stored, pipe-separated, by
+   * `canonicalAction`.
+   */
+  personalData: string[];
+  surfaces: string[];
 }
 
 function parseConsentedAction(canonical: string): ConsentedAction {
@@ -343,13 +359,20 @@ function parseConsentedAction(canonical: string): ConsentedAction {
   // shown, by its id: the entry is part of a declaration the board consented
   // to, and a list that quietly drops one is worse than a row that says less.
   if (parts.length < 5) {
-    return { id, capability: "", effect: "" };
+    return { id, capability: "", effect: "", personalData: [], surfaces: [] };
   }
+
+  // Empty rather than [""]: a declaration touching no personal data stores an
+  // empty field, and splitting one yields a single blank entry.
+  const list = (field: string | undefined): string[] =>
+    field === undefined || field === "" ? [] : field.split("|");
 
   return {
     id,
     capability: parts.slice(1, parts.length - 3).join(":"),
     effect: parts[parts.length - 3] ?? "",
+    personalData: list(parts[parts.length - 2]),
+    surfaces: list(parts[parts.length - 1]),
   };
 }
 
@@ -466,6 +489,30 @@ function ActionRow({
         <span className="text-chip text-ink-muted uppercase">
           {t(armed ? "plugins.actions.armed" : "plugins.actions.notArmed")}
         </span>
+      </div>
+
+      {/*
+        What this action touches and how far it may go, on the row where the
+        decision is made. Arming is what carries an action beyond the
+        association's own screens, so the two facts that decide whether it
+        should be belong beside the toggle rather than only on the install
+        screen the board read once.
+      */}
+      <div className="flex flex-wrap items-baseline gap-2 text-small text-ink-muted">
+        <span>
+          {action.personalData.length === 0
+            ? t("plugins.actions.noPersonalData")
+            : action.personalData
+                .map((category) => t(actionPersonalDataLabel(category)))
+                .join(", ")}
+        </span>
+        {action.surfaces.length === 0 ? null : (
+          <span>
+            {action.surfaces
+              .map((surface) => t(actionSurfaceLabel(surface)))
+              .join(", ")}
+          </span>
+        )}
       </div>
 
       {editable ? (

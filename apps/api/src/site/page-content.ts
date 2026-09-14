@@ -309,6 +309,15 @@ export const PAGE_CONTENT_VERSION = 1;
 const LIMITS = PAGE_CONTENT_LIMITS;
 
 /**
+ * The structural half of the link rule, as the published document states it.
+ *
+ * Exported so a spec can hold the two halves against each other: a refine is
+ * erased by the JSON Schema conversion, so this pattern is all a caller reading
+ * the document has, and it has to accept everything `isPublishableUrl` accepts.
+ */
+export const LINK_PATTERN = /^(?:https?:\/\/|mailto:|\/)/i;
+
+/**
  * Whether a URL may be published.
  *
  * An allowlist of schemes rather than a denylist of dangerous ones. There is no
@@ -385,12 +394,14 @@ const textRunSchema = z.strictObject({
    * conversion and carries the structural half of the rule, and a spec asserts
    * that it accepts everything the refine accepts and rejects those three
    * shapes.
+   *
+   * Case-insensitive because the refine is. `new URL` lowercases a scheme
+   * before `isPublishableUrl` reads it, so `HTTPS://exempel.se` is accepted at
+   * runtime; a pattern without the flag would refuse in the published document
+   * what the service takes, which is the superset rule broken in the direction
+   * that tells a caller a working link is invalid.
    */
-  link: z
-    .string()
-    .regex(/^(?:https?:\/\/|mailto:|\/)/)
-    .refine(isPublishableUrl)
-    .optional(),
+  link: z.string().regex(LINK_PATTERN).refine(isPublishableUrl).optional(),
 });
 
 const runsSchema = z.array(textRunSchema).max(LIMITS.runsPerBlock);

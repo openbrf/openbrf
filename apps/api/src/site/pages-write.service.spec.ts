@@ -33,6 +33,16 @@ interface Fakes {
   mediaFile: { findMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   prisma: { $transaction: ReturnType<typeof vi.fn> };
+  /**
+   * The client the transaction callback is handed, by identity.
+   *
+   * Exposed so a spec can assert that the audit entry was written with THIS
+   * one rather than merely with something. The two are different objects here
+   * on purpose: passing the root client would commit the entry separately from
+   * the write it records, and an assertion that the argument is defined cannot
+   * tell the two apart.
+   */
+  txClient: object;
 }
 
 const DRAFT = {
@@ -100,6 +110,7 @@ function build(): Fakes {
     mediaFile,
     audit,
     prisma,
+    txClient: client,
   };
 }
 
@@ -250,7 +261,7 @@ describe("writing a page", () => {
   it("records a rewrite once, inside the transaction that wrote it", async () => {
     // Not beside it: an entry that outlived a rolled-back save would name a
     // page nobody rewrote.
-    const { service, page, audit, prisma } = build();
+    const { service, page, audit, prisma, txClient } = build();
     page.findUnique.mockResolvedValue(DRAFT);
     page.findUniqueOrThrow.mockResolvedValue({
       ...DRAFT,
@@ -284,7 +295,13 @@ describe("writing a page", () => {
       published: false,
     });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(tx).toBeDefined();
+    /*
+     * The callback's own client, by identity. "Defined" would also be true of
+     * the root client, and passing that one is exactly the defect this case
+     * exists to catch: the entry would commit on its own connection and
+     * survive a save that rolled back, naming a page nobody rewrote.
+     */
+    expect(tx).toBe(txClient);
   });
 
   it("saves a draft that carries a personal identity number", async () => {

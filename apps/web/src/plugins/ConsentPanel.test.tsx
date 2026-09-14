@@ -126,13 +126,53 @@ describe("the declaration", () => {
      * so it is a word rather than a code, and it is on screen before anything
      * is downloaded - the catalog entry carries the declaration for exactly
      * that reason.
+     *
+     * The personal data and the surfaces are stated per action, not only in
+     * the plugin-wide list above. That list says which categories the plugin
+     * touches somewhere; it cannot say which action receives each, and it says
+     * nothing about how far one may be offered. The two entries here differ in
+     * both, which is the point: a board consenting to `request_mailing` is
+     * consenting to an address leaving for a connected app, and the aggregate
+     * list would have shown the same words for an action that does neither.
      */
     renderPanel();
 
     expect(screen.getByRole("heading", { name: "Åtgärder" })).toBeTruthy();
-    expect(screen.getByText("list_letters - news:read - Läser")).toBeTruthy();
     expect(
-      screen.getByText("request_mailing - news:write - Skriver"),
+      screen.getByText(
+        "list_letters - news:read - Läser - Namn - I den här instansen",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "request_mailing - news:write - Skriver - Namn, E-postadress - " +
+          "I den här instansen, Anslutna appar",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says so where an action touches no personal data at all", () => {
+    // A blank would read as a declaration that failed to render. "None" is an
+    // answer the board can act on; an empty gap is not.
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        actions: [
+          {
+            id: "ping",
+            capability: "self:manage",
+            effect: "read",
+            personalData: [],
+            surfaces: ["ui"],
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "ping - self:manage - Läser - Inga personuppgifter - I den här instansen",
+      ),
     ).toBeTruthy();
   });
 

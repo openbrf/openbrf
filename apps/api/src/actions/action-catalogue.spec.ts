@@ -64,8 +64,18 @@ function lookUp(root: unknown, key: string): unknown {
     );
 }
 
-/** Every action the two core registrars put into a real registry. */
-function catalogue(): ActionDefinition[] {
+/**
+ * Every action the two core registrars put into a real registry, and the
+ * registry itself.
+ *
+ * The registry comes back because some rules are about the PUBLISHED document
+ * rather than about the definition: only `inputJsonSchema` can answer what a
+ * caller actually reads, and a schema object is not it.
+ */
+function catalogueWithRegistry(): {
+  registry: ActionRegistryService;
+  actions: ActionDefinition[];
+} {
   const registry = new ActionRegistryService(
     new ActionCallerFactory(),
     { forPerson: vi.fn(async () => null) } as unknown as PrincipalService,
@@ -92,7 +102,11 @@ function catalogue(): ActionDefinition[] {
       held.push(action.definition);
     }
   }
-  return held;
+  return { registry, actions: held };
+}
+
+function catalogue(): ActionDefinition[] {
+  return catalogueWithRegistry().actions;
 }
 
 /**
@@ -227,11 +241,16 @@ describe("what an input may never ask a caller to assert", () => {
      * recalled. A strict input answers 400 to a caller that invents any of
      * them, which is exactly the point: the document never offered it.
      */
-    for (const action of catalogue()) {
-      const document = JSON.stringify(
-        // The published shape, not the schema object: what a caller reads.
-        action.input,
-      );
+    /*
+     * Read out of the registry rather than off the definition. `action.input`
+     * is the zod object, and serialising one says nothing reliable about the
+     * keys it declares - so a catalogue that did offer one of these three could
+     * have passed. `inputJsonSchema` is the document a caller is actually
+     * handed, which is where the promise has to hold.
+     */
+    const { registry, actions } = catalogueWithRegistry();
+    for (const action of actions) {
+      const document = JSON.stringify(registry.inputJsonSchema(action.name));
       for (const forbidden of [
         "photoConsentConfirmed",
         "sendEmail",

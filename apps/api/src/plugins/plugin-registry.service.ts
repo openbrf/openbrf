@@ -122,18 +122,27 @@ export class PluginRegistryService {
    * behind by a version that no longer declares it stops being armable the
    * moment that version is consented to.
    *
-   * Returns null when there is no such plugin or no such consented action, so
+   * Returns null when there is no such plugin, no such consented action, or the
+   * consent the decision was read against is no longer the one on the row - so
    * the caller answers 404 rather than reporting a change nobody made.
+   *
+   * `client` is the caller's transaction, so the arming and the audit entry
+   * that records who did it commit together. Arming is the act that exposes an
+   * action to connected apps and to the AI package, and an entry written after
+   * a committed change is an entry a failure can drop.
    */
   async setActionArmed(
     id: string,
     actionId: string,
     armed: boolean,
+    client?: Prisma.TransactionClient,
   ): Promise<PluginRecord | null> {
-    const record = await this.find(id);
-    if (record === null) {
+    const db = client ?? this.prisma;
+    const held = await db.installedPlugin.findUnique({ where: { id } });
+    if (held === null) {
       return null;
     }
+    const record = toRecord(held);
 
     const consented = new Set(
       record.consentedActions.map((canonical) => canonical.split(":")[0]),
@@ -146,10 +155,32 @@ export class PluginRegistryService {
       ? [...new Set([...record.armedActions, actionId])].sort()
       : record.armedActions.filter((held) => held !== actionId);
 
-    const row = await this.prisma.installedPlugin.update({
-      where: { id },
+    /*
+     * Conditional on both lists still being the ones this decision was made
+     * from, rather than an update by id alone.
+     *
+     * The consent snapshot is the one that matters. A reinstall landing between
+     * the read and the write consents to a republished declaration and clears
+     * the arming, precisely because an action whose capability changed is a
+     * different action wearing the same id; a write by id would then put the id
+     * back after the reset, and the new action would be live at its new
+     * capability with nobody having decided that. The armed list is in the
+     * condition for the ordinary reason beside it: two administrators arming
+     * two different actions must not each overwrite the other's.
+     */
+    const written = await db.installedPlugin.updateMany({
+      where: {
+        id,
+        consentedActions: { equals: record.consentedActions },
+        armedActions: { equals: record.armedActions },
+      },
       data: { armedActions },
     });
+    if (written.count === 0) {
+      return null;
+    }
+
+    const row = await db.installedPlugin.findUniqueOrThrow({ where: { id } });
     return toRecord(row);
   }
 

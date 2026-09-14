@@ -1442,7 +1442,14 @@
         "write": "Writes",
         "delete": "Deletes"
       },
-      "failed": "The action could not be changed"
+      "failed": "The action could not be changed",
+      "surface": {
+        "ui": "In this instance",
+        "mcp": "Connected apps",
+        "ai": "The AI package",
+        "unknown": "A surface this version does not recognise"
+      },
+      "noPersonalData": "No personal data"
     }
   },
   "media": {
@@ -4049,7 +4056,8 @@
         "health": "Health",
         "photograph": "Photograph",
         "freeText": "Free text",
-        "auditTrail": "Audit trail"
+        "auditTrail": "Audit trail",
+        "protected": "Protected personal data"
       },
       "dataSubject": {
         "member": "Members",

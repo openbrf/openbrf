@@ -69,6 +69,7 @@ export {
   type ManifestParseResult,
   type PluginActionDeclaration,
   pluginActionSchema,
+  pluginActionsSchema,
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,

@@ -152,6 +152,42 @@ describe("what a caller reaches", () => {
 
     expect(await registry.list(callers.forRequest(request()))).toEqual([]);
   });
+
+  it("narrows on a filter's surface without ever leaving the channel's own", async () => {
+    /*
+     * The filter is a narrowing of what this caller may reach, never a
+     * substitute for it. Both are required, so asking for a surface the action
+     * does not declare offers nothing, and asking for one the CALLER cannot
+     * reach cannot put an action back into the list.
+     *
+     * This is what lets a board member - and the end-to-end suite - read the
+     * catalogue a connected app would be served on an instance where connected
+     * app sign-in does not exist yet.
+     */
+    const { registry, callers } = build();
+    registry.register(definition({ surfaces: ["ui", "mcp"] }), {
+      kind: "core",
+      module: "news",
+    });
+    registry.register(
+      definition({ name: "news_draft_only", surfaces: ["ui"] }),
+      { kind: "core", module: "news" },
+    );
+
+    const onUi = callers.forRequest(request());
+
+    // Unfiltered: everything this channel reaches.
+    expect((await registry.list(onUi)).map((one) => one.name)).toEqual([
+      "news_draft_only",
+      "news_publish",
+    ]);
+    // Narrowed: only the one that is also offered there.
+    expect(
+      (await registry.list(onUi, { surface: "mcp" })).map((one) => one.name),
+    ).toEqual(["news_publish"]);
+    // A surface nothing declares is not a way back in.
+    expect(await registry.list(onUi, { surface: "ai" })).toEqual([]);
+  });
 });
 
 describe("the order the refusals come in", () => {
@@ -344,6 +380,27 @@ describe("what a plugin's action depends on", () => {
     ).resolves.toEqual({ id: "a" });
   });
 
+  it("does not let a connected app ask for the surface it is not on", async () => {
+    /*
+     * The catalogue's filter narrows; it must never widen. "ui" is the one
+     * surface a plugin's action is reached on without arming, so a connected
+     * app allowed to name it would read back every action an administrator
+     * deliberately did not offer it - the names, the descriptions and the
+     * capabilities of the plugins this association has installed.
+     */
+    const { registry, callers } = withPlugin({
+      serving: true,
+      armedActions: [],
+      capabilityFloor: "self:manage",
+    });
+
+    const caller = callers.forRequest(
+      request({ clientId: "c", clientHost: null, scopes: ["mcp:read"] }),
+    );
+
+    expect(await registry.list(caller, { surface: "ui" })).toEqual([]);
+  });
+
   it("refuses a caller the plugin's own routes would refuse", async () => {
     // Decision 23's property: an action is never a way around the floor the
     // seal puts on the plugin's own routes.
@@ -469,6 +526,45 @@ describe("what a published input document may say", () => {
         { kind: "core", module: "site" },
       ),
     ).toThrow(/blocks.items/);
+  });
+
+  it("refuses a loose object inside a tuple, which publishes no items", () => {
+    /*
+     * A tuple emits `prefixItems` and sets `items` to false, so the member
+     * schemas sit where neither the properties walk nor the items walk looks.
+     */
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({
+          input: z.strictObject({
+            span: z.tuple([z.object({ from: z.string() })]),
+          }),
+        }),
+        { kind: "core", module: "site" },
+      ),
+    ).toThrow(/span.prefixItems\[0]/);
+  });
+
+  it("refuses a loose object inside a record, which declares no properties", () => {
+    /*
+     * A record publishes its value schema as `additionalProperties` and no
+     * `properties` at all, so the strictness check skips the record itself and
+     * the value schema was reached from nowhere.
+     */
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({
+          input: z.strictObject({
+            byLocale: z.record(z.string(), z.object({ title: z.string() })),
+          }),
+        }),
+        { kind: "core", module: "site" },
+      ),
+    ).toThrow(/byLocale.additionalProperties/);
   });
 
   it("accepts one that is strict all the way down", () => {

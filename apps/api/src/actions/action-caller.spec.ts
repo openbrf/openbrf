@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
-import { markAuthenticated } from "./authenticated-request";
+import {
+  isAuthenticatedRequest,
+  markAuthenticated,
+} from "./authenticated-request";
 
 /**
  * The handle a call is decided on.
@@ -36,6 +39,36 @@ describe("what a caller may be minted from", () => {
     } as unknown as RequestWithToken;
 
     expect(() => factory.forRequest(forged)).toThrow(/not a request/i);
+  });
+
+  it("refuses a request that copied every property off a real one", () => {
+    /*
+     * The reason the mark is membership of a set rather than anything written
+     * on the request. A plugin is handed the real request, so it can read
+     * everything the request carries - own properties and own SYMBOLS alike,
+     * through Object.getOwnPropertySymbols - and put the lot on an object of
+     * its own beside any person it likes. A mark stored on the request would
+     * be copied along with the rest and the forgery would pass.
+     */
+    const factory = new ActionCallerFactory();
+    const real = authenticatedRequest("person-1");
+
+    const forged = { principal: { personId: "somebody-else" } } as Record<
+      PropertyKey,
+      unknown
+    >;
+    for (const key of Reflect.ownKeys(real as unknown as object)) {
+      if (key === "principal") {
+        continue;
+      }
+      forged[key] = (real as unknown as Record<PropertyKey, unknown>)[key];
+    }
+
+    // The mark itself, and then the refusal it produces one level up.
+    expect(isAuthenticatedRequest(forged)).toBe(false);
+    expect(() =>
+      factory.forRequest(forged as unknown as RequestWithToken),
+    ).toThrow(/not a request/i);
   });
 
   it("refuses a handle it did not issue", () => {

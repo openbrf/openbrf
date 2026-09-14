@@ -7,21 +7,29 @@
  * the capability check would faithfully answer the question for somebody who
  * never asked it.
  *
- * The mark is a module-level symbol. It is not exported from @openbrf/plugin-sdk
- * and a plugin has no way to obtain it, so an object a plugin constructed
- * cannot carry it. That is the whole mechanism, and it is why this file imports
- * nothing: the authorization guard writes the mark and the caller factory reads
- * it, and a symbol in a file of its own keeps those two from importing each
- * other.
+ * The mark is membership of a set this module owns, and the set is the whole
+ * mechanism. It is not a property of the request, and the difference is the
+ * point: a plugin is handed the real request, so anything stored ON it is
+ * readable and therefore copyable. A symbol key is no exception -
+ * `Object.getOwnPropertySymbols` returns it to any holder, and a forged object
+ * carrying the copied key would have passed. Membership cannot be copied,
+ * because the set answers for the identity of the object rather than for
+ * anything the object carries.
+ *
+ * `WeakSet` rather than `Set` so a request is collected when the response ends;
+ * it is the same device `ActionCallerFactory` uses to hold what a caller handle
+ * means. This file still imports nothing: the authorization guard writes the
+ * mark and the caller factory reads it, and keeping the set in a file of its
+ * own stops those two importing each other.
  */
-const AUTHENTICATED = Symbol("openbrf.authenticatedRequest");
+const authenticated = new WeakSet<object>();
 
 /** Called by the guard once a request's person is established. */
 export function markAuthenticated(request: object): void {
-  (request as Record<symbol, unknown>)[AUTHENTICATED] = true;
+  authenticated.add(request);
 }
 
 /** Whether core put this request together. */
 export function isAuthenticatedRequest(request: object): boolean {
-  return (request as Record<symbol, unknown>)[AUTHENTICATED] === true;
+  return authenticated.has(request);
 }

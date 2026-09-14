@@ -27,6 +27,8 @@ const ITEM = {
   publishedAt: null,
   emailQueuedAt: null as Date | null,
   smsQueuedAt: null as Date | null,
+  mailingRequestedAt: null as Date | null,
+  mailingRequestedByPersonId: null as string | null,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
   deliveries: [] as {
     channel: string;
@@ -40,6 +42,7 @@ interface Fakes {
   news: {
     findMany: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    findUniqueOrThrow: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     updateMany: ReturnType<typeof vi.fn>;
@@ -77,6 +80,12 @@ function build(
     findUnique: vi.fn(async (args: { where: { id?: string } }) =>
       args.where.id === undefined ? null : stored,
     ),
+    /*
+     * The re-read a claim makes inside its own transaction. It answers with
+     * whatever the row holds NOW, so a case that wants to stand a concurrent
+     * publish up replaces this one rather than the row above it.
+     */
+    findUniqueOrThrow: vi.fn(async () => stored),
     create: vi.fn(async (args: { data: object }) => ({
       ...stored,
       ...args.data,
@@ -795,5 +804,75 @@ describe("who a mailing goes to", () => {
     person.count.mockResolvedValueOnce(40).mockResolvedValueOnce(12);
 
     expect(await service.recipientCounts()).toEqual({ email: 40, sms: 12 });
+  });
+});
+
+describe("a mailing request against a publish that lands beside it", () => {
+  it("does not write an ask for an item the members have just had", async () => {
+    /*
+     * The window the claim has to close. `requestMailing` reads the row, sees
+     * no mailing, and then writes; a publish landing between those two claims
+     * the email and clears the request. An unconditional write would put the
+     * ask back afterwards, standing for an item that has already gone out -
+     * and nothing on the board's screen can then answer it, because the one
+     * answer there is has already happened.
+     */
+    const { service, news, audit } = build();
+    news.updateMany.mockResolvedValue({ count: 0 });
+    news.findUniqueOrThrow.mockResolvedValue({ mailingRequestedAt: null });
+
+    await expect(
+      service.requestMailing("news-1", { personId: "app-1", channel: "MCP" }),
+    ).rejects.toMatchObject({ reason: "already-mailed" });
+
+    expect(news.updateMany).toHaveBeenCalledWith({
+      where: { id: "news-1", mailingRequestedAt: null, emailQueuedAt: null },
+      data: {
+        mailingRequestedAt: expect.any(Date),
+        mailingRequestedByPersonId: "app-1",
+      },
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("records no dismissal for a request the publish already answered", async () => {
+    /*
+     * The other direction, and the reason it matters is the log rather than
+     * the column: publishing with the mailing clears the request, so a
+     * dismissal arriving just after it would record a board member declining
+     * to send something that had gone out seconds earlier. The audit log is
+     * what the association answers with, so an entry is written only where
+     * this call is what cleared the request.
+     */
+    const standing = new Date("2026-09-02T08:00:00.000Z");
+    const { service, news, audit } = build({ mailingRequestedAt: standing });
+    news.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.dismissMailingRequest("news-1", {
+      personId: "board-1",
+      channel: "WEB",
+    });
+
+    expect(news.updateMany).toHaveBeenCalledWith({
+      where: { id: "news-1", mailingRequestedAt: standing },
+      data: { mailingRequestedAt: null, mailingRequestedByPersonId: null },
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("records the dismissal the board member did make", async () => {
+    const standing = new Date("2026-09-02T08:00:00.000Z");
+    const { service, news, audit } = build({ mailingRequestedAt: standing });
+    news.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.dismissMailingRequest("news-1", {
+      personId: "board-1",
+      channel: "WEB",
+    });
+
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "NEWS_MAILING_REQUEST_DISMISSED" }),
+      expect.anything(),
+    );
   });
 });

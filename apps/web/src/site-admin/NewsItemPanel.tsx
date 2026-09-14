@@ -169,6 +169,25 @@ export function NewsItemPanel({
     onChanged();
   });
 
+  /**
+   * Clears what the other controls left behind, before a new one starts.
+   *
+   * The panel shows one sentence, chosen from the three save states in a fixed
+   * order, so a failure that is still sitting in one of them is not merely
+   * stale - it decides what the board reads about a different act. A
+   * publication that failed earlier would stand beside a dismissal that
+   * succeeded, and would hide one that failed. Only one of these is ever in
+   * flight, so the one starting owns the answer.
+   */
+  const startAlone = (current: { reset: () => void }): void => {
+    for (const action of [publication, removal, dismissal]) {
+      if (action !== current) {
+        action.reset();
+      }
+    }
+    setOutcome(null);
+  };
+
   const refusal: Refusal | null =
     publication.state.kind === "failed"
       ? {
@@ -232,7 +251,7 @@ export function NewsItemPanel({
               type="button"
               disabled={busy}
               onClick={() => {
-                setOutcome(null);
+                startAlone(dismissal);
                 void dismissal.submit(item.id);
               }}
               className={SECONDARY_BUTTON}
@@ -381,7 +400,7 @@ export function NewsItemPanel({
           type="button"
           disabled={busy}
           onClick={() => {
-            setOutcome(null);
+            startAlone(publication);
             void publication.submit(item.id, {
               published: true,
               visibility,
@@ -411,7 +430,7 @@ export function NewsItemPanel({
             type="button"
             disabled={busy}
             onClick={() => {
-              setOutcome(null);
+              startAlone(publication);
               void publication.submit(item.id, { published: false });
             }}
             className={QUIET_BUTTON}
@@ -433,6 +452,7 @@ export function NewsItemPanel({
                 t("news.item.removeConfirm", { title: item.title }),
               )
             ) {
+              startAlone(removal);
               void removal.submit(item.id);
             }
           }}

@@ -333,6 +333,28 @@ describe("the actions a plugin has declared", () => {
     expect(screen.getByText("Läser")).toBeTruthy();
   });
 
+  it("states what each action touches and how far it may be offered", async () => {
+    /*
+     * The two fields the row used to drop. Arming is the decision that carries
+     * an action beyond the association's own screens, so which personal data
+     * THIS action can touch, and which surfaces it is eligible for, are what
+     * the administrator is deciding about. The plugin-wide list on the card
+     * above cannot answer either: it says what the plugin touches somewhere,
+     * and nothing at all about how far one action may go.
+     */
+    renderScreen(["association:read", "association:manage"]);
+
+    expect(await screen.findByText("request_mailing")).toBeTruthy();
+    expect(screen.getByText("Namn, E-postadress")).toBeTruthy();
+    expect(
+      screen.getByText("I den här instansen, Anslutna appar"),
+    ).toBeTruthy();
+    // The other action differs in both, which is the whole point of stating
+    // them per row rather than once for the plugin.
+    expect(screen.getByText("Namn")).toBeTruthy();
+    expect(screen.getByText("I den här instansen")).toBeTruthy();
+  });
+
   it("reads as not armed until an administrator arms it", async () => {
     // Declared and idle is the ordinary state of an action: consenting to the
     // plugin is not consenting to offer what it declared.

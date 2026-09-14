@@ -147,6 +147,32 @@ describe("the actions a manifest proposes", () => {
     expect(action?.personalData).toEqual([]);
   });
 
+  it("refuses two declarations wearing one id", () => {
+    /*
+     * Not a redundancy that sorts itself out: the three readers resolve it
+     * differently. The binder takes the last through a Map; consent compares
+     * canonical strings as a set, so swapping the pair over leaves the
+     * comparison equal and asks the board nothing; and arming stores the bare
+     * id, which names both. A republished version that only reordered the pair
+     * would keep its arming and go live at the other declaration's capability,
+     * with nobody having decided it.
+     */
+    const result = parsePluginPackage(
+      manifest({
+        actions: [
+          { id: "summary", capability: "self:manage", effect: "read" },
+          { id: "summary", capability: "site:manage", effect: "write" },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.issues.join("\n")).toContain("summary");
+  });
+
   it("refuses a composed name too long to be offered", () => {
     /*
      * A plugin id runs to 48 characters and an action id to 32, which composes

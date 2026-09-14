@@ -6,6 +6,7 @@ import {
   METHOD_METADATA,
   MODULE_METADATA,
   PATH_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 
@@ -271,11 +272,11 @@ function walk(entry: unknown, state: WalkState): string | null {
       );
     }
 
-    const reached = forbiddenInjection(providerToken(provider));
+    const reached = forbiddenInjection(provider);
     if (reached !== null) {
       state.outcome.refusedFor = "forbidden-injection";
       return (
-        `A provider in "${moduleClass.name}" is constructed with ` +
+        `A provider in "${moduleClass.name}" reaches ` +
         `${reached}, which a plugin may not hold.`
       );
     }
@@ -519,26 +520,96 @@ function isDynamicModule(value: unknown): value is DynamicModule {
 }
 
 /**
- * The first core service a provider's constructor names, if it names one.
+ * The first core service a provider declaration would reach, if it reaches one.
  *
- * `design:paramtypes` is what TypeScript emits for a decorated class, and it is
- * what NestJS itself reads to decide what to inject - so reading the same
- * metadata asks exactly the question the container is about to answer.
+ * The whole declaration rather than only its token, because a token is not what
+ * the container resolves. `{ provide: "anything", useClass: Sneaky }` is
+ * constructed as `Sneaky`, `{ useFactory, inject: [...] }` is handed exactly
+ * what `inject` names, and `{ useExisting }` resolves to whatever it aliases -
+ * so reading `provide` alone answers a question the container never asks. That
+ * matters here rather than in the abstract: AuditModule, AuthorizationModule and
+ * the database module are `@Global()`, which puts their providers in the root
+ * injector where any of these forms would have been given one.
+ *
+ * `design:paramtypes` is what TypeScript emits for a decorated class and what
+ * NestJS itself reads, and `SELF_DECLARED_DEPS_METADATA` is where `@Inject()`
+ * puts a token instead. Both are read, because one constructor can mix them.
+ *
+ * Still only what a declaration DECLARES. A provider resolving the same class
+ * through `ModuleRef` at runtime is not covered and is its own change, named in
+ * ADR 0008.
  */
-function forbiddenInjection(token: unknown): string | null {
-  if (typeof token !== "function") {
-    return null;
-  }
-  const parameters = asArray<unknown>(reflect(token, "design:paramtypes"));
-  for (const parameter of parameters) {
+function forbiddenInjection(provider: unknown): string | null {
+  for (const reached of declarationReaches(provider)) {
     if (
-      typeof parameter === "function" &&
-      FORBIDDEN_INJECTIONS.has(parameter.name)
+      typeof reached === "function" &&
+      FORBIDDEN_INJECTIONS.has(reached.name)
     ) {
-      return parameter.name;
+      return reached.name;
     }
   }
   return null;
+}
+
+/** Every token one provider declaration names, in any of NestJS's forms. */
+function declarationReaches(provider: unknown): unknown[] {
+  if (typeof provider === "function") {
+    // A bare class is both the token and what is constructed.
+    return [provider, ...constructorReaches(provider)];
+  }
+  if (typeof provider !== "object" || provider === null) {
+    return [];
+  }
+
+  const declaration = provider as {
+    provide?: unknown;
+    useClass?: unknown;
+    useExisting?: unknown;
+    inject?: unknown;
+  };
+  const reached: unknown[] = [];
+
+  if (typeof declaration.provide === "function") {
+    reached.push(
+      declaration.provide,
+      ...constructorReaches(declaration.provide),
+    );
+  }
+  if (typeof declaration.useClass === "function") {
+    // What is actually constructed when the token is not the class itself.
+    reached.push(
+      declaration.useClass,
+      ...constructorReaches(declaration.useClass),
+    );
+  }
+  if (declaration.useExisting !== undefined) {
+    // An alias resolves to what it names, so naming one is holding it.
+    reached.push(declaration.useExisting);
+  }
+  if (Array.isArray(declaration.inject)) {
+    // A factory's arguments, resolved exactly as a constructor's are.
+    reached.push(...declaration.inject.map(injectedToken));
+  }
+  return reached;
+}
+
+function constructorReaches(token: unknown): unknown[] {
+  if (typeof token !== "function") {
+    return [];
+  }
+  return [
+    ...asArray<unknown>(reflect(token, "design:paramtypes")),
+    ...asArray<{ param?: unknown }>(
+      reflect(token, SELF_DECLARED_DEPS_METADATA),
+    ).map((entry) => entry.param),
+  ];
+}
+
+/** An inject entry is a token, or `{ token, optional }` around one. */
+function injectedToken(entry: unknown): unknown {
+  return typeof entry === "object" && entry !== null && "token" in entry
+    ? (entry as { token: unknown }).token
+    : entry;
 }
 
 function providerToken(provider: unknown): unknown {

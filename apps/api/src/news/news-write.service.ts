@@ -504,10 +504,17 @@ export class NewsWriteService {
 
     const requestedAt = new Date();
     return this.prisma.$transaction(async (tx) => {
-      // Conditional on the column still being null, so a second ask writes
-      // nothing and the first asker stays the one on the record.
+      /*
+       * Conditional on the column still being null, so a second ask writes
+       * nothing and the first asker stays the one on the record - and on the
+       * mailing still being unsent, because the check above it ran before this
+       * transaction. A publish landing in between claims the email and clears
+       * the request, and without this condition the ask would be written back
+       * afterwards: a request standing for an item the members have already
+       * had, which is the one state the board can do nothing about.
+       */
       const claimed = await tx.news.updateMany({
-        where: { id, mailingRequestedAt: null },
+        where: { id, mailingRequestedAt: null, emailQueuedAt: null },
         data: {
           mailingRequestedAt: requestedAt,
           mailingRequestedByPersonId: actor.personId,
@@ -531,9 +538,20 @@ export class NewsWriteService {
         where: { id },
         select: { mailingRequestedAt: true },
       });
-      return {
-        requestedAt: (held.mailingRequestedAt ?? requestedAt).toISOString(),
-      };
+      if (held.mailingRequestedAt === null) {
+        /*
+         * Nothing was claimed and nothing stands, which only a publish landing
+         * in the window above can produce: it sends the mailing and clears the
+         * request in one act. Answered with the refusal the check before the
+         * transaction gives, because what was being asked for has happened -
+         * reporting a request that was never written would be worse.
+         */
+        throw new NewsWriteError(
+          "The members have already been mailed about this item.",
+          "already-mailed",
+        );
+      }
+      return { requestedAt: held.mailingRequestedAt.toISOString() };
     });
   }
 
@@ -544,11 +562,23 @@ export class NewsWriteService {
       return;
     }
 
+    const standing = news.mailingRequestedAt;
     await this.prisma.$transaction(async (tx) => {
-      await tx.news.update({
-        where: { id },
+      /*
+       * Conditional on the request still being the one that was read. A publish
+       * landing in between answers the request by sending the mailing and
+       * clears it, and an unconditional write would then record a board member
+       * declining to send something that had just gone out. The entry is
+       * written only where the clearing was this call's doing, because the
+       * audit log is what the association answers with.
+       */
+      const cleared = await tx.news.updateMany({
+        where: { id, mailingRequestedAt: standing },
         data: { mailingRequestedAt: null, mailingRequestedByPersonId: null },
       });
+      if (cleared.count === 0) {
+        return;
+      }
       await this.audit.record(
         {
           action: "NEWS_MAILING_REQUEST_DISMISSED",

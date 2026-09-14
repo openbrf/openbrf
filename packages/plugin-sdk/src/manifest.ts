@@ -102,6 +102,42 @@ export const pluginActionSchema = z.object({
 });
 
 /**
+ * The declared actions, as every boundary that reads them must read them.
+ *
+ * One schema rather than the same array written twice, because the invariant
+ * below has to hold at both: the catalog entry the consent screen renders from,
+ * and the manifest the loader enforces against it.
+ *
+ * An id appears once. Two declarations sharing one id are not a redundancy that
+ * sorts itself out - each of the three places that reads them resolves the
+ * collision differently. The binder takes the LAST, through a Map; consent
+ * compares canonical strings as a SET, so reordering the pair leaves the
+ * comparison equal and asks the board nothing; and arming stores the bare id,
+ * which names both. A republished version that only swapped the order of a
+ * duplicated pair would therefore keep its arming and go live at the OTHER
+ * declaration's capability, personal data and surfaces, with nobody having
+ * decided that. An action is one operation with one capability; two of them
+ * wearing one id is not a declaration this can read.
+ */
+export const pluginActionsSchema = z
+  .array(pluginActionSchema)
+  .max(16)
+  .superRefine((actions, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, action] of actions.entries()) {
+      if (seen.has(action.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: `two actions are declared with the id "${action.id}"`,
+        });
+      }
+      seen.add(action.id);
+    }
+  })
+  .default([]);
+
+/**
  * The public name a declared action is offered under.
  *
  * The plugin's id with dashes folded to underscores, then the action's id. The
@@ -140,7 +176,7 @@ export const pluginManifestSchema = z
       })
       .optional(),
     /** What this plugin proposes the platform be able to do. */
-    actions: z.array(pluginActionSchema).max(16).default([]),
+    actions: pluginActionsSchema,
   })
   .superRefine((manifest, ctx) => {
     /*

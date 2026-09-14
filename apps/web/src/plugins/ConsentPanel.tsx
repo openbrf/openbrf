@@ -7,6 +7,8 @@ import { Panel } from "../ui/Panel";
 import type { CatalogPlugin } from "./plugin-api";
 import {
   ACTION_EFFECT_LABELS,
+  actionPersonalDataLabel,
+  actionSurfaceLabel,
   permissionLabel,
   personalDataLabel,
 } from "./plugin-labels";
@@ -113,9 +115,29 @@ export function ConsentPanel({
       */}
       <Declaration
         title={t("plugins.actions.title")}
-        items={entry.actions.map(
-          (action) =>
-            `${action.id} - ${action.capability} - ${t(ACTION_EFFECT_LABELS[action.effect])}`,
+        items={entry.actions.map((action) =>
+          [
+            action.id,
+            action.capability,
+            t(ACTION_EFFECT_LABELS[action.effect]),
+            /*
+             * The two halves that were missing, and the reason they belong on
+             * THIS screen rather than beside the arming toggle: the board is
+             * consenting to the declaration here, and an action's personal
+             * data and its eligible surfaces are what the declaration is FOR.
+             * The aggregate list above says which categories the plugin
+             * touches somewhere; it cannot say which action receives each, and
+             * it says nothing at all about how far one may be offered.
+             */
+            action.personalData.length === 0
+              ? t("plugins.actions.noPersonalData")
+              : action.personalData
+                  .map((category) => t(actionPersonalDataLabel(category)))
+                  .join(", "),
+            action.surfaces
+              .map((surface) => t(actionSurfaceLabel(surface)))
+              .join(", "),
+          ].join(" - "),
         )}
       />
 

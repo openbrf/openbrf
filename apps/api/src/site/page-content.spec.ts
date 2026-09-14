@@ -4,6 +4,7 @@ import {
   hasBlock,
   imageReferences,
   isPublishableUrl,
+  LINK_PATTERN,
   pageTextParts,
   paragraphsContent,
   readPageContent,
@@ -42,6 +43,33 @@ describe("a publishable URL", () => {
     expect(isPublishableUrl("/\\tracker.invalid")).toBe(false);
     expect(isPublishableUrl("java\nscript:alert(1)")).toBe(false);
     expect(isPublishableUrl("")).toBe(false);
+  });
+
+  it("publishes a pattern that accepts everything the refine accepts", () => {
+    /*
+     * The refine is erased by the JSON Schema conversion, so the pattern is the
+     * whole of what a caller reading the published document has to go on. It is
+     * a superset on purpose - it does not express the three refusals above - but
+     * a pattern NARROWER than the refine is the same defect pointing the other
+     * way: a document refusing an address the service would have taken.
+     *
+     * The scheme's case is where the two came apart. `new URL` lowercases it
+     * before isPublishableUrl looks, so these are accepted at runtime.
+     */
+    for (const accepted of [
+      "https://boverket.se",
+      "http://exempel.se/sida",
+      "mailto:styrelsen@exempel.se",
+      "/om-foreningen",
+      "HTTPS://boverket.se",
+      "Http://exempel.se/sida",
+      "MAILTO:styrelsen@exempel.se",
+    ]) {
+      expect(isPublishableUrl(accepted), `${accepted} at runtime`).toBe(true);
+      expect(LINK_PATTERN.test(accepted), `${accepted} in the document`).toBe(
+        true,
+      );
+    }
   });
 });
 

@@ -2032,8 +2032,11 @@ model InstalledPlugin {
   /// String[] rather than an enum, keeping the property toRecord relies on: a
   /// value left behind by an uninstalled plugin reads back as an unknown string
   /// the loader ignores, rather than as a migration.
-  consentedActions String[]
-  armedActions     String[]
+  /// Defaulted rather than left bare, so the column is NOT NULL. An arming
+  /// write is conditional on the consent snapshot it was decided against, and
+  /// a scalar list filter does not match NULL against an empty array.
+  consentedActions String[] @default([])
+  armedActions     String[] @default([])
 
   /// Values for the manifest's settingsSchema.
   settings Json?

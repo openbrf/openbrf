@@ -533,18 +533,38 @@ export class PluginAdminService {
     armed: boolean,
     actorPersonId: string,
   ): Promise<void> {
-    const record = await this.registry.setActionArmed(id, actionId, armed);
-    if (record === null) {
-      throw new PluginNotFoundError(id);
-    }
+    /*
+     * One transaction for the change and the entry that records it. Arming is
+     * what puts an action within reach of a connected app, so the log has to be
+     * able to answer who did it: a write that committed on its own and an audit
+     * entry that then failed would leave the action armed with nobody named for
+     * it, and audit_log_entry is the statutory archive the association answers
+     * with rather than a convenience.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      const record = await this.registry.setActionArmed(
+        id,
+        actionId,
+        armed,
+        tx,
+      );
+      if (record === null) {
+        // Rolls the transaction back, which is what the 404 should mean: the
+        // arming was refused, so nothing was written to record.
+        throw new PluginNotFoundError(id);
+      }
 
-    await this.audit.record({
-      action: armed ? "PLUGIN_ACTION_ARMED" : "PLUGIN_ACTION_DISARMED",
-      channel: "WEB",
-      actorPersonId,
-      targetKind: "plugin",
-      targetId: id,
-      context: { actionId },
+      await this.audit.record(
+        {
+          action: armed ? "PLUGIN_ACTION_ARMED" : "PLUGIN_ACTION_DISARMED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+          context: { actionId },
+        },
+        tx,
+      );
     });
   }
 

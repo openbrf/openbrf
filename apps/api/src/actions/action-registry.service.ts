@@ -251,13 +251,33 @@ export class ActionRegistryService {
       return [];
     }
 
-    const surface = filter?.surface ?? SURFACE_FOR_CHANNEL[resolved.channel];
+    /*
+     * The surface this caller is entitled to, and the filter as a narrowing of
+     * it rather than a substitute for it.
+     *
+     * The query string is where a caller could otherwise widen its own answer:
+     * `?surface=ui` from a connected app replaced the channel's entitlement,
+     * and `permits()` grants "ui" to any serving plugin without reading
+     * `armedActions` at all - so the catalogue would have named the plugin
+     * actions no administrator armed. That is exactly the disclosure arming
+     * exists to prevent, since adding a channel may never expose an existing
+     * action.
+     *
+     * So the entitlement is always required, and an asked-for surface only
+     * narrows within it. The listing then answers what dispatch would: invoke()
+     * reads `SURFACE_FOR_CHANNEL` and ignores the filter entirely, so a
+     * catalogue that named anything this caller could not call would be
+     * advertising a refusal.
+     */
+    const entitled = SURFACE_FOR_CHANNEL[resolved.channel];
+    const asked = filter?.surface;
     const translate = this.i18n.translatorFor(locale);
 
     const candidates = [...this.actions.values()].filter((held) => {
       const { definition } = held;
       return (
-        definition.surfaces.includes(surface) &&
+        definition.surfaces.includes(entitled) &&
+        (asked === undefined || definition.surfaces.includes(asked)) &&
         (filter?.group === undefined || definition.group === filter.group) &&
         holdsCapability(principal, definition.capability)
       );
@@ -287,7 +307,13 @@ export class ActionRegistryService {
         if (held.owner.kind !== "plugin") {
           return true;
         }
-        return permits(states.get(held.owner.pluginId) ?? null, held, surface);
+        /*
+         * At the ENTITLED surface, never at the asked-for one. Arming governs
+         * what a channel may reach, so a filter must not be able to change the
+         * rule it is judged by - which is the other half of the widening a
+         * caller-supplied surface could do.
+         */
+        return permits(states.get(held.owner.pluginId) ?? null, held, entitled);
       })
       .map((held) => summarise(held.definition, translate));
 
@@ -610,6 +636,37 @@ export function assertStrictAtEveryDepth(
       ...path,
       "items",
     ]);
+  }
+
+  /*
+   * A tuple publishes its members here rather than under `items`, so a plain
+   * object inside one would never have been visited.
+   */
+  const prefixItems = document.prefixItems;
+  if (Array.isArray(prefixItems)) {
+    for (const [index, entry] of prefixItems.entries()) {
+      if (typeof entry === "object" && entry !== null) {
+        assertStrictAtEveryDepth(entry as Record<string, unknown>, actionName, [
+          ...path,
+          `prefixItems[${String(index)}]`,
+        ]);
+      }
+    }
+  }
+
+  /*
+   * A record publishes its VALUE schema as `additionalProperties` and declares
+   * no `properties` at all, so the strictness check above is skipped for it and
+   * the value schema is reached nowhere else. The boolean `false` a strict
+   * object emits is not an object and falls through.
+   */
+  const additional = document.additionalProperties;
+  if (typeof additional === "object" && additional !== null) {
+    assertStrictAtEveryDepth(
+      additional as Record<string, unknown>,
+      actionName,
+      [...path, "additionalProperties"],
+    );
   }
 }
 

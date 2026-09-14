@@ -9,7 +9,7 @@ The platform can now be asked to do things through one place, and it checks who
 is asking every single time.
 
 An action is one thing the platform can do: a name, the shape of what it takes,
-the single permission it needs, whether it reads, writes or deletes, and which
+the single capability it needs, whether it reads, writes or deletes, and which
 personal data it can touch. Core features register their own, and a plugin
 registers the ones it declared in its manifest and the board agreed to. Nothing
 about registering an action grants anybody anything - before every call the
@@ -21,7 +21,7 @@ Declaring an action does not offer it beyond the instance. An administrator
 switches each one on, one at a time, on the plugin's own screen; until then it
 is reachable only in process. Switching one off takes effect on the next call,
 and the switches are cleared whenever the board consents to a new version of a
-plugin, because an action that keeps its name while changing the permission it
+plugin, because an action that keeps its name while changing the capability it
 needs is a different action.
 
 The first slice is the association's website: writing, publishing and arranging

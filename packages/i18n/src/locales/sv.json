@@ -1442,7 +1442,14 @@
         "write": "Skriver",
         "delete": "Tar bort"
       },
-      "failed": "Åtgärden kunde inte ändras"
+      "failed": "Åtgärden kunde inte ändras",
+      "surface": {
+        "ui": "I den här instansen",
+        "mcp": "Anslutna appar",
+        "ai": "AI-paketet",
+        "unknown": "En yta som den här versionen inte känner igen"
+      },
+      "noPersonalData": "Inga personuppgifter"
     }
   },
   "media": {
@@ -4049,7 +4056,8 @@
         "health": "Hälsa",
         "photograph": "Fotografi",
         "freeText": "Fritext",
-        "auditTrail": "Loggade händelser"
+        "auditTrail": "Loggade händelser",
+        "protected": "Skyddade personuppgifter"
       },
       "dataSubject": {
         "member": "Medlemmar",

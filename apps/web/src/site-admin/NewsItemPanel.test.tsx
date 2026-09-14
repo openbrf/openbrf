@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import "../i18n";
 import type { NewsItem } from "./news-api";
@@ -113,12 +113,20 @@ describe("a standing mailing request", () => {
      * carries a boolean, so there is no requester on this screen for a later
      * edit to start printing - who asked is in the audit log, and the board is
      * answering whether the news item goes out.
+     *
+     * Asserted against the TYPE rather than against the fixture below. An
+     * optional `requestedByPersonId` added to NewsItem would leave the
+     * fixture's own key list untouched, and a check over those keys would go on
+     * passing while the guard it describes had gone.
      */
-    expect(
-      Object.keys(ITEM).filter((field) =>
-        /person|requestedby|author|actor/i.test(field),
-      ),
-    ).toEqual([]);
+    type Requester = Extract<
+      keyof NewsItem,
+      | `${string}erson${string}`
+      | `${string}equestedBy${string}`
+      | `${string}uthor${string}`
+      | `${string}ctor${string}`
+    >;
+    expectTypeOf<Requester>().toEqualTypeOf<never>();
   });
 
   it("is answered by the publish the board already does", async () => {

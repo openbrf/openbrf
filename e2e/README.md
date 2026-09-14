@@ -260,6 +260,12 @@ address, which is the one place the platform goes from a person to a thread.
 its subject is a refusal with no screen of its own. A connected app may write the
 association's news and publish it, and it may not mail the members: the most it
 can do is ask, and what an ask leaves behind is a notice on the board's own item.
+What this spec drives is the board's own route and the catalogue, and the reason
+is worth stating rather than leaving to be inferred: nothing in this build
+carries a call from a connected app to the registry, because sign-in for MCP
+clients is the change after this one. So dispatch itself - the capability check,
+the arming, the refusals - is held by the unit and integration tests, and this
+spec covers the half that needs a deployed instance.
 The spec places the request over the API, reads the notice on the board's screen -
 which says that something asked and never who, because the row the screen renders
 from carries no person for it to name - dismisses it, places it again, and answers

@@ -614,6 +614,95 @@ describe("what a plugin's provider may be constructed with", () => {
     expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
   });
 
+  it("refuses one whose useClass asks for it, where the token is a string", () => {
+    /*
+     * The form that walked past a check reading `provide` alone. The token is a
+     * string, so there is no constructor on it to read; what the container
+     * builds is the useClass, and that is what has to be inspected. The three
+     * modules these five live in are @Global(), so the plugin would have been
+     * handed the real one.
+     */
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly prisma: PrismaService) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [{ provide: "PLUGIN_HELPER", useClass: Sneaky }],
+      },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses a factory that names it in inject", () => {
+    // A factory's arguments are resolved exactly as a constructor's, and
+    // nothing was reading the list that names them.
+    class AuditLogService {}
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [
+          {
+            provide: "REPORT",
+            useFactory: (audit: unknown) => audit,
+            inject: [AuditLogService],
+          },
+        ],
+      },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("AuditLogService");
+  });
+
+  it("refuses an alias to it through useExisting", () => {
+    // An alias resolves to what it names, so naming one is holding it.
+    class PrincipalService {}
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [{ provide: "WHO", useExisting: PrincipalService }],
+      },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
+  it("refuses one that simply provides it", () => {
+    // Declaring the class itself puts a working instance in the plugin's own
+    // injector; reading only its constructor's own parameters said nothing.
+    class PrismaService {}
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [PrismaService] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+
   it("accepts a provider constructed with the plugin's own services", () => {
     class OwnHelper {}
     @Injectable()
@@ -625,6 +714,33 @@ describe("what a plugin's provider may be constructed with", () => {
 
     const result = sealPluginModule(
       { module: PluginModule, providers: [OwnHelper, Ordinary] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts the ordinary factory and alias forms over its own services", () => {
+    // The forms above are not refused as forms: what is refused is the five
+    // names, wherever a declaration puts them.
+    class OwnHelper {}
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      {
+        module: PluginModule,
+        providers: [
+          OwnHelper,
+          { provide: "OWN", useExisting: OwnHelper },
+          {
+            provide: "REPORT",
+            useFactory: (own: unknown) => own,
+            inject: [OwnHelper],
+          },
+          { provide: "ALSO", useClass: OwnHelper },
+        ],
+      },
       OPTIONS,
     );
 

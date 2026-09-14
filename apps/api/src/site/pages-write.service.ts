@@ -664,25 +664,41 @@ export class PagesWriteService {
      * entry: the entry has to commit or roll back with the arrangement it
      * records.
      */
-    await this.prisma.$transaction(async (tx) => {
-      for (const [index, id] of ids.entries()) {
-        await tx.page.updateMany({ where: { id }, data: { sortOrder: index } });
-      }
+    await this.prisma.$transaction(
+      async (tx) => {
+        for (const [index, id] of ids.entries()) {
+          await tx.page.updateMany({
+            where: { id },
+            data: { sortOrder: index },
+          });
+        }
 
-      // The count of ids the board sent, not of rows that moved: ids the
-      // instance does not have are ignored, so how many rows changed is not a
-      // number this call knows.
-      await this.audit.record(
-        {
-          action: "PAGE_REORDERED",
-          ...auditActor(actor),
-          targetKind: "page",
-          targetId: null,
-          context: { count: ids.length },
-        },
-        tx,
-      );
-    });
+        // The count of ids the board sent, not of rows that moved: ids the
+        // instance does not have are ignored, so how many rows changed is not a
+        // number this call knows.
+        await this.audit.record(
+          {
+            action: "PAGE_REORDERED",
+            ...auditActor(actor),
+            targetKind: "page",
+            targetId: null,
+            context: { count: ids.length },
+          },
+          tx,
+        );
+      },
+      /*
+       * The interactive form costs one round trip per id where the array form
+       * sent one batch, and both the route and `page_reorder` cap the list at
+       * 500 - so the default five-second budget is reachable on a loaded
+       * database. Exceeding it aborts the whole arrangement with P2028 after
+       * the row locks have been held for the duration, which tells the board
+       * nothing it can act on. The budget is stated rather than the loop
+       * removed, because what forces the loop is the audit entry committing
+       * with the arrangement.
+       */
+      { timeout: 30_000 },
+    );
     return this.list();
   }
 
