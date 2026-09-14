@@ -3,7 +3,7 @@ import { safeReturnTo } from "./return-to";
 /**
  * The authorization request a connected app sends a member in with.
  *
- * A member who points an external app at their own instance is sent here by
+ * A member who points a connected app at their own instance is sent here by
  * the sign-in library's authorize endpoint, which redirects the browser to the
  * sign-in screen and then to the consent screen carrying the whole request in
  * the query string. Nothing about it is held in a cookie: the request is

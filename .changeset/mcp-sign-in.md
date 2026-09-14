@@ -10,9 +10,11 @@ A member can now let an app they chose act for them, and take it back.
 A connected app is an external program - a chat client, an assistant, something
 the association had written - that a member points at their own instance and
 signs in to as themselves. It holds a token rather than the member's password,
-and what it can do is exactly what that member can do: the token is looked up on
-every call and the member's own permissions are read again from the register
-each time. Nothing is remembered from when they connected it. A board term
+and it can never do more than that member can do, within the coarse scope its
+token carries: the token is looked up on every call and the member's own
+permissions are read again from the register each time. A read-only connection
+stays read-only however much the member themselves may do. Nothing is
+remembered from when they connected it. A board term
 ending therefore narrows every app that person connected on the same night it
 narrows the person.
 

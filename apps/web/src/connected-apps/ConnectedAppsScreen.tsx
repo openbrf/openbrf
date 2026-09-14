@@ -236,7 +236,9 @@ function GrantRow({
         <span className="text-label uppercase">
           {t("connectedApps.connectedAt")}
         </span>{" "}
-        {formatConnectedAppMoment(grant.connectedAt, locale)}
+        <span className="font-data">
+          {formatConnectedAppMoment(grant.connectedAt, locale)}
+        </span>
       </p>
 
       {editable ? (

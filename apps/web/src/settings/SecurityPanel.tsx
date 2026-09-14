@@ -658,6 +658,27 @@ function ConnectedAppsSection(): ReactElement {
     };
   }, [read]);
 
+  /**
+   * The confirm button, focused as it appears.
+   *
+   * Pressing disconnect unmounts the button that was pressed, and the browser
+   * drops focus to the document body. Somebody using a keyboard or a screen
+   * reader is then left with no position on the question they have just been
+   * asked, and has to tab from the top of the page to answer it. A browser
+   * dialogue would have moved focus by itself; two buttons of our own have to
+   * do it here.
+   *
+   * Keyed on which connection the confirm is open for, so it lands once as the
+   * question appears rather than again on every re-render while it is answered.
+   */
+  const confirmButton = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (confirming !== null) {
+      confirmButton.current?.focus();
+    }
+  }, [confirming]);
+
   const disconnect = async (clientId: string): Promise<void> => {
     setWorking(clientId);
     setOutcome({ kind: "working" });
@@ -727,19 +748,29 @@ function ConnectedAppsSection(): ReactElement {
                   <span className="text-label uppercase">
                     {t("connectedApps.connectedAt")}
                   </span>{" "}
-                  {formatConnectedAppMoment(app.connectedAt, i18n.language)}
+                  <span className="font-data">
+                    {formatConnectedAppMoment(app.connectedAt, i18n.language)}
+                  </span>
                 </p>
 
                 <p className="text-small text-ink-muted">
                   <span className="text-label uppercase">
                     {t("connectedApps.lastTokenIssued")}
                   </span>{" "}
-                  {app.lastTokenIssuedAt === null
-                    ? t("connectedApps.noToken")
-                    : formatConnectedAppMoment(
+                  {/*
+                    Only the date takes the data face. The other branch is a
+                    translated sentence rather than a register value.
+                  */}
+                  {app.lastTokenIssuedAt === null ? (
+                    t("connectedApps.noToken")
+                  ) : (
+                    <span className="font-data">
+                      {formatConnectedAppMoment(
                         app.lastTokenIssuedAt,
                         i18n.language,
                       )}
+                    </span>
+                  )}
                 </p>
 
                 {/*
@@ -752,6 +783,7 @@ function ConnectedAppsSection(): ReactElement {
                     <>
                       <button
                         type="button"
+                        ref={confirmButton}
                         disabled={busy}
                         onClick={() => {
                           void disconnect(app.clientId);

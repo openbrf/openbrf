@@ -9,7 +9,7 @@ import { ConnectedAppsService } from "./connected-apps.service";
 import { OAuthClientsController } from "./oauth-clients.controller";
 
 /**
- * Seeing, granting and cutting a member's connections to external apps.
+ * Seeing, granting and cutting a member's connected apps.
  *
  * The sign-in library owns the protocol; this owns the questions a member and
  * a board actually have about it - what is connected, who connected it, and

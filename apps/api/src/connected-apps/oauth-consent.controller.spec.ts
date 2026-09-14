@@ -30,7 +30,23 @@ interface Built {
   recorded: AuditEntryInput[];
 }
 
-function build(response = new Response(null, { status: 302 })): Built {
+/**
+ * What the provider answers, in the shape it actually answers in.
+ *
+ * Not a 3xx. The consent endpoint asks for JSON before it authorizes, so every
+ * outcome comes back 200 with an address to send the browser to, and only a
+ * granted one carries an authorization code.
+ */
+function providerAnswer(url: string, status = 200): Response {
+  return new Response(JSON.stringify({ redirect: true, url }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+const GRANTED = "https://klient.exempel.se/cb?code=auth-code-1&state=xyz";
+
+function build(response = providerAnswer(GRANTED)): Built {
   let seen: Request | undefined;
   const auth = {
     handler: (request: Request) => {
@@ -186,6 +202,85 @@ describe("what is recorded", () => {
     // The log is append-only. An entry saying a member connected something
     // they did not cannot be taken back.
     expect(recorded).toEqual([]);
+  });
+
+  it("records nothing when the provider declined with a 200", async () => {
+    // The refusal a member actually meets. The provider answers an error URL
+    // with an ordinary 200, so the status says nothing about the outcome and
+    // only the missing code does.
+    const { controller, recorded } = build(
+      providerAnswer(
+        "https://klient.exempel.se/cb?error=access_denied" +
+          "&error_description=User+denied+access&state=xyz",
+      ),
+    );
+
+    await controller.consent(request(), reply(), {
+      oauth_query: SIGNED_QUERY,
+    });
+
+    expect(recorded).toEqual([]);
+  });
+
+  it("records nothing when the provider asked for a fresh sign-in", async () => {
+    // A request carrying prompt=login is sent back to authenticate instead of
+    // being granted. No code, so no connection yet.
+    const { controller, recorded } = build(
+      providerAnswer("https://brf.example/app/sign-in?client_id=abc"),
+    );
+
+    await controller.consent(request(), reply(), {
+      oauth_query: SIGNED_QUERY,
+    });
+
+    expect(recorded).toEqual([]);
+  });
+
+  it("records nothing when the answer is a 3xx rather than the JSON shape", async () => {
+    const { controller, recorded } = build(new Response(null, { status: 302 }));
+
+    await controller.consent(request(), reply(), {
+      oauth_query: SIGNED_QUERY,
+    });
+
+    expect(recorded).toEqual([]);
+  });
+
+  it("records nothing when the answer cannot be read", async () => {
+    const { controller, recorded } = build(
+      new Response("not json", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+
+    await controller.consent(request(), reply(), {
+      oauth_query: SIGNED_QUERY,
+    });
+
+    expect(recorded).toEqual([]);
+  });
+
+  it("still forwards the provider's answer to the browser unread", async () => {
+    // The grant check reads a clone. Reading the response itself would leave
+    // the browser with an empty body and no way to reach the app that asked.
+    const { controller } = build();
+    const sent: unknown[] = [];
+    const capturing = {
+      raw: { setHeader: () => undefined },
+      header: () => capturing,
+      status: () => capturing,
+      send: (body: unknown) => {
+        sent.push(body);
+        return Promise.resolve();
+      },
+    } as unknown as FastifyReply;
+
+    await controller.consent(request(), capturing, {
+      oauth_query: SIGNED_QUERY,
+    });
+
+    expect(JSON.stringify(sent[0])).toContain("auth-code-1");
   });
 
   it("records nothing when the query names no client", async () => {

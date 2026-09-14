@@ -30,8 +30,20 @@ export function ConnectedAppsRoute(): ReactElement {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    /*
+     * An answer that arrives after the screen is gone is dropped. The accent
+     * override is the reason this matters beyond a stale state write: it
+     * installs a stylesheet on the document rather than styling anything here,
+     * so a late response would repaint whatever screen the member had moved on
+     * to in this association's colour.
+     */
+    let active = true;
+
     const load = async (): Promise<void> => {
       const result = await fetchViewer();
+      if (!active) {
+        return;
+      }
       if (!result.ok) {
         setFailed(true);
         return;
@@ -43,6 +55,10 @@ export function ConnectedAppsRoute(): ReactElement {
     };
 
     void load();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (

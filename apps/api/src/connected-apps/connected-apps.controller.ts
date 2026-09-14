@@ -180,9 +180,9 @@ export class OAuthConsentController {
      * Recorded only when the provider actually granted it. Writing before the
      * call would record a connection that a refusal then never made, and the
      * audit log is append-only, so an entry written in error cannot be taken
-     * back.
+     * back. The status alone does not say it was granted - see below.
      */
-    if (response.ok || isRedirect(response)) {
+    if (await grantedByProvider(response)) {
       const asked = new URLSearchParams(query);
       const clientId = asked.get("client_id");
       if (clientId !== null) {
@@ -204,9 +204,71 @@ export class OAuthConsentController {
   }
 }
 
-/** A 3xx the provider answers a granted consent with. */
-function isRedirect(response: Response): boolean {
-  return response.status >= 300 && response.status < 400;
+/**
+ * Whether the provider granted this consent, rather than merely answering.
+ *
+ * The provider does not answer this route with a 3xx. Its consent endpoint
+ * sets `accept: application/json` before it authorizes, so what comes back is
+ * an ordinary 200 carrying `{ redirect: true, url }` - and it carries that
+ * same shape whether the request was granted, refused for an invalid
+ * parameter, or turned into a re-authentication because the request asked for
+ * `prompt=login`. A refusal is an error URL with a 200 status.
+ *
+ * So the status cannot tell a granted connection from a declined one, and
+ * `response.ok` was recording all three as a connection the member made. What
+ * distinguishes them is the authorization code: the provider puts one in the
+ * address it hands back only when a grant now exists.
+ *
+ * The body is read from a clone, because the response itself is still to be
+ * forwarded to the browser and a body may only be read once.
+ *
+ * Anything unreadable counts as not granted. The audit log is append-only, so
+ * an entry claiming a connection the member never made cannot be withdrawn,
+ * and the doubtful case has to fall to the side that can still be corrected by
+ * the member simply connecting again.
+ */
+async function grantedByProvider(response: Response): Promise<boolean> {
+  if (!response.ok) {
+    return false;
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    return false;
+  }
+
+  const url =
+    typeof payload === "object" && payload !== null
+      ? (payload as { url?: unknown }).url
+      : undefined;
+  if (typeof url !== "string") {
+    return false;
+  }
+
+  let answered: URL;
+  try {
+    answered = new URL(url);
+  } catch {
+    return false;
+  }
+
+  /*
+   * The code rides in the query, or in the fragment where the client asked for
+   * that response mode. An error beside it is the provider declining, and is
+   * read from both places for the same reason.
+   */
+  const fromQuery = answered.searchParams;
+  const fromFragment = new URLSearchParams(
+    answered.hash.startsWith("#") ? answered.hash.slice(1) : answered.hash,
+  );
+  if (fromQuery.get("error") !== null || fromFragment.get("error") !== null) {
+    return false;
+  }
+
+  const code = fromQuery.get("code") ?? fromFragment.get("code");
+  return code !== null && code !== "";
 }
 
 /**

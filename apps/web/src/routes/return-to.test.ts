@@ -63,7 +63,7 @@ describe("a separator a browser strips before it parses the URL", () => {
     ["all three", "/\t\n\r/evil.example"],
     ["a null byte", "/\u0000/evil.example"],
     ["a vertical tab", "/\u000b/evil.example"],
-    ["DEL", "//evil.example"],
+    ["DEL", "/\u007f/evil.example"],
   ])("is refused: %s", (_name, value) => {
     expect(safeReturnTo(value)).toBeNull();
   });

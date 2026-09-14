@@ -98,7 +98,13 @@ describe("the board's view of every connection", () => {
   });
 
   it("is not public", () => {
+    // Per route as well as per class. These two read every member's
+    // connections and cut one on somebody's behalf, so a @Public() left on
+    // either is the failure worth catching, and the class check alone would
+    // not see it.
     expect(isPublicClass(ConnectedAppsAdminController)).toBe(false);
+    expect(isPublicRoute(prototype, "all")).toBe(false);
+    expect(isPublicRoute(prototype, "disconnect")).toBe(false);
   });
 });
 

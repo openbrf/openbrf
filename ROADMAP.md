@@ -410,9 +410,9 @@ same lint gate a downloaded package passes.
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
 
-Not built yet: sign-in for MCP clients, which the MCP Connector and the AI
-package under Paid modules are built on. It is core and free. The audit log's
-channel and the action registry, which it rests on, are built.
+Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
+modules are built on. It is core and free, and rests on the audit log's channel
+and the action registry.
 
 - [x] Action registry in the plugin API. Core features and plugins register
       what they can do - an input schema, the capability it needs, whether it
