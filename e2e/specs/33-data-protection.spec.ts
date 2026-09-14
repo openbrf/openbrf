@@ -442,7 +442,20 @@ test.describe("the board's own data protection records", () => {
     });
     if ((await append.count()) > 0) {
       await append.click();
-      await expect(append).toHaveCount(0);
+      /*
+       * Disabled rather than gone. The panel keeps the control and takes the
+       * work away from it - `nothingToAdd` is the whole of what the button's
+       * disabled state means - so it is in the document whatever the coverage
+       * says.
+       *
+       * Asserting it had disappeared passed only by catching a gap: while the
+       * request is in flight the label reads "Lägger till...", so a locator
+       * naming the idle label matches nothing for as long as the round trip
+       * takes. Whether that gap was still open when Playwright first polled
+       * decided the run, which is why this went red on a fast instance and
+       * green on a slow one.
+       */
+      await expect(append).toBeDisabled();
     }
 
     // And now the half that no screen can assert: the published page, read by
