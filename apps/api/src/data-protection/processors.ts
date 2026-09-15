@@ -4,7 +4,11 @@ import type {
   ProcessorKind,
 } from "../generated/prisma/enums";
 import { selectedDriverKind } from "../sms/sms.service";
-import { pluginProcessorKey, type FixedProcessorKey } from "./processor-key";
+import {
+  connectedAppProcessorKey,
+  pluginProcessorKey,
+  type FixedProcessorKey,
+} from "./processor-key";
 
 /**
  * Who this instance actually hands personal data to, read from what it is
@@ -47,6 +51,24 @@ export interface ProcessorFacts {
     id: string;
     packageName: string;
     version: string;
+  }[];
+  /**
+   * The clients members have connected and allowed to act for them.
+   *
+   * Registered *and* consented to, both halves. A client row exists as soon as
+   * an app presents its metadata document, and a registration on its own hands
+   * nobody anything: what makes a client a recipient is a person having allowed
+   * it to act, which is the consent row. A client with no consent behind it is
+   * not listed, for the reason the SMS gateway is not listed on an instance
+   * that has none.
+   */
+  connectedApps: readonly {
+    /** The client row's id, which its recipient key is built from. */
+    id: string;
+    /** As the client declared itself, or null where it declared no name. */
+    name: string | null;
+    /** Where it is reached: see {@link connectedAppHost}. */
+    host: string | null;
   }[];
 }
 
@@ -118,6 +140,34 @@ export function stateOf(
     return "independentController";
   }
   return row.status === "IN_PLACE" ? "inPlace" : "pending";
+}
+
+/**
+ * The host a connected app is reached at: the client-id URL it presented, or
+ * failing that the client URI it registered.
+ *
+ * Null rather than the value as written, which is where this differs from
+ * {@link hostOf} below. A gateway address is configured by an administrator and
+ * is what the instance posts to whatever it says; a client id is chosen by the
+ * app itself, and one that will not parse is not a host - so the record and the
+ * report name nothing rather than something untrue.
+ *
+ * One definition because the record of processing, the art. 28 list and the
+ * access report all have to call the same client the same thing.
+ */
+export function connectedAppHost(client: {
+  clientDiscoveryId: string | null;
+  uri: string | null;
+}): string | null {
+  const url = client.clientDiscoveryId ?? client.uri;
+  if (url === null) {
+    return null;
+  }
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
 }
 
 /** The host part of a URL, for naming a gateway without repeating its path. */
@@ -205,6 +255,37 @@ export function currentProcessors(
       identity: plugin.packageName,
       detail: plugin.version,
       seededClassification: null,
+      state: stateOf(byKey.get(key)),
+    });
+  }
+
+  /*
+   * One recipient per app a member has connected.
+   *
+   * The classification is suggested rather than asked for, which is what makes
+   * these rows different from the plugins above. A connected app is the
+   * person's own tool, chosen by them and acting on their instruction, so it
+   * decides its own purposes - `INDEPENDENT_CONTROLLER`, which the schema
+   * defines as a controller in its own right that art. 28 does not apply to.
+   * The association engaged nobody, so there is no agreement for it to seek,
+   * and a row asking the board to produce one would describe a contract that
+   * cannot exist.
+   *
+   * Listed all the same, because a recipient that exists is always listed. Data
+   * leaves the instance to these clients, and a record of recipients that
+   * skipped the ones nobody has to sign an agreement with would be answering a
+   * narrower question than art. 30(1)(d) asks.
+   */
+  for (const app of facts.connectedApps) {
+    const key = connectedAppProcessorKey(app.id);
+    descriptors.push({
+      processorKey: key,
+      processorKind: "EXTERNAL",
+      // The name where the app declared one, and the host where it did not:
+      // both are what a board reads to recognise which app this is.
+      identity: app.name ?? app.host,
+      detail: app.name === null ? null : app.host,
+      seededClassification: "INDEPENDENT_CONTROLLER",
       state: stateOf(byKey.get(key)),
     });
   }

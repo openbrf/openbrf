@@ -1,7 +1,20 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { authClient } from "../auth/auth-client";
+import { formatConnectedAppMoment } from "../connected-apps/connected-app-dates";
+import { disconnectFailureKey } from "../connected-apps/connected-app-failures";
+import {
+  type ConnectedApp,
+  disconnectMyConnectedApp,
+  fetchMyConnectedApps,
+} from "../connected-apps/connections-api";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -12,6 +25,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 
@@ -28,12 +42,19 @@ type Outcome =
   | { kind: "failed"; messageKey: TranslationKey };
 
 /**
- * Sign-in and security: password, authenticator app, passkeys.
+ * Sign-in and security: password, authenticator app, passkeys, connected apps.
  *
- * These go through the Better Auth client rather than our own API, because they
- * are Better Auth's own flows and reimplementing them around its primitives is
- * how account systems acquire holes. Creating a passkey in particular can only
- * happen here: it calls WebAuthn on the device.
+ * The first three go through the Better Auth client rather than our own API,
+ * because they are Better Auth's own flows and reimplementing them around its
+ * primitives is how account systems acquire holes. Creating a passkey in
+ * particular can only happen here: it calls WebAuthn on the device.
+ *
+ * Connected apps belong beside them and go through our own API. What a member
+ * granted an external program is a standing way in to their account, held by
+ * something other than them, so it is read and withdrawn where the other ways
+ * in are - and it needs no capability, for the reason the endpoint states: a
+ * member who can let an app act for them must not need the board in order to
+ * take it back.
  *
  * Failures are shown as one translated sentence chosen from a code, never as
  * the library's own English message.
@@ -61,6 +82,7 @@ export function SecurityPanel({
       <PasswordSection />
       <TotpSection enabled={twoFactorEnabled} />
       <PasskeySection />
+      <ConnectedAppsSection />
     </>
   );
 }
@@ -571,7 +593,250 @@ function PasskeySection(): ReactElement {
   );
 }
 
-/** One notice for the three sections, so their states cannot render differently. */
+/**
+ * The apps this member has let act for them.
+ *
+ * Read from our own API rather than from the auth client: the grant, the app's
+ * name and host, and when a token was last issued are this product's questions
+ * about the library's tables, and the disconnect is ours as well - it deletes
+ * the access tokens, revokes the refresh tokens and removes the consent in one
+ * transaction, so the app stops reaching the association on its next call.
+ *
+ * Nothing here is gated. Settings is offered to every account, and a member
+ * granting an app access to their own data and then needing the board in order
+ * to take it back would be the wrong way round.
+ */
+function ConnectedAppsSection(): ReactElement {
+  const { t, i18n } = useTranslation();
+  const [apps, setApps] = useState<readonly ConnectedApp[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
+  /** The connection the confirm is open on, and the one being cut. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [working, setWorking] = useState<string | null>(null);
+
+  /**
+   * Which read is the current one.
+   *
+   * A disconnect asks for the list again, so two reads can be in flight at
+   * once - a member presses the retry on a failed read and then cuts something
+   * - and both answers are well formed. Only the newest may be applied;
+   * without that, whichever arrives last wins and an older one puts a
+   * connection that has just been cut back on the list.
+   */
+  const currentRead = useRef(0);
+
+  const read = useCallback((): void => {
+    const version = ++currentRead.current;
+    void fetchMyConnectedApps().then((result) => {
+      if (version !== currentRead.current) {
+        return;
+      }
+      if (result.ok) {
+        setApps(result.value.connectedApps);
+        setLoadFailed(false);
+        return;
+      }
+      /*
+       * Whatever is on screen is kept. A failed re-read leaves the member
+       * looking at the last thing the server said, which is still a true
+       * picture of a moment, and the notice says the read failed.
+       */
+      setLoadFailed(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    read();
+    /*
+     * Leaving supersedes whatever is in flight, so a response that arrives
+     * after the screen is gone is dropped by the same check that drops a
+     * superseded one.
+     */
+    return () => {
+      currentRead.current += 1;
+    };
+  }, [read]);
+
+  /**
+   * The confirm button, focused as it appears.
+   *
+   * Pressing disconnect unmounts the button that was pressed, and the browser
+   * drops focus to the document body. Somebody using a keyboard or a screen
+   * reader is then left with no position on the question they have just been
+   * asked, and has to tab from the top of the page to answer it. A browser
+   * dialogue would have moved focus by itself; two buttons of our own have to
+   * do it here.
+   *
+   * Keyed on which connection the confirm is open for, so it lands once as the
+   * question appears rather than again on every re-render while it is answered.
+   */
+  const confirmButton = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (confirming !== null) {
+      confirmButton.current?.focus();
+    }
+  }, [confirming]);
+
+  const disconnect = async (clientId: string): Promise<void> => {
+    setWorking(clientId);
+    setOutcome({ kind: "working" });
+    const result = await disconnectMyConnectedApp(clientId);
+    setWorking(null);
+
+    if (!result.ok) {
+      setOutcome({
+        kind: "failed",
+        messageKey: disconnectFailureKey(result.failure),
+      });
+      return;
+    }
+
+    setConfirming(null);
+    setOutcome({
+      kind: "done",
+      messageKey: "connectedApps.mine.disconnected",
+    });
+    // Re-read rather than struck from the list here: what is connected is the
+    // server's answer.
+    read();
+  };
+
+  return (
+    <Panel
+      title={t("connectedApps.mine.title")}
+      description={t("connectedApps.mine.description")}
+      notice={<OutcomeNotice outcome={outcome} />}
+    >
+      {loadFailed ? (
+        <LoadFailure
+          messageKey="connectedApps.mine.loadFailed"
+          onRetry={read}
+        />
+      ) : null}
+
+      {apps === null ? (
+        loadFailed ? null : (
+          <p role="status" className="text-body text-ink-muted">
+            {t("connectedApps.loading")}
+          </p>
+        )
+      ) : apps.length === 0 ? (
+        <p className="text-body text-ink-muted">
+          {t("connectedApps.mine.empty")}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {apps.map((app) => {
+            const appName = app.clientName ?? t("connectedApps.unnamedApp");
+            const busy = working === app.clientId;
+
+            return (
+              <li
+                key={app.clientId}
+                className="flex flex-col gap-1 rounded-control border border-line bg-page px-3 py-2.5"
+              >
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-body">{appName}</span>
+                  <span className="font-data text-small text-ink-muted">
+                    {app.clientHost ?? t("connectedApps.unknownHost")}
+                  </span>
+                </div>
+
+                <p className="text-small text-ink-muted">
+                  <span className="text-label uppercase">
+                    {t("connectedApps.connectedAt")}
+                  </span>{" "}
+                  <span className="font-data">
+                    {formatConnectedAppMoment(app.connectedAt, i18n.language)}
+                  </span>
+                </p>
+
+                <p className="text-small text-ink-muted">
+                  <span className="text-label uppercase">
+                    {t("connectedApps.lastTokenIssued")}
+                  </span>{" "}
+                  {/*
+                    Only the date takes the data face. The other branch is a
+                    translated sentence rather than a register value.
+                  */}
+                  {app.lastTokenIssuedAt === null ? (
+                    t("connectedApps.noToken")
+                  ) : (
+                    <span className="font-data">
+                      {formatConnectedAppMoment(
+                        app.lastTokenIssuedAt,
+                        i18n.language,
+                      )}
+                    </span>
+                  )}
+                </p>
+
+                {/*
+                  Two presses rather than a browser dialogue. A native confirm
+                  cannot be styled, cannot be translated and cannot be read by a
+                  test, and the question belongs next to the row it is about.
+                */}
+                <div className="flex flex-wrap gap-2">
+                  {confirming === app.clientId ? (
+                    <>
+                      <button
+                        type="button"
+                        ref={confirmButton}
+                        disabled={busy}
+                        onClick={() => {
+                          void disconnect(app.clientId);
+                        }}
+                        className={QUIET_BUTTON}
+                      >
+                        {busy
+                          ? t("connectedApps.disconnecting")
+                          : t("connectedApps.disconnectConfirm")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setConfirming(null);
+                        }}
+                        className={QUIET_BUTTON}
+                      >
+                        {t("connectedApps.disconnectCancel")}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={t("connectedApps.disconnectLabel", {
+                        app: appName,
+                      })}
+                      disabled={outcome.kind === "working"}
+                      onClick={() => {
+                        setConfirming(app.clientId);
+                      }}
+                      className={QUIET_BUTTON}
+                    >
+                      {t("connectedApps.disconnect")}
+                    </button>
+                  )}
+                </div>
+
+                {confirming === app.clientId ? (
+                  <Notice tone="warn" live>
+                    {t("connectedApps.mine.disconnectWarning")}
+                  </Notice>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+/** One notice for the four sections, so their states cannot render differently. */
 function OutcomeNotice({ outcome }: { outcome: Outcome }): ReactElement | null {
   const { t } = useTranslation();
 

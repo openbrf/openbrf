@@ -357,6 +357,7 @@
           "boardPositions": "Förtroendeuppdrag",
           "systemRoles": "Systemroller",
           "account": "Konto",
+          "connectedApps": "Anslutna appar",
           "memberRegister": "Medlemsförteckningen",
           "transfers": "Upplåtelser och överlåtelser",
           "terminations": "Upphöranden",
@@ -487,7 +488,16 @@
           "threadStatus": "Tråd",
           "reportBasis": "Fall enligt 3 kap. 3 §",
           "reversalKind": "Vad som hände",
-          "reversedOn": "Hävd eller återgången"
+          "reversedOn": "Hävd eller återgången",
+          "appName": "App",
+          "appHost": "Domän",
+          "connectedOn": "Ansluten",
+          "accessLastIssued": "Åtkomst senast utfärdad"
+        },
+        "appScope": {
+          "read": "Läsa uppgifter",
+          "write": "Skriva uppgifter",
+          "offlineAccess": "Fortsätta arbeta när du inte är inloggad"
         },
         "event": {
           "ENTRY": "Inträde",
@@ -3831,6 +3841,12 @@
           "legalBasisNote": "Avtal för medlemmar (art. 6(1)(b)); berättigat intresse för övriga boende.",
           "retention": "Gallras enligt föreningens gallringstid efter utflytt."
         },
+        "connectedApps": {
+          "name": "Anslutna appar",
+          "purpose": "Låta en boende ge ett eget program rätt att utföra sådant den boende själv får göra i föreningens tjänster.",
+          "legalBasisNote": "Avtal (art. 6(1)(b)): anslutningen är en del av den tjänst den boende har begärt. Vad appen får göra prövas vid varje anrop mot den boendes egen behörighet.",
+          "retention": "Ett medgivande finns kvar tills den boende kopplar från appen eller tills personens uppgifter gallras. Åtkomsttoken och förnyelsetoken finns kvar tills de går ut eller återkallas; den nattliga gallringen tar bort dem."
+        },
         "residentDirectory": {
           "name": "Grannlista",
           "purpose": "Låta de boende se vilka som bor i huset.",
@@ -3894,8 +3910,10 @@
         "recipients": {
           "noMailServer": "Ingen e-postserver är konfigurerad.",
           "localDisk": "Föreningens egen lagring på instansens disk.",
-          "s3": "Objektlagring hos {{endpoint}}, hinken {{bucket}}."
+          "s3": "Objektlagring hos {{endpoint}}, hinken {{bucket}}.",
+          "noConnectedApps": "Ingen boende har anslutit någon app."
         },
+        "clientTransfer": "Uppgifter lämnas till {{clients}} när en boende har anslutit appen. Instansen kan inte avgöra var en app körs; styrelsen anger var den finns eller vilken skyddsåtgärd enligt art. 46 som gäller.",
         "storageTransfer": "Filerna ligger hos {{endpoint}} i hinken {{bucket}}, signerad för regionen {{region}}. Instansen kan inte avgöra var hinken finns; styrelsen anger var den är placerad eller vilken skyddsåtgärd enligt art. 46 som gäller."
       },
       "security": {
@@ -4188,6 +4206,94 @@
     "menu_remove": {
       "title": "Ta bort en menypost",
       "description": "Tar bort en menypost. Det går inte att ångra. Posten måste finnas, och de poster som hänger under den följer med."
+    }
+  },
+  "connectedApps": {
+    "navLabel": "Anslutna appar",
+    "title": "Anslutna appar",
+    "intro": "Externa program som medlemmarna har låtit agera i sitt ställe. En ansluten app kan aldrig göra mer än den medlem som anslöt den får göra i samma stund, och en bortkoppling gäller från appens nästa anrop.",
+    "listTitle": "Anslutningar i föreningen",
+    "loading": "Läser in anslutna appar",
+    "empty": "Ingen i föreningen har anslutit någon app.",
+    "loadFailed": "Listan över anslutna appar kunde inte läsas just nu.",
+    "forbidden": "Ditt konto får inte se den här sidan.",
+    "person": "Ansluten av",
+    "connectedAt": "Ansluten",
+    "lastTokenIssued": "Senaste token",
+    "noToken": "Ingen token i kraft just nu",
+    "unnamedApp": "Namnlös app",
+    "unknownHost": "Ingen adress angiven",
+    "disconnect": "Koppla bort",
+    "disconnectLabel": "Koppla bort {{app}}",
+    "disconnectLabelFor": "Koppla bort {{app}} som {{person}} har anslutit",
+    "disconnectConfirm": "Ja, koppla bort",
+    "disconnectCancel": "Behåll",
+    "disconnecting": "Kopplar bort...",
+    "disconnectWarning": "Appen slutar nå föreningen vid sitt nästa anrop. Den som anslöt den måste ansluta den på nytt för att kunna använda den igen. Bortkopplingen antecknas i granskningsloggen.",
+    "errors": {
+      "notFound": "Anslutningen finns inte längre. Läs listan igen.",
+      "forbidden": "Ditt konto får inte koppla bort någon annans anslutning.",
+      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen."
+    },
+    "mine": {
+      "title": "Anslutna appar",
+      "description": "Program du har låtit agera i ditt ställe. En app ser varken ditt lösenord eller din inloggning, och den kan aldrig göra mer än du själv får göra.",
+      "empty": "Du har inte anslutit någon app.",
+      "loadFailed": "Dina anslutna appar kunde inte läsas just nu.",
+      "disconnectWarning": "Appen slutar nå föreningen vid sitt nästa anrop. Du måste ansluta den på nytt för att kunna använda den igen.",
+      "disconnected": "Appen är bortkopplad."
+    },
+    "register": {
+      "title": "Registrera en app",
+      "description": "För en app som inte kan registrera sig själv, till exempel något föreningen har låtit skriva. Att registrera en app ger den ingenting: den blir känd för instansen, så att en medlem sedan kan få frågan om den ska få agera i medlemmens ställe. Klienthemligheten visas en enda gång, när appen registreras.",
+      "resource": "Adress appen ska ange",
+      "resourceHint": "Appen ska begära den här adressen som resurs. En token som är utfärdad för något annat avvisas.",
+      "resourceLoading": "Läser adressen",
+      "resourceUnknown": "Adressen kunde inte läsas just nu.",
+      "clientName": "Appens namn",
+      "redirectUris": "Adresser att skicka tillbaka till",
+      "redirectUrisHint": "En adress per rad, högst åtta. Dit skickas svaret när en medlem har godkänt appen.",
+      "submit": "Registrera appen",
+      "submitting": "Registrerar...",
+      "registered": "Appen är registrerad.",
+      "clientId": "Klient-id",
+      "clientSecret": "Klienthemlighet",
+      "secretOnce": "Hemligheten visas den här enda gången och går inte att visa igen. Spara den där appen läser den; en app som har tappat bort sin hemlighet måste registreras på nytt.",
+      "noSecret": "Den här appen fick ingen hemlighet.",
+      "errors": {
+        "invalidRedirectUri": "Någon av adresserna att skicka tillbaka till är inte en fullständig adress. Skriv en adress per rad, högst åtta.",
+        "nameTaken": "Det finns redan en app med det namnet. Välj ett annat.",
+        "resourceMissing": "Instansen har ingen adress för anslutna appar att logga in mot, så appen kunde inte knytas till någon. Installera först ett tillägg som betjänar den adressen.",
+        "failed": "Appen kunde inte registreras just nu. Försök igen."
+      }
+    },
+    "consent": {
+      "title": "Ska appen få agera som du?",
+      "intro": "{{name}} vill kunna göra saker i föreningens system som du.",
+      "privacyNote": "Appen får aldrig göra mer än du själv får göra, och den får inte veta vem du är: varken ditt namn eller din adress lämnas ut. Den håller en egen behörighet, aldrig ditt lösenord.",
+      "loading": "Läser in vad appen skulle kunna göra",
+      "someApp": "En app",
+      "clientHost": "Appen finns på",
+      "redirectHost": "Svaret skickas till",
+      "hostUnknown": "Ingen adress går att visa.",
+      "loopbackWarning": "Svaret skickas till den här datorn. Så ska det vara för en app som körs på din egen dator. Känner du inte igen appen ska du avbryta.",
+      "actionsTitle": "Det här skulle appen kunna göra",
+      "noActions": "Ingenting. Med de behörigheter du har i dag finns det inget en app kan göra åt dig.",
+      "scopeNotice": "Listan visar vad appen kan göra just nu. Appen agerar som du och kan aldrig göra mer än du själv får göra. Slår föreningen på fler åtgärder senare når appen även dem. Du kan koppla bort appen när som helst under Inställningar, Inloggning och säkerhet.",
+      "acknowledge": "Jag har läst vad appen skulle kunna göra och vill koppla den till mitt konto.",
+      "confirm": "Koppla appen",
+      "working": "Kopplar...",
+      "cancel": "Avbryt",
+      "back": "Tillbaka till startsidan",
+      "errors": {
+        "loadFailed": "Det gick inte att läsa vad appen skulle kunna göra.",
+        "failed": "Kopplingen blev inte av just nu. Försök igen.",
+        "invalidRequest": "Appens begäran saknar uppgifter som behövs. Börja om kopplingen i appen.",
+        "expired": "Appens begäran är för gammal. Börja om kopplingen i appen.",
+        "unknownClient": "Appen är inte känd för den här instansen. En administratör behöver registrera den först.",
+        "signatureInvalid": "Appens begäran har ändrats på vägen hit och går inte att lita på. Börja om kopplingen i appen.",
+        "unusable": "Appens begäran går inte att använda. Börja om kopplingen i appen."
+      }
     }
   }
 }

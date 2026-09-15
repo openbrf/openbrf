@@ -9,6 +9,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { toIsoDate } from "../address-book/address-book-view";
 import { lockResidencyTransitions } from "../registers/residency-lock";
+import {
+  sweepConnectedAppTokens,
+  type ConnectedAppTokenSweepOutcome,
+} from "./connected-app-token-sweep";
 import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
 import { purgeCutoff } from "./purge-window";
@@ -72,6 +76,13 @@ export interface PurgeRunSummary {
    * database refuses must not stop every later person for good.
    */
   failed: number;
+  /**
+   * What the connected-app token sweep deleted on this run.
+   *
+   * Not part of anybody's purge and counted apart from it: a credential that
+   * has run out has run out whoever it was issued for.
+   */
+  tokensSwept: ConnectedAppTokenSweepOutcome;
 }
 
 /**
@@ -139,6 +150,18 @@ export interface PurgeRunSummary {
  * A restriction (art. 18) stops this job for that person entirely. Art. 18(2)
  * permits storage and almost nothing else, so the one act it forbids is the one
  * this job performs.
+ *
+ * ## Tokens issued to connected apps
+ *
+ * The same run sweeps the access and refresh rows behind the apps members have
+ * connected, once the rows can no longer be presented. They are credentials
+ * rather than records of anything, they are not held against one person's
+ * retention clock, and there are no rows to loop over - so they ride this run's
+ * minute instead of taking one of their own. `connected-app-token-sweep.ts`
+ * holds the rule and the reasons.
+ *
+ * A person's own grants are not swept: they go with the account, by the
+ * cascades on it, in the same statement that deletes the account below.
  *
  * ## Its place in the night
  *
@@ -238,7 +261,24 @@ export class PurgeService implements OnModuleInit {
       );
     }
 
-    return { considered: personIds.length, purged, failed };
+    /*
+     * Last, and after the loop rather than inside it. The people purged above
+     * took their own grants and tokens with them through the cascades on the
+     * account; what is left for this to reach is every other app's credentials
+     * that have simply run out, which belong to no person's purge.
+     */
+    const tokensSwept = await sweepConnectedAppTokens(this.prisma, now);
+    if (tokensSwept.accessTokens > 0 || tokensSwept.refreshTokens > 0) {
+      // Counts, like every other line this job writes: what a token was issued
+      // for is in the audit log, and a token value is never written anywhere.
+      this.logger.log(
+        `Swept ${String(tokensSwept.accessTokens)} expired access tokens and ${String(
+          tokensSwept.refreshTokens,
+        )} spent refresh tokens issued to connected apps`,
+      );
+    }
+
+    return { considered: personIds.length, purged, failed, tokensSwept };
   }
 
   /**

@@ -33,7 +33,7 @@ import type { ProcessorFacts } from "./processors";
  *     overwritten by a background job.
  *   - The board's own (a BOARD row, or any field it has edited). Never touched.
  *
- * The sixteen keys below are fixed and asserted by the spec. Adding a table
+ * The seventeen keys below are fixed and asserted by the spec. Adding a table
  * that holds personal data means adding a row here: that is the point of a
  * checked list rather than a derivation, and a processing the record does not
  * mention is the failure art. 30 exists to prevent.
@@ -70,6 +70,7 @@ export const SEED_KEYS = [
   "meetingRecords",
   "auditLog",
   "addressBookAndAccounts",
+  "connectedApps",
   "residentDirectory",
   "newsMailings",
   "issues",
@@ -143,6 +144,24 @@ const SHAPES: Record<SeedKey, SeedShape> = {
       "phone",
       "account",
     ],
+  },
+  connectedApps: {
+    source: "SERVICE_DATA",
+    legalBasis: "CONTRACT",
+    /*
+     * Anybody who can sign in can connect an app, so the subjects are whoever
+     * holds an account rather than the members alone - and "external" because
+     * the client acts for one of them from outside the instance.
+     */
+    dataSubjectCategories: ["member", "resident", "boardMember", "external"],
+    /*
+     * The grant and the tokens behind it, which is account data. What an app
+     * then reads is whatever the person themselves may read, and that is held
+     * by the processing it is read from rather than by this one - a row
+     * claiming every category in the product would say nothing true about what
+     * these tables hold.
+     */
+    personalDataCategories: ["account"],
   },
   residentDirectory: {
     source: "SERVICE_DATA",
@@ -223,6 +242,16 @@ const STORAGE_BACKED: readonly SeedKey[] = [
 /** Which seeded rows send a person a message, and so name mail and SMS. */
 const MESSAGE_SENDING: readonly SeedKey[] = ["newsMailings"];
 
+/**
+ * Which seeded rows hand data to a program a member connected.
+ *
+ * The one processing whose whole purpose is handing data to something outside
+ * the instance. Without a recipient list of its own it would be the row on the
+ * record that named nobody, which is the opposite of what art. 30(1)(d) asks
+ * for.
+ */
+const CLIENT_BACKED: readonly SeedKey[] = ["connectedApps"];
+
 function storageRecipient(facts: ProcessorFacts, t: TFunction): string {
   if (facts.storageDriver !== "s3") {
     return t("dataProtection.processing.seed.recipients.localDisk");
@@ -231,6 +260,30 @@ function storageRecipient(facts: ProcessorFacts, t: TFunction): string {
     endpoint: facts.s3Endpoint ?? "",
     bucket: facts.s3Bucket ?? "",
   });
+}
+
+/**
+ * The apps members have connected, named by where each is reached.
+ *
+ * The host of the client-id URL the app presented, or of the client URI it
+ * registered - what says which app a board is reading about is where it lives,
+ * and the whole address with its path would be longer and less recognisable. A
+ * client the instance can read no host for is named by the name it declared,
+ * because a recipient left out of the record is worse than one named awkwardly.
+ *
+ * Distinct, because one app connected by forty households is one recipient.
+ */
+function clientRecipients(facts: ProcessorFacts, t: TFunction): string {
+  const named = [
+    ...new Set(
+      facts.connectedApps
+        .map((app) => app.host ?? app.name)
+        .filter((label): label is string => label !== null && label !== ""),
+    ),
+  ];
+  return named.length === 0
+    ? t("dataProtection.processing.seed.recipients.noConnectedApps")
+    : named.join(", ");
 }
 
 function messageRecipients(facts: ProcessorFacts, t: TFunction): string {
@@ -255,8 +308,19 @@ function messageRecipients(facts: ProcessorFacts, t: TFunction): string {
  * transfer" by default would be asserting something nobody checked. The board
  * clears the flag once it has placed the bucket in the EU or EEA, or names the
  * art. 46 safeguard it relies on.
+ *
+ * True for the connected apps on the same reading, and as soon as there is one.
+ * A client is a program the member runs, reached at an address the member's app
+ * chose, on a machine the instance has even less of a way of locating than a
+ * bucket. The board clears the flag for the apps its members use, or names the
+ * safeguard.
  */
 function transfersToThirdCountry(key: SeedKey, facts: ProcessorFacts): boolean {
+  if (CLIENT_BACKED.includes(key)) {
+    // Nothing is handed anywhere while nobody has connected anything, and a
+    // transfer recorded against an empty list would be a false entry.
+    return facts.connectedApps.length > 0;
+  }
   return (
     STORAGE_BACKED.includes(key) &&
     facts.storageDriver === "s3" &&
@@ -268,7 +332,7 @@ function transfersToThirdCountry(key: SeedKey, facts: ProcessorFacts): boolean {
  * A general description of the art. 32(1) measures protecting one processing.
  *
  * Composed from the sentences that actually hold for the row rather than one
- * paragraph repeated sixteen times: art. 30(1)(g) asks what protects *this*
+ * paragraph repeated seventeen times: art. 30(1)(g) asks what protects *this*
  * processing, and a record claiming field-level encryption for a table that has
  * none would be worse than one that said nothing.
  */
@@ -308,7 +372,7 @@ export function securityMeasuresFor(
 }
 
 /**
- * The sixteen rows, translated into the association's own language and filled
+ * The seventeen rows, translated into the association's own language and filled
  * in from what this instance is configured to do.
  *
  * @param t Bound to the association's default locale, not the reader's: the
@@ -323,7 +387,9 @@ export function seedRows(t: TFunction, facts: ProcessorFacts): SeedRow[] {
       ? storageRecipient(facts, t)
       : MESSAGE_SENDING.includes(key)
         ? messageRecipients(facts, t)
-        : null;
+        : CLIENT_BACKED.includes(key)
+          ? clientRecipients(facts, t)
+          : null;
     const transfers = transfersToThirdCountry(key, facts);
 
     return {
@@ -337,13 +403,19 @@ export function seedRows(t: TFunction, facts: ProcessorFacts): SeedRow[] {
       personalDataCategories: shape.personalDataCategories,
       recipients,
       thirdCountryTransfer: transfers,
-      thirdCountrySafeguards: transfers
-        ? t("dataProtection.processing.seed.storageTransfer", {
-            endpoint: facts.s3Endpoint ?? "",
-            bucket: facts.s3Bucket ?? "",
-            region: facts.s3Region ?? "",
-          })
-        : null,
+      thirdCountrySafeguards: !transfers
+        ? null
+        : CLIENT_BACKED.includes(key)
+          ? t("dataProtection.processing.seed.clientTransfer", {
+              // The same list the row names as its recipients: the sentence is
+              // about where those apps run, so it has to say which they are.
+              clients: recipients ?? "",
+            })
+          : t("dataProtection.processing.seed.storageTransfer", {
+              endpoint: facts.s3Endpoint ?? "",
+              bucket: facts.s3Bucket ?? "",
+              region: facts.s3Region ?? "",
+            }),
       retention: t(`dataProtection.processing.seed.${key}.retention`),
       securityMeasures: securityMeasuresFor(key, facts, t),
     };

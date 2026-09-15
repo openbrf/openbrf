@@ -410,9 +410,9 @@ same lint gate a downloaded package passes.
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
 
-Not built yet: sign-in for MCP clients, which the MCP Connector and the AI
-package under Paid modules are built on. It is core and free. The audit log's
-channel and the action registry, which it rests on, are built.
+Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
+modules are built on. It is core and free, and rests on the audit log's channel
+and the action registry.
 
 - [x] Action registry in the plugin API. Core features and plugins register
       what they can do - an input schema, the capability it needs, whether it
@@ -434,9 +434,24 @@ channel and the action registry, which it rests on, are built.
       association's news, pages and menu, with no way to mail the members -
       something acting through a connected app may create a mailing request,
       and a board member confirms the mailing in the web interface
-- [ ] Sign-in for MCP clients: OAuth 2.1, with tokens whose scopes never exceed
-      the current capabilities of the person who granted them, so every token
-      acts as a person
+- [x] Sign-in for MCP clients: a member points an external app at their own
+      instance and signs in as themselves, and the app then acts as them and
+      never beyond them. A token carries no claims of its own: it is looked up
+      on every single call and the person's permissions are read again from the
+      register each time, so nothing is remembered from the moment they
+      connected and a board term ending narrows every app that person connected
+      the same night it narrows the person. There is no revocation on that
+      change - the connection stays and simply stops being able to do what the
+      person no longer can. Disconnecting takes effect on the app's next call
+      rather than when its token would have run out. A member connects without
+      needing anybody's permission and can cut their own connections; the board
+      sees every connection on the instance and can cut any of them, and a
+      connection cut by somebody else is in the audit log against the member,
+      naming the app. An app is told nothing about who it acts for - no name, no
+      address. The address an app talks to is a connector plugin's own route
+      rather than one the platform serves, so only one plugin may serve it and a
+      second is refused when it is installed, because that address is what every
+      token already granted is bound to
 - [x] The audit log records the channel each change came through - the web
       interface, a connected app's token, the AI package, the association's own
       nightly jobs, or a plugin. It is recorded on every entry written from now

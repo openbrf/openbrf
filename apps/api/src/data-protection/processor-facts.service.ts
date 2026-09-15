@@ -3,7 +3,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
-import type { ProcessorFacts } from "./processors";
+import { connectedAppHost, type ProcessorFacts } from "./processors";
 
 /**
  * What this instance is configured to hand personal data to.
@@ -26,7 +26,7 @@ export class ProcessorFactsService {
   ) {}
 
   async read(): Promise<ProcessorFacts> {
-    const [association, plugins] = await Promise.all([
+    const [association, plugins, connectedApps] = await Promise.all([
       this.prisma.association.findUnique({
         where: { id: 1 },
         select: {
@@ -38,6 +38,26 @@ export class ProcessorFactsService {
       }),
       this.prisma.installedPlugin.findMany({
         select: { id: true, packageName: true, version: true },
+        orderBy: [{ id: "asc" }],
+      }),
+      /*
+       * Only the clients somebody has actually allowed to act. A client row is
+       * written as soon as an app presents its metadata document, and a
+       * registration hands nobody anything: a row asking the board to classify
+       * an app no member has connected would be a false entry in the art. 28
+       * record, the way a gateway on an instance with no SMS provider would be.
+       *
+       * One row per client rather than per consent: an app forty households
+       * connected is one recipient.
+       */
+      this.prisma.oauthClient.findMany({
+        where: { consents: { some: {} } },
+        select: {
+          id: true,
+          name: true,
+          clientDiscoveryId: true,
+          uri: true,
+        },
         orderBy: [{ id: "asc" }],
       }),
     ]);
@@ -58,6 +78,11 @@ export class ProcessorFactsService {
       s3Region: this.env.OPENBRF_S3_REGION,
       s3Bucket: this.env.OPENBRF_S3_BUCKET ?? null,
       installedPlugins: plugins,
+      connectedApps: connectedApps.map((client) => ({
+        id: client.id,
+        name: client.name,
+        host: connectedAppHost(client),
+      })),
     };
   }
 }

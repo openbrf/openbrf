@@ -217,6 +217,17 @@ export type TerminationKind =
   "GENERAL_MEETING_DECISION" | "BUILDING_TRANSFERRED";
 
 /**
+ * What a grant to a connected app (ansluten app) can cover.
+ *
+ * Mirrors `ReportConnectedAppScope` in
+ * `apps/api/src/retention/data-subject-report.ts`, spelled out for the reason
+ * the kinds around it are: the report turns each of these into a sentence in
+ * the association's own words, and a scope with no case here would print as an
+ * empty cell in a statutory document.
+ */
+export type ConnectedAppScope = "mcp:read" | "mcp:write" | "offline_access";
+
+/**
  * Which register event a reporting obligation is about.
  *
  * Mirrors the RegisterReportKind enum in `apps/api/prisma/schema.prisma`,
@@ -425,6 +436,34 @@ export interface DataSubjectReport {
     twoFactorEnabled: boolean;
     createdAt: string;
   } | null;
+  /**
+   * The external programs this person allowed to act for them (ansluten app).
+   *
+   * On the report for two reasons at once: the grant is a record the
+   * association holds about them, and the app is a recipient their data goes to
+   * - which GDPR art. 15(1)(c) asks for by name.
+   *
+   * No token in any form. What a token row contributes is `lastUsedAt` below,
+   * and what an app actually did is in the entries section.
+   */
+  connectedApps: {
+    clientName: string | null;
+    /** The host it is reached at, or null where it names no URL that parses. */
+    clientHost: string | null;
+    scopes: ConnectedAppScope[];
+    /** ISO instant the person consented. */
+    connectedAt: string;
+    /**
+     * ISO instant a token was last issued for this grant, or null where the
+     * association holds no token row for it.
+     *
+     * When the app was last given access, and not what it did with it: nothing
+     * records a call against a grant. Null reads as "not lately" rather than
+     * "never" - the nightly sweep deletes a token row once it has run out, so
+     * a grant nobody has exercised recently has none left to date.
+     */
+    lastUsedAt: string | null;
+  }[];
   memberRegisterEntries: {
     entryId: string;
     eventType: "ENTRY" | "EXIT" | "CORRECTION";

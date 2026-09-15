@@ -70,6 +70,7 @@ const EMPTY_REPORT: Report = {
   boardPositions: [],
   systemRoles: [],
   account: null,
+  connectedApps: [],
   memberRegisterEntries: [],
   transfers: [],
   transferReversals: [],
@@ -97,6 +98,27 @@ const EMPTY_REPORT: Report = {
 
 const FULL_REPORT: Report = {
   ...EMPTY_REPORT,
+  connectedApps: [
+    {
+      clientName: "Anteckningsappen",
+      clientHost: "app.exempel.test",
+      scopes: ["mcp:read", "offline_access"],
+      connectedAt: "2026-06-01T09:00:00.000Z",
+      lastUsedAt: "2026-08-28T06:15:00.000Z",
+    },
+    {
+      /*
+       * An app the association holds no token row for any more. Its own row on
+       * the document, because "connected and not used lately" is a different
+       * fact about the person from having connected nothing.
+       */
+      clientName: "Assistenten",
+      clientHost: "assistent.exempel.test",
+      scopes: ["mcp:read", "mcp:write"],
+      connectedAt: "2026-07-15T11:00:00.000Z",
+      lastUsedAt: null,
+    },
+  ],
   transfers: [
     {
       transferId: "transfer-1",
@@ -1268,6 +1290,62 @@ describe("what the document prints", () => {
     expect(row?.textContent).toContain("Besvarad");
     // And the attachment count, which says files are held this cannot print.
     expect(row?.textContent).toContain("2");
+  });
+
+  it("states each connected app, what it may do, and when it last had access", async () => {
+    /*
+     * A recipient the person's data goes to, which is what art. 15(1)(c) asks
+     * the report to name, and a grant they gave, which is what art. 15 asks it
+     * to show. The scopes are printed as sentences rather than as the protocol
+     * spells them: "mcp:write" would answer what somebody agreed to in a
+     * vocabulary this document uses nowhere else.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(sectionOf("Anslutna appar"));
+    const row = section.getByText("Anteckningsappen").closest("tr");
+    expect(row?.textContent).toContain("app.exempel.test");
+    expect(row?.textContent).toContain("Läsa uppgifter");
+    expect(row?.textContent).toContain(
+      "Fortsätta arbeta när du inte är inloggad",
+    );
+    expect(row?.textContent).toContain("2026-06-01");
+    // The day a token was last issued, which is the whole of what the token
+    // rows can say - never a token, and never a claim about what the app did.
+    expect(row?.textContent).toContain("2026-08-28");
+  });
+
+  it("says in words that an app has had no access lately", async () => {
+    /*
+     * The nightly sweep deletes a token row once it has run out, so a grant
+     * nobody has exercised recently has none left to date it from. A blank cell
+     * in this document reads as something lost; the absent value is said the
+     * way every other absent value on the report is.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(sectionOf("Anslutna appar"));
+    const row = section.getByText("Assistenten").closest("tr");
+    expect(row?.textContent).toContain("Skriva uppgifter");
+    expect(row?.textContent).toContain("Inget registrerat");
+  });
+
+  it("states no scope in the words the protocol spells it with", async () => {
+    /*
+     * The document is read by the person it is about, and "mcp:write" answers
+     * what they agreed to in a vocabulary this report uses nowhere else. Each
+     * scope has a sentence of its own, and a scope with no sentence would print
+     * as a blank - which is how twelve audit actions came to print unlabelled.
+     */
+    const { container } = renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const printed = container.textContent ?? "";
+    expect(printed).not.toContain("mcp:read");
+    expect(printed).not.toContain("mcp:write");
+    expect(printed).not.toContain("offline_access");
   });
 
   it("says which of its transfers was a grant", async () => {

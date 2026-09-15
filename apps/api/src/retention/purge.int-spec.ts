@@ -92,6 +92,28 @@ const IDENTITY_NUMBER = runIdentityNumber(suffix);
 
 const addressId = `purge-address-${suffix}`;
 
+/**
+ * The connected app one of the fixture's accounts authorised.
+ *
+ * Named here because the clean-up has to find the client row: a client is
+ * reached by its client id rather than by a person column, and it outlives
+ * every account that consented to it.
+ */
+const CONNECTED_APP_CLIENT_ID = `https://app.exempel.test/${suffix}/klient.json`;
+const connectedAppRowId = `purge-client-${suffix}`;
+const connectedAppRefreshId = `purge-refresh-row-${suffix}`;
+
+/**
+ * A second app, on an account no rule lets the purge reach.
+ *
+ * The nightly sweep is not part of anybody's purge, so what it deletes has to
+ * be shown on rows that survive every person the run erases. Its tokens are
+ * dated against `dueAt` rather than against today, because that is the clock
+ * the run judges expiry by.
+ */
+const SWEPT_APP_CLIENT_ID = `https://gammal.exempel.test/${suffix}/klient.json`;
+const sweptAppRowId = `purge-swept-client-${suffix}`;
+
 function apartmentId(name: string): string {
   return `purge-apartment-${name}-${suffix}`;
 }
@@ -448,6 +470,132 @@ beforeAll(async () => {
     name: "Person Gallring",
     password: PASSWORD,
   });
+  /*
+   * An app that account connected, with both kinds of token behind it. Nothing
+   * in the purge names these tables: they hang off the account through cascades
+   * of their own, and this fixture is what says the single delete below really
+   * does reach them.
+   */
+  const accountedUser = await prisma.user.findUniqueOrThrow({
+    where: { personId: people.accounted },
+    select: { id: true },
+  });
+  await prisma.oauthClient.create({
+    data: {
+      id: connectedAppRowId,
+      clientId: CONNECTED_APP_CLIENT_ID,
+      clientDiscoveryId: CONNECTED_APP_CLIENT_ID,
+      name: `Anteckningsappen ${suffix}`,
+      scopes: ["mcp:read", "offline_access"],
+      createdAt: new Date(Date.now() - DAY),
+      updatedAt: new Date(Date.now() - DAY),
+      consents: {
+        create: {
+          userId: accountedUser.id,
+          scopes: ["mcp:read"],
+          createdAt: new Date(Date.now() - DAY),
+          updatedAt: new Date(Date.now() - DAY),
+        },
+      },
+    },
+  });
+  await prisma.oauthRefreshToken.create({
+    data: {
+      id: connectedAppRefreshId,
+      token: `purge-refresh-${suffix}`,
+      clientId: CONNECTED_APP_CLIENT_ID,
+      userId: accountedUser.id,
+      scopes: ["mcp:read", "offline_access"],
+      createdAt: new Date(Date.now() - DAY),
+      // Live, and relative to now, so the nightly sweep cannot reach it first:
+      // what this fixture is about is the account cascade, not the expiry.
+      expiresAt: new Date(Date.now() + 7 * DAY),
+    },
+  });
+  await prisma.oauthAccessToken.create({
+    data: {
+      token: `purge-access-${suffix}`,
+      clientId: CONNECTED_APP_CLIENT_ID,
+      userId: accountedUser.id,
+      refreshId: connectedAppRefreshId,
+      scopes: ["mcp:read"],
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    },
+  });
+  /*
+   * A second app, on the board member's account, holding one of each row the
+   * nightly sweep decides about: an access token that has run out, a refresh
+   * token revoked longer ago than the refresh lifetime, and a live access token
+   * that has to survive. Every date is set against `dueAt`, which is the clock
+   * the run judges expiry by, and the account is one no rule lets the purge
+   * reach - so what the sweep does is visible after a whole run.
+   */
+  await auth.createAccountForPerson({
+    personId: people.board,
+    email: `${people.board}@exempel.se`,
+    name: "Person Gallring",
+    password: PASSWORD,
+  });
+  const boardUser = await prisma.user.findUniqueOrThrow({
+    where: { personId: people.board },
+    select: { id: true },
+  });
+  await prisma.oauthClient.create({
+    data: {
+      id: sweptAppRowId,
+      clientId: SWEPT_APP_CLIENT_ID,
+      clientDiscoveryId: SWEPT_APP_CLIENT_ID,
+      name: `Gamla appen ${suffix}`,
+      scopes: ["mcp:read", "offline_access"],
+      createdAt: MOVED_OUT,
+      updatedAt: MOVED_OUT,
+      consents: {
+        create: {
+          userId: boardUser.id,
+          scopes: ["mcp:read"],
+          createdAt: MOVED_OUT,
+          updatedAt: MOVED_OUT,
+        },
+      },
+    },
+  });
+  await prisma.oauthAccessToken.createMany({
+    data: [
+      {
+        token: `purge-spent-access-${suffix}`,
+        clientId: SWEPT_APP_CLIENT_ID,
+        userId: boardUser.id,
+        scopes: ["mcp:read"],
+        createdAt: MOVED_OUT,
+        expiresAt: new Date(MOVED_OUT.getTime() + 15 * 60 * 1000),
+      },
+      {
+        token: `purge-live-access-${suffix}`,
+        clientId: SWEPT_APP_CLIENT_ID,
+        userId: boardUser.id,
+        scopes: ["mcp:read"],
+        createdAt: MOVED_OUT,
+        // Long past the run's clock, so the sweep has to leave it: deleting a
+        // token an app can still present is a revocation, not a purge.
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      },
+    ],
+  });
+  await prisma.oauthRefreshToken.create({
+    data: {
+      token: `purge-spent-refresh-${suffix}`,
+      clientId: SWEPT_APP_CLIENT_ID,
+      userId: boardUser.id,
+      scopes: ["mcp:read", "offline_access"],
+      createdAt: MOVED_OUT,
+      expiresAt: new Date(MOVED_OUT.getTime() + 7 * DAY),
+      // Revoked the day after it was issued, which is a year before the run's
+      // clock: the window a replay could still have been recognised in is long
+      // closed.
+      revoked: new Date(MOVED_OUT.getTime() + DAY),
+    },
+  });
   await prisma.invitation.createMany({
     data: [
       {
@@ -491,6 +639,17 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
+        /*
+         * The client takes its consents and its tokens with it, through the
+         * cascades every table in that section reaches a client by. It has to
+         * go whether or not the purge under test reached the account first.
+         */
+        () =>
+          prisma.oauthClient.deleteMany({
+            where: {
+              clientId: { in: [CONNECTED_APP_CLIENT_ID, SWEPT_APP_CLIENT_ID] },
+            },
+          }),
         () =>
           prisma.session.deleteMany({
             where: { user: { personId: { in: personIds } } },
@@ -620,6 +779,17 @@ describe("what the purge erases", () => {
   });
 
   it("deletes the account and every invitation still open", async () => {
+    /*
+     * The grant and the tokens behind a connected app are here before the run,
+     * so their absence afterwards means the cascade reached them rather than
+     * that the fixture never wrote them.
+     */
+    await expect(
+      prisma.oauthConsent.count({
+        where: { clientId: CONNECTED_APP_CLIENT_ID },
+      }),
+    ).resolves.toBe(1);
+
     const outcome = await purge.purgePerson(people.accounted, dueAt);
 
     expect(outcome?.accountDeleted).toBe(true);
@@ -632,6 +802,37 @@ describe("what the purge erases", () => {
     await expect(
       prisma.session.count({ where: { user: { personId: people.accounted } } }),
     ).resolves.toBe(0);
+    /*
+     * And so do the connected apps, which the purge names nowhere: the grant
+     * and both kinds of token hang off the account through cascades of their
+     * own. An app that still held a live token for somebody the register has
+     * erased would be the clearest possible sign that the purge is cosmetic.
+     */
+    await expect(
+      prisma.oauthConsent.count({
+        where: { clientId: CONNECTED_APP_CLIENT_ID },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.oauthAccessToken.count({
+        where: { clientId: CONNECTED_APP_CLIENT_ID },
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      prisma.oauthRefreshToken.count({
+        where: { clientId: CONNECTED_APP_CLIENT_ID },
+      }),
+    ).resolves.toBe(0);
+    /*
+     * The client row itself stays. It is not this person's - other members may
+     * have connected the same app - and deleting it would disconnect every one
+     * of them, with no board decision behind it.
+     */
+    await expect(
+      prisma.oauthClient.count({
+        where: { clientId: CONNECTED_APP_CLIENT_ID },
+      }),
+    ).resolves.toBe(1);
     await expect(
       prisma.invitation.count({
         where: { personId: people.accounted, acceptedAt: null },
@@ -991,6 +1192,44 @@ describe("running the job", () => {
     expect((await personRow(people.board)).emailCipher).not.toBeNull();
     expect((await personRow(people.staying)).emailCipher).not.toBeNull();
     expect((await personRow(people.raced)).emailCipher).not.toBeNull();
+  });
+
+  it("sweeps the tokens that have run out on the same run", async () => {
+    /*
+     * The record of processing says an access or refresh row is erased once it
+     * expires or is revoked. Nothing in the product would make that true except
+     * a job that does it, and this is the run it rides - so the assertion is on
+     * a whole run rather than on the sweep called by hand.
+     *
+     * The rows belong to a board member's account, which no rule lets the purge
+     * reach: what is being shown is the sweep, not a person's erasure.
+     */
+    await purge.run(dueAt);
+
+    const left = await prisma.oauthAccessToken.findMany({
+      where: { clientId: SWEPT_APP_CLIENT_ID },
+      select: { token: true },
+    });
+    // The one an app can still present stays. Deleting it would be a
+    // revocation, which is a deliberate act with an entry behind it.
+    expect(left.map((row) => row.token)).toEqual([
+      `purge-live-access-${suffix}`,
+    ]);
+
+    await expect(
+      prisma.oauthRefreshToken.count({
+        where: { clientId: SWEPT_APP_CLIENT_ID },
+      }),
+    ).resolves.toBe(0);
+
+    /*
+     * The grant itself stays. A consent is not held on a clock: it lasts until
+     * the person disconnects the app, and a sweep that removed one would
+     * disconnect somebody because a token had expired.
+     */
+    await expect(
+      prisma.oauthConsent.count({ where: { clientId: SWEPT_APP_CLIENT_ID } }),
+    ).resolves.toBe(1);
   });
 });
 

@@ -633,6 +633,34 @@ export const SCREENS: readonly Screen[] = [
     capture: { panel: "Meddelanden från webbplatsen" },
   },
 
+  // --- connected apps --------------------------------------------------------
+  // Still the administrator, and reached by a URL like any other board
+  // destination. The member's half of this is a card on the settings screen,
+  // photographed from a member's own session further down.
+  {
+    /*
+     * Every connection on the instance, with nothing connected.
+     *
+     * Empty for the reason the inbox above is: nothing in this walk can make a
+     * connection. An app is connected by a registered client sending a signed
+     * authorization request and a member answering it, which is a call rather
+     * than a sequence of clicks - and this manifest declares clicks and fills.
+     * The empty state is what a board meets on the day it first opens the
+     * destination, and it is the honest picture of the screen.
+     *
+     * The whole page, because both halves of it are the point: what members
+     * have let act for them, and beneath that the address an app has to ask
+     * for - a standing fact about the instance rather than part of any one
+     * connection.
+     */
+    name: "connected-apps",
+    goto: appPath("/connected-apps"),
+    // The sentence that exists only once the list has been read. The heading
+    // above it renders before the request comes back.
+    waitFor: { text: "Ingen i föreningen har anslutit någon app." },
+    capture: "page",
+  },
+
   // --- the resident-facing board ---------------------------------------------
   // Last, with the tenant-owner below, because these two are the screens that
   // need a session of their own: the server refuses the board view to anyone
@@ -649,6 +677,24 @@ export const SCREENS: readonly Screen[] = [
     as: "member",
     goto: appPath("/registers/apartments"),
     waitFor: { heading: MEMBER.designation },
+  },
+  {
+    /*
+     * What one member has let act in their stead, on the card that holds the
+     * other ways into their account.
+     *
+     * From a member's own session rather than the administrator's, because
+     * that is whose card it is: it needs no capability, since somebody who can
+     * let an app act for them must not need the board in order to take it
+     * back. The session the entry above established is already hers, so this
+     * costs the walk a navigation and no sign-in.
+     *
+     * Empty, for the reason the board's screen is.
+     */
+    name: "settings-connected-apps",
+    goto: appPath("/settings"),
+    waitFor: { text: "Du har inte anslutit någon app." },
+    capture: { panel: "Anslutna appar" },
   },
 
   // --- retention -------------------------------------------------------------

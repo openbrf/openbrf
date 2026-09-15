@@ -40,6 +40,17 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchIssueTypes: () => Promise.resolve({ ok: true, value: [] }),
 }));
 
+// The connected apps section inside the security panel self-loads as well.
+// Same reason again: this file is about which panels a viewer is offered, and
+// that section is offered to every account.
+vi.mock("../connected-apps/connections-api", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../connected-apps/connections-api")
+  >()),
+  fetchMyConnectedApps: () =>
+    Promise.resolve({ ok: true, value: { connectedApps: [] } }),
+}));
+
 vi.mock("../auth/auth-client", () => ({
   useSession: () => ({ data: { user: { twoFactorEnabled: false } } }),
   authClient: {
@@ -330,9 +341,14 @@ describe("before the reads settle", () => {
       "self:manage",
     ]);
 
-    expect(screen.getByRole("status").textContent).toContain(
-      "Hämtar inställningar",
-    );
+    // Picked out among the status lines rather than assumed to be the only
+    // one: the security panel's connected apps read for itself and says so
+    // while it is reading, which is a second unsettled read on this screen.
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((node) => node.textContent?.includes("Hämtar inställningar")),
+    ).toBe(true);
     // The three panels built from the unsettled read. The profile and security
     // panels below them do not depend on it and stay.
     expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();

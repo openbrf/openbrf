@@ -6,6 +6,11 @@ import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
+import {
+  addLocalDays,
+  formatLocalDay,
+  localDayOf,
+} from "../bookings/stockholm-calendar";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -403,9 +408,14 @@ describe("recording a charge", () => {
   });
 
   it("refuses a charge dated in the future", async () => {
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
+    /*
+     * Tomorrow in the association's own calendar, which is what the service
+     * compares against. Adding a day to an instant and reading it back in UTC
+     * names a different day for the two hours either side of local midnight -
+     * so between 22:00 and 24:00 UTC this asked the service to refuse a date
+     * that was already today here, and the service was right to accept it.
+     */
+    const tomorrow = formatLocalDay(addLocalDays(localDayOf(new Date()), 1));
     const response = await recordCharge(chargeOn({ chargedOn: tomorrow }));
 
     expect(response.statusCode).toBe(422);

@@ -69,6 +69,85 @@ export interface ReportAccount {
 }
 
 /**
+ * What a grant to a connected app can cover.
+ *
+ * The three scopes the provider is configured to issue, spelled out rather than
+ * left as `string` for the reason {@link ReportAuditEntry.action} is: the
+ * browser turns each of them into a sentence in the association's own words,
+ * and a producer typed wider lets a value reach a consumer that has no case for
+ * it while both builds stay green. A client may only ask for a scope the
+ * provider advertises, so this states what the column can hold rather than
+ * narrowing it.
+ *
+ * `offline_access` is here although no client asks for it on its own - it is
+ * what a refresh token rests on - because what the person agreed to is what
+ * art. 15 asks for, and a grant that keeps working while they are away is the
+ * part of it they would want to read.
+ */
+export type ReportConnectedAppScope =
+  "mcp:read" | "mcp:write" | "offline_access";
+
+/**
+ * An external program this person allowed to act for them (ansluten app).
+ *
+ * One row per consent, which is one person allowing one client. On the report
+ * for two reasons at once: the grant is a record the association holds about
+ * them, and the client is a recipient their data goes to - GDPR art. 15(1)(c)
+ * gives the data subject the recipients "to whom the personal data have been or
+ * will be disclosed", and an app acting as them is exactly that.
+ *
+ * No token travels here, in any form. The access and refresh rows behind a
+ * grant hold a digest of a live credential, and the one thing a document handed
+ * over on paper must never carry is a way back into the account it describes.
+ * What those rows contribute is a date, below.
+ *
+ * The grant states no erasure date. A consent is not held on a clock: it lasts
+ * until the person disconnects the app, or until the purge erases their
+ * account and takes it with them.
+ */
+export interface ReportConnectedApp {
+  /**
+   * What the client calls itself, as it declared itself when it registered.
+   * Null where it declared no name.
+   */
+  clientName: string | null;
+  /**
+   * The host the client is reached at, read from the client-id URL it
+   * presented or from the client URI it registered.
+   *
+   * Null where neither is a URL that parses. The host rather than the whole
+   * address, because what says which app this is is where it lives, and a path
+   * and a query would make the row longer and less recognisable.
+   */
+  clientHost: string | null;
+  /** What the grant covers, in the order the consent records it. */
+  scopes: ReportConnectedAppScope[];
+  /** ISO instant the person consented. */
+  connectedAt: string;
+  /**
+   * ISO instant the association last issued this app a token, or null where it
+   * holds no token row for the grant.
+   *
+   * What it means: the newest `createdAt` across the access and refresh rows
+   * still held for this person and this client and not taken back. An access
+   * token lasts fifteen minutes and is reissued from a refresh token whenever
+   * the app comes back, so a recent value says the app was active around then.
+   *
+   * What it does not mean: that the app did anything with the token. Nothing
+   * records a call against a grant, and a table that did would be a second
+   * per-request log of what a member's apps read. What an app actually did is
+   * in the audit log, against this person, with the channel saying it came that
+   * way - which is the section of this report that answers it.
+   *
+   * Nor is null "never used". The nightly sweep deletes an access row once it
+   * has expired and a refresh row once it has run out, so a grant nobody has
+   * exercised lately has no token row left to date - the value reads as "not
+   * lately", and the audit entries are what reach further back.
+   */
+  lastUsedAt: string | null;
+}
+
+/**
  * What this person has asked about their own data, and what the board decided.
  *
  * On their own access report because it is theirs: art. 15 gives a person what
@@ -918,6 +997,8 @@ export interface DataSubjectReport {
   boardPositions: ReportBoardPosition[];
   systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
   account: ReportAccount | null;
+  /** The external programs allowed to act for this person. */
+  connectedApps: ReportConnectedApp[];
   memberRegisterEntries: ReportMemberRegisterEntry[];
   transfers: ReportTransfer[];
   transferReversals: ReportTransferReversal[];

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PROCESSOR_KEYS,
+  connectedAppProcessorKey,
   externalProcessorKey,
   parseProcessorKey,
   pluginProcessorKey,
@@ -33,6 +34,24 @@ describe("processor keys", () => {
     });
   });
 
+  it("round trips a connected app, whatever generated its row id", () => {
+    /*
+     * The row id rather than the client id, because a client registering
+     * through its metadata document presents a URL as its client id and a URL
+     * is not a path segment. The key is addressed on the route that records a
+     * classification, which is the only thing a key is for.
+     */
+    const key = connectedAppProcessorKey("Xk3-9_aZ");
+
+    expect(key).toBe("connectedApp:Xk3-9_aZ");
+    expect(parseProcessorKey(key)).toEqual({
+      // A recipient outside the instance that the association never engaged,
+      // which is what EXTERNAL names.
+      kind: "EXTERNAL",
+      id: "Xk3-9_aZ",
+    });
+  });
+
   it.each(["smtp", "sms", "storage", "hosting"])(
     "reads the fixed key %s back as its kind",
     (key) => {
@@ -50,6 +69,8 @@ describe("processor keys", () => {
     ["a plugin id ending in a hyphen", "plugin:occupancy-"],
     ["an uppercase plugin id", "plugin:Occupancy"],
     ["an external key with no id", "external:"],
+    ["a connected app key with no id", "connectedApp:"],
+    ["a connected app key holding a URL", "connectedApp:https://app.test/x"],
     ["a path traversal", "storage/../smtp"],
     ["an empty key", ""],
   ])("refuses %s", (_label, key) => {

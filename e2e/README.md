@@ -284,6 +284,41 @@ statement about the people in a photograph, and an input offering it would be
 the platform inviting a caller to assert it on their behalf. The spec removes
 the notice it wrote.
 
+`37-mcp-sign-in.spec.ts` drives how a member points an external program at their
+own instance, and it covers one half of that. The half is everything around the
+token, which is the part that only exists once the image is serving one origin.
+The discovery documents answer at the root of the origin, over HTTP, to a caller
+holding no session: that is where a client has to find them and how it has to be
+able to read them, before any token exists. The OpenID alias answers a refusal in
+JSON, asserted against an unclaimed path beside it, because the association's own
+website answers that path with a not-found page carrying the same status and only
+one of the two is something a program can parse. A member then reads what they
+have let act in their stead on their own settings screen and is refused the
+association's list three times over - in the navigation, on the screen and by the
+endpoint. The board reads that list, and the address its screen prints for
+configuring an app is the one the resource document names; an elected seat reads
+the same list and is offered no way to register a client, which is an
+administrator's, so the two capabilities the screen is built around are held
+apart where a person meets them. Last, the sign-in hop, which this change fixes
+for every guarded route in the product: an address asked for without a session
+travels to the sign-in screen and is returned to afterwards, and one naming
+another host is refused so that signing in cannot end on somebody else's site.
+
+The other half - a token presented on the resource route and accepted or refused
+there - is not in this package and cannot be. The resource is a connector
+plugin's own route; this stack installs no plugin, so nothing declares one, and
+with none declared the authorization guard's Bearer branch is never installed and
+no path on the instance is Bearer-only. A test here against that branch would be
+asserting about code the deployed image did not load.
+`apps/api/src/plugins/plugin-http.int-spec.ts` covers it against a plugin that
+really is installed and really does serve the route, and
+`apps/api/src/connected-apps/connected-apps.int-spec.ts` covers resolving a
+token against the audience, the expiry and a cut connection, the lists on both
+sides, the disconnect and its audit entry, and what erasing a person takes with
+them. The same limit is why both lists the spec reads are empty: connecting an
+app takes a registered client and a signed authorization request, which is a
+call rather than anything a person does at a browser.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
@@ -486,3 +521,18 @@ changes the screen, not later:
   to the union and to `perform` in `capture.spec.ts` once, as the section above
   describes; the entry itself is then three lines. `36-action-registry.spec.ts`
   covers the state.
+- **The consent screen a member answers for a connected app.**
+  `connected-app-consent`: which app is asking, where its answer goes, what it
+  could do with this person's own standing, and the acknowledgement and button
+  that grant it. The walk cannot reach the address. The screen renders from a
+  signed authorization request in its query string, which takes a registered
+  client - `POST /api/oauth-clients`, or a metadata document the instance
+  fetches - and a call to the authorize endpoint with a code challenge, which
+  answers with the address the request is carried on. An entry in `screens.ts`
+  declares clicks and fills rather than calls, so it needs the same `Action`
+  kind the mailing request above needs, and one thing beyond it: the address to
+  navigate to is composed by that call, while `goto` is a string written in the
+  manifest - so the kind has to be able to hand its answer to the navigation.
+  `apps/web/src/connected-apps/OAuthConsentScreen.test.tsx` covers the screen,
+  and `37-mcp-sign-in.spec.ts` covers the route sending somebody with no session
+  to sign in first.
