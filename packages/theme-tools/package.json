@@ -17,11 +17,11 @@
   },
   "dependencies": {
     "@openbrf/tokens": "workspace:*",
-    "zod": "^4.6.2"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",
-    "oxlint": "^1.82.0",
+    "oxlint": "^1.83.0",
     "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
