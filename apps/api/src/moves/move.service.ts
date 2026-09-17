@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -594,11 +595,11 @@ export class MoveService implements OnModuleInit {
 
     return {
       residencyId: residency.id,
-      movedOutOn: isoDate(movedOutOn),
-      purgeOn: isoDate(purgeOn),
+      movedOutOn: formatDateColumn(movedOutOn),
+      purgeOn: formatDateColumn(purgeOn),
       memberRegisterExitRecorded: result.memberRegisterExitRecorded,
       transferId: result.transferId,
-      boardReminderOn: isoDate(movedOutOn),
+      boardReminderOn: formatDateColumn(movedOutOn),
     };
   }
 
@@ -836,9 +837,4 @@ export class MoveService implements OnModuleInit {
  */
 function parseDate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
-}
-
-function isoDate(value: Date): string {
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
 }

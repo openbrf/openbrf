@@ -1,6 +1,6 @@
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import { dateColumnOf, localDayOf } from "../bookings/stockholm-calendar";
 import {
   EVENT_SIGNUP_RETENTION_DAYS,
   computeEventSignupPurgeDate,

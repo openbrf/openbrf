@@ -1,6 +1,6 @@
+import type { Period } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import type { Period } from "../bookings/stockholm-calendar";
 import {
   displacedBy,
   planOccurrences,

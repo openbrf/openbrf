@@ -4,6 +4,7 @@ import {
   addLocalDays,
   compareLocalDays,
   dateColumnOf,
+  formatDateColumn,
   formatLocalDay,
   instantAt,
   type LocalDay,
@@ -12,7 +13,7 @@ import {
   localMinuteOf,
   localWeekAround,
   parseLocalDay,
-} from "./stockholm-calendar";
+} from "./stockholm-calendar.ts";
 
 /**
  * The wall clock, against the two Sundays a year that make it interesting.
@@ -197,6 +198,46 @@ describe("a date column", () => {
     expect(dateColumnOf(localDayOf(justAfterLocalMidnight)).toISOString()).toBe(
       "2027-07-01T00:00:00.000Z",
     );
+  });
+});
+
+describe("printing a date column", () => {
+  it("states the date the column holds", () => {
+    expect(
+      formatDateColumn(dateColumnOf({ year: 2026, month: 3, day: 5 })),
+    ).toBe("2026-03-05");
+  });
+
+  it("pads a single-digit month and day", () => {
+    expect(
+      formatDateColumn(dateColumnOf({ year: 2026, month: 1, day: 9 })),
+    ).toBe("2026-01-09");
+  });
+
+  it("reads a column that may be absent without a guard at the call site", () => {
+    const rows: { movedOutOn: Date | null }[] = [
+      { movedOutOn: dateColumnOf({ year: 2026, month: 12, day: 31 }) },
+      { movedOutOn: null },
+    ];
+
+    expect(rows.map((row) => formatDateColumn(row.movedOutOn))).toEqual([
+      "2026-12-31",
+      null,
+    ]);
+  });
+
+  it("reads UTC fields, which is why an instant is not one of these", () => {
+    /*
+     * 22:30 UTC on the 21st of June is half past midnight on the 22nd in
+     * Stockholm. This answers the 21st, because the fields it reads are the
+     * ones a date column was written with. An instant stated as a day is
+     * `formatLocalDay(localDayOf(instant))` instead, and the argument's name is
+     * the only thing telling the two apart at a call site.
+     */
+    const instant = new Date("2026-06-21T22:30:00.000Z");
+
+    expect(formatDateColumn(instant)).toBe("2026-06-21");
+    expect(formatLocalDay(localDayOf(instant))).toBe("2026-06-22");
   });
 });
 

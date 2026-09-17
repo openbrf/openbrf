@@ -1,3 +1,4 @@
+import { formatDateColumn } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,7 +8,6 @@ import {
   refuseTermEnd,
   RoleChangeError,
   revokingWouldLeaveNoAdministrator,
-  toCalendarDate,
 } from "./role-changes";
 
 /**
@@ -249,12 +249,14 @@ describe("register dates", () => {
   });
 
   it("writes a date back as the day and not the instant", () => {
-    expect(toCalendarDate(new Date("2026-04-14T23:59:00.000Z"))).toBe(
+    expect(formatDateColumn(new Date("2026-04-14T23:59:00.000Z"))).toBe(
       "2026-04-14",
     );
   });
 
   it("round-trips", () => {
-    expect(toCalendarDate(parseCalendarDate("2026-04-14"))).toBe("2026-04-14");
+    expect(formatDateColumn(parseCalendarDate("2026-04-14"))).toBe(
+      "2026-04-14",
+    );
   });
 });

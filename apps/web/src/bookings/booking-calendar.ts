@@ -24,15 +24,17 @@
  * uses, for the same reason.
  */
 
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
+
 /**
  * The association's clock, as the API states it.
  *
- * Mirrored rather than imported, like every other wire constant here: the
- * browser and the server are separate builds. It is the one place in the client
- * that names a zone, so a screen cannot quietly render a booking in the
- * viewer's own.
+ * Taken from `@openbrf/shared`, which both applications build against, so a
+ * screen and the server cannot come to name different zones. Re-exported here
+ * because this is the one place in the client that names the constant, so a
+ * screen cannot quietly render a booking in the viewer's own.
  */
-export const ASSOCIATION_TIME_ZONE = "Europe/Stockholm";
+export { ASSOCIATION_TIME_ZONE };
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 

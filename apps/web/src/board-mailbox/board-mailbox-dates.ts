@@ -11,7 +11,8 @@
  * The zone is the association's, not the browser's. A board reading its mailbox
  * from another country is reading about letters that arrived here.
  */
-const ZONE = "Europe/Stockholm";
+
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 
 function instant(iso: string): Date | null {
   const value = new Date(iso);
@@ -27,7 +28,7 @@ export function formatMailboxDay(iso: string, locale: string): string {
         year: "numeric",
         month: "short",
         day: "numeric",
-        timeZone: ZONE,
+        timeZone: ASSOCIATION_TIME_ZONE,
       }).format(value);
 }
 
@@ -48,6 +49,6 @@ export function formatMailboxMoment(iso: string, locale: string): string {
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
-        timeZone: ZONE,
+        timeZone: ASSOCIATION_TIME_ZONE,
       }).format(value);
 }

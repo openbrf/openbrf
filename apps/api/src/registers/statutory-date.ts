@@ -4,7 +4,7 @@ import {
   type LocalDay,
   localDayOf,
   parseLocalDay,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
 
 /**
  * A calendar date a board states about a statutory event, checked and converted.

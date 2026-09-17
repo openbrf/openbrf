@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
-import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -410,7 +410,7 @@ export class InitialSupplyService {
         // admitted them to the membership they hold now is the later.
         const decided = apartment.transfers
           .filter((transfer) => transfer.toPersonId === person.id)
-          .map((transfer) => isoDate(transfer.membershipDecidedOn))
+          .map((transfer) => formatDateColumn(transfer.membershipDecidedOn))
           .filter((day): day is string => day !== null)
           .at(-1);
 
@@ -447,7 +447,7 @@ export class InitialSupplyService {
           holderProtectedPersonalData: person.protectedPersonalData
             ? "yes"
             : "no",
-          holderHeldFrom: isoDate(residency.movedInOn) ?? "",
+          holderHeldFrom: formatDateColumn(residency.movedInOn) ?? "",
           holderMembershipDecidedOn: decided ?? "",
         });
       }
@@ -457,7 +457,7 @@ export class InitialSupplyService {
           recordType: "LIEN",
           apartmentKey,
           lienCreditor: lien.creditor,
-          lienNotedOn: isoDate(lien.notedOn) ?? "",
+          lienNotedOn: formatDateColumn(lien.notedOn) ?? "",
         });
       }
     }
@@ -484,12 +484,4 @@ export class InitialSupplyService {
       apartmentIds: apartments.map((apartment) => apartment.id),
     };
   }
-}
-
-function isoDate(value: Date | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
 }

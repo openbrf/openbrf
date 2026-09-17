@@ -1,10 +1,6 @@
+import { formatLocalDay, type LocalDay, localDayOf } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import {
-  formatLocalDay,
-  localDayOf,
-  type LocalDay,
-} from "../bookings/stockholm-calendar";
 import {
   checkRecurrenceSchedule,
   MAX_OCCURRENCES,

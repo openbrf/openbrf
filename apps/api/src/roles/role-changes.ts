@@ -201,9 +201,3 @@ export function revokingWouldLeaveNoAdministrator(input: {
 export function parseCalendarDate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
-
-/** The day out of a date. Register dates are days, never instants. */
-export function toCalendarDate(value: Date): string {
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
-}

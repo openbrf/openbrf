@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
-import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";

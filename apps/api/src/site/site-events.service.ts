@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
+import { instantAt, localDayOf } from "@openbrf/shared";
 
-import { instantAt, localDayOf } from "../bookings/stockholm-calendar";
 import { PrismaService } from "../database/prisma.service";
 
 /**

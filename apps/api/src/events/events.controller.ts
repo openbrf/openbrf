@@ -10,18 +10,18 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { z } from "zod";
-
-import type { RequestWithPrincipal } from "../authorization/authorization.guard";
-import type { Principal } from "../authorization/capabilities";
-import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   addLocalDays,
   type LocalDay,
   localDayOf,
   MINUTES_PER_DAY,
   parseLocalDay,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
+import { z } from "zod";
+
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import type { Principal } from "../authorization/capabilities";
+import { RequireCapability } from "../authorization/require-capability.decorator";
 import { EventError } from "./event.error";
 import {
   type EventCalendarWindow,

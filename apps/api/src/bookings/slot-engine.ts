@@ -42,17 +42,18 @@
  * that is how long the wall clock spends reading 02:00 that day.
  */
 
-import type { BookingResourceMode } from "../generated/prisma/enums";
-import { checkResourceSchedule } from "./resource-schedule";
 import {
   addLocalDays,
   compareLocalDays,
   instantAt,
+  type LocalDay,
   localDayOf,
   localDaysBetween,
-  type LocalDay,
   type Period,
-} from "./stockholm-calendar";
+} from "@openbrf/shared";
+
+import type { BookingResourceMode } from "../generated/prisma/enums";
+import { checkResourceSchedule } from "./resource-schedule";
 
 /**
  * The days one request may ask for.

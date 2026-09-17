@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -19,7 +20,6 @@ import {
   isVisibleToResidents,
   type ResidentDirectoryRow,
   toAddressBookRow,
-  toIsoDate,
   toResidentDirectoryRow,
 } from "./address-book-view";
 
@@ -131,7 +131,7 @@ export class AddressBookService {
       toRow: (record) =>
         toAddressBookRow(record, {
           today: now,
-          purgeOn: toIsoDate(
+          purgeOn: formatDateColumn(
             computePurgeDate(record.movedOutOn, retentionDays),
           ),
         }),
@@ -216,8 +216,8 @@ export class AddressBookService {
         name: `${residency.person.firstName} ${residency.person.lastName}`.trim(),
         protectedPersonalData: residency.person.protectedPersonalData,
         role: residency.role,
-        movedInOn: toIsoDate(residency.movedInOn),
-        movedOutOn: toIsoDate(residency.movedOutOn),
+        movedInOn: formatDateColumn(residency.movedInOn),
+        movedOutOn: formatDateColumn(residency.movedOutOn),
       },
       ended: hasMovedOut(residency.movedOutOn, now),
     }));
@@ -416,7 +416,7 @@ export class AddressBookService {
       page: query.page,
       pageSize: query.pageSize,
       stats,
-      generatedOn: toIsoDate(now) ?? "",
+      generatedOn: formatDateColumn(now) ?? "",
     };
   }
 

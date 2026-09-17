@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -21,7 +22,6 @@ import {
   hasMovedOut,
   isMasked,
   type MaskableField,
-  toIsoDate,
 } from "./address-book-view";
 import {
   consentStateFor,
@@ -378,17 +378,17 @@ export class PersonService {
         addressId: residency.apartment.address.id,
         addressLabel: `${residency.apartment.address.street} ${residency.apartment.address.number}`,
         role: residency.role,
-        movedInOn: toIsoDate(residency.movedInOn),
-        movedOutOn: toIsoDate(residency.movedOutOn),
-        purgeOn: toIsoDate(
+        movedInOn: formatDateColumn(residency.movedInOn),
+        movedOutOn: formatDateColumn(residency.movedOutOn),
+        purgeOn: formatDateColumn(
           computePurgeDate(residency.movedOutOn, retentionDays),
         ),
       })),
       boardPositions: person.boardPositions.map((position) => ({
         boardPositionId: position.id,
         position: position.position,
-        electedOn: toIsoDate(position.electedOn),
-        endedOn: toIsoDate(position.endedOn),
+        electedOn: formatDateColumn(position.electedOn),
+        endedOn: formatDateColumn(position.endedOn),
       })),
       systemRoles: person.systemRoles.map((role) => role.role),
       account: {

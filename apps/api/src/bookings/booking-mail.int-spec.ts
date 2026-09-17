@@ -5,6 +5,12 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import {
+  addLocalDays,
+  formatLocalDay,
+  type LocalDay,
+  localDayOf,
+} from "@openbrf/shared";
+import {
   afterAll,
   afterEach,
   beforeAll,
@@ -24,12 +30,6 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { BookableSlotView, OwnBookingView } from "./booking.service";
-import {
-  addLocalDays,
-  formatLocalDay,
-  type LocalDay,
-  localDayOf,
-} from "./stockholm-calendar";
 
 /**
  * The booking mails, through the real routes.

@@ -15,7 +15,8 @@
  * connection it is about to cut - and the day alone cannot tell two of them
  * apart.
  */
-const ZONE = "Europe/Stockholm";
+
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 
 /**
  * The day and the time an instant fell on.
@@ -34,6 +35,6 @@ export function formatConnectedAppMoment(iso: string, locale: string): string {
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
-        timeZone: ZONE,
+        timeZone: ASSOCIATION_TIME_ZONE,
       }).format(value);
 }

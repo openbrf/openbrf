@@ -1,3 +1,4 @@
+import { formatDateColumn } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,7 +10,6 @@ import {
   MASKABLE_FIELDS,
   signsFor,
   toAddressBookRow,
-  toIsoDate,
   toResidentDirectoryRow,
 } from "./address-book-view";
 
@@ -378,10 +378,12 @@ describe("row keys", () => {
 
 describe("dates on the mono grid", () => {
   it("renders a calendar date, not an instant", () => {
-    expect(toIsoDate(new Date("2019-06-01T00:00:00.000Z"))).toBe("2019-06-01");
+    expect(formatDateColumn(new Date("2019-06-01T00:00:00.000Z"))).toBe(
+      "2019-06-01",
+    );
   });
 
   it("passes null through", () => {
-    expect(toIsoDate(null)).toBeNull();
+    expect(formatDateColumn(null)).toBeNull();
   });
 });

@@ -15,8 +15,9 @@
  * reads as though it did something.
  */
 
+import { MINUTES_PER_DAY } from "@openbrf/shared";
+
 import type { BookingResourceMode } from "../generated/prisma/enums";
-import { MINUTES_PER_DAY } from "./stockholm-calendar";
 
 /**
  * The booking mechanics as a board states them.

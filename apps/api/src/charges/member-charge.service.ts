@@ -1,8 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
-
-import { isMasked } from "../address-book/address-book-view";
-import { AuditLogService } from "../audit/audit-log.service";
 import {
   compareLocalDays,
   dateColumnOf,
@@ -11,7 +7,11 @@ import {
   localDayOf,
   localDayOfColumn,
   parseLocalDay,
-} from "../bookings/stockholm-calendar";
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
+
+import { isMasked } from "../address-book/address-book-view";
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import {

@@ -192,9 +192,8 @@ export function lienNotesDuringHolding<Note extends DatedLienNote>(
  * sides come from `@db.Date` columns - `eventOn` on the member register entry
  * and `tookEffectOn` here - so both are read back at midnight UTC and are the
  * same kind of thing. Nothing in this file may be handed a locally anchored
- * instant instead; `dateColumnOf` in the booking module's stockholm-calendar is
- * what produces the comparable value, and the register service writes through
- * it.
+ * instant instead; `dateColumnOf` in `@openbrf/shared` is what produces the
+ * comparable value, and the register service writes through it.
  */
 export function terminationsDuringHolding<Event extends DatedTermination>(
   terminations: readonly Event[],

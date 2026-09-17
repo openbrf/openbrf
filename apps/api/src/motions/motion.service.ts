@@ -1,12 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
-
-import { AuditLogService } from "../audit/audit-log.service";
-import type { Principal } from "../authorization/capabilities";
 import {
   formatLocalDay,
   localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
+
+import { AuditLogService } from "../audit/audit-log.service";
+import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { MeetingKind, MotionStatus } from "../generated/prisma/enums";

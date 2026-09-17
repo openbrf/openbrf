@@ -1,7 +1,4 @@
-import {
-  compareLocalDays,
-  type LocalDay,
-} from "../bookings/stockholm-calendar";
+import { compareLocalDays, type LocalDay } from "@openbrf/shared";
 
 /**
  * How long a member's proxy authorisation (fullmakt) holds.

@@ -9,6 +9,13 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import {
+  addLocalDays,
+  type LocalDay,
+  localDayOf,
+  MINUTES_PER_DAY,
+  parseLocalDay,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -27,13 +34,6 @@ import {
   type ManagedBookingView,
   type OwnBookingView,
 } from "./booking.service";
-import {
-  addLocalDays,
-  type LocalDay,
-  localDayOf,
-  MINUTES_PER_DAY,
-  parseLocalDay,
-} from "./stockholm-calendar";
 
 const MODES = ["TIME_SLOTS", "WHOLE_DAY", "DATE_RANGE"] as const;
 

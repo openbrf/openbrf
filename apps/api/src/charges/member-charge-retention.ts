@@ -1,8 +1,4 @@
-import {
-  dateColumnOf,
-  localDayOf,
-  localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+import { dateColumnOf, localDayOf, localDayOfColumn } from "@openbrf/shared";
 
 /**
  * How long a charge is kept, and when the purge reaches it.

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -10,7 +11,6 @@ import {
   refuseTermEnd,
   RoleChangeError,
   type TermEndRefusal,
-  toCalendarDate,
 } from "./role-changes";
 import { lockBoardPositions } from "./role-lock";
 
@@ -154,7 +154,7 @@ export class BoardPositionService {
           targetId: created.id,
           context: {
             position: input.position,
-            electedOn: toCalendarDate(created.electedOn),
+            electedOn: formatDateColumn(created.electedOn),
           },
         },
         tx,
@@ -261,12 +261,12 @@ export class BoardPositionService {
             position: existing.position,
             // The period the seat covered, which is what a later question about
             // who answered for the association is asked against.
-            electedOn: toCalendarDate(existing.electedOn),
+            electedOn: formatDateColumn(existing.electedOn),
             endedOn: input.endedOn,
             previousEndedOn:
               existing.endedOn === null
                 ? null
-                : toCalendarDate(existing.endedOn),
+                : formatDateColumn(existing.endedOn),
           },
         },
         tx,
@@ -293,7 +293,7 @@ function toView(seat: {
     boardPositionId: seat.id,
     personId: seat.personId,
     position: seat.position,
-    electedOn: toCalendarDate(seat.electedOn),
-    endedOn: seat.endedOn === null ? null : toCalendarDate(seat.endedOn),
+    electedOn: formatDateColumn(seat.electedOn),
+    endedOn: seat.endedOn === null ? null : formatDateColumn(seat.endedOn),
   };
 }

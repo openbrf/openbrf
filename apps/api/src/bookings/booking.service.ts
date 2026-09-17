@@ -1,4 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
+import {
+  addLocalDays,
+  compareLocalDays,
+  dateColumnOf,
+  formatLocalDay,
+  instantAt,
+  type LocalDay,
+  localDayOf,
+  localDaysBetween,
+  localMinuteOf,
+  localWeekAround,
+  type Period,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -18,19 +31,6 @@ import {
   periodFor,
   type SlotResource,
 } from "./slot-engine";
-import {
-  addLocalDays,
-  compareLocalDays,
-  dateColumnOf,
-  formatLocalDay,
-  instantAt,
-  type LocalDay,
-  localDayOf,
-  localDaysBetween,
-  localMinuteOf,
-  localWeekAround,
-  type Period,
-} from "./stockholm-calendar";
 
 /** The kind an audit entry names a booking by. */
 const BOOKING_TARGET_KIND = "booking";

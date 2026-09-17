@@ -1,8 +1,4 @@
-import {
-  addLocalDays,
-  dateColumnOf,
-  localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+import { addLocalDays, dateColumnOf, localDayOfColumn } from "@openbrf/shared";
 
 /**
  * When a report to the cooperative housing register falls due.

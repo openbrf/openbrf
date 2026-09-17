@@ -1,7 +1,4 @@
-import {
-  compareLocalDays,
-  localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+import { compareLocalDays, localDayOfColumn } from "@openbrf/shared";
 
 /**
  * Which charges recorded against an apartment are a given person's.
