@@ -308,6 +308,48 @@ describe("writing a message", () => {
   });
 });
 
+describe("a room nobody has written in yet", () => {
+  it("still reads, so the first message is not waited for for ever", async () => {
+    /*
+     * An empty room comes back with no forward cursor, because there is no
+     * message to take one from. A poll gated on having one would not start
+     * until the room already had a line in it - which is exactly backwards, as
+     * a room nobody has written in is the one most likely to be sitting open on
+     * somebody's screen. The reader would watch it and never see the first
+     * message arrive, and nor would whoever wrote it.
+     *
+     * Driven through the write here rather than through the interval, because
+     * it is the same branch and needs no clock: the send asks the poll for a
+     * read, and with no cursor that read is the newest page again.
+     */
+    readChat.mockReset().mockResolvedValueOnce({ ok: true, value: page([]) });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    expect(
+      await screen.findByText("Ingenting har skrivits här än."),
+    ).not.toBeNull();
+
+    readChat.mockResolvedValue({ ok: true, value: page([MINE]) });
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Bra, da tar vi den pa nasta mote.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+
+    // The newest page, asked for again: `messagesSince` has no cursor to ask
+    // from and is never called.
+    await waitFor(() => {
+      expect(readChat).toHaveBeenCalledTimes(2);
+    });
+    expect(messagesSince).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Bra, da tar vi den pa nasta mote."),
+    ).not.toBeNull();
+  });
+});
+
 describe("the messages before this page", () => {
   it("is one press away, and puts them in front", async () => {
     readChat.mockResolvedValueOnce({

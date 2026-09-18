@@ -154,6 +154,13 @@ there are none: nobody is put into the room or taken out of it, an election is.
   deliberately not migrated onto it: they work, each has a terminal condition
   the hook would have to grow a case for, and a refactor with no user-visible
   change does not belong in a pull request that ships a feature.
+- **A cursor needs a row, so an empty room has none.** The forward cursor is
+  taken from the newest message, and a room nobody has written in yet cannot
+  supply one - so the poll re-reads the newest page until there is something to
+  page from. Gating the poll on having a cursor is the obvious reading and it is
+  backwards: a room with nothing in it is the one most likely to be sitting open
+  on somebody's screen, waiting for the first line. Anything that later pages
+  from a cursor inherits this case.
 - **A poll is a request the reader did not ask for.** The visibility pause is
   what keeps that honest, and it is not optional.
 

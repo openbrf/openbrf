@@ -239,18 +239,24 @@ test.describe("the board's chat", () => {
     await browseAs(page, clientAddress, "no-seat");
     await signInThroughTheScreen(page, NO_SEAT.email, NO_SEAT.password);
 
+    await page.goto(appPath("/chat"));
+
     /*
-     * The navigation first. A link to a destination that can only turn somebody
-     * away teaches them a part of the product is broken for them rather than
-     * not theirs.
+     * The navigation, asserted here rather than on the screen the sign-in lands
+     * on. A link to a destination that can only turn somebody away teaches them
+     * a part of the product is broken for them rather than not theirs - but the
+     * address book builds its band from the three capabilities its own register
+     * request already proved, deliberately, rather than from the viewer's full
+     * list. That band carries no chat entry for anybody, so asserting the
+     * absence there would pass whatever this change did. This screen's band is
+     * the viewer's own.
      */
     await expect(
       page.getByRole("link", { name: "Chatt", exact: true }),
     ).toHaveCount(0);
 
-    // And the screen, asked for by hand: the assertion that would still hold if
-    // the navigation were rebuilt tomorrow.
-    await page.goto(appPath("/chat"));
+    // And the screen itself: the assertion that would still hold if the
+    // navigation were rebuilt tomorrow.
     await expect(
       page.getByText("Chatten här är styrelsens egen.", { exact: false }),
     ).toBeVisible();
@@ -296,13 +302,29 @@ test.describe("the board's chat", () => {
     // --- the seat that is going to be watching ---------------------------
     await browseAs(page, clientAddress, "seated");
     await signInThroughTheScreen(page, SEATED.email, SEATED.password);
-    await page
-      .getByRole("link", { name: "Chatt", exact: true })
-      .first()
-      .click();
+
+    await page.goto(appPath("/chat"));
     await expect(
       page.getByRole("heading", { name: "Styrelsechatten" }),
     ).toBeVisible();
+
+    /*
+     * The destination is offered to this seat, which is the counterpart of the
+     * resident's absence in the test above, and asserted on the same screen for
+     * the same reason: this band is the viewer's own list, and the one the
+     * sign-in lands on is not.
+     *
+     * Attached rather than visible, and never pressed. The band is one unwrapped
+     * flex row that neither scrolls nor collapses above the small breakpoint, so
+     * a board member's destinations do not all fit at this window width and the
+     * ones past the fifth are off screen. Whether a link is on screen is a
+     * question about the width of the window; whether it is there at all is the
+     * question about the account, and that is the one this spec asks. Every
+     * other spec in this suite reaches a destination by its address.
+     */
+    await expect(
+      page.getByRole("link", { name: "Chatt", exact: true }).first(),
+    ).toBeAttached();
 
     /*
      * A second browser context, which is a second person at a second machine:

@@ -101,6 +101,11 @@ export interface ChatScreenProps {
  * other page overlaps - and the poll's answers are appended by identifier, so a
  * message that arrives twice is shown once.
  *
+ * An empty room has no forward cursor, because there is no message to take one
+ * from. The poll re-reads the newest page in that case rather than standing
+ * still: a room nobody has written in yet is the one most likely to be sitting
+ * open on somebody's screen.
+ *
  * ## The read marker is the screen's own act
  *
  * It is posted with the instant of the newest message actually on screen rather
@@ -227,9 +232,39 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
       try {
         for (;;) {
           const after = cursorRef.current;
-          if (after === null || !stillWanted()) {
+          if (!stillWanted()) {
             return;
           }
+
+          if (after === null) {
+            /*
+             * An empty room has no cursor to ask from, so the poll re-reads the
+             * newest page instead of asking what is newer than nothing.
+             *
+             * Without this the poll would not start until the room already had
+             * a message in it, which is exactly backwards: a board member who
+             * opens a room before anybody has written in it would sit watching
+             * it and never see the first line arrive, and nor would whoever
+             * wrote it. One re-read, and the cursor it comes back with takes
+             * over from the next attempt.
+             */
+            const first = await readChat({ chatId, before: null });
+            if (!stillWanted() || !first.ok) {
+              return;
+            }
+            setConversation((held) =>
+              held === null || held.chatId !== chatId
+                ? held
+                : {
+                    ...held,
+                    messages: appendNew(held.messages, first.value.messages),
+                    earlier: first.value.earlier,
+                    cursor: first.value.latest,
+                  },
+            );
+            return;
+          }
+
           const result = await messagesSince({ chatId, after });
           if (!stillWanted()) {
             return;
@@ -265,9 +300,14 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     [chatId],
   );
 
+  /*
+   * Enabled as soon as a room is open, cursor or no cursor. An empty room is
+   * the one a reader is most likely to be watching, and gating the poll on
+   * having a cursor would leave it silent until somebody had already written.
+   */
   usePoll(poll, {
     intervalMs: POLL_INTERVAL_MS,
-    enabled: conversation !== null && conversation.cursor !== null,
+    enabled: conversation !== null,
   });
 
   const newest = conversation?.messages.at(-1)?.createdAt ?? null;
