@@ -29,6 +29,7 @@ interface Fakes {
     update: ReturnType<typeof vi.fn>;
     updateMany: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    deleteMany: ReturnType<typeof vi.fn>;
   };
   mediaFile: { findMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
@@ -79,6 +80,7 @@ function build(): Fakes {
     })),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue(DRAFT),
+    deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
   const mediaFile = { findMany: vi.fn().mockResolvedValue([]) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
@@ -702,9 +704,13 @@ describe("removing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
-    await service.remove("page-1", { personId: "person-1", channel: "WEB" });
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
 
-    expect(page.delete).toHaveBeenCalledWith({ where: { id: "page-1" } });
+    expect(page.deleteMany).toHaveBeenCalledWith({ where: { id: "page-1" } });
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { deleted: boolean } },
     ];
@@ -716,7 +722,11 @@ describe("removing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
 
-    await service.remove("page-1", { personId: "person-1", channel: "WEB" });
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(audit.record).not.toHaveBeenCalled();
   });
@@ -724,7 +734,7 @@ describe("removing a page", () => {
   it("refuses a page that is not there", async () => {
     const { service } = build();
     const refusal = await refusalOf(
-      service.remove("page-9", { personId: "person-1", channel: "WEB" }),
+      service.remove("page-9", {}, { personId: "person-1", channel: "WEB" }),
     );
 
     expect(refusal.reason).toBe("not-found");
@@ -811,5 +821,102 @@ describe("a write that was checked and then overtaken", () => {
         where: { id: "page-1", revision: 4, published: false },
       }),
     );
+  });
+});
+
+describe("a write built on a copy somebody else has replaced", () => {
+  /**
+   * The precondition the caller sends, which is a wider claim than the one the
+   * method makes for itself.
+   *
+   * The claim a line above the write only refuses a save that lands inside one
+   * call. This one refuses a publication, a change of audience or a deletion
+   * decided on a copy of the page read minutes ago and rewritten since - which
+   * is the ordinary way two board members lose each other's work, and the case
+   * the page save has taken a precondition for all along.
+   */
+  it("claims the revision the caller read when publishing", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
+
+    await fakes.service.setPublished(
+      "page-1",
+      { published: true, expectedRevision: 4 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "page-1", revision: 4, published: false },
+      }),
+    );
+  });
+
+  it("claims the revision the caller read when changing the audience", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
+
+    await fakes.service.setVisibility(
+      "page-1",
+      { visibility: "MEMBER", expectedRevision: 4 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "page-1", revision: 4, visibility: "PUBLIC" },
+      }),
+    );
+  });
+
+  it("claims the revision the caller read when deleting", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+
+    await fakes.service.remove(
+      "page-1",
+      { expectedRevision: 4 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
+      where: { id: "page-1", revision: 4 },
+    });
+  });
+
+  it("refuses the deletion and records nothing when the claim finds no row", async () => {
+    // The page this board member read is not the page that is there, and a
+    // deletion has nothing to read again afterwards: what it would remove is
+    // work they never saw.
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    fakes.page.deleteMany.mockResolvedValue({ count: 0 });
+
+    const refusal = await refusalOf(
+      fakes.service.remove(
+        "page-1",
+        { expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("deletes without a precondition, as the route always has", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+
+    await fakes.service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+    });
   });
 });

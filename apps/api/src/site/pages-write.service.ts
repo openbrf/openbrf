@@ -489,6 +489,8 @@ export class PagesWriteService {
     input: {
       published: boolean;
       photoConsentConfirmed?: boolean;
+      /** @see PageUpdateInput.expectedRevision */
+      expectedRevision?: number;
     },
     actor: ActorContext,
   ): Promise<PageAdminView> {
@@ -515,9 +517,19 @@ export class PagesWriteService {
        * write lands. The content save moves the revision, so this claim finds
        * nothing and the board is told to look again rather than publishing
        * something nobody read.
+       *
+       * Where the caller sent its own revision, that is what is claimed on
+       * instead. The one read a line above is the narrower precondition - it
+       * only refuses a write that lands between this read and this write - and
+       * the caller's is the one that refuses a publish decided on a copy
+       * somebody else replaced while the board was looking at it.
        */
       const claimed = await tx.page.updateMany({
-        where: { id, revision: page.revision, published: page.published },
+        where: {
+          id,
+          revision: input.expectedRevision ?? page.revision,
+          published: page.published,
+        },
         data: {
           published: input.published,
           // Kept once set. It is when the page was first published, and a
@@ -578,6 +590,8 @@ export class PagesWriteService {
     input: {
       visibility: PageVisibility;
       photoConsentConfirmed?: boolean;
+      /** @see PageUpdateInput.expectedRevision */
+      expectedRevision?: number;
     },
     actor: ActorContext,
   ): Promise<PageAdminView> {
@@ -601,9 +615,18 @@ export class PagesWriteService {
        * publishing is: this is checked and then written, and a content save
        * landing between the two would be widened to a new audience without
        * anything having read it.
+       *
+       * Where the caller sent its own revision, that is what is claimed on, for
+       * the reason publishing takes it: this decides who reads the page, and a
+       * board deciding it on a copy somebody else has replaced is deciding
+       * about content it never saw.
        */
       const claimed = await tx.page.updateMany({
-        where: { id, revision: page.revision, visibility: page.visibility },
+        where: {
+          id,
+          revision: input.expectedRevision ?? page.revision,
+          visibility: page.visibility,
+        },
         // The revision moves for the reason publishing moves it: this decides
         // who reads the page, and a content save built on the copy from before
         // it should be told rather than applied.
@@ -709,12 +732,40 @@ export class PagesWriteService {
    * the publication change it is - in the same transaction, like every other
    * one. A draft nobody could read leaves no entry: there was nothing published
    * to stop being so.
+   *
+   * The precondition matters most here of the four writes that take one,
+   * because this is the one with nothing to read again afterwards: a board
+   * member deleting a page on the strength of a copy somebody else has since
+   * rewritten is deleting work they never saw. `deleteMany` rather than
+   * `delete`, so the revision can sit in the predicate and a claim that matches
+   * nothing is a refusal rather than a thrown record-not-found.
    */
-  async remove(id: string, actor: ActorContext): Promise<void> {
+  async remove(
+    id: string,
+    input: {
+      /** @see PageUpdateInput.expectedRevision */
+      expectedRevision?: number;
+    },
+    actor: ActorContext,
+  ): Promise<void> {
     const page = await this.require(id);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.page.delete({ where: { id } });
+      const claimed = await tx.page.deleteMany({
+        where: {
+          id,
+          ...(input.expectedRevision === undefined
+            ? {}
+            : { revision: input.expectedRevision }),
+        },
+      });
+
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
 
       if (page.published) {
         await this.audit.record(

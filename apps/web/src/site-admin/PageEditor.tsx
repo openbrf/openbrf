@@ -78,6 +78,28 @@ const CALENDAR_COUNTS: readonly number[] = Array.from(
  * guardrail refusals additionally say where: the API sends positions, and the
  * screen turns them into the block numbers a person is looking at.
  */
+
+/**
+ * The API's own union, mirrored here like every other wire shape in this
+ * client.
+ *
+ * Written out in full rather than left as `string` so the map below can be
+ * checked against it: a reason the server gains and this screen has no sentence
+ * for is then a compile error here rather than "something went wrong" on a
+ * board member's screen. A map typed only as `Record<string, TranslationKey>`
+ * compiles with a reason missing and falls through to the unknown sentence at
+ * runtime, which nothing surfaces until somebody meets it.
+ */
+type PageReason =
+  | "not-found"
+  | "invalid-slug"
+  | "slug-taken"
+  | "page-changed"
+  | "personal-identity-number"
+  | "photo-consent-required"
+  | "image-not-found"
+  | "image-not-public";
+
 const REASONS: Readonly<Record<string, TranslationKey>> = {
   "invalid-slug": "siteAdmin.errors.invalidSlug",
   "slug-taken": "siteAdmin.errors.slugTaken",
@@ -87,8 +109,13 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "image-not-found": "siteAdmin.errors.imageNotFound",
   "image-not-public": "siteAdmin.errors.imageNotPublic",
   "not-found": "siteAdmin.errors.pageGone",
+  /*
+   * One sentence for all four acts that take a precondition. What the board has
+   * to do is the same in each: read the page again, and decide about the copy
+   * that is there rather than the one it was looking at.
+   */
   "page-changed": "siteAdmin.errors.pageChanged",
-};
+} satisfies Record<PageReason | "invalid-body", TranslationKey>;
 
 export interface PageEditorProps {
   page: AdminPage;
@@ -133,12 +160,21 @@ export function PageEditor({
   const blocks = blocksOf(entries);
   const hits = scanPage({ title, blocks });
 
+  /**
+   * One act against this page, with the refusals it can answer with handled.
+   *
+   * The success value is optional because removing a page answers with none,
+   * and a delete needs everything else this does: it takes the same
+   * precondition as a save, so it is refused the same way and the board has to
+   * be told the same thing. Answers whether the act went through, which is what
+   * a delete needs in order to close the editor behind itself.
+   */
   const run = useCallback(
     async (
       action: () => Promise<
-        { ok: true; value: AdminPage } | { ok: false; failure: ApiFailure }
+        { ok: true; value?: AdminPage } | { ok: false; failure: ApiFailure }
       >,
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       setBusy(true);
       setSaved(false);
       const result = await action();
@@ -176,14 +212,17 @@ export function PageEditor({
          * and be refused again.
          */
         setBusy(false);
-        return;
+        return false;
       }
 
       setBusy(false);
 
       setFailure(null);
       setSaved(true);
-      onChanged(result.value);
+      if (result.value !== undefined) {
+        onChanged(result.value);
+      }
+      return true;
     },
     [onChanged, page.id],
   );
@@ -353,6 +392,7 @@ export function PageEditor({
                   return publishPage(page.id, {
                     published: publishing,
                     ...consent,
+                    expectedRevision: page.revision,
                   });
                 });
               }}
@@ -371,6 +411,7 @@ export function PageEditor({
                     visibility:
                       page.visibility === "PUBLIC" ? "MEMBER" : "PUBLIC",
                     ...consent,
+                    expectedRevision: page.revision,
                   }),
                 );
               }}
@@ -398,14 +439,23 @@ export function PageEditor({
                   return;
                 }
                 void (async () => {
-                  setBusy(true);
-                  const result = await deletePage(page.id);
-                  setBusy(false);
-                  if (result.ok) {
+                  /*
+                   * Through `run` like every other act on this page, so a
+                   * refusal is named rather than shown as a bare failure. What
+                   * it adds here is the page-changed path: a deletion decided
+                   * on a copy somebody else has rewritten is refused, the page
+                   * is read again, and the board sees what it would have been
+                   * deleting before deciding a second time.
+                   */
+                  const removed = await run(async () => {
+                    const result = await deletePage(page.id, {
+                      expectedRevision: page.revision,
+                    });
+                    return result.ok ? { ok: true as const } : result;
+                  });
+                  if (removed) {
                     onRemoved(page.id);
-                    return;
                   }
-                  setFailure(result.failure);
                 })();
               }}
             >

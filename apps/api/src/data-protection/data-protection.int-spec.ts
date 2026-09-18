@@ -1138,6 +1138,98 @@ describe("record of processing", () => {
     expect(response.json<{ source: string }>().source).toBe("BOARD");
   });
 
+  it("refuses a save built on a copy somebody else has replaced", async () => {
+    /*
+     * The art. 30 record is edited as a whole, so a board member who opened it,
+     * went to a meeting and saved afterwards would put their copy over a
+     * colleague's edit with nothing said to either. The advisory lock the save
+     * already takes serialises two transactions that overlap on the server and
+     * can say nothing about when a payload was composed.
+     */
+    const created = await inject({
+      method: "POST",
+      url: "/api/data-protection/processing-activities",
+      payload: {
+        name: `Cykelrum ${suffix}`,
+        purpose: "Halla reda pa vem som har plats i cykelrummet.",
+        legalBasis: "LEGITIMATE_INTEREST",
+        dataSubjectCategories: ["member"],
+        personalDataCategories: ["name", "apartment"],
+        thirdCountryTransfer: false,
+        retention: "Tills platsen lamnas tillbaka.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(created.statusCode).toBe(201);
+    const activity = created.json<{ activityId: string; revision: number }>();
+    const url = `/api/data-protection/processing-activities/${activity.activityId}`;
+
+    // The other board member's save, which lands first and moves the revision.
+    const first = await inject({
+      method: "PUT",
+      url,
+      payload: {
+        purpose: "Kollegans egen beskrivning.",
+        expectedRevision: activity.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json<{ revision: number }>().revision).toBeGreaterThan(
+      activity.revision,
+    );
+
+    // And the one composed before it is refused rather than applied.
+    const stale = await inject({
+      method: "PUT",
+      url,
+      payload: {
+        purpose: "Min egen beskrivning, skriven innan kollegan sparade.",
+        expectedRevision: activity.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(reasonOf(stale)).toBe("activity-changed");
+
+    const row = await prisma.processingActivity.findUniqueOrThrow({
+      where: { id: activity.activityId },
+      select: { purpose: true },
+    });
+    expect(row.purpose).toBe("Kollegans egen beskrivning.");
+  });
+
+  it("writes without a precondition, as the route always has", async () => {
+    const created = await inject({
+      method: "POST",
+      url: "/api/data-protection/processing-activities",
+      payload: {
+        name: `Barnvagnsrum ${suffix}`,
+        purpose: "Halla reda pa vem som har plats i barnvagnsrummet.",
+        legalBasis: "LEGITIMATE_INTEREST",
+        dataSubjectCategories: ["member"],
+        personalDataCategories: ["name", "apartment"],
+        thirdCountryTransfer: false,
+        retention: "Tills platsen lamnas tillbaka.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(created.statusCode).toBe(201);
+    const activity = created.json<{ activityId: string; revision: number }>();
+
+    const saved = await inject({
+      method: "PUT",
+      url: `/api/data-protection/processing-activities/${activity.activityId}`,
+      payload: { purpose: "Andrad utan foregaende lasning." },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json<{ revision: number }>().revision).toBeGreaterThan(
+      activity.revision,
+    );
+  });
+
   it("refuses a personal identity number in the record", async () => {
     const response = await inject({
       method: "POST",
@@ -1483,6 +1575,83 @@ describe("privacy notice", () => {
             block.type === "heading" || block.type === "controllerContact",
         ),
       ).toBe(true);
+    } finally {
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { content: original ?? {} },
+      });
+    }
+  });
+
+  it("moves the page's revision, so a board member's open editor is refused", async () => {
+    /*
+     * This is the only writer to a page outside the page service, and the page
+     * editor claims on the revision it read. A writer that changed the content
+     * and left the number alone would let a board member's stale save match
+     * afterwards - and that save carries the whole page, so it would silently
+     * delete the art. 13 headings appended here.
+     */
+    const page = await prisma.page.findUnique({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { id: true, content: true, revision: true },
+    });
+    if (page === null) {
+      return;
+    }
+    const original = page.content;
+
+    await prisma.page.update({
+      where: { id: page.id },
+      data: {
+        content: {
+          version: 1,
+          blocks: [
+            { type: "paragraph", runs: [{ text: "Styrelsens egen ingress." }] },
+          ],
+        },
+      },
+    });
+
+    try {
+      const before = await prisma.page.findUniqueOrThrow({
+        where: { id: page.id },
+        select: { revision: true },
+      });
+
+      const appended = await inject({
+        method: "POST",
+        url: "/api/data-protection/privacy-notice/headings",
+        headers: { cookie: boardCookie },
+      });
+      expect(appended.statusCode).toBe(200);
+
+      const after = await prisma.page.findUniqueOrThrow({
+        where: { id: page.id },
+        select: { revision: true },
+      });
+      expect(after.revision).toBeGreaterThan(before.revision);
+
+      // And the editor's own save, built on what it read before the append, is
+      // refused rather than applied.
+      const stale = await inject({
+        method: "PUT",
+        url: `/api/site/pages/${page.id}`,
+        headers: { cookie: boardCookie },
+        payload: {
+          slug: PRIVACY_NOTICE_SLUG,
+          title: "Integritetspolicy",
+          content: {
+            blocks: [
+              {
+                type: "paragraph",
+                runs: [{ text: "Styrelsens egen ingress." }],
+              },
+            ],
+          },
+          expectedRevision: before.revision,
+        },
+      });
+      expect(stale.statusCode).toBe(409);
     } finally {
       await prisma.page.update({
         where: { id: page.id },

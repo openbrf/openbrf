@@ -176,6 +176,17 @@ export class PrivacyNoticeService {
             // Every block the board wrote, unchanged and in its order.
             blocks: [...existing.blocks, ...added],
           } as unknown as Prisma.InputJsonObject,
+          /*
+           * In the same statement as the content, which is the rule the column
+           * is kept by: the page editor claims on the revision it read, so a
+           * writer that changed the content and left the number alone would let
+           * a board member's stale save match afterwards - and their save would
+           * silently delete the headings appended here.
+           *
+           * This is the only writer to a page outside the page service, so it
+           * is the only place that rule is not enforced by proximity.
+           */
+          revision: { increment: 1 },
         },
       });
 

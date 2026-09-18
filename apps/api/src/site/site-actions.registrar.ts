@@ -574,13 +574,25 @@ export class SiteActionsRegistrar implements OnModuleInit {
         personalData: ["photograph"],
         input: z.strictObject({
           id: idSchema.describe("The page to put on the website."),
+          expectedRevision: z
+            .int()
+            .nonnegative()
+            .optional()
+            .describe(
+              "The page's revision as it was read. Sent, the act is refused if somebody else has written the page since; left out, it proceeds as it always has.",
+            ),
         }),
         output: pageSummarySchema,
         handler: async (input, context) =>
           factsOf(
             await this.pages.setPublished(
               input.id,
-              { published: true },
+              {
+                published: true,
+                ...(input.expectedRevision === undefined
+                  ? {}
+                  : { expectedRevision: input.expectedRevision }),
+              },
               actorOf(context),
             ),
           ),
@@ -597,13 +609,25 @@ export class SiteActionsRegistrar implements OnModuleInit {
           id: idSchema.describe(
             "The page to take off the website. It is kept as a draft.",
           ),
+          expectedRevision: z
+            .int()
+            .nonnegative()
+            .optional()
+            .describe(
+              "The page's revision as it was read. Sent, the act is refused if somebody else has written the page since; left out, it proceeds as it always has.",
+            ),
         }),
         output: pageSummarySchema,
         handler: async (input, context) =>
           factsOf(
             await this.pages.setPublished(
               input.id,
-              { published: false },
+              {
+                published: false,
+                ...(input.expectedRevision === undefined
+                  ? {}
+                  : { expectedRevision: input.expectedRevision }),
+              },
               actorOf(context),
             ),
           ),
@@ -621,13 +645,25 @@ export class SiteActionsRegistrar implements OnModuleInit {
           visibility: visibilityValues.describe(
             "Who may read the page: PUBLIC is anybody, MEMBER is a signed-in member.",
           ),
+          expectedRevision: z
+            .int()
+            .nonnegative()
+            .optional()
+            .describe(
+              "The page's revision as it was read. Sent, the act is refused if somebody else has written the page since; left out, it proceeds as it always has.",
+            ),
         }),
         output: pageSummarySchema,
         handler: async (input, context) =>
           factsOf(
             await this.pages.setVisibility(
               input.id,
-              { visibility: input.visibility },
+              {
+                visibility: input.visibility,
+                ...(input.expectedRevision === undefined
+                  ? {}
+                  : { expectedRevision: input.expectedRevision }),
+              },
               actorOf(context),
             ),
           ),
@@ -679,6 +715,13 @@ export class SiteActionsRegistrar implements OnModuleInit {
           id: idSchema.describe(
             "The page to remove. A published page comes off the website with it.",
           ),
+          expectedRevision: z
+            .int()
+            .nonnegative()
+            .optional()
+            .describe(
+              "The page's revision as it was read. Sent, the act is refused if somebody else has written the page since; left out, it proceeds as it always has.",
+            ),
         }),
         output: z.strictObject({
           deleted: z
@@ -688,7 +731,13 @@ export class SiteActionsRegistrar implements OnModuleInit {
             ),
         }),
         handler: async (input, context) => {
-          await this.pages.remove(input.id, actorOf(context));
+          await this.pages.remove(
+            input.id,
+            input.expectedRevision === undefined
+              ? {}
+              : { expectedRevision: input.expectedRevision },
+            actorOf(context),
+          );
           return { deleted: true } as const;
         },
       }),
