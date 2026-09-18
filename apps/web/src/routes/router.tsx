@@ -26,6 +26,7 @@ import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
+import { ChatRoute } from "./ChatRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
@@ -379,6 +380,21 @@ const boardMailboxRoute = createRoute({
   component: BoardMailboxRoute,
 });
 
+/**
+ * The board's chat. Signed in here, the capability inside the screen.
+ *
+ * A route without a room parameter, because there is one room and nothing about
+ * it is addressable: a chat has members and no subject, and a link to a
+ * conversation would be a link to whatever had been said since. A group's room
+ * is a later question and is PR 7's.
+ */
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/chat",
+  beforeLoad: requireSession,
+  component: ChatRoute,
+});
+
 const issuesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/issues",
@@ -644,6 +660,7 @@ const routeTree = rootRoute.addChildren([
   siteMenuRoute,
   issuesRoute,
   boardMailboxRoute,
+  chatRoute,
   bookingsRoute,
   eventsRoute,
   chargesRoute,

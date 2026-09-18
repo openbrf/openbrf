@@ -1515,6 +1515,77 @@ export function DataSubjectReport({
             </Section>
 
             {/*
+             * What this person wrote in the chat, room by room.
+             *
+             * One row per message with the room repeated down the left, like the
+             * board mailbox above and unlike a heading per room: this is a
+             * printed document, and a reader following one column down the page
+             * can see at a glance which room a line was said in.
+             *
+             * The read marker is a column rather than a section, because how far
+             * somebody has read belongs to the room and there is nothing else to
+             * say about the room on its own. It repeats down the rows for the
+             * same reason the room does.
+             *
+             * No hidden column, unlike the comments above: a chat message is
+             * never struck through and never edited, so there is no second state
+             * to report.
+             */}
+            <Section titleKey="register.person.report.section.chat">
+              <Rows
+                empty={report.chats.length === 0}
+                headings={[
+                  "register.person.report.field.chatRoom",
+                  "register.person.report.field.written",
+                  "register.person.report.field.message",
+                  "register.person.report.field.readUpTo",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.chats.flatMap((chat) =>
+                  chat.messages.map((message) => (
+                    <tr key={message.messageId} className={ROW}>
+                      <td className={TEXT_CELL}>
+                        {chat.chatName ??
+                          t(
+                            chat.chatKind === "BOARD"
+                              ? "register.person.report.chat.board"
+                              : "register.person.report.chat.group",
+                          )}
+                      </td>
+                      <td className={DATA_CELL}>{day(message.writtenAt)}</td>
+                      {/*
+                       * In full. Line breaks kept, as the comment above keeps
+                       * them: a message runs to a paragraph and collapsing the
+                       * newlines would hand its subject a run-on line that is
+                       * not what they wrote.
+                       */}
+                      <td className={TEXT_CELL}>
+                        <span className="block whitespace-pre-line">
+                          {message.body}
+                        </span>
+                      </td>
+                      <td className={DATA_CELL}>
+                        {chat.readUpTo === null ? (
+                          <NotRecorded
+                            meaning={t(
+                              "register.person.report.chat.neverOpened",
+                            )}
+                          />
+                        ) : (
+                          day(chat.readUpTo)
+                        )}
+                      </td>
+                      <td className={DATA_CELL}>
+                        {message.erasableFrom ?? nothing}
+                      </td>
+                    </tr>
+                  )),
+                )}
+              </Rows>
+            </Section>
+
+            {/*
              * Attendance at a general meeting, and the two things this section
              * says that "present" does not: in what capacity, and whether the
              * board struck the line off again.

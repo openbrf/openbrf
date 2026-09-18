@@ -763,6 +763,35 @@ export interface DataSubjectReport {
     erasableFrom: string | null;
   }[];
   /**
+   * What this person wrote in the chat, room by room.
+   *
+   * Nested rather than flat, unlike the comments above, because the read marker
+   * belongs to the room and not to a message: how far somebody has read is
+   * personal data the association holds about them, and it is a field of this
+   * section rather than a section of its own.
+   *
+   * Only this person's own messages. A room's other members wrote about
+   * themselves and about the association's business, and a report carrying the
+   * whole room would hand one board member everything the other seven said.
+   *
+   * There is no hidden column here and there will not be one: a chat message is
+   * never struck through and never edited, so there is no second state to
+   * report.
+   */
+  chats: {
+    /** The board chat has no name - its name is its kind. */
+    chatKind: "BOARD" | "GROUP";
+    chatName: string | null;
+    /** An instant and not a count of what is unread. */
+    readUpTo: string | null;
+    messages: {
+      messageId: string;
+      body: string;
+      writtenAt: string;
+      erasableFrom: string | null;
+    }[];
+  }[];
+  /**
    * Lines on which this person was recorded as present at a general meeting.
    *
    * Not one of the four sections above: this one states no erasure date, and

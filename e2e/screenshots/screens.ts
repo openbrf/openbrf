@@ -1560,4 +1560,33 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Ingenting har skrivits till styrelsens adress." },
     capture: "page",
   },
+  {
+    /*
+     * The board's chat, as an account with no seat meets it.
+     *
+     * Empty of a room rather than empty of messages, and that is the honest
+     * picture rather than a poor one. The room's members are derived from who
+     * holds a board seat, so photographing a conversation would mean recording
+     * an election first - and this walk photographs the register screens too,
+     * so an invented seat would turn up in them as a board this cooperative
+     * never elected.
+     *
+     * What is left is the screen's hardest state and the one it was written
+     * for: an account that reaches every route here and finds no room, told in
+     * plain Swedish that the room belongs to whoever holds a seat and that a
+     * seat comes from an election rather than from a grant. That is the support
+     * question this feature was always going to generate, and this is the
+     * answer to it.
+     *
+     * The conversation itself is driven by `specs/40-board-chat.spec.ts`, which
+     * puts its own person on the board.
+     */
+    name: "board-chat",
+    as: "administrator",
+    goto: appPath("/chat"),
+    // The sentence that exists only once the room list has come back. The
+    // heading above it renders before the request does.
+    waitFor: { text: "Styrelsechatten är för den som har ett uppdrag" },
+    capture: "page",
+  },
 ];

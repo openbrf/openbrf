@@ -87,6 +87,7 @@ const EMPTY_REPORT: Report = {
   keyOrders: [],
   eventSignups: [],
   newsComments: [],
+  chats: [],
   boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
@@ -411,6 +412,33 @@ const FULL_REPORT: Report = {
       hidden: true,
       writtenAt: "2026-01-21T18:00:00.000Z",
       erasableFrom: "2027-01-21",
+    },
+  ],
+  /*
+   * One room with two lines in it, and no read marker: the board chat, which
+   * has no name of its own, and somebody who has written in it without ever
+   * marking it read. Both halves matter to the rendering - the room's name has
+   * to come from its kind, and the marker column has to say what a dash means.
+   */
+  chats: [
+    {
+      chatKind: "BOARD",
+      chatName: null,
+      readUpTo: null,
+      messages: [
+        {
+          messageId: "message-1",
+          body: "Jag tar in en offert till pa taket.",
+          writtenAt: "2026-02-02T09:00:00.000Z",
+          erasableFrom: "2027-02-02",
+        },
+        {
+          messageId: "message-2",
+          body: "Den kom i morse och ar dyrare.",
+          writtenAt: "2026-02-09T09:00:00.000Z",
+          erasableFrom: "2027-02-09",
+        },
+      ],
     },
   ],
   /*

@@ -81,6 +81,18 @@ export interface DataPortabilityExport {
   eventSignups: DataSubjectReport["eventSignups"];
   newsComments: DataSubjectReport["newsComments"];
   /**
+   * What they wrote in the chat, room by room.
+   *
+   * Their own words, which is squarely what art. 20 is about, and the room they
+   * were said in, without which the words are a list of sentences. The read
+   * marker travels with the room for the same reason it is on the report: how
+   * far somebody has read is a fact about them that the association holds
+   * because they used the service, and it rests on the same contract.
+   *
+   * Nobody else's messages are here, because nobody else's are on the report.
+   */
+  chats: DataSubjectReport["chats"];
+  /**
    * What they have asked about their own data.
    *
    * What they asked and why, and not what the board answered. A decision, its
@@ -219,6 +231,7 @@ export function toDataPortabilityExport(
     motions: report.motions,
     eventSignups: report.eventSignups,
     newsComments: report.newsComments,
+    chats: report.chats,
     dataSubjectRequests: report.dataSubjectRequests.map((request) => ({
       requestId: request.requestId,
       kind: request.kind,

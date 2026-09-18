@@ -91,6 +91,9 @@ describe("board member", () => {
     // ordering half comes with the seat as bookings:book does.
     "keyOrders:place",
     "keyOrders:handle",
+    // The board's own chat. The seat is what puts somebody in the room, so the
+    // seat is what carries the capability that opens its endpoints.
+    "chat:participate",
   ])("can %s", (capability) => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
@@ -190,6 +193,9 @@ describe("property manager", () => {
     // another shape - and decision 11 keeps this party out of it.
     "keyOrders:place",
     "keyOrders:handle",
+    // The board's deliberation is the board's. This party was not elected to
+    // anything and handles the association's issues.
+    "chat:participate",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -256,6 +262,9 @@ describe("resident and member", () => {
     // A resident orders a key for their own door; answering the queue those
     // orders arrive in is the board's.
     "keyOrders:handle",
+    // Living here is not a seat on the board, and the one chat that exists is
+    // the board's own.
+    "chat:participate",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });

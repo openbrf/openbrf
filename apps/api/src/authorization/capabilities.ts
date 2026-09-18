@@ -483,6 +483,47 @@ export const CAPABILITIES = [
    * order list is the address book in another shape.
    */
   "keyOrders:handle",
+  /**
+   * Read a chat (chatt) and write into one.
+   *
+   * The board's, because the one chat that exists is the board's own
+   * (styrelsechatt) and what is said in it is the board's deliberation. A
+   * resident does not hold it: the room is not theirs, and a capability granted
+   * to everybody who lives here so that nobody could reach anything with it
+   * would be a grant that said nothing.
+   *
+   * Not a member's either, and that absence is a decision rather than an
+   * oversight. Membership is a statutory relationship and the rights it carries
+   * come from the law - putting an item to a general meeting, EFL 6 kap. 15 §
+   * through BRL 9 kap. 14 §. Reading what the board says to itself is not among
+   * them, and a member who wants to know what the board decided reads the
+   * minutes.
+   *
+   * Deliberately not the property manager's, on the news:comment precedent and
+   * for the same reason: they handle the association's issues, they were not
+   * elected to anything, and the board's own conversation is not theirs.
+   *
+   * ## What this capability does not decide
+   *
+   * Which rooms there are for the caller. This one opens the endpoints; the
+   * service then answers which chats this person is in, and for the board chat
+   * that is the seat rather than the grant. The two are separate questions and
+   * both have to be answered, exactly as `news:comment` opens the comment
+   * controller while the service decides which threads exist.
+   *
+   * So the administrator reaches every route here and finds no room. They hold
+   * every capability (`ADMIN_CAPABILITIES = CAPABILITIES`) and they hold no
+   * board seat, and a room whose membership is derived from a seat has no way
+   * to let them in - which is the intended answer rather than a gap. An
+   * administrator who should be in the board's chat is somebody the board has
+   * elected, and electing them is how they get in.
+   *
+   * A second capability for moderating a message was considered and not minted.
+   * There is nothing to moderate: the board chat publishes nothing and the board
+   * is the whole room, so a board member able to strike a colleague's line would
+   * be deciding what the record of its own deliberation says.
+   */
+  "chat:participate",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -564,6 +605,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "sublets:handle",
   "keyOrders:place",
   "keyOrders:handle",
+  "chat:participate",
 ];
 
 /**

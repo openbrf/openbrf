@@ -76,6 +76,7 @@ const REPORT = {
   eventSignups: [{ signupId: "signup-1" }],
   memberCharges: [{ chargeId: "charge-1" }],
   newsComments: [{ commentId: "comment-1" }],
+  chats: [{ chatKind: "BOARD", messages: [{ messageId: "message-1" }] }],
   boardMailboxThreads: [{ threadId: "thread-1" }],
   meetingAttendances: [{ attendanceId: "attendance-1" }],
   proxyAuthorisations: [{ authorisationId: "authorisation-1" }],
@@ -190,6 +191,7 @@ const SECTION_DECISIONS = {
   eventSignups: "carried",
   memberCharges: "reportOnly",
   newsComments: "carried",
+  chats: "carried",
   boardMailboxThreads: "reportOnly",
   meetingAttendances: "reportOnly",
   proxyAuthorisations: "reportOnly",
@@ -228,6 +230,10 @@ describe("what the export carries", () => {
     expect(exported.motions).toHaveLength(1);
     expect(exported.eventSignups).toHaveLength(1);
     expect(exported.newsComments).toHaveLength(1);
+    // The room and the words in it: what somebody wrote is squarely art. 20
+    // data, and the room is what the words were said in.
+    expect(exported.chats).toHaveLength(1);
+    expect(exported.chats[0]?.messages).toHaveLength(1);
     expect(exported.issues).toHaveLength(1);
     expect(exported.publicationConsents).toHaveLength(1);
     expect(exported.connectedApps).toHaveLength(1);

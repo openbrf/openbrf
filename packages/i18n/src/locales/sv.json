@@ -373,6 +373,7 @@
           "keyOrders": "Nyckelbeställningar",
           "eventSignups": "Anmälningar till evenemang",
           "newsComments": "Nyhetskommentarer",
+          "chat": "Det du har skrivit i chatten",
           "boardMailbox": "Korrespondens med styrelsens brevlåda",
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
@@ -443,6 +444,8 @@
           "written": "Skriven",
           "comment": "Kommentar",
           "hidden": "Dold",
+          "chatRoom": "Chatt",
+          "readUpTo": "Läst till och med",
           "action": "Åtgärd",
           "at": "När",
           "through": "Via",
@@ -507,6 +510,11 @@
         "direction": {
           "acquired": "Förvärvad",
           "relinquished": "Överlåten"
+        },
+        "chat": {
+          "board": "Styrelsechatten",
+          "group": "En gruppchatt",
+          "neverOpened": "Du har inte öppnat den här chatten."
         },
         "boardMailbox": {
           "received": "Inkommet till föreningen",
@@ -2549,6 +2557,37 @@
       "unknown": "Det gick inte. Försök igen."
     }
   },
+  "chat": {
+    "navLabel": "Chatt",
+    "title": "Chatt",
+    "intro": "Ett löpande samtal mellan en bestämd krets, som varken läses eller skrivs någon annanstans.",
+    "boardChat": "Styrelsechatten",
+    "description": "Alla som har ett uppdrag i styrelsen är med i rummet, och ingen annan. Ingenting här publiceras, ingenting skickas med e-post, och ingenting visas på föreningens webbplats.",
+    "loading": "Öppnar chatten...",
+    "loadFailed": "Chatten kunde inte öppnas just nu. Ladda om sidan.",
+    "notOffered": "Chatten här är styrelsens egen. Att läsa vad styrelsen säger till sig själv följer varken med att bo här eller med bostadsrätten, och den medlem som vill veta vad som beslutades läser protokollet från mötet.",
+    "reading": "Läser meddelandena...",
+    "empty": "Ingenting har skrivits här än.",
+    "noRoom": "Styrelsechatten är för den som har ett uppdrag i styrelsen, och det här kontot har inget. Uppdrag förs in under förtroendeuppdrag, och den som har ett är med i rummet från den dag mandatet skrivs in.",
+    "unread_one": "{{count}} oläst meddelande.",
+    "unread_other": "{{count}} olästa meddelanden.",
+    "earlier": "Visa tidigare meddelanden",
+    "earlierReading": "Läser tidigare meddelanden...",
+    "you": "Du",
+    "authorProtected": "Skyddade personuppgifter: namnges inte här.",
+    "authorUnknown": "Finns inte längre i registret.",
+    "field": "Ditt meddelande",
+    "hint": "Det som skrivs här bevaras i ett år och raderas sedan. Ingenting kan ändras, tas bort eller strykas över, varken av dig eller av någon annan. Ett personnummer avvisas.",
+    "submit": "Skicka meddelandet",
+    "sending": "Skickar...",
+    "errors": {
+      "chatNotFound": "Den chatten finns inte, eller är inte din att läsa.",
+      "personalIdentityNumber": "Meddelandet innehåller ett personnummer och kan inte skickas. Ta bort det: ett nummer som skrivs här är en andra kopia som lägenhetsförteckningen inte kan svara för.",
+      "tooManyMessages": "Du har skrivit väldigt många meddelanden på kort tid. Vänta några minuter och skicka det här igen.",
+      "invalidBody": "Ett meddelande behöver text, och inte mer än formuläret tillåter.",
+      "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
   "documents": {
     "navLabel": "Dokument",
     "heading": "Dokumentarkiv",
@@ -3858,6 +3897,12 @@
           "purpose": "Meddela medlemmarna vad styrelsen publicerar.",
           "legalBasisNote": "Berättigat intresse: att hålla medlemmarna underrättade.",
           "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat."
+        },
+        "chat": {
+          "name": "Styrelsechatten",
+          "purpose": "Låta styrelsen samtala mellan sina möten.",
+          "legalBasisNote": "Berättigat intresse: att förvalta föreningen. Ingenting i den publiceras, och ingen utanför styrelsen når den.",
+          "retention": "Varje meddelande raderas ett år efter att det skrevs. Ingenting annat tar bort ett, och ingen kan ändra eller radera det som sagts."
         },
         "issues": {
           "name": "Felanmälningar",

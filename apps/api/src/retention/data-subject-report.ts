@@ -723,6 +723,72 @@ export interface ReportNewsComment {
 }
 
 /**
+ * One chat (chatt) this person has written in, with what they wrote in it.
+ *
+ * Shaped like the board mailbox thread above rather than like the flat list of
+ * news comments, and the reason is the read marker. How far somebody has read a
+ * room is personal data the association holds about them, and it belongs to the
+ * room rather than to any message in it - so it is a field of this section
+ * rather than a section of its own, which is what the nesting buys.
+ *
+ * Only this person's own messages are here. A room's other members wrote about
+ * themselves and about the association's business, and a report that carried the
+ * whole room would be handing one board member everything the other seven said.
+ * That is the same narrowing every other section makes and it is worth stating,
+ * because a chat is the first section where the rows this person cannot have are
+ * sitting in the same table as the rows they can.
+ */
+export interface ReportChat {
+  /**
+   * Which room, by kind.
+   *
+   * The board's chat has no name - its name is its kind - so a report naming it
+   * has to say what kind it was. A group states its own name.
+   */
+  chatKind: "BOARD" | "GROUP";
+  /** The room's name, or null for the board chat. */
+  chatName: string | null;
+  /**
+   * How far this person had read the room when the report was drawn, or null if
+   * they never opened it.
+   *
+   * An instant rather than a count: the marker records a place in the room and
+   * the messages behind it may since have been erased, so a number of unread
+   * messages would be a fact about the report's own moment and not about
+   * anything the association holds.
+   */
+  readUpTo: string | null;
+  /** What this person wrote in the room, oldest first. */
+  messages: ReportChatMessage[];
+}
+
+/**
+ * One message this person wrote in a chat.
+ *
+ * The text is carried in full, for the reason the news comment above gives:
+ * what somebody wrote is the personal data here, and a report naming a date and
+ * a room without the sentence would be telling its subject that they wrote
+ * without telling them what they said. Nothing withholds it - a chat message is
+ * never struck through and never edited, so there is no second state for this
+ * section to report.
+ */
+export interface ReportChatMessage {
+  messageId: string;
+  body: string;
+  /** ISO instant it was written. */
+  writtenAt: string;
+  /**
+   * The earliest date the purge can reach this message, derived from the
+   * retention window and never stored.
+   *
+   * The earliest, and deliberately not "the date it is erased on", because a
+   * legal hold suspends every purge for the person it stands against and
+   * `retention.onLegalHold` on this same report is what says whether one does.
+   */
+  erasableFrom: string | null;
+}
+
+/**
  * One general meeting (foreningsstamma) this person was recorded as present at,
  * and in what capacity.
  *
@@ -1022,6 +1088,7 @@ export interface DataSubjectReport {
   eventSignups: ReportEventSignup[];
   memberCharges: ReportMemberCharge[];
   newsComments: ReportNewsComment[];
+  chats: ReportChat[];
   boardMailboxThreads: ReportBoardMailboxThread[];
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];

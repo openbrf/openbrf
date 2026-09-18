@@ -33,7 +33,7 @@ import type { ProcessorFacts } from "./processors";
  *     overwritten by a background job.
  *   - The board's own (a BOARD row, or any field it has edited). Never touched.
  *
- * The seventeen keys below are fixed and asserted by the spec. Adding a table
+ * The eighteen keys below are fixed and asserted by the spec. Adding a table
  * that holds personal data means adding a row here: that is the point of a
  * checked list rather than a derivation, and a processing the record does not
  * mention is the failure art. 30 exists to prevent.
@@ -78,6 +78,7 @@ export const SEED_KEYS = [
   "bookings",
   "events",
   "motions",
+  "chat",
   "websitePublication",
   "contactSubmissions",
   "signupRequestsAndInvitations",
@@ -212,6 +213,25 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     dataSubjectCategories: ["member"],
     personalDataCategories: ["name", "apartment", "freeText"],
   },
+  chat: {
+    source: "SERVICE_DATA",
+    legalBasis: "LEGITIMATE_INTEREST",
+    /*
+     * The board alone, because the board chat is the only room there is: its
+     * members are whoever holds a seat, and nobody else reaches it. A row
+     * naming the residents would describe a processing this instance does not
+     * perform.
+     */
+    dataSubjectCategories: ["boardMember"],
+    /*
+     * Who wrote, and what they wrote. `freeText` is the substance of the
+     * processing rather than a footnote: a message is text somebody composed
+     * themselves and it may name anybody in the building, which is why the
+     * write is scanned for a personal identity number and why the room is
+     * erased on a clock of its own.
+     */
+    personalDataCategories: ["name", "freeText"],
+  },
   websitePublication: {
     source: "SERVICE_DATA",
     legalBasis: "CONSENT",
@@ -332,7 +352,7 @@ function transfersToThirdCountry(key: SeedKey, facts: ProcessorFacts): boolean {
  * A general description of the art. 32(1) measures protecting one processing.
  *
  * Composed from the sentences that actually hold for the row rather than one
- * paragraph repeated seventeen times: art. 30(1)(g) asks what protects *this*
+ * paragraph repeated eighteen times: art. 30(1)(g) asks what protects *this*
  * processing, and a record claiming field-level encryption for a table that has
  * none would be worse than one that said nothing.
  */
@@ -372,7 +392,7 @@ export function securityMeasuresFor(
 }
 
 /**
- * The seventeen rows, translated into the association's own language and filled
+ * The eighteen rows, translated into the association's own language and filled
  * in from what this instance is configured to do.
  *
  * @param t Bound to the association's default locale, not the reader's: the

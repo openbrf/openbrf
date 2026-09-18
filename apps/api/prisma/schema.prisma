@@ -6454,3 +6454,133 @@ model KeyOrder {
   @@index([apartmentId])
   @@map("key_order")
 }
+
+// ---------------------------------------------------------------------------
+// The chat (chatten), and the rooms it is read in.
+//
+// A running conversation between a fixed set of people, read and written
+// nowhere else. Not a thread (trad), which is one correspondence the board
+// mailbox holds with somebody outside the association about one matter, and not
+// a comment (kommentar), which sits under one news item and is as visible as
+// that item. A chat has members and no subject, and nothing about it is ever
+// published: the association's website reads no session at all, so there is no
+// audience for a room to be shown to.
+//
+// A full discussion forum is deliberately never built. No sub-threads, no
+// reactions, no mentions, no attachments and no search: a cooperative that
+// wants a forum is better served by an integration with software built for one.
+// ---------------------------------------------------------------------------
+
+/// What kind of room a chat is, which decides who is in it.
+///
+/// The discriminator is what lets one table hold both kinds, and both values
+/// are here from the first migration although only one of them is answered
+/// today. A value nothing accepts is safe to ship and a value added later is a
+/// migration over live rows - the argument ADR 0006 makes for a block type the
+/// renderer does not yet draw.
+enum ChatKind {
+  /// The board's own. Members are not written down but derived: everybody
+  /// holding a board seat (styrelseledamot) that has not ended, so a person
+  /// joins the day their term is recorded and leaves the day it ends, without
+  /// anybody administering a list.
+  BOARD
+
+  /// A group's (grupp). Members are written down.
+  GROUP
+}
+
+/// One room, and the set of people who read it.
+model Chat {
+  id   String   @id @default(cuid())
+  kind ChatKind
+
+  /// Null for the board chat, whose name is its kind.
+  ///
+  /// A room whose membership is derived needs nothing written down to say what
+  /// it is, and a name on it would be a second answer to a question the kind
+  /// already settles. A group states its own.
+  name String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  /// Finding a room of a given kind, which is how the board chat is reached.
+  ///
+  /// There is exactly one board chat, enforced by a partial unique index
+  /// written by hand into the migration: Prisma cannot express a WHERE clause
+  /// on an index, so there is no @@unique counterpart here. Nobody should add
+  /// the expressible one later - a plain unique on `kind` would cap the groups
+  /// at one as well.
+  @@index([kind])
+  @@map("chat")
+}
+
+/// One line somebody wrote in a chat (chattmeddelande).
+///
+/// Written once and never edited, never deleted and never withdrawn, by its
+/// author or by anybody else: what somebody wrote is a record of what was said,
+/// and the only thing that removes one is the retention clock.
+model ChatMessage {
+  id String @id @default(cuid())
+
+  /// The room it was written in.
+  ///
+  /// Cascade, like the news comment's: a message is a line in a conversation,
+  /// and once the room it was said in is gone it says nothing at all.
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  /// Who wrote it.
+  ///
+  /// A plain column and not a relation, for the reason NewsComment.authorPersonId
+  /// gives: every referential action a foreign key can carry either rewrites
+  /// this row when a person is erased or vetoes the erasure, and service-tier
+  /// data has to be purgeable without the purge having to negotiate with the
+  /// conversation.
+  authorPersonId String
+
+  /// What they wrote. Free text, capped on the way in, and scanned for a
+  /// personal identity number before it is stored.
+  body String
+
+  /// When it was written. The anchor the retention clock runs from.
+  ///
+  /// There is no `updatedAt`, as there is none on BoardMailboxMessage and for
+  /// the same reason: a message is immutable once written, and a column that
+  /// could change would invite the edit this model does not have.
+  createdAt DateTime @default(now())
+
+  /// The page and the poll: one room's messages in the order they were written.
+  @@index([chatId, createdAt])
+  /// The write budget and the purge scan: this person's messages by date.
+  @@index([authorPersonId, createdAt])
+  @@map("chat_message")
+}
+
+/// How far one person has read one room.
+///
+/// One row per person per room, so a screen can say what is unread. Nothing in
+/// this product notifies by mail when somebody writes, and this is what makes
+/// that answerable rather than merely quiet: a board member opening the
+/// application is told there is something to read instead of being mailed about
+/// every line.
+///
+/// Both columns are plain, on the same reasoning as ChatMessage.authorPersonId,
+/// and the pair is the identifier: a person has read a room up to one moment
+/// and there is nothing to say twice.
+model ChatRead {
+  chatId   String
+  personId String
+
+  /// The instant the reader had seen the room up to.
+  ///
+  /// Only ever moved forward. Two tabs open on one room would otherwise un-read
+  /// each other, and a marker that went backwards would announce messages the
+  /// person had already read.
+  readAt DateTime
+
+  @@id([chatId, personId])
+  @@map("chat_read")
+}
