@@ -1627,6 +1627,30 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * The accounting basis, produced from the same screen.
+     *
+     * The card rather than the page, for the reason the entry above gives: what
+     * this image is about is the one file that carries both halves of the
+     * period's money, and the register and the run are already photographed.
+     *
+     * The calendar year, which is what reaches both halves: the run above bills
+     * the first quarter, and the charge recorded on the screen before it is
+     * dated the day the walk runs. The panel stands on the charges screen as
+     * well and is photographed once, here, because it is the same component.
+     */
+    name: "accounting-basis",
+    prepare: [
+      { fill: { label: "Från och med" }, value: "2026-01-01" },
+      { fill: { label: "Till och med" }, value: "2026-12-31" },
+      { click: { button: "Ta fram bokföringsunderlaget" } },
+    ],
+    // The summary, which exists only once the server has answered. The form
+    // above it is there from the start and says nothing about a file.
+    waitFor: { text: "Hämta bokföringsunderlaget" },
+    capture: { panel: "Bokföringsunderlag" },
+  },
+  {
+    /*
      * The board's shared mailbox, empty and not yet collecting.
      *
      * Empty for the reason the contact inbox above is: nothing in this walk can

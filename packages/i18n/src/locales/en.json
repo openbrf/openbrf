@@ -634,6 +634,7 @@
           "FEE_REMOVED": "A fee recorded in error was removed",
           "FEE_NOTIFICATION_ISSUED": "A period's fee notices were issued",
           "FEE_NOTIFICATION_EXPORTED": "A period's fee notices were produced as a document",
+          "ACCOUNTING_BASIS_EXPORTED": "The accounting basis was exported",
           "BOARD_MAILBOX_THREAD_TAKEN": "A thread in the board mailbox was taken on",
           "BOARD_MAILBOX_THREAD_RELEASED": "A thread in the board mailbox was released",
           "BOARD_MAILBOX_REPLY_SENT": "A reply was sent from the board mailbox",
@@ -3886,6 +3887,32 @@
       "rangeInvalid": "The period cannot end before it begins.",
       "invalidBody": "Something in the form could not be read. Check the amount and the dates.",
       "unknown": "The charge could not be saved just now."
+    }
+  },
+  "accounting": {
+    "basis": {
+      "title": "Accounting basis",
+      "description": "The period's fee notices and charges in one file, for whoever keeps the association's books.",
+      "notALedger": "The file states what was billed and charged. It carries no account numbers, no vouchers and no balances, and it says nothing about payment: Open BRF holds the basis, and which accounts the amounts are posted to is your bookkeeper's decision.",
+      "from": "From and including",
+      "to": "To and including",
+      "produce": "Produce the accounting basis",
+      "runsAreWhole": "A notification run belongs to the period its own period opens in, and is carried whole: a quarter billed from January is on January's file in full. A charge belongs to the day it is dated.",
+      "feeRows": "Fee notices",
+      "chargeRows": "Charges",
+      "rowsWithTotal_one": "{{count}} row, {{amount}} kr",
+      "rowsWithTotal_other": "{{count}} rows, {{amount}} kr",
+      "total": "Together",
+      "amountWithUnit": "{{amount}} kr",
+      "download": "Download the accounting basis",
+      "columnsAreDocumented": "The columns are stable and documented, so a mapping into your accounting program is written once and then left alone.",
+      "feeVat": "A charge carries its value added tax treatment. A fee notice does not: it is one amount per apartment across the fee kinds and the months it covers, and splitting it here would be a second answer to what was billed. The treatment per fee is in the fee register."
+    },
+    "errors": {
+      "dateNotACalendarDate": "That is not a date.",
+      "rangeInvalid": "The period ends before it begins.",
+      "invalidBody": "State the period as two dates.",
+      "unknown": "The file could not be produced just now."
     }
   },
   "fees": {
