@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { createNews, listNews, publishNews } from "../src/news";
@@ -203,11 +203,10 @@ async function signInThroughTheScreen(
  * The extract is produced fresh each time it is asked for, so this reopens it
  * rather than reading a page already on screen.
  */
-async function auditEntriesFor(
+async function openExtract(
   page: Page,
   person: { surname: string; fullName: string },
-  label: string,
-): Promise<number> {
+): Promise<Locator> {
   await page.goto(appPath("/"));
   await page.getByLabel("Sök i registret").fill(person.surname);
   await page.getByRole("cell", { name: `Öppna ${person.fullName}` }).click();
@@ -215,8 +214,27 @@ async function auditEntriesFor(
   await expect(
     page.getByRole("heading", { name: "Registerutdrag" }),
   ).toBeVisible();
+  /*
+   * And the log's own section, which is what a count may be taken against.
+   * `count()` answers at once and never waits, so a count taken on the heading
+   * alone answers zero while the document is still arriving - and zero before
+   * and zero after is an act that looks unrecorded. The section renders whether
+   * or not the person has an entry, so waiting for it is safe on both sides of
+   * the act.
+   */
+  await expect(
+    page.getByRole("heading", { name: "Granskningsloggen" }),
+  ).toBeVisible();
 
-  return page.getByRole("row").filter({ hasText: label }).count();
+  return page.getByRole("row");
+}
+
+async function auditEntriesFor(
+  page: Page,
+  person: { surname: string; fullName: string },
+  label: string,
+): Promise<number> {
+  return (await openExtract(page, person)).filter({ hasText: label }).count();
 }
 
 /** The register fixture, an account for the author, and one published notice. */
@@ -456,14 +474,17 @@ test.describe("what the record says about an act on a person", () => {
     await expect(thread.getByRole("listitem")).toHaveCount(1);
 
     // --- and the act is on the document the person is handed ----------------
-    const struckAfter = await auditEntriesFor(
-      page,
-      { surname: "Persson", fullName: PROTECTED_AUTHOR.name },
-      "Nyhetskommentar doldes",
-    );
-    expect(struckAfter, "striking the comment through recorded nothing").toBe(
-      struckBefore + 1,
-    );
+    const rows = await openExtract(page, {
+      surname: "Persson",
+      fullName: PROTECTED_AUTHOR.name,
+    });
+    // Asserted on the locator rather than on a number, so the expectation
+    // retries while the document arrives instead of answering about an empty
+    // one once.
+    await expect(
+      rows.filter({ hasText: "Nyhetskommentar doldes" }),
+      "striking the comment through recorded nothing",
+    ).toHaveCount(struckBefore + 1);
 
     // In the association's own words rather than as an enum value, and naming
     // the way the board reached the records. Read off the newest row, which is
@@ -524,10 +545,11 @@ test.describe("what the record says about an act on a person", () => {
     ).toBe(200);
     expect(((await saved.json()) as { parking: string }).parking).toBe(parking);
 
-    const recordedAfter = await auditEntriesFor(page, board, LABEL);
-    expect(recordedAfter, "saving the facts recorded nothing").toBe(
-      recordedBefore + 1,
-    );
+    const rows = await openExtract(page, board);
+    await expect(
+      rows.filter({ hasText: LABEL }),
+      "saving the facts recorded nothing",
+    ).toHaveCount(recordedBefore + 1);
 
     // The newest row is the one this test wrote: the extract lists the log
     // newest first.
