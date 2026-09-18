@@ -1724,8 +1724,14 @@ function groupChatMessages(
        * The earliest date the purge can reach the row rather than the date it
        * goes on, because a legal hold suspends the purge for the whole person
        * and this document is read by the person a hold may be standing against.
+       *
+       * Read on the association's own calendar, because the purge date is an
+       * instant and a day read off an instant in UTC names yesterday for an
+       * hour or two after midnight here.
        */
-      erasableFrom: toIsoDate(computeChatMessagePurgeDate(message.createdAt)),
+      erasableFrom: formatLocalDay(
+        localDayOf(computeChatMessagePurgeDate(message.createdAt)),
+      ),
     } satisfies ReportChatMessage);
   }
 
