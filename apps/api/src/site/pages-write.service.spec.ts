@@ -905,6 +905,71 @@ describe("a write built on a copy somebody else has replaced", () => {
     expect(fakes.audit.record).not.toHaveBeenCalled();
   });
 
+  it("refuses a publication already made, where the caller read an older copy", async () => {
+    /*
+     * Somebody else rewrote the page and published it. The caller asked to
+     * publish the revision it read, and answering "done" would tell it that
+     * the content it decided on is what is now on the website.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 7,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setPublished(
+        "page-1",
+        { published: true, expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+    expect(fakes.page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses an audience already set, where the caller read an older copy", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      visibility: "MEMBER",
+      revision: 7,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setVisibility(
+        "page-1",
+        { visibility: "MEMBER", expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(fakes.page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("answers a publication already made as a no-op where the caller read this copy", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 7,
+    });
+
+    const view = await fakes.service.setPublished(
+      "page-1",
+      { published: true, expectedRevision: 7 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(view.revision).toBe(7);
+    expect(fakes.page.updateMany).not.toHaveBeenCalled();
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
   it("deletes without a precondition, as the route always has", async () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue(DRAFT);

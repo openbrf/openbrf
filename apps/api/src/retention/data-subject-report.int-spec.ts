@@ -17,6 +17,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { DataSubjectReport } from "./data-subject-report";
+import { DataSubjectReportService } from "./data-subject-report.service";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15) over HTTP.
@@ -1069,20 +1070,36 @@ describe("who may produce a data subject access report", () => {
 });
 
 describe("what the report contains", () => {
-  it("stamps the day it was produced on the association's own calendar", async () => {
-    /*
-     * The header of a document handed to the person who asked for it. Read
-     * against a formatter of this suite's own rather than against the module
-     * that produced it, and bracketed either side of the request so a run
-     * crossing local midnight does not turn a correct answer into a failure.
-     */
-    const before = stockholmDayOf(new Date());
-    const report = await reportFor(boardCookie);
-    const after = stockholmDayOf(new Date());
+  it.each([
+    // 22:30 UTC on the 21st of June is half past midnight on the 22nd here.
+    ["in summer", "2026-06-21T22:30:00.000Z", "2026-06-22"],
+    // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+    ["in winter", "2026-12-21T23:30:00.000Z", "2026-12-22"],
+  ])(
+    "stamps the day it was produced on the association's own calendar, %s",
+    async (_season, instant, day) => {
+      /*
+       * The header of a document handed to the person who asked for it, at an
+       * instant whose UTC day and Stockholm day differ. Every container here
+       * runs UTC, so a clock read at the moment of the run agrees with the
+       * defect for twenty-two or twenty-three hours a day, and a check built on
+       * it passes against a regression outside that window. The instant is the
+       * service's own `now`, which is what the route supplies from the clock,
+       * rather than a faked process clock: the application runs in this
+       * process, and a fake Date there would disagree with the database's own
+       * about every session and token the request passes through.
+       */
+      const report = await app.get(DataSubjectReportService).generate({
+        personId: subject.personId,
+        actorPersonId: board.personId,
+        now: new Date(instant),
+      });
 
-    expect([before, after]).toContain(report.generatedOn);
-    expect(report.generatedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
+      expect(report.generatedOn).toBe(day);
+      // And not the day the instant's UTC fields name.
+      expect(report.generatedOn).not.toBe(instant.slice(0, 10));
+    },
+  );
 
   it("decrypts everything the register holds about the person", async () => {
     const report = await reportFor(boardCookie);

@@ -679,51 +679,67 @@ describe("what a token is worth when the person's standing narrows", () => {
 
   it("narrows an app the moment a board term ends, without revoking anything", async () => {
     const token = `token-standing-board-${suffix}`;
-    await grant({ personId: board.personId, client: clientId, token });
+    /*
+     * Captured before the term is ended, so the seat can be reopened by its id
+     * however this test ends. The fixture's board member is shared with the
+     * cases after this one, and a failure that left the term ended would show
+     * up there as a board that can no longer do what the board does.
+     */
+    let endedSeatId: string | undefined;
 
-    expect(await capabilitiesOf(token)).toContain("site:manage");
+    try {
+      await grant({ personId: board.personId, client: clientId, token });
 
-    const seat = await prisma.boardPosition.findFirstOrThrow({
-      where: { personId: board.personId, endedOn: null },
-      select: { id: true },
-    });
-    await app.get(BoardPositionService).endTerm({
-      boardPositionId: seat.id,
-      endedOn: "2026-01-02",
-      actorPersonId: board.personId,
-    });
+      expect(await capabilitiesOf(token)).toContain("site:manage");
 
-    // The token still resolves - nothing revoked it, and nothing swept it -
-    // and what it is worth is what the register says today.
-    const after = await capabilitiesOf(token);
-    expect(after).not.toContain("site:manage");
-    expect(after).toEqual(new Set(["self:manage"]));
+      const seat = await prisma.boardPosition.findFirstOrThrow({
+        where: { personId: board.personId, endedOn: null },
+        select: { id: true },
+      });
+      endedSeatId = seat.id;
+      await app.get(BoardPositionService).endTerm({
+        boardPositionId: seat.id,
+        endedOn: "2026-01-02",
+        actorPersonId: board.personId,
+      });
 
-    // The grant is still in the table, and the connection is still listed.
-    expect(
-      await prisma.oauthConsent.count({
-        where: { userId: await accountIdFor(board.personId) },
-      }),
-    ).toBe(1);
+      // The token still resolves - nothing revoked it, and nothing swept it -
+      // and what it is worth is what the register says today.
+      const after = await capabilitiesOf(token);
+      expect(after).not.toContain("site:manage");
+      expect(after).toEqual(new Set(["self:manage"]));
 
-    // And the member's own list says so rather than reading as healthy: the
-    // row is the one it was, and the word beside it is not.
-    const listed = await inject({
-      method: "GET",
-      url: "/api/connected-apps/mine",
-      headers: { cookie: await signIn(board.email) },
-    });
-    expect(listed.statusCode).toBe(200);
-    expect(
-      listed.json<{ connectedApps: { dormant: boolean }[] }>().connectedApps[0]
-        ?.dormant,
-    ).toBe(true);
+      // The grant is still in the table, and the connection is still listed.
+      expect(
+        await prisma.oauthConsent.count({
+          where: { userId: await accountIdFor(board.personId) },
+        }),
+      ).toBe(1);
 
-    await disconnectAll(board.personId);
-    await prisma.boardPosition.updateMany({
-      where: { id: seat.id },
-      data: { endedOn: null },
-    });
+      // And the member's own list says so rather than reading as healthy: the
+      // row is the one it was, and the word beside it is not.
+      const listed = await inject({
+        method: "GET",
+        url: "/api/connected-apps/mine",
+        headers: { cookie: await signIn(board.email) },
+      });
+      expect(listed.statusCode).toBe(200);
+      expect(
+        listed.json<{ connectedApps: { dormant: boolean }[] }>()
+          .connectedApps[0]?.dormant,
+      ).toBe(true);
+    } finally {
+      try {
+        if (endedSeatId !== undefined) {
+          await prisma.boardPosition.updateMany({
+            where: { id: endedSeatId },
+            data: { endedOn: null },
+          });
+        }
+      } finally {
+        await disconnectAll(board.personId);
+      }
+    }
   });
 
   it("narrows an app the moment a residency ends, which writes no audit entry at all", async () => {
@@ -790,9 +806,8 @@ describe("what a token is worth when the person's standing narrows", () => {
       // The token is still there and still resolves. Nothing revoked it, and
       // what it is worth is what the register says today.
       expect(await capabilitiesOf(token)).toEqual(new Set(["self:manage"]));
-
-      await disconnectAll(member.personId);
     } finally {
+      await disconnectAll(member.personId);
       await prisma.residency.deleteMany({
         where: { apartmentId: `apps-apartment-${suffix}` },
       });

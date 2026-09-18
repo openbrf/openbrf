@@ -1591,13 +1591,12 @@ describe("privacy notice", () => {
      * afterwards - and that save carries the whole page, so it would silently
      * delete the art. 13 headings appended here.
      */
-    const page = await prisma.page.findUnique({
+    // Seeded by the first case in this block. Thrown rather than skipped when
+    // it is not there, so this case cannot pass by testing nothing.
+    const page = await prisma.page.findUniqueOrThrow({
       where: { slug: PRIVACY_NOTICE_SLUG },
       select: { id: true, content: true, revision: true },
     });
-    if (page === null) {
-      return;
-    }
     const original = page.content;
 
     await prisma.page.update({

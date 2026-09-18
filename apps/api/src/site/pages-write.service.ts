@@ -164,6 +164,30 @@ export interface UpdatePageInput {
   expectedRevision?: number;
 }
 
+/**
+ * Refuses a precondition the page no longer meets, on a write that would
+ * otherwise change nothing.
+ *
+ * Publishing a published page, or giving a page the audience it already has, is
+ * not an event and writes nothing. It is still an answer, though, and the
+ * caller that sent a revision asked for one about the page it read. Somebody
+ * else may have rewritten that page and put it in the requested state since, so
+ * answering "done" would tell the caller the content it decided on is what is
+ * now published, when it has never seen what is. Absent, or matching, the
+ * no-op stands as it always has.
+ */
+function refuseStalePrecondition(
+  page: { revision: number },
+  expectedRevision: number | undefined,
+): void {
+  if (expectedRevision !== undefined && expectedRevision !== page.revision) {
+    throw new PageWriteError(
+      "The page changed after it was read.",
+      "page-changed",
+    );
+  }
+}
+
 const PAGE_COLUMNS = {
   id: true,
   slug: true,
@@ -497,6 +521,7 @@ export class PagesWriteService {
     const page = await this.require(id);
 
     if (page.published === input.published) {
+      refuseStalePrecondition(page, input.expectedRevision);
       return toAdminView(page);
     }
 
@@ -598,6 +623,7 @@ export class PagesWriteService {
     const page = await this.require(id);
 
     if (page.visibility === input.visibility) {
+      refuseStalePrecondition(page, input.expectedRevision);
       return toAdminView(page);
     }
 

@@ -20,7 +20,7 @@ closed, on the board's own queue and on the report alike, and the days a
 publication consent was given and withdrawn - a consent withdrawn at twenty to
 eleven on a summer evening was recorded as withdrawn the day before.
 
-On screen, a fault report, a motion, a comment, a contact message, a sign-up
+On screen, an issue report, a motion, a comment, a contact message, a sign-up
 request, a key order, a sublet application and a news item all show the day they
 actually happened here. So does the discovery date of a personal data breach,
 which is the date the 72 hours of art. 33 are counted from, and the board seat

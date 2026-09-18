@@ -567,14 +567,33 @@ export class ProcessingActivityService {
         );
       }
 
-      const row = await tx.processingActivity.update({
-        where: { id: activityId },
+      /*
+       * Conditional on the row still being open, because the lock above is not
+       * taken by every writer of `endedAt`: a plugin being removed ends its own
+       * processing through `endPlugin`, which does not take it. Matched on the
+       * id alone, an end landing after that one would replace the first date
+       * with a second and record a second actor as having ended it. Matched on
+       * `endedAt: null`, it matches nothing and is refused exactly as a second
+       * attempt read above is.
+       */
+      const claimed = await tx.processingActivity.updateMany({
+        where: { id: activityId, endedAt: null },
         data: {
           endedAt: new Date(),
           // Ending the processing is a change to the record, so a save composed
           // on the copy from before it is told rather than applied.
           revision: { increment: 1 },
         },
+      });
+      if (claimed.count === 0) {
+        throw new ProcessingActivityError(
+          "That processing has already been ended.",
+          "already-ended",
+        );
+      }
+
+      const row = await tx.processingActivity.findUniqueOrThrow({
+        where: { id: activityId },
         select: ACTIVITY_SELECT,
       });
 
