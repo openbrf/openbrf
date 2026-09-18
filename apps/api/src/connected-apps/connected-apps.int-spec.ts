@@ -12,6 +12,8 @@ import { hashOpaqueToken } from "../auth/opaque-token";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PrismaService } from "../database/prisma.service";
+import { MoveService } from "../moves/move.service";
+import { BoardPositionService } from "../roles/board-position.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -639,6 +641,164 @@ describe("the board's view", () => {
     expect(cut.statusCode).toBe(200);
 
     await disconnectAll(member.personId);
+  });
+});
+
+describe("what a token is worth when the person's standing narrows", () => {
+  /*
+   * The property the whole design rests on and nothing tested: a token is
+   * never revoked when a board term ends or a residency does, because what a
+   * grant is worth is decided per call against the person's capabilities as
+   * they are then. So the token stays in the table, the connection stays in
+   * the list, and what the app may do narrows the moment the register says it
+   * has.
+   *
+   * Asserted through the action catalogue, which is filtered on the caller's
+   * live capabilities by the same `PrincipalService.forPerson` that dispatch
+   * calls one line before it checks the action's capability. Nothing here
+   * disconnects anything, and each case checks that the rows are still there
+   * afterwards - a narrowing that worked by deleting the grant would prove
+   * nothing about the re-derivation.
+   */
+
+  /**
+   * What the token is worth right now, as the guard reads it.
+   *
+   * `BearerPrincipalService.resolve` is the whole of the bearer path: it reads
+   * the token row, then derives the person's capabilities through the same
+   * `PrincipalService.forPerson` the action registry calls one line before it
+   * checks an action's capability. Asserted here rather than through a route,
+   * because the Bearer-only surface is a connector plugin's and a bare
+   * instance mounts none.
+   */
+  async function capabilitiesOf(token: string): Promise<Set<string>> {
+    const identity = await bearer.resolve(token);
+    expect(identity).not.toBeNull();
+    return new Set(identity?.principal.capabilities ?? []);
+  }
+
+  it("narrows an app the moment a board term ends, without revoking anything", async () => {
+    const token = `token-standing-board-${suffix}`;
+    await grant({ personId: board.personId, client: clientId, token });
+
+    expect(await capabilitiesOf(token)).toContain("site:manage");
+
+    const seat = await prisma.boardPosition.findFirstOrThrow({
+      where: { personId: board.personId, endedOn: null },
+      select: { id: true },
+    });
+    await app.get(BoardPositionService).endTerm({
+      boardPositionId: seat.id,
+      endedOn: "2026-01-02",
+      actorPersonId: board.personId,
+    });
+
+    // The token still resolves - nothing revoked it, and nothing swept it -
+    // and what it is worth is what the register says today.
+    const after = await capabilitiesOf(token);
+    expect(after).not.toContain("site:manage");
+    expect(after).toEqual(new Set(["self:manage"]));
+
+    // The grant is still in the table, and the connection is still listed.
+    expect(
+      await prisma.oauthConsent.count({
+        where: { userId: await accountIdFor(board.personId) },
+      }),
+    ).toBe(1);
+
+    // And the member's own list says so rather than reading as healthy: the
+    // row is the one it was, and the word beside it is not.
+    const listed = await inject({
+      method: "GET",
+      url: "/api/connected-apps/mine",
+      headers: { cookie: await signIn(board.email) },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(
+      listed.json<{ connectedApps: { dormant: boolean }[] }>().connectedApps[0]
+        ?.dormant,
+    ).toBe(true);
+
+    await disconnectAll(board.personId);
+    await prisma.boardPosition.updateMany({
+      where: { id: seat.id },
+      data: { endedOn: null },
+    });
+  });
+
+  it("narrows an app the moment a residency ends, which writes no audit entry at all", async () => {
+    /*
+     * The mirror of the case above, on the path with even less to reason from:
+     * a move-out writes no audit entry, so nothing records that the person's
+     * standing changed. The re-derivation is what makes that safe.
+     */
+    const address = await prisma.address.create({
+      data: {
+        id: `apps-address-${suffix}`,
+        street: `Anslutningsgatan ${suffix}`,
+        number: "1",
+        postalCode: "11122",
+        city: "Stockholm",
+        apartments: {
+          create: [
+            { id: `apps-apartment-${suffix}`, number: "1001", floor: 0 },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+
+    try {
+      const moved = await app.get(MoveService).moveIn({
+        actorPersonId: board.personId,
+        personId: member.personId,
+        apartmentId: `apps-apartment-${suffix}`,
+        role: "RESIDENT",
+        movedInOn: "2026-01-01",
+      });
+
+      const token = `token-standing-residency-${suffix}`;
+      await grant({ personId: member.personId, client: clientId, token });
+
+      expect(await capabilitiesOf(token)).toContain("bookings:book");
+
+      const before = await inject({
+        method: "GET",
+        url: "/api/connected-apps/mine",
+        headers: { cookie: memberCookie },
+      });
+      expect(
+        before.json<{ connectedApps: { dormant: boolean }[] }>()
+          .connectedApps[0]?.dormant,
+      ).toBe(false);
+
+      await app.get(MoveService).moveOut({
+        residencyId: moved.residencyId,
+        movedOutOn: "2026-01-02",
+      });
+
+      const after = await inject({
+        method: "GET",
+        url: "/api/connected-apps/mine",
+        headers: { cookie: memberCookie },
+      });
+      expect(
+        after.json<{ connectedApps: { dormant: boolean }[] }>().connectedApps[0]
+          ?.dormant,
+      ).toBe(true);
+
+      // The token is still there and still resolves. Nothing revoked it, and
+      // what it is worth is what the register says today.
+      expect(await capabilitiesOf(token)).toEqual(new Set(["self:manage"]));
+
+      await disconnectAll(member.personId);
+    } finally {
+      await prisma.residency.deleteMany({
+        where: { apartmentId: `apps-apartment-${suffix}` },
+      });
+      await prisma.apartment.deleteMany({ where: { addressId: address.id } });
+      await prisma.address.deleteMany({ where: { id: address.id } });
+    }
   });
 });
 

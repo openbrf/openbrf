@@ -3,6 +3,8 @@ import { Injectable } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
+import type { Principal } from "../authorization/capabilities";
+import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
 
 /**
@@ -33,6 +35,30 @@ export interface ConnectedAppView {
    * expired and been swept, which reads correctly as "not lately".
    */
   lastTokenIssuedAt: Date | null;
+  /**
+   * Whether the person's standing has narrowed to nothing an app could use.
+   *
+   * Nothing revokes a token when a board term ends or a residency does, and
+   * nothing needs to: what a grant is worth is decided per call against the
+   * person's capabilities as they are then, so a narrowed person's app is
+   * refused at the moment it asks. What that costs is a list that says
+   * "connected" about a connection which can no longer do anything, and looks
+   * fresher as it becomes more useless, because the app keeps refreshing its
+   * token on schedule.
+   *
+   * True when the person holds no capability beyond `self:manage`, which every
+   * person row carries and no action in core declares. That is a statement
+   * about standing and not about scopes: a token says whether it may read or
+   * write, never which of the association's records an app reaches, so this
+   * cannot answer the narrower question of whether the particular thing an app
+   * does is still permitted. A board member who has only stopped being on the
+   * board keeps every resident capability and their connection is not dormant.
+   *
+   * Derived at read time from the same `PrincipalService.forPerson` the
+   * refusal uses, so the word beside a row and the answer an app gets cannot
+   * come from different readings.
+   */
+  dormant: boolean;
 }
 
 /** The same, plus who granted it. Only the board's instance-wide view. */
@@ -55,6 +81,7 @@ export class ConnectedAppsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly principals: PrincipalService,
   ) {}
 
   /** One person's own connections. */
@@ -82,6 +109,9 @@ export class ConnectedAppsService {
     });
 
     const issued = await this.latestTokenPerClient(account.id);
+    // One read for the whole list: standing belongs to the person and not to
+    // any one connection, so every row on this screen answers alike.
+    const dormant = isDormant(await this.principals.forPerson(personId));
 
     return consents.map((consent) => ({
       clientId: consent.clientId,
@@ -92,6 +122,7 @@ export class ConnectedAppsService {
       scopes: consent.scopes,
       connectedAt: consent.createdAt,
       lastTokenIssuedAt: issued.get(consent.clientId) ?? null,
+      dormant,
     }));
   }
 
@@ -126,6 +157,25 @@ export class ConnectedAppsService {
     // would grow with the cooperative.
     const issued = await this.latestTokenPerAccountAndClient();
 
+    /*
+     * One read per person and not per row: a member with three connections is
+     * one question about standing, asked once. It is still a query per person
+     * on a screen that is only ever read, which is the cost of deriving this
+     * rather than storing it - and storing it would need the watcher on board
+     * terms and residencies that deliberately does not exist.
+     */
+    const dormant = new Map<string, boolean>();
+    for (const personId of new Set(
+      consents
+        .map((consent) => consent.user?.person?.id)
+        .filter((id): id is string => id !== undefined && id !== null),
+    )) {
+      dormant.set(
+        personId,
+        isDormant(await this.principals.forPerson(personId)),
+      );
+    }
+
     const rows: ConnectedAppGrantView[] = [];
     for (const consent of consents) {
       const person = consent.user?.person;
@@ -148,6 +198,7 @@ export class ConnectedAppsService {
         connectedAt: consent.createdAt,
         lastTokenIssuedAt:
           issued.get(pairKey(consent.userId, consent.clientId)) ?? null,
+        dormant: dormant.get(person.id) ?? true,
       });
     }
     return rows;
@@ -291,6 +342,27 @@ function pairKey(userId: string | null, clientId: string): string {
  * and less recognisable. Null rather than a placeholder when it cannot be
  * parsed, so a screen shows nothing rather than something untrue.
  */
+/**
+ * Whether a person's standing has narrowed to nothing an app could use.
+ *
+ * `self:manage` is granted unconditionally to anybody with a person row, and
+ * core registers no action that declares it, so a person holding that and
+ * nothing else has an app that can reach none of the association's records.
+ * A person with no row at all is dormant for the plainer reason: the refusal
+ * their app meets is that they no longer hold an account.
+ */
+function isDormant(principal: Principal | null): boolean {
+  if (principal === null) {
+    return true;
+  }
+  for (const capability of principal.capabilities) {
+    if (capability !== "self:manage") {
+      return false;
+    }
+  }
+  return true;
+}
+
 function hostOf(value: string | null): string | null {
   if (value === null) return null;
   try {

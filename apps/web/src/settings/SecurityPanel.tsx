@@ -742,7 +742,22 @@ function ConnectedAppsSection(): ReactElement {
                   <span className="font-data text-small text-ink-muted">
                     {app.clientHost ?? t("connectedApps.unknownHost")}
                   </span>
+                  {/*
+                    A word and not a colour: colour is never the only signal,
+                    and this one has to survive a print and a screen reader.
+                  */}
+                  {app.dormant ? (
+                    <span className="text-label text-ink-muted uppercase">
+                      {t("connectedApps.dormant")}
+                    </span>
+                  ) : null}
                 </div>
+
+                {app.dormant ? (
+                  <p className="text-small text-ink-muted">
+                    {t("connectedApps.dormantExplanation")}
+                  </p>
+                ) : null}
 
                 <p className="text-small text-ink-muted">
                   <span className="text-label uppercase">
