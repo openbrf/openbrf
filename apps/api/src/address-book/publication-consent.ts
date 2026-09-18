@@ -1,5 +1,6 @@
+import { formatDateColumn } from "@openbrf/shared";
+
 import type { ConsentScope } from "../generated/prisma/enums";
-import { toIsoDate } from "./address-book-view";
 
 /**
  * Publication consent (publiceringssamtycke) as the board's person view shows
@@ -105,8 +106,8 @@ export function consentViewOf(
   return {
     scope,
     state: latest.withdrawnAt === null ? "granted" : "withdrawn",
-    grantedOn: toIsoDate(latest.grantedAt),
-    withdrawnOn: toIsoDate(latest.withdrawnAt),
+    grantedOn: formatDateColumn(latest.grantedAt),
+    withdrawnOn: formatDateColumn(latest.withdrawnAt),
     note: latest.note,
   };
 }

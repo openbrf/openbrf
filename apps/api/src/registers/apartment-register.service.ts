@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -412,7 +413,7 @@ export class ApartmentRegisterService {
           context: {
             apartmentId: input.apartmentId,
             creditor: input.creditor,
-            notedOn: isoDate(lien.notedOn),
+            notedOn: formatDateColumn(lien.notedOn),
           },
         },
         tx,
@@ -481,7 +482,7 @@ export class ApartmentRegisterService {
           targetId: lien.id,
           context: {
             apartmentId: existing.apartmentId,
-            releasedOn: isoDate(lien.releasedOn),
+            releasedOn: formatDateColumn(lien.releasedOn),
           },
         },
         tx,
@@ -561,7 +562,7 @@ export class ApartmentRegisterService {
           context: {
             apartmentId: input.apartmentId,
             kind: termination.kind,
-            tookEffectOn: isoDate(termination.tookEffectOn),
+            tookEffectOn: formatDateColumn(termination.tookEffectOn),
           },
         },
         tx,
@@ -755,8 +756,8 @@ export class ApartmentRegisterService {
           context: {
             apartmentId: existing.apartmentId,
             basis: input.basis,
-            membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
-            transferredOn: isoDate(transfer.transferredOn),
+            membershipDecidedOn: formatDateColumn(transfer.membershipDecidedOn),
+            transferredOn: formatDateColumn(transfer.transferredOn),
           },
         },
         tx,
@@ -780,8 +781,10 @@ export class ApartmentRegisterService {
             targetId: transfer.id,
             context: {
               apartmentId: existing.apartmentId,
-              membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
-              transferredOn: isoDate(transfer.transferredOn),
+              membershipDecidedOn: formatDateColumn(
+                transfer.membershipDecidedOn,
+              ),
+              transferredOn: formatDateColumn(transfer.transferredOn),
             },
           },
           tx,
@@ -908,7 +911,7 @@ export class ApartmentRegisterService {
             apartmentId: transfer.apartmentId,
             transferId: transfer.id,
             kind: reversal.kind,
-            reversedOn: isoDate(reversal.reversedOn),
+            reversedOn: formatDateColumn(reversal.reversedOn),
           },
         },
         tx,
@@ -1095,8 +1098,8 @@ export class ApartmentRegisterService {
           transferId: obligation.transferId,
           terminationId: obligation.terminationId,
           reversalId: obligation.reversalId,
-          triggeredOn: isoDate(obligation.triggeredOn),
-          dueOn: isoDate(obligation.dueOn),
+          triggeredOn: formatDateColumn(obligation.triggeredOn),
+          dueOn: formatDateColumn(obligation.dueOn),
         },
       },
       tx,
@@ -1476,8 +1479,8 @@ export class ApartmentRegisterService {
             residency.person.personalIdentityNumberCipher,
             mayReadIdentityNumber,
           ),
-          heldFrom: isoDate(residency.movedInOn) ?? "",
-          heldUntil: isoDate(residency.movedOutOn),
+          heldFrom: formatDateColumn(residency.movedInOn) ?? "",
+          heldUntil: formatDateColumn(residency.movedOutOn),
         });
       }
 
@@ -1505,7 +1508,7 @@ export class ApartmentRegisterService {
         taxAssessmentUnitNumber: association?.taxAssessmentUnitNumber ?? null,
         propertyType: association?.propertyType ?? null,
       },
-      generatedOn: isoDate(now) ?? "",
+      generatedOn: formatDateColumn(now) ?? "",
       identityNumbersIncluded: query.includeIdentityNumbers,
       audience: query.audience,
       rows,
@@ -1549,8 +1552,8 @@ function toLien(lien: {
   return {
     id: lien.id,
     creditor: lien.creditor,
-    notedOn: isoDate(lien.notedOn) ?? "",
-    releasedOn: isoDate(lien.releasedOn),
+    notedOn: formatDateColumn(lien.notedOn) ?? "",
+    releasedOn: formatDateColumn(lien.releasedOn),
     amount: lien.amount?.toString() ?? null,
   };
 }
@@ -1637,8 +1640,8 @@ function toTransfer(transfer: {
   return {
     id: transfer.id,
     kind: transfer.kind,
-    transferredOn: isoDate(transfer.transferredOn) ?? "",
-    membershipDecidedOn: isoDate(transfer.membershipDecidedOn),
+    transferredOn: formatDateColumn(transfer.transferredOn) ?? "",
+    membershipDecidedOn: formatDateColumn(transfer.membershipDecidedOn),
     reportBasis: transfer.reportBasis,
     fromName:
       transfer.fromPerson === null
@@ -1663,7 +1666,7 @@ function toTransferReversal(reversal: {
     id: reversal.id,
     transferId: reversal.transferId,
     kind: reversal.kind,
-    reversedOn: isoDate(reversal.reversedOn) ?? "",
+    reversedOn: formatDateColumn(reversal.reversedOn) ?? "",
     reference: reversal.reference,
   };
 }
@@ -1677,7 +1680,7 @@ function toTermination(termination: {
   return {
     id: termination.id,
     kind: termination.kind,
-    tookEffectOn: isoDate(termination.tookEffectOn) ?? "",
+    tookEffectOn: formatDateColumn(termination.tookEffectOn) ?? "",
     reference: termination.reference,
   };
 }
@@ -1700,12 +1703,4 @@ function statutoryDateColumn(text: string, now: Date): Date {
       : "That date has not arrived yet.",
     parsed.problem,
   );
-}
-
-function isoDate(value: Date | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
 }

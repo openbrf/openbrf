@@ -1,6 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-
-import { AuditLogService } from "../audit/audit-log.service";
 import {
   dateColumnOf,
   formatLocalDay,
@@ -8,7 +6,9 @@ import {
   type LocalDay,
   localDayOf,
   localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
+
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 // The namespace as a value, not only as a type: the create below reads a Prisma
 // error code off it.

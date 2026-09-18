@@ -1,3 +1,4 @@
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 import { Fragment, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -232,16 +233,6 @@ export function eventPath(eventId: string): string {
 export function calendarMonthPath(month: CalendarMonth): string {
   return `${CALENDAR_PATH}?${CALENDAR_MONTH_PARAM}=${formatCalendarMonth(month)}`;
 }
-
-/**
- * The calendar a published date is read against.
- *
- * The association is in Sweden and its notices are dated the way the people
- * reading them date things. Both halves of a published date derive from this
- * one zone, because a notice put up late on the last of the month must not be
- * shown as one day and marked up as another.
- */
-const ASSOCIATION_TIME_ZONE = "Europe/Stockholm";
 
 /**
  * A published date, as a calendar date in the reader's own language.

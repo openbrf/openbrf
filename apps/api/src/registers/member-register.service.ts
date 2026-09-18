@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { isMasked } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -199,7 +200,7 @@ export class MemberRegisterService {
         organizationNumber: association?.organizationNumber ?? null,
       },
       scope,
-      generatedOn: isoDate(now) ?? "",
+      generatedOn: formatDateColumn(now) ?? "",
       rows,
     };
   }
@@ -259,8 +260,8 @@ export class MemberRegisterService {
       name,
       postalAddress,
       protectedPersonalData: protectedData,
-      enteredOn: isoDate(period.entry?.eventOn ?? null),
-      exitedOn: isoDate(period.exit?.eventOn ?? null),
+      enteredOn: formatDateColumn(period.entry?.eventOn ?? null),
+      exitedOn: formatDateColumn(period.exit?.eventOn ?? null),
       apartments: apartmentsFor(period, person, current),
     };
   }
@@ -311,13 +312,4 @@ function byNameThenEntry(
     return byName;
   }
   return (left.enteredOn ?? "").localeCompare(right.enteredOn ?? "");
-}
-
-/** ISO calendar date (YYYY-MM-DD), which is what the mono grid prints. */
-function isoDate(value: Date | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
 }

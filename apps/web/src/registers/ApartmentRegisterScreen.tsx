@@ -1726,8 +1726,9 @@ function Pair({
  * row nobody can correct afterwards, at the start of a statutory two-week
  * window under Lag (2026:484) 3 kap.
  *
- * The zone itself is named once in the client, in the booking module's
- * calendar, so that no screen can quietly fall back to the viewer's own.
+ * The zone itself is named once, in `@openbrf/shared`, and the client reaches
+ * it through the booking module's calendar, so that no screen can quietly fall
+ * back to the viewer's own.
  */
 function today(): string {
   return localDayNow();

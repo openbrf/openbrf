@@ -2,7 +2,8 @@ import {
   compareLocalDays,
   type LocalDay,
   localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
+
 import type { ResolvedRegisterEvent } from "../registers/membership-periods";
 import { membershipPeriods } from "../registers/membership-periods";
 import { isProxyAuthorityCurrent } from "./proxy-authority";

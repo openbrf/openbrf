@@ -1,13 +1,12 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
-import { toIsoDate } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
 import { computeKeyOrderPurgeDate } from "../key-orders/key-order-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
 import { computeSubletPurgeDate } from "../sublets/sublet-retention";
-import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { chargesDuringResidency } from "../charges/apartment-charges";
@@ -974,7 +973,7 @@ export class DataSubjectReportService {
     const lastMovedOutOn = latestMoveOut(person.residencies);
 
     return {
-      generatedOn: toIsoDate(now) ?? now.toISOString(),
+      generatedOn: formatDateColumn(now) ?? now.toISOString(),
       housingCooperative: {
         name: association?.name ?? "",
         organizationNumber: association?.organizationNumber ?? null,
@@ -1010,16 +1009,16 @@ export class DataSubjectReportService {
         apartmentNumber: residency.apartment.number,
         addressLabel: `${residency.apartment.address.street} ${residency.apartment.address.number}`,
         role: residency.role,
-        movedInOn: toIsoDate(residency.movedInOn),
-        movedOutOn: toIsoDate(residency.movedOutOn),
-        purgeOn: toIsoDate(
+        movedInOn: formatDateColumn(residency.movedInOn),
+        movedOutOn: formatDateColumn(residency.movedOutOn),
+        purgeOn: formatDateColumn(
           computePurgeDate(residency.movedOutOn, retentionDays),
         ),
       })),
       boardPositions: person.boardPositions.map((position) => ({
         position: position.position,
-        electedOn: toIsoDate(position.electedOn),
-        endedOn: toIsoDate(position.endedOn),
+        electedOn: formatDateColumn(position.electedOn),
+        endedOn: formatDateColumn(position.endedOn),
       })),
       systemRoles: person.systemRoles.map((role) => role.role),
       account:
@@ -1052,7 +1051,7 @@ export class DataSubjectReportService {
       memberRegisterEntries: person.memberRegisterEntries.map((entry) => ({
         entryId: entry.id,
         eventType: entry.eventType,
-        eventOn: toIsoDate(entry.eventOn) ?? "",
+        eventOn: formatDateColumn(entry.eventOn) ?? "",
         apartment:
           entry.apartment === null
             ? null
@@ -1072,7 +1071,7 @@ export class DataSubjectReportService {
         direction:
           transfer.toPersonId === personId ? "acquired" : "relinquished",
         kind: transfer.kind,
-        transferredOn: toIsoDate(transfer.transferredOn) ?? "",
+        transferredOn: formatDateColumn(transfer.transferredOn) ?? "",
         // Decimal through its own toString: a price rendered through a float
         // would round in a document that states what an apartment sold for.
         price: transfer.price === null ? null : transfer.price.toString(),
@@ -1086,7 +1085,7 @@ export class DataSubjectReportService {
         // request with a fact about the other party.
         membershipDecidedOn:
           transfer.toPersonId === personId
-            ? toIsoDate(transfer.membershipDecidedOn)
+            ? formatDateColumn(transfer.membershipDecidedOn)
             : null,
         // Withheld from the seller for the same reason and on the same test.
         // The value says that the acquirer was already a member, or fell
@@ -1100,14 +1099,14 @@ export class DataSubjectReportService {
         transferId: reversal.transferId,
         apartment: `${reversal.apartment.address.street} ${reversal.apartment.address.number} ${reversal.apartment.number}`,
         kind: reversal.kind,
-        reversedOn: toIsoDate(reversal.reversedOn) ?? "",
+        reversedOn: formatDateColumn(reversal.reversedOn) ?? "",
         reference: reversal.reference,
       })),
       terminations: terminations.map((termination) => ({
         terminationId: termination.id,
         apartment: `${termination.apartment.address.street} ${termination.apartment.address.number} ${termination.apartment.number}`,
         kind: termination.kind,
-        tookEffectOn: toIsoDate(termination.tookEffectOn) ?? "",
+        tookEffectOn: formatDateColumn(termination.tookEffectOn) ?? "",
         reference: termination.reference,
       })),
       lienNotes: lienNotes.map((note) => ({
@@ -1117,16 +1116,16 @@ export class DataSubjectReportService {
         // Decimal through its own toString, for the reason the transfer price
         // gives: a float would round a sum on a statutory record.
         amount: note.amount === null ? null : note.amount.toString(),
-        notedOn: toIsoDate(note.notedOn) ?? "",
-        releasedOn: toIsoDate(note.releasedOn),
+        notedOn: formatDateColumn(note.notedOn) ?? "",
+        releasedOn: formatDateColumn(note.releasedOn),
       })),
       registerReportObligations: registerReportObligations.map(
         (obligation) => ({
           obligationId: obligation.id,
           kind: obligation.kind,
           apartment: `${obligation.apartment.address.street} ${obligation.apartment.address.number} ${obligation.apartment.number}`,
-          triggeredOn: toIsoDate(obligation.triggeredOn) ?? "",
-          dueOn: toIsoDate(obligation.dueOn),
+          triggeredOn: formatDateColumn(obligation.triggeredOn) ?? "",
+          dueOn: formatDateColumn(obligation.dueOn),
         }),
       ),
       publicationConsents: person.publicationConsents.map((consent) => ({
@@ -1180,7 +1179,7 @@ export class DataSubjectReportService {
          * does; a hold defers this date and never advances it, so the earliest
          * holds true whether or not one stands.
          */
-        erasableFrom: toIsoDate(computeBookingPurgeDate(booking.endsAt)),
+        erasableFrom: formatDateColumn(computeBookingPurgeDate(booking.endsAt)),
       })),
       motions: motions.map((motion) => ({
         motionId: motion.id,
@@ -1195,7 +1194,7 @@ export class DataSubjectReportService {
          * open motion has no closing date to count from, and the association is
          * still processing it, so no purge date exists to state.
          */
-        erasableFrom: toIsoDate(computeMotionPurgeDate(motion.closedAt)),
+        erasableFrom: formatDateColumn(computeMotionPurgeDate(motion.closedAt)),
       })),
       subletApplications: subletApplications.map((application) => ({
         applicationId: application.id,
@@ -1203,18 +1202,21 @@ export class DataSubjectReportService {
           application.apartment === null
             ? null
             : `${application.apartment.address.street} ${application.apartment.address.number} ${application.apartment.number}`,
-        // toIsoDate and not the calendar helper, exactly as every other
-        // `@db.Date` column on this document is rendered: the column is read
-        // back as midnight UTC, which is what the slice already answers.
-        periodFrom: toIsoDate(application.periodFrom) ?? "",
-        periodTo: toIsoDate(application.periodTo) ?? "",
+        // formatDateColumn and not `formatLocalDay(localDayOf(...))`, exactly
+        // as every other `@db.Date` column on this document is rendered: the
+        // column is read back as midnight UTC, and its UTC fields are the date
+        // it holds.
+        periodFrom: formatDateColumn(application.periodFrom) ?? "",
+        periodTo: formatDateColumn(application.periodTo) ?? "",
         reason: application.reason,
         status: application.status,
         submittedAt: application.submittedAt.toISOString(),
         closedAt: application.closedAt?.toISOString() ?? null,
         decisionNote: application.decisionNote,
-        tribunalPermittedOn: toIsoDate(application.tribunalPermittedOn),
-        tribunalPermittedUntil: toIsoDate(application.tribunalPermittedUntil),
+        tribunalPermittedOn: formatDateColumn(application.tribunalPermittedOn),
+        tribunalPermittedUntil: formatDateColumn(
+          application.tribunalPermittedUntil,
+        ),
         /*
          * Derived here rather than stored, as a residency's and a booking's are,
          * and from the later of two anchors: the day it closed and the day the
@@ -1222,7 +1224,7 @@ export class DataSubjectReportService {
          * the answer - there is no closing date to count from, and the
          * association is still processing it.
          */
-        erasableFrom: toIsoDate(
+        erasableFrom: formatDateColumn(
           computeSubletPurgeDate(application.closedAt, application.periodTo),
         ),
       })),
@@ -1241,7 +1243,9 @@ export class DataSubjectReportService {
         boardNote: order.boardNote,
         // Derived here rather than stored, and anchored on the closing date the
         // way a motion's is. Null while the order is open.
-        erasableFrom: toIsoDate(computeKeyOrderPurgeDate(order.closedAt)),
+        erasableFrom: formatDateColumn(
+          computeKeyOrderPurgeDate(order.closedAt),
+        ),
       })),
       eventSignups: eventSignups.map((signup) => ({
         signupId: signup.id,
@@ -1262,7 +1266,7 @@ export class DataSubjectReportService {
         // anchored on the end of the date rather than on the withdrawal: the row
         // is about a date, and it is the date that decides when the association
         // has no further use for it.
-        erasableFrom: toIsoDate(
+        erasableFrom: formatDateColumn(
           computeEventSignupPurgeDate(signup.occurrence.endsAt),
         ),
       })),
@@ -1270,7 +1274,7 @@ export class DataSubjectReportService {
         (charge): ReportMemberCharge => ({
           chargeId: charge.id,
           basis: charge.personId === null ? "apartment" : "person",
-          chargedOn: toIsoDate(charge.chargedOn) ?? "",
+          chargedOn: formatDateColumn(charge.chargedOn) ?? "",
           // toFixed and not toString: a DECIMAL(14, 2) holding 450 renders as
           // "450" through the latter, and this document states ore.
           amount: charge.amount.toFixed(2),
@@ -1281,7 +1285,7 @@ export class DataSubjectReportService {
             charge.apartment === null
               ? null
               : `${charge.apartment.address.street} ${charge.apartment.address.number} ${charge.apartment.number}`,
-          handedToManagerOn: toIsoDate(charge.handedToManagerOn),
+          handedToManagerOn: formatDateColumn(charge.handedToManagerOn),
           /*
            * Derived here rather than stored, exactly as the booking's is, and
            * anchored on the charge's own date rather than on a move-out: the row
@@ -1289,7 +1293,8 @@ export class DataSubjectReportService {
            * the association has no further use for it.
            */
           erasableFrom:
-            toIsoDate(computeMemberChargePurgeDate(charge.chargedOn)) ?? "",
+            formatDateColumn(computeMemberChargePurgeDate(charge.chargedOn)) ??
+            "",
         }),
       ),
       boardMailboxThreads: await Promise.all(
@@ -1358,13 +1363,15 @@ export class DataSubjectReportService {
          * person and this document is read by the person a hold may be
          * standing against.
          */
-        erasableFrom: toIsoDate(computeNewsCommentPurgeDate(comment.createdAt)),
+        erasableFrom: formatDateColumn(
+          computeNewsCommentPurgeDate(comment.createdAt),
+        ),
       })),
       meetingAttendances: meetingAttendances.map(
         (attendance): ReportMeetingAttendance => ({
           attendanceId: attendance.id,
           meetingHeldOn:
-            toIsoDate(attendance.meeting.heldOn) ??
+            formatDateColumn(attendance.meeting.heldOn) ??
             attendance.meeting.heldOn.toISOString(),
           meetingKind: attendance.meeting.kind,
           capacity: attendance.capacity,
@@ -1389,7 +1396,7 @@ export class DataSubjectReportService {
           return {
             authorisationId: authorisation.id,
             meetingHeldOn:
-              toIsoDate(authorisation.meeting.heldOn) ??
+              formatDateColumn(authorisation.meeting.heldOn) ??
               authorisation.meeting.heldOn.toISOString(),
             meetingKind: authorisation.meeting.kind,
             role: asMember ? "member" : "proxyHolder",
@@ -1398,7 +1405,7 @@ export class DataSubjectReportService {
               : authorisation.memberPersonId,
             ground: authorisation.ground,
             authorisedOn:
-              toIsoDate(authorisation.authorisedOn) ??
+              formatDateColumn(authorisation.authorisedOn) ??
               authorisation.authorisedOn.toISOString(),
             withdrawnAt: authorisation.withdrawnAt?.toISOString() ?? null,
           };
@@ -1418,16 +1425,16 @@ export class DataSubjectReportService {
         (request): ReportDataSubjectRequest => ({
           requestId: request.id,
           kind: request.kind,
-          requestedOn: toIsoDate(request.requestedOn),
-          dueOn: toIsoDate(dueOn(request.requestedOn)),
+          requestedOn: formatDateColumn(request.requestedOn),
+          dueOn: formatDateColumn(dueOn(request.requestedOn)),
           ground: request.ground,
           erasureGround: request.erasureGround,
           erasureException: request.erasureException,
           decision: request.decision,
           decisionGround: request.decisionGround,
-          decidedAt: toIsoDate(request.decidedAt),
-          executedAt: toIsoDate(request.executedAt),
-          closedAt: toIsoDate(request.closedAt),
+          decidedAt: formatDateColumn(request.decidedAt),
+          executedAt: formatDateColumn(request.executedAt),
+          closedAt: formatDateColumn(request.closedAt),
           closeReason: request.closeReason,
           issueId: request.issueId,
         }),
@@ -1444,7 +1451,9 @@ export class DataSubjectReportService {
       ),
       retention: {
         daysAfterMoveOut: retentionDays,
-        purgeOn: toIsoDate(computePurgeDate(lastMovedOutOn, retentionDays)),
+        purgeOn: formatDateColumn(
+          computePurgeDate(lastMovedOutOn, retentionDays),
+        ),
         onLegalHold: person.legalHolds.some((hold) => hold.releasedAt === null),
       },
     };

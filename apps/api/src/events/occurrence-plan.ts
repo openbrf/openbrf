@@ -38,11 +38,7 @@
  * rather than rewriting it.
  */
 
-import {
-  formatLocalDay,
-  localDayOf,
-  type Period,
-} from "../bookings/stockholm-calendar";
+import { formatLocalDay, localDayOf, type Period } from "@openbrf/shared";
 
 /** An occurrence as it stands in the table. */
 export interface StoredOccurrence {

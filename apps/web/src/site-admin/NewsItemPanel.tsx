@@ -1,3 +1,4 @@
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 import { useId, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -517,6 +518,6 @@ function formatDate(iso: string, locale: string): string {
         year: "numeric",
         month: "long",
         day: "numeric",
-        timeZone: "Europe/Stockholm",
+        timeZone: ASSOCIATION_TIME_ZONE,
       }).format(value);
 }

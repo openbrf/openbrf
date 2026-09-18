@@ -1,10 +1,10 @@
 import { Injectable } from "@nestjs/common";
+import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma, RegisterReportKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
-import { formatLocalDay, localDayOf } from "../bookings/stockholm-calendar";
 import {
   compareByDeadline,
   daysUntilDue,
@@ -297,8 +297,8 @@ export class RegisterReportService {
           transferId: obligation.transferId,
           terminationId: obligation.terminationId,
           reversalId: obligation.reversalId,
-          triggeredOn: isoDate(obligation.triggeredOn) ?? "",
-          dueOn: isoDate(obligation.dueOn),
+          triggeredOn: formatDateColumn(obligation.triggeredOn) ?? "",
+          dueOn: formatDateColumn(obligation.dueOn),
           state: reportState({
             dueOn: obligation.dueOn,
             reportedOn: reportedOn === null ? null : new Date(reportedOn),
@@ -330,7 +330,7 @@ export class RegisterReportService {
         transferId: transfer.id,
         apartmentId: transfer.apartmentId,
         designation: `${transfer.apartment.address.street} ${transfer.apartment.address.number} ${transfer.apartment.number}`,
-        transferredOn: isoDate(transfer.transferredOn) ?? "",
+        transferredOn: formatDateColumn(transfer.transferredOn) ?? "",
       })),
     };
   }
@@ -401,8 +401,8 @@ export class RegisterReportService {
         parsed.problem,
       );
     }
-    const reportedOn = isoDate(parsed.column) ?? "";
-    if (reportedOn < (isoDate(obligation.triggeredOn) ?? "")) {
+    const reportedOn = formatDateColumn(parsed.column) ?? "";
+    if (reportedOn < (formatDateColumn(obligation.triggeredOn) ?? "")) {
       throw new RegisterReportError(
         "The report cannot be dated before the day the window opened.",
         "report-before-the-window-opened",
@@ -430,8 +430,8 @@ export class RegisterReportService {
         // out: an absent field would read as an older build that did not write
         // one.
         reportedOn,
-        triggeredOn: isoDate(obligation.triggeredOn),
-        dueOn: isoDate(obligation.dueOn),
+        triggeredOn: formatDateColumn(obligation.triggeredOn),
+        dueOn: formatDateColumn(obligation.dueOn),
       },
     });
 
@@ -443,8 +443,8 @@ export class RegisterReportService {
       transferId: obligation.transferId,
       terminationId: obligation.terminationId,
       reversalId: obligation.reversalId,
-      triggeredOn: isoDate(obligation.triggeredOn) ?? "",
-      dueOn: isoDate(obligation.dueOn),
+      triggeredOn: formatDateColumn(obligation.triggeredOn) ?? "",
+      dueOn: formatDateColumn(obligation.dueOn),
       state: "reported",
       daysUntilDue: daysUntilDue(obligation.dueOn, now),
       reportedOn,
@@ -487,12 +487,4 @@ export class RegisterReportService {
     }
     return days;
   }
-}
-
-function isoDate(value: Date | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
 }

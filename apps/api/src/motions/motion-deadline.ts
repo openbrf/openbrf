@@ -3,7 +3,7 @@ import {
   formatLocalDay,
   type LocalDay,
   localDayOf,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
 
 /**
  * The bylaws' deadline for motions to the general meeting, and the date it next

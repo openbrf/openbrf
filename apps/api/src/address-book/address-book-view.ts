@@ -34,6 +34,8 @@
  * views; nothing here is an extract from either.
  */
 
+import { formatDateColumn } from "@openbrf/shared";
+
 import type {
   BoardPositionType,
   ResidencyRole,
@@ -272,15 +274,6 @@ export function hasMovedOut(
   return movedOutOn !== null && movedOutOn.getTime() <= today.getTime();
 }
 
-/** ISO calendar date (YYYY-MM-DD), which is what the mono grid renders. */
-export function toIsoDate(value: Date | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const iso = value.toISOString();
-  return iso.slice(0, iso.indexOf("T"));
-}
-
 function fullName(record: Pick<AddressBookRecord, "firstName" | "lastName">) {
   return `${record.firstName} ${record.lastName}`.trim();
 }
@@ -307,8 +300,8 @@ export function toAddressBookRow(
     name: fullName(record),
     apartment: record.apartment,
     signs: signsFor(record, options.today),
-    movedInOn: toIsoDate(record.movedInOn),
-    movedOutOn: toIsoDate(record.movedOutOn),
+    movedInOn: formatDateColumn(record.movedInOn),
+    movedOutOn: formatDateColumn(record.movedOutOn),
     protectedPersonalData: record.protectedPersonalData,
     contact: record.protectedPersonalData
       ? {
@@ -337,7 +330,7 @@ export function toResidentDirectoryRow(
     name: fullName(record),
     apartment: record.apartment,
     signs: signsFor(record, options.today),
-    movedInOn: toIsoDate(record.movedInOn),
-    movedOutOn: toIsoDate(record.movedOutOn),
+    movedInOn: formatDateColumn(record.movedInOn),
+    movedOutOn: formatDateColumn(record.movedOutOn),
   };
 }

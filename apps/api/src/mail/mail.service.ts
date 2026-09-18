@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 import { render } from "react-email";
 import { createTransport, type Transporter } from "nodemailer";
 
@@ -233,7 +234,7 @@ export class MailService {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-      timeZone: "Europe/Stockholm",
+      timeZone: ASSOCIATION_TIME_ZONE,
     });
     /*
      * The association's zone here too, and for the harder of the two reasons.
@@ -245,7 +246,7 @@ export class MailService {
     const timeFormatter = new Intl.DateTimeFormat(resolved, {
       hour: "2-digit",
       minute: "2-digit",
-      timeZone: "Europe/Stockholm",
+      timeZone: ASSOCIATION_TIME_ZONE,
     });
 
     return {

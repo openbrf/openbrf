@@ -1,10 +1,11 @@
+import { formatDateColumn } from "@openbrf/shared";
+
 import type {
   DataSubjectRequestDecision,
   DataSubjectRequestKind,
   ErasureException,
   ErasureGround,
 } from "../generated/prisma/enums";
-import { toIsoDate } from "../address-book/address-book-view";
 
 /**
  * What a person asked about their own data, as the board's screens show it.
@@ -158,18 +159,18 @@ export function toDataSubjectRequestView(
     requestId: row.id,
     personId: row.personId,
     kind: row.kind,
-    requestedOn: toIsoDate(row.requestedOn),
-    dueOn: toIsoDate(dueOn(row.requestedOn)),
+    requestedOn: formatDateColumn(row.requestedOn),
+    dueOn: formatDateColumn(dueOn(row.requestedOn)),
     ground: row.ground,
     erasureGround: row.erasureGround,
     issueId: row.issueId,
     decision: row.decision,
     erasureException: row.erasureException,
     decisionGround: row.decisionGround,
-    decidedAt: toIsoDate(row.decidedAt),
+    decidedAt: formatDateColumn(row.decidedAt),
     decidedByPersonId: row.decidedByPersonId,
-    executedAt: toIsoDate(row.executedAt),
-    closedAt: toIsoDate(row.closedAt),
+    executedAt: formatDateColumn(row.executedAt),
+    closedAt: formatDateColumn(row.closedAt),
     closeReason: row.closeReason,
     closedByPersonId: row.closedByPersonId,
     recordedByPersonId: row.recordedByPersonId,

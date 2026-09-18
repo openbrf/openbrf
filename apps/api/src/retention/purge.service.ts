@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
@@ -7,7 +8,6 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { toIsoDate } from "../address-book/address-book-view";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   sweepConnectedAppTokens,
@@ -691,8 +691,8 @@ export class PurgeService implements OnModuleInit {
             documentsDetachedFromPerson,
             mediaDetachedFromPerson,
             retentionDaysAfterMoveOut: days,
-            lastMovedOutOn: toIsoDate(lastMoveOut),
-            purgeOn: toIsoDate(computePurgeDate(lastMoveOut, days)),
+            lastMovedOutOn: formatDateColumn(lastMoveOut),
+            purgeOn: formatDateColumn(computePurgeDate(lastMoveOut, days)),
             ...(request === null
               ? {}
               : { requested: true, erasureRequestId: request.id }),

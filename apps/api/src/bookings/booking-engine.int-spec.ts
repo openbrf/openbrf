@@ -3,6 +3,14 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import {
+  addLocalDays,
+  formatLocalDay,
+  instantAt,
+  type LocalDay,
+  localDayOf,
+  localWeekAround,
+} from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
@@ -19,14 +27,6 @@ import type {
   ManagedBookingView,
   OwnBookingView,
 } from "./booking.service";
-import {
-  addLocalDays,
-  formatLocalDay,
-  instantAt,
-  type LocalDay,
-  localDayOf,
-  localWeekAround,
-} from "./stockholm-calendar";
 
 /**
  * The slot engine and the booking API against a real database.

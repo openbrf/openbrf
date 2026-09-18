@@ -3,7 +3,7 @@ import {
   localDayOf,
   localDayOfColumn,
   localDaysBetween,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
 
 /**
  * Where one duty to report a register event stands today.

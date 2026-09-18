@@ -1,6 +1,6 @@
+import { dateColumnOf, parseLocalDay } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import { dateColumnOf, parseLocalDay } from "../bookings/stockholm-calendar";
 import type { ResolvedRegisterEvent } from "../registers/membership-periods";
 import {
   type VotingRegisterAttendance,

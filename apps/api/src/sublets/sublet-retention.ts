@@ -1,8 +1,4 @@
-import {
-  addLocalDays,
-  dateColumnOf,
-  localDayOfColumn,
-} from "../bookings/stockholm-calendar";
+import { addLocalDays, dateColumnOf, localDayOfColumn } from "@openbrf/shared";
 
 /**
  * How long a closed subletting application is kept, and when the purge reaches

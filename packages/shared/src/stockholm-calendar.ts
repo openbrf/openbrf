@@ -1,17 +1,18 @@
 /**
  * The wall clock the association's calendar is read against.
  *
- * Every booking in this module is stated twice: as an instant, which is what
- * the database stores and compares, and as a time of day somebody reads off a
- * notice in the stairwell. The two are not the same arithmetic. A laundry room
- * opens at seven every morning, including the two mornings a year that are 23
- * and 25 hours long, so "seven o'clock" is a calendar fact and the instant it
- * names moves by an hour twice a year.
+ * A booking is stated twice: as an instant, which is what the database stores
+ * and compares, and as a time of day somebody reads off a notice in the
+ * stairwell. The two are not the same arithmetic. A laundry room opens at seven
+ * every morning, including the two mornings a year that are 23 and 25 hours
+ * long, so "seven o'clock" is a calendar fact and the instant it names moves by
+ * an hour twice a year.
  *
- * These functions are the only place that conversion happens. Adding hours to
- * an instant, or reading local fields off a `Date` with `getHours()`, would
- * both give the server's own zone rather than the association's, and both would
- * be right in Stockholm in July and wrong in the last week of October.
+ * These functions are the only place that conversion happens, in either
+ * application. Adding hours to an instant, or reading local fields off a `Date`
+ * with `getHours()`, would give the server's or the viewer's own zone rather
+ * than the association's, and both would be right in Stockholm in July and
+ * wrong in the last week of October.
  *
  * ## What the two transitions do
  *
@@ -244,6 +245,26 @@ export function localDayOfColumn(value: Date): LocalDay {
     month: value.getUTCMonth() + 1,
     day: value.getUTCDate(),
   };
+}
+
+/**
+ * "YYYY-MM-DD" for a `@db.Date` column, which is what a register prints.
+ *
+ * The composition of {@link localDayOfColumn} and {@link formatLocalDay}, and
+ * named for what it takes rather than for what it returns. A date column is
+ * read back as midnight UTC, so its fields are read as UTC; an instant is not a
+ * date column, and `formatLocalDay(localDayOf(instant))` is the conversion for
+ * one. The names are the only thing that tells the two apart at a call site,
+ * because both are a `Date`.
+ *
+ * The nullable overload is the common case: a column that may be absent is read
+ * straight through, so a caller holding a `Date | null` neither guards nor
+ * casts.
+ */
+export function formatDateColumn(value: Date): string;
+export function formatDateColumn(value: Date | null): string | null;
+export function formatDateColumn(value: Date | null): string | null {
+  return value === null ? null : formatLocalDay(localDayOfColumn(value));
 }
 
 /**

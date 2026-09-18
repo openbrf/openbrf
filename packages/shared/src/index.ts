@@ -34,6 +34,23 @@ export type {
   PersonalIdentityNumberMatch,
   PersonalIdentityNumberParts,
 } from "./personal-identity-number.ts";
+export {
+  addLocalDays,
+  ASSOCIATION_TIME_ZONE,
+  compareLocalDays,
+  dateColumnOf,
+  formatDateColumn,
+  formatLocalDay,
+  instantAt,
+  localDayOf,
+  localDayOfColumn,
+  localDaysBetween,
+  localMinuteOf,
+  localWeekAround,
+  MINUTES_PER_DAY,
+  parseLocalDay,
+} from "./stockholm-calendar.ts";
+export type { LocalDay, Period } from "./stockholm-calendar.ts";
 
 /** Placeholder version constant until the first release is cut via changesets. */
 export const VERSION = "0.0.0";

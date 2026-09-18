@@ -41,14 +41,15 @@
  * screen could explain.
  */
 
-import type { EventRecurrenceFrequency } from "../generated/prisma/enums";
 import {
   addLocalDays,
   compareLocalDays,
   instantAt,
   type LocalDay,
   type Period,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
+
+import type { EventRecurrenceFrequency } from "../generated/prisma/enums";
 
 /**
  * How far past the first occurrence a series may reach.
@@ -308,7 +309,7 @@ function dayOfStep(
 /**
  * A calendar date shifted by whole months, clamped to the end of the month.
  *
- * Here rather than beside `addLocalDays` in `stockholm-calendar.ts`, and
+ * Here rather than beside `addLocalDays` in `@openbrf/shared`, and
  * deliberately. Adding a day to the 28th of October has exactly one answer;
  * adding a month to the 31st of January has three defensible ones - the 28th of
  * February, the 3rd of March, or no date at all - and choosing between them is

@@ -1,12 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
-
-import { AuditLogService } from "../audit/audit-log.service";
 import {
   dateColumnOf,
   formatLocalDay,
   localDayOfColumn,
   parseLocalDay,
-} from "../bookings/stockholm-calendar";
+} from "@openbrf/shared";
+
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 

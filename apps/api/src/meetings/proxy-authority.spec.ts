@@ -1,6 +1,6 @@
+import { type LocalDay, parseLocalDay } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import { type LocalDay, parseLocalDay } from "../bookings/stockholm-calendar";
 import {
   isProxyAuthorityCurrent,
   proxyAuthorityProblem,

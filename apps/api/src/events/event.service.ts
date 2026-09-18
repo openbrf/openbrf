@@ -1,7 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
-
-import { AuditLogService } from "../audit/audit-log.service";
 import {
   addLocalDays,
   compareLocalDays,
@@ -10,10 +7,13 @@ import {
   instantAt,
   type LocalDay,
   localDayOf,
-  localDaysBetween,
   localDayOfColumn,
+  localDaysBetween,
   type Period,
-} from "../bookings/stockholm-calendar";
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
+
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type {

@@ -4518,7 +4518,7 @@ model Event {
   /// A date column, so it carries no time and no zone. Read back as midnight
   /// UTC by the client, which is why it is only ever compared with another
   /// calendar date and never with an instant - see `dateColumnOf` in
-  /// `src/bookings/stockholm-calendar.ts`.
+  /// @openbrf/shared.
   firstOn DateTime @db.Date
 
   /// When it starts, as minutes past midnight on the Europe/Stockholm wall

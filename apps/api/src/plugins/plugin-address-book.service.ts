@@ -4,6 +4,7 @@ import type {
   PluginOccupancySummary,
   PluginResident,
 } from "@openbrf/plugin-sdk";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -125,8 +126,8 @@ export class PluginAddressBookService {
           name: `${row.person.firstName} ${row.person.lastName}`.trim(),
           role: row.role,
           apartment: row.apartment,
-          movedInOn: toIsoDate(row.movedInOn),
-          movedOutOn: toIsoDate(row.movedOutOn),
+          movedInOn: formatDateColumn(row.movedInOn),
+          movedOutOn: formatDateColumn(row.movedOutOn),
         };
 
         if (!options.contact) {
@@ -184,8 +185,4 @@ export class PluginAddressBookService {
 
     return { apartments, residents, members };
   }
-}
-
-function toIsoDate(value: Date | null): string | null {
-  return value === null ? null : (value.toISOString().split("T")[0] ?? null);
 }

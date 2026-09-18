@@ -1,6 +1,6 @@
+import { dateColumnOf } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import { dateColumnOf } from "../bookings/stockholm-calendar";
 import {
   computeMemberChargePurgeDate,
   MEMBER_CHARGE_RETENTION_YEARS,

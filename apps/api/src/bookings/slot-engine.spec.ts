@@ -1,3 +1,10 @@
+import {
+  addLocalDays,
+  instantAt,
+  type LocalDay,
+  localMinuteOf,
+  type Period,
+} from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,13 +14,6 @@ import {
   periodFor,
   type SlotResource,
 } from "./slot-engine";
-import {
-  addLocalDays,
-  instantAt,
-  type LocalDay,
-  localMinuteOf,
-  type Period,
-} from "./stockholm-calendar";
 
 /** A laundry room open 07:00 to 21:00 in two-hour slots: seven a day. */
 const LAUNDRY: SlotResource = {
