@@ -33,7 +33,7 @@ ARG PNPM_VERSION=12.4.1
 # warning is harmless here - Prisma 7 reaches PostgreSQL through a driver
 # adapter - but neither a build log nor a start-up log should open with a
 # warning that means nothing.
-FROM node:26.8.2-bookworm-slim@sha256:cd9f682fa2885cd1056e830424764158570061c59736a1da836bc3d73df095ae AS base
+FROM node:26.9.0-bookworm-slim@sha256:c8fedd782bcd1b68d8a7d1ed2577b5f820eba820871323f605292651ff11e3c6 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
