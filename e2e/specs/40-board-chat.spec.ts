@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Page, Response } from "@playwright/test";
 
 import { createPerson } from "../src/api";
 import { grantBoardSeat } from "../src/board";
@@ -210,6 +210,37 @@ async function ensureSecondBoardMember(
   return { email, password: COLLEAGUE_PASSWORD };
 }
 
+/**
+ * The response to a message write, and never to anything else the screen posts.
+ *
+ * Two routes sit under `/api/chat/` and both take a POST: the message write at
+ * `/api/chat/:chatId`, and the read marker at `/api/chat/:chatId/read`. The
+ * marker is there because a chat notifies nobody by mail and says what is
+ * unread instead, so the screen posts one as soon as it has read a page - which
+ * means the two are in flight together whenever somebody opens a room and types.
+ *
+ * So this matches one route and one body rather than the prefix. A predicate
+ * that matched `/api/chat/` and a POST resolves on whichever of the two lands
+ * first, and which one that is depends on the machine: it took the write every
+ * time locally and the marker on the runner, where the test then read 200 off
+ * the marker and reported the guardrail broken. Do not widen it back.
+ *
+ * @param body The exact text the write carries, which tells this write from any
+ *   other the screen may have in flight.
+ */
+function messageWriteResponse(page: Page, body: string): Promise<Response> {
+  return page.waitForResponse((response) => {
+    if (response.request().method() !== "POST") {
+      return false;
+    }
+    // Exactly one segment after the room: the marker carries a second, "read".
+    if (!/^\/api\/chat\/[^/]+$/.test(new URL(response.url()).pathname)) {
+      return false;
+    }
+    return (response.request().postData() ?? "").includes(body);
+  });
+}
+
 /** The identifier of the room this account is in, read over HTTP. */
 async function boardChatId(page: Page): Promise<string> {
   const response = await page.request.get(`${stack.baseUrl}/api/chat`);
@@ -401,11 +432,8 @@ test.describe("the board's chat", () => {
      */
     const written = "Det ar 19811218-9876 som star i lagenhetsforteckningen.";
 
-    const answered = page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/chat/") &&
-        response.request().method() === "POST",
-    );
+    // Narrow on purpose - see the helper for the second POST it has to exclude.
+    const answered = messageWriteResponse(page, written);
     await page.getByLabel("Ditt meddelande").fill(written);
     await page.getByRole("button", { name: "Skicka meddelandet" }).click();
     const response = await answered;
