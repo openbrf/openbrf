@@ -95,6 +95,18 @@ const personIds = [
   held.personId,
 ];
 
+/**
+ * The instant the read-marker tests mark, a few minutes ago.
+ *
+ * In the past on purpose: `markRead` caps what it writes at the server's own
+ * clock, so a fixture reaching into the future would be marking something that
+ * has not happened and would come back capped rather than as written.
+ */
+const MARKED_AT = new Date(Date.now() - 5 * 60 * 1000);
+
+/** The marker for the person who reads a room and never writes in it. */
+const READ_ONLY_AT = new Date(Date.now() - 30 * 60 * 1000);
+
 let ipCounter = 0;
 function nextForwardedFor(): string {
   ipCounter += 1;
@@ -235,8 +247,14 @@ beforeAll(async () => {
 afterAll(async () => {
   if (prisma !== undefined) {
     /*
-     * The messages first, then the room. `chatId` cascades, so deleting the room
-     * would take them anyway; naming both says which rows this suite wrote.
+     * This suite's own rows, and not the room they were written in.
+     *
+     * The board chat is a singleton the service creates on first read and
+     * reuses for ever, so it is not this suite's to remove: deleting it would
+     * cascade to every message in it, including any a suite sharing this
+     * database had written, and the next suite to ask for the room would get a
+     * different one. What is left behind is an empty room, which is exactly
+     * what the service expects to find.
      */
     await prisma.chatMessage.deleteMany({
       where: { authorPersonId: { in: personIds } },
@@ -244,7 +262,6 @@ afterAll(async () => {
     await prisma.chatRead.deleteMany({
       where: { personId: { in: personIds } },
     });
-    await prisma.chat.deleteMany({ where: { id: boardChatId } });
     await prisma.legalHold.deleteMany({
       where: { personId: { in: personIds } },
     });
@@ -525,8 +542,14 @@ describe("the one refusal", () => {
 
 describe("the read marker", () => {
   it("is written once per person per room and never moves backwards", async () => {
-    const later = new Date("2027-01-02T10:00:00.000Z");
-    const earlier = new Date("2027-01-01T10:00:00.000Z");
+    /*
+     * Both in the past, because the service caps a marker at its own clock: a
+     * marker can only say somebody has read as far as something that already
+     * exists. The pair is what this test is about, so they are minutes apart
+     * rather than days.
+     */
+    const later = MARKED_AT;
+    const earlier = new Date(MARKED_AT.getTime() - 10 * 60 * 1000);
 
     const first = await inject({
       method: "POST",
@@ -628,7 +651,7 @@ describe("the access report", () => {
     expect(room?.chatKind).toBe("BOARD");
     expect(room?.chatName).toBeNull();
     // The read marker is a field of the room rather than a section of its own.
-    expect(room?.readUpTo).toBe("2027-01-02T10:00:00.000Z");
+    expect(room?.readUpTo).toBe(MARKED_AT.toISOString());
 
     const bodies = (room?.messages ?? []).map((message) => message.body);
     expect(bodies).toContain("Detta ska sta pa mitt registerutdrag.");
@@ -642,6 +665,45 @@ describe("the access report", () => {
     for (const message of room?.messages ?? []) {
       expect(message.erasableFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
+  });
+
+  it("carries a room somebody read and never wrote in", async () => {
+    /*
+     * A read marker is a fact the association stores about a person - that they
+     * opened this room, and how far down it they had got - and it is stored
+     * whether or not they ever answered. A report that listed only the rooms
+     * somebody had written in would omit it, and the art. 20 export that
+     * projects from this report would omit it too.
+     *
+     * Art. 15 is a right to what is held rather than to what is interesting, so
+     * the room is on the report with an empty list of messages: the true
+     * statement is that they read it and wrote nothing, and an absence says
+     * neither.
+     *
+     * The marker is written directly because this person holds a seat and no
+     * account, which is the shape the case needs: somebody in the room who has
+     * never posted.
+     */
+    await prisma.chatRead.create({
+      data: {
+        chatId: boardChatId,
+        personId: held.personId,
+        readAt: READ_ONLY_AT,
+      },
+    });
+
+    const report = await reports.generate({
+      personId: held.personId,
+      actorPersonId: administrator.personId,
+    });
+
+    expect(report.chats).toHaveLength(1);
+    expect(report.chats[0]).toMatchObject({
+      chatKind: "BOARD",
+      chatName: null,
+      readUpTo: READ_ONLY_AT.toISOString(),
+      messages: [],
+    });
   });
 });
 

@@ -808,26 +808,54 @@ export class DataSubjectReportService {
     });
 
     /*
-     * How far they have read each of those rooms.
+     * How far they have read each room, including rooms they never wrote in.
      *
-     * Read for the rooms they wrote in rather than for every room they have a
-     * marker in, which is the same narrowing the section itself makes: a marker
-     * with nothing of theirs behind it would put a room on the report and then
-     * print none of its contents, which says only that the person opened
-     * something the report will not show them.
+     * Every marker they hold rather than only the ones behind their own
+     * messages. A marker is a fact the association stores about this person -
+     * that they opened this room, and how far down it they had got - and it is
+     * stored whether or not they ever answered. Somebody who reads the board
+     * chat every week and writes in it twice a year holds markers with nothing
+     * of theirs behind them, and art. 15 is a right to what is held rather than
+     * to what is interesting: withholding those would make the access report,
+     * and the art. 20 export that projects from it, incomplete about data this
+     * instance is keeping.
+     *
+     * A room reached only this way is on the report with an empty list of
+     * messages, which is the true statement - the person read it and wrote
+     * nothing - rather than an absence that says neither.
      */
-    const chatReads =
-      chatMessages.length === 0
+    const chatReadRows = await tx.chatRead.findMany({
+      where: { personId },
+      select: { chatId: true, readAt: true },
+    });
+
+    /*
+     * The rooms those markers name, read separately because `chatId` is a plain
+     * column here rather than a relation - the same trade the messages make for
+     * their author, and the reason a purge can reach this table at all.
+     *
+     * A marker whose room has since gone is dropped rather than reported as a
+     * room with no name: nothing deletes a chat today, and if something does it
+     * is the room that was erased rather than a room this person can be told
+     * about.
+     */
+    const chatRooms =
+      chatReadRows.length === 0
         ? []
-        : await tx.chatRead.findMany({
+        : await tx.chat.findMany({
             where: {
-              personId,
-              chatId: {
-                in: [...new Set(chatMessages.map((message) => message.chatId))],
-              },
+              id: { in: [...new Set(chatReadRows.map((read) => read.chatId))] },
             },
-            select: { chatId: true, readAt: true },
+            select: { id: true, kind: true, name: true },
           });
+    const roomsById = new Map(chatRooms.map((room) => [room.id, room]));
+
+    const chatReads = chatReadRows.flatMap((read) => {
+      const room = roomsById.get(read.chatId);
+      return room === undefined
+        ? []
+        : [{ chatId: read.chatId, readAt: read.readAt, chat: room }];
+    });
 
     /* The person's own address, printed on the document and nothing else. */
     const personEmail =
@@ -1647,10 +1675,29 @@ function groupChatMessages(
     createdAt: Date;
     chat: { kind: "BOARD" | "GROUP"; name: string | null };
   }[],
-  reads: readonly { chatId: string; readAt: Date }[],
+  reads: readonly {
+    chatId: string;
+    readAt: Date;
+    chat: { kind: "BOARD" | "GROUP"; name: string | null };
+  }[],
 ): ReportChat[] {
   const readAt = new Map(reads.map((read) => [read.chatId, read.readAt]));
   const rooms = new Map<string, ReportChat>();
+
+  /*
+   * The rooms they have read come first, so a room they read and never wrote in
+   * is on the report with an empty list of messages rather than missing from
+   * it. The loop below then fills in the ones they wrote in, and a room in both
+   * is one room.
+   */
+  for (const read of reads) {
+    rooms.set(read.chatId, {
+      chatKind: read.chat.kind,
+      chatName: read.chat.name,
+      readUpTo: read.readAt.toISOString(),
+      messages: [],
+    });
+  }
 
   for (const message of messages) {
     let room = rooms.get(message.chatId);

@@ -774,6 +774,10 @@ export interface DataSubjectReport {
    * themselves and about the association's business, and a report carrying the
    * whole room would hand one board member everything the other seven said.
    *
+   * A room can arrive with no messages at all: reading one and writing nothing
+   * leaves a read marker, which is stored about this person either way, so the
+   * room is stated with an empty list rather than left out.
+   *
    * There is no hidden column here and there will not be one: a chat message is
    * never struck through and never edited, so there is no second state to
    * report.

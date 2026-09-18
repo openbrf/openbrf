@@ -515,6 +515,15 @@ export class ChatService {
    * `update` clause runs whatever the stored row holds, which is exactly the
    * backwards move this refuses.
    *
+   * Capped at this server's own clock, which is what stops the forward-only
+   * rule being turned into a weapon. The instant arrives from the caller, and a
+   * single call carrying one far in the future - a device whose clock is wrong,
+   * or a request somebody composed - would set a marker no later call could
+   * lower. From then on every message counts as read for that person, including
+   * ones written afterwards, and there is no way back: nothing moves a marker
+   * backwards, which is the whole point of the row. A marker can only ever say
+   * that somebody has read as far as something that already exists.
+   *
    * @param readAt The instant to mark, which is the newest message the screen
    *   has actually shown rather than the moment of the request: a room read at
    *   the moment a message was in flight must not mark that message read.
@@ -526,9 +535,13 @@ export class ChatService {
   ): Promise<{ readAt: string }> {
     await this.requireMembership(chatId, reader);
 
+    // Taken once, so the cap and the value written cannot come from two moments.
+    const now = new Date();
+    const marked = readAt.getTime() > now.getTime() ? now : readAt;
+
     await this.prisma.$executeRaw`
       INSERT INTO "chat_read" ("chatId", "personId", "readAt")
-      VALUES (${chatId}, ${reader.personId}, ${readAt})
+      VALUES (${chatId}, ${reader.personId}, ${marked})
       ON CONFLICT ("chatId", "personId")
       DO UPDATE SET "readAt" = GREATEST("chat_read"."readAt", EXCLUDED."readAt")
     `;
@@ -543,7 +556,7 @@ export class ChatService {
      * comparison is told the marker that actually stands. The row cannot be
      * absent: the statement above either inserted it or found it.
      */
-    return { readAt: (marker?.readAt ?? readAt).toISOString() };
+    return { readAt: (marker?.readAt ?? marked).toISOString() };
   }
 
   /**

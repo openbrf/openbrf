@@ -169,7 +169,7 @@ async function ensureFixtureAccount(
 }
 
 /**
- * A second person on the board, created by this spec rather than borrowed.
+ * A person on the board, created by this spec rather than borrowed.
  *
  * There is nobody to borrow. `ensureRegisterFixture` writes residencies and not
  * the member register, and the seeded administrator is not among the four people
@@ -189,14 +189,24 @@ async function ensureFixtureAccount(
  * Nothing in this suite can delete a person again - the member register is
  * append-only by design - so the name and the address are unique to this run.
  */
-async function ensureSecondBoardMember(
+async function ensureBoardMemberOfOurOwn(
   request: APIRequestContext,
   clientAddress: string,
+  /**
+   * Distinguishes this person from the others this spec makes.
+   *
+   * `uniqueEmail` is unique per run rather than per call, so two calls sharing a
+   * label would ask for one address twice: the second `createPerson` would write
+   * a second person carrying it - the address book has no unique index on the
+   * address - and `ensureAccountFor` would then sign in as the first and leave
+   * the second without an account.
+   */
+  label: string,
 ): Promise<{ email: string; password: string }> {
-  const email = uniqueEmail("chatt-kollega");
+  const email = uniqueEmail(`chatt-${label}`);
   const personId = await createPerson(request, stack.baseUrl, {
     firstName: "Bo",
-    lastName: uniqueSurname("Ek"),
+    lastName: uniqueSurname(`Ek-${label}`),
     email,
   });
   await ensureAccountFor(request, {
@@ -328,7 +338,11 @@ test.describe("the board's chat", () => {
     await grantBoardSeat(seatedId);
 
     const colleagueAddress = clientAddressFor(clientAddress, "colleague");
-    const colleague = await ensureSecondBoardMember(request, colleagueAddress);
+    const colleague = await ensureBoardMemberOfOurOwn(
+      request,
+      colleagueAddress,
+      "kollega",
+    );
 
     // --- the seat that is going to be watching ---------------------------
     await browseAs(page, clientAddress, "seated");
@@ -458,17 +472,28 @@ test.describe("the board's chat", () => {
     api: request,
     clientAddress,
   }) => {
-    const people = await ensureRegisterFixture(request);
-    const seatedId = await ensureFixtureAccount(
+    await ensureRegisterFixture(request);
+
+    /*
+     * A board member of this run's own, rather than the shared fixture person
+     * the tests above sign in as.
+     *
+     * The fixture people persist, and the write budget is counted from the rows
+     * themselves: sixty messages per person in ten minutes. Fifty-two of those
+     * are spent below, so a second run against a stack that is still up - which
+     * `OPENBRF_E2E_REUSE_STACK` exists for - would find the previous run's
+     * fifty-two still inside the window and be refused partway through the loop.
+     * A person minted for this run starts with the whole budget.
+     */
+    const pagingAddress = clientAddressFor(clientAddress, "paging");
+    const author = await ensureBoardMemberOfOurOwn(
       request,
-      people,
-      SEATED,
-      clientAddressFor(clientAddress, "paging"),
+      pagingAddress,
+      "sidbrytning",
     );
-    await grantBoardSeat(seatedId);
 
     await browseAs(page, clientAddress, "paging");
-    await signInThroughTheScreen(page, SEATED.email, SEATED.password);
+    await signInThroughTheScreen(page, author.email, author.password);
     const chatId = await boardChatId(page);
 
     /*
@@ -476,10 +501,10 @@ test.describe("the board's chat", () => {
      * box: fifty-one presses would be a slow way to arrange a precondition, and
      * what is under test is the paging rather than the writing.
      *
-     * Fifty-two of them, which is two messages past the fifty a page holds: the
-     * least that puts the oldest behind a press, and comfortably inside the
-     * write budget of sixty messages per person in ten minutes. The oldest is
-     * written first and is what the press has to reveal.
+     * Fifty-two of them, which is two messages past the fifty a page holds and
+     * the least that puts the oldest behind a press. The author is this run's
+     * own, so the whole sixty-per-ten-minutes budget is there to spend. The
+     * oldest is written first and is what the press has to reveal.
      */
     const oldest = `Aldsta raden. ${String(Date.now())}`;
     const first = await page.request.post(

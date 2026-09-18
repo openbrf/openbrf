@@ -230,8 +230,18 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
       }
       polling.current = true;
       try {
+        /*
+         * The cursor is carried through the loop rather than re-read from the
+         * ref each time round. The ref is written by an effect, which runs after
+         * React commits, and nothing commits while this loop is awaiting - so a
+         * second iteration reading the ref would read the position the first one
+         * started from, ask for the same page again, be told again that more is
+         * waiting, and never terminate. That is precisely the backlog case the
+         * loop exists for. Each answer's cursor is written through to the ref as
+         * well, so the next interval continues from where this run stopped.
+         */
+        let after = cursorRef.current;
         for (;;) {
-          const after = cursorRef.current;
           if (!stillWanted()) {
             return;
           }
@@ -252,6 +262,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
             if (!stillWanted() || !first.ok) {
               return;
             }
+            cursorRef.current = first.value.latest;
             setConversation((held) =>
               held === null || held.chatId !== chatId
                 ? held
@@ -280,6 +291,8 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
           }
 
           const update = result.value;
+          after = update.cursor;
+          cursorRef.current = update.cursor;
           setConversation((held) =>
             held === null || held.chatId !== chatId
               ? held
@@ -390,6 +403,24 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
       ? send.state.failure
       : (conversation?.failure ?? null);
 
+  /*
+   * A room the first read never answered, as against one that answered empty.
+   *
+   * The two are different facts and the screen must not state both: a failed
+   * read stores no messages, so a branch that only asked whether the list was
+   * empty would print "nothing has been written here yet" underneath a notice
+   * saying the room could not be read. It would also leave the write box on a
+   * room this client never got, and a message sent into it would be sent blind.
+   *
+   * A failure with messages behind it is a different case and is not this one -
+   * that is a press for the earlier page that was refused, and the room it was
+   * pressed on is still on screen and still writable.
+   */
+  const unreadable =
+    conversation !== null &&
+    conversation.failure !== null &&
+    conversation.messages.length === 0;
+
   if (loadOutcome === "failed") {
     return (
       <Notice tone="danger" live>
@@ -441,14 +472,16 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         ) : null
       }
       actions={
-        <button
-          type="submit"
-          form="write-chat-message"
-          className={PRIMARY_BUTTON}
-          disabled={sending || draft.trim() === ""}
-        >
-          {sending ? t("chat.sending") : t("chat.submit")}
-        </button>
+        unreadable ? undefined : (
+          <button
+            type="submit"
+            form="write-chat-message"
+            className={PRIMARY_BUTTON}
+            disabled={sending || draft.trim() === ""}
+          >
+            {sending ? t("chat.sending") : t("chat.submit")}
+          </button>
+        )
       }
     >
       {room.unread > 0 ? (
@@ -459,7 +492,8 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("chat.reading")}
         </p>
-      ) : conversation.messages.length === 0 ? (
+      ) : unreadable ? null : conversation // here would be a second claim about a room this client has not got. // Nothing: the notice above already says what happened, and anything
+        .messages.length === 0 ? (
         <p className="text-body text-ink-muted">{t("chat.empty")}</p>
       ) : (
         <>
@@ -498,28 +532,30 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         </>
       )}
 
-      <form
-        id="write-chat-message"
-        className="flex flex-col gap-2 border-t border-line pt-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send.submit({ chatId: room.id, body: draft });
-        }}
-      >
-        <label className={LABEL}>
-          {t("chat.field")}
-          <textarea
-            className={`${FIELD} min-h-24 py-2`}
-            value={draft}
-            maxLength={MESSAGE_MAX_LENGTH}
-            required
-            onChange={(event) => {
-              setDraft(event.target.value);
-            }}
-          />
-        </label>
-        <p className={HINT}>{t("chat.hint")}</p>
-      </form>
+      {unreadable ? null : (
+        <form
+          id="write-chat-message"
+          className="flex flex-col gap-2 border-t border-line pt-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send.submit({ chatId: room.id, body: draft });
+          }}
+        >
+          <label className={LABEL}>
+            {t("chat.field")}
+            <textarea
+              className={`${FIELD} min-h-24 py-2`}
+              value={draft}
+              maxLength={MESSAGE_MAX_LENGTH}
+              required
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+            />
+          </label>
+          <p className={HINT}>{t("chat.hint")}</p>
+        </form>
+      )}
     </Panel>
   );
 }

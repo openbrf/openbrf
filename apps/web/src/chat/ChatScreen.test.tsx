@@ -308,6 +308,91 @@ describe("writing a message", () => {
   });
 });
 
+describe("catching up after the screen was closed", () => {
+  it("asks from the cursor each page answered with, and stops when told to", async () => {
+    /*
+     * The backlog case, and the one the loop exists for. The server bounds a
+     * poll's answer and says whether more was waiting, so a screen closed for a
+     * week catches up a page at a time.
+     *
+     * The cursor has to advance between iterations. It is carried through the
+     * loop rather than re-read from the ref, because the ref is written by an
+     * effect that runs after React commits and nothing commits while the loop is
+     * awaiting - so a loop reading the ref would ask for the same page again,
+     * be told again that more was waiting, and never stop. Asserted on the
+     * second call's `after` rather than only on the message arriving, because a
+     * loop that never advanced would still show the first page.
+     */
+    messagesSince
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { messages: [MINE], cursor: "cursor-2", more: true },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { messages: [], cursor: "cursor-3", more: false },
+      });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.type(screen.getByLabelText("Ditt meddelande"), "Hej.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+
+    await waitFor(() => {
+      expect(messagesSince).toHaveBeenCalledTimes(2);
+    });
+    // The second page is asked for from where the first one ended, not from
+    // where the run started.
+    expect(messagesSince).toHaveBeenLastCalledWith({
+      chatId: "chat-board",
+      after: "cursor-2",
+    });
+    // And it stopped: `more: false` ends the run rather than another round.
+    expect(messagesSince).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a room that could not be read at all", () => {
+  it("says so once, and does not also call the room empty", async () => {
+    /*
+     * A failed first read stores no messages, so a branch that only asked
+     * whether the list was empty would print "nothing has been written here
+     * yet" underneath a notice saying the room could not be read - two claims,
+     * one of them invented by the screen.
+     */
+    readChat.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "chat-not-found" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(await screen.findByText(/Den chatten finns inte/)).not.toBeNull();
+    expect(screen.queryByText("Ingenting har skrivits här än.")).toBeNull();
+  });
+
+  it("offers no write box for a room this client never got", async () => {
+    // A message sent into it would be sent blind, at a room the screen has no
+    // answer about.
+    readChat.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "chat-not-found" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText(/Den chatten finns inte/);
+
+    expect(screen.queryByLabelText("Ditt meddelande")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Skicka meddelandet" }),
+    ).toBeNull();
+  });
+});
+
 describe("a room nobody has written in yet", () => {
   it("still reads, so the first message is not waited for for ever", async () => {
     /*
@@ -392,18 +477,5 @@ describe("the messages before this page", () => {
     expect(
       screen.queryByRole("button", { name: "Visa tidigare meddelanden" }),
     ).toBeNull();
-  });
-});
-
-describe("a room that could not be read", () => {
-  it("says so rather than showing an empty room", async () => {
-    readChat.mockResolvedValue({
-      ok: false,
-      failure: { status: 404, reason: "chat-not-found" },
-    });
-
-    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
-
-    expect(await screen.findByText(/Den chatten finns inte/)).not.toBeNull();
   });
 });

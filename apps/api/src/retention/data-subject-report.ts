@@ -737,6 +737,12 @@ export interface ReportNewsComment {
  * That is the same narrowing every other section makes and it is worth stating,
  * because a chat is the first section where the rows this person cannot have are
  * sitting in the same table as the rows they can.
+ *
+ * A room can be here with no messages at all. Reading one and writing nothing in
+ * it leaves a read marker, which is a fact the association stores about this
+ * person, so the room is stated with an empty list rather than left out: art. 15
+ * is a right to what is held, and an absence would say neither that they read it
+ * nor that they wrote nothing.
  */
 export interface ReportChat {
   /**
@@ -758,7 +764,11 @@ export interface ReportChat {
    * anything the association holds.
    */
   readUpTo: string | null;
-  /** What this person wrote in the room, oldest first. */
+  /**
+   * What this person wrote in the room, oldest first.
+   *
+   * Empty for a room they have read and never written in.
+   */
   messages: ReportChatMessage[];
 }
 

@@ -1036,6 +1036,55 @@ describe("the read marker", () => {
     expect(answer.readAt).toBe(later.toISOString());
   });
 
+  it("never marks further ahead than the server's own clock", async () => {
+    /*
+     * The marker is forward-only, which is what makes an instant from the future
+     * a one-way door: a device with a wrong clock, or a request somebody
+     * composed, would set a marker no later call could lower, and from then on
+     * every message counts as read for that person - including ones written
+     * afterwards. Nothing moves a marker backwards, so there is no repair.
+     *
+     * Capped at the server's clock instead. A marker can only ever say somebody
+     * has read as far as something that already exists.
+     */
+    const { service, reads } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+    });
+    const reader = principal(SEATED.id, ["chat:participate"]);
+    const wellPastNow = new Date(Date.now() + 60 * 60 * 1000);
+
+    const answer = await service.markRead(BOARD_CHAT_ID, reader, wellPastNow);
+
+    const marked = reads[0]?.readAt;
+    expect(marked).toBeInstanceOf(Date);
+    expect((marked as Date).getTime()).toBeLessThan(wellPastNow.getTime());
+    expect(answer.readAt).toBe((marked as Date).toISOString());
+
+    // And the room is not silently all-read from now on: a message written
+    // after the call is still counted.
+    const rooms = await service.rooms(reader);
+    expect(rooms[0]?.unread).toBe(0);
+  });
+
+  it("marks an instant in the past exactly as it was given", async () => {
+    // The cap is a ceiling and not a rewrite: the ordinary case is the newest
+    // message on screen, which is always already in the past.
+    const { service, reads } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+    });
+    const shownAt = new Date(Date.now() - 5 * 60 * 1000);
+
+    await service.markRead(
+      BOARD_CHAT_ID,
+      principal(SEATED.id, ["chat:participate"]),
+      shownAt,
+    );
+
+    expect(reads[0]?.readAt).toEqual(shownAt);
+  });
+
   it("is refused for a room this person is not in", async () => {
     const { service, reads } = build({
       chats: [BOARD_CHAT],
