@@ -150,6 +150,14 @@ const CHARGE_FIELDS = {
  * is no export target, no schedule and no hook, because a seam left for a thing
  * that does not exist is a guess about its shape.
  *
+ * Recurring *charges*, and not recurrence as such. A standing fee an apartment
+ * pays every month is a different thing with a different statutory home - fixing
+ * the avgifter is the board's own task under BRL 9 kap. 13 §, where a debitering
+ * records that something happened once - and it lives in `apps/api/src/fees/`
+ * with a table, a capability and a retention window of its own. That is the
+ * whole reason `readPastDate` below can go on refusing a charge dated into the
+ * future.
+ *
  * ## Where the personal data is
  *
  * A charge against a person is obviously about them. A charge against an

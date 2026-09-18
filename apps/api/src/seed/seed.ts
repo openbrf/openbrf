@@ -4,6 +4,8 @@ import type { PrismaClient } from "../generated/prisma/client";
 import {
   DEMO_ASSOCIATION,
   DEMO_BUILDINGS,
+  DEMO_FLOOR_WEIGHTS,
+  DEMO_TOTAL_INITIAL_SHARE_CAPITAL,
   DEMO_PEOPLE,
   DEMO_PERSON_COUNT,
   FILLER_FIRST_NAMES,
@@ -46,6 +48,7 @@ export async function seedDemoData(
 
   // Addresses and apartments.
   const apartmentIdByNumber = new Map<string, string>();
+  const weighted: { apartmentId: string; weight: number }[] = [];
   let apartmentCount = 0;
 
   for (const building of DEMO_BUILDINGS) {
@@ -81,9 +84,16 @@ export async function seedDemoData(
             addressId,
             number,
             floor,
-            participationShare: null,
           },
           update: { floor },
+        });
+
+        // Collected rather than written here: the shares have to add to exactly
+        // one across every apartment, which cannot be known until the last of
+        // them has been counted.
+        weighted.push({
+          apartmentId,
+          weight: DEMO_FLOOR_WEIGHTS[floor] ?? 1,
         });
 
         apartmentCount++;
@@ -95,6 +105,8 @@ export async function seedDemoData(
       }
     }
   }
+
+  await seedApartmentShares(prisma, weighted);
 
   const allApartmentIds = [...apartmentIdByNumber.values()];
 
@@ -304,4 +316,68 @@ async function ensureMemberRegisterEntries(
   }
 
   return created;
+}
+
+/**
+ * Writes the demo apartments' participation shares and initial share capitals.
+ *
+ * After every apartment has been counted, because both figures are a division
+ * of one whole and the last apartment absorbs whatever the division leaves
+ * over. That is what a stadgar annex does: the figures are stated per apartment
+ * and they add to exactly one, rather than each being rounded on its own and
+ * the total coming out at 0.99999992.
+ *
+ * Integer arithmetic throughout - hundred-millionths for the share, ore for the
+ * insats - because a demo whose figures are visibly a float away from adding up
+ * is a demo that teaches the wrong thing about what this product stores.
+ *
+ * Nothing in the platform derives a fee from either figure. They are recorded
+ * because the apartment register holds them, and the fee screen offers the share
+ * as an aid the board accepts or overwrites.
+ */
+async function seedApartmentShares(
+  prisma: PrismaClient,
+  weighted: readonly { apartmentId: string; weight: number }[],
+): Promise<void> {
+  const totalWeight = weighted.reduce(
+    (total, apartment) => total + apartment.weight,
+    0,
+  );
+  if (totalWeight === 0) {
+    return;
+  }
+
+  /** One whole share, in hundred-millionths: the scale of `Decimal(12, 8)`. */
+  const SHARE_SCALE = 100_000_000n;
+  const totalOre = BigInt(DEMO_TOTAL_INITIAL_SHARE_CAPITAL) * 100n;
+  const total = BigInt(totalWeight);
+
+  let shareLeft = SHARE_SCALE;
+  let oreLeft = totalOre;
+
+  for (const [index, apartment] of weighted.entries()) {
+    const last = index === weighted.length - 1;
+    const weight = BigInt(apartment.weight);
+
+    // The last apartment takes what is left, so the column of figures adds to
+    // the whole rather than to the whole less a rounding error.
+    const share = last ? shareLeft : (SHARE_SCALE * weight) / total;
+    const ore = last ? oreLeft : (totalOre * weight) / total;
+    shareLeft -= share;
+    oreLeft -= ore;
+
+    await prisma.apartment.update({
+      where: { id: apartment.apartmentId },
+      data: {
+        participationShare: formatScaled(share, 8),
+        initialShareCapital: formatScaled(ore, 2),
+      },
+    });
+  }
+}
+
+/** A scaled integer as the decimal string its column holds. */
+function formatScaled(value: bigint, places: number): string {
+  const scale = 10n ** BigInt(places);
+  return `${String(value / scale)}.${String(value % scale).padStart(places, "0")}`;
 }

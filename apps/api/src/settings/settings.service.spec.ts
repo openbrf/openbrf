@@ -58,6 +58,9 @@ const STORED = {
   smsSenderName: null as string | null,
   activeThemeId: null as string | null,
   setupCompletedAt: null as Date | null,
+  financialYearStartMonth: 1,
+  bankgiro: null as string | null,
+  plusgiro: null as string | null,
 };
 
 type Association = typeof STORED;
@@ -94,6 +97,12 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
   const prisma = {
     association: {
       findUnique: vi.fn(async () => row),
+      findUniqueOrThrow: vi.fn(async () => {
+        if (row === null) {
+          throw new Error("no association row");
+        }
+        return row;
+      }),
       upsert: vi.fn(
         async (args: {
           create: Partial<Association>;
@@ -122,7 +131,18 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
       })),
       update: vi.fn(async () => ({ preferredLocale: "en" })),
     },
+    /*
+     * The audited writes run inside a transaction. The fake hands itself back,
+     * so a write and the audit entry beside it see the one mutable row this
+     * suite keeps - which is what the real transaction gives them too.
+     */
+    $transaction: vi.fn(
+      async <T>(run: (tx: unknown) => Promise<T>): Promise<T> =>
+        run(transactionClient),
+    ),
   };
+
+  const transactionClient = prisma;
 
   const mail = { send: vi.fn().mockResolvedValue(undefined) };
   const sms = {
@@ -565,6 +585,109 @@ describe("the SMS test message", () => {
       reason: "no-phone",
     });
     expect(sms.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("the financial year and the giro numbers", () => {
+  it("defaults to the calendar year", async () => {
+    // The default every instance recorded before the column existed had
+    // assumed, and the value on which both retention windows compute exactly
+    // the dates they computed before.
+    const { service } = build();
+
+    await expect(service.read()).resolves.toMatchObject({
+      finances: { financialYearStartMonth: 1, bankgiro: null, plusgiro: null },
+    });
+  });
+
+  it("stores a broken financial year and where the association is paid", async () => {
+    const { service, current } = build();
+
+    await expect(
+      service.updateFinances({
+        actorPersonId: "person-1",
+        financialYearStartMonth: 5,
+        bankgiro: "123-4567",
+        plusgiro: null,
+      }),
+    ).resolves.toEqual({
+      financialYearStartMonth: 5,
+      bankgiro: "123-4567",
+      plusgiro: null,
+    });
+    expect(current()?.financialYearStartMonth).toBe(5);
+    expect(current()?.bankgiro).toBe("123-4567");
+  });
+
+  it("refuses a month no year has", async () => {
+    const { service } = build();
+
+    for (const financialYearStartMonth of [0, 13]) {
+      await expect(
+        service.updateFinances({
+          actorPersonId: "person-1",
+          financialYearStartMonth,
+          bankgiro: null,
+          plusgiro: null,
+        }),
+      ).rejects.toMatchObject({ reason: "financial-year-start-not-a-month" });
+    }
+  });
+
+  it("refuses text that is not a giro number", async () => {
+    const { service } = build();
+
+    for (const bankgiro of ["inte ett nummer", "12/34567", "1"]) {
+      await expect(
+        service.updateFinances({
+          actorPersonId: "person-1",
+          financialYearStartMonth: 1,
+          bankgiro,
+          plusgiro: null,
+        }),
+      ).rejects.toMatchObject({ reason: "giro-not-a-number" });
+    }
+  });
+
+  it("keeps the number the way the board wrote it", async () => {
+    // Never reformatted: a board writes the number the way its own bank prints
+    // it, and a platform that moved the hyphen would print something the member
+    // could not match against their statement.
+    const { service, current } = build();
+
+    await service.updateFinances({
+      actorPersonId: "person-1",
+      financialYearStartMonth: 1,
+      bankgiro: "1234567",
+      plusgiro: "12 34 56-7".replaceAll(" ", ""),
+    });
+    expect(current()?.bankgiro).toBe("1234567");
+    expect(current()?.plusgiro).toBe("123456-7");
+  });
+
+  it("clears rather than stores an empty giro number", async () => {
+    const { service, current } = build({ bankgiro: "123-4567" });
+
+    await service.updateFinances({
+      actorPersonId: "person-1",
+      financialYearStartMonth: 1,
+      bankgiro: "",
+      plusgiro: null,
+    });
+    expect(current()?.bankgiro).toBeNull();
+  });
+
+  it("refuses before the housing cooperative exists", async () => {
+    const { service } = build({}, false);
+
+    await expect(
+      service.updateFinances({
+        actorPersonId: "person-1",
+        financialYearStartMonth: 1,
+        bankgiro: null,
+        plusgiro: null,
+      }),
+    ).rejects.toMatchObject({ reason: "housing-cooperative-missing" });
   });
 });
 

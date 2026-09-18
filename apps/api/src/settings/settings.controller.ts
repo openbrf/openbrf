@@ -27,6 +27,7 @@ import {
   type BrandingSettings,
   type HousingCooperativeSettings,
   type DataProtectionContacts,
+  type FinanceSettings,
   type InstanceSettings,
   type LogoSlot,
   SettingsService,
@@ -176,6 +177,20 @@ const retentionSchema = z.object({
     .int()
     .min(MIN_RETENTION_DAYS)
     .max(MAX_RETENTION_DAYS),
+});
+
+/**
+ * The association's financial year and where it is paid.
+ *
+ * The month is bounded here as well as in the service, because the two refusals
+ * answer different questions: this one says the request was not a month, and the
+ * service's says the association's financial year cannot start there. A giro
+ * number's shape is the service's to judge, so it arrives as bounded text.
+ */
+const financesSchema = z.object({
+  financialYearStartMonth: z.coerce.number().int().min(1).max(12),
+  bankgiro: z.string().trim().max(20).nullish(),
+  plusgiro: z.string().trim().max(20).nullish(),
 });
 
 const selfSignupSchema = z.object({ enabled: z.boolean() });
@@ -411,6 +426,29 @@ export class SettingsWriteController {
     @Body() body: unknown,
   ): Promise<{ daysAfterMoveOut: number }> {
     return this.settings.updateRetention(retentionSchema.parse(body));
+  }
+
+  /**
+   * Records the association's financial year and giro numbers.
+   *
+   * Here rather than in the fees module, and an administrator's rather than the
+   * board's, because it is instance configuration: the financial year decides
+   * when every charge and every fee this instance holds becomes erasable, which
+   * is the same kind of standing answer the retention policy beside it is. What
+   * the association charges stays with the board under `fees:manage`.
+   */
+  @Put("finances")
+  async updateFinances(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<FinanceSettings> {
+    const input = financesSchema.parse(body);
+    return this.settings.updateFinances({
+      actorPersonId: actingPersonId(request),
+      financialYearStartMonth: input.financialYearStartMonth,
+      bankgiro: input.bankgiro ?? null,
+      plusgiro: input.plusgiro ?? null,
+    });
   }
 
   @Put("self-signup")

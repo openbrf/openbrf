@@ -379,6 +379,16 @@ const AUDIT_ACTION_LABEL = {
   MEMBER_CHARGE_REMOVED: "register.person.report.action.MEMBER_CHARGE_REMOVED",
   DEBITING_LIST_EXPORTED:
     "register.person.report.action.DEBITING_LIST_EXPORTED",
+  ASSOCIATION_FINANCES_RECORDED:
+    "register.person.report.action.ASSOCIATION_FINANCES_RECORDED",
+  APARTMENT_SHARES_RECORDED:
+    "register.person.report.action.APARTMENT_SHARES_RECORDED",
+  FEE_RECORDED: "register.person.report.action.FEE_RECORDED",
+  FEE_REMOVED: "register.person.report.action.FEE_REMOVED",
+  FEE_NOTIFICATION_ISSUED:
+    "register.person.report.action.FEE_NOTIFICATION_ISSUED",
+  FEE_NOTIFICATION_EXPORTED:
+    "register.person.report.action.FEE_NOTIFICATION_EXPORTED",
   BOARD_MAILBOX_THREAD_TAKEN:
     "register.person.report.action.BOARD_MAILBOX_THREAD_TAKEN",
   BOARD_MAILBOX_THREAD_RELEASED:

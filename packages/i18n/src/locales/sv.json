@@ -628,6 +628,12 @@
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
           "DEBITING_LIST_EXPORTED": "Debiteringslängden exporterades",
+          "ASSOCIATION_FINANCES_RECORDED": "Föreningens räkenskapsår och gironummer registrerades",
+          "APARTMENT_SHARES_RECORDED": "En lägenhets andelstal eller insats registrerades",
+          "FEE_RECORDED": "En avgift registrerades för en lägenhet",
+          "FEE_REMOVED": "En felregistrerad avgift togs bort",
+          "FEE_NOTIFICATION_ISSUED": "En periods avier framställdes",
+          "FEE_NOTIFICATION_EXPORTED": "En periods avier togs fram som dokument",
           "BOARD_MAILBOX_THREAD_TAKEN": "En tråd i styrelsens brevlåda togs om hand",
           "BOARD_MAILBOX_THREAD_RELEASED": "En tråd i styrelsens brevlåda lämnades tillbaka",
           "BOARD_MAILBOX_REPLY_SENT": "Ett svar skickades från styrelsens brevlåda",
@@ -1073,6 +1079,34 @@
       "purgeJob": "Gallringen körs varje natt. Den som omfattas av ett rättsligt bevarandekrav hoppas över tills kravet hävs, och det står på personvyn.",
       "errors": {
         "range": "Välj mellan 30 och 3650 dagar."
+      }
+    },
+    "finances": {
+      "title": "Räkenskapsår och gironummer",
+      "description": "När föreningens räkenskapsår börjar, och var föreningen tar emot betalning.",
+      "retentionNotice": "Månaden avgör när debiteringar och avgifter gallras. Räkenskapsinformation bevaras till och med det sjunde året efter utgången av det kalenderår då räkenskapsåret avslutades (bokföringslagen 7 kap. 2 §), så ett brutet räkenskapsår flyttar gallringsdatumet framåt för en del av året. Ett datum som redan har lämnats i ett registerutdrag tidigareläggs aldrig av en ändring här.",
+      "startMonth": "Räkenskapsåret börjar i",
+      "startMonthHint": "Kalenderåret är det vanliga och är förvalt. Ett brutet räkenskapsår omfattar tolv kalendermånader räknat från den månad ni väljer (bokföringslagen 3 kap. 1 §).",
+      "bankgiro": "Bankgiro",
+      "plusgiro": "Plusgiro",
+      "giroHint": "Skriv numret som banken skriver det. Open BRF kontrollerar formen men inte att numret finns - det är er överenskommelse med banken, och avin skriver ut numret som det står här.",
+      "month": {
+        "1": "januari",
+        "2": "februari",
+        "3": "mars",
+        "4": "april",
+        "5": "maj",
+        "6": "juni",
+        "7": "juli",
+        "8": "augusti",
+        "9": "september",
+        "10": "oktober",
+        "11": "november",
+        "12": "december"
+      },
+      "errors": {
+        "startMonthInvalid": "Ett räkenskapsår börjar i en månad på året.",
+        "giroInvalid": "Det är inget gironummer. Siffror och bindestreck."
       }
     },
     "selfSignup": {
@@ -1832,6 +1866,20 @@
         "submit": "Registrera",
         "cancel": "Avbryt",
         "failed": "Fastighetsbeteckningen kunde inte registreras."
+      },
+      "shares": {
+        "title": "Andelstal och insatser",
+        "description": "Registrera lägenheternas andelstal och insatser. Alla på en gång, eftersom siffrorna kommer från en stadgebilaga eller ett kalkylblad.",
+        "notDerived": "Registret håller siffrorna. Ingenting i Open BRF räknar fram en avgift ur dem: grunderna för beräkning av årsavgiften är en stadgefråga (BRL 9 kap. 5 § första stycket 5) och det är styrelsen som fastställer avgifterna (BRL 9 kap. 13 §). Avgiftsskärmen erbjuder andelstalet som hjälp, inget mer.",
+        "edit": "Registrera andelstal och insatser",
+        "submit": "Spara siffrorna",
+        "cancel": "Avbryt",
+        "failed": "Siffrorna kunde inte sparas. Kontrollera att andelstalen är tal och att insatserna är summor i kronor och öre.",
+        "shareFor": "Andelstal för {{apartment}}",
+        "capitalFor": "Insats för {{apartment}}",
+        "column": {
+          "apartment": "Lägenhet"
+        }
       },
       "empty": {
         "title": "Inga lägenheter",
@@ -3840,6 +3888,128 @@
       "unknown": "Debiteringen kunde inte sparas just nu."
     }
   },
+  "fees": {
+    "navLabel": "Avgifter",
+    "heading": "Avgifter och avier",
+    "description": "Vad varje lägenhet betalar till föreningen, och avierna för perioden. Styrelsen fastställer avgifterna enligt BRL 9 kap. 13 §.",
+    "notALedger": "Open BRF håller avgiften och avin, inte reskontran. Ingenting här registrerar en betalning eller ett utestående belopp - skulden regleras i bokföringssystemet.",
+    "loadFailed": "Avgifterna kunde inte läsas just nu.",
+    "forbidden": "Avgifter hanteras av styrelsen. Vad en medlem ska betala framgår av avin, och medlemmens egen kopia av det som lagras finns i registerutdraget.",
+    "loading": "Läser in avgifterna",
+    "print": "Skriv ut",
+    "documentTitle": "Avgiftsregister",
+    "basisOnly": "Listan visar vad som gäller per månad. Den säger ingenting om vad som har betalats.",
+    "on": "Gäller den",
+    "amountWithUnit": "{{amount}} kr",
+    "stamp": "Avgiftsregister - gäller {{date}} - {{total}} kr per månad",
+    "remove": "Ta bort",
+    "removeNamed": "Ta bort {{kind}} för {{apartment}}",
+    "empty": {
+      "title": "Inga lägenheter i registret",
+      "description": "Lägenheter ni lägger upp i adressboken visas här, med den avgift som gäller för var och en."
+    },
+    "column": {
+      "apartment": "Lägenhet",
+      "participationShare": "Andelstal",
+      "kinds": "Avser",
+      "monthlyAmount": "Per månad",
+      "suggested": "Förslag",
+      "actions": "Åtgärder"
+    },
+    "noValue": {
+      "participationShare": "Inget andelstal registrerat",
+      "fees": "Ingen avgift registrerad",
+      "suggested": "Inget förslag - ange en årssumma i hjälpen ovan"
+    },
+    "kind": {
+      "ANNUAL_FEE": "Årsavgift",
+      "PARKING_SPACE": "Parkeringsplats",
+      "STORAGE_SPACE": "Förrådsplats"
+    },
+    "vat": {
+      "EXEMPT": "Momsfri",
+      "RATE": "Moms"
+    },
+    "record": {
+      "title": "Registrera en avgift",
+      "description": "Avgiften gäller från och med den dag ni anger och tills ni registrerar en ny. Den nya avgiften avslutar den föregående automatiskt.",
+      "apartment": "Lägenhet",
+      "chooseApartment": "Välj lägenhet",
+      "kind": "Avser",
+      "appliesFrom": "Gäller från",
+      "monthlyAmount": "Belopp per månad i kronor",
+      "vatTreatment": "Moms",
+      "vatRatePercent": "Momssats i procent",
+      "submit": "Registrera avgiften",
+      "forwardDated": "En avgift får dateras framåt: det är styrelsens beslut om en kommande avgift. En debitering får det inte, eftersom den påstår att något redan har hänt."
+    },
+    "aid": {
+      "title": "Räkna ut från andelstal",
+      "description": "Ange årets summa så visas vad varje lägenhets andelstal skulle ge per månad. Ni godtar eller skriver över varje belopp.",
+      "notDerived": "Förslaget räknas ut här och nu och lagras aldrig. Det är beloppet ni registrerar som gäller, inte andelstalet: grunderna för beräkning av årsavgiften är en stadgefråga (BRL 9 kap. 5 § första stycket 5) och det är styrelsen som fastställer avgifterna (BRL 9 kap. 13 §).",
+      "open": "Visa hjälpen",
+      "close": "Dölj hjälpen",
+      "yearlyTotal": "Årets summa i kronor",
+      "unallocated": "{{amount}} kr fördelas inte - avrundning nedåt och lägenheter utan andelstal."
+    },
+    "notification": {
+      "title": "Avisering",
+      "description": "Framställ periodens avier från de avgifter som gäller. Perioden är hela kalendermånader och kan bara aviseras en gång.",
+      "producedNotSent": "Open BRF framställer avierna. Ingenting skickas härifrån - ni hämtar dokumentet och lämnar det vidare själva.",
+      "from": "Från",
+      "to": "Till",
+      "dueOn": "Förfallodag",
+      "issue": "Framställ avierna",
+      "wholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad. Förfallodagen är den ni anger; Open BRF räknar ingenting ur den.",
+      "none": "Inga avier är framställda än.",
+      "period": "{{from}} till {{to}}",
+      "produce": "Ta fram dokumentet",
+      "produceNamed": "Ta fram dokumentet för {{from}} till {{to}}",
+      "download": "Hämta filen",
+      "notAnInvoice": "Avin är inte en faktura. En årsavgift är undantagen från moms (ML 10 kap. 35 §); en momspliktig rad kräver en riktig faktura, som Open BRF inte framställer.",
+      "documentTitle": "Avier",
+      "column": {
+        "period": "Period",
+        "dueOn": "Förfallodag",
+        "notices": "Antal avier",
+        "total": "Summa",
+        "actions": "Åtgärder"
+      },
+      "payTo": "Betalas till {{bankgiro}}.",
+      "noGiro": "gironummer saknas i inställningarna"
+    },
+    "notice": {
+      "column": {
+        "apartment": "Lägenhet",
+        "holders": "Innehavare",
+        "amount": "Belopp",
+        "paymentReference": "Betalningsreferens"
+      },
+      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut"
+    },
+    "errors": {
+      "notFound": "Avgiften finns inte längre.",
+      "apartmentNotFound": "Lägenheten finns inte i registret.",
+      "dateNotACalendarDate": "Det är inget datum.",
+      "amountNotASum": "Beloppet är ingen summa i kronor och öre.",
+      "amountNotPositive": "En avgift är ett positivt belopp.",
+      "vatRateRequired": "Ange momssatsen för en momspliktig avgift.",
+      "vatRateNotApplicable": "En momsfri avgift har ingen momssats.",
+      "vatRateOutOfRange": "Momssatsen anges i hela procent, 1 till 100.",
+      "endsBeforeItBegins": "Avgiften kan inte upphöra innan den börjar gälla.",
+      "feeAlreadyRecordedLater": "Det finns redan en senare avgift av samma slag för lägenheten. Ta bort den först.",
+      "feeNotified": "Avgiften är redan aviserad och kan inte tas bort. Den är underlaget för pengar ni har begärt in.",
+      "periodNotWholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad.",
+      "periodTooLong": "Perioden är för lång. Ett räkenskapsår är högst arton månader.",
+      "periodAlreadyIssued": "Perioden är redan aviserad.",
+      "periodOverlapsARun": "Perioden överlappar en som redan är aviserad.",
+      "dueBeforePeriod": "Förfallodagen kan inte ligga före perioden den avser.",
+      "nothingToBill": "Ingen lägenhet har en avgift som gäller under perioden.",
+      "tooManyNotices": "Fler avier än formatet för betalningsreferenser rymmer.",
+      "invalidBody": "Något i formuläret gick inte att läsa.",
+      "unknown": "Det gick inte just nu. Försök igen."
+    }
+  },
   "dataProtection": {
     "navLabel": "Dataskydd",
     "title": "Dataskydd",
@@ -3937,6 +4107,12 @@
           "purpose": "Ta emot medlemmarnas motioner till stämman.",
           "legalBasisNote": "Avtal: medlemmens rätt att lägga fram ärenden.",
           "retention": "730 dagar efter att motionen avslutats. En öppen motion gallras aldrig."
+        },
+        "fees": {
+          "name": "Avgifter och avier",
+          "purpose": "Registrera vad varje lägenhet betalar till föreningen och framställa periodens avier.",
+          "legalBasisNote": "Rättslig förpliktelse: avierna och avgifterna bakom dem är räkenskapsinformation enligt bokföringslagen (1999:1078) 5 kap. 6-7 §§.",
+          "retention": "Till och med det sjunde året efter utgången av det kalenderår då räkenskapsåret avslutades (bokföringslagen 7 kap. 2 §). En avgift som fortfarande gäller gallras inte."
         },
         "websitePublication": {
           "name": "Publicering på webbplatsen",

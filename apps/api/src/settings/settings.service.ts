@@ -56,6 +56,8 @@ export class SettingsError extends DomainError {
       | "no-phone"
       | "motion-deadline-not-a-date"
       | "proxy-limit-out-of-range"
+      | "financial-year-start-not-a-month"
+      | "giro-not-a-number"
       | "joint-controller-incomplete",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
@@ -80,6 +82,30 @@ export class SettingsError extends DomainError {
   override details(): Record<string, readonly unknown[]> {
     return { findings: this.findings };
   }
+}
+
+/**
+ * The association's financial year and where it is paid.
+ *
+ * Three fields and no more. A value added tax registration number has no reader
+ * in this product, and a field nothing reads is a statement nobody has to keep
+ * true.
+ */
+export interface FinanceSettings {
+  /**
+   * The calendar month the rakenskapsar begins in. 1 for the calendar year.
+   *
+   * Read by the retention windows over charges and over fees, which is the
+   * whole of what it is for: bokforingslagen (1999:1078) 7 kap. 2 § counts the
+   * preservation period from the end of the calendar year the financial year
+   * closed, so which year that is is this setting's answer rather than a row's
+   * own date.
+   */
+  financialYearStartMonth: number;
+  /** The association's bankgiro number, or null while none is recorded. */
+  bankgiro: string | null;
+  /** The association's plusgiro number, or null while none is recorded. */
+  plusgiro: string | null;
 }
 
 export interface HousingCooperativeSettings {
@@ -217,6 +243,7 @@ export interface InstanceSettings {
   boardMailbox: BoardMailboxSettingsView;
   sms: SmsSettingsView;
   retention: { daysAfterMoveOut: number };
+  finances: FinanceSettings;
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
   issueReporting: { publicFormEnabled: boolean };
@@ -381,6 +408,11 @@ export class SettingsService {
           }) !== "none",
       },
       retention: { daysAfterMoveOut: association.retentionDaysAfterMoveOut },
+      finances: {
+        financialYearStartMonth: association.financialYearStartMonth,
+        bankgiro: association.bankgiro,
+        plusgiro: association.plusgiro,
+      },
       selfSignup: { enabled: association.selfSignupEnabled },
       issueReporting: {
         publicFormEnabled: association.issueReportingPublic,
@@ -984,6 +1016,107 @@ export class SettingsService {
     return { daysAfterMoveOut: association.retentionDaysAfterMoveOut };
   }
 
+  /**
+   * Records the association's financial year and where it is paid.
+   *
+   * Audited, which only one other settings write is. The month the financial
+   * year begins in decides when every charge and every fee this instance holds
+   * becomes erasable - a data subject access report states that date to a named
+   * person - so a change to it moves a promise the association has already made,
+   * and the log has to be able to say who moved it. The giro numbers travel onto
+   * a document members pay from, which is the same kind of fact.
+   *
+   * The entry names which fields changed and never their values, on
+   * `updateDataProtectionContacts`'s rule: a giro number corrected later would
+   * otherwise stand in a table nobody can amend.
+   *
+   * A giro number is checked for shape and never for existence. Whether a number
+   * is live is Bankgirot's or Plusgirot's answer and this platform has no way to
+   * ask it, so a plausible number the association no longer holds is refused by
+   * the bank rather than here - and a board that mistyped one finds out from a
+   * member who could not pay, which is what the notice's own contract document
+   * warns about.
+   */
+  async updateFinances(input: {
+    actorPersonId: string;
+    financialYearStartMonth: number;
+    bankgiro: string | null;
+    plusgiro: string | null;
+  }): Promise<FinanceSettings> {
+    await this.requireAssociation();
+
+    if (
+      !Number.isInteger(input.financialYearStartMonth) ||
+      input.financialYearStartMonth < 1 ||
+      input.financialYearStartMonth > 12
+    ) {
+      throw new SettingsError(
+        "A financial year begins in a month of the year.",
+        "financial-year-start-not-a-month",
+      );
+    }
+
+    const bankgiro = readGiro(input.bankgiro);
+    const plusgiro = readGiro(input.plusgiro);
+
+    const data = {
+      financialYearStartMonth: input.financialYearStartMonth,
+      bankgiro,
+      plusgiro,
+    };
+
+    const association = await this.prisma.$transaction(async (tx) => {
+      /*
+       * Read in the same transaction that writes, so the entry can name the
+       * fields that changed rather than the fields that ended up with a value.
+       */
+      const before = await tx.association.findUniqueOrThrow({
+        where: { id: 1 },
+        select: {
+          financialYearStartMonth: true,
+          bankgiro: true,
+          plusgiro: true,
+        },
+      });
+
+      const updated = await tx.association.update({ where: { id: 1 }, data });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_FINANCES_RECORDED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetKind: "association",
+          targetId: String(updated.id),
+          // Which fields changed, never their values.
+          context: {
+            fields: Object.entries(data)
+              .filter(
+                ([field, value]) =>
+                  value !== before[field as keyof typeof before],
+              )
+              .map(([field]) => field),
+          },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    // The month, because it is the one that moves an erasure date somebody has
+    // been told. The giro numbers are in the response.
+    this.logger.log(
+      `Financial year set to start in month ${String(association.financialYearStartMonth)}`,
+    );
+
+    return {
+      financialYearStartMonth: association.financialYearStartMonth,
+      bankgiro: association.bankgiro,
+      plusgiro: association.plusgiro,
+    };
+  }
+
   async updateSelfSignup(input: {
     enabled: boolean;
   }): Promise<{ enabled: boolean }> {
@@ -1184,6 +1317,34 @@ function toLogoView(
 }
 
 /** An empty field is nothing recorded, not a recorded emptiness. */
+/**
+ * A giro number as the association holds it, or the refusal.
+ *
+ * Digits and hyphens only, bounded to what a Swedish giro number can be: a
+ * bankgiro is seven or eight digits and a plusgiro two to eight, both usually
+ * written with a hyphen before the last digit. Checked for shape and never for
+ * existence, and never reformatted - a board writes the number the way its own
+ * bank prints it, and a platform that helpfully moved the hyphen would be
+ * printing something the member could not match against their statement.
+ *
+ * Cleared rather than stored empty, for the reason the property designation's
+ * own write gives: the notice states a giro number or says none is recorded, and
+ * an empty string is neither.
+ */
+function readGiro(value: string | null): string | null {
+  const trimmed = blankToNull(value);
+  if (trimmed === null) {
+    return null;
+  }
+  if (
+    !/^\d[\d-]{1,10}\d$/.test(trimmed) ||
+    trimmed.replaceAll("-", "").length < 2
+  ) {
+    throw new SettingsError("That is not a giro number.", "giro-not-a-number");
+  }
+  return trimmed;
+}
+
 function blankToNull(value: string | null | undefined): string | null {
   const trimmed = (value ?? "").trim();
   return trimmed === "" ? null : trimmed;

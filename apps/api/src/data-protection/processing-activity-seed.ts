@@ -79,6 +79,7 @@ export const SEED_KEYS = [
   "events",
   "motions",
   "chat",
+  "fees",
   "websitePublication",
   "contactSubmissions",
   "signupRequestsAndInvitations",
@@ -206,6 +207,26 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     legalBasis: "CONTRACT",
     dataSubjectCategories: ["member", "resident"],
     personalDataCategories: ["name", "apartment", "freeText"],
+  },
+  /*
+   * A legal obligation rather than the contract the bookings and events rest
+   * on, although the fee itself is owed under the membership. The processing
+   * this row describes is keeping the rate and the notice as accounting
+   * records: they are rakenskapsinformation under bokforingslagen 5 kap.
+   * 6-7 §§, the association is bokforingsskyldig under 2 kap. 1 §, and 7 kap.
+   * 2 § is what fixes how long they are kept. The contract would not explain
+   * why a notice outlives the residency it was issued to.
+   *
+   * The member alone, not the resident: the arsavgift is the
+   * bostadsrattshavare's to pay under BRL 7 kap. 14 §, and a partner or a
+   * tenant living in the flat holds none of it. The former resident is here
+   * because the window outlives the residency by years.
+   */
+  fees: {
+    source: "SERVICE_DATA",
+    legalBasis: "LEGAL_OBLIGATION",
+    dataSubjectCategories: ["member", "formerResident"],
+    personalDataCategories: ["name", "apartment", "financial"],
   },
   motions: {
     source: "SERVICE_DATA",

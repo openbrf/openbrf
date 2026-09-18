@@ -58,6 +58,7 @@ describe("the apartment register's capability declarations", () => {
       "recordReportBasis",
       "recordTransferReversal",
       "recordPropertyDesignation",
+      "recordApartmentShares",
       "recordLandTenure",
     ]) {
       expect(
@@ -91,6 +92,7 @@ describe("the apartment register's capability declarations", () => {
       "recordReportBasis",
       "recordTransferReversal",
       "recordPropertyDesignation",
+      "recordApartmentShares",
       "recordLandTenure",
     ]) {
       expect(

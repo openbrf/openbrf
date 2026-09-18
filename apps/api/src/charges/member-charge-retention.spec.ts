@@ -1,6 +1,7 @@
 import { dateColumnOf } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
+import { CALENDAR_YEAR_START_MONTH } from "../retention/financial-year";
 import {
   computeMemberChargePurgeDate,
   MEMBER_CHARGE_RETENTION_YEARS,
@@ -16,6 +17,12 @@ import {
  * data subject access report stated, which is a promise broken rather than a bug
  * in a helper, so they are run against each other here rather than each being
  * checked against arithmetic that looks symmetrical.
+ *
+ * The arithmetic itself, including every case a broken financial year creates,
+ * is asserted in `retention/financial-year.spec.ts`. What is asserted here is
+ * this module's own promises: the window in force, the default that reproduces
+ * what the product computed before it read a financial year at all, and the one
+ * case a board would notice.
  */
 
 /** A date column value for a "YYYY-MM-DD". */
@@ -33,22 +40,58 @@ function middayOn(text: string): Date {
   return new Date(`${text}T12:00:00.000+02:00`);
 }
 
+/** A financial year running from the 1st of May to the 30th of April. */
+const MAY = 5;
+
 describe("computeMemberChargePurgeDate", () => {
-  it("erases at the start of the eighth year after the charge's own", () => {
+  it("erases at the start of the eighth year after the financial year's own", () => {
     // Bokforingslagen 7 kap. 2 § preserves through the seventh year after the
-    // calendar year the financial year closed, so a 2026 charge is kept through
-    // 2033 and erasable on the first morning of 2034.
+    // calendar year the financial year closed, so a 2026 charge on the calendar
+    // year is kept through 2033 and erasable on the first morning of 2034.
     expect(computeMemberChargePurgeDate(day("2026-03-05")).toISOString()).toBe(
       "2034-01-01T00:00:00.000Z",
     );
   });
 
-  it("gives every charge in one year the same date", () => {
+  it("gives every charge in one financial year the same date", () => {
     // The reason for the window runs from the end of a calendar year, so a
     // January charge and a December one from the same books go together.
     expect(computeMemberChargePurgeDate(day("2026-01-01"))).toEqual(
       computeMemberChargePurgeDate(day("2026-12-31")),
     );
+    // And on a broken year the pair that goes together is the one inside it.
+    expect(computeMemberChargePurgeDate(day("2026-05-01"), MAY)).toEqual(
+      computeMemberChargePurgeDate(day("2027-04-30"), MAY),
+    );
+  });
+
+  it("keeps a charge in a broken year's first half a year longer", () => {
+    /*
+     * The whole of the correction, stated where a board would meet it. On a
+     * year running from the 1st of May, a June charge falls in the year that
+     * ends the following April and is preserved from the end of that later
+     * year; a March charge falls in the year that ended that April. Anchoring
+     * on the charge's own calendar year erased the first a full year early.
+     */
+    expect(
+      computeMemberChargePurgeDate(day("2026-06-15"), MAY).toISOString(),
+    ).toBe("2035-01-01T00:00:00.000Z");
+    expect(
+      computeMemberChargePurgeDate(day("2026-03-15"), MAY).toISOString(),
+    ).toBe("2034-01-01T00:00:00.000Z");
+  });
+
+  it("computes what it computed before the financial year existed", () => {
+    /*
+     * The default is the calendar year, which is what every instance recorded
+     * before the column existed had assumed. An omitted argument therefore
+     * states the same erasure date a report already printed for those rows.
+     */
+    for (const text of ["2026-01-01", "2026-06-15", "2026-12-31"]) {
+      expect(computeMemberChargePurgeDate(day(text))).toEqual(
+        computeMemberChargePurgeDate(day(text), CALENDAR_YEAR_START_MONTH),
+      );
+    }
   });
 
   it("reads the charge date as a calendar date and not as an instant", () => {
@@ -69,15 +112,36 @@ describe("computeMemberChargePurgeDate", () => {
 
   it("refuses a window that is not a number of years", () => {
     expect(() =>
-      computeMemberChargePurgeDate(day("2026-03-05"), Number.NaN),
+      computeMemberChargePurgeDate(
+        day("2026-03-05"),
+        CALENDAR_YEAR_START_MONTH,
+        Number.NaN,
+      ),
     ).toThrow(RangeError);
-    expect(() => computeMemberChargePurgeDate(day("2026-03-05"), -1)).toThrow(
-      RangeError,
-    );
+    expect(() =>
+      computeMemberChargePurgeDate(
+        day("2026-03-05"),
+        CALENDAR_YEAR_START_MONTH,
+        -1,
+      ),
+    ).toThrow(RangeError);
     // Refused rather than rounded: half a calendar year is not a thing to
     // anchor on, and rounding it would erase a year off what was asked for
     // without saying so.
-    expect(() => computeMemberChargePurgeDate(day("2026-03-05"), 6.5)).toThrow(
+    expect(() =>
+      computeMemberChargePurgeDate(
+        day("2026-03-05"),
+        CALENDAR_YEAR_START_MONTH,
+        6.5,
+      ),
+    ).toThrow(RangeError);
+  });
+
+  it("refuses a financial year starting in a month no year has", () => {
+    expect(() => computeMemberChargePurgeDate(day("2026-03-05"), 0)).toThrow(
+      RangeError,
+    );
+    expect(() => computeMemberChargePurgeDate(day("2026-03-05"), 13)).toThrow(
       RangeError,
     );
   });
@@ -98,13 +162,27 @@ describe("memberChargePurgeCutoff", () => {
     ).toBe("2027-01-01T00:00:00.000Z");
   });
 
+  it("cuts at the start of a financial year on a broken one", () => {
+    expect(
+      memberChargePurgeCutoff(middayOn("2034-06-01"), MAY).toISOString(),
+    ).toBe("2026-05-01T00:00:00.000Z");
+  });
+
   it("refuses a window that is not a number of years", () => {
     expect(() =>
-      memberChargePurgeCutoff(middayOn("2034-06-01"), Number.NaN),
+      memberChargePurgeCutoff(
+        middayOn("2034-06-01"),
+        CALENDAR_YEAR_START_MONTH,
+        Number.NaN,
+      ),
     ).toThrow(RangeError);
-    expect(() => memberChargePurgeCutoff(middayOn("2034-06-01"), 6.5)).toThrow(
-      RangeError,
-    );
+    expect(() =>
+      memberChargePurgeCutoff(
+        middayOn("2034-06-01"),
+        CALENDAR_YEAR_START_MONTH,
+        6.5,
+      ),
+    ).toThrow(RangeError);
   });
 });
 
@@ -132,6 +210,27 @@ describe("the two agree", () => {
     expect(chargedOn.getTime()).toBeGreaterThanOrEqual(dayBefore.getTime());
   });
 
+  it("keeps that agreement on a broken financial year", () => {
+    const chargedOn = day("2026-06-15");
+    const purgeOn = computeMemberChargePurgeDate(chargedOn, MAY);
+    expect(chargedOn.getTime()).toBeLessThan(
+      memberChargePurgeCutoff(
+        middayOn(purgeOn.toISOString().slice(0, 10)),
+        MAY,
+      ).getTime(),
+    );
+    expect(chargedOn.getTime()).toBeGreaterThanOrEqual(
+      memberChargePurgeCutoff(
+        middayOn(
+          new Date(purgeOn.getTime() - 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10),
+        ),
+        MAY,
+      ).getTime(),
+    );
+  });
+
   it("keeps that agreement when the window is shortened", () => {
     /*
      * The window is a constant the product may shorten without a migration,
@@ -140,13 +239,25 @@ describe("the two agree", () => {
      * driven with the same non-default value.
      */
     const chargedOn = day("2026-06-01");
-    const purgeOn = computeMemberChargePurgeDate(chargedOn, 2);
+    const purgeOn = computeMemberChargePurgeDate(
+      chargedOn,
+      CALENDAR_YEAR_START_MONTH,
+      2,
+    );
     expect(purgeOn.toISOString()).toBe("2029-01-01T00:00:00.000Z");
     expect(chargedOn.getTime()).toBeLessThan(
-      memberChargePurgeCutoff(middayOn("2029-01-01"), 2).getTime(),
+      memberChargePurgeCutoff(
+        middayOn("2029-01-01"),
+        CALENDAR_YEAR_START_MONTH,
+        2,
+      ).getTime(),
     );
     expect(chargedOn.getTime()).toBeGreaterThanOrEqual(
-      memberChargePurgeCutoff(middayOn("2028-12-31"), 2).getTime(),
+      memberChargePurgeCutoff(
+        middayOn("2028-12-31"),
+        CALENDAR_YEAR_START_MONTH,
+        2,
+      ).getTime(),
     );
   });
 

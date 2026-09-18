@@ -630,6 +630,93 @@ export interface ReportMemberCharge {
 }
 
 /**
+ * A fee rate that stood against an apartment this person lived in (avgift).
+ *
+ * Reached through the residency, exactly as an apartment-keyed charge is and by
+ * the same rule: a fee names an apartment and never a person, so which of them
+ * is this person's is an inference, and the inference is the overlap between
+ * the rate's period and the residency's. Both boundaries are closed, for the
+ * reason `charges/apartment-charges.ts` argues.
+ *
+ * A rate is not necessarily this person's to pay: a household is several people
+ * and the association fixes the fee on the flat. It is on the report regardless,
+ * because it is a record the association holds that says something about where
+ * this person lived and what that flat paid.
+ *
+ * ## No payment, here either
+ *
+ * There is no paid field and no balance, because the association holds neither.
+ * A rate says what the flat pays per month; whether it was paid is settled in
+ * the accounting system.
+ */
+export interface ReportFee {
+  feeId: string;
+  /** "<street> <number> <apartment number>". */
+  apartment: string;
+  /** Which standing fee this is: the arsavgift, a parking space, a storage space. */
+  kind: "ANNUAL_FEE" | "PARKING_SPACE" | "STORAGE_SPACE";
+  /** "YYYY-MM-DD" on the association's own calendar. */
+  appliesFrom: string;
+  /** "YYYY-MM-DD", or null while this is the rate in force. */
+  appliesUntil: string | null;
+  /** Kronor per calendar month as recorded, e.g. "3450.50". */
+  monthlyAmount: string;
+  vatTreatment: "EXEMPT" | "RATE";
+  /** Whole percent, and null exactly when the treatment is EXEMPT. */
+  vatRatePercent: number | null;
+  /**
+   * The earliest date the purge can reach this rate, or null while it is the
+   * rate in force.
+   *
+   * Null rather than a date far ahead, because there is no date: a rate still
+   * applying is a fact that is still true, no preservation period has run out on
+   * it, and the clock starts on the day it stops applying. Stating a guess here
+   * would be this document promising an erasure nobody can honour.
+   */
+  erasableFrom: string | null;
+}
+
+/**
+ * A fee notice issued for an apartment this person lived in (avi).
+ *
+ * The record of what the association actually asked the flat to pay for one
+ * period, as it was issued. Reached through the residency on the same rule as
+ * the rate above, with the period's own boundaries as the overlap.
+ *
+ * The payment reference is carried because it is what a member quotes back when
+ * they ring about a notice, and a report that named the sum without it would
+ * leave the person unable to point at the row it describes.
+ *
+ * ## No payment, and no delivery either
+ *
+ * There is no paid field, no balance and no "sent" field. Open BRF produces the
+ * notice and the board takes it away; whether it was delivered and whether it
+ * was paid are both outside what this platform records, and a field standing in
+ * for either would be a second answer nobody could rely on.
+ */
+export interface ReportFeeNotice {
+  noticeId: string;
+  /** "<street> <number> <apartment number>". */
+  apartment: string;
+  /** The period billed, inclusive at both ends. "YYYY-MM-DD". */
+  periodFrom: string;
+  periodTo: string;
+  /** The day the board stated the money was due. Nothing computes from it. */
+  dueOn: string;
+  /** The day the run was made. */
+  issuedOn: string;
+  /** Kronor as billed, e.g. "10351.50". */
+  amount: string;
+  /** The reference the notice is paid under. */
+  paymentReference: string;
+  /**
+   * The earliest date the purge can reach this notice, derived from the
+   * retention window and never stored. See {@link ReportMemberCharge.erasableFrom}.
+   */
+  erasableFrom: string;
+}
+
+/**
  * A comment this person wrote on one of the association's news items.
  *
  * Purged, like the bookings above and on the same shape of clock: a comment is
@@ -1097,6 +1184,8 @@ export interface DataSubjectReport {
   keyOrders: ReportKeyOrder[];
   eventSignups: ReportEventSignup[];
   memberCharges: ReportMemberCharge[];
+  fees: ReportFee[];
+  feeNotices: ReportFeeNotice[];
   newsComments: ReportNewsComment[];
   chats: ReportChat[];
   boardMailboxThreads: ReportBoardMailboxThread[];

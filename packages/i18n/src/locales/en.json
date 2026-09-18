@@ -628,6 +628,12 @@
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
           "DEBITING_LIST_EXPORTED": "The debiting list was exported",
+          "ASSOCIATION_FINANCES_RECORDED": "The association's financial year and giro numbers were recorded",
+          "APARTMENT_SHARES_RECORDED": "An apartment's participation share or initial share capital was recorded",
+          "FEE_RECORDED": "A fee was recorded for an apartment",
+          "FEE_REMOVED": "A fee recorded in error was removed",
+          "FEE_NOTIFICATION_ISSUED": "A period's fee notices were issued",
+          "FEE_NOTIFICATION_EXPORTED": "A period's fee notices were produced as a document",
           "BOARD_MAILBOX_THREAD_TAKEN": "A thread in the board mailbox was taken on",
           "BOARD_MAILBOX_THREAD_RELEASED": "A thread in the board mailbox was released",
           "BOARD_MAILBOX_REPLY_SENT": "A reply was sent from the board mailbox",
@@ -1073,6 +1079,34 @@
       "purgeJob": "The purge runs every night. Somebody under a legal hold is skipped until it is released, and the person view says so.",
       "errors": {
         "range": "Choose between 30 and 3650 days."
+      }
+    },
+    "finances": {
+      "title": "Financial year and giro numbers",
+      "description": "When the association's financial year begins, and where the association is paid.",
+      "retentionNotice": "The month decides when charges and fees are erased. Accounting records are preserved through the seventh year after the calendar year the financial year ended in (bokforingslagen 7 kap. 2 §), so a broken financial year moves the erasure date later for part of the year. A date already stated on a data subject access report is never brought forward by a change here.",
+      "startMonth": "The financial year begins in",
+      "startMonthHint": "The calendar year is the ordinary case and is the default. A broken financial year runs twelve calendar months from the month you choose (bokforingslagen 3 kap. 1 §).",
+      "bankgiro": "Bankgiro",
+      "plusgiro": "Plusgiro",
+      "giroHint": "Write the number the way the bank writes it. Open BRF checks the shape and not that the number exists - that is your agreement with the bank, and the notice prints the number as it stands here.",
+      "month": {
+        "1": "January",
+        "2": "February",
+        "3": "March",
+        "4": "April",
+        "5": "May",
+        "6": "June",
+        "7": "July",
+        "8": "August",
+        "9": "September",
+        "10": "October",
+        "11": "November",
+        "12": "December"
+      },
+      "errors": {
+        "startMonthInvalid": "A financial year begins in a month of the year.",
+        "giroInvalid": "That is not a giro number. Digits and hyphens."
       }
     },
     "selfSignup": {
@@ -1832,6 +1866,20 @@
         "submit": "Record it",
         "cancel": "Cancel",
         "failed": "The property designation could not be recorded."
+      },
+      "shares": {
+        "title": "Participation shares and initial share capitals",
+        "description": "Record the apartments' participation shares and initial share capitals. All at once, because the figures come off a bylaws annex or a spreadsheet.",
+        "notDerived": "The register holds the figures. Nothing in Open BRF works a fee out from them: the basis for calculating the annual fee is a matter for the bylaws (BRL 9 kap. 5 § första stycket 5) and it is the board that fixes the fees (BRL 9 kap. 13 §). The fee screen offers the participation share as an aid and nothing more.",
+        "edit": "Record participation shares and initial share capitals",
+        "submit": "Save the figures",
+        "cancel": "Cancel",
+        "failed": "The figures could not be saved. Check that the participation shares are numbers and the initial share capitals are sums of kronor and ore.",
+        "shareFor": "Participation share for {{apartment}}",
+        "capitalFor": "Initial share capital for {{apartment}}",
+        "column": {
+          "apartment": "Apartment"
+        }
       },
       "empty": {
         "title": "No apartments",
@@ -3840,6 +3888,128 @@
       "unknown": "The charge could not be saved just now."
     }
   },
+  "fees": {
+    "navLabel": "Fees",
+    "heading": "Fees and fee notices",
+    "description": "What each apartment pays the association, and the period's notices. The board fixes the fees under BRL 9 kap. 13 §.",
+    "notALedger": "Open BRF holds the fee and the notice, not the ledger. Nothing here records a payment or an outstanding amount - the debt is settled in the accounting system.",
+    "loadFailed": "The fees could not be read just now.",
+    "forbidden": "Fees are handled by the board. What a member owes is stated on the notice, and the member's own copy of what is stored is on their data subject access report.",
+    "loading": "Reading the fees",
+    "print": "Print",
+    "documentTitle": "Fee register",
+    "basisOnly": "The list shows what applies per month. It says nothing about what has been paid.",
+    "on": "As it stands on",
+    "amountWithUnit": "{{amount}} kr",
+    "stamp": "Fee register - as it stands on {{date}} - {{total}} kr per month",
+    "remove": "Remove",
+    "removeNamed": "Remove {{kind}} for {{apartment}}",
+    "empty": {
+      "title": "No apartments in the register",
+      "description": "Apartments you add in the address book appear here, with the fee that applies to each."
+    },
+    "column": {
+      "apartment": "Apartment",
+      "participationShare": "Participation share",
+      "kinds": "For",
+      "monthlyAmount": "Per month",
+      "suggested": "Suggested",
+      "actions": "Actions"
+    },
+    "noValue": {
+      "participationShare": "No participation share recorded",
+      "fees": "No fee recorded",
+      "suggested": "No suggestion - state a yearly total in the aid above"
+    },
+    "kind": {
+      "ANNUAL_FEE": "Annual fee",
+      "PARKING_SPACE": "Parking space",
+      "STORAGE_SPACE": "Storage space"
+    },
+    "vat": {
+      "EXEMPT": "Exempt",
+      "RATE": "Value added tax"
+    },
+    "record": {
+      "title": "Record a fee",
+      "description": "The fee applies from the day you state and until you record a new one. Recording the next one closes this one automatically.",
+      "apartment": "Apartment",
+      "chooseApartment": "Choose an apartment",
+      "kind": "For",
+      "appliesFrom": "Applies from",
+      "monthlyAmount": "Amount per month in kronor",
+      "vatTreatment": "Value added tax",
+      "vatRatePercent": "Rate in per cent",
+      "submit": "Record the fee",
+      "forwardDated": "A fee may be dated forward: it is the board's decision about a fee to come. A charge may not, because it claims something has already happened."
+    },
+    "aid": {
+      "title": "Work it out from the participation shares",
+      "description": "State the year's total and see what each apartment's participation share would give per month. You accept or overwrite each amount.",
+      "notDerived": "The suggestion is worked out here and now and is never stored. What applies is the amount you record, not the participation share: the basis for calculating the annual fee is a matter for the bylaws (BRL 9 kap. 5 § första stycket 5) and it is the board that fixes the fees (BRL 9 kap. 13 §).",
+      "open": "Show the aid",
+      "close": "Hide the aid",
+      "yearlyTotal": "The year's total in kronor",
+      "unallocated": "{{amount}} kr is not apportioned - rounding down, and apartments with no participation share."
+    },
+    "notification": {
+      "title": "Fee notices",
+      "description": "Produce the period's notices from the fees in force. The period is whole calendar months and can be issued once.",
+      "producedNotSent": "Open BRF produces the notices. Nothing is sent from here - you take the document away and pass it on yourselves.",
+      "from": "From",
+      "to": "To",
+      "dueOn": "Due date",
+      "issue": "Produce the notices",
+      "wholeMonths": "The period opens on the first of a month and closes on the last of one. The due date is the one you state; Open BRF computes nothing from it.",
+      "none": "No notices have been produced yet.",
+      "period": "{{from}} to {{to}}",
+      "produce": "Produce the document",
+      "produceNamed": "Produce the document for {{from}} to {{to}}",
+      "download": "Download the file",
+      "notAnInvoice": "A notice is not an invoice. An annual fee is exempt from value added tax (ML 10 kap. 35 §); a taxable line needs a real invoice, which Open BRF does not produce.",
+      "documentTitle": "Fee notices",
+      "column": {
+        "period": "Period",
+        "dueOn": "Due date",
+        "notices": "Notices",
+        "total": "Total",
+        "actions": "Actions"
+      },
+      "payTo": "Paid to {{bankgiro}}.",
+      "noGiro": "no giro number in the settings"
+    },
+    "notice": {
+      "column": {
+        "apartment": "Apartment",
+        "holders": "Holders",
+        "amount": "Amount",
+        "paymentReference": "Payment reference"
+      },
+      "withheldHolders": "Protected personal data, the name is withheld"
+    },
+    "errors": {
+      "notFound": "That fee no longer exists.",
+      "apartmentNotFound": "That apartment is not in the register.",
+      "dateNotACalendarDate": "That is not a date.",
+      "amountNotASum": "The amount is not a sum of kronor and ore.",
+      "amountNotPositive": "A fee is a positive amount.",
+      "vatRateRequired": "State the rate for a fee carrying value added tax.",
+      "vatRateNotApplicable": "An exempt fee carries no rate.",
+      "vatRateOutOfRange": "The rate is stated in whole per cent, 1 to 100.",
+      "endsBeforeItBegins": "A fee cannot end before it begins to apply.",
+      "feeAlreadyRecordedLater": "A later fee of the same kind is already recorded for that apartment. Remove it first.",
+      "feeNotified": "That fee has already been billed and cannot be removed. It is the basis for money you asked for.",
+      "periodNotWholeMonths": "The period opens on the first of a month and closes on the last of one.",
+      "periodTooLong": "The period is too long. A financial year is at most eighteen months.",
+      "periodAlreadyIssued": "That period has already been issued.",
+      "periodOverlapsARun": "That period overlaps one already issued.",
+      "dueBeforePeriod": "The due date cannot fall before the period it bills.",
+      "nothingToBill": "No apartment has a fee in force for that period.",
+      "tooManyNotices": "More notices than the payment reference format can number.",
+      "invalidBody": "Something in the form could not be read.",
+      "unknown": "That did not work just now. Try again."
+    }
+  },
   "dataProtection": {
     "navLabel": "Data protection",
     "title": "Data protection",
@@ -3937,6 +4107,12 @@
           "purpose": "Receiving the members' motions to the general meeting.",
           "legalBasisNote": "Contract: a member's right to put an item to the meeting.",
           "retention": "730 days after the motion is closed. An open motion is never purged."
+        },
+        "fees": {
+          "name": "Fees and fee notices",
+          "purpose": "Recording what each apartment pays the association, and issuing the period's notices.",
+          "legalBasisNote": "Legal obligation: the notices and the fee rates behind them are accounting records under bokforingslagen (1999:1078) 5 kap. 6-7 §§.",
+          "retention": "Through the seventh year after the calendar year the financial year ended in (bokforingslagen 7 kap. 2 §). A fee rate still in force is not erased."
         },
         "websitePublication": {
           "name": "Publication on the website",

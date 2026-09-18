@@ -101,6 +101,7 @@ export interface InstanceSettings {
   boardMailbox: BoardMailboxSettings;
   sms: SmsSettings;
   retention: { daysAfterMoveOut: number };
+  finances: FinanceSettings;
   selfSignup: { enabled: boolean };
   /** Whether the association's website carries an issue report form. */
   issueReporting: { publicFormEnabled: boolean };
@@ -284,6 +285,33 @@ export function saveSms(input: SmsInput): Promise<ApiResult<SmsSettings>> {
 
 export function sendSmsTest(): Promise<ApiResult<{ sentTo: string }>> {
   return apiRequest("POST", "/api/settings/sms/test");
+}
+
+/**
+ * The association's financial year and where it is paid.
+ *
+ * Three fields and no more. A value added tax registration number has no reader
+ * in this product, and a field nothing reads is a statement nobody has to keep
+ * true.
+ */
+export interface FinanceSettings {
+  /**
+   * The calendar month the financial year begins in. 1 for the calendar year.
+   *
+   * Read by the retention windows over charges and over fees: bokforingslagen
+   * (1999:1078) 7 kap. 2 § counts the preservation period from the end of the
+   * calendar year the financial year closed, so which year that is is this
+   * setting's answer rather than a row's own date.
+   */
+  financialYearStartMonth: number;
+  bankgiro: string | null;
+  plusgiro: string | null;
+}
+
+export function saveFinances(
+  input: FinanceSettings,
+): Promise<ApiResult<FinanceSettings>> {
+  return apiRequest("PUT", "/api/settings/finances", input);
 }
 
 export function saveRetention(input: {

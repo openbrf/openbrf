@@ -44,6 +44,26 @@ export const DEMO_BUILDINGS: readonly DemoBuilding[] = [
   },
 ];
 
+/**
+ * How the demo association apportions its participation shares (andelstal) and
+ * its initial share capital (insats), by floor.
+ *
+ * A weight per floor and not a share, because the shares themselves have to add
+ * to exactly one across all 42 apartments and the last figure absorbs whatever
+ * the division leaves over - which is what a stadgar annex does too. The seed
+ * does that arithmetic; these are the relative sizes it works from, with the
+ * higher floors larger as they are on the design canvas.
+ *
+ * The basis is the demo's own and nothing derives from it. BRL 9 kap. 5 § forsta
+ * stycket 5 leaves the basis for calculating the arsavgift to each association's
+ * stadgar and 9 kap. 13 § leaves fixing the amounts to its board, so this is one
+ * association's table rather than a rule the platform holds.
+ */
+export const DEMO_FLOOR_WEIGHTS: readonly number[] = [3, 4, 4, 5];
+
+/** What the demo association's insatser add up to, in kronor. */
+export const DEMO_TOTAL_INITIAL_SHARE_CAPITAL = 12_000_000;
+
 export type DemoRole = "MEMBER" | "RESIDENT";
 export type DemoBoardPosition =
   "CHAIR" | "BOARD_MEMBER" | "DEPUTY_BOARD_MEMBER";

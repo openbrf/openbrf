@@ -1,5 +1,11 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
+import {
+  compareLocalDays,
+  formatDateColumn,
+  formatLocalDay,
+  localDayOf,
+  localDayOfColumn,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
@@ -12,6 +18,8 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { chargesDuringResidency } from "../charges/apartment-charges";
 import { computeMemberChargePurgeDate } from "../charges/member-charge-retention";
+import { computeFeePurgeDate } from "../fees/fee-retention";
+import { CALENDAR_YEAR_START_MONTH } from "./financial-year";
 import { computeEventSignupPurgeDate } from "../events/event-signup-retention";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
@@ -22,6 +30,8 @@ import type {
   ReportAuditEntry,
   ReportConnectedAppScope,
   ReportDataSubjectRequest,
+  ReportFee,
+  ReportFeeNotice,
   ReportBoardMailboxThread,
   ReportChat,
   ReportChatMessage,
@@ -78,6 +88,8 @@ const SECTIONS = [
   "keyOrders",
   "eventSignups",
   "memberCharges",
+  "fees",
+  "feeNotices",
   "newsComments",
   "chats",
   "boardMailboxThreads",
@@ -352,8 +364,24 @@ export class DataSubjectReportService {
 
     const association = await tx.association.findUnique({
       where: { id: 1 },
-      select: { name: true, organizationNumber: true },
+      select: {
+        name: true,
+        organizationNumber: true,
+        // Read for the erasure dates below rather than for the document's
+        // heading. Bokforingslagen 7 kap. 2 § counts the preservation period
+        // from the end of the calendar year the financial year closed, so which
+        // year that is is this setting's answer and not the row's own date.
+        financialYearStartMonth: true,
+      },
     });
+
+    /*
+     * Defaulted to the calendar year where no association row exists, which is
+     * the column's own default and what every erasure date in this product was
+     * computed on before the setting existed.
+     */
+    const financialYearStartMonth =
+      association?.financialYearStartMonth ?? CALENDAR_YEAR_START_MONTH;
 
     /*
      * The apps this person allowed to act for them.
@@ -763,6 +791,88 @@ export class DataSubjectReportService {
               select: chargeFields,
             }),
             residencyPeriods,
+          );
+
+    /*
+     * The fee rates that stood against the flats this person lived in, and the
+     * notices issued from them.
+     *
+     * Reached through the residency, exactly as an apartment-keyed charge is: a
+     * fee names an apartment and never a person, so the overlap between the
+     * row's own period and the residency is the whole of the inference. Both
+     * boundaries are closed, on `charges/apartment-charges.ts`'s argument.
+     *
+     * A rate still in force has no end date, so its overlap is open at that end
+     * and it is on the report of anybody living there now.
+     */
+    const feesDuringResidency =
+      residentApartmentIds.length === 0
+        ? []
+        : (
+            await tx.fee.findMany({
+              where: { apartmentId: { in: residentApartmentIds } },
+              orderBy: [{ appliesFrom: "desc" }],
+              select: {
+                id: true,
+                apartmentId: true,
+                kind: true,
+                appliesFrom: true,
+                appliesUntil: true,
+                monthlyAmount: true,
+                vatTreatment: true,
+                vatRatePercent: true,
+                apartment: {
+                  select: {
+                    number: true,
+                    address: { select: { street: true, number: true } },
+                  },
+                },
+              },
+            })
+          ).filter((fee) =>
+            overlapsResidency(
+              residencyPeriods,
+              fee.apartmentId,
+              fee.appliesFrom,
+              fee.appliesUntil,
+            ),
+          );
+
+    const feeNoticesDuringResidency =
+      residentApartmentIds.length === 0
+        ? []
+        : (
+            await tx.feeNotice.findMany({
+              where: { apartmentId: { in: residentApartmentIds } },
+              orderBy: [{ notification: { periodTo: "desc" } }],
+              select: {
+                id: true,
+                apartmentId: true,
+                amount: true,
+                paymentReference: true,
+                notification: {
+                  select: {
+                    periodFrom: true,
+                    periodTo: true,
+                    dueOn: true,
+                    issuedAt: true,
+                  },
+                },
+                apartment: {
+                  select: {
+                    number: true,
+                    address: { select: { street: true, number: true } },
+                  },
+                },
+              },
+            })
+          ).filter((notice) =>
+            overlapsResidency(
+              residencyPeriods,
+              notice.apartmentId,
+              notice.notification.periodFrom,
+              notice.notification.periodTo,
+            ),
           );
 
     /*
@@ -1365,15 +1475,69 @@ export class DataSubjectReportService {
           handedToManagerOn: formatDateColumn(charge.handedToManagerOn),
           /*
            * Derived here rather than stored, exactly as the booking's is, and
-           * anchored on the charge's own date rather than on a move-out: the row
-           * belongs to a financial year, and it is that year that decides when
-           * the association has no further use for it.
+           * anchored on the charge's financial year rather than on a move-out:
+           * the row belongs to a financial year, and it is that year that
+           * decides when the association has no further use for it. The month
+           * that year begins in is the association's own setting, so this states
+           * the same day the purge will act on rather than an approximation of
+           * it.
            */
           erasableFrom:
-            formatDateColumn(computeMemberChargePurgeDate(charge.chargedOn)) ??
-            "",
+            formatDateColumn(
+              computeMemberChargePurgeDate(
+                charge.chargedOn,
+                financialYearStartMonth,
+              ),
+            ) ?? "",
         }),
       ),
+      fees: feesDuringResidency.map((fee): ReportFee => ({
+        feeId: fee.id,
+        apartment: `${fee.apartment.address.street} ${fee.apartment.address.number} ${fee.apartment.number}`,
+        kind: fee.kind,
+        appliesFrom: formatDateColumn(fee.appliesFrom) ?? "",
+        appliesUntil: formatDateColumn(fee.appliesUntil),
+        // toFixed and not toString: a DECIMAL(14, 2) holding 450 renders as
+        // "450" through the latter, and this document states ore.
+        monthlyAmount: fee.monthlyAmount.toFixed(2),
+        vatTreatment: fee.vatTreatment,
+        vatRatePercent: fee.vatRatePercent,
+        /*
+         * Null while the rate is in force, because there is no date: a rate
+         * still applying is a fact that is still true, no preservation period
+         * has run out on it, and the clock starts on the day it stops
+         * applying.
+         */
+        erasableFrom:
+          fee.appliesUntil === null
+            ? null
+            : formatDateColumn(
+                computeFeePurgeDate(fee.appliesUntil, financialYearStartMonth),
+              ),
+      })),
+      feeNotices: feeNoticesDuringResidency.map((notice): ReportFeeNotice => ({
+        noticeId: notice.id,
+        apartment: `${notice.apartment.address.street} ${notice.apartment.address.number} ${notice.apartment.number}`,
+        periodFrom: formatDateColumn(notice.notification.periodFrom) ?? "",
+        periodTo: formatDateColumn(notice.notification.periodTo) ?? "",
+        dueOn: formatDateColumn(notice.notification.dueOn) ?? "",
+        issuedOn: formatLocalDay(localDayOf(notice.notification.issuedAt)),
+        amount: notice.amount.toFixed(2),
+        paymentReference: notice.paymentReference,
+        /*
+         * Derived here rather than stored, and anchored on the end of the
+         * period the notice billed: the row belongs to a financial year, and
+         * it is that year that decides when the association has no further use
+         * for it.
+         */
+        erasableFrom:
+          formatDateColumn(
+            computeFeePurgeDate(
+              notice.notification.periodTo,
+              financialYearStartMonth,
+            ),
+          ) ?? "",
+      })),
       boardMailboxThreads: await Promise.all(
         boardMailboxThreads.map(
           async (thread): Promise<ReportBoardMailboxThread> => ({
@@ -1608,6 +1772,53 @@ async function latestTokenIssuedPerClient(
  * still lives in another has no purge date at all, and stating the first
  * residency's would promise an erasure that is not going to happen.
  */
+/**
+ * Whether a dated period on an apartment overlaps one of this person's
+ * residencies there.
+ *
+ * The range form of the rule `charges/apartment-charges.ts` states for a single
+ * day, and it is here rather than beside that one because a fee must not depend
+ * on the charges module: the two are separate concepts with separate tables, and
+ * this document is the one place that reads both.
+ *
+ * Both boundaries are closed, on that module's own argument: a residency that
+ * ended on the day a period opened did overlap it, and so did one that began on
+ * the day it closed. An open end - a rate still in force, which carries no
+ * closing date - overlaps every residency that has not ended before it began.
+ *
+ * Read as calendar days rather than as instants, because these are date columns
+ * and a date column read back is midnight UTC.
+ */
+function overlapsResidency(
+  residencies: readonly {
+    apartmentId: string;
+    from: Date;
+    until: Date | null;
+  }[],
+  apartmentId: string,
+  from: Date,
+  until: Date | null,
+): boolean {
+  const start = localDayOfColumn(from);
+  const end = until === null ? null : localDayOfColumn(until);
+
+  return residencies.some((residency) => {
+    if (residency.apartmentId !== apartmentId) {
+      return false;
+    }
+    const residencyStart = localDayOfColumn(residency.from);
+    const residencyEnd =
+      residency.until === null ? null : localDayOfColumn(residency.until);
+
+    const startsBeforeResidencyEnds =
+      residencyEnd === null || compareLocalDays(start, residencyEnd) <= 0;
+    const endsAfterResidencyStarts =
+      end === null || compareLocalDays(end, residencyStart) >= 0;
+
+    return startsBeforeResidencyEnds && endsAfterResidencyStarts;
+  });
+}
+
 function latestMoveOut(
   residencies: readonly { movedOutOn: Date | null }[],
 ): Date | null {
