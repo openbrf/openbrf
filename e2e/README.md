@@ -334,7 +334,10 @@ guardrail with the response read as well as the screen, and a room longer than
 one page, where the messages before the newest fifty are one press away rather
 than quietly missing. The seats it needs are granted with `grantBoardSeat`,
 because the shared fixture provisions people through the sign-up approval path
-and that writes residencies and nothing else.
+and that writes residencies and nothing else. The second board member the
+two-browser test needs is created by the spec rather than borrowed: the fixture
+holds four people and the seeded administrator is not among them, and a person
+needs no apartment, no residency and no membership to hold a seat.
 
 Deliberately not here: an account that holds `chat:participate` and no board
 seat, which is the instance's own administrator and is answered with no room at

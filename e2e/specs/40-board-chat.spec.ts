@@ -1,12 +1,10 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
+import { createPerson } from "../src/api";
 import { grantBoardSeat } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
-import {
-  ADMINISTRATOR,
-  ensureAccountFor,
-  ensureRegisterFixture,
-} from "../src/provision";
+import { uniqueEmail, uniqueSurname } from "../src/identity";
+import { ensureAccountFor, ensureRegisterFixture } from "../src/provision";
 import { appPath } from "../src/stack";
 
 /**
@@ -59,6 +57,15 @@ test.describe.configure({ mode: "serial" });
  * exists.
  */
 const PASSWORD = "granngarden-kastanj-2026";
+
+/**
+ * The password for the board member this spec creates for itself.
+ *
+ * Its own rather than the fixture's, because nobody else activates this person:
+ * they are invented here, invited here and activated here, so there is no other
+ * spec's literal to agree with.
+ */
+const COLLEAGUE_PASSWORD = "rabarber-stopplykta-2026";
 
 /**
  * From the shared fixture: 12/1001, a member, and on the board.
@@ -161,6 +168,48 @@ async function ensureFixtureAccount(
   return personId;
 }
 
+/**
+ * A second person on the board, created by this spec rather than borrowed.
+ *
+ * There is nobody to borrow. `ensureRegisterFixture` writes residencies and not
+ * the member register, and the seeded administrator is not among the four people
+ * it provisions - so asking it for them correctly answers nothing. A spec that
+ * needs a particular person in the register moves that person in itself.
+ *
+ * Borrowing the administrator would have been wrong for a second and
+ * independent reason: specs 24, 27 and 35 put them on the board, so a test built
+ * on them would be asserting against a seat another spec granted and would pass
+ * or fail on the order the suite happened to run in.
+ *
+ * A person needs no apartment, no residency and no membership to hold a seat,
+ * which is what lets a cooperative seat an external board member at all - spec
+ * 03 creates and activates one on exactly that footing. So this is a person, an
+ * account and a seat, and nothing else.
+ *
+ * Nothing in this suite can delete a person again - the member register is
+ * append-only by design - so the name and the address are unique to this run.
+ */
+async function ensureSecondBoardMember(
+  request: APIRequestContext,
+  clientAddress: string,
+): Promise<{ email: string; password: string }> {
+  const email = uniqueEmail("chatt-kollega");
+  const personId = await createPerson(request, stack.baseUrl, {
+    firstName: "Bo",
+    lastName: uniqueSurname("Ek"),
+    email,
+  });
+  await ensureAccountFor(request, {
+    personId,
+    email,
+    password: COLLEAGUE_PASSWORD,
+    clientAddress,
+  });
+  await grantBoardSeat(personId);
+
+  return { email, password: COLLEAGUE_PASSWORD };
+}
+
 /** The identifier of the room this account is in, read over HTTP. */
 async function boardChatId(page: Page): Promise<string> {
   const response = await page.request.get(`${stack.baseUrl}/api/chat`);
@@ -241,13 +290,8 @@ test.describe("the board's chat", () => {
     );
     await grantBoardSeat(seatedId);
 
-    const administratorId = people.get(
-      `${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
-    );
-    if (administratorId === undefined) {
-      throw new Error("the administrator is not in the register fixture");
-    }
-    await grantBoardSeat(administratorId);
+    const colleagueAddress = clientAddressFor(clientAddress, "colleague");
+    const colleague = await ensureSecondBoardMember(request, colleagueAddress);
 
     // --- the seat that is going to be watching ---------------------------
     await browseAs(page, clientAddress, "seated");
@@ -268,9 +312,7 @@ test.describe("the board's chat", () => {
     const second = await context.browser()?.newContext({
       baseURL: stack.baseUrl,
       locale: "sv-SE",
-      extraHTTPHeaders: {
-        "x-forwarded-for": clientAddressFor(clientAddress, "administrator"),
-      },
+      extraHTTPHeaders: { "x-forwarded-for": colleagueAddress },
     });
     if (second === undefined) {
       throw new Error("the browser could not open a second context");
@@ -278,11 +320,7 @@ test.describe("the board's chat", () => {
 
     try {
       const other = await second.newPage();
-      await signInThroughTheScreen(
-        other,
-        ADMINISTRATOR.email,
-        ADMINISTRATOR.password,
-      );
+      await signInThroughTheScreen(other, colleague.email, colleague.password);
       await other.goto(appPath("/chat"));
       await expect(
         other.getByRole("heading", { name: "Styrelsechatten" }),
@@ -388,9 +426,10 @@ test.describe("the board's chat", () => {
      * box: fifty-one presses would be a slow way to arrange a precondition, and
      * what is under test is the paging rather than the writing.
      *
-     * Split across two seats so neither spends its write budget, which is sixty
-     * messages per person in ten minutes. The oldest is written first and is
-     * what the press has to reveal.
+     * Fifty-two of them, which is two messages past the fifty a page holds: the
+     * least that puts the oldest behind a press, and comfortably inside the
+     * write budget of sixty messages per person in ten minutes. The oldest is
+     * written first and is what the press has to reveal.
      */
     const oldest = `Aldsta raden. ${String(Date.now())}`;
     const first = await page.request.post(
@@ -399,7 +438,7 @@ test.describe("the board's chat", () => {
     );
     expect(first.status()).toBe(201);
 
-    for (let index = 0; index < 55; index += 1) {
+    for (let index = 0; index < 51; index += 1) {
       const written = await page.request.post(
         `${stack.baseUrl}/api/chat/${chatId}`,
         { data: { body: `Rad ${String(index)}.` } },
@@ -423,7 +462,7 @@ test.describe("the board's chat", () => {
     });
     await expect(earlier).toBeVisible();
 
-    // Pressed until the room runs out, because fifty-six messages is two pages
+    // Pressed until the room runs out, because fifty-two messages is two pages
     // and the oldest is on the second.
     for (let press = 0; press < 3; press += 1) {
       if (!(await earlier.isVisible())) {
