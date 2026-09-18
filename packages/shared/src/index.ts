@@ -40,6 +40,7 @@ export {
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
+  formatDayOfInstant,
   formatLocalDay,
   instantAt,
   localDayOf,

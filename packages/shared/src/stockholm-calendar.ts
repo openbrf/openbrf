@@ -268,6 +268,27 @@ export function formatDateColumn(value: Date | null): string | null {
 }
 
 /**
+ * "YYYY-MM-DD" on the association's calendar for an instant, which is what a
+ * document states when it has to name the day something happened.
+ *
+ * The twin of {@link formatDateColumn} and the opposite arithmetic: an instant
+ * carries a zone, so the day it falls on is the day it falls on here. A field
+ * that may hold none is read straight through, which is why this exists at all -
+ * `formatLocalDay(localDayOf(value))` is the spelling where there is an instant
+ * in hand, and a document whose dates are mostly optional would otherwise guard
+ * at every one of them.
+ *
+ * Which of the two a call site wants is decided by the schema and never by the
+ * field name: a `@db.Date` column is read back as midnight UTC and takes
+ * `formatDateColumn`, a plain `DateTime` takes this.
+ */
+export function formatDayOfInstant(value: Date): string;
+export function formatDayOfInstant(value: Date | null): string | null;
+export function formatDayOfInstant(value: Date | null): string | null {
+  return value === null ? null : formatLocalDay(localDayOf(value));
+}
+
+/**
  * A calendar date shifted by whole days.
  *
  * Calendar arithmetic and not instant arithmetic: adding a day to the 28th of

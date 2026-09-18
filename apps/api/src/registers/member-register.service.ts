@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { isMasked } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -200,7 +200,13 @@ export class MemberRegisterService {
         organizationNumber: association?.organizationNumber ?? null,
       },
       scope,
-      generatedOn: formatDateColumn(now) ?? "",
+      /*
+       * The association's own calendar day, not the UTC one. This stamps the
+       * statutory extract of the member register (EFL 5 kap. via BRL 9 kap.),
+       * which anyone may ask the association for, and an extract produced at
+       * half past midnight on the 6th of March would otherwise state the 5th.
+       */
+      generatedOn: formatLocalDay(localDayOf(now)),
       rows,
     };
   }

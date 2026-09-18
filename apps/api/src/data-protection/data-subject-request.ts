@@ -1,4 +1,4 @@
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, formatDayOfInstant } from "@openbrf/shared";
 
 import type {
   DataSubjectRequestDecision,
@@ -167,10 +167,18 @@ export function toDataSubjectRequestView(
     decision: row.decision,
     erasureException: row.erasureException,
     decisionGround: row.decisionGround,
-    decidedAt: formatDateColumn(row.decidedAt),
+    /*
+     * These three are plain `DateTime` and the two above them are `@db.Date`,
+     * which is the whole of the difference: `requestedOn` is a day the board
+     * wrote down and is read as the UTC midnight it was stored at, while a
+     * decision, an execution and a closing happened at a moment and are stated
+     * as the day that moment fell on here. The board's queue and the art. 15
+     * report render the same row, so they have to answer the same day.
+     */
+    decidedAt: formatDayOfInstant(row.decidedAt),
     decidedByPersonId: row.decidedByPersonId,
-    executedAt: formatDateColumn(row.executedAt),
-    closedAt: formatDateColumn(row.closedAt),
+    executedAt: formatDayOfInstant(row.executedAt),
+    closedAt: formatDayOfInstant(row.closedAt),
     closeReason: row.closeReason,
     closedByPersonId: row.closedByPersonId,
     recordedByPersonId: row.recordedByPersonId,

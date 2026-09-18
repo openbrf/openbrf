@@ -204,4 +204,36 @@ describe("toDataSubjectRequestView", () => {
     expect(purged.closeReason).toBe("purged");
     expect(purged.closedByPersonId).toBeNull();
   });
+
+  it("states the day a decision, an execution and a closing fall on here", () => {
+    /*
+     * 22:30 UTC on the 21st of June is half past midnight on the 22nd here, and
+     * these three are plain `DateTime` rather than `@db.Date`: what they record
+     * is a moment, and the day a moment fell on is read on the association's
+     * own calendar. The request date beside them is a column and stays the day
+     * it was written with.
+     */
+    const view = toDataSubjectRequestView(
+      row({
+        decision: "GRANTED",
+        decidedAt: new Date("2026-06-21T22:30:00.000Z"),
+        executedAt: new Date("2026-06-21T22:35:00.000Z"),
+        closedAt: new Date("2026-12-21T23:30:00.000Z"),
+      }),
+      now,
+    );
+
+    expect(view.decidedAt).toBe("2026-06-22");
+    expect(view.executedAt).toBe("2026-06-22");
+    expect(view.closedAt).toBe("2026-12-22");
+    expect(view.requestedOn).toBe("2026-09-01");
+  });
+
+  it("leaves an absent decision, execution and closing absent", () => {
+    const view = toDataSubjectRequestView(row(), now);
+
+    expect(view.decidedAt).toBeNull();
+    expect(view.executedAt).toBeNull();
+    expect(view.closedAt).toBeNull();
+  });
 });

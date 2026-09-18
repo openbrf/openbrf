@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -416,7 +416,12 @@ export class AddressBookService {
       page: query.page,
       pageSize: query.pageSize,
       stats,
-      generatedOn: formatDateColumn(now) ?? "",
+      /*
+       * The association's own calendar day, not the UTC one. This stamps the
+       * address book the board reads and exports, and slicing the instant would
+       * date it the day before for the hour or two after midnight here.
+       */
+      generatedOn: formatLocalDay(localDayOf(now)),
     };
   }
 
