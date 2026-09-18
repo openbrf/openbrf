@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { AccountingBasisPanel } from "../accounting/AccountingBasisPanel";
 import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
@@ -439,6 +440,8 @@ export function FeesScreen(): ReactElement {
         </section>
 
         <FeeNotificationsPanel onRefused={setRefusal} />
+
+        <AccountingBasisPanel onRefused={setRefusal} />
 
         <label className={LABEL}>
           {t("fees.on")}

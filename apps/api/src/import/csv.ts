@@ -128,10 +128,71 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
  * Semicolons and a byte order mark, because the file exists to be opened in
  * Excel: without the mark Excel reads UTF-8 as the local code page and turns
  * every Swedish vowel into a pair of symbols.
+ *
+ * Every file this product hands out is written here - the debiting list, the
+ * fee notices, the accounting basis, the cooperative housing register's initial
+ * supply and the import template - so the neutralisation below is done once,
+ * for all of them, rather than per caller.
  */
 export function writeCsv(rows: readonly (readonly string[])[]): string {
-  const body = rows.map((row) => row.map(quoteCell).join(";")).join("\r\n");
+  const body = rows
+    .map((row) => row.map((cell) => quoteCell(neutralise(cell))).join(";"))
+    .join("\r\n");
   return `${BYTE_ORDER_MARK}${body}\r\n`;
+}
+
+/**
+ * What a spreadsheet reads as the start of a formula rather than as text.
+ *
+ * `=` and `@` open one outright; `+` and `-` open one in Excel, which is why
+ * `+46 70...` becomes an error rather than a telephone number in a cell a
+ * board has pasted. A leading tab or carriage return is here because a
+ * spreadsheet skips it and reads what follows, so it is a way of hiding any of
+ * the four in front of a formula.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+/**
+ * A cell that is a number, and therefore not a formula however it starts.
+ *
+ * The sign is the whole reason this exists. `-450.00` is an ordinary amount in
+ * a file whoever keeps the books reconciles against, and prefixing it would
+ * turn a figure into text that no longer adds up - a worse fault than the one
+ * the neutralisation is for. A comma is allowed beside the full stop because a
+ * Swedish spreadsheet writes the decimal that way and a cell can reach this
+ * writer having been read from one.
+ *
+ * A date needs no exemption of its own: this product writes "YYYY-MM-DD", which
+ * begins with a digit and is never a candidate above. The same is true of a
+ * personal identity number, an organisation number and a payment reference.
+ */
+const PLAIN_NUMBER = /^[+-]?\d+(?:[.,]\d+)?$/;
+
+/**
+ * Text a spreadsheet would execute, made into text it displays.
+ *
+ * The files this writer produces leave the association: the debiting list and
+ * the accounting basis go to whoever keeps the books, the initial supply goes
+ * to Lantmateriet. Several of their columns are free text a board typed - a
+ * charge's reason, a creditor's name - and a cell beginning `=` would run as a
+ * formula the moment the recipient opened the file, with that recipient's
+ * authority rather than the board's (CWE-1236).
+ *
+ * The cure is the conventional one: a leading apostrophe, which every
+ * spreadsheet reads as "what follows is text" and shows in the formula bar
+ * rather than in the cell. It is applied before the quoting below, so a cell
+ * that needs both gets the apostrophe inside the quotes.
+ *
+ * What it deliberately leaves alone is a number. Nothing else is exempt: a cell
+ * that is neither a number nor free of the leading characters is prefixed, even
+ * where the value looks harmless, because deciding a cell is safe on its
+ * content is how this class of defect comes back.
+ */
+function neutralise(value: string): string {
+  if (!FORMULA_LEAD.test(value) || PLAIN_NUMBER.test(value)) {
+    return value;
+  }
+  return `'${value}`;
 }
 
 function quoteCell(value: string): string {

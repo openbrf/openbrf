@@ -39,6 +39,8 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [SECURITY.md](SECURITY.md) | How to report vulnerabilities |
 | [GLOSSARY.md](GLOSSARY.md) | Canonical Swedish-English mapping of domain terms |
 | [docs/register-supply-contract.md](docs/register-supply-contract.md) | The initial supply to the cooperative housing register: every column, its statutory field, and what an instance does not hold |
+| [docs/fee-notice-contract.md](docs/fee-notice-contract.md) | The fee notice document: every column, the payment reference rule, and what the association has to check with its own bank |
+| [docs/accounting-basis-contract.md](docs/accounting-basis-contract.md) | The period's fees and charges as one file for whoever keeps the books: every column, which period a row belongs to, and why it is not an SIE file |
 | [DESIGN.md](DESIGN.md) | The "Porttavlan" design system - required reading for UI changes |
 | [PRODUCT.md](PRODUCT.md) | Product scope, users, and principles |
 | [TRADEMARK.md](TRADEMARK.md) | Name and logo policy - fork the code, not the name |

@@ -111,3 +111,60 @@ describe("writing", () => {
     expect(parseCsv(writeCsv(rows)).rows).toEqual(rows);
   });
 });
+
+/**
+ * Formula injection, and the figure that must survive it.
+ *
+ * Every file this product hands out is written here, and their free-text
+ * columns are what a board typed: a charge's reason, a creditor's name. A cell
+ * beginning `=` would run as a formula in the recipient's spreadsheet
+ * (CWE-1236), so it is prefixed with an apostrophe and shown as text.
+ *
+ * The other half is what makes this more than a one-line rule. `-` opens a
+ * formula and also opens a negative amount, and an amount is the thing whoever
+ * keeps the books reconciles against. Prefixing one would leave a column that
+ * no longer adds up, so a cell that is a number is left exactly as it was.
+ */
+describe("formula injection", () => {
+  const cellsOf = (written: string): string[][] => parseCsv(written, ";").rows;
+
+  it.each([
+    ["=1+1", "'=1+1"],
+    ['=HYPERLINK("http://x","click")', '\'=HYPERLINK("http://x","click")'],
+    ["+1+1", "'+1+1"],
+    ["-1+1", "'-1+1"],
+    ["@SUM(A1:A9)", "'@SUM(A1:A9)"],
+    ["\tBetalning", "'\tBetalning"],
+    ["\r=1+1", "'\r=1+1"],
+    ["- extra stadning i trapphuset", "'- extra stadning i trapphuset"],
+  ])("neutralises %j", (cell, expected) => {
+    expect(cellsOf(writeCsv([[cell]]))[0]?.[0]).toBe(expected);
+  });
+
+  it.each([
+    ["-450.00"],
+    ["+450.00"],
+    ["450.00"],
+    ["-450,00"],
+    ["0"],
+    ["2026-01-01"],
+    ["19850101-1234"],
+    ["769600-1234"],
+    ["260100078"],
+    ["Nyckel till cykelrummet"],
+  ])("leaves %j exactly as it was", (cell) => {
+    expect(cellsOf(writeCsv([[cell]]))[0]?.[0]).toBe(cell);
+  });
+
+  it("leaves an empty cell empty", () => {
+    // Asserted on the bytes rather than through the parser, which drops a row
+    // with nothing in it at all.
+    expect(writeCsv([["", "Nyckel"]])).toBe("\ufeff;Nyckel\r\n");
+  });
+
+  it("puts the apostrophe inside the quotes where a cell needs both", () => {
+    // The order matters: quoting first would put the apostrophe outside the
+    // field, where it is a stray character rather than a marker.
+    expect(writeCsv([["=1; DROP"]])).toContain('"\'=1; DROP"');
+  });
+});
