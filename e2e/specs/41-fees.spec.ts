@@ -51,6 +51,12 @@ import { appPath } from "../src/stack";
  * A year no other spec bills anything in, and a period may be issued once - so
  * the run this spec makes is its own and the assertions about it are statements
  * about a window rather than about the instance.
+ *
+ * Fixed rather than derived from the run, unlike the people below. That is the
+ * one place `OPENBRF_E2E_REUSE_STACK` bites here: a second run against a stack
+ * that already billed this period meets the refusal the last test asserts,
+ * which is the product behaving correctly. CI starts from empty volumes, and a
+ * local re-run wants a fresh stack for this file.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -112,6 +118,17 @@ const HELD_FROM = "2027-01-02";
 const PERIOD = { from: "2027-01-01", to: "2027-03-31" } as const;
 const DUE_ON = "2027-01-31";
 const APPLIES_FROM = "2027-01-01";
+
+/**
+ * The day the register is read as standing on.
+ *
+ * Inside the period above rather than today, and stated rather than left to the
+ * screen's own default. The register answers what applies on one day: a rate
+ * this spec dates to the start of 2027 is correctly absent from a register read
+ * on the day the suite happens to run, and asserting against the default would
+ * be asserting against the calendar.
+ */
+const AS_OF = "2027-02-15";
 
 /** A rate dated into the future, which the charges module refuses for a charge. */
 const FUTURE_FROM = "2099-01-01";
@@ -302,13 +319,21 @@ async function ensureFeeFixture(
   return seeded;
 }
 
-/** Opens the fee screen and waits for the register document to arrive. */
+/**
+ * Opens the fee screen and reads the register as it stands inside the period.
+ *
+ * The date is set after the document arrives rather than before: the screen
+ * shows a loading line until its first read lands, so the control does not
+ * exist yet. Setting it re-reads the register, which is what puts this spec's
+ * own rates in force on the day every assertion below is made about.
+ */
 async function openFees(page: Page): Promise<void> {
   await page.goto(appPath("/fees"));
   await expect(
     page.getByRole("heading", { name: "Avgifter och avier", level: 1 }),
   ).toBeVisible();
   await expect(page.locator("[data-print='document']")).toBeVisible();
+  await page.getByLabel("Gäller den").fill(AS_OF);
 }
 
 /**
@@ -405,7 +430,7 @@ test("the board records a fee, including one dated forward", async ({
   await expect(row).toHaveCount(1);
   // Formatted for a reader rather than printed as the column holds it: this is
   // the first screen in the application that formats money at all.
-  await expect(row).toContainText("3 450,50 kr");
+  await expect(row).toContainText(/3\s*450,50 kr/);
   await expect(row).toContainText("Årsavgift");
 
   /*
@@ -421,10 +446,14 @@ test("the board records a fee, including one dated forward", async ({
   });
   await expect(page.getByText(/kunde inte|inte ett datum/i)).toHaveCount(0);
 
-  // And it is in force on that day rather than on this one.
+  // And it is in force on that day rather than on this one: read as the register
+  // stands inside the period, the flat carrying it has no fee at all.
+  await expect(rowFor(page, people.spareApartment.number)).toContainText(
+    "Ingen avgift registrerad",
+  );
   await page.getByLabel("Gäller den").fill(FUTURE_FROM);
   await expect(rowFor(page, people.spareApartment.number)).toContainText(
-    "1 500,00 kr",
+    /1\s*500,00 kr/,
   );
 });
 
@@ -447,9 +476,9 @@ test("the andelstal aid suggests a figure and stores nothing", async ({
 
   // Two and a half per cent of 1 200 000 over twelve months is 2 500.
   const row = rowFor(page, people.apartment.number);
-  await expect(row).toContainText("2 500,00 kr");
+  await expect(row).toContainText(/2\s*500,00 kr/);
   // And the rate itself is untouched: the aid is arithmetic on the screen.
-  await expect(row).toContainText("3 450,50 kr");
+  await expect(row).toContainText(/3\s*450,50 kr/);
   await expect(page.getByText(/lagras aldrig/)).toBeVisible();
 });
 
@@ -485,7 +514,7 @@ test("the board issues the period's notices and takes them away", async ({
   });
   await expect(run).toHaveCount(1);
   // Three months at 3 450,50 and 3 000,00.
-  await expect(run).toContainText("19 351,50 kr");
+  await expect(run).toContainText(/19\s*351,50 kr/);
 
   /*
    * The document is produced on a click and not on the read, because producing

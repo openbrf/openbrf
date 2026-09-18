@@ -13,7 +13,10 @@ import { FeeNotificationsController, FeesController } from "./fees.controller";
  * something happened once - which is why that table refuses a row dated into
  * the future - while a fee is a rate that stands until the board changes it,
  * which BRL 9 kap. 13 § makes the board's own standing task. Two concepts, two
- * tables, two capabilities, and the word "charge" appears nowhere here.
+ * tables and two capabilities. No identifier in this module is built on the
+ * charge's vocabulary - no type, field, route, reason code or translation key -
+ * and where the comments here use the word at all it is to draw the contrast
+ * that keeps the two apart.
  *
  * Two services, because recording what an apartment pays and billing a period
  * are two acts with two different rules about what may be changed afterwards: a

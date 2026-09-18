@@ -1584,10 +1584,16 @@ export const SCREENS: readonly Screen[] = [
       { fill: { label: "Belopp per månad i kronor" }, value: "3450.50" },
       { click: { button: "Registrera avgiften" } },
     ],
-    // The formatted figure, which exists only once the rate has been written and
-    // the register read back with it. This is the first screen in the
-    // application that formats money at all, so the picture is of that too.
-    waitFor: { text: "3 450,50 kr" },
+    /*
+     * The formatted figure, which exists only once the rate has been written
+     * and the register read back with it. This is the first screen in the
+     * application that formats money at all, so the picture is of that too.
+     *
+     * A pattern rather than the text, because the character between the groups
+     * is the platform's: `Intl.NumberFormat` gives Swedish a no-break space,
+     * and which one it is has moved between ICU versions.
+     */
+    waitFor: { text: /3\s*450,50 kr/ },
     capture: "page",
   },
   {
