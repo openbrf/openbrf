@@ -366,33 +366,50 @@ export function PageEditor({
                    * from the website is not the moment to commit whatever edits
                    * happened to be half-finished beside it.
                    */
+
+                  // The revision the next write claims, carried through this
+                  // handler rather than re-read from `page`, which is the value
+                  // this closure captured: React does not re-render in the
+                  // middle of a handler, so the prop still says what it said
+                  // when the button was pressed.
+                  let revision = page.revision;
+
                   if (publishing) {
                     const stored = await savePage(page.id, {
                       slug,
                       title,
                       content: body,
                       ...consent,
-                      expectedRevision: page.revision,
+                      expectedRevision: revision,
                     });
                     if (!stored.ok) {
                       return stored;
                     }
                     /*
                      * The save moved the revision, so this editor is holding a
-                     * number its own write has spent. Handed up before the
-                     * publication is attempted, because a publish refused on
-                     * the merits - a personal identity number on the page, a
-                     * picture nobody consented to - never reaches the call
-                     * below that would otherwise do it, and the next save would
-                     * then be refused as though somebody else had written the
-                     * page. Nobody else had: this save did.
+                     * number its own write has spent, and two things follow.
+                     *
+                     * The publication below claims the number the save
+                     * produced. Claiming the spent one asks the server for a
+                     * row that has moved past it, and the server is right to
+                     * refuse - so the page would stay unpublished and the board
+                     * would be told somebody else had written it, when the only
+                     * writer was this save.
+                     *
+                     * And it is handed up before the publication is attempted,
+                     * because a publish refused on the merits - a personal
+                     * identity number on the page, a picture nobody consented
+                     * to - never reaches the call below that would otherwise do
+                     * it, and the next save would then be refused as though
+                     * somebody else had written the page. Nobody else had.
                      */
+                    revision = stored.value.revision;
                     onChanged(stored.value);
                   }
                   return publishPage(page.id, {
                     published: publishing,
                     ...consent,
-                    expectedRevision: page.revision,
+                    expectedRevision: revision,
                   });
                 });
               }}

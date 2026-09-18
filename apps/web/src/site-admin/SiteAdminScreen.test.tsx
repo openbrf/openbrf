@@ -293,7 +293,18 @@ describe("the editor", () => {
      * The body lives in this screen until it is saved. Publishing without
      * saving first would put the previously stored version on the website -
      * for a page written and not yet saved, a blank one.
+     *
+     * The save the publish makes moves the revision, so the publish has to
+     * claim the number that save produced and not the one the editor was
+     * holding when the board pressed the button. The mock therefore answers
+     * with a moved revision: answering with the same one would make the
+     * assertion below unable to tell a fresh number from a spent one, and the
+     * test would pass against a publish that claims a revision its own save has
+     * already used - which the server refuses as a conflict, leaving the page
+     * unpublished and the board looking at a notice about somebody else.
      */
+    savePage.mockResolvedValue({ ok: true, value: { ...DRAFT, revision: 3 } });
+
     const user = userEvent.setup();
     renderScreen();
     await screen.findByText("Valkommen");
@@ -325,7 +336,8 @@ describe("the editor", () => {
     });
     expect(publishPage).toHaveBeenCalledWith("page-2", {
       published: true,
-      expectedRevision: 2,
+      // The revision the save answered with, not the one this editor opened on.
+      expectedRevision: 3,
     });
   });
 
