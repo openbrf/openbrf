@@ -92,6 +92,14 @@ export interface MotionIntake {
 export interface MotionQueue {
   deadline: MotionDeadline | null;
   motions: QueuedMotion[];
+  /**
+   * The cursor for the page behind this one, or null at the end of the queue.
+   *
+   * Handed straight back as `after` to read it. Null is the whole of the answer
+   * to "is there more", so the screen never infers it from a page that came back
+   * short.
+   */
+  nextCursor: string | null;
 }
 
 // --- a member's own intake ---------------------------------------------------
@@ -118,8 +126,24 @@ export function withdrawMotion(input: {
 
 // --- the queue the board works ----------------------------------------------
 
-export function fetchMotionQueue(): Promise<ApiResult<MotionQueue>> {
-  return apiRequest("GET", "/api/motion-queue");
+/**
+ * One page of the queue.
+ *
+ * `after` absent reads the top of the queue, which is where the items still
+ * waiting are. The whole queue is never one answer: a motion's body runs to
+ * eight thousand characters and an association accumulates a queue for as long
+ * as it exists.
+ */
+export function fetchMotionQueue(input?: {
+  after?: string | null;
+}): Promise<ApiResult<MotionQueue>> {
+  const after = input?.after ?? null;
+  return apiRequest(
+    "GET",
+    after === null
+      ? "/api/motion-queue"
+      : `/api/motion-queue?after=${encodeURIComponent(after)}`,
+  );
 }
 
 /**

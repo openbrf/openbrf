@@ -103,6 +103,27 @@ than sixty-four characters is manifest-invalid, and the folding means a plugin
 arrive is refused. [Actions](actions.md) has the arithmetic and the rest of what
 an action must meet.
 
+One category has a consequence worth knowing before you write the manifest.
+`protected` marks an action that can return a field of a person carrying
+protected personal data (skyddade personuppgifter), and an action declaring it
+may not list `mcp` or `ai` among its surfaces - so it is offered on the
+platform's own screens and to your own routes, and nowhere beyond the instance.
+It is refused twice, from the manifest at install and again when the definition
+is registered.
+
+Read as a rule about what to bind rather than what to declare, it means an
+action worth offering is one that cannot return such a field at all. That is a
+property of the method your handler calls rather than of your declaration, and
+for the register it is already settled: a plugin has never been able to read a
+protected person at all. The rule below - not masked, absent - is what makes
+`protected` the wrong declaration for a plugin's register read rather than the
+cautious one.
+
+A withheld value is published as a different shape, never as an empty one: a
+discriminated union over strict objects, each branch described. A caller that is
+a model reading `""` or `null` concludes the association holds nothing, while one
+reading a branch named `protected` concludes the value is withheld.
+
 `oauthProtectedResource` is written without a leading slash, in lowercase path
 segments, and the host joins it onto the plugin's own mount: a plugin `connector`
 declaring `"mcp"` serves the resource at `/api/plugin/connector/mcp`. Declaring
@@ -561,9 +582,19 @@ Four of these need an answer rather than a restart:
   will not take, a capability a plugin's action may not ask for, a schema that
   cannot be published - is in the server log, and the fix belongs to the author.
 - `forbidden-injection` means one of the plugin's providers asks NestJS for a
-  core service by type. The audit log, the principal service and dispatch itself
-  are reachable that way and a plugin may not hold any of them, so the module is
-  refused rather than loaded. The fix belongs to the author.
+  core provider. Everything the platform's twelve `@Global()` modules export is
+  in the root injector - the database, the audit log, the principal service, the
+  mailer, the text-message sender, the job queue, the field encryption, the
+  instance's configuration - and a plugin may hold none of them, so the module is
+  refused rather than loaded. Three of those are offered to you already, narrowed:
+  `host.mail`, `host.sms` and `host.jobs` carry the permission check the board
+  consented to and stamp your plugin's id on what they send and enqueue, which is
+  what injecting the service directly would go around. The injector handles -
+  `ModuleRef`, `ModulesContainer`, `Reflector`, `DiscoveryService`,
+  `LazyModuleLoader`, `HttpAdapterHost` - are refused for the same reason, since
+  resolving a provider by token reaches every name on the list without declaring
+  one. A token is matched by name whether it is a class, a symbol or a string.
+  The fix belongs to the author.
 - `oauth-resource-conflict` means the plugin declares `oauthProtectedResource`
   and another installed, enabled plugin already does. At most one may: the
   resource's full URL is the audience every issued token is bound to, so moving

@@ -1,6 +1,8 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
 
@@ -107,7 +109,10 @@ const UNRECORDED: AssociationFactsView = {
 
 @Injectable()
 export class AssociationFactsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditLogService,
+  ) {}
 
   /**
    * What the board has recorded, whether or not it has recorded anything.
@@ -142,16 +147,52 @@ export class AssociationFactsService {
    * (scanForPersonalIdentityNumbers, the one PagesWriteService runs): a second
    * detector would be a second thing to keep correct, and the two would
    * disagree the first time either was improved.
+   *
+   * The entry is written in the same transaction as the upsert. These facts are
+   * published on the broker information page the moment they are saved - there
+   * is no draft state for a fact - so a fact changed here is a change to what
+   * the association tells a buyer, and ADR 0008 makes attribution the thing
+   * that licenses a direct write. It carries which fields the save named and
+   * never their text: the log is append-only and exempt from every purge, so a
+   * fee policy copied into it would outlive the one on the page.
+   *
+   * A save that changes nothing still records. The field list is what the
+   * caller submitted rather than a diff, because a diff would need the row read
+   * before the write and would then be a second statement about a second
+   * moment; and an act that turns out to have written the same value is still
+   * an act somebody took.
    */
-  async save(input: AssociationFactsInput): Promise<AssociationFactsView> {
+  async save(
+    input: AssociationFactsInput,
+    actor: ActorContext,
+  ): Promise<AssociationFactsView> {
     const data = normalize(input);
     refusePersonalIdentityNumbers(data);
 
-    const row = await this.prisma.associationFacts.upsert({
-      where: { id: ROW_ID },
-      create: { id: ROW_ID, ...data },
-      update: data,
+    const row = await this.prisma.$transaction(async (tx) => {
+      const saved = await tx.associationFacts.upsert({
+        where: { id: ROW_ID },
+        create: { id: ROW_ID, ...data },
+        update: data,
+      });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_FACTS_RECORDED",
+          ...auditActor(actor),
+          // No subject. The facts name nobody: thirteen fields about the
+          // building, the fees and the land, and a person in one of them is
+          // what the identity number scan above exists to refuse.
+          targetKind: "associationFacts",
+          targetId: String(ROW_ID),
+          context: { fields: Object.keys(data).sort() },
+        },
+        tx,
+      );
+
+      return saved;
     });
+
     return toView(row);
   }
 }

@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ActorContext } from "../audit/actor-context";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { MotionError } from "./motion.error";
-import { MotionService } from "./motion.service";
+import {
+  MOTIONS_PER_PAGE,
+  motionQueueCursor,
+  MotionService,
+  parseMotionQueueCursor,
+} from "./motion.service";
+
+/** Whoever is acting, as the controller and the action registry derive them. */
+const BOARD: ActorContext = { personId: "board-1", channel: "WEB" };
 
 /**
  * The two things about linking a motion to a meeting that are decided before
@@ -168,7 +177,7 @@ describe("putting a motion to a meeting", () => {
   it("takes the agenda lock before it reads the meeting", async () => {
     const { service, calls } = build();
 
-    await service.setMeeting("motion-1", "meeting-b", "board-1");
+    await service.setMeeting("motion-1", "meeting-b", BOARD);
 
     expect(calls).toEqual(["readMotion", "lock", "readMeeting", "update"]);
   });
@@ -178,7 +187,7 @@ describe("putting a motion to a meeting", () => {
     // second spelling of it would be two locks that never meet.
     const { service, keys } = build();
 
-    await service.setMeeting("motion-1", "meeting-b", "board-1");
+    await service.setMeeting("motion-1", "meeting-b", BOARD);
 
     expect(keys).toEqual(["meeting-agenda:meeting-b"]);
   });
@@ -193,7 +202,7 @@ describe("putting a motion to a meeting", () => {
      */
     const { service, keys } = build({ meetingId: "meeting-z" });
 
-    await service.setMeeting("motion-1", "meeting-a", "board-1");
+    await service.setMeeting("motion-1", "meeting-a", BOARD);
 
     expect(keys).toEqual([
       "meeting-agenda:meeting-a",
@@ -206,7 +215,7 @@ describe("putting a motion to a meeting", () => {
     // for it to queue behind either.
     const { service, keys, calls } = build();
 
-    await service.setMeeting("motion-1", null, "board-1");
+    await service.setMeeting("motion-1", null, BOARD);
 
     expect(keys).toEqual([]);
     expect(calls).toEqual(["readMotion", "update"]);
@@ -217,7 +226,7 @@ describe("putting a motion to a meeting", () => {
     // harmless but says the writer does not know what it is locking.
     const { service, keys } = build({ meetingId: "meeting-b" });
 
-    await service.setMeeting("motion-1", "meeting-b", "board-1");
+    await service.setMeeting("motion-1", "meeting-b", BOARD);
 
     expect(keys).toEqual(["meeting-agenda:meeting-b"]);
   });
@@ -232,10 +241,10 @@ describe("putting a motion to a meeting", () => {
     const { service } = build({ meetingId: "meeting-z", updated: 0 });
 
     await expect(
-      service.setMeeting("motion-1", "meeting-a", "board-1"),
+      service.setMeeting("motion-1", "meeting-a", BOARD),
     ).rejects.toMatchObject({ reason: "meeting-changed-meanwhile" });
     await expect(
-      service.setMeeting("motion-1", "meeting-a", "board-1"),
+      service.setMeeting("motion-1", "meeting-a", BOARD),
     ).rejects.toBeInstanceOf(MotionError);
   });
 
@@ -249,7 +258,7 @@ describe("putting a motion to a meeting", () => {
      */
     const { service, updateMany } = build({ status: "SUBMITTED" });
 
-    await service.setMeeting("motion-1", "meeting-b", "board-1");
+    await service.setMeeting("motion-1", "meeting-b", BOARD);
 
     expect(updateMany.mock.calls[0]?.[0].where.status).toEqual({
       not: "WITHDRAWN",
@@ -267,7 +276,7 @@ describe("putting a motion to a meeting", () => {
     });
 
     await expect(
-      service.setMeeting("motion-1", "meeting-b", "board-1"),
+      service.setMeeting("motion-1", "meeting-b", BOARD),
     ).rejects.toMatchObject({ reason: "motion-withdrawn" });
     expect(calls).toEqual([
       "readMotion",
@@ -286,7 +295,7 @@ describe("putting a motion to a meeting", () => {
     });
 
     await expect(
-      service.setMeeting("motion-1", "meeting-a", "board-1"),
+      service.setMeeting("motion-1", "meeting-a", BOARD),
     ).rejects.toMatchObject({ reason: "meeting-changed-meanwhile" });
   });
 
@@ -297,7 +306,187 @@ describe("putting a motion to a meeting", () => {
     const { service } = build({ updated: 0, statusAfterRace: null });
 
     await expect(
-      service.setMeeting("motion-1", "meeting-b", "board-1"),
+      service.setMeeting("motion-1", "meeting-b", BOARD),
     ).rejects.toMatchObject({ reason: "motion-not-found" });
+  });
+});
+
+/**
+ * The cursor into the queue, round-tripped and refused.
+ *
+ * Three halves, because the ordering the queue is read in takes three columns
+ * to be total: a cursor on an ordering that is not total is a bug waiting for
+ * two motions to share an instant, and the column keeps milliseconds with the
+ * transaction's own clock as its default, so rows written together carry the
+ * same instant exactly.
+ */
+describe("where a page of the queue ends", () => {
+  it("round-trips the three values it names", () => {
+    const submittedAt = new Date("2027-01-20T09:00:00.000Z");
+
+    expect(
+      parseMotionQueueCursor(
+        motionQueueCursor({ status: "SUBMITTED", submittedAt, id: "motion-1" }),
+      ),
+    ).toEqual({ status: "SUBMITTED", submittedAt, id: "motion-1" });
+  });
+
+  it("refuses a value this application did not hand out", () => {
+    // Null rather than a lenient reading: a cursor the service cannot make
+    // sense of names a page nobody can name, and answering the first page
+    // instead would show a board the items it had just worked through.
+    for (const value of [
+      "",
+      "page 2",
+      "SUBMITTED|2027-01-20T09:00:00.000Z",
+      "SUBMITTED|2027-01-20T09:00:00.000Z|motion-1|extra",
+      "REJECTED|2027-01-20T09:00:00.000Z|motion-1",
+      "SUBMITTED|not-an-instant|motion-1",
+      // Accepted by `new Date` and not the spelling the column round-trips to,
+      // so it would compare against a moment nobody was shown.
+      "SUBMITTED|2027-01-20T09:00:00Z|motion-1",
+      "SUBMITTED|2027-01-20T09:00:00.000Z|",
+    ]) {
+      expect(parseMotionQueueCursor(value), value).toBeNull();
+    }
+  });
+});
+
+describe("reading the queue a page at a time", () => {
+  function queueWith(rows: readonly object[]) {
+    const findMany = vi.fn(
+      async (_args: {
+        where?: unknown;
+        orderBy?: unknown;
+        take?: number;
+        select?: unknown;
+      }) => rows,
+    );
+    const prisma = {
+      motion: { findMany },
+      association: {
+        findUnique: vi.fn(async () => null),
+      },
+      person: { findMany: vi.fn(async () => []) },
+    };
+    const service = new MotionService(
+      prisma as unknown as PrismaService,
+      { record: vi.fn() } as unknown as AuditLogService,
+    );
+    return { service, findMany };
+  }
+
+  function row(id: string, status = "SUBMITTED") {
+    return {
+      id,
+      title: id,
+      body: "",
+      status,
+      submittedAt: new Date("2027-01-20T09:00:00.000Z"),
+      submittedByPersonId: "person-maja",
+      closedAt: null,
+      closedByPersonId: null,
+      meetingId: null,
+      meeting: null,
+    };
+  }
+
+  it("reads one row past the page, and answers the cursor of the last kept", async () => {
+    /*
+     * One extra row is how "there is a page after this one" is answered. A
+     * separate count would be a second statement about a second moment and
+     * could say there was more when the extra motion had been purged between
+     * the two - a page offered and then answered empty. The cursor is the last
+     * row kept rather than the extra one read, so the next page starts exactly
+     * where this one stopped.
+     */
+    const { service, findMany } = queueWith([row("a"), row("b"), row("c")]);
+
+    const page = await service.queue({ limit: 2 });
+
+    expect(findMany.mock.calls[0]?.[0]?.take).toBe(3);
+    expect(page.motions.map((motion) => motion.id)).toEqual(["a", "b"]);
+    expect(page.nextCursor).toBe(
+      motionQueueCursor({
+        status: "SUBMITTED",
+        submittedAt: new Date("2027-01-20T09:00:00.000Z"),
+        id: "b",
+      }),
+    );
+  });
+
+  it("says the queue ends when no row came back past the page", async () => {
+    const { service } = queueWith([row("a")]);
+
+    expect((await service.queue({ limit: 2 })).nextCursor).toBeNull();
+  });
+
+  it("never answers with more than the page the service sets", async () => {
+    // A caller asking for more than the cap gets the cap rather than a refusal:
+    // the bound is the service's and is not a caller's to raise.
+    const { service, findMany } = queueWith([]);
+
+    await service.queue({ limit: 5000 });
+
+    expect(findMany.mock.calls[0]?.[0]?.take).toBe(MOTIONS_PER_PAGE + 1);
+  });
+
+  it("orders on all three columns the cursor names", async () => {
+    const { service, findMany } = queueWith([]);
+
+    await service.queue();
+
+    expect(findMany.mock.calls[0]?.[0]?.orderBy).toEqual([
+      { status: "asc" },
+      { submittedAt: "asc" },
+      { id: "asc" },
+    ]);
+  });
+
+  it("asks for the statuses after the cursor's, and not for an order on the enum", async () => {
+    /*
+     * Prisma compares an enum column for equality and membership and not for
+     * order, so the status half of the cursor is resolved before the query: the
+     * statuses the ordering puts after it are named, and the cursor's own
+     * status carries the instant-and-identifier comparison.
+     */
+    const { service, findMany } = queueWith([]);
+    const submittedAt = new Date("2027-01-20T09:00:00.000Z");
+
+    await service.queue({
+      after: { status: "SUBMITTED", submittedAt, id: "motion-1" },
+    });
+
+    expect(findMany.mock.calls[0]?.[0]?.where).toEqual({
+      OR: [
+        {
+          status: "SUBMITTED",
+          OR: [
+            { submittedAt: { gt: submittedAt } },
+            { submittedAt, id: { gt: "motion-1" } },
+          ],
+        },
+        { status: { in: ["ACKNOWLEDGED", "WITHDRAWN"] } },
+      ],
+    });
+  });
+
+  it("names no later status at the end of the ordering", async () => {
+    // An empty `in` matches nothing, which is exactly right: past the last
+    // status there is nothing after the cursor but that status's own rows.
+    const { service, findMany } = queueWith([]);
+
+    await service.queue({
+      after: {
+        status: "WITHDRAWN",
+        submittedAt: new Date("2027-01-20T09:00:00.000Z"),
+        id: "motion-1",
+      },
+    });
+
+    const where = findMany.mock.calls[0]?.[0]?.where as {
+      OR: { status?: { in?: string[] } }[];
+    };
+    expect(where.OR[1]?.status?.in).toEqual([]);
   });
 });

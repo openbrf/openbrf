@@ -329,9 +329,52 @@ despite the service check above: a name is what a model reads and what a board
 member sees on a consent screen, so an action that merely sounds like one of
 these is already misleading.
 
-One more refusal sits beside them, in the boot gate rather than the denylist. A
-plugin action declaring the `protected` personal-data category may not list `mcp`
-or `ai` among its surfaces. `protected` marks an action that can return a field
-of a person carrying protected personal data (skyddade personuppgifter), and
-Beslutslogg 64 puts that data outside every token and every prompt. It is refused
-from the manifest, where the board can still act on it.
+One more refusal sits beside them, and it is made twice. An action declaring the
+`protected` personal-data category may not list `mcp` or `ai` among its surfaces.
+`protected` marks an action that can return a field of a person carrying
+protected personal data (skyddade personuppgifter), and Beslutslogg 64 puts that
+data outside every token and every prompt. It is refused from the manifest, where
+the board can still act on it, and again at registration, which is what makes it
+hold for a core action as well. Two moments over two different objects rather
+than two opinions: a manifest declaration and a registered definition can
+disagree.
+
+## What an action that names a person must satisfy
+
+Two rules, and they decide what may be bound rather than only what must be
+declared.
+
+**An action may bind a read only where the masking or the omission happens
+inside the service method its handler calls.** Where the decision sits higher up
+
+- in a controller, in a response mapper, in a component - the action reaches past
+  it and must declare `protected`; and since `protected` bars `mcp` and `ai`, such
+  an action is offered nowhere beyond the instance and is not worth registering. So
+  rule 1 is not only about a declaration: it is the test for whether a read is
+  bindable at all. The product makes it easy to apply, because the pattern is
+  already everywhere - a service withholds a protected person's name from its own
+  view, inside the service, with a discriminated branch rather than a blank.
+
+**A withheld value is a different shape in a published output document, never an
+empty one.** Publish it as a `z.discriminatedUnion` over `z.strictObject`
+branches, each branch described, and never as a nullable string. A model reading
+`""` or `null` concludes the association holds nothing; a model reading a branch
+named `protected` concludes the value is withheld, and the difference decides
+whether it asks a person or concludes there is nothing to ask about. The product
+already does this - a masked contact is `{ state: "masked", hasEmail, hasPhone }`
+and a protected author is `{ kind: "protected", personId }` - and the identifier
+stays on the branch deliberately, so the row can be addressed without the person
+being named.
+
+The declaration is checked, but only the cheap half, and the contract test says
+so in its own comment. `PERSON_FIELD_CATEGORIES` maps a property name a
+person-bearing output uses - `name`, `email`, `phone`, `personId`, `apartment`,
+`postalAddress`, `personalIdentityNumber`, and anything ending in `PersonId` - to
+the category it implies, and the test walks each action's published output
+document and fails on a property whose implied category is undeclared. It catches
+the failure that actually happens: a field added to a service's view and echoed
+by an action whose declaration was written before the field existed. It cannot
+prove a declaration complete - a town returned under a property called `place`
+passes it - and proving that a declared category is a reachable one is not built
+at all, because it would need the registry to know what every bound service can
+return.

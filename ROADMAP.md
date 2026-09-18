@@ -430,10 +430,25 @@ and the action registry.
       board consented to, is never reachable by a caller the plugin's own
       routes would refuse, and disappears when the plugin is removed. An action
       that writes register data is a core action, since no plugin permission
-      grants write access to the register. The first slice is the website: the
-      association's news, pages and menu, with no way to mail the members -
-      something acting through a connected app may create a mailing request,
-      and a board member confirms the mailing in the web interface
+      grants write access to the register. What is offered is the association's
+      news, pages and menu, the facts it publishes about itself, the comment
+      threads under its notices and the motion queue the board works - with no
+      way to mail the members: something acting through a connected app may
+      create a mailing request, and a board member confirms the mailing in the
+      web interface
+- [x] What a connected app may read and record about a person. An action that
+      can return a field of somebody with protected personal data is offered on
+      this instance's own screens and nowhere else, and the registry refuses to
+      register one that says otherwise - so an action worth offering to a
+      connected app is one that cannot return such a field at all, which is a
+      property of the service behind it rather than of what it declares about
+      itself. A withheld name travels as a shape of its own rather than as an
+      empty one, so something reading the answer can tell "the association is
+      not telling you" from "the association holds nothing"; and an action that
+      returns what a neighbour wrote says, in its own description, that the text
+      is written by people and is data rather than instructions. A read that
+      names a person is answered a page at a time with a cursor, so no single
+      call returns everything the house has written
 - [x] Sign-in for MCP clients: a member points an external app at their own
       instance and signs in as themselves, and the app then acts as them and
       never beyond them. A token carries no claims of its own: it is looked up

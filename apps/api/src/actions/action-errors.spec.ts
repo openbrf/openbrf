@@ -5,10 +5,23 @@ import { describe, expect, it } from "vitest";
 
 import type { ActionErrorSpec } from "@openbrf/plugin-sdk";
 import {
+  FACTS_ACTION_ERRORS,
   MENU_ACTION_ERRORS,
+  MOTION_ACTION_ERRORS,
   NEWS_ACTION_ERRORS,
+  NEWS_COMMENT_ACTION_ERRORS,
   PAGE_ACTION_ERRORS,
 } from "./action-errors";
+
+/** Every list in the file, so a new one cannot be left out of a rule below. */
+const EVERY_LIST = [
+  PAGE_ACTION_ERRORS,
+  NEWS_ACTION_ERRORS,
+  MENU_ACTION_ERRORS,
+  FACTS_ACTION_ERRORS,
+  NEWS_COMMENT_ACTION_ERRORS,
+  MOTION_ACTION_ERRORS,
+];
 
 /**
  * That every refusal a service can raise is published with the actions bound
@@ -63,16 +76,30 @@ describe("what a caller is told about a refusal", () => {
       "MenuWriteReason",
       MENU_ACTION_ERRORS,
     ],
+    [
+      "the association's facts",
+      "site/association-facts.service.ts",
+      "AssociationFactsReason",
+      FACTS_ACTION_ERRORS,
+    ],
+    [
+      "a comment thread",
+      "news/news-comment.error.ts",
+      "NewsCommentReason",
+      NEWS_COMMENT_ACTION_ERRORS,
+    ],
+    [
+      "the motion queue",
+      "motions/motion.error.ts",
+      "MotionReason",
+      MOTION_ACTION_ERRORS,
+    ],
   ])("covers every reason %s can raise", (_name, path, union, specs) => {
     expect(declared(specs)).toEqual([...reasonsOf(path, union)].sort());
   });
 
   it("gives each refusal a verdict a caller can act on", () => {
-    for (const specs of [
-      PAGE_ACTION_ERRORS,
-      NEWS_ACTION_ERRORS,
-      MENU_ACTION_ERRORS,
-    ]) {
+    for (const specs of EVERY_LIST) {
       for (const entry of specs) {
         expect(["never", "after-edit", "after-backoff"]).toContain(entry.retry);
       }
@@ -104,11 +131,7 @@ describe("what a caller is told about a refusal", () => {
           root,
         );
 
-    for (const specs of [
-      PAGE_ACTION_ERRORS,
-      NEWS_ACTION_ERRORS,
-      MENU_ACTION_ERRORS,
-    ]) {
+    for (const specs of EVERY_LIST) {
       for (const entry of specs) {
         for (const locale of locales) {
           expect(
@@ -135,5 +158,43 @@ describe("what a caller is told about a refusal", () => {
         NEWS_ACTION_ERRORS.find((entry) => entry.reason === reason)?.retry,
       ).toBe("never");
     }
+  });
+
+  it("says a comment written too fast is worth waiting out", () => {
+    /*
+     * The product's first `after-backoff`, and the reason the verdict exists.
+     * `too-many-comments` answers 429 and is time-bounded - twenty comments per
+     * ten minutes per author - so the answer changes on its own with nothing
+     * the caller can send. A model told `never` would give up on a thread it
+     * could have written to a minute later; one told `after-edit` would rewrite
+     * a comment that was never the problem.
+     */
+    expect(
+      NEWS_COMMENT_ACTION_ERRORS.find(
+        (entry) => entry.reason === "too-many-comments",
+      )?.retry,
+    ).toBe("after-backoff");
+  });
+
+  it("says an issued notice can never be retried into", () => {
+    // A general meeting cannot decide a matter its notice did not take up, so
+    // once the notice has gone out nothing a caller sends puts an item on that
+    // meeting or takes one off it.
+    expect(
+      MOTION_ACTION_ERRORS.find(
+        (entry) => entry.reason === "meeting-notice-issued",
+      )?.retry,
+    ).toBe("never");
+  });
+
+  it("says an item another board member moved is worth reading again", () => {
+    // The opposite case, and the one a verdict has to tell apart from it: the
+    // motion is exactly as open as it was, and re-reading the queue and
+    // deciding again is what a person does here.
+    expect(
+      MOTION_ACTION_ERRORS.find(
+        (entry) => entry.reason === "meeting-changed-meanwhile",
+      )?.retry,
+    ).toBe("after-edit");
   });
 });

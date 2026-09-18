@@ -495,6 +495,19 @@ const FULL_REPORT: Report = {
       targetId: "comment-2",
       context: { newsId: "news-1" },
     },
+    // A board member recording what the association says about itself on the
+    // broker page. It names no person, so it reaches this document as something
+    // this person did rather than as something done to them.
+    {
+      entryId: "audit-3",
+      role: "actor",
+      action: "ASSOCIATION_FACTS_RECORDED",
+      at: "2026-01-20T09:00:00.000Z",
+      channel: "WEB",
+      targetKind: "associationFacts",
+      targetId: "1",
+      context: { fields: ["feePolicy", "parking"] },
+    },
   ],
   dataSubjectRequests: [
     {
@@ -697,6 +710,11 @@ describe("what the document prints", () => {
     // pointing at the wrong action still prints the wrong sentence.
     expect(screen.getByText("Nyhetskommentar doldes")).not.toBeNull();
     expect(screen.queryByText("NEWS_COMMENT_HIDDEN")).toBeNull();
+
+    expect(
+      screen.getByText("Föreningens uppgifter på mäklarsidan sparades"),
+    ).not.toBeNull();
+    expect(screen.queryByText("ASSOCIATION_FACTS_RECORDED")).toBeNull();
   });
 
   it("says which way each act reached the records", async () => {

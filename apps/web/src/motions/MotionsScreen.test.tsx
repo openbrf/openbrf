@@ -35,7 +35,7 @@ const setMotionMeeting = vi.fn();
 vi.mock("../api/motions", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/motions")>()),
   fetchMotionIntake: () => fetchMotionIntake(),
-  fetchMotionQueue: () => fetchMotionQueue(),
+  fetchMotionQueue: (input?: unknown) => fetchMotionQueue(input),
   acknowledgeMotion: (input: unknown) => acknowledgeMotion(input),
   withdrawMotion: (input: unknown) => withdrawMotion(input),
   setMotionMeeting: (input: unknown) => setMotionMeeting(input),
@@ -129,6 +129,7 @@ beforeEach(() => {
           closedByPersonId: null,
         },
       ],
+      nextCursor: null,
     },
   });
   acknowledgeMotion.mockReset().mockResolvedValue({
@@ -213,6 +214,7 @@ describe("a member", () => {
             closedAt: "2027-02-01T09:00:00.000Z",
           },
         ],
+        nextCursor: null,
       },
     });
 
@@ -383,6 +385,7 @@ describe("the board", () => {
             closedByPersonId: null,
           },
         ],
+        nextCursor: null,
       },
     });
 
@@ -490,6 +493,7 @@ describe("putting an item to a meeting", () => {
             },
           },
         ],
+        nextCursor: null,
       },
     });
 
@@ -538,6 +542,7 @@ describe("putting an item to a meeting", () => {
             },
           },
         ],
+        nextCursor: null,
       },
     });
 
@@ -612,5 +617,68 @@ describe("a resident who is not a member", () => {
     expect(screen.queryByText("Motioner från medlemmarna")).toBeNull();
     expect(fetchMotionIntake).not.toHaveBeenCalled();
     expect(fetchMotionQueue).not.toHaveBeenCalled();
+  });
+});
+
+describe("a queue longer than one page", () => {
+  it("offers the page behind it, and adds it to the end", async () => {
+    /*
+     * The queue is read a page at a time because a motion's body runs to eight
+     * thousand characters and an association accumulates a queue for as long as
+     * it exists. The control is offered from the server's own cursor rather than
+     * from the page's length, so a queue ending exactly on a boundary is not
+     * offered a control that would fetch nothing.
+     */
+    const second = {
+      ...OWN_MOTION,
+      id: "motion-2",
+      title: "Laddstolpar på gården",
+      submitter: {
+        kind: "member",
+        personId: "person-nils",
+        name: "Nils Medlem",
+      },
+      closedByPersonId: null,
+    };
+    fetchMotionQueue
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          deadline: DEADLINE,
+          motions: [
+            {
+              ...OWN_MOTION,
+              submitter: {
+                kind: "member",
+                personId: "person-maja",
+                name: "Maja Medlem",
+              },
+              closedByPersonId: null,
+            },
+          ],
+          nextCursor: "SUBMITTED|2027-01-02T09:00:00.000Z|motion-1",
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { deadline: DEADLINE, motions: [second], nextCursor: null },
+      });
+
+    render(
+      <MotionsScreen viewer={viewer(["motions:handle", "meetings:manage"])} />,
+    );
+    await screen.findByText("Motioner från medlemmarna");
+
+    await userEvent.click(screen.getByText("Visa fler motioner"));
+
+    // The first page is still there: the board has read what is above and is
+    // reaching for what is below.
+    expect(await screen.findByText("Laddstolpar på gården")).not.toBeNull();
+    expect(screen.getByText(OWN_MOTION.title)).not.toBeNull();
+    expect(fetchMotionQueue.mock.calls[1]?.[0]).toEqual({
+      after: "SUBMITTED|2027-01-02T09:00:00.000Z|motion-1",
+    });
+    // And the end of the queue takes the control away.
+    expect(screen.queryByText("Visa fler motioner")).toBeNull();
   });
 });

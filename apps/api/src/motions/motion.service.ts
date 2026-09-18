@@ -5,8 +5,8 @@ import {
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
-import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { MeetingKind, MotionStatus } from "../generated/prisma/enums";
@@ -90,10 +90,148 @@ export interface MotionIntakeView {
   motions: OwnMotionView[];
 }
 
+/**
+ * How many motions one read of the queue answers with.
+ *
+ * The read has to be bounded, because nothing else bounds it: a motion's body
+ * runs to eight thousand characters and an association accumulates one queue
+ * for as long as it exists, so an unbounded read hands whoever opens the screen
+ * every motion the house has ever put to a meeting, bodies and all. A connected
+ * app reading the same answer would take all of it into a context window.
+ *
+ * A bare cap would be worse than the unbounded read rather than a smaller
+ * version of it: a queue that stopped at fifty with nothing to say so is a
+ * queue with items missing from it, and a member's item missing from the board's
+ * queue is the one failure this module cannot have. So the cap comes with a
+ * cursor and a control that asks for the page after this one.
+ *
+ * Fifty, which is the page size the comment thread settled on for the same
+ * reasons and more than a year of motions in any association this platform is
+ * built for.
+ */
+export const MOTIONS_PER_PAGE = 50;
+
+/**
+ * The order the queue is read in, written out.
+ *
+ * Prisma compares an enum column for equality and membership and not with `gt`,
+ * so the status half of a cursor is resolved here rather than in the query: the
+ * statuses after the cursor's are named with `in`, and the cursor's own status
+ * carries the instant-and-identifier comparison. The declaration order is the
+ * one the board reads the queue in - open items first - and `satisfies` is what
+ * stops this list and the enum drifting apart silently.
+ */
+const QUEUE_STATUS_ORDER = [
+  "SUBMITTED",
+  "ACKNOWLEDGED",
+  "WITHDRAWN",
+] as const satisfies readonly MotionStatus[];
+
+/**
+ * Where a page of the queue ends, as one value a reader hands back.
+ *
+ * Three halves, because the ordering the queue is read in takes three columns
+ * to be total and a cursor on an ordering that is not total is a bug waiting
+ * for two motions to share an instant. The status is the first sort key;
+ * `submittedAt` alone does not break a tie, because the column keeps
+ * milliseconds and rows written by one transaction all carry the same instant
+ * exactly; and the identifier breaks that tie without being a time or claiming
+ * to be one.
+ *
+ * Every half is a value the reader was just shown, so there is nothing in a
+ * cursor to withhold and it travels legibly rather than encoded. It names
+ * values rather than a row, unlike the page list's: a motion is erased on its
+ * own clock, and a cursor whose row has been purged out from under a reader
+ * would match nothing at all and answer a page silently empty.
+ */
+export interface MotionQueueCursor {
+  status: MotionStatus;
+  /** The instant the motion at the page boundary was submitted. */
+  submittedAt: Date;
+  /** That motion's identifier, which breaks a tie on the instant. */
+  id: string;
+}
+
+/**
+ * Separates the halves of a cursor.
+ *
+ * A character none of the three can contain: a status is an enum value of
+ * capitals and underscores, an ISO instant is digits and punctuation fixed by
+ * the format, and an identifier is a cuid.
+ */
+const CURSOR_SEPARATOR = "|";
+
+/** The cursor for the page ending at this motion. */
+export function motionQueueCursor(row: {
+  status: MotionStatus;
+  submittedAt: Date;
+  id: string;
+}): string {
+  return [row.status, row.submittedAt.toISOString(), row.id].join(
+    CURSOR_SEPARATOR,
+  );
+}
+
+/**
+ * The cursor a reader handed back, or null when it is not one.
+ *
+ * Null rather than a lenient reading, and the caller turns it into a refusal. A
+ * cursor this service cannot make sense of names a page nobody can name, and
+ * answering it with the first page instead would hand a reader pressing for
+ * what comes next the items already on their screen.
+ *
+ * Exported so the round trip can be asserted directly rather than only through
+ * a read.
+ */
+export function parseMotionQueueCursor(
+  value: string,
+): MotionQueueCursor | null {
+  const halves = value.split(CURSOR_SEPARATOR);
+  if (halves.length !== 3) {
+    return null;
+  }
+  const [status, instant, id] = halves;
+  if (
+    status === undefined ||
+    instant === undefined ||
+    id === undefined ||
+    id === ""
+  ) {
+    return null;
+  }
+  if (!(QUEUE_STATUS_ORDER as readonly string[]).includes(status)) {
+    return null;
+  }
+
+  const submittedAt = new Date(instant);
+  /*
+   * Round-tripped rather than merely parsed. `new Date` accepts more than one
+   * spelling of a moment and reads some strings that are not one at all, so an
+   * instant that does not come back out exactly as it went in is refused - a
+   * cursor is compared against a stored column and has to mean one moment.
+   */
+  if (
+    Number.isNaN(submittedAt.getTime()) ||
+    submittedAt.toISOString() !== instant
+  ) {
+    return null;
+  }
+
+  return { status: status as MotionStatus, submittedAt, id };
+}
+
 /** What the board's half of the screen needs in one answer. */
 export interface MotionQueueView {
   deadline: MotionDeadlineView | null;
   motions: QueuedMotionView[];
+  /**
+   * The cursor for the page after this one, or null at the end of the queue.
+   *
+   * Handed straight back as `after` to read it. Null is the whole of the answer
+   * to "is there more", so a reader is never left inferring it from a page that
+   * came back short.
+   */
+  nextCursor: string | null;
 }
 
 export interface SubmitMotionInput {
@@ -178,10 +316,10 @@ export class MotionService {
    * "I sent one in" once the purge has erased the motion itself.
    */
   async submit(
-    principal: Principal,
     input: SubmitMotionInput,
+    actor: ActorContext,
   ): Promise<{ id: string }> {
-    await this.requireMember(principal.personId);
+    await this.requireMember(actor.personId);
     this.refusePersonalIdentityNumbers(input.title, input.body);
 
     const motion = await this.prisma.$transaction(async (tx) => {
@@ -189,7 +327,7 @@ export class MotionService {
         data: {
           title: input.title,
           body: input.body,
-          submittedByPersonId: principal.personId,
+          submittedByPersonId: actor.personId,
         },
         select: { id: true },
       });
@@ -197,11 +335,10 @@ export class MotionService {
       await this.audit.record(
         {
           action: "MOTION_SUBMITTED",
-          channel: "WEB",
-          // Actor and subject are the same person: the right is theirs to
-          // exercise and nobody submits on anybody's behalf.
-          actorPersonId: principal.personId,
-          targetPersonId: principal.personId,
+          ...auditActor(actor),
+          // The subject as well as the actor: the right is theirs to exercise
+          // and nobody submits on anybody's behalf.
+          targetPersonId: actor.personId,
           targetKind: "motion",
           targetId: created.id,
           // The identifier and the length of what was written. Not the title and
@@ -250,11 +387,14 @@ export class MotionService {
    * motion belonging to somebody else answers exactly as one that does not
    * exist.
    */
-  async withdraw(personId: string, motionId: string): Promise<OwnMotionView> {
-    await this.requireMember(personId);
+  async withdraw(
+    motionId: string,
+    actor: ActorContext,
+  ): Promise<OwnMotionView> {
+    await this.requireMember(actor.personId);
 
     const existing = await this.prisma.motion.findFirst({
-      where: { id: motionId, submittedByPersonId: personId },
+      where: { id: motionId, submittedByPersonId: actor.personId },
       select: { id: true, status: true },
     });
     if (existing === null) {
@@ -269,42 +409,90 @@ export class MotionService {
     return this.close({
       motionId,
       status: "WITHDRAWN",
-      actorPersonId: personId,
-      subjectPersonId: personId,
+      actor,
+      subjectPersonId: actor.personId,
       action: "MOTION_WITHDRAWN",
     });
   }
 
   /**
-   * The board's queue, with the deadline that applies.
+   * One page of the board's queue, with the deadline that applies.
    *
    * Open motions first and oldest first within a status, because the queue is
    * worked from the top and the item that has been waiting longest is the one to
    * look at. SUBMITTED sorts before ACKNOWLEDGED and WITHDRAWN by the order the
    * enum declares, which is the order a board reads them in.
+   *
+   * ## Which page, when nobody asks for one
+   *
+   * The first, and then forwards. That is the opposite end from the comment
+   * thread's, and for the same reason it is the right one there: a queue is
+   * worked from the top, so the page a board arrives at is the page of items
+   * still waiting. A thread is arrived at to read what was said last.
+   *
+   * ## Why a cursor and not a page number
+   *
+   * The queue is written into while it is being read - a member submits, a
+   * board member acknowledges, and an acknowledgement moves an item from the
+   * first group to the second - so an offset would repeat an item or step over
+   * one depending on what happened between two reads. A cursor names a place in
+   * the ordering rather than a distance from its start, and it is compared
+   * against the three values the reader was handed rather than against a row
+   * that may have been purged since.
    */
   async queue(
-    filter?: { status?: MotionStatus },
+    filter?: {
+      status?: MotionStatus;
+      /** At most {@link MOTIONS_PER_PAGE}; absent takes the whole page. */
+      limit?: number;
+      after?: MotionQueueCursor | null;
+    },
     now?: Date,
   ): Promise<MotionQueueView> {
-    const [deadline, motions] = await Promise.all([
+    const limit = Math.min(filter?.limit ?? MOTIONS_PER_PAGE, MOTIONS_PER_PAGE);
+    const after = filter?.after ?? null;
+
+    /*
+     * One more row than the page holds, which is how "there is a page after
+     * this one" is answered. A separate count would be a second statement about
+     * a second moment, and could say there was more when the extra motion had
+     * been purged between the two - a page offered and then answered empty.
+     */
+    const [deadline, rows] = await Promise.all([
       this.deadline(now),
       this.prisma.motion.findMany({
-        where: filter?.status === undefined ? {} : { status: filter.status },
-        orderBy: [{ status: "asc" }, { submittedAt: "asc" }],
+        where: {
+          ...(filter?.status === undefined ? {} : { status: filter.status }),
+          ...(after === null ? {} : afterInQueue(after)),
+        },
+        orderBy: [{ status: "asc" }, { submittedAt: "asc" }, { id: "asc" }],
+        take: limit + 1,
         select: MOTION_COLUMNS,
       }),
     ]);
 
-    const submitters = await this.submittersOf(motions);
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    /*
+     * The cursor is the last motion kept rather than the extra row read, so the
+     * next page starts exactly where this one stopped. `last` is only undefined
+     * on an empty page, which cannot also have read a row past it.
+     */
+    const nextCursor =
+      last !== undefined && rows.length > page.length
+        ? motionQueueCursor(last)
+        : null;
+
+    const submitters = await this.submittersOf(page);
 
     return {
       deadline,
-      motions: motions.map((motion) => ({
+      motions: page.map((motion) => ({
         ...toOwnView(motion),
         closedByPersonId: motion.closedByPersonId,
         submitter: submitterOf(motion.submittedByPersonId, submitters),
       })),
+      nextCursor,
     };
   }
 
@@ -317,7 +505,7 @@ export class MotionService {
    */
   async acknowledge(
     motionId: string,
-    actorPersonId: string,
+    actor: ActorContext,
   ): Promise<QueuedMotionView> {
     const existing = await this.prisma.motion.findUnique({
       where: { id: motionId },
@@ -333,7 +521,7 @@ export class MotionService {
     const closed = await this.close({
       motionId,
       status: "ACKNOWLEDGED",
-      actorPersonId,
+      actor,
       // The subject stays the member who submitted it, so their own access
       // report shows what the board did with their item rather than only what
       // they did themselves.
@@ -347,7 +535,7 @@ export class MotionService {
 
     return {
       ...closed,
-      closedByPersonId: actorPersonId,
+      closedByPersonId: actor.personId,
       submitter: submitterOf(existing.submittedByPersonId, submitters),
     };
   }
@@ -399,7 +587,7 @@ export class MotionService {
   async setMeeting(
     motionId: string,
     meetingId: string | null,
-    actorPersonId: string,
+    actor: ActorContext,
   ): Promise<QueuedMotionView> {
     const motion = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.motion.findUnique({
@@ -470,8 +658,7 @@ export class MotionService {
       await this.audit.record(
         {
           action: "MOTION_MEETING_SET",
-          channel: "WEB",
-          actorPersonId,
+          ...auditActor(actor),
           // The subject stays the member who submitted it, as at
           // acknowledgement: what the board did with their item has to be
           // answerable from their own access report.
@@ -637,7 +824,7 @@ export class MotionService {
   private async close(input: {
     motionId: string;
     status: Extract<MotionStatus, "ACKNOWLEDGED" | "WITHDRAWN">;
-    actorPersonId: string;
+    actor: ActorContext;
     subjectPersonId: string;
     action: "MOTION_ACKNOWLEDGED" | "MOTION_WITHDRAWN";
   }): Promise<OwnMotionView> {
@@ -651,7 +838,7 @@ export class MotionService {
         data: {
           status: input.status,
           closedAt,
-          closedByPersonId: input.actorPersonId,
+          closedByPersonId: input.actor.personId,
         },
       });
       if (count === 0) {
@@ -669,8 +856,7 @@ export class MotionService {
       await this.audit.record(
         {
           action: input.action,
-          channel: "WEB",
-          actorPersonId: input.actorPersonId,
+          ...auditActor(input.actor),
           targetPersonId: input.subjectPersonId,
           targetKind: "motion",
           targetId: input.motionId,
@@ -809,6 +995,43 @@ function toOwnView(motion: MotionRecord): OwnMotionView {
             heldOn: formatLocalDay(localDayOfColumn(motion.meeting.heldOn)),
             summoned: motion.meeting.notice !== null,
           },
+  };
+}
+
+/**
+ * Everything in the queue strictly after one point in it.
+ *
+ * The comparison the ordering implies, written out rather than handed to the
+ * query builder's own cursor option. That one names a row: it reads the
+ * boundary values back out of the motion the cursor points at, and a motion can
+ * be purged out from under a reader between one page and the next, because the
+ * queue is erased on its own clock. A cursor whose row has gone matches nothing
+ * at all - a page silently empty, which is the failure paging this queue exists
+ * to remove rather than to introduce somewhere new.
+ *
+ * The status is resolved outside the query because Prisma compares an enum
+ * column for equality and membership and not for order: the statuses the
+ * ordering puts after the cursor's are named, and the cursor's own status
+ * carries the instant-and-identifier comparison. `later` is empty at the last
+ * status, and an empty `in` matches nothing, which is exactly right.
+ */
+function afterInQueue(cursor: MotionQueueCursor) {
+  const later = QUEUE_STATUS_ORDER.slice(
+    QUEUE_STATUS_ORDER.indexOf(
+      cursor.status as (typeof QUEUE_STATUS_ORDER)[number],
+    ) + 1,
+  );
+  return {
+    OR: [
+      {
+        status: cursor.status,
+        OR: [
+          { submittedAt: { gt: cursor.submittedAt } },
+          { submittedAt: cursor.submittedAt, id: { gt: cursor.id } },
+        ],
+      },
+      { status: { in: [...later] } },
+    ],
   };
 }
 

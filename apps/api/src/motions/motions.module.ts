@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 
+import { ActionsModule } from "../actions/actions.module";
+import { MotionActionsRegistrar } from "./motion-actions.registrar";
 import { MotionPurgeService } from "./motion-purge.service";
 import { MotionService } from "./motion.service";
 import {
@@ -24,7 +26,10 @@ import {
  * open to the wrong half of them.
  *
  * The database, the audit log, the job queue and the principal the controllers
- * read all come from global modules, which is why nothing is imported here.
+ * read all come from global modules, which is why only one module is imported
+ * here. `ActionsModule` is deliberately not global - the registry is the one
+ * thing a plugin may never hold - so a feature that registers actions imports
+ * it by name.
  *
  * The service is exported for the screens and endpoints that read the queue
  * without being the ones that write it. Linking a motion to the meeting that
@@ -41,8 +46,9 @@ import {
  * lock helper is a function over the caller's own transaction.
  */
 @Module({
+  imports: [ActionsModule],
   controllers: [MotionIntakeController, MotionQueueController],
-  providers: [MotionService, MotionPurgeService],
+  providers: [MotionService, MotionPurgeService, MotionActionsRegistrar],
   exports: [MotionService],
 })
 export class MotionsModule {}

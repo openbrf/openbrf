@@ -9,6 +9,7 @@ import { MediaModule } from "../media/media.module";
 import { SetupModule } from "../setup/setup.module";
 import { ThemesModule } from "../themes/themes.module";
 import { AssociationFactsController } from "./association-facts.controller";
+import { AssociationFactsActionsRegistrar } from "./association-facts-actions.registrar";
 import { AssociationFactsService } from "./association-facts.service";
 import { MenuAdminController } from "./menu-admin.controller";
 import { MenuWriteService } from "./menu-write.service";
@@ -98,6 +99,7 @@ import { SiteRenderer } from "./site-renderer.service";
     PagesWriteService,
     MenuWriteService,
     AssociationFactsService,
+    AssociationFactsActionsRegistrar,
     SiteActionsRegistrar,
   ],
   exports: [SiteRenderer],
