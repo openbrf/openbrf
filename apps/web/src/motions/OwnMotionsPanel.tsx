@@ -2,6 +2,7 @@ import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { type OwnMotion, withdrawMotion } from "../api/motions";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import { QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -75,7 +76,7 @@ export function OwnMotionsPanel({
                 <span className="text-body font-semibold">{motion.title}</span>
                 <MotionStatusChip status={motion.status} />
                 <span className="ml-auto font-data text-data text-ink-muted">
-                  {motion.submittedAt.slice(0, 10)}
+                  {localDayOfInstant(motion.submittedAt)}
                 </span>
               </div>
 
@@ -117,10 +118,16 @@ export function OwnMotionsPanel({
                 <p className="text-small text-ink-muted">
                   {motion.status === "ACKNOWLEDGED"
                     ? t("motions.mine.acknowledgedOn", {
-                        date: motion.closedAt?.slice(0, 10) ?? "",
+                        date:
+                          motion.closedAt === null
+                            ? ""
+                            : localDayOfInstant(motion.closedAt),
                       })
                     : t("motions.mine.withdrawnOn", {
-                        date: motion.closedAt?.slice(0, 10) ?? "",
+                        date:
+                          motion.closedAt === null
+                            ? ""
+                            : localDayOfInstant(motion.closedAt),
                       })}
                 </p>
               )}

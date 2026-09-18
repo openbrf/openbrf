@@ -9,6 +9,7 @@ import {
   type QueuedMotion,
   setMotionMeeting,
 } from "../api/motions";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import {
   FIELD_DATA,
   HINT,
@@ -177,7 +178,7 @@ export function MotionQueuePanel({
                 <span className="text-body font-semibold">{motion.title}</span>
                 <MotionStatusChip status={motion.status} />
                 <span className="ml-auto font-data text-data text-ink-muted">
-                  {motion.submittedAt.slice(0, 10)}
+                  {localDayOfInstant(motion.submittedAt)}
                 </span>
               </div>
 

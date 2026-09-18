@@ -6,6 +6,7 @@ import {
   formatDayWithWeekday,
   formatTimeOfDay,
   localDayNow,
+  localDayOfInstant,
   shiftLocalDay,
   windowDaysFor,
 } from "./booking-calendar";
@@ -50,6 +51,27 @@ describe("the calendar date now", () => {
     expect(localDayNow(new Date("2026-08-31T22:30:00.000Z"))).toBe(
       "2026-09-01",
     );
+  });
+});
+
+describe("the calendar date an instant falls on", () => {
+  it("is the building's day and not the UTC one, in summer", () => {
+    // 22:30 UTC on the 21st of June is half past midnight on the 22nd here.
+    // Cutting the string to ten characters answers the 21st.
+    expect(localDayOfInstant("2026-06-21T22:30:00.000Z")).toBe("2026-06-22");
+  });
+
+  it("is the building's day and not the UTC one, in winter", () => {
+    // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+    expect(localDayOfInstant("2026-12-21T23:30:00.000Z")).toBe("2026-12-22");
+  });
+
+  it("agrees with the cut for the rest of the day", () => {
+    expect(localDayOfInstant("2026-06-21T09:00:00.000Z")).toBe("2026-06-21");
+  });
+
+  it("answers with the value it was given when that is not an instant", () => {
+    expect(localDayOfInstant("not-a-date")).toBe("not-a-date");
   });
 });
 

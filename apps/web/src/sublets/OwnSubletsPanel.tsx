@@ -6,6 +6,7 @@ import {
   reviseSubletApplication,
   withdrawSubletApplication,
 } from "../api/sublets";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import {
   FIELD,
   FIELD_DATA,
@@ -287,7 +288,10 @@ export function OwnSubletsPanel({
               ) : (
                 <p className="text-small text-ink-muted">
                   {t("sublets.mine.closedOn", {
-                    date: application.closedAt?.slice(0, 10) ?? "",
+                    date:
+                      application.closedAt === null
+                        ? ""
+                        : localDayOfInstant(application.closedAt),
                   })}
                 </p>
               )}

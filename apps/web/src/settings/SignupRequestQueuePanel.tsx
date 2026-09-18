@@ -9,6 +9,7 @@ import {
   fetchSignupRequests,
   rejectSignupRequest,
 } from "../api/signup";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -321,7 +322,7 @@ function RequestRow({
             long somebody has been waiting, and a date belongs on the mono
             grid like every other date in the interface. */}
         <span className="font-data text-data text-ink-muted">
-          {request.createdAt.slice(0, 10)}
+          {localDayOfInstant(request.createdAt)}
         </span>
       </p>
 

@@ -24,7 +24,7 @@
  * uses, for the same reason.
  */
 
-import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
+import { ASSOCIATION_TIME_ZONE, formatDayOfInstant } from "@openbrf/shared";
 
 /**
  * The association's clock, as the API states it.
@@ -72,6 +72,29 @@ export function localDayNow(now: Date = new Date()): string {
     parts.find((part) => part.type === type)?.value ?? "";
 
   return `${field("year")}-${field("month")}-${field("day")}`;
+}
+
+/**
+ * The association's calendar day an instant from the API falls on.
+ *
+ * Every date a screen prints from an ISO instant comes through here. Cutting
+ * the string to its first ten characters gives the day in UTC, and the
+ * association runs an hour or two ahead of that, so a comment written at half
+ * past midnight would be dated the day before on the screen that shows it.
+ *
+ * Here rather than in `@openbrf/shared` because only a browser has this
+ * problem: the API reads its own `Date` values and never takes an ISO string
+ * and turns it into a day. What it does share is the answer - the conversion
+ * underneath is the same one the server uses, so a screen and a document cannot
+ * name different days for one moment.
+ *
+ * An unparseable value is returned as it arrived, the way the mailbox and
+ * connected-app formatters do: what the server sent is at least true, and an
+ * invalid date on a row about somebody's own data is worse than an ISO string.
+ */
+export function localDayOfInstant(iso: string): string {
+  const value = new Date(iso);
+  return Number.isNaN(value.getTime()) ? iso : formatDayOfInstant(value);
 }
 
 /**

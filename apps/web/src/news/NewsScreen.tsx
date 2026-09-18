@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import { fetchReadableNews, type NewsArticle } from "../api/news-reader";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import { HINT } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -148,7 +149,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
                 <Panel
                   title={article.title}
                   description={t("newsReader.article.publishedOn", {
-                    date: article.publishedAt.slice(0, 10),
+                    date: localDayOfInstant(article.publishedAt),
                   })}
                 >
                   <NewsBody content={article.content} />
@@ -198,7 +199,7 @@ function NoticeButton({
   onOpen: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const published = article.publishedAt.slice(0, 10);
+  const published = localDayOfInstant(article.publishedAt);
 
   return (
     <button

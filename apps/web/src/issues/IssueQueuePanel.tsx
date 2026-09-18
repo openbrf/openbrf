@@ -7,6 +7,7 @@ import {
   type QueuedIssue,
   setIssueStatus,
 } from "../api/issues";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -111,7 +112,7 @@ export function IssueQueuePanel({
                   {t(AUDIENCE_LABEL[issue.audience])}
                 </span>
                 <span className="ml-auto font-data text-data text-ink-muted">
-                  {issue.createdAt.slice(0, 10)}
+                  {localDayOfInstant(issue.createdAt)}
                 </span>
               </div>
 

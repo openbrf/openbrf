@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
 
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -433,9 +434,17 @@ const AUDIT_CHANNEL_LABEL = {
   PLUGIN: "register.person.report.channel.PLUGIN",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
-/** The day out of an instant. A document states days, not milliseconds. */
+/**
+ * The day out of an instant. A document states days, not milliseconds.
+ *
+ * The association's day and not the UTC one. Twenty-nine columns of this
+ * document come through here, and the first ten characters of the string answer
+ * the UTC day: an act at half past midnight would be dated the day before on
+ * every one of them, on the document art. 15 entitles somebody to. The dates
+ * the server already states as days arrive as days and never reach this.
+ */
 function day(instant: string | null): string | null {
-  return instant === null ? null : instant.slice(0, 10);
+  return instant === null ? null : localDayOfInstant(instant);
 }
 
 /**
