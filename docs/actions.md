@@ -317,10 +317,17 @@ call by the floor check inside `invoke()`.
 
 **`DENIED_ACTION_SERVICES`** - services no handler may be bound to:
 `MoveService`, `SystemRoleService`, `BoardPositionService`, `PluginAdminService`,
-`MemberRegisterService`. This is the half a name pattern cannot do. An action
-called `update_household` walks past any regex and into the member register; what
-stops it is which service its handler calls, and the contract test reads the
-registrars' own source for these names.
+`MemberRegisterService`, `ApartmentRegisterService`. This is the half a name
+pattern cannot do. An action called `update_household` walks past any regex and
+into the member register; what stops it is which service its handler calls, and
+the contract test sweeps every `src/**/*-actions.registrar.ts` in the tree for
+these names, so a registrar added later is covered without anybody remembering
+to list it.
+
+`ApartmentRegisterService` is on the list because it writes three append-only
+statutory registers - the termination register, the transfer reversal register
+and the reporting obligation ledger - and each is held append-only by a database
+trigger, so a row an action put there could not be corrected by anybody.
 
 **`DENIED_NAME_PATTERNS`** - names describing an act no action may perform:
 `residency`, `move_in`, `move_out`, `plugin_install`, `plugin_remove`, `archive`,

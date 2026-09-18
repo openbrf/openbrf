@@ -129,6 +129,19 @@ function connectedApp(): ActionCaller {
 
 let boardCookie: string;
 
+/**
+ * The association's facts as this suite found them, or null where there was no
+ * row at all.
+ *
+ * One row per instance, id 1, and this suite writes to it - so it is shared
+ * state rather than rows of its own, and the integration database is one
+ * database for every suite in the run. A run-specific `parking` left behind is
+ * a fact the broker page renders and another suite could read. Captured here
+ * and put back in the teardown; the audit entries the writes leave stay, like
+ * every other suite's, because the log is append-only.
+ */
+let factsBefore: { parking: string | null } | null = null;
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -194,6 +207,11 @@ beforeAll(async () => {
     },
   });
 
+  factsBefore = await prisma.associationFacts.findUnique({
+    where: { id: 1 },
+    select: { parking: true },
+  });
+
   const auth = app.get(AuthService);
   await auth.createAccountForPerson({
     personId: board.personId,
@@ -211,9 +229,18 @@ afterAll(async () => {
       /*
        * The entries this suite wrote stay. The log is append-only and outlives
        * what it describes, and every other suite leaves its own for the same
-       * reason. The facts row is the association's single row, so it is emptied
-       * rather than deleted.
+       * reason.
        */
+      if (factsBefore === null) {
+        // There was no row before this suite ran, so the state it found is the
+        // absence of one.
+        await prisma.associationFacts.deleteMany({ where: { id: 1 } });
+      } else {
+        await prisma.associationFacts.update({
+          where: { id: 1 },
+          data: { parking: factsBefore.parking },
+        });
+      }
       await prisma.newsComment.deleteMany({
         where: { authorPersonId: { in: personIds } },
       });

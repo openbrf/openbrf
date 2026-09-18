@@ -205,11 +205,30 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
         if (version !== currentRead.current || !answer.ok) {
           return;
         }
-        setLoaded((held) => ({
-          ...held,
-          queue: [...held.queue, ...answer.value.motions],
-          queueCursor: answer.value.nextCursor,
-        }));
+        setLoaded((held) => {
+          /*
+           * Merged by id rather than appended, because the queue is written
+           * into while it is being read and its ordering puts a motion's state
+           * first. An item that was SUBMITTED on the page above can be
+           * acknowledged before this page is asked for, and it then sorts into
+           * the later group - which is after the cursor, so the server answers
+           * with it again. That is correct of the server: the cursor names a
+           * place in an ordering rather than a set of rows already sent, and
+           * nothing on the server remembers what this reader has seen.
+           *
+           * So the reader is what deduplicates, and the newer copy wins: it
+           * carries the state the item is actually in now.
+           */
+          const byId = new Map(held.queue.map((motion) => [motion.id, motion]));
+          for (const motion of answer.value.motions) {
+            byId.set(motion.id, motion);
+          }
+          return {
+            ...held,
+            queue: [...byId.values()],
+            queueCursor: answer.value.nextCursor,
+          };
+        });
       })
       .finally(() => {
         setReadingMore(false);

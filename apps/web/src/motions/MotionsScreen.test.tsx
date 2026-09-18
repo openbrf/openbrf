@@ -681,4 +681,62 @@ describe("a queue longer than one page", () => {
     // And the end of the queue takes the control away.
     expect(screen.queryByText("Visa fler motioner")).toBeNull();
   });
+
+  it("keeps one row when an item comes back on a later page", async () => {
+    /*
+     * The queue is ordered by the state an item is in, and it is written into
+     * while it is being read: an item read as open on the first page can be
+     * acknowledged before the second is asked for, and it then sorts into a
+     * later group - which is after the cursor, so the server answers with it
+     * again. The server is right to; nothing there remembers what this reader
+     * has seen. So the screen merges by id, and the later copy wins because it
+     * carries the state the item is now in.
+     */
+    const open = {
+      ...OWN_MOTION,
+      submitter: {
+        kind: "member",
+        personId: "person-maja",
+        name: "Maja Medlem",
+      },
+      closedByPersonId: null,
+    };
+    fetchMotionQueue
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          deadline: DEADLINE,
+          motions: [open],
+          nextCursor: "SUBMITTED|2027-01-20T09:00:00.000Z|motion-1",
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          deadline: DEADLINE,
+          motions: [
+            {
+              ...open,
+              status: "ACKNOWLEDGED",
+              closedAt: "2027-02-01T09:00:00.000Z",
+              closedByPersonId: "person-bea",
+            },
+          ],
+          nextCursor: null,
+        },
+      });
+
+    render(
+      <MotionsScreen viewer={viewer(["motions:handle", "meetings:manage"])} />,
+    );
+    await screen.findByText("Motioner från medlemmarna");
+
+    await userEvent.click(screen.getByText("Visa fler motioner"));
+
+    // One row, not two, and it says what the item is now.
+    await waitFor(() => {
+      expect(screen.getAllByText(OWN_MOTION.title)).toHaveLength(1);
+    });
+    expect(screen.queryByText("Ta emot motionen")).toBeNull();
+  });
 });

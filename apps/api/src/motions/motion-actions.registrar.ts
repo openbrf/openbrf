@@ -263,7 +263,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
             .string()
             .nullable()
             .describe(
-              "Send this back as after to read the page behind this one, or null at the end of the queue.",
+              "Send this back as after to read the page behind this one, or null at the end of the queue. An item whose state changed between two calls can appear on both, because the queue is ordered by that state and a cursor names a place in the ordering rather than the rows already sent: merge pages by id and keep the later copy.",
             ),
         }),
         handler: async (input, _context) => {

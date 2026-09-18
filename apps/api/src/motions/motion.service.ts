@@ -143,6 +143,22 @@ const QUEUE_STATUS_ORDER = [
  * values rather than a row, unlike the page list's: a motion is erased on its
  * own clock, and a cursor whose row has been purged out from under a reader
  * would match nothing at all and answer a page silently empty.
+ *
+ * ## What a reader has to do about it, and why the server cannot
+ *
+ * The queue is written into while it is being read, and the first thing it is
+ * ordered by is the state an item is in. So an item read as SUBMITTED on one
+ * page can be acknowledged before the next page is asked for, and it then sorts
+ * into a later group - which is after the cursor, so it comes back a second
+ * time. A reader that concatenates pages has it twice.
+ *
+ * That is correct of the server rather than a defect in the cursor: a cursor
+ * names a place in an ordering, and nothing here remembers which rows a
+ * particular reader has already been handed. Remembering would mean a session
+ * per reader over a queue every board member shares. So a reader that keeps
+ * more than one page merges them by id and keeps the newer copy, which is the
+ * one carrying the state the item is now in - the board's own screen does, and
+ * the action's `nextCursor` says so where a connected app reads it.
  */
 export interface MotionQueueCursor {
   status: MotionStatus;

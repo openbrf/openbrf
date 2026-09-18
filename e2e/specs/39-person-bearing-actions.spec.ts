@@ -189,6 +189,36 @@ async function signInThroughTheScreen(
   await expect(page).not.toHaveURL(/\/sign-in$/);
 }
 
+/**
+ * How many entries a person's register extract shows for one act.
+ *
+ * Counted rather than asserted as present, and that is not fussiness. The audit
+ * log is append-only and exempt from every purge, so a spec cannot clean up
+ * after itself and an `OPENBRF_E2E_REUSE_STACK=true` run reads a database an
+ * earlier run left behind - where this act has already been recorded against
+ * this same fixture person. An assertion that a row exists would then pass
+ * while the act under test recorded nothing at all. The count before and the
+ * count after is what says a new entry was written.
+ *
+ * The extract is produced fresh each time it is asked for, so this reopens it
+ * rather than reading a page already on screen.
+ */
+async function auditEntriesFor(
+  page: Page,
+  person: { surname: string; fullName: string },
+  label: string,
+): Promise<number> {
+  await page.goto(appPath("/"));
+  await page.getByLabel("Sök i registret").fill(person.surname);
+  await page.getByRole("cell", { name: `Öppna ${person.fullName}` }).click();
+  await page.getByRole("button", { name: "Ta fram registerutdraget" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Registerutdrag" }),
+  ).toBeVisible();
+
+  return page.getByRole("row").filter({ hasText: label }).count();
+}
+
 /** The register fixture, an account for the author, and one published notice. */
 async function ensureFixture(
   request: APIRequestContext,
@@ -392,6 +422,24 @@ test.describe("what the record says about an act on a person", () => {
       ADMINISTRATOR.password,
     );
 
+    /*
+     * The board's own reads move to a second address once it is signed in.
+     * Better Auth allows twenty requests a minute per client address and every
+     * route guard spends one, so signing in and then opening the register
+     * extract twice - which is what a before-and-after count costs - would put
+     * the whole of this test on one budget. The session is the same; only the
+     * budget is split.
+     */
+    await browseAs(page, clientAddress, "board-report");
+
+    // Before the act, because the log is append-only and a reused stack already
+    // carries whatever an earlier run struck through.
+    const struckBefore = await auditEntriesFor(
+      page,
+      { surname: "Persson", fullName: PROTECTED_AUTHOR.name },
+      "Nyhetskommentar doldes",
+    );
+
     await page.goto(appPath("/news"));
     await page.getByRole("button", { name: NOTICE.title }).first().click();
     await expect(page.getByText(comment)).toBeVisible();
@@ -408,25 +456,22 @@ test.describe("what the record says about an act on a person", () => {
     await expect(thread.getByRole("listitem")).toHaveCount(1);
 
     // --- and the act is on the document the person is handed ----------------
-    await page.goto(appPath("/"));
-    await page.getByLabel("Sök i registret").fill("Persson");
-    await page
-      .getByRole("cell", { name: `Öppna ${PROTECTED_AUTHOR.name}` })
-      .click();
-    await page
-      .getByRole("button", { name: "Ta fram registerutdraget" })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "Registerutdrag" }),
-    ).toBeVisible();
+    const struckAfter = await auditEntriesFor(
+      page,
+      { surname: "Persson", fullName: PROTECTED_AUTHOR.name },
+      "Nyhetskommentar doldes",
+    );
+    expect(struckAfter, "striking the comment through recorded nothing").toBe(
+      struckBefore + 1,
+    );
 
+    // In the association's own words rather than as an enum value, and naming
+    // the way the board reached the records. Read off the newest row, which is
+    // the one this test wrote: the extract lists the log newest first.
     const entry = page
       .getByRole("row")
       .filter({ hasText: "Nyhetskommentar doldes" })
       .first();
-    await expect(entry).toBeVisible();
-    // In the association's own words rather than as an enum value, and naming
-    // the way the board reached the records.
     await expect(entry.getByText("Webbgränssnittet")).toBeVisible();
   });
 
@@ -443,6 +488,32 @@ test.describe("what the record says about an act on a person", () => {
      * is a change to what the association tells a buyer, and until this slice
      * nothing anywhere said who changed it.
      */
+    await browseAs(page, clientAddress, "board");
+    await signInThroughTheScreen(
+      page,
+      ADMINISTRATOR.email,
+      ADMINISTRATOR.password,
+    );
+
+    /*
+     * The board's own reads move to a second address once it is signed in.
+     * Better Auth allows twenty requests a minute per client address and every
+     * route guard spends one, so signing in and then opening the register
+     * extract twice - which is what a before-and-after count costs - would put
+     * the whole of this test on one budget. The session is the same; only the
+     * budget is split.
+     */
+    await browseAs(page, clientAddress, "board-report");
+
+    const board = {
+      surname: ADMINISTRATOR.lastName,
+      fullName: `${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
+    };
+    const LABEL = "Föreningens uppgifter på mäklarsidan sparades";
+    // Before the write, because the log is append-only and a reused stack
+    // already carries whatever an earlier run recorded.
+    const recordedBefore = await auditEntriesFor(page, board, LABEL);
+
     const parking = `Tolv platser på gården, ${suffix}.`;
     const saved = await request.put(`${stack.baseUrl}/api/site/facts`, {
       data: { parking },
@@ -453,32 +524,14 @@ test.describe("what the record says about an act on a person", () => {
     ).toBe(200);
     expect(((await saved.json()) as { parking: string }).parking).toBe(parking);
 
-    await browseAs(page, clientAddress, "board");
-    await signInThroughTheScreen(
-      page,
-      ADMINISTRATOR.email,
-      ADMINISTRATOR.password,
+    const recordedAfter = await auditEntriesFor(page, board, LABEL);
+    expect(recordedAfter, "saving the facts recorded nothing").toBe(
+      recordedBefore + 1,
     );
 
-    await page.goto(appPath("/"));
-    await page.getByLabel("Sök i registret").fill(ADMINISTRATOR.lastName);
-    await page
-      .getByRole("cell", {
-        name: `Öppna ${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`,
-      })
-      .click();
-    await page
-      .getByRole("button", { name: "Ta fram registerutdraget" })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "Registerutdrag" }),
-    ).toBeVisible();
-
-    const entry = page
-      .getByRole("row")
-      .filter({ hasText: "Föreningens uppgifter på mäklarsidan sparades" })
-      .first();
-    await expect(entry).toBeVisible();
+    // The newest row is the one this test wrote: the extract lists the log
+    // newest first.
+    const entry = page.getByRole("row").filter({ hasText: LABEL }).first();
     await expect(entry.getByText("Webbgränssnittet")).toBeVisible();
   });
 });
