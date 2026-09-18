@@ -3115,6 +3115,7 @@
       "meetingsUnreadable": "Stämmorna kunde inte läsas just nu, så det finns ingen att erbjuda här. Ladda om sidan.",
       "more": "Visa fler motioner",
       "moreReading": "Hämtar fler motioner...",
+      "moreFailed": "Fler motioner kunde inte läsas just nu. De som visas är kvar, och du kan försöka igen.",
       "onHeldMeeting": "Togs upp på {{kind}} den {{date}}, som är antecknad som hållen."
     },
     "errors": {

@@ -133,6 +133,19 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    * and a control announcing somebody else's work would describe the wrong act.
    */
   const [readingMore, setReadingMore] = useState(false);
+  /**
+   * Whether the last attempt to read the page below failed.
+   *
+   * A flag of its own rather than the screen's `loadFailed`, for two reasons.
+   * That one says the screen's first read failed, and it is computed from the
+   * intake and the queue together - so a page read clearing it on success would
+   * also clear a failure of the member's own intake that nothing had fixed. And
+   * the queue already on the screen is intact: what failed is one request for
+   * more, so the sentence belongs beside the control that made it and the
+   * control stays for another attempt. It is the comment thread's rule for a
+   * failed earlier page, applied to the queue.
+   */
+  const [moreFailed, setMoreFailed] = useState(false);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [intake, queue, meetings] = await Promise.all([
@@ -180,6 +193,11 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     void read().then((next) => {
       if (version === currentRead.current) {
         setLoaded(next);
+        // The queue has been read again from the top, so a failure to read a
+        // page below the old one is no longer about anything on the screen.
+        // Cleared as the new queue lands rather than as the read starts, so the
+        // sentence never disappears while the rows it was about are still up.
+        setMoreFailed(false);
       }
     });
   }, [read]);
@@ -200,9 +218,14 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     }
     const version = currentRead.current;
     setReadingMore(true);
+    setMoreFailed(false);
     void fetchMotionQueue({ after: cursor })
       .then((answer) => {
-        if (version !== currentRead.current || !answer.ok) {
+        if (version !== currentRead.current) {
+          return;
+        }
+        if (!answer.ok) {
+          setMoreFailed(true);
           return;
         }
         setLoaded((held) => {
@@ -218,9 +241,17 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
            *
            * So the reader is what deduplicates, and the newer copy wins: it
            * carries the state the item is actually in now.
+           *
+           * It also takes the newer copy's place. Setting a key a Map already
+           * holds keeps the key where it was first inserted, so an item
+           * acknowledged since the page above would stay among the open ones
+           * with an acknowledged chip on it - the queue would contradict its
+           * own ordering. Deleting first puts it where this page puts it, which
+           * is where the server's ordering now has it.
            */
           const byId = new Map(held.queue.map((motion) => [motion.id, motion]));
           for (const motion of answer.value.motions) {
+            byId.delete(motion.id);
             byId.set(motion.id, motion);
           }
           return {
@@ -284,6 +315,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           meetingsFailed={meetingsFailed}
           hasMore={queueCursor !== null}
           readingMore={readingMore}
+          moreFailed={moreFailed}
           onShowMore={showMoreOfQueue}
           onChanged={reload}
         />

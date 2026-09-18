@@ -682,15 +682,81 @@ describe("a queue longer than one page", () => {
     expect(screen.queryByText("Visa fler motioner")).toBeNull();
   });
 
-  it("keeps one row when an item comes back on a later page", async () => {
+  it("keeps one row when an item comes back on a later page, where it now sorts", async () => {
     /*
      * The queue is ordered by the state an item is in, and it is written into
      * while it is being read: an item read as open on the first page can be
      * acknowledged before the second is asked for, and it then sorts into a
      * later group - which is after the cursor, so the server answers with it
      * again. The server is right to; nothing there remembers what this reader
-     * has seen. So the screen merges by id, and the later copy wins because it
-     * carries the state the item is now in.
+     * has seen. So the screen merges by id, the later copy wins because it
+     * carries the state the item is now in, and it takes the later copy's
+     * place, because that is where the server's ordering now puts it.
+     */
+    const submitter = {
+      kind: "member",
+      personId: "person-maja",
+      name: "Maja Medlem",
+    };
+    const first = { ...OWN_MOTION, submitter, closedByPersonId: null };
+    const second = {
+      ...OWN_MOTION,
+      id: "motion-2",
+      title: "Cykelrum i källaren",
+      submitter,
+      closedByPersonId: null,
+    };
+    fetchMotionQueue
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          deadline: DEADLINE,
+          motions: [first, second],
+          nextCursor: "SUBMITTED|2027-01-20T09:00:00.000Z|motion-2",
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          deadline: DEADLINE,
+          motions: [
+            {
+              ...first,
+              status: "ACKNOWLEDGED",
+              closedAt: "2027-02-01T09:00:00.000Z",
+              closedByPersonId: "person-bea",
+            },
+          ],
+          nextCursor: null,
+        },
+      });
+
+    render(
+      <MotionsScreen viewer={viewer(["motions:handle", "meetings:manage"])} />,
+    );
+    await screen.findByText("Motioner från medlemmarna");
+
+    await userEvent.click(screen.getByText("Visa fler motioner"));
+
+    // One row for it, not two.
+    await waitFor(() => {
+      expect(screen.getAllByText(OWN_MOTION.title)).toHaveLength(1);
+    });
+    // And after the item still open, not above it: an acknowledged item left
+    // among the open ones would contradict the order the queue is read in.
+    const titles = screen
+      .getAllByText(/^(Laddstolpar i garaget|Cykelrum i källaren)$/u)
+      .map((element) => element.textContent);
+    expect(titles).toEqual(["Cykelrum i källaren", "Laddstolpar i garaget"]);
+  });
+
+  it("says so beside the control when the page below cannot be read", async () => {
+    /*
+     * One request for more failed; the queue on the screen did not. So the
+     * sentence is beside the control that made the request, the rows already
+     * read stay, and the control is offered again - the comment thread's rule
+     * for a failed earlier page. A control that silently came back would leave
+     * the board pressing it with nothing to tell them why nothing happened.
      */
     const open = {
       ...OWN_MOTION,
@@ -711,19 +777,12 @@ describe("a queue longer than one page", () => {
         },
       })
       .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 503, reason: "unexpected" },
+      })
+      .mockResolvedValueOnce({
         ok: true,
-        value: {
-          deadline: DEADLINE,
-          motions: [
-            {
-              ...open,
-              status: "ACKNOWLEDGED",
-              closedAt: "2027-02-01T09:00:00.000Z",
-              closedByPersonId: "person-bea",
-            },
-          ],
-          nextCursor: null,
-        },
+        value: { deadline: DEADLINE, motions: [], nextCursor: null },
       });
 
     render(
@@ -733,10 +792,22 @@ describe("a queue longer than one page", () => {
 
     await userEvent.click(screen.getByText("Visa fler motioner"));
 
-    // One row, not two, and it says what the item is now.
+    expect(
+      await screen.findByText(/Fler motioner kunde inte läsas just nu/u),
+    ).not.toBeNull();
+    expect(screen.getByText(OWN_MOTION.title)).not.toBeNull();
+    // Not the screen-wide failure: the first read did not fail.
+    expect(
+      screen.queryByText("Motionerna kunde inte läsas just nu."),
+    ).toBeNull();
+
+    // Asked again, and answered: the sentence goes with the failure it was
+    // about.
+    await userEvent.click(screen.getByText("Visa fler motioner"));
     await waitFor(() => {
-      expect(screen.getAllByText(OWN_MOTION.title)).toHaveLength(1);
+      expect(
+        screen.queryByText(/Fler motioner kunde inte läsas just nu/u),
+      ).toBeNull();
     });
-    expect(screen.queryByText("Ta emot motionen")).toBeNull();
   });
 });

@@ -324,10 +324,13 @@ the contract test sweeps every `src/**/*-actions.registrar.ts` in the tree for
 these names, so a registrar added later is covered without anybody remembering
 to list it.
 
-`ApartmentRegisterService` is on the list because it writes three append-only
-statutory registers - the termination register, the transfer reversal register
-and the reporting obligation ledger - and each is held append-only by a database
-trigger, so a row an action put there could not be corrected by anybody.
+`ApartmentRegisterService` is on the list because it writes the apartment
+register (lägenhetsförteckning, BRL 9 kap.), including the terminations and the
+transfer reversals the association reports to the cooperative housing register
+under Lag (2026:484) 3 kap. 4 § and 3 kap. 3 § tredje stycket, and the ledger of
+the reporting obligations those events create. The terminations, the reversals
+and the ledger are each held append-only by a database trigger, so a row an
+action put there could not be corrected by anybody.
 
 **`DENIED_NAME_PATTERNS`** - names describing an act no action may perform:
 `residency`, `move_in`, `move_out`, `plugin_install`, `plugin_remove`, `archive`,

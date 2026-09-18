@@ -55,6 +55,13 @@ export interface MotionQueuePanelProps {
   hasMore: boolean;
   /** True only while the read in flight is this control's own. */
   readingMore: boolean;
+  /**
+   * True where the last request for the page below failed.
+   *
+   * Said beside the control rather than over the whole screen, because the
+   * queue on the screen is intact and the control stays for another attempt.
+   */
+  moreFailed: boolean;
   onShowMore: () => void;
   onChanged: () => void;
 }
@@ -96,6 +103,7 @@ export function MotionQueuePanel({
   meetingsFailed,
   hasMore,
   readingMore,
+  moreFailed,
   onShowMore,
   onChanged,
 }: MotionQueuePanelProps): ReactElement {
@@ -257,7 +265,12 @@ export function MotionQueuePanel({
          * board is looking at the top of the queue and reaching downwards, so
          * the control belongs at the end they are reaching from.
          */
-        <div>
+        <div className="flex flex-col items-start gap-2">
+          {moreFailed ? (
+            <Notice tone="danger" live>
+              {t("motions.queue.moreFailed")}
+            </Notice>
+          ) : null}
           <button
             type="button"
             className={QUIET_BUTTON}

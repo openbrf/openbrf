@@ -3115,6 +3115,7 @@
       "meetingsUnreadable": "The meetings could not be read just now, so there is none to offer here. Reload the page.",
       "more": "Show more motions",
       "moreReading": "Reading more motions...",
+      "moreFailed": "More motions could not be read just now. The ones shown are still here, and you can try again.",
       "onHeldMeeting": "Taken up at the {{kind}} on {{date}}, which has been recorded as held."
     },
     "errors": {
