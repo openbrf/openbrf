@@ -263,12 +263,11 @@ export class ChatPurgeService implements OnModuleInit {
     const chatIds = empty.map((chat) => chat.id);
     await this.prisma.$transaction(async (tx) => {
       /*
-       * The read markers by hand, because `chat_read` carries no foreign key:
-       * both of its columns are plain, on the reasoning ChatMessage's author
-       * column gives, so nothing cascades them. The membership rows do cascade
-       * with the room and are deleted with it.
+       * The room alone. Its read markers and its membership rows both cascade
+       * with it, so deleting either here would leave the constraint removable
+       * without a test noticing. `chatId` carries the cascade; `personId` stays
+       * a plain column so a purge can reach a person's rows unvetoed.
        */
-      await tx.chatRead.deleteMany({ where: { chatId: { in: chatIds } } });
       await tx.chat.deleteMany({ where: { id: { in: chatIds } } });
     });
 

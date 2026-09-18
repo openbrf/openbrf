@@ -6641,6 +6641,7 @@ model Chat {
 
   messages ChatMessage[]
   members  ChatGroupMember[]
+  reads    ChatRead[]
 
   /// Finding a room of a given kind, which is how the board chat is reached.
   ///
@@ -6725,11 +6726,28 @@ model ChatMessage {
 /// application is told there is something to read instead of being mailed about
 /// every line.
 ///
-/// Both columns are plain, on the same reasoning as ChatMessage.authorPersonId,
-/// and the pair is the identifier: a person has read a room up to one moment
-/// and there is nothing to say twice.
+/// The pair is the identifier: a person has read a room up to one moment, and
+/// there is nothing to say twice.
+///
+/// The two columns are not alike, and one reason covering both would be the
+/// wrong reason for one of them. `personId` is plain for ChatMessage.authorPersonId's
+/// reason: every referential action a foreign key can carry either rewrites this
+/// row when a person is erased or vetoes the erasure, and service-tier data has
+/// to be purgeable without the purge having to negotiate with a marker. `chatId`
+/// carries no such constraint - a room is not a data subject - so it is a
+/// relation like ChatMessage.chatId, and it cascades for the same reason: how far
+/// somebody had read a room that no longer exists is not a fact about anything.
+///
+/// That matters because a room is deleted: the chat purge erases a group that
+/// has held no message for as long as a message is kept, and a marker is exactly
+/// what an empty room can still carry - somebody can open a room and mark it read
+/// without ever writing in it. Before this was a relation the purge deleted the
+/// markers by hand, which worked and left the rule living in one service rather
+/// than in the schema.
 model ChatRead {
-  chatId   String
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
   personId String
 
   /// The instant the reader had seen the room up to.

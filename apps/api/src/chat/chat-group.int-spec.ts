@@ -664,6 +664,21 @@ describe("the purge", () => {
       payload: { personId: astrid.personId },
       headers: { cookie: nilsCookie },
     });
+    /*
+     * Opened and marked read without anything being written in it, which is
+     * the state that leaves a read marker behind on an otherwise empty room.
+     * The sweep used to delete these by hand; now the room's own foreign key
+     * cascades them, and this is the only place that can be shown.
+     */
+    const marked = await inject({
+      method: "POST",
+      url: `/api/chat/${chatId}/read`,
+      headers: { cookie: nilsCookie },
+      payload: { readAt: new Date("2024-01-02T00:00:00.000Z").toISOString() },
+    });
+    expect(marked.statusCode).toBe(200);
+    expect(await prisma.chatRead.count({ where: { chatId } })).toBe(1);
+
     // Nothing was ever written in it, and it was made long enough ago that the
     // list of who was in it is the only thing left.
     await prisma.chat.update({
@@ -676,6 +691,7 @@ describe("the purge", () => {
     expect(summary.groupsDeleted).toBeGreaterThanOrEqual(1);
     expect(await prisma.chat.count({ where: { id: chatId } })).toBe(0);
     expect(await prisma.chatGroupMember.count({ where: { chatId } })).toBe(0);
+    expect(await prisma.chatRead.count({ where: { chatId } })).toBe(0);
   });
 
   it("leaves a group somebody made this morning alone", async () => {

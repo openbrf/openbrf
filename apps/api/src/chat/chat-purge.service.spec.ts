@@ -548,9 +548,14 @@ describe("a room that holds nothing", () => {
 
     expect(summary.groupsDeleted).toBe(1);
     expect(emptyGroups).toEqual([]);
-    // The read markers by hand, because chat_read carries no foreign key and
-    // nothing cascades them with the room.
-    expect(calls).toContain("deleteReadMarkers");
+    /*
+     * Not by hand any more: the marker cascades with the room. Asserting the
+     * absence is what keeps the constraint load-bearing - a sweep that deleted
+     * them here as well would go on passing with the foreign key dropped. That
+     * the cascade does clear them is asserted against a real database in
+     * chat-group.int-spec.ts, which is the only place it can be.
+     */
+    expect(calls).not.toContain("deleteReadMarkers");
   });
 
   it("leaves a group nobody has written in yet", async () => {

@@ -952,9 +952,11 @@ export class DataSubjectReportService {
      * The rooms those markers name, read by identifier.
      *
      * A marker whose room has since gone is dropped rather than reported as a
-     * room with no name. The chat purge erases a group that has held nothing
-     * for as long as a message is kept, and what that leaves behind is a room
-     * that was erased rather than a room this person can be told about.
+     * room with no name. A marker is deleted with its room, but the chat purge
+     * erases an empty group on its own clock and this report reads markers and
+     * rooms in two statements, so a room erased between them leaves a marker
+     * read a moment earlier - and what that names is a room that was erased
+     * rather than a room this person can be told about.
      */
     const chatRooms =
       chatReadRows.length === 0
