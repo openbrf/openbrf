@@ -156,7 +156,9 @@ locally the application runs from source beside the PostgreSQL that
       board and to each tenant-owner for their own entry. Identity numbers are
       masked until the full statutory copy is asked for, and the audit log
       records who took it and whose numbers it held. Both print through a print
-      stylesheet, so a browser's own "save as PDF" produces the document
+      stylesheet, so a browser's own "save as PDF" produces the document, and
+      each is stamped with the day it was taken on the association's own
+      calendar rather than on the server's
 - [x] Move-in and move-out flows: moving in creates the residency, writes the
       statutory member register entry when the person takes over a
       tenant-ownership, records the transfer, and emails the welcome in the
@@ -306,7 +308,11 @@ non-goal: page titles, and no sitemap or metadata machinery.
       the board approves is what a visitor is served. Writing the website is a
       capability granted to the board by default and grantable to others, and
       it opens page editing today; the menu and news editors below are the
-      later work it will also cover. Site-wide settings stay with an admin
+      later work it will also cover. Site-wide settings stay with an admin.
+      Saving, publishing, changing who may read a page and deleting one are all
+      refused where somebody else has written the page since it was read, so
+      two board members working at once are told rather than silently
+      overwriting each other
 - [x] The remaining insertable data blocks: document list, board roster,
       association facts and FAQ. These four are the ones that need no feature
       of their own, only the block and its rendering. The news block and the
@@ -457,7 +463,9 @@ and the action registry.
       connected and a board term ending narrows every app that person connected
       the same night it narrows the person. There is no revocation on that
       change - the connection stays and simply stops being able to do what the
-      person no longer can. Disconnecting takes effect on the app's next call
+      person no longer can - so a connection whose member holds nothing an app
+      could use is shown as dormant, with the reason beside it, rather than
+      looking healthy until somebody tries it. Disconnecting takes effect on the app's next call
       rather than when its token would have run out. A member connects without
       needing anybody's permission and can cut their own connections; the board
       sees every connection on the instance and can cut any of them, and a
@@ -508,8 +516,10 @@ Free, open source, and never moved behind a paywall.
 - [x] Personal data breach register (personuppgiftsincident): a breach is
       recorded with what it touched and who it reached. The clock GDPR art. 33
       sets runs from discovery, so the record carries the date the board
-      became aware of the breach separately from the date it was entered, and
-      the board is mailed when a day of the 72 hours is left. It documents the
+      became aware of the breach separately from the date it was entered, read
+      on the association's own calendar so the deadline the board is working to
+      is the one the register shows, and the board is mailed when a day of the
+      72 hours is left. It documents the
       facts, the effects and the remedial action art. 33(5) requires, and it
       records two decisions with their grounds: whether IMY is notified
       without undue delay and, where feasible, within 72 hours, or not because
@@ -530,8 +540,11 @@ Free, open source, and never moved behind a paywall.
       (art. 30(1)(g)). Seeded from what the instance already knows - the
       statutory registers, the service data, the personal data categories
       every installed plugin declares, and the contact details, transfers and
-      security measures the instance can state truthfully - and editable,
-      because a board processes things outside the application too
+      security measures the instance can state truthfully. A board processes
+      things outside the application too, and can record one; the endpoint that
+      edits an existing entry exists and refuses a save built on a copy
+      somebody else has replaced, but no screen reaches it yet, so correcting a
+      recorded entry is not something a board can do from the application
 - [x] The privacy notice asks for everything GDPR art. 13 requires. The seeded
       page asks the board for the controller, the data, the purpose, the
       retention, the rights and the contact, and now for the legal basis
