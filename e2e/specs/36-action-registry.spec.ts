@@ -64,8 +64,9 @@ const MAILING_REQUESTED =
 const MEMBER_EMAIL = "astrid@eksemplet.test";
 
 /**
- * The twenty-four actions the first slice registers: the association's news,
- * its pages and its menu.
+ * Every action this instance registers: the association's news, its pages, its
+ * menu, its own facts, the comment threads under its notices, and the motion
+ * queue the board works.
  *
  * Written out rather than read back from the instance, because a list read from
  * the instance would only assert that the instance agrees with itself. This is
@@ -73,7 +74,7 @@ const MEMBER_EMAIL = "astrid@eksemplet.test";
  * registrar declares - or a name reaching the catalogue that is not here - is
  * the failure this is for.
  */
-const FIRST_SLICE: readonly string[] = [
+const CATALOGUE: readonly string[] = [
   "news_list",
   "news_get",
   "news_create",
@@ -98,6 +99,13 @@ const FIRST_SLICE: readonly string[] = [
   "menu_update",
   "menu_reorder",
   "menu_remove",
+  "association_facts_get",
+  "association_facts_update",
+  "news_comment_list",
+  "news_comment_hide",
+  "motion_queue_list",
+  "motion_acknowledge",
+  "motion_set_meeting",
 ];
 
 /**
@@ -412,7 +420,7 @@ test.describe("the action registry", () => {
 
     // The set, both ways round: nothing missing and nothing extra.
     expect(actions.map((action) => action.name).sort()).toEqual(
-      [...FIRST_SLICE].sort(),
+      [...CATALOGUE].sort(),
     );
 
     for (const action of actions) {

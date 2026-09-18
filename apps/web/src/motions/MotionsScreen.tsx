@@ -32,6 +32,15 @@ interface Loaded {
   own: readonly OwnMotion[];
   queue: readonly QueuedMotion[];
   /**
+   * The cursor for the page of the queue behind the one on the screen, or null
+   * at the end of it.
+   *
+   * The queue is read a page at a time: a motion's body runs to eight thousand
+   * characters and an association accumulates a queue for as long as it exists,
+   * so the whole of it was never an answer this screen could ask for.
+   */
+  queueCursor: string | null;
+  /**
    * The meetings an item may be put to, or null where this viewer may not read
    * them.
    *
@@ -59,6 +68,7 @@ const EMPTY: Loaded = {
   deadline: null,
   own: [],
   queue: [],
+  queueCursor: null,
   meetings: null,
   meetingsFailed: false,
   loadFailed: false,
@@ -116,6 +126,26 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    * arrive last wins, and the older one puts a closed motion back as open.
    */
   const currentRead = useRef(0);
+  /**
+   * Whether the read in flight is the one that fetches the page below.
+   *
+   * Told apart from a whole re-read, because the control says what it is doing
+   * and a control announcing somebody else's work would describe the wrong act.
+   */
+  const [readingMore, setReadingMore] = useState(false);
+  /**
+   * Whether the last attempt to read the page below failed.
+   *
+   * A flag of its own rather than the screen's `loadFailed`, for two reasons.
+   * That one says the screen's first read failed, and it is computed from the
+   * intake and the queue together - so a page read clearing it on success would
+   * also clear a failure of the member's own intake that nothing had fixed. And
+   * the queue already on the screen is intact: what failed is one request for
+   * more, so the sentence belongs beside the control that made it and the
+   * control stays for another attempt. It is the comment thread's rule for a
+   * failed earlier page, applied to the queue.
+   */
+  const [moreFailed, setMoreFailed] = useState(false);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [intake, queue, meetings] = await Promise.all([
@@ -139,6 +169,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
             : null,
       own: intake?.ok === true ? intake.value.motions : [],
       queue: queue?.ok === true ? queue.value.motions : [],
+      queueCursor: queue?.ok === true ? queue.value.nextCursor : null,
       meetings: meetings?.ok === true ? meetings.value : null,
       /*
        * A meetings read that failed is deliberately not a failed load of this
@@ -162,9 +193,78 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     void read().then((next) => {
       if (version === currentRead.current) {
         setLoaded(next);
+        // The queue has been read again from the top, so a failure to read a
+        // page below the old one is no longer about anything on the screen.
+        // Cleared as the new queue lands rather than as the read starts, so the
+        // sentence never disappears while the rows it was about are still up.
+        setMoreFailed(false);
       }
     });
   }, [read]);
+
+  /**
+   * Reads the page behind the one on the screen and adds it to the end.
+   *
+   * Its own read rather than a wider first one, and it appends rather than
+   * replacing: a board working down a long queue has read what is above and is
+   * reaching for what is below. A superseded read is dropped by the same version
+   * check every other read here is subject to, so a page that arrives after an
+   * act has reset the queue does not put the old rows back.
+   */
+  const showMoreOfQueue = useCallback((): void => {
+    const cursor = loaded.queueCursor;
+    if (cursor === null || readingMore) {
+      return;
+    }
+    const version = currentRead.current;
+    setReadingMore(true);
+    setMoreFailed(false);
+    void fetchMotionQueue({ after: cursor })
+      .then((answer) => {
+        if (version !== currentRead.current) {
+          return;
+        }
+        if (!answer.ok) {
+          setMoreFailed(true);
+          return;
+        }
+        setLoaded((held) => {
+          /*
+           * Merged by id rather than appended, because the queue is written
+           * into while it is being read and its ordering puts a motion's state
+           * first. An item that was SUBMITTED on the page above can be
+           * acknowledged before this page is asked for, and it then sorts into
+           * the later group - which is after the cursor, so the server answers
+           * with it again. That is correct of the server: the cursor names a
+           * place in an ordering rather than a set of rows already sent, and
+           * nothing on the server remembers what this reader has seen.
+           *
+           * So the reader is what deduplicates, and the newer copy wins: it
+           * carries the state the item is actually in now.
+           *
+           * It also takes the newer copy's place. Setting a key a Map already
+           * holds keeps the key where it was first inserted, so an item
+           * acknowledged since the page above would stay among the open ones
+           * with an acknowledged chip on it - the queue would contradict its
+           * own ordering. Deleting first puts it where this page puts it, which
+           * is where the server's ordering now has it.
+           */
+          const byId = new Map(held.queue.map((motion) => [motion.id, motion]));
+          for (const motion of answer.value.motions) {
+            byId.delete(motion.id);
+            byId.set(motion.id, motion);
+          }
+          return {
+            ...held,
+            queue: [...byId.values()],
+            queueCursor: answer.value.nextCursor,
+          };
+        });
+      })
+      .finally(() => {
+        setReadingMore(false);
+      });
+  }, [loaded.queueCursor, readingMore]);
 
   useEffect(() => {
     reload();
@@ -179,8 +279,16 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     };
   }, [reload]);
 
-  const { ready, deadline, own, queue, meetings, meetingsFailed, loadFailed } =
-    loaded;
+  const {
+    ready,
+    deadline,
+    own,
+    queue,
+    queueCursor,
+    meetings,
+    meetingsFailed,
+    loadFailed,
+  } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -205,6 +313,10 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           deadline={deadline}
           meetings={meetings}
           meetingsFailed={meetingsFailed}
+          hasMore={queueCursor !== null}
+          readingMore={readingMore}
+          moreFailed={moreFailed}
+          onShowMore={showMoreOfQueue}
           onChanged={reload}
         />
       ) : null}

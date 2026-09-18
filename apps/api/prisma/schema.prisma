@@ -1498,6 +1498,14 @@ enum AuditAction {
   /// them reportable, and an entry per column would leave the log unable to say
   /// that the three were decided together.
   ASSOCIATION_LAND_TENURE_RECORDED
+  /// The board recorded what the association says about itself on the broker
+  /// information page - the property designation it publishes there, the fee
+  /// policy, the parking, the renovations. One entry for the save rather than
+  /// one per field, because the screen writes the facts together and the board
+  /// decides them together. The entry names which fields the save carried and
+  /// never their text: the facts are published the moment they are written, and
+  /// the log is append-only and exempt from every purge.
+  ASSOCIATION_FACTS_RECORDED
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED

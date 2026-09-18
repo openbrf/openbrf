@@ -72,10 +72,10 @@ const ACTION_SLUG_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * app the board has switched on, and the AI package reaches nothing until it is
  * added here deliberately.
  *
- * `errors` is empty. The refusals below are the write service's own domain
- * errors and travel to the caller unchanged with their reason and status; what
- * a model should do about each of them - edit and retry, or never - is not yet
- * written down.
+ * `errors` is every refusal the write service can raise, each carrying a
+ * verdict. The refusals travel to the caller unchanged with their reason and
+ * status either way; what the verdict adds is whether trying again could ever
+ * work, which a model has no way to infer from a code.
  */
 const SHARED_DECLARATION = {
   capability: "site:manage",

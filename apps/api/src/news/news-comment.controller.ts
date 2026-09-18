@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
@@ -120,11 +121,7 @@ export class NewsCommentController {
     @Req() request: RequestWithPrincipal,
   ): Promise<NewsCommentView> {
     const input = bodySchema.parse(body);
-    return this.comments.write({
-      newsId,
-      authorPersonId: requirePrincipal(request).personId,
-      body: input.body,
-    });
+    return this.comments.write({ newsId, body: input.body }, webActor(request));
   }
 }
 
@@ -155,6 +152,6 @@ export class NewsCommentModerationController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<NewsCommentView> {
-    return this.comments.hide(id, requirePrincipal(request).personId);
+    return this.comments.hide(id, webActor(request));
   }
 }

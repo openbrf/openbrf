@@ -8,6 +8,7 @@ import {
   NewsCommentController,
   NewsCommentModerationController,
 } from "./news-comment.controller";
+import { NewsCommentActionsRegistrar } from "./news-comment-actions.registrar";
 import { NewsCommentService } from "./news-comment.service";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsReaderController } from "./news-reader.controller";
@@ -56,6 +57,7 @@ import { NewsWriteService } from "./news-write.service";
     NewsCommentService,
     NewsCommentPurgeService,
     NewsActionsRegistrar,
+    NewsCommentActionsRegistrar,
   ],
   exports: [
     NewsWriteService,

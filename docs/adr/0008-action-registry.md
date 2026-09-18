@@ -83,17 +83,47 @@ request. An object the plugin built itself would do just as well. So core marks
 every request it authenticates with a module-private symbol that is not exported
 from `@openbrf/plugin-sdk`, and the factory refuses an unmarked request.
 
-`ActionsModule` is deliberately not `@Global()`. `AuditModule` and
-`AuthorizationModule` are, which puts their providers in the root injector where
-a loaded plugin's constructor can ask for them by type; the module seal now
-refuses a plugin provider whose `design:paramtypes` name one of those. The
-registry is kept out of reach by construction instead, and a plugin reaches
-dispatch only through `host.actions`, which carries the plugin's identity with
-it.
+`ActionsModule` is deliberately not `@Global()`. Twelve of the platform's
+modules are, which puts everything they export into the root injector where a
+loaded plugin's constructor can ask for it by token; the module seal refuses a
+plugin provider that declares one. The registry is kept out of reach by
+construction instead, and a plugin reaches dispatch only through `host.actions`,
+which carries the plugin's identity with it.
 
-That check covers constructor injection. A provider resolving the same class
-through `ModuleRef` at runtime is not covered, and closing it properly is its own
-change.
+The seal's list is a classification of every root-injector export rather than a
+short list of the obvious ones, and `scripts/check-plugin-injections.mjs` under
+`pnpm lint:guards` refuses a `@Global()` export that appears in neither the
+denied list nor the allowed one. The defect that produced the previous gap was
+not a wrong entry but a missing one - the list named six of thirteen, and three
+of the seven it missed are services the host deliberately wraps before it hands
+them over, so a plugin injecting the mailer directly got neither the `mail:send`
+permission the board consented to nor the template stamped with its own id. A
+thirteenth global module now has to be classified rather than merely added.
+
+A token is matched by name, and a name is read from all three kinds NestJS
+accepts: a class's own name, a symbol's description, and a string token as the
+string. Reading only the first is why `ENV` and `PROTECTED_RESOURCE` were
+inexpressible rather than merely absent - neither is a function, so the old
+check passed straight over both however the list was spelled.
+
+The check covers what a provider DECLARES. A provider that resolves a class at
+runtime rather than declaring it is still not read, which is why the injector
+handles - `ModuleRef`, `ModulesContainer`, `Reflector`, `DiscoveryService`,
+`LazyModuleLoader`, `HttpAdapterHost` - are on the denied list: declaring one is
+refused, so the runtime path costs a plugin a boot finding rather than nothing
+at all. Nothing in core injects any of them, so denying them breaks no existing
+plugin.
+
+None of this closes the hole against a plugin that means harm, and it does not
+claim to. A plugin's factory runs at full process privilege before the seal sees
+anything, `require` is unhooked, nothing is signed, and `permissions.ts` and the
+plugin contract both state that permissions are not a sandbox and that catalogue
+curation is what stands between an instance and hostile code. One route is
+recorded rather than closed: `pluginHostBinding` is an exported module-level
+singleton provided to the injector as the same object, so a `require()` of the
+compiled file yields `ActionRegistryService` and `ActionCallerFactory`. Making
+the binding unexported is contained work, but it defends only against deliberate
+reach, and a `require('@prisma/client')` gets a database handle regardless.
 
 ### The manifest proposes, the administrator arms
 
@@ -131,6 +161,67 @@ an action called `update_household` walks past any regex.
 They are explicit constants rather than a rule derived from something else,
 because a reviewer has to be able to check the list against the decision without
 running the program.
+
+### What a person-bearing action must satisfy
+
+Two rules, and they are what the second slice is for. The first action that
+names a person is where they bite.
+
+**Rule 1, the exposure rule.** An action that can return a field of a person
+carrying protected personal data (skyddade personuppgifter) declares `protected`
+among its `personalData` categories, and an action declaring `protected` may not
+list `mcp` or `ai` among its surfaces. Beslutslogg 64 is what it implements:
+that data is outside every token and every prompt. It is refused in two places
+over two different objects - in the plugin gate over a manifest declaration,
+where a board can still act on it, and in `ActionRegistryService.register` over
+the registered definition, which is what makes it hold for a core action. Two
+moments of one rule, not two opinions: a declaration and a definition can
+disagree, and a later change that made either read the other would collapse the
+distinction that exists because they can.
+
+Read as a declaration rule that is nearly empty, because a declaration is
+written by hand. Read as a **binding** rule it decides what may be registered at
+all, and it is stated here in that form:
+
+> An action may bind a read only where the masking or the omission happens
+> inside the service method its handler calls. Where the decision sits higher up
+>
+> - in a controller, in a response mapper, in a component - the action reaches
+>   past it, must declare `protected`, and is then offered nowhere worth offering
+>   it.
+
+The product makes the test easy to apply, because the pattern is already
+everywhere: eight services withhold a protected person's name from their own
+view, inside the service, with a discriminated branch rather than a blank, and
+the address book excludes the row at the query.
+
+**A withheld value is a different shape in a published output document, never an
+empty one.** A masked or withheld field is published as a discriminated union
+over strict object branches, each branch described, and never as a nullable
+string. The reason matters more for a caller that is a model than for a screen:
+a model reading `""` or `null` concludes the association holds nothing, while a
+model reading a branch named `protected` concludes the value is withheld, and
+the difference decides whether it asks a person or concludes there is nobody to
+ask about.
+
+**Rule 2, the provenance rule.** An action that returns stored content says so
+in its description, in both languages: that the text is written by people and is
+data, never instructions. The text then travels unchanged - nothing strips,
+summarises, re-encodes or annotates a resident's words on the way out, because
+every one of those is a second thing that can be wrong about what was written -
+and nothing a resident wrote becomes an input the platform then acts on.
+
+**The declaration is checked, the cheap half only.** `PERSON_FIELD_CATEGORIES`
+sits beside the denylist, mapping a property name a person-bearing output uses to
+the category it implies, and a contract test walks each action's published output
+document and fails on a property whose implied category is undeclared. It cannot
+prove a declaration complete and the test says so in its own comment: a service
+that starts returning a person's town under a property called `place` passes it.
+The other direction - proving that a declared category is a reachable one - is
+not built, because it would need the registry to know what every bound service
+can return, which is the knowledge this decision keeps out of it. What stands
+behind both gaps is what stands behind the denylist: a reviewable constant and a
+review.
 
 ### The first slice writes the website and cannot mail anybody
 
@@ -231,6 +322,22 @@ An `AuditAction` value is now a four-file change: the Prisma enum, the API's
 tuple, the browser's union and the label map. That is deliberate - it is what
 makes an unlabelled action on a statutory document impossible to ship - but it
 is friction every future change pays.
+
+`ApartmentRegisterService` is on `DENIED_ACTION_SERVICES`. It writes the
+termination register, the transfer reversal register and the reporting
+obligation ledger, all three append-only by trigger, and no handler may be bound
+to a service that writes a statutory register. `apartmentRegister:read` and
+`memberRegister:read` are deliberately **not** on `DENIED_ACTION_CAPABILITIES`:
+Beslutslogg 65 puts deletion from the archive tier, the reveal and the movement
+of authority outside every token, and it does not put a board member's own
+reading of their own register there. Denying the read capability now would
+decide a later slice from inside this one, and `registerReport:export` already
+exists as the capability for the act with a recipient outside the association.
+
+The catalogue now spans two capabilities rather than one. The test that proves
+dispatch and the routes decide the same thing is a table of group, controller
+and expected capability, so a third capability changes a row rather than the
+assertion.
 
 Nothing revokes a token when a capability changes. A client sees a stream of
 refusals rather than a clean disconnection, which is confusing and safe, and

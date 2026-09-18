@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Put } from "@nestjs/common";
+import { Body, Controller, Get, Put, Req } from "@nestjs/common";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   type AssociationFactsView,
@@ -66,7 +68,10 @@ export class AssociationFactsController {
   }
 
   @Put()
-  async save(@Body() body: unknown): Promise<AssociationFactsView> {
-    return this.facts.save(factsSchema.parse(body));
+  async save(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<AssociationFactsView> {
+    return this.facts.save(factsSchema.parse(body), webActor(request));
   }
 }

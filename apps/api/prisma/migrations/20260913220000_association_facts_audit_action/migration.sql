@@ -1,0 +1,14 @@
+-- Recording what the association says about itself on the broker page.
+--
+-- The facts are published the moment they are saved: there is no draft state
+-- for a fact and no separate act of publishing one, so a fact changed by a
+-- board member or by a connected app is a change to what the association tells
+-- a buyer. Until now nothing anywhere said who changed it. The entry carries
+-- which fields the save named and never their text, because the log is
+-- append-only and exempt from every purge.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+-- The table this action is written about is created by
+-- 20260901120000_association_facts, which uses no audit value at all.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ASSOCIATION_FACTS_RECORDED';

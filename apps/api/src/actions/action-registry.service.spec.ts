@@ -119,6 +119,112 @@ describe("what may be registered", () => {
   });
 });
 
+/**
+ * Rule 1, the exposure rule, refused before anything can call the action.
+ *
+ * Beslutslogg 64 puts protected personal data (skyddade personuppgifter)
+ * outside every token and every prompt. The plugin gate refuses the same thing
+ * over a manifest, where a board can still act on it; a core action passes
+ * through none of that, so the rule is refused here as well - over the
+ * definition rather than over the declaration, which is what makes it hold for
+ * core and plugin alike.
+ *
+ * Read as a binding rule rather than as a declaration rule it decides more than
+ * it appears to. An action declaring `protected` may be offered on `ui` and
+ * nowhere else, and an action offered only on `ui` reaches nothing a connected
+ * app can call - so an action worth registering is one that cannot return
+ * protected personal data at all, which is a property of the service method its
+ * handler calls.
+ */
+describe("what an action touching protected personal data may be offered on", () => {
+  it("refuses one offered to a connected app", () => {
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({
+          personalData: ["name", "protected"],
+          surfaces: ["ui", "mcp"],
+        }),
+        { kind: "core", module: "news" },
+      ),
+    ).toThrow(/news_publish.*mcp/);
+  });
+
+  it("refuses one offered to the AI package", () => {
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({ personalData: ["protected"], surfaces: ["ai"] }),
+        { kind: "core", module: "news" },
+      ),
+    ).toThrow(/news_publish.*ai/);
+  });
+
+  it("names both surfaces when an action asks for both", () => {
+    // One refusal naming what is wrong with the definition, rather than one
+    // that has to be met twice.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({ personalData: ["protected"], surfaces: ["mcp", "ai"] }),
+        { kind: "core", module: "news" },
+      ),
+    ).toThrow(/mcp, ai/);
+  });
+
+  it("registers one offered in the product and nowhere else", () => {
+    // The rule is about reaching beyond the instance. A screen inside it is
+    // where a board member reads a protected person's own register entry, and
+    // that path is unchanged.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({ personalData: ["protected"], surfaces: ["ui"] }),
+        { kind: "core", module: "news" },
+      ),
+    ).not.toThrow();
+  });
+
+  it("leaves an action declaring nothing alone", () => {
+    // The control case: the gate must not misfire on the honest empty
+    // declaration that most core actions carry.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ personalData: [] }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a plugin's action on the same rule", () => {
+    /*
+     * The manifest gate would have refused this earlier, and deliberately
+     * still does. Two moments over two different objects rather than two
+     * opinions: a manifest declaration and a registered definition can
+     * disagree, and a later change that made either read the other would
+     * collapse a distinction that exists because they can.
+     */
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(
+        definition({
+          name: "plugin_thing",
+          personalData: ["protected"],
+          surfaces: ["mcp"],
+        }),
+        { kind: "plugin", pluginId: "example" },
+      ),
+    ).toThrow(/plugin_thing/);
+  });
+});
+
 describe("what a caller reaches", () => {
   it("dispatches through an alias but never advertises one", async () => {
     // An MCP client caches tools/list at initialisation and does not refresh

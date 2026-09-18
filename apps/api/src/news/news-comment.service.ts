@@ -1,8 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
-import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import {
   type PageContent,
@@ -187,6 +187,23 @@ export function parseThreadCursor(value: string): ThreadCursor | null {
   return { createdAt, id };
 }
 
+/**
+ * What reading a thread needs to know about the reader.
+ *
+ * The two facts the one decision in this module turns on - who they are, and
+ * whether they moderate the website - and not a whole {@link Principal}. A
+ * Principal is assignable to it, so the controller passes the one the guard
+ * attached unchanged; and the action registry, which resolves a caller's
+ * capabilities per call and holds no board term or residency, can satisfy it
+ * without inventing the roles it does not know. Narrower than what it used to
+ * take rather than wider: nothing here reads a role, and a parameter carrying
+ * one would suggest there is a second case.
+ */
+export interface ThreadReader {
+  personId: string;
+  capabilities: ReadonlySet<string>;
+}
+
 /** One page of a thread, and where the page before it starts. */
 export interface NewsCommentPage {
   /** The comments on this page, oldest first. */
@@ -265,9 +282,16 @@ export interface NewsArticleView {
   publishedAt: string;
 }
 
+/**
+ * What a comment is, apart from who wrote it.
+ *
+ * The author is not here and is not a caller's to state: it comes from the
+ * {@link ActorContext} the caller is given, which is derived from how they
+ * arrived. A field a caller filled in would be a comment one person could write
+ * under another's name.
+ */
 export interface WriteNewsCommentInput {
   newsId: string;
-  authorPersonId: string;
   body: string;
 }
 
@@ -442,7 +466,7 @@ export class NewsCommentService {
    */
   async list(
     newsId: string,
-    reader: Principal,
+    reader: ThreadReader,
     before: ThreadCursor | null = null,
   ): Promise<NewsCommentPage> {
     await this.requireCommentableNews(newsId);
@@ -483,16 +507,19 @@ export class NewsCommentService {
    * first because it is the cheapest and the least revealing - a caller learns
    * only what they would learn by asking to read the thread.
    */
-  async write(input: WriteNewsCommentInput): Promise<NewsCommentView> {
+  async write(
+    input: WriteNewsCommentInput,
+    actor: ActorContext,
+  ): Promise<NewsCommentView> {
     const news = await this.requireCommentableNews(input.newsId);
-    await this.refuseTooManyComments(input.authorPersonId);
+    await this.refuseTooManyComments(actor.personId);
     refusePersonalIdentityNumbers(input.body);
 
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.newsComment.create({
         data: {
           newsId: input.newsId,
-          authorPersonId: input.authorPersonId,
+          authorPersonId: actor.personId,
           body: input.body,
         },
         select: COMMENT_COLUMNS,
@@ -501,13 +528,12 @@ export class NewsCommentService {
       await this.audit.record(
         {
           action: "NEWS_COMMENT_POSTED",
-          channel: "WEB",
-          // Both, because this is the author's own act and their own data. Their
-          // access report has to be able to say when they wrote what, and it
-          // reads the actor column for what a person did and the subject column
-          // for what was done to them.
-          actorPersonId: input.authorPersonId,
-          targetPersonId: input.authorPersonId,
+          ...auditActor(actor),
+          // The subject as well as the actor, because this is the author's own
+          // act and their own data. Their access report has to be able to say
+          // when they wrote what, and it reads the actor column for what a
+          // person did and the subject column for what was done to them.
+          targetPersonId: actor.personId,
           targetKind: "newsComment",
           targetId: created.id,
           // Which notice, and how much was written. Never the text: the log is
@@ -588,14 +614,11 @@ export class NewsCommentService {
    * precedent the publish path sets: a second press is not a second event and
    * does not belong in the audit log.
    */
-  async hide(
-    commentId: string,
-    actorPersonId: string,
-  ): Promise<NewsCommentView> {
+  async hide(commentId: string, actor: ActorContext): Promise<NewsCommentView> {
     const { comment, struck } = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.newsComment.updateMany({
         where: { id: commentId, hiddenAt: null },
-        data: { hiddenAt: new Date(), hiddenByPersonId: actorPersonId },
+        data: { hiddenAt: new Date(), hiddenByPersonId: actor.personId },
       });
 
       const comment = await tx.newsComment.findUnique({
@@ -621,8 +644,7 @@ export class NewsCommentService {
       await this.audit.record(
         {
           action: "NEWS_COMMENT_HIDDEN",
-          channel: "WEB",
-          actorPersonId,
+          ...auditActor(actor),
           // The subject is whoever wrote it: this is something done to them, and
           // their access report has to show a moderation somebody else decided
           // on.
@@ -693,7 +715,7 @@ export class NewsCommentService {
   /** Every view in a thread, with the authors resolved in one read. */
   private async toViews(
     rows: readonly CommentRow[],
-    reader: Principal,
+    reader: ThreadReader,
   ): Promise<NewsCommentView[]> {
     const authorIds = [...new Set(rows.map((row) => row.authorPersonId))];
     const persons =

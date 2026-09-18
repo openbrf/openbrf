@@ -21,7 +21,12 @@ import { Public } from "../authorization/public.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
-import { PLUGIN_ID_METADATA, sealPluginModule } from "./plugin-module-seal";
+import {
+  ALLOWED_INJECTIONS,
+  DENIED_INJECTIONS,
+  PLUGIN_ID_METADATA,
+  sealPluginModule,
+} from "./plugin-module-seal";
 
 /**
  * What the host keeps over a plugin's own NestJS module.
@@ -547,8 +552,8 @@ describe("sealing a plugin's module", () => {
 /**
  * The core services a plugin's provider may not be constructed with.
  *
- * Two of the platform's modules are global, so their providers sit in the root
- * injector where any loaded plugin's constructor can ask for them by type.
+ * Twelve of the platform's modules are global, so everything they export sits
+ * in the root injector where any loaded plugin's constructor can ask for it.
  * Nothing above closes that: the global refusal stops a plugin EXPORTING
  * something everywhere, and the application-wide token check stops it acting on
  * the core's routes. This stops it IMPORTING what it was never given.
@@ -814,7 +819,8 @@ describe("what a plugin's provider may be constructed with", () => {
 
   it("accepts a forwardRef to the plugin's own service", () => {
     // Circular references between a plugin's own providers are ordinary and
-    // stay allowed: what is refused is the five names, however they arrive.
+    // stay allowed: what is refused is the classified names, however they
+    // arrive.
     class OwnHelper {}
     @Module({})
     class PluginModule {}
@@ -879,5 +885,175 @@ describe("what a plugin's provider may be constructed with", () => {
     );
 
     expect(result.ok).toBe(true);
+  });
+});
+
+/**
+ * The tokens that are not classes, and the handles that resolve any of them.
+ *
+ * The matcher read `typeof reached === "function"` and then `reached.name`, so
+ * a token that is a symbol or a string could never match however the denylist
+ * was spelled - which is to say that `ENV` and `PROTECTED_RESOURCE` were
+ * inexpressible rather than merely absent. And a plugin that declares
+ * `ModuleRef` reaches every other name on the list without naming one of them.
+ */
+describe("the tokens a name check could not see", () => {
+  it("refuses a symbol token by its description", () => {
+    // ENV is Symbol("OPENBRF_ENV"): the instance's whole configuration,
+    // secrets included. The description is the only thing a symbol carries.
+    const ENV = Symbol("OPENBRF_ENV");
+    @Injectable()
+    class Sneaky {
+      constructor(@Inject(ENV) private readonly env: unknown) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("OPENBRF_ENV");
+  });
+
+  it("refuses a string token as the string it is", () => {
+    @Injectable()
+    class Sneaky {
+      constructor(
+        @Inject("PROTECTED_RESOURCE") private readonly resource: unknown,
+      ) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PROTECTED_RESOURCE");
+  });
+
+  it("leaves a symbol of the plugin's own alone", () => {
+    // A plugin naming its own providers with symbols is ordinary NestJS.
+    const OWN = Symbol("plugin.own.config");
+    @Injectable()
+    class Ordinary {
+      constructor(@Inject(OWN) private readonly own: unknown) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Ordinary] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses the injector handle that would resolve any of the rest", () => {
+    // moduleRef.get(PrismaService, { strict: false }) is precisely the reach a
+    // declaration check cannot see, and @nestjs/core is a host-shared package
+    // whose resolution identity the loader asserts.
+    class ModuleRef {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly modules: ModuleRef) {}
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("ModuleRef");
+  });
+});
+
+/**
+ * The seven names the old six-name list left reachable.
+ *
+ * Three of them are services the host deliberately wraps before it hands them
+ * over, which is what makes this more than tidiness: a plugin holding the
+ * mailer directly gets neither the mail:send permission the board consented to
+ * nor the template stamped with its own id, and can mail every member through
+ * the association's own templates.
+ */
+describe("what a global module exports and a plugin may not hold", () => {
+  it.each([
+    ["MailService"],
+    ["SmsService"],
+    ["JobQueueService"],
+    ["FieldEncryptionService"],
+    ["CatalogClient"],
+    ["I18nService"],
+    ["AuthorizationGuard"],
+  ])("refuses a provider constructed with %s", (name) => {
+    const Reached = { [name]: class {} }[name] as Type<unknown>;
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly reached: unknown) {}
+    }
+    Reflect.defineMetadata("design:paramtypes", [Reached], Sneaky);
+    @Module({})
+    class PluginModule {}
+
+    const result = sealPluginModule(
+      { module: PluginModule, providers: [Sneaky] },
+      OPTIONS,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain(name);
+  });
+});
+
+/**
+ * The classification itself, as a constant a reviewer reads rather than runs.
+ *
+ * `scripts/check-plugin-injections.mjs` reads the same two structures out of
+ * the source and refuses a `@Global()` export that appears in neither, so what
+ * is left to assert here is that the two lists agree with each other and that
+ * every denial carries the sentence a reviewer needs to check it against the
+ * decision.
+ */
+describe("the classification the seal is written from", () => {
+  it("classifies no provider both ways", () => {
+    // A name on both lists is a contradiction rather than a preference, and the
+    // guard script would read it as classified and say nothing.
+    for (const denied of DENIED_INJECTIONS) {
+      expect(
+        ALLOWED_INJECTIONS.has(denied.token),
+        `${denied.token} is both denied and allowed`,
+      ).toBe(false);
+    }
+  });
+
+  it("says why each provider is denied", () => {
+    for (const denied of DENIED_INJECTIONS) {
+      expect(denied.token, "a denied entry names no token").not.toBe("");
+      expect(
+        denied.why.length,
+        `${denied.token} is denied without a reason`,
+      ).toBeGreaterThan(20);
+    }
+  });
+
+  it("names each provider once", () => {
+    const tokens = DENIED_INJECTIONS.map((denied) => denied.token);
+    expect(new Set(tokens).size, "a provider is denied twice").toBe(
+      tokens.length,
+    );
   });
 });

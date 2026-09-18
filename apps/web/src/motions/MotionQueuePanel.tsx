@@ -9,7 +9,13 @@ import {
   type QueuedMotion,
   setMotionMeeting,
 } from "../api/motions";
-import { FIELD_DATA, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
+import {
+  FIELD_DATA,
+  HINT,
+  LABEL,
+  QUIET_BUTTON,
+  SECONDARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
@@ -39,6 +45,24 @@ export interface MotionQueuePanelProps {
    * something about its cooperative that nobody checked.
    */
   meetingsFailed: boolean;
+  /**
+   * Whether the server said there is a page behind the one on the screen.
+   *
+   * The server's answer rather than a guess from the page's length, so a queue
+   * that ends exactly on a page boundary is not offered a control that would
+   * fetch nothing.
+   */
+  hasMore: boolean;
+  /** True only while the read in flight is this control's own. */
+  readingMore: boolean;
+  /**
+   * True where the last request for the page below failed.
+   *
+   * Said beside the control rather than over the whole screen, because the
+   * queue on the screen is intact and the control stays for another attempt.
+   */
+  moreFailed: boolean;
+  onShowMore: () => void;
   onChanged: () => void;
 }
 
@@ -77,6 +101,10 @@ export function MotionQueuePanel({
   deadline,
   meetings,
   meetingsFailed,
+  hasMore,
+  readingMore,
+  moreFailed,
+  onShowMore,
   onChanged,
 }: MotionQueuePanelProps): ReactElement {
   const { t } = useTranslation();
@@ -230,6 +258,31 @@ export function MotionQueuePanel({
           ))}
         </ul>
       )}
+
+      {hasMore ? (
+        /*
+         * Below the queue, because that is where the items it fetches go. The
+         * board is looking at the top of the queue and reaching downwards, so
+         * the control belongs at the end they are reaching from.
+         */
+        <div className="flex flex-col items-start gap-2">
+          {moreFailed ? (
+            <Notice tone="danger" live>
+              {t("motions.queue.moreFailed")}
+            </Notice>
+          ) : null}
+          <button
+            type="button"
+            className={QUIET_BUTTON}
+            disabled={readingMore}
+            onClick={onShowMore}
+          >
+            {readingMore
+              ? t("motions.queue.moreReading")
+              : t("motions.queue.more")}
+          </button>
+        </div>
+      ) : null}
     </Panel>
   );
 }

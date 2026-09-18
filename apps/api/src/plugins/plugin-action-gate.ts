@@ -132,6 +132,12 @@ function refuseDeclaration(
      * nowhere else. Beslutslogg 64 puts that data outside every token and
      * every prompt, and the declaration is what the board reads on the consent
      * screen - so the refusal belongs where the board can still act on it.
+     *
+     * The same rule is refused a second time at registration
+     * (`ActionRegistryService.register`), which is what makes it hold for a
+     * core action as well. Two moments over two different objects rather than
+     * two opinions: this reads a manifest declaration, that reads the
+     * registered definition, and the two can disagree.
      */
     return "an action touching protected personal data may not be offered to connected apps or to the AI package";
   }

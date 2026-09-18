@@ -148,6 +148,31 @@ export class ActionRegistryService {
       );
     }
 
+    if (definition.personalData.includes("protected")) {
+      /*
+       * Rule 1, the exposure rule, refused before anything can call the action.
+       *
+       * Beslutslogg 64 puts protected personal data (skyddade personuppgifter)
+       * outside every token and every prompt, so an action that can return a
+       * field of such a person is offered in process and nowhere else. The
+       * plugin gate refuses the same thing over a manifest
+       * (plugin-action-gate.ts), which is where a board can still act on it;
+       * here it is refused over the definition, so it holds for a core action
+       * too and no action is ever registered that the two checks disagree
+       * about. They read different objects - a declaration and a definition -
+       * and a later change that made one of them read the other would collapse
+       * a distinction that exists because the two can disagree.
+       */
+      const offending = definition.surfaces.filter(
+        (surface) => surface === "mcp" || surface === "ai",
+      );
+      if (offending.length > 0) {
+        throw new Error(
+          `${definition.name}: an action touching protected personal data may not be offered on ${offending.join(", ")}.`,
+        );
+      }
+    }
+
     const input = actionInputJsonSchema(definition.input, definition.name);
     actionOutputJsonSchema(definition.output, definition.name);
     assertStrictAtEveryDepth(input, definition.name);

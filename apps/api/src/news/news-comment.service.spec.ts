@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { ActorContext } from "../audit/actor-context";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
@@ -13,6 +14,21 @@ import {
   refusePersonalIdentityNumbers,
   threadCursor,
 } from "./news-comment.service";
+
+/**
+ * Whoever is acting, as a controller or the action registry derives them.
+ *
+ * The author of a comment and whoever strikes one through are both read off
+ * this rather than passed as an argument, which is what makes the channel on
+ * the entry evidence about how the caller arrived rather than a claim they
+ * made about themselves.
+ */
+function actorFor(
+  personId: string,
+  channel: ActorContext["channel"] = "WEB",
+): ActorContext {
+  return { personId, channel };
+}
 
 /**
  * The rules a comment thread lives under, decided before any row is written.
@@ -421,11 +437,10 @@ describe("a comment is exactly as visible as its news item", () => {
     const { service, prisma, audit } = build({});
 
     await expect(
-      service.write({
-        newsId: DRAFT_ID,
-        authorPersonId: "person-astrid",
-        body: "Hej.",
-      }),
+      service.write(
+        { newsId: DRAFT_ID, body: "Hej." },
+        actorFor("person-astrid"),
+      ),
     ).rejects.toBeInstanceOf(NewsCommentError);
 
     // The refusal reaching the caller is not the property: a service that
@@ -550,11 +565,13 @@ describe("the personal identity number scan", () => {
     const { service, prisma } = build({});
 
     await expect(
-      service.write({
-        newsId: NEWS_ID,
-        authorPersonId: "person-astrid",
-        body: `Hen har ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}.`,
-      }),
+      service.write(
+        {
+          newsId: NEWS_ID,
+          body: `Hen har ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER}.`,
+        },
+        actorFor("person-astrid"),
+      ),
     ).rejects.toBeInstanceOf(NewsCommentError);
 
     expect(prisma.newsComment.create).not.toHaveBeenCalled();
@@ -563,11 +580,10 @@ describe("the personal identity number scan", () => {
   it("lets an ordinary comment through", async () => {
     const { service, prisma } = build({ persons: [ASTRID] });
 
-    await service.write({
-      newsId: NEWS_ID,
-      authorPersonId: ASTRID.id,
-      body: "Tack for beskedet om porten.",
-    });
+    await service.write(
+      { newsId: NEWS_ID, body: "Tack for beskedet om porten." },
+      actorFor(ASTRID.id),
+    );
 
     expect(prisma.newsComment.create).toHaveBeenCalledTimes(1);
   });
@@ -590,7 +606,7 @@ describe("the per-person write budget", () => {
     });
 
     const error = await service
-      .write({ newsId: NEWS_ID, authorPersonId: ASTRID.id, body: "En mer." })
+      .write({ newsId: NEWS_ID, body: "En mer." }, actorFor(ASTRID.id))
       .catch((cause: unknown) => cause);
 
     expect(error).toBeInstanceOf(NewsCommentError);
@@ -627,11 +643,10 @@ describe("the per-person write budget", () => {
       persons: [ASTRID, PROTECTED],
     });
 
-    await service.write({
-      newsId: NEWS_ID,
-      authorPersonId: ASTRID.id,
-      body: "Tack.",
-    });
+    await service.write(
+      { newsId: NEWS_ID, body: "Tack." },
+      actorFor(ASTRID.id),
+    );
 
     const asked = prisma.newsComment.count.mock.calls[0]?.[0].where;
     expect(asked?.authorPersonId).toBe(ASTRID.id);
@@ -920,7 +935,7 @@ describe("hiding a comment", () => {
       [comment({ id: "comment-1", authorPersonId: ASTRID.id })],
     );
 
-    await service.hide("comment-1", "person-board");
+    await service.hide("comment-1", actorFor("person-board"));
 
     expect(audit.record).toHaveBeenCalledTimes(1);
     const entry = audit.record.mock.calls[0]?.[0];
@@ -957,7 +972,7 @@ describe("hiding a comment", () => {
       ],
     );
 
-    const answer = await service.hide("comment-1", "person-board");
+    const answer = await service.hide("comment-1", actorFor("person-board"));
 
     expect(audit.record).not.toHaveBeenCalled();
     expect(comments[0]?.hiddenAt).toBe(struckOn);
@@ -990,7 +1005,7 @@ describe("hiding a comment", () => {
       ],
     );
 
-    const struck = await service.hide("comment-1", "person-board");
+    const struck = await service.hide("comment-1", actorFor("person-board"));
 
     expect(struck.hiddenAt).not.toBeNull();
     expect(comments[0]?.hiddenAt).not.toBeNull();
@@ -1004,7 +1019,7 @@ describe("hiding a comment", () => {
     const { service, audit } = service_with_thread([ASTRID], []);
 
     const error = await service
-      .hide("comment-nowhere", "person-board")
+      .hide("comment-nowhere", actorFor("person-board"))
       .catch((cause: unknown) => cause);
 
     expect(error).toBeInstanceOf(NewsCommentError);
@@ -1027,8 +1042,8 @@ describe("hiding a comment", () => {
     );
 
     const [first, second] = await Promise.all([
-      service.hide("comment-1", "person-board"),
-      service.hide("comment-1", "person-chair"),
+      service.hide("comment-1", actorFor("person-board")),
+      service.hide("comment-1", actorFor("person-chair")),
     ]);
 
     expect(audit.record).toHaveBeenCalledTimes(1);
@@ -1049,11 +1064,7 @@ describe("what a written comment records", () => {
     const { service, audit } = build({ persons: [ASTRID] });
     const body = "Tack for beskedet om porten.";
 
-    await service.write({
-      newsId: NEWS_ID,
-      authorPersonId: ASTRID.id,
-      body,
-    });
+    await service.write({ newsId: NEWS_ID, body }, actorFor(ASTRID.id));
 
     const entry = audit.record.mock.calls[0]?.[0];
     expect(entry?.action).toBe("NEWS_COMMENT_POSTED");

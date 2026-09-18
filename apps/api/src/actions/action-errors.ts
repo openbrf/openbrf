@@ -109,3 +109,77 @@ export const MENU_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   // website runs none. No input makes a third level possible.
   spec("nesting-too-deep", "never", "siteAdmin.menu.errors.nestingTooDeep"),
 ];
+
+/**
+ * Every refusal `AssociationFactsService` raises, as `AssociationFactsReason`
+ * declares them.
+ *
+ * One, and the list exists anyway: an action publishes what its handler can
+ * raise, and an empty list would tell a caller the save cannot be refused. The
+ * refusal names the field and the offset and never the number, so a caller
+ * acting on it edits the field the answer names rather than guessing.
+ */
+export const FACTS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec(
+    "personal-identity-number",
+    "after-edit",
+    "siteAdmin.errors.personalIdentityNumber",
+  ),
+];
+
+/**
+ * Every refusal `NewsCommentService` raises, as `NewsCommentReason` declares
+ * them.
+ *
+ * It carries the product's first `after-backoff`. `too-many-comments` answers
+ * 429 and is genuinely time-bounded - twenty comments per ten minutes per
+ * author - so the answer changes on its own with nothing the caller can send,
+ * which is precisely what separates that verdict from the other two. A model
+ * told `never` would give up on a thread it could have written to a minute
+ * later, and one told `after-edit` would rewrite a comment that was never the
+ * problem.
+ */
+export const NEWS_COMMENT_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("news-not-found", "never", "newsReader.errors.newsNotFound"),
+  spec("comment-not-found", "never", "newsReader.errors.commentNotFound"),
+  spec(
+    "personal-identity-number",
+    "after-edit",
+    "newsReader.errors.personalIdentityNumber",
+  ),
+  spec(
+    "too-many-comments",
+    "after-backoff",
+    "newsReader.errors.tooManyComments",
+  ),
+];
+
+/**
+ * Every refusal `MotionService` raises, as `MotionReason` declares them.
+ *
+ * `meeting-notice-issued` is `never` and is the statutory one: EFL 6 kap. 25 §
+ * leaves a general meeting unable to decide a matter its notice did not state,
+ * so once the notice has gone out the agenda is settled and no input changes
+ * that. `meeting-changed-meanwhile` is the opposite case - somebody else moved
+ * the item while this caller held a copy - and re-reading the queue and
+ * deciding again is exactly what a board member does there.
+ */
+export const MOTION_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("motion-not-found", "never", "motions.errors.motionNotFound"),
+  spec("not-a-member", "never", "motions.errors.notAMember"),
+  spec("already-closed", "never", "motions.errors.alreadyClosed"),
+  spec("motion-withdrawn", "never", "motions.errors.motionWithdrawn"),
+  spec("meeting-not-found", "after-edit", "motions.errors.meetingNotFound"),
+  spec("meeting-notice-issued", "never", "motions.errors.meetingNoticeIssued"),
+  spec("meeting-already-held", "never", "motions.errors.meetingAlreadyHeld"),
+  spec(
+    "meeting-changed-meanwhile",
+    "after-edit",
+    "motions.errors.meetingChangedMeanwhile",
+  ),
+  spec(
+    "personal-identity-number",
+    "after-edit",
+    "motions.errors.personalIdentityNumber",
+  ),
+];

@@ -59,47 +59,196 @@ const APPLICATION_WIDE_TOKENS: ReadonlyMap<unknown, string> = new Map([
   [APP_PIPE, "APP_PIPE"],
 ]);
 
+/** One provider a plugin's own module may not be constructed with. */
+export interface DeniedInjection {
+  /**
+   * The identifier the exporting module lists in its `exports:`, where a core
+   * module exports it.
+   *
+   * What `scripts/check-plugin-injections.mjs` matches against, so that a
+   * thirteenth `@Global()` module cannot widen the surface without somebody
+   * classifying what it exports. Empty for a token the framework provides
+   * rather than a module of ours.
+   */
+  readonly exported: string;
+  /**
+   * The token as the container finally sees it: a class's name, a symbol's
+   * description, or the string itself.
+   *
+   * The two differ for the tokens that are not classes. `ENV` is
+   * `Symbol("OPENBRF_ENV")` and `PROTECTED_RESOURCE` is the string
+   * `"PROTECTED_RESOURCE"`, so a set of class names could never have refused
+   * either however it was spelled.
+   */
+  readonly token: string;
+  /** Why a plugin holding it would be holding more than the board consented to. */
+  readonly why: string;
+}
+
 /**
- * Core services a plugin's provider may not be constructed with.
+ * Every provider a plugin's module can resolve from the root injector, denied.
  *
- * Two of the platform's modules are `@Global()` - the audit log and the
- * authorization module - which puts their providers in the root injector where
- * any loaded plugin's constructor can ask for them by type. Neither the global
- * refusal above nor the application-wide token check prevents that: those stop
- * a plugin EXPORTING something everywhere, and this stops it IMPORTING
- * something it was never given.
+ * Twelve of the platform's modules are `@Global()`, which puts everything they
+ * export into the root injector where any loaded plugin's constructor can ask
+ * for it. A plugin's sealed module is part of that same graph -
+ * `AppModule.withPlugins` spreads plugin modules into one `NestFactory.create`,
+ * with no child application and no `app.select()` - so every one of those
+ * exports is reachable. Neither the global refusal above nor the
+ * application-wide token check prevents that: those stop a plugin EXPORTING
+ * something everywhere, and this stops it IMPORTING something it was never
+ * given.
  *
- * What each would be. `AuditLogService` writes the append-only log, so a plugin
- * holding it could record acts that did not happen, attribute one to a person
- * who did not perform it, and choose the channel - which is the one field the
- * whole audit change exists to make unforgeable. `PrincipalService` answers
- * what any person may do, which is the question a plugin is supposed to have
- * answered for it rather than ask for itself. `ActionRegistryService` is
- * dispatch without the plugin's identity attached, so a plugin holding it could
- * register actions as somebody else and invoke as anybody. `AuthService`
- * resolves a person from request headers, which is the whole of what the
- * connector's own route must not do: that route is Bearer-only, and a
- * connector holding this could read the browser's session cookie inside its
- * own handler and decide by it - reaching around the one guarantee the route
- * exists to make.
+ * A denylist over a classification rather than a short list of the obvious
+ * ones, because the defect this replaces was not a wrong entry but a missing
+ * one: the list named six of the thirteen, and three of the seven it missed are
+ * services the host deliberately wraps before it hands them over. The guard
+ * script reads every `@Global()` module's `exports:` and fails on a name that
+ * appears nowhere here, so the next global module has to be classified rather
+ * than merely added.
  *
- * Matched by class name rather than by identity, because the seal runs over a
- * module the plugin's own bundle produced and comparing constructors across a
- * realm boundary is exactly what the module-identity check exists to catch
- * separately. A plugin reaching for these gets `forbidden-injection`.
+ * Matched by name rather than by identity, because the seal runs over a module
+ * the plugin's own bundle produced and comparing constructors across a realm
+ * boundary is exactly what the module-identity check exists to catch
+ * separately. A plugin reaching for one of these gets `forbidden-injection`.
  *
- * This covers constructor injection, which is how a provider is normally
- * given a service. Resolving the same class through `ModuleRef` at runtime is
- * not covered and is its own change, named in ADR 0008.
+ * This covers what a provider DECLARES. Resolving the same class through
+ * `ModuleRef` at runtime is a second half that a declaration check cannot see;
+ * the injector handles below are what make a plugin declaring one of those a
+ * boot finding rather than a silent reach.
  */
-const FORBIDDEN_INJECTIONS: ReadonlySet<string> = new Set([
-  "AuditLogService",
-  "AuthService",
-  "PrincipalService",
-  "ActionRegistryService",
-  "ActionCallerFactory",
-  "PrismaService",
-]);
+export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
+  {
+    exported: "AuditLogService",
+    token: "AuditLogService",
+    why: "it writes the append-only log, so a plugin holding it could record acts that did not happen, attribute one to a person who did not perform it, and choose the channel - the one field the audit change exists to make unforgeable",
+  },
+  {
+    exported: "AuthService",
+    token: "AuthService",
+    why: "it resolves a person from request headers, which is the whole of what the connector's own route must not do: that route is Bearer-only, and a connector holding this could read the browser's session cookie inside its own handler and decide by it",
+  },
+  {
+    exported: "PrincipalService",
+    token: "PrincipalService",
+    why: "it answers what any person may do, which is the question a plugin is supposed to have answered for it rather than ask for itself",
+  },
+  {
+    exported: "AuthorizationGuard",
+    token: "AuthorizationGuard",
+    why: "it is the decision itself, and a plugin holding the guard could ask it about a request it composed",
+  },
+  {
+    exported: "PrismaService",
+    token: "PrismaService",
+    why: "it is the whole database, including every statutory register and the encrypted columns the plugin API never offers",
+  },
+  {
+    exported: "FieldEncryptionService",
+    token: "FieldEncryptionService",
+    why: "it decrypts the columns the register keeps encrypted at rest, which is the protection those columns exist for",
+  },
+  {
+    exported: "MailService",
+    token: "MailService",
+    why: "the host hands a plugin a narrowed mailer that demands the mail:send permission and stamps the plugin's id on a template of its own; a plugin injecting this one gets neither, and can mail every member through the association's own templates",
+  },
+  {
+    exported: "SmsService",
+    token: "SmsService",
+    why: "the same reach as the mailer, to a channel a member cannot ignore",
+  },
+  {
+    exported: "JobQueueService",
+    token: "JobQueueService",
+    why: "the host force-prefixes a plugin's queue names with its own id; a plugin injecting this one could enqueue work under a core queue's name",
+  },
+  {
+    exported: "I18nService",
+    token: "I18nService",
+    why: "a plugin has its own i18n through the host's plugin locale route, and this one carries the platform's resources",
+  },
+  {
+    exported: "CatalogClient",
+    token: "CatalogClient",
+    why: "it speaks to the catalogue the board installs from, so a plugin holding it acts as the instance towards the place its own successor is fetched from",
+  },
+  {
+    exported: "ENV",
+    token: "OPENBRF_ENV",
+    why: "it is the instance's whole configuration, secrets included - and the token is a symbol, so a set of class names could never have refused it",
+  },
+  {
+    exported: "PROTECTED_RESOURCE",
+    token: "PROTECTED_RESOURCE",
+    why: "it is what the instance publishes about its own protected resource, and the token is a plain string rather than a class",
+  },
+  /*
+   * Not exported by a `@Global()` module. `ActionsModule` is deliberately not
+   * global, but `pluginHostBinding` is a module-level singleton provided to the
+   * injector as the same object, so a `require()` of the compiled file yields
+   * these. They are denied here for the declaration path; the residual reach is
+   * recorded in ADR 0008 rather than closed, because a `require` of
+   * `@prisma/client` gets a database handle regardless.
+   */
+  {
+    exported: "",
+    token: "ActionRegistryService",
+    why: "it is dispatch without the plugin's identity attached, so a plugin holding it could register actions as somebody else and invoke as anybody",
+  },
+  {
+    exported: "",
+    token: "ActionCallerFactory",
+    why: "it composes the caller handle the registry resolves an identity from",
+  },
+  {
+    exported: "",
+    token: "CoreActionRegistrar",
+    why: "it registers an action as core, which is the owner no plugin's action may carry",
+  },
+  /*
+   * The injector handles, which are the second half of the reach. `@nestjs/core`
+   * is a host-shared package and the contract tells plugin authors to declare it
+   * as a peer dependency - that list asserts a resolution identity rather than
+   * allowing an import - so `moduleRef.get(PrismaService, { strict: false })` is
+   * exactly the hole a declaration check would otherwise leave open. Nothing in
+   * core injects any of them today, so denying them breaks nothing; an honest
+   * plugin that needs dynamic resolution gets a boot finding rather than a
+   * crash.
+   */
+  ...(
+    [
+      "ModuleRef",
+      "ModulesContainer",
+      "Reflector",
+      "DiscoveryService",
+      "LazyModuleLoader",
+      "HttpAdapterHost",
+    ] as const
+  ).map((token) => ({
+    exported: "",
+    token,
+    why: "it resolves any provider in the application by token, which would reach every service on this list without declaring one of them",
+  })),
+];
+
+/**
+ * Root-injector exports a plugin may hold, with the reason each is safe.
+ *
+ * Empty, and that is the current answer rather than an oversight: every one of
+ * the thirteen names the twelve global modules export is either the register,
+ * an authority, a channel out of the instance, or a narrowed service the host
+ * hands over deliberately. The list exists because the guard script reads both,
+ * so a future global export can be classified as safe by somebody willing to
+ * write the sentence rather than by nobody noticing it.
+ */
+export const ALLOWED_INJECTIONS: ReadonlyMap<string, string> = new Map<
+  string,
+  string
+>([]);
+
+const FORBIDDEN_INJECTIONS: ReadonlySet<string> = new Set(
+  DENIED_INJECTIONS.map((denied) => denied.token),
+);
 
 /** How deep a plugin's own module graph may go before it is refused. */
 const MAX_MODULE_DEPTH = 16;
@@ -533,17 +682,19 @@ function isDynamicModule(value: unknown): value is DynamicModule {
  * constructed as `Sneaky`, `{ useFactory, inject: [...] }` is handed exactly
  * what `inject` names, and `{ useExisting }` resolves to whatever it aliases -
  * so reading `provide` alone answers a question the container never asks. That
- * matters here rather than in the abstract: AuditModule, AuthorizationModule and
- * the database module are `@Global()`, which puts their providers in the root
- * injector where any of these forms would have been given one.
+ * matters here rather than in the abstract: twelve of the platform's modules are
+ * `@Global()`, which puts everything they export in the root injector where any
+ * of these forms would have been given one.
  *
  * `design:paramtypes` is what TypeScript emits for a decorated class and what
  * NestJS itself reads, and `SELF_DECLARED_DEPS_METADATA` is where `@Inject()`
  * puts a token instead. Both are read, because one constructor can mix them.
  *
- * Still only what a declaration DECLARES. A provider resolving the same class
- * through `ModuleRef` at runtime is not covered and is its own change, named in
- * ADR 0008.
+ * Still only what a declaration DECLARES. A provider that resolves a class at
+ * runtime rather than declaring it is not read here, which is why the injector
+ * handles are on the denylist: declaring `ModuleRef` is refused, so the runtime
+ * path costs a plugin a boot finding rather than nothing at all. It is a
+ * narrowing and not a closure, and ADR 0008 records what remains.
  */
 function forbiddenInjection(provider: unknown): string | null {
   for (const entry of declarationReaches(provider)) {
@@ -551,12 +702,37 @@ function forbiddenInjection(provider: unknown): string | null {
     if (reached === UNRESOLVED) {
       return "a forward reference that could not be resolved";
     }
-    if (
-      typeof reached === "function" &&
-      FORBIDDEN_INJECTIONS.has(reached.name)
-    ) {
-      return reached.name;
+    const name = tokenName(reached);
+    if (name !== null && FORBIDDEN_INJECTIONS.has(name)) {
+      return name;
     }
+  }
+  return null;
+}
+
+/**
+ * What a token is called, in the one spelling the denylist is written in.
+ *
+ * Three kinds, because NestJS accepts three. A class is its own token and
+ * carries a name. A symbol carries a description and nothing else - `ENV` is
+ * `Symbol("OPENBRF_ENV")` - and a string token is the string. Reading only the
+ * first of the three is what let two names sit on the denylist for a release
+ * without ever being able to match: neither `ENV` nor `PROTECTED_RESOURCE` is a
+ * function, so the old check passed straight over both.
+ *
+ * Null for anything else, which is every token that cannot be one of ours: an
+ * object, a number, undefined. A token with no description is null for the same
+ * reason - `Symbol()` names nothing, so it names nothing on this list either.
+ */
+function tokenName(token: unknown): string | null {
+  if (typeof token === "function") {
+    return token.name;
+  }
+  if (typeof token === "symbol") {
+    return token.description ?? null;
+  }
+  if (typeof token === "string") {
+    return token;
   }
   return null;
 }

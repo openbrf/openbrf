@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { ActorContext } from "../audit/actor-context";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import {
   AssociationFactsError,
@@ -16,7 +18,18 @@ import {
  * editor applies at publication time applies to every save. And a fact cleared
  * back to nothing has to become nothing: a fee policy the board deletes because
  * it no longer holds must come off the page, not stay on it as an empty row.
+ *
+ * Every save records who made it. Until this slice nothing did, and a fact
+ * changed by a connected app would have been a change to what the association
+ * tells a buyer with nothing anywhere saying who changed it.
  */
+
+/** Whoever is saving, as the controller and the action registry derive them. */
+const BOARD_MEMBER: ActorContext = {
+  personId: "person-board",
+  channel: "WEB",
+  requestId: "request-1",
+};
 
 const STORED = {
   id: 1,
@@ -43,6 +56,7 @@ interface Fakes {
     findUnique: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
   };
+  record: ReturnType<typeof vi.fn>;
 }
 
 function build(row: object | null = null): Fakes {
@@ -53,12 +67,24 @@ function build(row: object | null = null): Fakes {
       ...args.update,
     })),
   };
+  const record = vi.fn(async () => undefined);
+  // The transaction runs its body against the same fakes, so the upsert and the
+  // entry are asserted to have happened together rather than only to have
+  // happened.
+  const prisma = {
+    associationFacts,
+    $transaction: async (
+      run: (tx: unknown) => Promise<unknown>,
+    ): Promise<unknown> => run({ associationFacts }),
+  };
 
   return {
-    service: new AssociationFactsService({
-      associationFacts,
-    } as unknown as PrismaService),
+    service: new AssociationFactsService(
+      prisma as unknown as PrismaService,
+      { record } as unknown as AuditLogService,
+    ),
     associationFacts,
+    record,
   };
 }
 
@@ -95,7 +121,10 @@ describe("what a save keeps", () => {
   it("stores the text the board typed, trimmed", async () => {
     const { service, associationFacts } = build();
 
-    await service.save({ propertyDesignation: "  Talgoxen 4 \n" });
+    await service.save(
+      { propertyDesignation: "  Talgoxen 4 \n" },
+      BOARD_MEMBER,
+    );
 
     expect(associationFacts.upsert.mock.calls[0]?.[0]).toMatchObject({
       update: { propertyDesignation: "Talgoxen 4" },
@@ -108,7 +137,7 @@ describe("what a save keeps", () => {
     // with nothing under it.
     const { service, associationFacts } = build();
 
-    await service.save({ feePolicy: "   ", feeIncludes: null });
+    await service.save({ feePolicy: "   ", feeIncludes: null }, BOARD_MEMBER);
 
     expect(associationFacts.upsert.mock.calls[0]?.[0]).toMatchObject({
       update: { feePolicy: null, feeIncludes: null },
@@ -118,7 +147,7 @@ describe("what a save keeps", () => {
   it("leaves a field the request did not mention alone", async () => {
     const { service, associationFacts } = build();
 
-    await service.save({ parking: "Ingen parkering." });
+    await service.save({ parking: "Ingen parkering." }, BOARD_MEMBER);
 
     const call = associationFacts.upsert.mock.calls[0]?.[0] as
       { update: AssociationFactsInput } | undefined;
@@ -130,7 +159,10 @@ describe("what a save keeps", () => {
     // different answers to a broker, and false must not collapse into null.
     const { service, associationFacts } = build();
 
-    await service.save({ siteLeasehold: false, legalPersonOwners: null });
+    await service.save(
+      { siteLeasehold: false, legalPersonOwners: null },
+      BOARD_MEMBER,
+    );
 
     expect(associationFacts.upsert.mock.calls[0]?.[0]).toMatchObject({
       update: { siteLeasehold: false, legalPersonOwners: null },
@@ -143,7 +175,10 @@ describe("what a save refuses", () => {
     const { service, associationFacts } = build();
 
     const refusal = await refusalOf(
-      service.save({ renovations: "Stammar 2019, kontakt 19811218-9876." }),
+      service.save(
+        { renovations: "Stammar 2019, kontakt 19811218-9876." },
+        BOARD_MEMBER,
+      ),
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
@@ -156,7 +191,10 @@ describe("what a save refuses", () => {
     const { service } = build();
 
     const refusal = await refusalOf(
-      service.save({ feePolicy: "Fråga 19811218-9876 om avgiften." }),
+      service.save(
+        { feePolicy: "Fråga 19811218-9876 om avgiften." },
+        BOARD_MEMBER,
+      ),
     );
 
     expect(refusal.details()).toEqual({
@@ -174,10 +212,62 @@ describe("what a save refuses", () => {
     // most ordinary thing on this page - is not stopped.
     const { service, associationFacts } = build();
 
-    await service.save({
-      feeIncludes: "Föreningen 769600-0000 höjde avgiften 2024-01-01.",
-    });
+    await service.save(
+      { feeIncludes: "Föreningen 769600-0000 höjde avgiften 2024-01-01." },
+      BOARD_MEMBER,
+    );
 
     expect(associationFacts.upsert).toHaveBeenCalled();
+  });
+});
+
+describe("what a save records", () => {
+  it("writes an entry naming the fields and never their text", async () => {
+    const { service, record } = build();
+
+    await service.save(
+      { feePolicy: "Avgiften höjdes 2026.", parking: "Tolv platser." },
+      BOARD_MEMBER,
+    );
+
+    expect(record).toHaveBeenCalledTimes(1);
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.action).toBe("ASSOCIATION_FACTS_RECORDED");
+    expect(entry.actorPersonId).toBe("person-board");
+    expect(entry.channel).toBe("WEB");
+    expect(entry.context).toEqual({ fields: ["feePolicy", "parking"] });
+    // The facts are published the moment they are saved, and the log is
+    // append-only and exempt from every purge: a fee policy copied into it
+    // would outlive the one on the page.
+    expect(JSON.stringify(entry)).not.toContain("Avgiften");
+  });
+
+  it("records the channel the caller arrived on rather than assuming the web", async () => {
+    const { service, record } = build();
+
+    await service.save(
+      { storage: "Källarförråd till varje lägenhet." },
+      {
+        personId: "person-board",
+        channel: "MCP",
+        clientId: "client-1",
+        clientHost: "app.example",
+      },
+    );
+
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.channel).toBe("MCP");
+    expect(entry.clientId).toBe("client-1");
+  });
+
+  it("records a save that changes nothing anybody can see", async () => {
+    // The act is what is recorded, not the difference. A diff would need the
+    // row read before the write and would be a second statement about a second
+    // moment.
+    const { service, record } = build(STORED);
+
+    await service.save({ parking: null }, BOARD_MEMBER);
+
+    expect(record).toHaveBeenCalledTimes(1);
   });
 });

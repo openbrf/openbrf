@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
@@ -20,6 +21,7 @@ import {
   type MotionQueueView,
   MotionService,
   type OwnMotionView,
+  parseMotionQueueCursor,
   type QueuedMotionView,
 } from "./motion.service";
 
@@ -62,6 +64,36 @@ const submitSchema = z.object({
  */
 const meetingSchema = z.object({
   meetingId: z.string().min(1).nullable(),
+});
+
+/**
+ * Which page of the queue to answer with.
+ *
+ * Absent means the first page, which is what a screen opening the queue asks
+ * for. Anything else has to be a cursor this application handed out, and one
+ * that is not is refused here rather than read leniently further in: answering
+ * the first page to somebody who asked for a later one would show a board the
+ * items it had just worked through and hide the ones it was reaching for.
+ */
+const queueQuerySchema = z.object({
+  status: z.enum(STATUSES).optional(),
+  after: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined) {
+        return null;
+      }
+      const cursor = parseMotionQueueCursor(value);
+      if (cursor === null) {
+        ctx.addIssue({
+          code: "custom",
+          message: "is not a cursor into the motion queue",
+        });
+        return z.NEVER;
+      }
+      return cursor;
+    }),
 });
 
 /**
@@ -119,10 +151,7 @@ export class MotionIntakeController {
     @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
   ): Promise<{ id: string }> {
-    return this.motions.submit(
-      requirePrincipal(request),
-      submitSchema.parse(body),
-    );
+    return this.motions.submit(submitSchema.parse(body), webActor(request));
   }
 
   /**
@@ -137,7 +166,7 @@ export class MotionIntakeController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<OwnMotionView> {
-    return this.motions.withdraw(requirePrincipal(request).personId, id);
+    return this.motions.withdraw(id, webActor(request));
   }
 }
 
@@ -160,9 +189,9 @@ export class MotionQueueController {
   constructor(private readonly motions: MotionService) {}
 
   @Get()
-  async list(@Query("status") status?: string): Promise<MotionQueueView> {
-    const filter = z.enum(STATUSES).optional().parse(status);
-    return this.motions.queue({ status: filter });
+  async list(@Query() query: unknown): Promise<MotionQueueView> {
+    const { status, after } = queueQuerySchema.parse(query);
+    return this.motions.queue({ status, after });
   }
 
   /**
@@ -178,7 +207,7 @@ export class MotionQueueController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<QueuedMotionView> {
-    return this.motions.acknowledge(id, requirePrincipal(request).personId);
+    return this.motions.acknowledge(id, webActor(request));
   }
 
   /**
@@ -200,7 +229,7 @@ export class MotionQueueController {
     return this.motions.setMeeting(
       id,
       meetingSchema.parse(body).meetingId,
-      requirePrincipal(request).personId,
+      webActor(request),
     );
   }
 }
