@@ -283,9 +283,17 @@ function build(options: {
             residencies?: {
               some: { OR: [unknown, { movedOutOn: { gt: Date } }] };
             };
-            OR?: {
-              firstName?: { contains: string };
-              lastName?: { contains: string };
+            /*
+             * One clause per word typed, each matching either half of the
+             * name. Implemented clause by clause rather than as one substring
+             * test over the whole name, because the whole name is exactly what
+             * a single-column match could never find.
+             */
+            AND?: {
+              OR: [
+                { firstName: { contains: string } },
+                { lastName: { contains: string } },
+              ];
             }[];
           };
         }) =>
@@ -312,13 +320,16 @@ function build(options: {
                   return false;
                 }
               }
-              if (args.where.OR !== undefined) {
-                const term = (
-                  args.where.OR[0]?.firstName?.contains ?? ""
-                ).toLowerCase();
-                return `${person.firstName} ${person.lastName}`
-                  .toLowerCase()
-                  .includes(term);
+              if (args.where.AND !== undefined) {
+                return args.where.AND.every(({ OR: [first, last] }) => {
+                  const word = first.firstName.contains.toLowerCase();
+                  return (
+                    person.firstName.toLowerCase().includes(word) ||
+                    person.lastName
+                      .toLowerCase()
+                      .includes(last.lastName.contains.toLowerCase())
+                  );
+                });
               }
               return true;
             })
@@ -566,6 +577,29 @@ describe("who the room can still be offered", () => {
     // The apartment travels with the name, so two neighbours who share one can
     // be told apart.
     expect(offered[0]?.apartment).toBe("1001");
+  });
+
+  it("finds a neighbour by their whole name as well as by either half", async () => {
+    /*
+     * Somebody looking for a neighbour types their name, and a name is two
+     * words. Every word has to match a part of it, as in the resident directory,
+     * so the whole name finds them in either order - and a word that matches
+     * nothing narrows the list rather than being ignored.
+     */
+    const { service } = build({
+      chats: [GARDEN],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+    });
+    const offered = async (search: string) =>
+      (await service.candidates(GROUP_ID, principal(NILS.id), search)).map(
+        (each) => each.personId,
+      );
+
+    expect(await offered("Astrid Lindqvist")).toEqual([ASTRID.id]);
+    expect(await offered("lindqvist astrid")).toEqual([ASTRID.id]);
+    expect(await offered("Astrid")).toEqual([ASTRID.id]);
+    expect(await offered("Astrid Nobody")).toEqual([]);
   });
 
   it("is refused to somebody who is not in the room", async () => {

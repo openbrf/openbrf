@@ -370,11 +370,18 @@ test.describe("a group chat", () => {
     ).toBeVisible();
     await expect(page.getByText(said)).toBeVisible();
     await expect(page.getByText(GROUP_NAME)).toBeVisible();
+    /*
+     * The row carrying this message rather than the first row in the queue: the
+     * queue is the whole instance's, and a stack that has run this spec before
+     * can hold a report this run did not make.
+     */
     await page
+      .getByRole("listitem")
+      .filter({ hasText: said })
       .getByRole("button", { name: "Stryk över meddelandet" })
-      .first()
       .click();
-    await expect(page.getByText("Ingenting är anmält.")).toBeVisible();
+    // Answered, so it leaves the queue.
+    await expect(page.getByText(said)).toHaveCount(0);
 
     // --- the room loses the text, and its author keeps it ----------------
     await browseAs(page, clientAddress, "maker");
@@ -398,6 +405,7 @@ test.describe("a group chat", () => {
     await page.goto(appPath("/chat"));
     // A strike is a strike-through and never a disappearance.
     await expect(page.getByText(said)).toBeVisible();
-    await expect(page.getByText("Struket")).toBeVisible();
+    // Exact, because the hint under a struck message begins with the same word.
+    await expect(page.getByText("Struket", { exact: true })).toBeVisible();
   });
 });

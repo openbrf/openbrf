@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import type { Prisma } from "../generated/prisma/client";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import {
@@ -56,6 +57,31 @@ export const MEMBERS_PER_GROUP = 200;
  * letters, and a list longer than this is a list to search rather than to read.
  */
 const CANDIDATES_PER_READ = 25;
+
+/**
+ * What somebody typed into the picker's search, as a condition on a name.
+ *
+ * One clause per word, and every word has to match the first name or the last:
+ * "anna lind" finds Anna Lindqvist, and so does "lind anna". That is the rule the
+ * resident directory searches by, and the one somebody expects from a name field.
+ * Matching the whole string against one column instead would find a neighbour by
+ * either half of their name and never by the name itself - which is what anybody
+ * looking for them is most likely to type.
+ *
+ * The caller has already trimmed the search and refused an empty one, so there is
+ * always at least one word.
+ */
+function nameSearchWhere(search: string): Prisma.PersonWhereInput[] {
+  return search
+    .split(/\s+/)
+    .filter((word) => word !== "")
+    .map((word) => ({
+      OR: [
+        { firstName: { contains: word, mode: "insensitive" } },
+        { lastName: { contains: word, mode: "insensitive" } },
+      ],
+    }));
+}
 
 /** One person in a group, as the room's own panel says it. */
 export interface ChatGroupMemberView {
@@ -317,7 +343,10 @@ export class ChatGroupService {
    * themselves.
    *
    * Bounded and searched rather than listed whole, because the building is the
-   * size of a register and a picker is not a register screen.
+   * size of a register and a picker is not a register screen. The search is the
+   * resident directory's as well: every word typed has to match a part of the
+   * name, so a neighbour is found by their whole name as readily as by either
+   * half of it.
    */
   async candidates(
     chatId: string,
@@ -337,14 +366,7 @@ export class ChatGroupService {
         id: { notIn: already.map((member) => member.personId) },
         protectedPersonalData: false,
         residencies: { some: liveResidencyWhere(now) },
-        ...(search === null
-          ? {}
-          : {
-              OR: [
-                { firstName: { contains: search, mode: "insensitive" } },
-                { lastName: { contains: search, mode: "insensitive" } },
-              ],
-            }),
+        ...(search === null ? {} : { AND: nameSearchWhere(search) }),
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       take: CANDIDATES_PER_READ,

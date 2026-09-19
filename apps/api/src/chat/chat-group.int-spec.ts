@@ -463,6 +463,54 @@ describe("making a group and being in one", () => {
   });
 });
 
+describe("who a room can be offered", () => {
+  /** The picker, asked with the maker's session. */
+  async function candidatesFor(
+    chatId: string,
+    search: string,
+  ): Promise<{ personId: string; name: string }[]> {
+    const response = await inject({
+      method: "GET",
+      url: `/api/chat-groups/${chatId}/candidates?search=${encodeURIComponent(search)}`,
+      headers: { cookie: nilsCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json<{ personId: string; name: string }[]>();
+  }
+
+  it("finds a neighbour by their whole name, in either order", async () => {
+    /*
+     * What somebody types into the search is a name, and a name is two words.
+     * Every word has to match a part of it, as it does in the resident
+     * directory the picker's rule is taken from - so "Sven Grupp" finds Sven
+     * Grupp, and so does "Grupp Sven". Matched against a single column instead,
+     * the whole name is in neither and the picker offers nobody.
+     */
+    const chatId = await makeGroup(nilsCookie, "Sökgruppen");
+    const surname = `Grupp${suffix}`;
+
+    for (const search of [
+      `Sven ${surname}`,
+      `${surname} Sven`,
+      "Sven",
+      "sven",
+    ]) {
+      const offered = await candidatesFor(chatId, search);
+      expect(
+        offered.map((each) => each.personId),
+        `searching for "${search}"`,
+      ).toContain(stranger.personId);
+    }
+
+    // A word that matches nobody's name narrows the list to nobody, rather than
+    // being ignored.
+    const narrowed = await candidatesFor(chatId, `Sven Nobody${suffix}`);
+    expect(narrowed.map((each) => each.personId)).not.toContain(
+      stranger.personId,
+    );
+  });
+});
+
 describe("a message reported to the board", () => {
   it("carries that message to the queue and nothing else about the room", async () => {
     const chatId = await makeGroup(nilsCookie, "Grillkvällen");
