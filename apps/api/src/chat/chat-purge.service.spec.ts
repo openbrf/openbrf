@@ -74,12 +74,15 @@ function build(options: {
   restrictedPersonIds?: string[];
   erasureRequestedPersonIds?: string[];
   deletedCount?: number;
+  /** Groups holding no message at all, with the day each was made. */
+  emptyGroups?: { id: string; createdAt: Date }[];
 }) {
   const held = options.heldPersonIds ?? [];
   const restricted = options.restrictedPersonIds ?? [];
   const requested = options.erasureRequestedPersonIds ?? [];
   const withheld = [...new Set([...held, ...restricted])];
   const deletedCount = options.deletedCount ?? 2;
+  const emptyGroups = [...(options.emptyGroups ?? [])];
 
   const groupBy = vi.fn(
     async (args: {
@@ -165,10 +168,50 @@ function build(options: {
         return { count: deletedCount };
       }),
     },
+    chatRead: {
+      deleteMany: vi.fn(
+        async (args: { where: { chatId: { in: string[] } } }) => {
+          calls.push("deleteReadMarkers");
+          return { count: args.where.chatId.in.length };
+        },
+      ),
+    },
+    chat: {
+      deleteMany: vi.fn(async (args: { where: { id: { in: string[] } } }) => {
+        calls.push("deleteGroups");
+        for (const id of args.where.id.in) {
+          const index = emptyGroups.findIndex((group) => group.id === id);
+          if (index >= 0) {
+            emptyGroups.splice(index, 1);
+          }
+        }
+        return { count: args.where.id.in.length };
+      }),
+    },
   };
 
   const prisma = {
     chatMessage: { groupBy },
+    /*
+     * The sweep for a room that holds nothing. Implemented rather than stubbed,
+     * because what it asks is the whole of the rule: a group made recently is
+     * a room waiting to be written in, and only the cutoff tells the two apart.
+     */
+    chat: {
+      findMany: vi.fn(
+        async (args: {
+          where: { kind: "GROUP"; createdAt: { lte: Date } };
+          take?: number;
+        }) =>
+          emptyGroups
+            .filter(
+              (group) =>
+                group.createdAt.getTime() <= args.where.createdAt.lte.getTime(),
+            )
+            .slice(0, args.take)
+            .map((group) => ({ id: group.id })),
+      ),
+    },
     person: {
       findMany: vi.fn(
         async (args: {
@@ -211,6 +254,7 @@ function build(options: {
     audit,
     calls,
     groupBy,
+    emptyGroups,
     deleteMany: tx.chatMessage.deleteMany,
   };
 }
@@ -438,6 +482,7 @@ describe("a whole run", () => {
       purged: 2,
       messagesDeleted: 4,
       failed: 0,
+      groupsDeleted: 0,
     });
   });
 
@@ -471,6 +516,7 @@ describe("a whole run", () => {
       purged: 1,
       messagesDeleted: 2,
       failed: 1,
+      groupsDeleted: 0,
     });
 
     expect(logged).toHaveBeenCalledOnce();
@@ -479,5 +525,55 @@ describe("a whole run", () => {
     // happen, and a failed transaction wrote no audit entry to carry it.
     expect(line).toContain("aa");
     expect(line).not.toContain(REVEALING_BODY);
+  });
+});
+
+describe("a room that holds nothing", () => {
+  it("erases a group the clock has emptied, with its membership list", async () => {
+    /*
+     * The one thing in the chat with no clock of its own. A message carries its
+     * own window, and a read marker and a report go with the message - but a
+     * membership list says which neighbours were in a room together, and a room
+     * whose last message the purge has already erased would go on saying that
+     * forever.
+     */
+    const { service, emptyGroups, calls } = build({
+      messages: [],
+      emptyGroups: [
+        { id: "chat-old", createdAt: new Date("2025-01-01T00:00:00.000Z") },
+      ],
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.groupsDeleted).toBe(1);
+    expect(emptyGroups).toEqual([]);
+    /*
+     * Not by hand any more: the marker cascades with the room. Asserting the
+     * absence is what keeps the constraint load-bearing - a sweep that deleted
+     * them here as well would go on passing with the foreign key dropped. That
+     * the cascade does clear them is asserted against a real database in
+     * chat-group.int-spec.ts, which is the only place it can be.
+     */
+    expect(calls).not.toContain("deleteReadMarkers");
+  });
+
+  it("leaves a group nobody has written in yet", async () => {
+    const { service, emptyGroups } = build({
+      messages: [],
+      emptyGroups: [
+        {
+          id: "chat-new",
+          // Made a week before the run, which is a room waiting to be written
+          // in rather than one that is over.
+          createdAt: new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000),
+        },
+      ],
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.groupsDeleted).toBe(0);
+    expect(emptyGroups).toHaveLength(1);
   });
 });

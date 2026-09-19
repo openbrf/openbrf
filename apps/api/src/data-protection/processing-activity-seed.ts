@@ -241,18 +241,20 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
     /*
-     * The board alone, because the board chat is the only room there is: its
-     * members are whoever holds a seat, and nobody else reaches it. A row
-     * naming the residents would describe a processing this instance does not
-     * perform.
+     * The board and whoever lives here. There are two kinds of room: the board
+     * chat, whose members are whoever holds a seat, and a group, which somebody
+     * living here made for something the house is doing. Both are rooms this
+     * instance holds text in, so both belong in the record.
      */
-    dataSubjectCategories: ["boardMember"],
+    dataSubjectCategories: ["member", "resident", "boardMember"],
     /*
      * Who wrote, and what they wrote. `freeText` is the substance of the
      * processing rather than a footnote: a message is text somebody composed
      * themselves and it may name anybody in the building, which is why the
      * write is scanned for a personal identity number and why the room is
-     * erased on a clock of its own.
+     * erased on a clock of its own. A group's name, and the note somebody
+     * writes when they report a message to the board, are the same kind of
+     * text under the same rule.
      */
     personalDataCategories: ["name", "freeText"],
   },

@@ -1,0 +1,13 @@
+-- A read marker belongs to the room it marks, and dies with it.
+--
+-- `chat_read` was created with plain columns and no foreign key, so deleting a
+-- chat orphaned its markers rather than clearing them. Nothing noticed, because
+-- the only code that deletes a chat is the sweep for an empty group, and that
+-- sweep deleted the markers by hand first. That made the invariant a convention
+-- inside one service instead of a property of the table: the next writer to
+-- delete a chat would have orphaned markers with nothing to say otherwise.
+--
+-- `chatId` cascades for the same reason `chat_message`.`chatId` already does.
+-- `personId` stays a plain column, because a purge has to be able to reach a
+-- person's rows without a foreign key vetoing the erasure.
+ALTER TABLE "chat_read" ADD CONSTRAINT "chat_read_chatId_fkey" FOREIGN KEY ("chatId") REFERENCES "chat"("id") ON DELETE CASCADE ON UPDATE CASCADE;

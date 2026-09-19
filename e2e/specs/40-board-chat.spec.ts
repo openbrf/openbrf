@@ -23,11 +23,12 @@ import { appPath } from "../src/stack";
  * seconds would be asserting the clock rather than the delivery, and would flake
  * the day the machine was busy.
  *
- * **Somebody who lives here is not offered the room, and is told why.** Both
- * halves: the navigation does not carry the destination, because a link to a
- * screen that can only turn somebody away teaches them a part of the product is
- * broken for them; and the screen itself, asked for by hand, which is the
- * assertion that would still hold if the navigation were rebuilt tomorrow.
+ * **Somebody who lives here is not offered the board's room, and is told why.**
+ * They reach the screen - a group is theirs to make, so the navigation carries
+ * the destination - and the board's own room is not among the ones they are
+ * answered with. Asserted against the endpoint as well as against the screen,
+ * because what keeps a resident out of the board's deliberation is the seat the
+ * service asks the register for rather than anything the browser renders.
  *
  * **A personal identity number is refused, and the refusal does not carry it
  * back.** The response is read as well as the screen, because the thing the scan
@@ -84,7 +85,7 @@ const SEATED = {
  * From the shared fixture: 12/1001, recorded a resident, and on no board.
  *
  * Nobody elects him anywhere in the suite, which is what makes him the honest
- * case for an account the chat is not for.
+ * case for an account the board's room is not for.
  */
 const NO_SEAT = {
   name: "Nils Lindqvist",
@@ -255,7 +256,9 @@ function messageWriteResponse(page: Page, body: string): Promise<Response> {
 async function boardChatId(page: Page): Promise<string> {
   const response = await page.request.get(`${stack.baseUrl}/api/chat`);
   expect(response.ok()).toBe(true);
-  const rooms = (await response.json()) as { id: string; kind: string }[];
+  const { rooms } = (await response.json()) as {
+    rooms: { id: string; kind: string }[];
+  };
   const board = rooms.find((room) => room.kind === "BOARD");
   if (board === undefined) {
     throw new Error("this account is in no board chat");
@@ -284,42 +287,44 @@ test.describe("the board's chat", () => {
 
     /*
      * The navigation, asserted here rather than on the screen the sign-in lands
-     * on. A link to a destination that can only turn somebody away teaches them
-     * a part of the product is broken for them rather than not theirs - but the
-     * address book builds its band from the three capabilities its own register
-     * request already proved, deliberately, rather than from the viewer's full
-     * list. That band carries no chat entry for anybody, so asserting the
-     * absence there would pass whatever this change did. This screen's band is
-     * the viewer's own.
+     * on: the address book builds its band from the three capabilities its own
+     * register request already proved, deliberately, rather than from the
+     * viewer's full list, so that band carries no chat entry for anybody and an
+     * assertion there would pass whatever this change did. This screen's band
+     * is the viewer's own.
+     *
+     * The destination is offered, because a group is his to make. What is not
+     * his is the board's room, and the screen says so rather than leaving him
+     * looking at an empty page.
      */
     await expect(
       page.getByRole("link", { name: "Chatt", exact: true }),
-    ).toHaveCount(0);
+    ).not.toHaveCount(0);
 
     // And the screen itself: the assertion that would still hold if the
     // navigation were rebuilt tomorrow.
     await expect(
-      page.getByText("Chatten här är styrelsens egen.", { exact: false }),
+      page.getByText("Du är inte med i något rum än.", { exact: false }),
     ).toBeVisible();
-    await expect(page.getByLabel("Ditt meddelande")).toHaveCount(0);
+    await expect(page.getByLabel("Gruppens namn")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Styrelsechatten" }),
+    ).toHaveCount(0);
 
     /*
-     * The refusal is the server's and not the screen's. Hiding a control is
-     * courtesy; what keeps a resident out of the board's own deliberation is the
-     * endpoint, asked here with his own session from the browser holding it.
-     *
-     * On the capability rather than on the number alone: 403 is also what a
-     * request refused for some other reason would answer, and a refusal that had
-     * stopped being about `chat:participate` would be a different rule wearing
-     * the same status.
+     * The boundary is the server's and not the screen's. Hiding a control is
+     * courtesy; what keeps a resident out of the board's own deliberation is
+     * the seat the service asks the register for, asked here with his own
+     * session from the browser holding it.
      */
-    const refused = await page.request.get(`${stack.baseUrl}/api/chat`, {
-      failOnStatusCode: false,
-    });
-    expect(refused.status()).toBe(403);
-    expect(((await refused.json()) as { message?: string }).message).toContain(
-      "chat:participate",
-    );
+    const answered = await page.request.get(`${stack.baseUrl}/api/chat`);
+    expect(answered.ok()).toBe(true);
+    const mine = (await answered.json()) as {
+      rooms: { kind: string }[];
+      mayCreateGroup: boolean;
+    };
+    expect(mine.rooms.some((room) => room.kind === "BOARD")).toBe(false);
+    expect(mine.mayCreateGroup).toBe(true);
   });
 
   test("a message written in one browser reaches the other without a reload", async ({

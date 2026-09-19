@@ -522,44 +522,73 @@ export const CAPABILITIES = [
   /**
    * Read a chat (chatt) and write into one.
    *
-   * The board's, because the one chat that exists is the board's own
-   * (styrelsechatt) and what is said in it is the board's deliberation. A
-   * resident does not hold it: the room is not theirs, and a capability granted
-   * to everybody who lives here so that nobody could reach anything with it
-   * would be a grant that said nothing.
+   * Held by whoever holds a board seat and by whoever lives here, because there
+   * are two kinds of room and they are reached by different people. The board
+   * chat (styrelsechatt) is the board's own deliberation and its members are
+   * whoever holds a seat; a group (grupp) is made by somebody who lives here,
+   * for something the house is doing, and the board is not in it.
    *
-   * Not a member's either, and that absence is a decision rather than an
+   * Not a member's as such, and that absence is a decision rather than an
    * oversight. Membership is a statutory relationship and the rights it carries
    * come from the law - putting an item to a general meeting, EFL 6 kap. 15 §
-   * through BRL 9 kap. 14 §. Reading what the board says to itself is not among
-   * them, and a member who wants to know what the board decided reads the
-   * minutes.
+   * through BRL 9 kap. 14 §. Neither reading what the board says to itself nor
+   * being in a neighbour's work party is among them. What puts somebody in a
+   * group is living here, which every member of a housing cooperative that lives
+   * in its own building does anyway.
    *
    * Deliberately not the property manager's, on the news:comment precedent and
    * for the same reason: they handle the association's issues, they were not
-   * elected to anything, and the board's own conversation is not theirs.
+   * elected to anything and they do not live here.
    *
    * ## What this capability does not decide
    *
    * Which rooms there are for the caller. This one opens the endpoints; the
-   * service then answers which chats this person is in, and for the board chat
-   * that is the seat rather than the grant. The two are separate questions and
-   * both have to be answered, exactly as `news:comment` opens the comment
-   * controller while the service decides which threads exist.
+   * service then answers which chats this person is in, and that is a seat for
+   * the board chat and a written-down membership for a group. The two are
+   * separate questions and both have to be answered, exactly as `news:comment`
+   * opens the comment controller while the service decides which threads exist.
    *
    * So the administrator reaches every route here and finds no room. They hold
-   * every capability (`ADMIN_CAPABILITIES = CAPABILITIES`) and they hold no
-   * board seat, and a room whose membership is derived from a seat has no way
-   * to let them in - which is the intended answer rather than a gap. An
-   * administrator who should be in the board's chat is somebody the board has
-   * elected, and electing them is how they get in.
-   *
-   * A second capability for moderating a message was considered and not minted.
-   * There is nothing to moderate: the board chat publishes nothing and the board
-   * is the whole room, so a board member able to strike a colleague's line would
-   * be deciding what the record of its own deliberation says.
+   * every capability (`ADMIN_CAPABILITIES = CAPABILITIES`), they hold no board
+   * seat and they do not live here, so neither kind of room has a way to let
+   * them in - which is the intended answer rather than a gap. An administrator
+   * who should be in the board's chat is somebody the board has elected, and
+   * electing them is how they get in.
    */
   "chat:participate",
+  /**
+   * Read the messages reported out of a group, and strike one through.
+   *
+   * The board's. A group is invisible to anybody outside it - not listed, and
+   * asked for by identifier it is refused exactly as a room that does not exist
+   * - so this capability opens no room and lists no group. What it opens is the
+   * queue of messages somebody inside a room has carried out to the board, and
+   * the act of striking one of those through.
+   *
+   * ## Why this rather than `site:manage`
+   *
+   * That capability moderates a comment thread because a thread under a notice
+   * is part of what the association publishes and the board answers for it. A
+   * group publishes nothing and the association does not appoint it, so the
+   * argument does not reach: what the board is doing here is not deciding what
+   * the association says, it is answering somebody who asked it to look at
+   * something said about them. So the act sits in the chat's own vocabulary.
+   *
+   * It is a second capability rather than `chat:participate` because that one is
+   * now every resident's, and a strike-through granted to everybody who lives
+   * here would be no rule at all.
+   *
+   * ## What it does not reach
+   *
+   * The board chat, which has no strike-through of any kind: the board is the
+   * whole room, and a board able to strike a colleague's line would be deciding
+   * what the record of its own deliberation says.
+   *
+   * And a room. Holding this opens no group's messages, only the ones carried
+   * out of one - so a board member who is not in a group still cannot read it,
+   * and a board that has had no report has no way to know a group exists.
+   */
+  "chat:moderate",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -643,6 +672,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "keyOrders:place",
   "keyOrders:handle",
   "chat:participate",
+  "chat:moderate",
 ];
 
 /**
@@ -689,6 +719,13 @@ const RESIDENT_CAPABILITIES: readonly Capability[] = [
   "bookings:book",
   "events:attend",
   "keyOrders:place",
+  /*
+   * A group is made by whoever wants one, and living here is what makes
+   * somebody eligible for the room - so the endpoints are open to every
+   * resident and the service answers which rooms there are. The board chat is
+   * not among them for anybody without a seat, however this grant is read.
+   */
+  "chat:participate",
 ];
 
 /**

@@ -61,6 +61,8 @@ export interface ChatPurgeRunSummary {
    * database refuses must not stop every later person for good.
    */
   failed: number;
+  /** Empty groups erased, with the membership lists that were all they held. */
+  groupsDeleted: number;
 }
 
 /**
@@ -204,7 +206,74 @@ export class ChatPurgeService implements OnModuleInit {
       );
     }
 
-    return { considered: personIds.length, purged, messagesDeleted, failed };
+    const groupsDeleted = await this.purgeEmptyGroups(now, retentionDays);
+
+    return {
+      considered: personIds.length,
+      purged,
+      messagesDeleted,
+      failed,
+      groupsDeleted,
+    };
+  }
+
+  /**
+   * Erases a group that holds nothing and has held nothing for a year.
+   *
+   * The one thing in the chat that has no clock of its own. A message carries
+   * its own window and a read marker and a report go with the message, but a
+   * membership list does not: it says which neighbours were in a room together,
+   * and a room whose last message the purge has already erased would keep saying
+   * that forever.
+   *
+   * So a group with no message left in it, created longer ago than a message is
+   * kept, goes - and its members, its read markers and the room itself with it.
+   * The two conditions are both needed: the first is a room the purge has
+   * already emptied, and the second keeps a group somebody made this morning and
+   * has not yet written in.
+   *
+   * The board chat is never touched. There is exactly one of it, it is created
+   * on first read and it holds no membership list at all - its members are
+   * whoever holds a seat - so an empty board chat is a room waiting for the
+   * board to write in it rather than a room that is over.
+   *
+   * No audit entry. The purge writes one entry per person whose messages it
+   * erased, which is the record of what was erased; a room that holds nothing is
+   * not a person's data being erased, it is the last of it having gone already.
+   */
+  private async purgeEmptyGroups(
+    now: Date,
+    retentionDays: number,
+  ): Promise<number> {
+    const cutoff = chatMessagePurgeCutoff(now, retentionDays);
+
+    const empty = await this.prisma.chat.findMany({
+      where: {
+        kind: "GROUP",
+        createdAt: { lte: cutoff },
+        messages: { none: {} },
+      },
+      take: MAX_PERSONS_PER_RUN,
+      select: { id: true },
+    });
+    if (empty.length === 0) {
+      return 0;
+    }
+
+    const chatIds = empty.map((chat) => chat.id);
+    await this.prisma.$transaction(async (tx) => {
+      /*
+       * The room alone. Its read markers and its membership rows both cascade
+       * with it, so deleting either here would leave the constraint removable
+       * without a test noticing. `chatId` carries the cascade; `personId` stays
+       * a plain column so a purge can reach a person's rows unvetoed.
+       */
+      await tx.chat.deleteMany({ where: { id: { in: chatIds } } });
+    });
+
+    this.logger.log(`Purged ${String(chatIds.length)} empty group chats`);
+
+    return chatIds.length;
   }
 
   /**

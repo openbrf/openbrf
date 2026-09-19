@@ -394,7 +394,11 @@ export type ReportAuditAction =
   | "PLUGIN_ACTION_DISARMED"
   | "CONNECTED_APP_CONNECTED"
   | "CONNECTED_APP_DISCONNECTED"
-  | "OAUTH_CLIENT_REGISTERED";
+  | "OAUTH_CLIENT_REGISTERED"
+  | "CHAT_GROUP_CREATED"
+  | "CHAT_GROUP_MEMBER_ADDED"
+  | "CHAT_GROUP_MEMBER_REMOVED"
+  | "CHAT_MESSAGE_STRUCK";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -785,22 +789,46 @@ export interface DataSubjectReport {
    * leaves a read marker, which is stored about this person either way, so the
    * room is stated with an empty list rather than left out.
    *
-   * There is no hidden column here and there will not be one: a chat message is
-   * never struck through and never edited, so there is no second state to
-   * report.
+   * A struck message is printed with its text: a strike withholds it from the
+   * others in the room and never from whoever wrote it, and the column beside it
+   * says the moderation happened.
    */
   chats: {
     /** The board chat has no name - its name is its kind. */
     chatKind: "BOARD" | "GROUP";
     chatName: string | null;
+    /** When they were put into the group, or null for a room they are not in. */
+    joinedOn: string | null;
     /** An instant and not a count of what is unread. */
     readUpTo: string | null;
     messages: {
       messageId: string;
       body: string;
       writtenAt: string;
+      /** When the board struck it through, or null while it stands. */
+      struckAt: string | null;
       erasableFrom: string | null;
     }[];
+  }[];
+  /**
+   * The messages this person reported to the board, and the ones they answered
+   * as a board member.
+   *
+   * The reported message itself is deliberately not here: somebody else wrote
+   * it, and their words are their data rather than this person's. What this
+   * section states is the act - that a report was made, out of which room, on
+   * what day, and what the board decided.
+   */
+  chatReports: {
+    reportId: string;
+    part: "REPORTED" | "ANSWERED";
+    groupName: string | null;
+    reportedAt: string;
+    /** The reporter's own words, and null on a row they only answered. */
+    note: string | null;
+    answeredAt: string | null;
+    /** Whether the board struck it through, or null while the report is open. */
+    struck: boolean | null;
   }[];
   /**
    * Lines on which this person was recorded as present at a general meeting.

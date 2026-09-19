@@ -842,6 +842,15 @@ export interface ReportChat {
   /** The room's name, or null for the board chat. */
   chatName: string | null;
   /**
+   * When this person was put into the group, or null.
+   *
+   * Null for the board chat, whose members are derived from who holds a seat and
+   * where there is no such day to state, and null for a group they have left:
+   * leaving takes the membership row away, and their messages are still in the
+   * room. So a room with a date is one they are in now.
+   */
+  joinedOn: string | null;
+  /**
    * How far this person had read the room when the report was drawn, or null if
    * they never opened it.
    *
@@ -860,20 +869,73 @@ export interface ReportChat {
 }
 
 /**
+ * One message this person reported to the board, or answered as a board member.
+ *
+ * Its own section rather than a field of the room, because the two ends of it
+ * are different people's acts and a report is read by one person at a time. The
+ * message itself is deliberately not here at all: it was written by somebody
+ * else, and their words are their data rather than this person's. What this
+ * section states is the act - that a report was made, out of which room, on what
+ * day, and what the board decided.
+ *
+ * Reporting writes no audit entry, which is why this section exists: the report
+ * row is the record of the act, and without it a person could not be told what
+ * they had reported. What the board did about it is in the audit log as well,
+ * where striking a message through is recorded against the board member who
+ * decided it.
+ */
+export interface ReportChatReport {
+  reportId: string;
+  /**
+   * This person's part in it: they reported the message, or they answered the
+   * report as a member of the board.
+   */
+  part: "REPORTED" | "ANSWERED";
+  /** The group it came out of. */
+  groupName: string | null;
+  /** ISO instant the report was made. */
+  reportedAt: string;
+  /**
+   * What the reporter wrote about it, or null.
+   *
+   * Null on a row this person answered rather than made: the note is the
+   * reporter's own text, and a board member's report is not where it belongs.
+   */
+  note: string | null;
+  /** ISO instant the board answered it, or null while it is open. */
+  answeredAt: string | null;
+  /**
+   * Whether the board struck the message through, or null while it is open.
+   *
+   * The answer somebody who reported a message is owed: that the board looked at
+   * it, and what it decided.
+   */
+  struck: boolean | null;
+}
+
+/**
  * One message this person wrote in a chat.
  *
  * The text is carried in full, for the reason the news comment above gives:
  * what somebody wrote is the personal data here, and a report naming a date and
  * a room without the sentence would be telling its subject that they wrote
- * without telling them what they said. Nothing withholds it - a chat message is
- * never struck through and never edited, so there is no second state for this
- * section to report.
+ * without telling them what they said. Nothing withholds it, a struck message
+ * included: a strike withholds the text from the other people in the room and
+ * never from whoever wrote it.
  */
 export interface ReportChatMessage {
   messageId: string;
   body: string;
   /** ISO instant it was written. */
   writtenAt: string;
+  /**
+   * ISO instant the board struck it through, or null while it stands.
+   *
+   * Only a group's message can carry one. It says a moderation happened about
+   * something this person wrote, which is a fact about them that a document
+   * printing the text alone would leave out.
+   */
+  struckAt: string | null;
   /**
    * The earliest date the purge can reach this message, derived from the
    * retention window and never stored.
@@ -1188,6 +1250,7 @@ export interface DataSubjectReport {
   feeNotices: ReportFeeNotice[];
   newsComments: ReportNewsComment[];
   chats: ReportChat[];
+  chatReports: ReportChatReport[];
   boardMailboxThreads: ReportBoardMailboxThread[];
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];
