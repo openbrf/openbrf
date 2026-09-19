@@ -84,6 +84,28 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "boardMailbox:handle",
   },
   {
+    to: "/chat",
+    // Under the module's own namespace rather than nav, because the label is
+    // that module's word for itself and moves with it.
+    labelKey: "chat.navLabel",
+    // One capability and no any-of list, because there is one seat here. The
+    // board chat is the board's own deliberation: a resident does not hold it,
+    // and neither does a member, because membership is a statutory relationship
+    // and reading what the board says to itself is not among the things it
+    // carries - a member who wants to know what was decided reads the minutes.
+    //
+    // Deliberately not the external property manager, on the news:comment
+    // precedent: they handle the association's issues and were not elected to
+    // anything.
+    //
+    // The administrator holds it through the ADMIN grant and is offered this
+    // destination, and finds no room in it. That is not a link to a screen that
+    // can only refuse them - the screen answers, and what it says is that the
+    // room's members are whoever holds a seat and this account holds none.
+    // Hiding it from them would be hiding the explanation as well.
+    capability: "chat:participate",
+  },
+  {
     to: "/issues",
     // Under the issues namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.

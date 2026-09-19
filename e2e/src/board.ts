@@ -5,12 +5,22 @@ import { stack } from "./stack";
 /**
  * A seat on the board, granted straight in the database.
  *
- * There is no endpoint that elects somebody: board positions are entered from
- * the register screens that phase 1 does not build, and the fixture instance
- * therefore has an administrator and residents but nobody on the board. That
- * matters to exactly one thing in the product - who is emailed when the public
- * writes to the association - so the seat is written here rather than the
- * assertion being dropped.
+ * Written here rather than through the application, although the application
+ * can now do it: `api/board-positions` exists behind `boardPosition:manage`,
+ * and the register screens drive it. A spec that needs somebody on the board
+ * needs a precondition rather than a subject, and recording an election through
+ * three screens to arrange one would put the register's own flow into every
+ * spec that happens to need a board member.
+ *
+ * The shared fixture still has an administrator and residents and nobody on the
+ * board, because the sign-up approval path it provisions people through writes
+ * residencies and nothing else. So a spec that needs a seat asks for one here.
+ *
+ * A seat decides more than one thing in the product now. It decides who is
+ * emailed when the public writes to the association, whose name the board
+ * roster may publish, and - since the chat - who is in the board's own room:
+ * membership of that room is derived from an unexpired seat rather than written
+ * down, so this function is what puts somebody in it.
  *
  * The connection is the owner's, like the audit-log reads, the page fixture and
  * the property-manager grant. A board position is service tier: no append-only

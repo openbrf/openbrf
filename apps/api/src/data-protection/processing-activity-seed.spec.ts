@@ -90,6 +90,7 @@ describe("SEED_KEYS", () => {
       "bookings",
       "events",
       "motions",
+      "chat",
       "websitePublication",
       "contactSubmissions",
       "signupRequestsAndInvitations",

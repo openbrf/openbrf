@@ -373,6 +373,7 @@
           "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
           "newsComments": "News comments",
+          "chat": "What you have written in the chat",
           "boardMailbox": "Correspondence with the board mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
@@ -443,6 +444,8 @@
           "written": "Written",
           "comment": "Comment",
           "hidden": "Hidden",
+          "chatRoom": "Chat",
+          "readUpTo": "Read up to",
           "action": "Action",
           "at": "When",
           "through": "Through",
@@ -507,6 +510,11 @@
         "direction": {
           "acquired": "Acquired",
           "relinquished": "Relinquished"
+        },
+        "chat": {
+          "board": "The board chat",
+          "group": "A group chat",
+          "neverOpened": "You have not opened this chat."
         },
         "boardMailbox": {
           "received": "Received by the association",
@@ -2550,6 +2558,37 @@
       "unknown": "That did not work. Try again."
     }
   },
+  "chat": {
+    "navLabel": "Chat",
+    "title": "Chat",
+    "intro": "A running conversation between a fixed set of people, read and written nowhere else.",
+    "boardChat": "The board chat",
+    "description": "Everybody holding a board seat is in this room, and nobody else. Nothing here is published, nothing is mailed, and nothing is shown on the association's website.",
+    "loading": "Opening the chat...",
+    "loadFailed": "The chat could not be opened just now. Reload the page.",
+    "notOffered": "The chat here is the board's own. Reading what the board says to itself is not something living here or holding a tenant-ownership carries, and a member who wants to know what was decided reads the minutes of the meeting.",
+    "reading": "Reading the messages...",
+    "empty": "Nothing has been written here yet.",
+    "noRoom": "The board chat is for whoever holds a seat on the board, and this account holds none. A seat is recorded under positions of trust, and whoever holds one is in the room from the day their term is entered.",
+    "unread_one": "{{count}} unread message.",
+    "unread_other": "{{count}} unread messages.",
+    "earlier": "Show the earlier messages",
+    "earlierReading": "Reading the earlier messages...",
+    "you": "You",
+    "authorProtected": "Protected personal data: not named here.",
+    "authorUnknown": "No longer in the register.",
+    "field": "Your message",
+    "hint": "What is written here is kept for a year and then erased. Nothing can be edited, deleted or struck through, by you or by anybody else. A personal identity number is refused.",
+    "submit": "Send the message",
+    "sending": "Sending...",
+    "errors": {
+      "chatNotFound": "That chat is not there, or it is not yours to read.",
+      "personalIdentityNumber": "The message carries a personal identity number and cannot be sent. Take it out: a number written here is a second copy the apartment register cannot account for.",
+      "tooManyMessages": "You have written a great many messages in a short while. Wait a few minutes and send this one again.",
+      "invalidBody": "A message needs some text, and no more than the form allows.",
+      "unknown": "That could not be done just now. Please try again."
+    }
+  },
   "documents": {
     "navLabel": "Documents",
     "heading": "Document archive",
@@ -3862,6 +3901,12 @@
           "purpose": "Telling the members what the board publishes.",
           "legalBasisNote": "Legitimate interest: keeping the members informed.",
           "retention": "The delivery ledger is kept as the association's record of what it sent."
+        },
+        "chat": {
+          "name": "The board chat",
+          "purpose": "Letting the board talk between its meetings.",
+          "legalBasisNote": "Legitimate interest: administering the association. Nothing in it is published, and nobody outside the board reaches it.",
+          "retention": "Each message is erased a year after it was written. Nothing else removes one, and nobody can edit or delete what was said."
         },
         "issues": {
           "name": "Issue reports",

@@ -319,6 +319,36 @@ them. The same limit is why both lists the spec reads are empty: connecting an
 app takes a registered client and a signed authorization request, which is a
 call rather than anything a person does at a browser.
 
+`40-board-chat.spec.ts` drives the board's own chat, and its subject is delivery.
+A message written in one browser reaches a second browser that was never
+reloaded and never navigated, which is the whole claim a poll makes and the one
+thing neither the unit tests nor the integration suite can show: they hold the
+poll's mechanics and what the endpoints answer, and neither of them has a second
+screen open. It is asserted by waiting for the text, so it passes as soon as the
+first poll after the write lands; waiting out the four-second interval instead
+would be asserting the clock and would flake the day the machine was busy. The
+spec also covers the half of the feature that is a refusal - somebody who lives
+here is offered no link to the room and is told in plain Swedish that it is the
+board's, and the endpoint refuses them by name - the personal identity number
+guardrail with the response read as well as the screen, and a room longer than
+one page, where the messages before the newest fifty are one press away rather
+than quietly missing. The seats it needs are granted with `grantBoardSeat`,
+because the shared fixture provisions people through the sign-up approval path
+and that writes residencies and nothing else. The second board member the
+two-browser test needs is created by the spec rather than borrowed: the fixture
+holds four people and the seeded administrator is not among them, and a person
+needs no apartment, no residency and no membership to hold a seat.
+
+Deliberately not here: an account that holds `chat:participate` and no board
+seat, which is the instance's own administrator and is answered with no room at
+all. Three earlier specs put the shared administrator on the board and the grant
+is idempotent, so on this instance they have a seat.
+`apps/api/src/chat/chat.int-spec.ts` covers that case against people it builds
+itself, along with there being exactly one board chat however many readers
+arrive at once, the refusal for an unknown room being the same refusal as for a
+room somebody is not in, the access report section, and the nightly purge with
+its legal hold.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on

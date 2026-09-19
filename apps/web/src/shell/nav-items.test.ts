@@ -118,6 +118,21 @@ describe("the other seats", () => {
     expect(destinations(["motions:submit"])).not.toContain("/board-mailbox");
   });
 
+  it("offers the chat on the board's capability and on no other", () => {
+    /*
+     * One capability rather than an any-of list, because there is one seat here.
+     * The board chat is the board's own deliberation: living here does not open
+     * it, and neither does holding the tenant-ownership - membership is a
+     * statutory relationship and reading what the board says to itself is not
+     * among the things it carries.
+     */
+    expect(destinations(["chat:participate"])).toContain("/chat");
+    expect(destinations(["news:comment"])).not.toContain("/chat");
+    expect(destinations(["residentDirectory:read"])).not.toContain("/chat");
+    expect(destinations(["motions:submit"])).not.toContain("/chat");
+    expect(destinations(["issues:handle"])).not.toContain("/chat");
+  });
+
   it("offers a resident who is not a member everything but motions", () => {
     /*
      * The capabilities a resident actually holds, and motions:submit is not among
@@ -190,6 +205,7 @@ describe("the other seats", () => {
         "meetings:manage",
         "dataProtection:manage",
         "boardMailbox:handle",
+        "chat:participate",
       ]),
     ).toEqual([
       "/",
@@ -197,6 +213,7 @@ describe("the other seats", () => {
       "/connected-apps",
       "/settings",
       "/board-mailbox",
+      "/chat",
       "/issues",
       "/bookings",
       "/events",

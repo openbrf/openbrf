@@ -3,6 +3,7 @@ import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
+import { computeChatMessagePurgeDate } from "../chat/chat-retention";
 import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
 import { computeKeyOrderPurgeDate } from "../key-orders/key-order-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
@@ -22,6 +23,8 @@ import type {
   ReportConnectedAppScope,
   ReportDataSubjectRequest,
   ReportBoardMailboxThread,
+  ReportChat,
+  ReportChatMessage,
   ReportMeetingAttendance,
   ReportMemberCharge,
   ReportPersonalDataBreach,
@@ -76,6 +79,7 @@ const SECTIONS = [
   "eventSignups",
   "memberCharges",
   "newsComments",
+  "chats",
   "boardMailboxThreads",
   "meetingAttendances",
   "proxyAuthorisations",
@@ -780,6 +784,79 @@ export class DataSubjectReportService {
       },
     });
 
+    /*
+     * What this person wrote in the chat, grouped by the room it was written in.
+     *
+     * Their own messages only. The other members of a room wrote about
+     * themselves and about the association's business, and a report carrying the
+     * whole room would hand one board member everything the other seven said.
+     *
+     * The room is joined for its kind and its name, because the board chat has
+     * no name - its name is its kind - and a report saying "chat" without saying
+     * which would name nothing.
+     */
+    const chatMessages = await tx.chatMessage.findMany({
+      where: { authorPersonId: personId },
+      orderBy: [{ createdAt: "asc" }],
+      select: {
+        id: true,
+        chatId: true,
+        body: true,
+        createdAt: true,
+        chat: { select: { kind: true, name: true } },
+      },
+    });
+
+    /*
+     * How far they have read each room, including rooms they never wrote in.
+     *
+     * Every marker they hold rather than only the ones behind their own
+     * messages. A marker is a fact the association stores about this person -
+     * that they opened this room, and how far down it they had got - and it is
+     * stored whether or not they ever answered. Somebody who reads the board
+     * chat every week and writes in it twice a year holds markers with nothing
+     * of theirs behind them, and art. 15 is a right to what is held rather than
+     * to what is interesting: withholding those would make the access report,
+     * and the art. 20 export that projects from it, incomplete about data this
+     * instance is keeping.
+     *
+     * A room reached only this way is on the report with an empty list of
+     * messages, which is the true statement - the person read it and wrote
+     * nothing - rather than an absence that says neither.
+     */
+    const chatReadRows = await tx.chatRead.findMany({
+      where: { personId },
+      select: { chatId: true, readAt: true },
+    });
+
+    /*
+     * The rooms those markers name, read separately because `chatId` is a plain
+     * column here rather than a relation - the same trade the messages make for
+     * their author, and the reason a purge can reach this table at all.
+     *
+     * A marker whose room has since gone is dropped rather than reported as a
+     * room with no name: nothing deletes a chat today, and if something does it
+     * is the room that was erased rather than a room this person can be told
+     * about.
+     */
+    const chatRooms =
+      chatReadRows.length === 0
+        ? []
+        : await tx.chat.findMany({
+            where: {
+              id: { in: [...new Set(chatReadRows.map((read) => read.chatId))] },
+            },
+            select: { id: true, kind: true, name: true },
+          });
+    const roomsById = new Map(chatRooms.map((room) => [room.id, room]));
+
+    const chatReads = chatReadRows.flatMap((read) => {
+      const room = roomsById.get(read.chatId);
+      return room === undefined
+        ? []
+        : [{ chatId: read.chatId, readAt: read.readAt, chat: room }];
+    });
+
     /* The person's own address, printed on the document and nothing else. */
     const personEmail =
       person.emailCipher === null
@@ -1367,6 +1444,7 @@ export class DataSubjectReportService {
           computeNewsCommentPurgeDate(comment.createdAt),
         ),
       })),
+      chats: groupChatMessages(chatMessages, chatReads),
       meetingAttendances: meetingAttendances.map(
         (attendance): ReportMeetingAttendance => ({
           attendanceId: attendance.id,
@@ -1575,6 +1653,90 @@ function asContext(
  * supply to the cooperative housing register - and the entry lists all of them.
  */
 const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
+
+/**
+ * This person's chat messages, gathered into the rooms they were written in.
+ *
+ * A free function because it holds no state and because the grouping is the one
+ * decision this section makes: the read marker belongs to the room rather than
+ * to a message, so the rooms have to exist on the report before the marker has
+ * anywhere to sit.
+ *
+ * The rooms come out in the order the person first wrote in them, which the
+ * caller's ascending sort gives for nothing, and each room's messages stay in
+ * the order they were written. A room is on the report only when something of
+ * this person's is in it - see the query's own comment.
+ */
+function groupChatMessages(
+  messages: readonly {
+    id: string;
+    chatId: string;
+    body: string;
+    createdAt: Date;
+    chat: { kind: "BOARD" | "GROUP"; name: string | null };
+  }[],
+  reads: readonly {
+    chatId: string;
+    readAt: Date;
+    chat: { kind: "BOARD" | "GROUP"; name: string | null };
+  }[],
+): ReportChat[] {
+  const readAt = new Map(reads.map((read) => [read.chatId, read.readAt]));
+  const rooms = new Map<string, ReportChat>();
+
+  /*
+   * The rooms they have read come first, so a room they read and never wrote in
+   * is on the report with an empty list of messages rather than missing from
+   * it. The loop below then fills in the ones they wrote in, and a room in both
+   * is one room.
+   */
+  for (const read of reads) {
+    rooms.set(read.chatId, {
+      chatKind: read.chat.kind,
+      chatName: read.chat.name,
+      readUpTo: read.readAt.toISOString(),
+      messages: [],
+    });
+  }
+
+  for (const message of messages) {
+    let room = rooms.get(message.chatId);
+    if (room === undefined) {
+      room = {
+        chatKind: message.chat.kind,
+        chatName: message.chat.name,
+        readUpTo: readAt.get(message.chatId)?.toISOString() ?? null,
+        messages: [],
+      };
+      rooms.set(message.chatId, room);
+    }
+    room.messages.push({
+      messageId: message.id,
+      // In full. What somebody wrote is the personal data this section is
+      // about, and nothing ever withholds a chat message from its own author.
+      body: message.body,
+      writtenAt: message.createdAt.toISOString(),
+      /*
+       * Derived here rather than stored, exactly as the news comment's is: a
+       * shorter retention window moves every pending date by that act alone,
+       * and this document has to state the date that will actually apply.
+       *
+       * The earliest date the purge can reach the row rather than the date it
+       * goes on, because a legal hold suspends the purge for the whole person
+       * and this document is read by the person a hold may be standing against.
+       *
+       * Read on the association's own calendar, because the purge date is an
+       * instant and a day read off an instant in UTC names yesterday for an
+       * hour or two after midnight here.
+       */
+      erasableFrom: formatLocalDay(
+        localDayOf(computeChatMessagePurgeDate(message.createdAt)),
+      ),
+    } satisfies ReportChatMessage);
+  }
+
+  return [...rooms.values()];
+}
 
 /**
  * The same context, with other data subjects taken out of it.

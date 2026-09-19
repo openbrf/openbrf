@@ -12,50 +12,50 @@ import {
   withheldPersonIds,
 } from "../retention/withheld-persons";
 import {
-  NEWS_COMMENT_RETENTION_DAYS,
-  newsCommentPurgeCutoff,
-} from "./news-comment-retention";
+  CHAT_MESSAGE_RETENTION_DAYS,
+  chatMessagePurgeCutoff,
+} from "./chat-retention";
 
-/** Queue the nightly news comment purge runs on. */
-export const NEWS_COMMENT_PURGE_QUEUE = "news-comment-purge";
+/** Queue the nightly chat purge runs on. */
+export const CHAT_PURGE_QUEUE = "chat-purge";
 
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own - 03:07, which is the first of
- * the band. It used to say 03:11, which the event sign-up purge also holds:
- * the two woke together every night, which is exactly what spacing the band
- * exists to prevent.
+ * 03:59, the last minute of the band, because this job erases the rows a person
+ * wrote and the service-data purge at 03:53 is the one that closes a granted
+ * erasure request. Running after it would be a night's delay on nothing; running
+ * before it is what lets a granted erasure take these rows on the same night.
  *
  * The band as it actually stands: 03:05 board mailbox, 03:07 news comments,
  * 03:11 key orders and event sign-ups, 03:17 sublet applications, member charges
  * and issues, 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53
- * service data, 03:59 chat. Jobs waking together on one small connection pool is
- * a contention nobody gains anything from, and the two minutes carrying more
- * than one job are a drift from that rather than a pattern to copy.
+ * service data, 03:59 chat. Spacing it is what keeps jobs from waking together
+ * on one small connection pool, and the two minutes that carry more than one job
+ * are a drift the band was meant to prevent rather than a pattern to copy.
  */
-const PURGE_CRON = "07 3 * * *";
+const PURGE_CRON = "59 3 * * *";
 
 /**
- * The most people one run erases the comments of.
+ * The most people one run erases the messages of.
  *
- * A cooperative is 20 to 200 households and a night's worth of expiries is a
- * handful, so this is never reached in ordinary running. It exists for the first
- * run on an instance that has been commenting for years, or the day the
+ * A board is a handful of people and a night's worth of expiries is a handful of
+ * rows each, so this is never reached in ordinary running. It exists for the
+ * first run on an instance that has been chatting for years, or the day the
  * retention window is shortened: without a bound that run would erase every
- * comment ever written in one transaction-per-person loop. Nothing is lost by
+ * message ever written in one transaction-per-person loop. Nothing is lost by
  * stopping - eligibility is computed from the data rather than marked on it, so
  * the next night's run finds the rest.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
-export interface NewsCommentPurgeRunSummary {
-  /** People the eligibility scan found erasable comments for. */
+export interface ChatPurgeRunSummary {
+  /** People the eligibility scan found erasable messages for. */
   considered: number;
-  /** People whose comments were erased. */
+  /** People whose messages were erased. */
   purged: number;
-  /** Comments deleted across all of them. */
-  commentsDeleted: number;
+  /** Messages deleted across all of them. */
+  messagesDeleted: number;
   /**
    * People whose purge threw. The run carries on past them: one row the
    * database refuses must not stop every later person for good.
@@ -64,71 +64,70 @@ export interface NewsCommentPurgeRunSummary {
 }
 
 /**
- * The news comment purge (gallring av kommentarer).
+ * The chat purge (gallring av chattmeddelanden).
  *
- * A comment is service-tier personal data - which person wrote which words
- * under which notice - and the purpose it is held for is the conversation about
- * that notice. So it is erased on a date derived from when it was written, a
- * year later, and not on the residency purge's clock: somebody who still lives
- * here has no more use for last spring's exchange about the bicycle room than
- * somebody who has left, and the residency purge would never reach it at all
- * while they stayed. The arithmetic and the reasoning are in
- * `news-comment-retention.ts`.
+ * A message is service-tier personal data - which person wrote which words in
+ * which room - and the purpose it is held for is the conversation. So it is
+ * erased on a date derived from when it was written, a year later, and not on
+ * the residency purge's clock: somebody who still sits on the board has no more
+ * use for last spring's exchange about the roof than somebody who has left, and
+ * the residency purge would never reach it at all while they stayed. The
+ * arithmetic and the reasoning are in `chat-retention.ts`.
  *
  * ## What it erases
  *
- * The comment row, whole. There is nothing on it to blank down to: strip the
- * person and what is left is an unattributed sentence under a notice, which is
- * of no use to anybody and is still a record somebody has to keep. A hidden
- * comment goes the same way as one that stands - moderation is not a reason to
- * keep somebody's words longer, and the audit log's entry for the hide is what
- * outlives the row.
+ * The message row, whole. There is nothing on it to blank down to: strip the
+ * person and what is left is an unattributed line in a conversation, which is of
+ * no use to anybody and is still a record somebody has to keep.
  *
- * The news items themselves are never touched. A notice the board published is
- * the association's own account of itself; only the comments under it are
- * personal data on anybody's clock.
+ * The room itself is never touched, and neither is a read marker. A room with
+ * every message erased is an empty room, which is what a board that has not
+ * written anything for a year has; deleting it would only mean creating it again
+ * on the next read. A read marker names an instant and no message, so it says
+ * nothing once the messages are gone.
  *
  * ## Legal hold
  *
- * A hold standing against the person who wrote the comment stops it, the way it
- * stops the residency purge and the booking purge. The ground under GDPR art.
- * 17.3 is about the person's data rather than about one table, so a dispute that
- * keeps somebody's contact details keeps the comments that may be what the
- * dispute is about - what was said in a thread about a neighbour is exactly the
- * record a hold exists to preserve.
+ * A hold standing against the person who wrote the message stops it, the way it
+ * stops the residency purge and the news comment purge. The ground under GDPR
+ * art. 17.3 is about the person's data rather than about one table, so a dispute
+ * that keeps somebody's contact details keeps what they wrote in the room the
+ * dispute may be about.
  *
  * The hold is checked twice: once in the scan, and again inside the transaction
  * that deletes. The second one is the one that counts, because a hold placed
  * while the run was in flight has to win, and the board member who clicked that
  * button is entitled to assume it did. That second check is taken under the
  * advisory lock in `retention/legal-hold-lock.ts`, which is what makes it a
- * decision rather than a race: a placement takes the same key, so it either
- * lands before the check and stops the run or waits for it and takes effect from
- * the moment it commits.
+ * decision rather than a race.
  *
  * The scan's check is not a duplicate of it. Held people are excluded by the
  * query rather than dropped from its answer, so they cannot spend a run's bound
- * without anything being erased - see {@link NewsCommentPurgeService.eligible}.
+ * without anything being erased - see {@link ChatPurgeService.eligible}.
  *
  * ## How it runs
  *
- * One person per transaction, like the residency and booking purges and for the
- * same reasons. A crash halfway through leaves what it finished finished and the
- * rest for tomorrow, because eligibility is computed from `createdAt` and the
- * window rather than from a flag somebody has to keep in step; and a person with
- * nothing left to erase is not selected, so nobody collects an entry a night for
- * ever in a table that cannot be tidied.
+ * One person per transaction, like the residency and news comment purges and for
+ * the same reasons. A crash halfway through leaves what it finished finished and
+ * the rest for tomorrow, because eligibility is computed from `createdAt` and
+ * the window rather than from a flag somebody has to keep in step; and a person
+ * with nothing left to erase is not selected, so nobody collects an entry a night
+ * for ever in a table that cannot be tidied.
  *
- * The entry is SERVICE_DATA_PURGED with a targetKind of "newsComment", rather
+ * The entry is SERVICE_DATA_PURGED with a targetKind of "chatMessage", rather
  * than an action of its own. It is the same act the log already has a word for -
- * service-tier data past its retention date was erased - and one entry per
- * person is what lets a later access report say which of that person's data went
- * and when. The count says how much; the comments themselves are gone, which is
- * the point.
+ * service-tier data past its retention date was erased - and one entry per person
+ * is what lets a later access report say which of that person's data went and
+ * when. The count says how much; the messages themselves are gone, which is the
+ * point.
+ *
+ * This is the only audit entry the chat writes at all. Writing a message writes
+ * none, for the reason `ChatService` gives, so the log's whole account of a room
+ * is that data was erased from it on a date the retention window named.
  */
 @Injectable()
-export class NewsCommentPurgeService implements OnModuleInit {
-  private readonly logger = new Logger(NewsCommentPurgeService.name);
+export class ChatPurgeService implements OnModuleInit {
+  private readonly logger = new Logger(ChatPurgeService.name);
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -148,34 +147,34 @@ export class NewsCommentPurgeService implements OnModuleInit {
 
   /** Registers the purge. Public so an integration test can drive the job. */
   async startPurgeWorker(): Promise<void> {
-    await this.jobs.work(NEWS_COMMENT_PURGE_QUEUE, async () => {
+    await this.jobs.work(CHAT_PURGE_QUEUE, async () => {
       await this.run();
     });
-    await this.jobs.schedule(NEWS_COMMENT_PURGE_QUEUE, PURGE_CRON, {});
+    await this.jobs.schedule(CHAT_PURGE_QUEUE, PURGE_CRON, {});
   }
 
   /**
-   * Erases every comment past its purge date, person by person.
+   * Erases every message past its purge date, person by person.
    *
    * @param now The moment to judge eligibility at. Passed in so the integration
    *   suite can drive the clock forward instead of waiting a year.
-   * @param retentionDays How long a comment is kept.
+   * @param retentionDays How long a message is kept.
    */
   async run(
     now: Date = new Date(),
-    retentionDays: number = NEWS_COMMENT_RETENTION_DAYS,
-  ): Promise<NewsCommentPurgeRunSummary> {
+    retentionDays: number = CHAT_MESSAGE_RETENTION_DAYS,
+  ): Promise<ChatPurgeRunSummary> {
     const personIds = await this.eligible(now, retentionDays);
 
     let purged = 0;
-    let commentsDeleted = 0;
+    let messagesDeleted = 0;
     let failed = 0;
     for (const personId of personIds) {
       try {
         const deleted = await this.purgePerson(personId, now, retentionDays);
         if (deleted > 0) {
           purged += 1;
-          commentsDeleted += deleted;
+          messagesDeleted += deleted;
         }
       } catch (error) {
         // The class of the failure and the person id, and nothing the failure
@@ -185,35 +184,33 @@ export class NewsCommentPurgeService implements OnModuleInit {
         // ADR 0007.
         failed += 1;
         this.logger.error(
-          `News comment purge failed for person ${personId}: ${failureName(
-            error,
-          )}`,
+          `Chat purge failed for person ${personId}: ${failureName(error)}`,
         );
       }
     }
 
-    if (commentsDeleted > 0 || failed > 0) {
+    if (messagesDeleted > 0 || failed > 0) {
       this.logger.log(
-        `Purged ${String(commentsDeleted)} news comments for ${String(
+        `Purged ${String(messagesDeleted)} chat messages for ${String(
           purged,
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
     if (personIds.length === MAX_PERSONS_PER_RUN) {
       this.logger.log(
-        `News comment purge stopped at its per-run bound of ${String(
+        `Chat purge stopped at its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
         )}; the rest are erased by the next run.`,
       );
     }
 
-    return { considered: personIds.length, purged, commentsDeleted, failed };
+    return { considered: personIds.length, purged, messagesDeleted, failed };
   }
 
   /**
-   * The people who wrote at least one comment whose retention has run out.
+   * The people who wrote at least one message whose retention has run out.
    *
-   * Grouped by the author rather than listing comments, because the unit of work
+   * Grouped by the author rather than listing messages, because the unit of work
    * is a person: one transaction, one audit entry, one answer to "what of mine
    * was erased and when".
    *
@@ -222,33 +219,29 @@ export class NewsCommentPurgeService implements OnModuleInit {
    * the extra round trip. The per-run bound is applied by the database, so held
    * people removed afterwards would still have spent it: five hundred held
    * people sorting ahead of everybody else would fill every run for as long as
-   * their holds stood, and the comments behind them would outlive their
-   * retention window with nothing reporting a fault. The residency purge states
-   * the same rule as `legalHolds: { none: { releasedAt: null } }` inside its own
-   * scan, and the booking purge states it exactly as this one does.
+   * their holds stood, and the messages behind them would outlive their
+   * retention window with nothing reporting a fault.
    *
    * `authorPersonId` is a plain column and not a relation, so the holds are read
    * first and passed in rather than joined - the same trade the audit log makes,
-   * and the reason a purge can reach this table at all. The list is bounded by
-   * the register, since at most one hold stands per person, and a hold is a
-   * dispute rather than an ordinary state.
+   * and the reason a purge can reach this table at all.
    *
    * The hold is checked again inside the transaction that deletes. That is the
    * check that counts.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
-    const cutoff = newsCommentPurgeCutoff(now, retentionDays);
+    const cutoff = chatMessagePurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
     const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
       (personId) => !withheld.includes(personId),
     );
 
-    const groups = await this.prisma.newsComment.groupBy({
+    const groups = await this.prisma.chatMessage.groupBy({
       by: ["authorPersonId"],
       where: {
         /*
-         * Either the comment's own window has run out, or the person has been
-         * granted erasure, in which case every comment of theirs goes however
+         * Either the message's own window has run out, or the person has been
+         * granted erasure, in which case every message of theirs goes however
          * recent: bringing the purge forward is what the board granted.
          */
         OR: [
@@ -269,7 +262,7 @@ export class NewsCommentPurgeService implements OnModuleInit {
   }
 
   /**
-   * Erases one person's expired comments, and answers how many went.
+   * Erases one person's expired messages, and answers how many went.
    *
    * The deletion and the entry that records it are one transaction. An audit log
    * claiming a purge that rolled back would be worse than no log: the entry is
@@ -279,9 +272,9 @@ export class NewsCommentPurgeService implements OnModuleInit {
   async purgePerson(
     personId: string,
     now: Date = new Date(),
-    retentionDays: number = NEWS_COMMENT_RETENTION_DAYS,
+    retentionDays: number = CHAT_MESSAGE_RETENTION_DAYS,
   ): Promise<number> {
-    const cutoff = newsCommentPurgeCutoff(now, retentionDays);
+    const cutoff = chatMessagePurgeCutoff(now, retentionDays);
 
     return this.prisma.$transaction(async (tx) => {
       /*
@@ -319,8 +312,9 @@ export class NewsCommentPurgeService implements OnModuleInit {
        * A granted erasure request moves this job's cutoff to now, which is the
        * whole of what bringing the purge forward means: the same rows, on the
        * same rule, without waiting out a window the person asked to be freed
-       * from. The request is not closed here - the service-data purge runs last
-       * in the band and closes it, which is why this job still sees it open.
+       * from. The request is not closed here - the service-data purge runs at
+       * 03:53 and closes it, and this job runs six minutes later, so a granted
+       * erasure reaches the chat on the same night rather than the next one.
        */
       const request = await tx.dataSubjectRequest.findFirst({
         where: {
@@ -334,7 +328,7 @@ export class NewsCommentPurgeService implements OnModuleInit {
       });
       const effectiveCutoff = request === null ? cutoff : now;
 
-      const { count } = await tx.newsComment.deleteMany({
+      const { count } = await tx.chatMessage.deleteMany({
         where: {
           authorPersonId: personId,
           createdAt: { lte: effectiveCutoff },
@@ -355,18 +349,18 @@ export class NewsCommentPurgeService implements OnModuleInit {
           // which is what the retention window promised would happen.
           actorPersonId: null,
           targetPersonId: personId,
-          targetKind: "newsComment",
+          targetKind: "chatMessage",
           /*
-           * How many, and the window they fell out of. Not which news item, and
-           * not a word of what any of them said - the retention rule on
+           * How many, and the window they fell out of. Not which room, and not a
+           * word of what any of them said - the retention rule on
            * AuditLogService. This entry names the person and outlives the rows
            * it describes by design, and the log is exempt from every purge, so
-           * text copied in here would be a permanent record of what somebody
-           * said about a neighbour, inside the entry that says it was erased.
+           * text copied in here would be a permanent record of what the board
+           * said to itself, inside the entry that says it was erased.
            */
           context: {
-            newsComments: count,
-            retentionDaysAfterComment: retentionDays,
+            chatMessages: count,
+            retentionDaysAfterMessage: retentionDays,
           },
         },
         tx,
