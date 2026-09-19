@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import {
   compareLocalDays,
   formatDateColumn,
+  formatDayOfInstant,
   formatLocalDay,
   localDayOf,
   localDayOfColumn,
@@ -1147,7 +1148,13 @@ export class DataSubjectReportService {
     const lastMovedOutOn = latestMoveOut(person.residencies);
 
     return {
-      generatedOn: formatDateColumn(now) ?? now.toISOString(),
+      /*
+       * The association's own calendar day, not the UTC one. This stamps the
+       * art. 15 report handed to the person who asked for it, a document whose
+       * every other date is stated on that calendar, and a report produced at
+       * half past midnight on the 6th of March would otherwise state the 5th.
+       */
+      generatedOn: formatLocalDay(localDayOf(now)),
       housingCooperative: {
         name: association?.name ?? "",
         organizationNumber: association?.organizationNumber ?? null,
@@ -1352,8 +1359,16 @@ export class DataSubjectReportService {
          * be standing against. `retention.onLegalHold` below says whether one
          * does; a hold defers this date and never advances it, so the earliest
          * holds true whether or not one stands.
+         *
+         * The purge date is an instant and not a date column - the window is
+         * counted in milliseconds from `endsAt`, deliberately - so the day it
+         * falls on is read on the association's calendar. A booking ending at
+         * half past eleven on a March evening yields a purge instant of 22:30
+         * UTC a year later, which is the following day here.
          */
-        erasableFrom: formatDateColumn(computeBookingPurgeDate(booking.endsAt)),
+        erasableFrom: formatDayOfInstant(
+          computeBookingPurgeDate(booking.endsAt),
+        ),
       })),
       motions: motions.map((motion) => ({
         motionId: motion.id,
@@ -1367,8 +1382,13 @@ export class DataSubjectReportService {
          * Null while the motion is open, which is not a gap in the answer: an
          * open motion has no closing date to count from, and the association is
          * still processing it, so no purge date exists to state.
+         *
+         * An instant and not a date column, read on the association's calendar
+         * exactly as the booking's is.
          */
-        erasableFrom: formatDateColumn(computeMotionPurgeDate(motion.closedAt)),
+        erasableFrom: formatDayOfInstant(
+          computeMotionPurgeDate(motion.closedAt),
+        ),
       })),
       subletApplications: subletApplications.map((application) => ({
         applicationId: application.id,
@@ -1397,8 +1417,11 @@ export class DataSubjectReportService {
          * period applied for ended. Null while it is open, which is not a gap in
          * the answer - there is no closing date to count from, and the
          * association is still processing it.
+         *
+         * An instant and not a date column, read on the association's calendar
+         * exactly as the booking's is, whichever of the two anchors won.
          */
-        erasableFrom: formatDateColumn(
+        erasableFrom: formatDayOfInstant(
           computeSubletPurgeDate(application.closedAt, application.periodTo),
         ),
       })),
@@ -1416,8 +1439,9 @@ export class DataSubjectReportService {
         closedAt: order.closedAt?.toISOString() ?? null,
         boardNote: order.boardNote,
         // Derived here rather than stored, and anchored on the closing date the
-        // way a motion's is. Null while the order is open.
-        erasableFrom: formatDateColumn(
+        // way a motion's is. Null while the order is open. An instant and not a
+        // date column, read on the association's calendar.
+        erasableFrom: formatDayOfInstant(
           computeKeyOrderPurgeDate(order.closedAt),
         ),
       })),
@@ -1439,8 +1463,9 @@ export class DataSubjectReportService {
         // Derived here rather than stored, exactly as the booking's is, and
         // anchored on the end of the date rather than on the withdrawal: the row
         // is about a date, and it is the date that decides when the association
-        // has no further use for it.
-        erasableFrom: formatDateColumn(
+        // has no further use for it. An instant and not a date column, read on
+        // the association's calendar.
+        erasableFrom: formatDayOfInstant(
           computeEventSignupPurgeDate(signup.occurrence.endsAt),
         ),
       })),
@@ -1594,8 +1619,11 @@ export class DataSubjectReportService {
          * it goes on, because a legal hold suspends the purge for the whole
          * person and this document is read by the person a hold may be
          * standing against.
+         *
+         * An instant and not a date column, read on the association's calendar
+         * exactly as the booking's is.
          */
-        erasableFrom: formatDateColumn(
+        erasableFrom: formatDayOfInstant(
           computeNewsCommentPurgeDate(comment.createdAt),
         ),
       })),
@@ -1665,9 +1693,19 @@ export class DataSubjectReportService {
           erasureException: request.erasureException,
           decision: request.decision,
           decisionGround: request.decisionGround,
-          decidedAt: formatDateColumn(request.decidedAt),
-          executedAt: formatDateColumn(request.executedAt),
-          closedAt: formatDateColumn(request.closedAt),
+          /*
+           * These three are plain `DateTime` and the two above them are
+           * `@db.Date`, which is the whole of the difference: `requestedOn` is a
+           * day the board wrote down and is read as the UTC midnight it was
+           * stored at, while a decision, an execution and a closing happened at
+           * a moment and are stated as the day that moment fell on here. A
+           * request closed at half past midnight would otherwise be reported as
+           * closed the day before, on the document that answers when the
+           * association met its art. 12(3) deadline.
+           */
+          decidedAt: formatDayOfInstant(request.decidedAt),
+          executedAt: formatDayOfInstant(request.executedAt),
+          closedAt: formatDayOfInstant(request.closedAt),
           closeReason: request.closeReason,
           issueId: request.issueId,
         }),
@@ -1931,8 +1969,8 @@ function groupChatMessages(
        * instant and a day read off an instant in UTC names yesterday for an
        * hour or two after midnight here.
        */
-      erasableFrom: formatLocalDay(
-        localDayOf(computeChatMessagePurgeDate(message.createdAt)),
+      erasableFrom: formatDayOfInstant(
+        computeChatMessagePurgeDate(message.createdAt),
       ),
     } satisfies ReportChatMessage);
   }

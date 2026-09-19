@@ -4483,6 +4483,8 @@
     "forbidden": "Ditt konto får inte se den här sidan.",
     "person": "Ansluten av",
     "connectedAt": "Ansluten",
+    "dormant": "Vilande",
+    "dormantExplanation": "Den som anslöt appen har inte längre något uppdrag eller någon bostad i föreningen, så appen når ingenting i föreningens register. Anslutningen finns kvar tills någon kopplar bort den.",
     "lastTokenIssued": "Senaste token",
     "noToken": "Ingen token i kraft just nu",
     "unnamedApp": "Namnlös app",

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -1661,7 +1661,13 @@ export class ApartmentRegisterService {
         taxAssessmentUnitNumber: association?.taxAssessmentUnitNumber ?? null,
         propertyType: association?.propertyType ?? null,
       },
-      generatedOn: formatDateColumn(now) ?? "",
+      /*
+       * The association's own calendar day, not the UTC one. This stamps the
+       * statutory extract of the apartment register (BRL 9 kap.), handed to a
+       * tenant-owner or an authority, and an extract produced at half past
+       * midnight on the 6th of March would otherwise state the 5th.
+       */
+      generatedOn: formatLocalDay(localDayOf(now)),
       identityNumbersIncluded: query.includeIdentityNumbers,
       audience: query.audience,
       rows,

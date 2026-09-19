@@ -17,6 +17,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { DataSubjectReport } from "./data-subject-report";
+import { DataSubjectReportService } from "./data-subject-report.service";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15) over HTTP.
@@ -187,6 +188,19 @@ const STOCKHOLM_FIELDS = new Intl.DateTimeFormat("sv-SE", {
   minute: "2-digit",
   hourCycle: "h23",
 });
+
+/**
+ * The association's calendar day an instant falls on, as this suite reads it.
+ *
+ * Built from a formatter of the suite's own rather than from the module under
+ * test, so the expectation is arrived at independently of the code it checks.
+ * Every fixture instant here is derived from `Date.now()`, so a run between
+ * 22:00 and midnight UTC is one where the UTC day and this one differ - which
+ * is the only window in which a document stating the wrong one can be seen to.
+ */
+function stockholmDayOf(instant: Date): string {
+  return STOCKHOLM_FIELDS.format(instant).split(" ")[0] ?? "";
+}
 
 /**
  * The series' own wall-clock fields for that instant.
@@ -1056,6 +1070,37 @@ describe("who may produce a data subject access report", () => {
 });
 
 describe("what the report contains", () => {
+  it.each([
+    // 22:30 UTC on the 21st of June is half past midnight on the 22nd here.
+    ["in summer", "2026-06-21T22:30:00.000Z", "2026-06-22"],
+    // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+    ["in winter", "2026-12-21T23:30:00.000Z", "2026-12-22"],
+  ])(
+    "stamps the day it was produced on the association's own calendar, %s",
+    async (_season, instant, day) => {
+      /*
+       * The header of a document handed to the person who asked for it, at an
+       * instant whose UTC day and Stockholm day differ. Every container here
+       * runs UTC, so a clock read at the moment of the run agrees with the
+       * defect for twenty-two or twenty-three hours a day, and a check built on
+       * it passes against a regression outside that window. The instant is the
+       * service's own `now`, which is what the route supplies from the clock,
+       * rather than a faked process clock: the application runs in this
+       * process, and a fake Date there would disagree with the database's own
+       * about every session and token the request passes through.
+       */
+      const report = await app.get(DataSubjectReportService).generate({
+        personId: subject.personId,
+        actorPersonId: board.personId,
+        now: new Date(instant),
+      });
+
+      expect(report.generatedOn).toBe(day);
+      // And not the day the instant's UTC fields name.
+      expect(report.generatedOn).not.toBe(instant.slice(0, 10));
+    },
+  );
+
   it("decrypts everything the register holds about the person", async () => {
     const report = await reportFor(boardCookie);
 
@@ -1318,7 +1363,10 @@ describe("what the report contains", () => {
     const expected = new Date(
       bookingEndedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
     );
-    expect(booking?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+    // The day that instant falls on here. The window is counted in
+    // milliseconds, deliberately, so what it yields is an instant and the
+    // document states the association's day it lands on.
+    expect(booking?.erasableFrom).toBe(stockholmDayOf(expected));
 
     /*
      * And the fixture's subject is under a standing legal hold, which is what
@@ -1366,7 +1414,7 @@ describe("what the report contains", () => {
     const expected = new Date(
       motionClosedAt.getTime() + 730 * 24 * 60 * 60 * 1000,
     );
-    expect(closed?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+    expect(closed?.erasableFrom).toBe(stockholmDayOf(expected));
 
     /*
      * And no date at all for the one the board still holds. There is no closing
@@ -1487,9 +1535,7 @@ describe("what the report contains", () => {
      * document deriving the day from the instant names the day before the one the
      * notice in the stairwell did.
      */
-    expect(signup?.on).toBe(
-      STOCKHOLM_FIELDS.format(occurrenceStartedAt).split(" ")[0],
-    );
+    expect(signup?.on).toBe(stockholmDayOf(occurrenceStartedAt));
     expect(signup?.on).not.toBe(occurrenceStartedAt.toISOString().slice(0, 10));
 
     /*
@@ -1502,7 +1548,7 @@ describe("what the report contains", () => {
     const expected = new Date(
       occurrenceEndedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
     );
-    expect(signup?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+    expect(signup?.erasableFrom).toBe(stockholmDayOf(expected));
   });
 
   it("carries every news comment in full, hidden ones included", async () => {
@@ -1539,7 +1585,7 @@ describe("what the report contains", () => {
     const expected = new Date(
       commentWrittenAt.getTime() + 365 * 24 * 60 * 60 * 1000,
     );
-    expect(standing?.erasableFrom).toBe(expected.toISOString().slice(0, 10));
+    expect(standing?.erasableFrom).toBe(stockholmDayOf(expected));
   });
 
   it("carries the audit trail both ways round", async () => {
@@ -1642,7 +1688,10 @@ describe("what the person asked, and what reached their data", () => {
         decision: "REFUSED",
         erasureException: "LEGAL_OBLIGATION_TO_KEEP",
         decisionGround: "Medlemsforteckningen far inte gallras.",
-        decidedAt: new Date("2026-03-08T00:00:00.000Z"),
+        // Half past midnight on the 8th of March here, and half past eleven on
+        // the evening of the 7th in UTC: a decision is an instant, and the day
+        // this document states it on is the association's.
+        decidedAt: new Date("2026-03-07T23:30:00.000Z"),
         recordedByPersonId: board.personId,
         decidedByPersonId: board.personId,
       },
@@ -1658,8 +1707,12 @@ describe("what the person asked, and what reached their data", () => {
         erasureException: "LEGAL_OBLIGATION_TO_KEEP",
         decision: "REFUSED",
         decisionGround: "Medlemsforteckningen far inte gallras.",
+        // A `@db.Date` column, read as the day it was written with.
+        requestedOn: "2026-03-01",
         // The art. 12(3) month, derived from the request date.
         dueOn: "2026-04-01",
+        // A plain `DateTime` beside them, stated as the day it fell on here.
+        decidedAt: "2026-03-08",
       });
     } finally {
       await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });

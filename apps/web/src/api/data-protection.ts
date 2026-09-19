@@ -137,6 +137,15 @@ export interface ProcessingActivityView {
   endedAt: string | null;
   /** True while the seed still refreshes this row's fact-derived fields. */
   seeded: boolean;
+  /**
+   * The row's revision as this read saw it, to send back with a save.
+   *
+   * The record is edited as a whole, so two board members who each read it and
+   * then wrote would leave the second one's copy standing and the first one's
+   * work gone. Sending it asks the server to write only if the row is still the
+   * one that was read, and to answer `activity-changed` if it is not.
+   */
+  revision: number;
 }
 
 export interface ProcessingRecord {
@@ -311,6 +320,8 @@ export function updateProcessingActivity(
     thirdCountrySafeguards: string | null;
     retention: string;
     securityMeasures: string | null;
+    /** @see ProcessingActivityView.revision */
+    expectedRevision: number;
   }>,
 ): Promise<ApiResult<ProcessingActivityView>> {
   return apiRequest(

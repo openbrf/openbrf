@@ -99,6 +99,11 @@ describe("consentStateFor", () => {
 
 describe("consentViewOf", () => {
   it("reports the dates as days, like every other register date", () => {
+    /*
+     * 22:30 UTC on the 15th of April is half past midnight on the 16th here, so
+     * the grant is stated as the 16th: a consent is given at a moment, and the
+     * day it was given is the day it was given in the association's own zone.
+     */
     expect(
       consentViewOf(
         "BOARD_ROSTER",
@@ -107,8 +112,24 @@ describe("consentViewOf", () => {
     ).toEqual({
       scope: "BOARD_ROSTER",
       state: "withdrawn",
-      grantedOn: "2026-04-15",
+      grantedOn: "2026-04-16",
       withdrawnOn: "2026-09-01",
+      note: null,
+    });
+  });
+
+  it("states the day a withdrawal falls on here, in winter too", () => {
+    // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+    expect(
+      consentViewOf(
+        "PHOTO",
+        consent("PHOTO", "2026-06-01T09:00:00Z", "2026-12-21T23:30:00Z"),
+      ),
+    ).toEqual({
+      scope: "PHOTO",
+      state: "withdrawn",
+      grantedOn: "2026-06-01",
+      withdrawnOn: "2026-12-22",
       note: null,
     });
   });

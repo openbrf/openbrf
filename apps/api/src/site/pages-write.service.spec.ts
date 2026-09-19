@@ -29,6 +29,7 @@ interface Fakes {
     update: ReturnType<typeof vi.fn>;
     updateMany: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    deleteMany: ReturnType<typeof vi.fn>;
   };
   mediaFile: { findMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
@@ -79,6 +80,7 @@ function build(): Fakes {
     })),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     delete: vi.fn().mockResolvedValue(DRAFT),
+    deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
   const mediaFile = { findMany: vi.fn().mockResolvedValue([]) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
@@ -702,9 +704,13 @@ describe("removing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
 
-    await service.remove("page-1", { personId: "person-1", channel: "WEB" });
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
 
-    expect(page.delete).toHaveBeenCalledWith({ where: { id: "page-1" } });
+    expect(page.deleteMany).toHaveBeenCalledWith({ where: { id: "page-1" } });
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { deleted: boolean } },
     ];
@@ -716,7 +722,11 @@ describe("removing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
 
-    await service.remove("page-1", { personId: "person-1", channel: "WEB" });
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
 
     expect(audit.record).not.toHaveBeenCalled();
   });
@@ -724,7 +734,7 @@ describe("removing a page", () => {
   it("refuses a page that is not there", async () => {
     const { service } = build();
     const refusal = await refusalOf(
-      service.remove("page-9", { personId: "person-1", channel: "WEB" }),
+      service.remove("page-9", {}, { personId: "person-1", channel: "WEB" }),
     );
 
     expect(refusal.reason).toBe("not-found");
@@ -811,5 +821,250 @@ describe("a write that was checked and then overtaken", () => {
         where: { id: "page-1", revision: 4, published: false },
       }),
     );
+  });
+});
+
+describe("a write built on a copy somebody else has replaced", () => {
+  /**
+   * The precondition the caller sends, which is a wider claim than the one the
+   * method makes for itself.
+   *
+   * The claim a line above the write only refuses a save that lands inside one
+   * call. This one refuses a publication, a change of audience or a deletion
+   * decided on a copy of the page read minutes ago and rewritten since - which
+   * is the ordinary way two board members lose each other's work, and the case
+   * the page save has taken a precondition for all along.
+   */
+  it("publishes on a matching precondition, still claiming the page it read", async () => {
+    /*
+     * The caller's precondition is answered before any of this, so by the time
+     * the write runs the two numbers are the same one. The claim stays because
+     * it answers a different question: whether anything landed between this
+     * method's own read and its write.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
+
+    await fakes.service.setPublished(
+      "page-1",
+      { published: true, expectedRevision: 7 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "page-1", revision: 7, published: false },
+      }),
+    );
+  });
+
+  it("changes the audience on a matching precondition, still claiming the page it read", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
+
+    await fakes.service.setVisibility(
+      "page-1",
+      { visibility: "MEMBER", expectedRevision: 7 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "page-1", revision: 7, visibility: "PUBLIC" },
+      }),
+    );
+  });
+
+  it("claims the revision the caller read when deleting", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+
+    await fakes.service.remove(
+      "page-1",
+      { expectedRevision: 4 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
+      where: { id: "page-1", revision: 4 },
+    });
+  });
+
+  it("refuses the deletion and records nothing when the claim finds no row", async () => {
+    // The page this board member read is not the page that is there, and a
+    // deletion has nothing to read again afterwards: what it would remove is
+    // work they never saw.
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    fakes.page.deleteMany.mockResolvedValue({ count: 0 });
+
+    const refusal = await refusalOf(
+      fakes.service.remove(
+        "page-1",
+        { expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses a publication already made, where the caller read an older copy", async () => {
+    /*
+     * Somebody else rewrote the page and published it. The caller asked to
+     * publish the revision it read, and answering "done" would tell it that
+     * the content it decided on is what is now on the website.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 7,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setPublished(
+        "page-1",
+        { published: true, expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+    expect(fakes.page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses an audience already set, where the caller read an older copy", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      visibility: "MEMBER",
+      revision: 7,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setVisibility(
+        "page-1",
+        { visibility: "MEMBER", expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(fakes.page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("answers a publication already made as a no-op where the caller read this copy", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 7,
+    });
+
+    const view = await fakes.service.setPublished(
+      "page-1",
+      { published: true, expectedRevision: 7 },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(view.revision).toBe(7);
+    expect(fakes.page.updateMany).not.toHaveBeenCalled();
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("answers a stale publication with the conflict, not with the stored page's guardrail", async () => {
+    /*
+     * The guardrails on this path read the page as it is stored, which is
+     * content a caller holding an older copy has never seen. Run before the
+     * precondition, a page somebody else had left carrying a personal identity
+     * number would answer 422 about that content - and the caller, whose real
+     * problem is that its copy is stale, would be handed a refusal on the
+     * merits of somebody else's writing and never reach its conflict path.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      revision: 9,
+      content: WITH_PERSONNUMMER,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setPublished(
+        "page-1",
+        { published: true, expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+  });
+
+  it("answers a stale change of audience the same way", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 9,
+      content: WITH_PERSONNUMMER,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setVisibility(
+        "page-1",
+        { visibility: "MEMBER", expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+  });
+
+  it("still refuses a save on the merits of what the caller itself submitted", async () => {
+    /*
+     * The other side of the rule, and why `update` is left as it is: its
+     * guardrails read the content in the request rather than the content on
+     * the page. A personal identity number in what this caller typed is its
+     * own problem whether or not its copy is stale, and answering the conflict
+     * instead would hide the thing it has to fix.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: WITH_PERSONNUMMER,
+          expectedRevision: 4,
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.status).toBe(422);
+  });
+
+  it("deletes without a precondition, as the route always has", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue(DRAFT);
+
+    await fakes.service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+    });
   });
 });

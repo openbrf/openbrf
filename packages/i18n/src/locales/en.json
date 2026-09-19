@@ -4483,6 +4483,8 @@
     "forbidden": "Your account may not see this screen.",
     "person": "Connected by",
     "connectedAt": "Connected",
+    "dormant": "Dormant",
+    "dormantExplanation": "Whoever connected the app no longer holds a position of trust or a home in the association, so the app reaches nothing in the association's records. The connection stays until somebody disconnects it.",
     "lastTokenIssued": "Last token",
     "noToken": "No token in force right now",
     "unnamedApp": "Unnamed app",

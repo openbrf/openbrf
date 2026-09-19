@@ -16,8 +16,30 @@ import {
   runIdentityNumber,
   runSuffix,
 } from "../testing/integration-env";
-import type { ApartmentRegisterExtract } from "./apartment-register.service";
-import type { MemberRegisterExtract } from "./member-register.service";
+import {
+  type ApartmentRegisterExtract,
+  ApartmentRegisterService,
+} from "./apartment-register.service";
+import {
+  type MemberRegisterExtract,
+  MemberRegisterService,
+} from "./member-register.service";
+
+/**
+ * Two instants whose UTC day and Stockholm day differ, one in each season.
+ *
+ * Every container here runs UTC, so a clock read at the moment of the run
+ * agrees with a UTC-day stamp for twenty-two or twenty-three hours a day, and a
+ * check built on it passes against that regression outside the window. The
+ * instant is handed to the service as its `now`, which is what the route
+ * supplies from the clock.
+ */
+const BOUNDARY_INSTANTS = [
+  // 22:30 UTC on the 21st of June is half past midnight on the 22nd here.
+  ["in summer", "2026-06-21T22:30:00.000Z", "2026-06-22"],
+  // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+  ["in winter", "2026-12-21T23:30:00.000Z", "2026-12-22"],
+] as const;
 
 /**
  * The two statutory registers over HTTP, against a real database.
@@ -663,6 +685,22 @@ describe("the member register extract", () => {
     expect(body).not.toContain(actors.protectedMember.email);
   });
 
+  it.each(BOUNDARY_INSTANTS)(
+    "is stamped with the day it was taken on the association's own calendar, %s",
+    async (_season, instant, day) => {
+      // A statutory extract anyone may ask the association for. Taken at half
+      // past midnight on the 22nd, it states the 22nd and not the 21st.
+      const extract = await app.get(MemberRegisterService).extract({
+        actorPersonId: actors.board.personId,
+        scope: "current",
+        now: new Date(instant),
+      });
+
+      expect(extract.generatedOn).toBe(day);
+      expect(extract.generatedOn).not.toBe(instant.slice(0, 10));
+    },
+  );
+
   it("names the housing cooperative the extract is from", async () => {
     const { value } = await extract("current");
 
@@ -725,6 +763,26 @@ describe("who may read the apartment register", () => {
 });
 
 describe("the apartment register extract", () => {
+  it.each(BOUNDARY_INSTANTS)(
+    "is stamped with the day it was taken on the association's own calendar, %s",
+    async (_season, instant, day) => {
+      // A statutory extract handed to a tenant-owner or an authority. Taken at
+      // half past midnight on the 22nd, it states the 22nd and not the 21st.
+      const extract = await app.get(ApartmentRegisterService).extract(
+        {
+          actorPersonId: actors.board.personId,
+          audience: "board",
+          apartmentId: apartments.held,
+          includeIdentityNumbers: false,
+        },
+        new Date(instant),
+      );
+
+      expect(extract.generatedOn).toBe(day);
+      expect(extract.generatedOn).not.toBe(instant.slice(0, 10));
+    },
+  );
+
   async function boardExtract(query = ""): Promise<ApartmentRegisterExtract> {
     const response = await inject({
       method: "GET",

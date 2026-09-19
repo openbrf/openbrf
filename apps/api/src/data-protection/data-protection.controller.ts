@@ -124,6 +124,18 @@ const activitySchema = z.object({
   securityMeasures: z.string().trim().max(2000).nullable().optional(),
 });
 
+/**
+ * The record's revision as the caller last read it, on a save.
+ *
+ * Its own schema rather than a field on `activitySchema`, because the create
+ * route takes that schema whole and there is no row to have read yet. Optional,
+ * on the terms the page save takes it: absent is what this endpoint has always
+ * done.
+ */
+const activityRevisionSchema = z.object({
+  expectedRevision: z.int().nonnegative().optional(),
+});
+
 /** How a recipient is classified, and the agreement where there is one. */
 const agreementSchema = z.object({
   classification: z.enum([
@@ -278,6 +290,7 @@ export class DataProtectionController {
     @Body() body: unknown,
   ): Promise<ProcessingActivityView> {
     const input = activitySchema.partial().parse(body);
+    const precondition = activityRevisionSchema.parse(body);
     return this.processing.update(activityId, {
       ...input,
       dataSubjectCategories: input.dataSubjectCategories
@@ -286,6 +299,9 @@ export class DataProtectionController {
       personalDataCategories: input.personalDataCategories
         ? [...input.personalDataCategories]
         : undefined,
+      ...(precondition.expectedRevision === undefined
+        ? {}
+        : { expectedRevision: precondition.expectedRevision }),
       actorPersonId: actingPersonId(request),
     });
   }

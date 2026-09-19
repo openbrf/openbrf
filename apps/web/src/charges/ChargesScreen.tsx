@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { localDayNow } from "../bookings/booking-calendar";
 import {
   CELL,
   DATA_CELL,
@@ -63,16 +64,29 @@ import { RecordChargePanel } from "./RecordChargePanel";
  * it is offered.
  */
 
-/** The day, on the reader's own clock, for the period defaults. */
+/**
+ * The association's day, which is the day a charge belongs to.
+ *
+ * Not the reader's own clock. This is both the date a new charge opens on and
+ * the upper bound on the two date fields, `chargedOn` is a `@db.Date` column,
+ * and the server compares what is typed against the association's calendar. A
+ * board member east of Stockholm reading their own clock would be offered a day
+ * the API then refuses; west of it, the form would refuse the day the charge
+ * belongs to.
+ */
 function today(): string {
-  const now = new Date();
-  return `${String(now.getFullYear())}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return localDayNow();
 }
 
-/** The period a board opens the screen on: the calendar year in progress. */
+/**
+ * The period a board opens the screen on: the calendar year in progress.
+ *
+ * The association's year, for the same reason: on the 1st of January a board
+ * member abroad would otherwise open the screen on the wrong one.
+ */
 function defaultPeriod(): { from: string; to: string } {
-  const year = new Date().getFullYear();
-  return { from: `${String(year)}-01-01`, to: `${String(year)}-12-31` };
+  const year = localDayNow().slice(0, 4);
+  return { from: `${year}-01-01`, to: `${year}-12-31` };
 }
 
 /** The file as something a browser will save, per the module comment. */

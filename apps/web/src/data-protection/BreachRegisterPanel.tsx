@@ -6,6 +6,7 @@ import {
   type BreachRisk,
   type BreachView,
 } from "../api/data-protection";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -84,7 +85,16 @@ export function BreachRegisterPanel({
                       hours: Math.round(breach.hoursLeft),
                     })
                   : t("dataProtection.breaches.discoveredOn", {
-                      date: breach.discoveredAt.slice(0, 10),
+                      /*
+                       * The association's day and not the UTC one. This is the
+                       * date the art. 33 seventy-two hours are counted from, so
+                       * a breach discovered just after midnight here would
+                       * otherwise be shown to the board as discovered the day
+                       * before - and the deadline it has to meet misstated by a
+                       * day. The clock itself is the API's and is right: it
+                       * counts hours on the instant, deliberately.
+                       */
+                      date: localDayOfInstant(breach.discoveredAt),
                     })}
               </p>
 

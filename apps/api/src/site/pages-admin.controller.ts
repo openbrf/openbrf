@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
@@ -62,11 +63,31 @@ const updateSchema = z.object({
 const publishSchema = z.object({
   published: z.boolean(),
   photoConsentConfirmed: z.boolean().optional(),
+  /*
+   * The page's revision as the caller last read it, on the same terms the save
+   * takes it: optional, and absent means what this endpoint has always done.
+   * Publishing decides who may read the page, so a caller acting on a copy
+   * somebody else has replaced is deciding about content it never saw.
+   */
+  expectedRevision: z.int().nonnegative().optional(),
 });
 
 const visibilitySchema = z.object({
   visibility: z.enum(["PUBLIC", "MEMBER"]),
   photoConsentConfirmed: z.boolean().optional(),
+  expectedRevision: z.int().nonnegative().optional(),
+});
+
+/**
+ * The precondition on a delete, which has no body to carry it.
+ *
+ * A query parameter and not a body: a body on DELETE is legal and poorly served
+ * by clients and proxies, and `If-Match` would bring ETag semantics this API
+ * has nowhere else. It arrives as text like every query parameter, so it is
+ * coerced before it is checked.
+ */
+const removeSchema = z.object({
+  expectedRevision: z.coerce.number().int().nonnegative().optional(),
 });
 
 const reorderSchema = z.object({
@@ -238,9 +259,17 @@ export class PagesAdminController {
   @Delete(":id")
   async remove(
     @Param("id") id: string,
+    @Query() query: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<void> {
-    await this.pages.remove(id, webActor(request));
+    const input = removeSchema.parse(query);
+    await this.pages.remove(
+      id,
+      input.expectedRevision === undefined
+        ? {}
+        : { expectedRevision: input.expectedRevision },
+      webActor(request),
+    );
   }
 }
 

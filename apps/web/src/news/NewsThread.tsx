@@ -9,6 +9,7 @@ import {
   type NewsCommentAuthor,
   writeNewsComment,
 } from "../api/news-reader";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -374,7 +375,7 @@ export function NewsThread({
                   )}
                   <span className="ml-auto font-data text-data text-ink-muted">
                     <time dateTime={comment.createdAt}>
-                      {comment.createdAt.slice(0, 10)}
+                      {localDayOfInstant(comment.createdAt)}
                     </time>
                   </span>
                 </div>

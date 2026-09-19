@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { OwnIssue } from "../api/issues";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
 import { IssueStatusChip } from "./IssueStatusChip";
@@ -40,7 +41,7 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
                 </span>
                 <IssueStatusChip status={issue.status} />
                 <span className="ml-auto font-data text-data text-ink-muted">
-                  {issue.createdAt.slice(0, 10)}
+                  {localDayOfInstant(issue.createdAt)}
                 </span>
               </div>
 

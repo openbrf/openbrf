@@ -46,6 +46,7 @@ const GRANT: ConnectedAppGrant = {
   scopes: ["mcp:read"],
   connectedAt: "2026-09-01T08:30:00.000Z",
   lastTokenIssuedAt: "2026-09-10T06:00:00.000Z",
+  dormant: false,
   personId: "person-1",
   personName: "Mia Modig",
   userId: "user-1",
@@ -155,6 +156,28 @@ describe("the four states of the list", () => {
     });
     expect(screen.getByText("chat.example.se")).toBeTruthy();
     expect(screen.getByText("Mia Modig")).toBeTruthy();
+    // Nothing about standing on a connection that still works.
+    expect(screen.queryByText("Vilande")).toBeNull();
+  });
+
+  it("says a connection is dormant once that member's standing has narrowed", async () => {
+    /*
+     * Nothing revokes a token when a board term or a residency ends: what a
+     * grant is worth is decided per call. The board's list would otherwise say
+     * "connected" about a connection that can reach nothing, which is the one
+     * thing the absence of revocation actually costs.
+     */
+    fetchConnectedApps.mockResolvedValue(listed([{ ...GRANT, dormant: true }]));
+
+    render(<ConnectedAppsScreen viewer={viewerWith(["association:read"])} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Vilande")).toBeTruthy();
+    });
+    // A word and a sentence beside the row, never colour alone.
+    expect(
+      screen.getByText(/når ingenting i föreningens register/),
+    ).toBeTruthy();
   });
 });
 

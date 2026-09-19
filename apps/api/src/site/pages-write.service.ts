@@ -164,6 +164,42 @@ export interface UpdatePageInput {
   expectedRevision?: number;
 }
 
+/**
+ * Refuses a precondition the page no longer meets.
+ *
+ * Answered before anything about the merits of the request, because it is not
+ * about the request: it is about the copy the caller decided on. Two things
+ * follow from putting it first.
+ *
+ * A write that would change nothing still answers it. Publishing a published
+ * page, or giving a page the audience it already has, is not an event and
+ * writes nothing, but somebody else may have rewritten that page and put it in
+ * the requested state since - and answering "done" would tell the caller that
+ * the content it decided on is what is now published, when it has never seen
+ * what is.
+ *
+ * And a write that would change something answers it before the publication
+ * guardrails, which on those paths read the stored page rather than anything
+ * the caller sent. A page left carrying a personal identity number by another
+ * writer would otherwise be refused on the merits of that writer's content, at
+ * a caller whose real problem is the copy in its hand.
+ *
+ * Absent, or matching, nothing here changes what the method does. The
+ * conditional claims downstream stay, because they answer a different
+ * question: whether the page changed after this read.
+ */
+function refuseStalePrecondition(
+  page: { revision: number },
+  expectedRevision: number | undefined,
+): void {
+  if (expectedRevision !== undefined && expectedRevision !== page.revision) {
+    throw new PageWriteError(
+      "The page changed after it was read.",
+      "page-changed",
+    );
+  }
+}
+
 const PAGE_COLUMNS = {
   id: true,
   slug: true,
@@ -489,10 +525,21 @@ export class PagesWriteService {
     input: {
       published: boolean;
       photoConsentConfirmed?: boolean;
+      /** @see PageUpdateInput.expectedRevision */
+      expectedRevision?: number;
     },
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
+    /*
+     * Before the guardrails, because the guardrails on this path read the page
+     * as it is stored and a caller holding an older copy has never seen that
+     * content. Run first, a page somebody else left carrying a personal
+     * identity number would answer on the merits of their writing - and this
+     * caller, whose copy is the thing that is wrong, would never reach the
+     * conflict its own client handles.
+     */
+    refuseStalePrecondition(page, input.expectedRevision);
 
     if (page.published === input.published) {
       return toAdminView(page);
@@ -515,6 +562,11 @@ export class PagesWriteService {
        * write lands. The content save moves the revision, so this claim finds
        * nothing and the board is told to look again rather than publishing
        * something nobody read.
+       *
+       * The revision this method read, and not the caller's: a caller that sent
+       * one has already been refused above unless the two are the same number.
+       * What is left for this claim is the narrower window the precondition
+       * cannot see - a write landing between that read and this one.
        */
       const claimed = await tx.page.updateMany({
         where: { id, revision: page.revision, published: page.published },
@@ -578,10 +630,15 @@ export class PagesWriteService {
     input: {
       visibility: PageVisibility;
       photoConsentConfirmed?: boolean;
+      /** @see PageUpdateInput.expectedRevision */
+      expectedRevision?: number;
     },
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
+    // Before the guardrails, for the reason publishing answers it first: they
+    // read the stored page, which a caller holding an older copy never saw.
+    refuseStalePrecondition(page, input.expectedRevision);
 
     if (page.visibility === input.visibility) {
       return toAdminView(page);
@@ -601,6 +658,10 @@ export class PagesWriteService {
        * publishing is: this is checked and then written, and a content save
        * landing between the two would be widened to a new audience without
        * anything having read it.
+       *
+       * The revision this method read, for the reason publishing claims on the
+       * one it read: a caller's own precondition was answered above, and what
+       * is left here is a write landing between that read and this one.
        */
       const claimed = await tx.page.updateMany({
         where: { id, revision: page.revision, visibility: page.visibility },
@@ -709,12 +770,40 @@ export class PagesWriteService {
    * the publication change it is - in the same transaction, like every other
    * one. A draft nobody could read leaves no entry: there was nothing published
    * to stop being so.
+   *
+   * The precondition matters most here of the four writes that take one,
+   * because this is the one with nothing to read again afterwards: a board
+   * member deleting a page on the strength of a copy somebody else has since
+   * rewritten is deleting work they never saw. `deleteMany` rather than
+   * `delete`, so the revision can sit in the predicate and a claim that matches
+   * nothing is a refusal rather than a thrown record-not-found.
    */
-  async remove(id: string, actor: ActorContext): Promise<void> {
+  async remove(
+    id: string,
+    input: {
+      /** @see PageUpdateInput.expectedRevision */
+      expectedRevision?: number;
+    },
+    actor: ActorContext,
+  ): Promise<void> {
     const page = await this.require(id);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.page.delete({ where: { id } });
+      const claimed = await tx.page.deleteMany({
+        where: {
+          id,
+          ...(input.expectedRevision === undefined
+            ? {}
+            : { revision: input.expectedRevision }),
+        },
+      });
+
+      if (claimed.count === 0) {
+        throw new PageWriteError(
+          "The page changed after it was read.",
+          "page-changed",
+        );
+      }
 
       if (page.published) {
         await this.audit.record(

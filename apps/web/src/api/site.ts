@@ -200,14 +200,24 @@ export function savePage(
 
 export function publishPage(
   id: string,
-  input: { published: boolean; photoConsentConfirmed?: boolean },
+  input: {
+    published: boolean;
+    photoConsentConfirmed?: boolean;
+    /** @see PageEdit.expectedRevision */
+    expectedRevision?: number;
+  },
 ): Promise<ApiResult<AdminPage>> {
   return apiRequest("POST", pagePath(id, "/publish"), input);
 }
 
 export function setPageVisibility(
   id: string,
-  input: { visibility: PageVisibility; photoConsentConfirmed?: boolean },
+  input: {
+    visibility: PageVisibility;
+    photoConsentConfirmed?: boolean;
+    /** @see PageEdit.expectedRevision */
+    expectedRevision?: number;
+  },
 ): Promise<ApiResult<AdminPage>> {
   return apiRequest("POST", pagePath(id, "/visibility"), input);
 }
@@ -218,8 +228,22 @@ export function reorderPages(
   return apiRequest("POST", `${PAGES}/order`, { ids });
 }
 
-export function deletePage(id: string): Promise<ApiResult<void>> {
-  return apiRequest("DELETE", pagePath(id));
+/**
+ * Removes a page, refused where somebody else has written it since.
+ *
+ * The precondition travels as a query parameter, because a DELETE carries no
+ * body here: it is the one route of the four that has nowhere else to put it.
+ */
+export function deletePage(
+  id: string,
+  input: { expectedRevision?: number } = {},
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "DELETE",
+    input.expectedRevision === undefined
+      ? pagePath(id)
+      : `${pagePath(id)}?expectedRevision=${String(input.expectedRevision)}`,
+  );
 }
 
 /**

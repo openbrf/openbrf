@@ -5,6 +5,7 @@ import {
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
+  formatDayOfInstant,
   formatLocalDay,
   instantAt,
   type LocalDay,
@@ -238,6 +239,46 @@ describe("printing a date column", () => {
 
     expect(formatDateColumn(instant)).toBe("2026-06-21");
     expect(formatLocalDay(localDayOf(instant))).toBe("2026-06-22");
+  });
+});
+
+describe("printing the day an instant falls on", () => {
+  it("states the association's day and not the UTC one, in summer", () => {
+    // 22:30 UTC on the 21st of June is half past midnight on the 22nd here.
+    expect(formatDayOfInstant(new Date("2026-06-21T22:30:00.000Z"))).toBe(
+      "2026-06-22",
+    );
+  });
+
+  it("states the association's day and not the UTC one, in winter", () => {
+    // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+    expect(formatDayOfInstant(new Date("2026-12-21T23:30:00.000Z"))).toBe(
+      "2026-12-22",
+    );
+  });
+
+  it("reads an instant that may be absent without a guard at the call site", () => {
+    const rows: { closedAt: Date | null }[] = [
+      { closedAt: new Date("2026-06-21T22:30:00.000Z") },
+      { closedAt: null },
+    ];
+
+    expect(rows.map((row) => formatDayOfInstant(row.closedAt))).toEqual([
+      "2026-06-22",
+      null,
+    ]);
+  });
+
+  it("disagrees with the column reading for the hours a day they differ", () => {
+    /*
+     * The two answers are the same for 22 or 23 hours of every day, which is
+     * what makes the wrong one survive: only an instant inside the hour or two
+     * after local midnight tells them apart.
+     */
+    const instant = new Date("2026-12-21T23:30:00.000Z");
+
+    expect(formatDateColumn(instant)).toBe("2026-12-21");
+    expect(formatDayOfInstant(instant)).toBe("2026-12-22");
   });
 });
 

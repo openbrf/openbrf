@@ -15,6 +15,7 @@ import { PrismaService } from "../database/prisma.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { computePurgeDate } from "../retention/purge-date";
 import type { AddressBookRow } from "./address-book-view";
+import { AddressBookService } from "./address-book.service";
 
 /**
  * The address book over HTTP, against a real database.
@@ -458,6 +459,30 @@ describe("who may open the board's address book", () => {
 });
 
 describe("the board's view", () => {
+  it.each([
+    // 22:30 UTC on the 21st of June is half past midnight on the 22nd here.
+    ["in summer", "2026-06-21T22:30:00.000Z", "2026-06-22"],
+    // 23:30 UTC on the 21st of December is half past midnight on the 22nd here.
+    ["in winter", "2026-12-21T23:30:00.000Z", "2026-12-22"],
+  ])(
+    "is stamped with the day it was read on the association's own calendar, %s",
+    async (_season, instant, day) => {
+      /*
+       * At an instant whose UTC day and Stockholm day differ. Every container
+       * here runs UTC, so a clock read at the moment of the run agrees with a
+       * UTC-day stamp for most of the day and a check built on it would pass
+       * against that regression. The instant is the service's own `now`, which
+       * is what the route supplies from the clock.
+       */
+      const view = await app
+        .get(AddressBookService)
+        .boardView({ filter: "all", page: 1, pageSize: 1 }, new Date(instant));
+
+      expect(view.generatedOn).toBe(day);
+      expect(view.generatedOn).not.toBe(instant.slice(0, 10));
+    },
+  );
+
   it("shows contact details of a person who is not protected", async () => {
     const cookie = await signIn(actors.board.email);
     const { rows } = await boardRows(cookie);
