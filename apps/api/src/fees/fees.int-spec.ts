@@ -1271,22 +1271,37 @@ describe("the erasure date an access report states", () => {
   });
 });
 
+/*
+ * Every case below asserts on this suite's own rows - by apartment or by id -
+ * and never on the counters `FeePurgeService.run` returns. The purge scans the
+ * whole worker database, so its totals include whatever any other suite left
+ * there: a total asserted to be zero fails on a stranger's expired row, and a
+ * total asserted to be positive passes on one even when the row this case is
+ * about survived - which is the regression each case exists to catch.
+ */
 describe("the purge", () => {
   it("erases a rate that has ended and leaves one in force", async () => {
     await recordFee(feeOn({ appliesFrom: "2020-01-01" }));
     await recordFee(feeOn({ appliesFrom: "2020-07-01" }));
 
+    const ended = await prisma.fee.findFirst({
+      where: { apartmentId, appliesUntil: { not: null } },
+      select: { id: true },
+    });
     const standing = await prisma.fee.findFirst({
       where: { apartmentId, appliesUntil: null },
       select: { id: true },
     });
+    expect(ended).not.toBeNull();
     expect(standing).not.toBeNull();
 
     const purge = app.get(FeePurgeService);
-    const summary = await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
+    await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
 
-    expect(summary.feesDeleted).toBeGreaterThan(0);
     // The ended rate went; the one still applying did not, at any age.
+    expect(
+      await prisma.fee.findUnique({ where: { id: ended?.id ?? "" } }),
+    ).toBeNull();
     expect(
       await prisma.fee.findUnique({ where: { id: standing?.id ?? "" } }),
     ).not.toBeNull();
@@ -1318,6 +1333,7 @@ describe("the purge", () => {
         headers: { cookie: boardCookie },
       });
       expect(run.statusCode).toBe(201);
+      const notificationId = run.json<FeeNotificationSummary>().notificationId;
       await recordFee(feeOn({ appliesFrom: "2021-07-01" }));
 
       await setStartMonth(1);
@@ -1330,14 +1346,22 @@ describe("the purge", () => {
 
       const purge = app.get(FeePurgeService);
 
-      // On the calendar year's reckoning both rows would be gone by now.
-      const early = await purge.run(new Date("2029-06-01T12:00:00.000+02:00"));
-      expect(early.feesDeleted).toBe(0);
-      expect(early.noticesDeleted).toBe(0);
+      // On the calendar year's reckoning both rows would be gone by now; on
+      // the May year they were kept in, neither is.
+      await purge.run(new Date("2029-06-01T12:00:00.000+02:00"));
+      expect(await prisma.fee.count({ where: { apartmentId } })).toBe(2);
+      expect(await prisma.feeNotice.count({ where: { apartmentId } })).toBe(1);
 
-      const later = await purge.run(new Date("2030-06-01T12:00:00.000+02:00"));
-      expect(later.feesDeleted).toBeGreaterThan(0);
-      expect(later.noticesDeleted).toBeGreaterThan(0);
+      // A year later both have fallen out. The rate still in force is the one
+      // left, and the run went with its last notice.
+      await purge.run(new Date("2030-06-01T12:00:00.000+02:00"));
+      expect(await prisma.fee.count({ where: { apartmentId } })).toBe(1);
+      expect(await prisma.feeNotice.count({ where: { apartmentId } })).toBe(0);
+      expect(
+        await prisma.feeNotification.findUnique({
+          where: { id: notificationId },
+        }),
+      ).toBeNull();
     } finally {
       await setStartMonth(originalStartMonth);
       await clearFees();
@@ -1356,12 +1380,11 @@ describe("the purge", () => {
     });
 
     const purge = app.get(FeePurgeService);
-    const summary = await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
+    await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
 
-    expect(summary.feesDeleted).toBe(0);
-    expect(await prisma.fee.count({ where: { apartmentId } })).toBeGreaterThan(
-      0,
-    );
+    // Both rates stay, the ended one included. "More than none" would pass if
+    // the hold had done nothing, since the rate still in force is never erased.
+    expect(await prisma.fee.count({ where: { apartmentId } })).toBe(2);
 
     await prisma.legalHold.delete({ where: { id: hold.id } });
     await clearFees();
@@ -1378,25 +1401,27 @@ describe("the purge", () => {
     const notificationId = run.json<FeeNotificationSummary>().notificationId;
 
     const purge = app.get(FeePurgeService);
-    const summary = await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
+    await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
 
-    expect(summary.noticesDeleted).toBeGreaterThan(0);
+    expect(await prisma.feeNotice.count({ where: { apartmentId } })).toBe(0);
     expect(
       await prisma.feeNotification.findUnique({
         where: { id: notificationId },
       }),
     ).toBeNull();
 
-    // One entry per apartment, naming the counts and never a figure.
-    const entries = await prisma.auditLogEntry.findMany({
+    // One entry per apartment, naming the counts and never a figure. The newest
+    // for this apartment, by time: earlier cases write entries for it too.
+    const entry = await prisma.auditLogEntry.findFirst({
       where: { action: "SERVICE_DATA_PURGED", targetId: apartmentId },
+      orderBy: [{ createdAt: "desc" }],
       select: { context: true, targetPersonId: true },
     });
-    expect(entries.length).toBeGreaterThan(0);
+    expect(entry?.context).toMatchObject({ notices: 1, fees: 0 });
     // No subject: which of the apartment's residents that would be is a
     // question the log must not answer by guessing.
-    expect(entries.at(-1)?.targetPersonId).toBeNull();
-    expect(JSON.stringify(entries.at(-1)?.context)).not.toContain("3450");
+    expect(entry?.targetPersonId).toBeNull();
+    expect(JSON.stringify(entry?.context)).not.toContain("3450");
 
     await clearFees();
   });
