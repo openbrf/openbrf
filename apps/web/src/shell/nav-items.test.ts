@@ -126,13 +126,16 @@ describe("the other seats", () => {
     expect(destinations(["motions:submit"])).not.toContain("/board-mailbox");
   });
 
-  it("offers the chat on the board's capability and on no other", () => {
+  it("offers the chat on one capability and on no other", () => {
     /*
-     * One capability rather than an any-of list, because there is one seat here.
-     * The board chat is the board's own deliberation: living here does not open
-     * it, and neither does holding the tenant-ownership - membership is a
-     * statutory relationship and reading what the board says to itself is not
-     * among the things it carries.
+     * One capability rather than an any-of list, although two kinds of room sit
+     * behind it: the board's own deliberation, whose members are whoever holds a
+     * seat, and a group, which somebody who lives here made. Which rooms there
+     * are is the service's answer and never this list's, so the destination is
+     * offered to everybody who can reach the endpoints at all.
+     *
+     * The property manager holds none of it: they handle the association's
+     * issues, they were not elected to anything and they do not live here.
      */
     expect(destinations(["chat:participate"])).toContain("/chat");
     expect(destinations(["news:comment"])).not.toContain("/chat");
@@ -171,10 +174,15 @@ describe("the other seats", () => {
         "news:comment",
         "bookings:book",
         "events:attend",
+        // A group is made by whoever wants one, so the destination is a
+        // resident's as well - and what they find in it is the rooms they are
+        // in, which is a question this list does not answer.
+        "chat:participate",
       ]),
     ).toEqual([
       "/",
       "/settings",
+      "/chat",
       "/issues",
       "/bookings",
       "/events",

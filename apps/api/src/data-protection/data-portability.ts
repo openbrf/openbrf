@@ -93,6 +93,14 @@ export interface DataPortabilityExport {
    */
   chats: DataSubjectReport["chats"];
   /**
+   * The messages they reported to the board, and the ones they answered.
+   *
+   * Their own act and the board's answer to it, which is data they supplied in
+   * the same sense a message is. The message the report was about is not here,
+   * because it is not here on the report either: somebody else wrote it.
+   */
+  chatReports: DataSubjectReport["chatReports"];
+  /**
    * What they have asked about their own data.
    *
    * What they asked and why, and not what the board answered. A decision, its
@@ -232,6 +240,7 @@ export function toDataPortabilityExport(
     eventSignups: report.eventSignups,
     newsComments: report.newsComments,
     chats: report.chats,
+    chatReports: report.chatReports,
     dataSubjectRequests: report.dataSubjectRequests.map((request) => ({
       requestId: request.requestId,
       kind: request.kind,

@@ -13,10 +13,22 @@ import { failureMessageKey } from "../ui/save-state";
  * `chat-not-found` is deliberately vaguer than what happened, and the screen
  * must not undo that in the wording. It answers a room that does not exist and a
  * room this person is not in, as one answer - anybody who could tell those apart
- * could walk the identifiers and learn what rooms the association has.
+ * could walk the identifiers and learn what rooms the association has, and a
+ * group is invisible to somebody outside it only while that holds.
+ * `message-not-found` is vague in the same way and for the same reason.
  */
 type ChatReason =
-  "chat-not-found" | "personal-identity-number" | "too-many-messages";
+  | "chat-not-found"
+  | "message-not-found"
+  | "report-not-found"
+  | "report-resolved"
+  | "not-a-resident"
+  | "not-reportable"
+  | "already-reported"
+  | "too-many-groups"
+  | "group-full"
+  | "personal-identity-number"
+  | "too-many-messages";
 
 /**
  * Every refusal this screen can meet, in one sentence each.
@@ -39,6 +51,14 @@ type ChatReason =
  */
 const CHAT_FAILURES = {
   "chat-not-found": "chat.errors.chatNotFound",
+  "message-not-found": "chat.errors.messageNotFound",
+  "report-not-found": "chat.errors.reportNotFound",
+  "report-resolved": "chat.errors.reportResolved",
+  "not-a-resident": "chat.errors.notAResident",
+  "not-reportable": "chat.errors.notReportable",
+  "already-reported": "chat.errors.alreadyReported",
+  "too-many-groups": "chat.errors.tooManyGroups",
+  "group-full": "chat.errors.groupFull",
   "personal-identity-number": "chat.errors.personalIdentityNumber",
   "too-many-messages": "chat.errors.tooManyMessages",
   "invalid-body": "chat.errors.invalidBody",
@@ -48,11 +68,12 @@ const CHAT_FAILURES = {
  * The sentence for a refusal from a chat endpoint.
  *
  * The refusal for a personal identity number carries positions - a field name
- * and a character offset - and none of them is rendered. A message has one
- * field, so naming it says nothing the sentence has not, and an offset into a
- * textarea is not something a person can act on. What is never rendered is the
- * value: the response does not carry it, and a screen the whole board is looking
- * at is exactly where it must not appear.
+ * and a character offset - and none of them is rendered. The two texts it can be
+ * about, a message and the note on a report, are each one field on their own
+ * form, so naming the field says nothing the sentence has not, and an offset
+ * into a textarea is not something a person can act on. What is never rendered
+ * is the value: the response does not carry it, and a screen a whole room is
+ * looking at is exactly where it must not appear.
  */
 export function chatFailureKey(failure: ApiFailure): TranslationKey {
   return failureMessageKey(failure, CHAT_FAILURES, "chat.errors.unknown");

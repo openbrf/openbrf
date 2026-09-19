@@ -1,12 +1,16 @@
 import { Module } from "@nestjs/common";
 
+import { ChatGroupController } from "./chat-group.controller";
+import { ChatGroupService } from "./chat-group.service";
 import { ChatPurgeService } from "./chat-purge.service";
+import { ChatReportController } from "./chat-report.controller";
+import { ChatReportService } from "./chat-report.service";
 import { ChatController } from "./chat.controller";
 import { ChatService } from "./chat.service";
 
 /**
- * The chat: the rooms somebody is in, what is said in them, and the clock that
- * empties them.
+ * The chat: the rooms somebody is in, what is said in them, the way a message
+ * reaches the board, and the clock that empties all of it.
  *
  * It imports nothing and exports nothing, which is worth stating rather than
  * leaving to be read off the decorator. The database client, the audit log and
@@ -24,7 +28,12 @@ import { ChatService } from "./chat.service";
  * one conversation the association holds that is not addressed to anybody.
  */
 @Module({
-  controllers: [ChatController],
-  providers: [ChatService, ChatPurgeService],
+  controllers: [ChatController, ChatGroupController, ChatReportController],
+  providers: [
+    ChatService,
+    ChatGroupService,
+    ChatReportService,
+    ChatPurgeService,
+  ],
 })
 export class ChatModule {}

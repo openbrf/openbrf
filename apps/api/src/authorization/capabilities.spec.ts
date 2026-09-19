@@ -94,6 +94,10 @@ describe("board member", () => {
     // The board's own chat. The seat is what puts somebody in the room, so the
     // seat is what carries the capability that opens its endpoints.
     "chat:participate",
+    // The messages somebody in a group carried out to the board. It opens no
+    // room: what the board may do is read what was reported to it and strike
+    // that message through.
+    "chat:moderate",
   ])("can %s", (capability) => {
     expect(can({ isBoardMember: true }, capability)).toBe(true);
   });
@@ -193,9 +197,11 @@ describe("property manager", () => {
     // another shape - and decision 11 keeps this party out of it.
     "keyOrders:place",
     "keyOrders:handle",
-    // The board's deliberation is the board's. This party was not elected to
-    // anything and handles the association's issues.
+    // The board's deliberation is the board's, and a group is for the people
+    // who live here. This party was not elected to anything, does not live here
+    // and handles the association's issues.
     "chat:participate",
+    "chat:moderate",
   ])("is denied %s", (capability) => {
     // An external property manager must never reach the register: this is a
     // published product promise, not a default.
@@ -228,6 +234,10 @@ describe("resident and member", () => {
     // the tenant-ownership - a partner, an adult child and a tenant all need
     // one.
     "keyOrders:place",
+    // A group is made by whoever wants one, so the endpoints are open to
+    // everybody who lives here. The board chat is not among the rooms they are
+    // answered with, which is the service's question rather than this one.
+    "chat:participate",
   ])("a resident can %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(true);
   });
@@ -262,9 +272,9 @@ describe("resident and member", () => {
     // A resident orders a key for their own door; answering the queue those
     // orders arrive in is the board's.
     "keyOrders:handle",
-    // Living here is not a seat on the board, and the one chat that exists is
-    // the board's own.
-    "chat:participate",
+    // A resident reports a message in a room they are in; reading what was
+    // reported and striking it through are the board's.
+    "chat:moderate",
   ])("a resident is denied %s", (capability) => {
     expect(can({ isResident: true }, capability)).toBe(false);
   });

@@ -1683,4 +1683,33 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Styrelsechatten är för den som har ett uppdrag" },
     capture: "page",
   },
+  {
+    /*
+     * A group chat, made on the screen by somebody who lives here.
+     *
+     * The resident rather than the administrator, and the difference is the
+     * whole point of the screen: a group is made by whoever wants one, so the
+     * account that can make one is an account with a home in the building. The
+     * administrator holds every capability and is offered no form at all.
+     *
+     * Made here rather than seeded, because the making is what the picture is
+     * of: an empty room list with a name field under it, and a room a moment
+     * later with its own panel saying who is in it.
+     *
+     * Nothing is written in it. A conversation would be two accounts and a
+     * poll, which `specs/43-chat-groups.spec.ts` carries; what this entry is
+     * for is the room and the panel that administers nothing.
+     */
+    name: "chat-group",
+    as: "resident",
+    goto: appPath("/chat"),
+    prepare: [
+      { see: { text: "Du är inte med i något rum än" } },
+      { fill: { label: "Gruppens namn" }, value: "Trädgårdsgruppen" },
+      { click: { button: "Skapa gruppen" } },
+    ],
+    // The member panel, which exists only once the room has been read back.
+    waitFor: { text: "Startade gruppen" },
+    capture: "page",
+  },
 ];

@@ -88,21 +88,22 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the module's own namespace rather than nav, because the label is
     // that module's word for itself and moves with it.
     labelKey: "chat.navLabel",
-    // One capability and no any-of list, because there is one seat here. The
-    // board chat is the board's own deliberation: a resident does not hold it,
-    // and neither does a member, because membership is a statutory relationship
-    // and reading what the board says to itself is not among the things it
-    // carries - a member who wants to know what was decided reads the minutes.
+    // One capability and no any-of list, although two kinds of room sit behind
+    // it: the board chat, whose members are whoever holds a seat, and a group,
+    // which somebody who lives here made for something the house is doing.
+    // Which rooms there are for this account is the service's answer and never
+    // this list's.
     //
     // Deliberately not the external property manager, on the news:comment
-    // precedent: they handle the association's issues and were not elected to
-    // anything.
+    // precedent: they handle the association's issues, they were not elected to
+    // anything and they do not live here.
     //
     // The administrator holds it through the ADMIN grant and is offered this
     // destination, and finds no room in it. That is not a link to a screen that
     // can only refuse them - the screen answers, and what it says is that the
-    // room's members are whoever holds a seat and this account holds none.
-    // Hiding it from them would be hiding the explanation as well.
+    // board's room comes from an election and a group from a neighbour, and
+    // that this account has neither. Hiding it from them would be hiding the
+    // explanation as well.
     capability: "chat:participate",
   },
   {

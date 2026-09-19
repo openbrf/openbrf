@@ -158,7 +158,14 @@ interface RoomView {
   lastMessageAt: string | null;
 }
 
-/** The rooms this cookie is offered. */
+/**
+ * The rooms this cookie is offered.
+ *
+ * The answer carries whether this account may make a group as well, because a
+ * screen with nothing on it has to know which of the two empty cases it is
+ * showing. Nobody here lives in the building, so it is false throughout this
+ * file: what a residency decides is `chat-group.int-spec.ts`.
+ */
 async function roomsFor(cookie: string): Promise<RoomView[]> {
   const response = await inject({
     method: "GET",
@@ -166,7 +173,12 @@ async function roomsFor(cookie: string): Promise<RoomView[]> {
     headers: { cookie },
   });
   expect(response.statusCode).toBe(200);
-  return response.json<RoomView[]>();
+  const answer = response.json<{
+    rooms: RoomView[];
+    mayCreateGroup: boolean;
+  }>();
+  expect(answer.mayCreateGroup).toBe(false);
+  return answer.rooms;
 }
 
 let seatedCookie: string;
@@ -323,12 +335,16 @@ describe("the rooms somebody is in", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([]);
+    expect(response.json()).toEqual({ rooms: [], mayCreateGroup: false });
   });
 
-  it("refuses somebody who lives here and holds no seat", async () => {
-    // The capability is the board's, so a resident is stopped by the guard
-    // before membership is ever asked about.
+  it("refuses somebody with neither a seat nor a home here", async () => {
+    /*
+     * A person and an account and nothing else: no board seat, and no residency
+     * either, which is what the chat capability now follows. So they are
+     * stopped by the guard before membership is ever asked about - and somebody
+     * who does live here is not, which `chat-group.int-spec.ts` covers.
+     */
     const response = await inject({
       method: "GET",
       url: "/api/chat",
@@ -485,11 +501,11 @@ describe("writing and reading over HTTP", () => {
 describe("the one refusal", () => {
   it("answers an unknown room exactly as a room this person is not in", async () => {
     /*
-     * A GROUP row stands in for "a room this person is not in": the value is in
-     * the enum so that adding groups is not a migration over live rows, and
-     * until a service answers it the refusal has to be indistinguishable from a
-     * room that is not there. Anything else would let the identifier space be
-     * walked to learn what rooms the association has.
+     * A group nobody in this file is in stands in for "a room this person is
+     * not in". The refusal has to be indistinguishable from a room that is not
+     * there, or the identifier space can be walked to learn what rooms the
+     * association has - which is also the whole of what makes a group invisible
+     * to somebody outside it.
      */
     const group = await prisma.chat.create({
       data: { kind: "GROUP", name: `Garden ${suffix}` },
