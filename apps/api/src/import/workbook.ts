@@ -22,7 +22,14 @@ export const MAX_IMPORT_ROWS = 5000;
  *
  * A date cell arrives as a Date because Excel stores dates as numbers, and
  * writing it back as an ISO calendar date is what makes a column formatted as a
- * date behave the same as one typed as text. A number keeps no formatting, so
+ * date behave the same as one typed as text. The fields are read as UTC, which
+ * is correct here and nowhere else in this product: an Excel date serial counts
+ * days and carries no zone, so the parser decodes it to midnight UTC, and the
+ * value goes on into a `@db.Date` column that is read back the same way.
+ * `workbook.spec.ts` pins that, because a library that ever decoded a serial to
+ * local midnight would shift every imported date by a day in silence.
+ *
+ * A number keeps no formatting, so
  * an apartment number reaches us as 1101 rather than "1101" and a phone number
  * that Excel ate the leading zero from reaches us as 701234567 - which the
  * phone normalizer turns back into +46701234567.

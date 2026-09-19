@@ -7,6 +7,7 @@ import {
   reviseKeyOrder,
   withdrawKeyOrder,
 } from "../api/key-orders";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import {
   FIELD,
   FIELD_DATA,
@@ -264,7 +265,12 @@ export function OwnKeyOrdersPanel({
                     order.status === "HANDED_OVER"
                       ? "keyOrders.mine.handedOverOn"
                       : "keyOrders.mine.closedOn",
-                    { date: order.closedAt?.slice(0, 10) ?? "" },
+                    {
+                      date:
+                        order.closedAt === null
+                          ? ""
+                          : localDayOfInstant(order.closedAt),
+                    },
                   )}
                 </p>
               )}

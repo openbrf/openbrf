@@ -1,0 +1,12 @@
+-- The optimistic token a save of an art. 30 record is claimed on.
+--
+-- The same column page carries, for the same reason and with the same rule: the
+-- writer increments it in the statement that changes the fields, and a caller
+-- that read the row earlier sends the number it saw so a save composed on a
+-- copy somebody else has replaced is refused rather than applied.
+--
+-- Default 1 rather than 0, matching page.revision, so a row written before this
+-- migration and a row written after it are the same kind of thing to a caller.
+-- Every existing row takes the default and no caller sends a precondition yet,
+-- so nothing is refused by this migration landing.
+ALTER TABLE "processing_activity" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 1;

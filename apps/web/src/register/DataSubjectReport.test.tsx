@@ -1131,6 +1131,37 @@ describe("what the document prints", () => {
     expect(hiddenColumnOf(STANDING_COMMENT)).toBe("Nej");
   });
 
+  it("states an instant as the day it fell on here, not the UTC one", async () => {
+    /*
+     * 23:30 UTC on the 21st of December is half past midnight on the 22nd in
+     * Stockholm. Twenty-nine columns of this document turn an instant into a
+     * day through one helper, and cutting the string to ten characters answers
+     * the 21st on every one of them - on the document art. 15 entitles somebody
+     * to, about acts that happened here.
+     */
+    renderReport({
+      ...FULL_REPORT,
+      newsComments: [
+        {
+          commentId: "comment-3",
+          newsTitle: "Sent pa kvallen",
+          newsSlug: "sent-pa-kvallen",
+          body: "Skrivet strax efter midnatt.",
+          hidden: false,
+          writtenAt: "2026-12-21T23:30:00.000Z",
+          // The server already states this one as a day, so it arrives as a day
+          // and never reaches the helper.
+          erasableFrom: "2027-12-22",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const comments = within(sectionOf("Nyhetskommentarer"));
+    expect(comments.getByText("2026-12-22")).not.toBeNull();
+    expect(comments.queryByText("2026-12-21")).toBeNull();
+  });
+
   it("keeps the line breaks in every piece of the person's own writing", async () => {
     /*
      * Three sections of this document carry free text somebody wrote - a fault

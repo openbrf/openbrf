@@ -30,6 +30,16 @@ export interface ConnectedApp {
    * nothing records a call against a grant.
    */
   lastTokenIssuedAt: string | null;
+  /**
+   * Whether the person's standing has narrowed to nothing an app could use.
+   *
+   * Nothing revokes a token when a board term ends or a residency does: what a
+   * grant is worth is decided per call, so a narrowed person's app is refused
+   * at the moment it asks. Without this the row would keep reading as connected
+   * while the connection could do nothing - and look fresher as it became more
+   * useless, because the app goes on refreshing its token on schedule.
+   */
+  dormant: boolean;
 }
 
 /** The same connection, plus who granted it. The instance-wide view only. */

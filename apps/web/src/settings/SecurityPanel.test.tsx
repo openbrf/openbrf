@@ -53,6 +53,7 @@ const CONNECTED: ConnectedApp = {
   scopes: ["mcp:read"],
   connectedAt: "2026-09-01T08:30:00.000Z",
   lastTokenIssuedAt: "2026-09-10T06:00:00.000Z",
+  dormant: false,
 };
 
 const mine = (connectedApps: ConnectedApp[]): MineResult => ({
@@ -134,6 +135,39 @@ describe("the apps this member has connected", () => {
     // the day: the member is reading about something that just happened.
     expect(screen.getByText(/1 sep\. 2026 10:30/)).toBeTruthy();
     expect(screen.getByText(/10 sep\. 2026 08:00/)).toBeTruthy();
+  });
+
+  it("says a connection is dormant once the member's standing has narrowed", async () => {
+    /*
+     * Nothing revokes a token when a board term or a residency ends: what a
+     * grant is worth is decided per call. The row would otherwise read as
+     * connected while the app could reach nothing - and look fresher as it
+     * became more useless, because it keeps refreshing its token on schedule.
+     */
+    fetchMyConnectedApps.mockResolvedValue(
+      mine([{ ...CONNECTED, dormant: true }]),
+    );
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Vilande")).toBeTruthy();
+    });
+    // A word and a sentence beside the row, never colour alone.
+    expect(
+      screen.getByText(/når ingenting i föreningens register/),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about standing on a connection that still works", async () => {
+    fetchMyConnectedApps.mockResolvedValue(mine([CONNECTED]));
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Chattklienten")).toBeTruthy();
+    });
+    expect(screen.queryByText("Vilande")).toBeNull();
   });
 
   it("says so plainly when no token is in force rather than leaving a gap", async () => {

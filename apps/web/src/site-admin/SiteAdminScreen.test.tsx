@@ -44,6 +44,7 @@ const fetchPages = vi.fn();
 const createPage = vi.fn();
 const publishPage = vi.fn();
 const savePage = vi.fn();
+const deletePage = vi.fn();
 
 vi.mock("../api/site", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/site")>()),
@@ -51,6 +52,7 @@ vi.mock("../api/site", async (importOriginal) => ({
   createPage: (page: unknown) => createPage(page),
   publishPage: (id: string, input: unknown) => publishPage(id, input),
   savePage: (id: string, edit: unknown) => savePage(id, edit),
+  deletePage: (id: string, input: unknown) => deletePage(id, input),
 }));
 
 /**
@@ -136,6 +138,7 @@ beforeEach(() => {
     value: { ...DRAFT, published: true },
   });
   savePage.mockResolvedValue({ ok: true, value: DRAFT });
+  deletePage.mockResolvedValue({ ok: true, value: undefined });
 });
 
 describe("who the screen is for", () => {
@@ -272,7 +275,13 @@ describe("the editor", () => {
     );
 
     await waitFor(() => {
-      expect(publishPage).toHaveBeenCalledWith("page-1", { published: false });
+      // With the copy the editor is holding, as the save sends it: publishing
+      // decides who may read the page, so it is refused where somebody else
+      // has written it since.
+      expect(publishPage).toHaveBeenCalledWith("page-1", {
+        published: false,
+        expectedRevision: 2,
+      });
     });
     // Taking a page down does not commit whatever edits were half-finished
     // beside it.
@@ -284,7 +293,18 @@ describe("the editor", () => {
      * The body lives in this screen until it is saved. Publishing without
      * saving first would put the previously stored version on the website -
      * for a page written and not yet saved, a blank one.
+     *
+     * The save the publish makes moves the revision, so the publish has to
+     * claim the number that save produced and not the one the editor was
+     * holding when the board pressed the button. The mock therefore answers
+     * with a moved revision: answering with the same one would make the
+     * assertion below unable to tell a fresh number from a spent one, and the
+     * test would pass against a publish that claims a revision its own save has
+     * already used - which the server refuses as a conflict, leaving the page
+     * unpublished and the board looking at a notice about somebody else.
      */
+    savePage.mockResolvedValue({ ok: true, value: { ...DRAFT, revision: 3 } });
+
     const user = userEvent.setup();
     renderScreen();
     await screen.findByText("Valkommen");
@@ -314,7 +334,11 @@ describe("the editor", () => {
         expectedRevision: 2,
       });
     });
-    expect(publishPage).toHaveBeenCalledWith("page-2", { published: true });
+    expect(publishPage).toHaveBeenCalledWith("page-2", {
+      published: true,
+      // The revision the save answered with, not the one this editor opened on.
+      expectedRevision: 3,
+    });
   });
 
   it("reads the page again after somebody else saved it, so the next save can land", async () => {
@@ -363,6 +387,38 @@ describe("the editor", () => {
         expect.objectContaining({ expectedRevision: 9 }),
       );
     });
+  });
+
+  it("says so when the page a deletion would remove is not the one it read", async () => {
+    /*
+     * A deletion has nothing to read again afterwards, so it takes the same
+     * precondition a save does and is refused the same way. What the board is
+     * told is the same sentence, because what it has to do is the same: look at
+     * the page that is there before deciding a second time.
+     */
+    deletePage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "page-changed" },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Ta bort sidan" }));
+
+    await waitFor(() => {
+      expect(deletePage).toHaveBeenCalledWith("page-2", {
+        expectedRevision: 2,
+      });
+    });
+    expect(
+      await screen.findByText(/Någon annan sparade sidan medan den var öppen/),
+    ).toBeTruthy();
+    // And the editor is still open on the page nothing removed.
+    expect(screen.getByRole("button", { name: "Ta bort sidan" })).toBeTruthy();
   });
 
   it("keeps the controls off until the page it would claim against is the one it holds", async () => {

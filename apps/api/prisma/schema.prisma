@@ -3608,6 +3608,25 @@ model ProcessingActivity {
   /// seed to keep refreshing its fact-derived fields.
   updatedByPersonId  String?
 
+  /// The optimistic token a save is claimed on, as Page.revision is.
+  ///
+  /// The record is edited as a whole, so a board member saving a copy read
+  /// before somebody else's edit would replace that edit with no error and
+  /// nothing to recover from. The caller sends the revision it read, the write
+  /// matches on it, and a save built on a copy that has been replaced is
+  /// refused instead.
+  ///
+  /// A counter and not `updatedAt`, for the reason Page.revision gives: that
+  /// column is stored to the millisecond, so two saves inside one millisecond
+  /// carry the same token. Incremented by the writer in the same statement as
+  /// the fields, because a trigger would put the increment outside the claim
+  /// that reads it.
+  ///
+  /// The advisory lock on the same row answers a different question and both
+  /// are needed: the lock serialises two server transactions that overlap, and
+  /// cannot see that a payload was composed from an older read.
+  revision Int @default(1)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

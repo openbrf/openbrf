@@ -7,6 +7,7 @@ import {
   fetchContactSubmissions,
   setContactSubmissionHandled,
 } from "../api/contact";
+import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { HINT, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -236,7 +237,7 @@ function MessageRow({
             somebody has been waiting, and a date belongs on the mono grid like
             every other date in the interface. */}
         <span className="font-data text-data text-ink-muted">
-          {submission.createdAt.slice(0, 10)}
+          {localDayOfInstant(submission.createdAt)}
         </span>
         {submission.handledAt === null ? null : (
           <>
@@ -244,7 +245,7 @@ function MessageRow({
               {t("settings.contactInbox.handledOn")}
             </span>
             <span className="font-data text-data text-ink-muted">
-              {submission.handledAt.slice(0, 10)}
+              {localDayOfInstant(submission.handledAt)}
             </span>
           </>
         )}

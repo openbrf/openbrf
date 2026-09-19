@@ -501,6 +501,132 @@ describe("writing a page", () => {
     await removePage(page.id);
   });
 
+  it("refuses a publication decided on a copy somebody else has replaced", async () => {
+    /*
+     * Publishing decides who may read the page, so a board member acting on a
+     * copy read before somebody else rewrote it is deciding about content they
+     * never saw. The precondition travels the same way the save's does.
+     */
+    const page = await newPage(boardCookie, `${slugs.concurrent}-publish`);
+
+    const saved = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: page.title,
+        content: { blocks: [paragraph("Nagot annat an det som lastes.")] },
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const stale = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: true, expectedRevision: page.revision },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { reason: string }).reason).toBe("page-changed");
+
+    await removePage(page.id);
+  });
+
+  it("refuses a change of audience decided on a copy somebody else has replaced", async () => {
+    const page = await newPage(boardCookie, `${slugs.concurrent}-visibility`);
+
+    const saved = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: page.title,
+        content: { blocks: [paragraph("Nagot annat an det som lastes.")] },
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const stale = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/visibility`,
+      payload: { visibility: "MEMBER", expectedRevision: page.revision },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { reason: string }).reason).toBe("page-changed");
+
+    await removePage(page.id);
+  });
+
+  it("refuses a deletion decided on a copy somebody else has replaced", async () => {
+    /*
+     * The precondition matters most here, because a deletion has nothing to
+     * read again afterwards: what it would remove is work the board member
+     * never saw. A query parameter and not a body, because this is the one
+     * route of the four with nowhere else to carry it - no `@Delete` in this
+     * API takes a body, and `If-Match` would bring ETag semantics the API has
+     * nowhere else.
+     */
+    const page = await newPage(boardCookie, `${slugs.concurrent}-delete`);
+
+    const saved = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: page.slug,
+        title: "Kollegans text",
+        content: { blocks: [paragraph("Skriven efter att sidan lastes.")] },
+        expectedRevision: page.revision,
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const stale = await inject({
+      method: "DELETE",
+      url: `/api/site/pages/${page.id}?expectedRevision=${String(page.revision)}`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { reason: string }).reason).toBe("page-changed");
+
+    // And the page is still there, with the other board member's work on it.
+    const stored = await inject({
+      method: "GET",
+      url: `/api/site/pages/${page.id}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(stored.statusCode).toBe(200);
+    expect((stored.json() as PageBody).title).toBe("Kollegans text");
+
+    // The revision that is actually there deletes it.
+    const removed = await inject({
+      method: "DELETE",
+      url: `/api/site/pages/${page.id}?expectedRevision=${String((stored.json() as PageBody).revision)}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(removed.statusCode).toBe(200);
+  });
+
+  it("deletes without a precondition, as the route always has", async () => {
+    const page = await newPage(boardCookie, `${slugs.concurrent}-delete-open`);
+
+    const removed = await inject({
+      method: "DELETE",
+      url: `/api/site/pages/${page.id}`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(removed.statusCode).toBe(200);
+  });
+
   it("refuses an address the instance already serves", async () => {
     const response = await createPage(boardCookie, "api");
 

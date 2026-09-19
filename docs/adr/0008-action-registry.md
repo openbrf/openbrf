@@ -309,6 +309,63 @@ publishing a precondition the service discards is worse than not offering one.
 Adding it to those three would change three existing HTTP routes and is the
 obvious follow-up.
 
+**The follow-up has been made, and the sentence above was narrower than it
+read.** It is true of the wire and misleading about the service: `setPublished`
+and `setVisibility` already did a compare-and-set on a revision they read
+themselves one line earlier, and both already threw `page-changed`. What each
+needed was one expression - the caller's revision where one was sent, and
+otherwise the one the method read - so the whole 409 path was already there.
+
+`remove` was the different one. It was a bare delete on a route with no body,
+and no `@Delete` in this API takes one. It takes the revision as a query
+parameter - `DELETE /api/site/pages/:id?expectedRevision=3` - and became a
+claimed delete that raises `page-changed` when the claim matches nothing. The
+alternatives were considered and rejected: a body on DELETE is legal and poorly
+served by clients and proxies, and `If-Match` would bring ETag semantics this
+API has nowhere else and would have to be answered for on every route that then
+lacked them.
+
+The precondition is **optional on all four actions**, which diverges from
+`page_update`, where it is required. A required field added to an action that is
+already armed reaches an already-connected app with no per-grant snapshot and no
+reconnection step, so it is a breaking change with no migration window; and
+because the catalogue asserts `additionalProperties === false`, a caller cannot
+send the field ahead of the change either. Optional in both directions is the
+only shape with a path through.
+
+The same token now guards the record of processing activities, which closes
+issue #125. It is a counter and not `updatedAt`, decided by the precedent
+`Page.revision` set rather than by the first edit form: `@updatedAt` is stored
+to the millisecond, so two saves inside one millisecond carry the same token and
+the second would match the row it was meant to be refused against. The advisory
+lock that method already takes answers a different question and both are needed -
+the lock serialises two server transactions that overlap, and cannot see that a
+payload was composed from an older read. No web form ships with it: the endpoint
+has no caller, building the edit screen is a feature with its own i18n,
+screenshots and end-to-end proof, and the shape the issue deferred was already
+decided by the counter. The refusal reason `activity-changed` maps to 409 and
+the view carries the revision; the sentence a screen shows lands with that
+screen.
+
+Two holes in the mechanism as it already stood are closed with it.
+`PrivacyNoticeService.appendMissing()` was the only writer to a page outside the
+page service and did not move the revision, so a board member holding the editor
+open would have had their save accepted and the appended art. 13 headings
+silently discarded. And `ProcessingActivityService.end()` ran its already-ended
+check outside the transaction and never took the lock its sibling `update()`
+takes, so an `end` could interleave inside a locked save's read-write window.
+Every writer to a processing activity now moves the revision in the statement
+that changes the fields, the seed included: a claim is only worth anything if
+every writer a claimant races participates in it.
+
+Seven unguarded writers were found and deliberately left alone, listed here so
+the next person starts from a list rather than a survey:
+`SettingsService.updateDataProtectionContacts()` and `updateMeetingBylaws()`,
+`MeetingService.recordDecision()`, `AssociationFactsService.save()`,
+`PagesWriteService.reorder()`, and `MenuWriteService.update|reorder|remove`.
+Each is a different record with a different answer about what a conflict means,
+and a change that guarded nine writers at once is a change nobody reads.
+
 Two contracts now exist over some service methods: the action's input is
 stricter than the HTTP route's in two places - a patterned slug on
 `news_create`, a required revision on `page_update` - because making the routes

@@ -17,13 +17,19 @@ export class ProcessingActivityError extends DomainError {
   constructor(
     message: string,
     readonly reason:
-      "activity-not-found" | "personal-identity-number" | "already-ended",
+      | "activity-not-found"
+      | "personal-identity-number"
+      | "already-ended"
+      | "activity-changed",
   ) {
     super(message);
     this.status =
       reason === "activity-not-found"
         ? HttpStatus.NOT_FOUND
-        : reason === "already-ended"
+        : // A conflict rather than a refusal on the merits: nothing is wrong
+          // with what was sent, somebody else wrote first, and the board reads
+          // the record again and decides what to do about it.
+          reason === "already-ended" || reason === "activity-changed"
           ? HttpStatus.CONFLICT
           : HttpStatus.BAD_REQUEST;
   }
@@ -47,6 +53,7 @@ const ACTIVITY_SELECT = {
   endedAt: true,
   recordedByPersonId: true,
   updatedByPersonId: true,
+  revision: true,
 } as const;
 
 /** The fields a board writes, in the order the record lists them. */
@@ -101,6 +108,14 @@ export interface ProcessingActivityView {
   endedAt: string | null;
   /** True while the seed still refreshes this row, i.e. nobody has edited it. */
   seeded: boolean;
+  /**
+   * The row as it stands, to send back with a save.
+   *
+   * Read and returned rather than required, so a caller written before the
+   * field existed keeps working; a caller that sends it gets a refusal instead
+   * of replacing an edit it never saw.
+   */
+  revision: number;
 }
 
 /** The head of the record: who the controller is (GDPR art. 30(1)(a)). */
@@ -260,6 +275,13 @@ export class ProcessingActivityService {
             thirdCountryTransfer: row.thirdCountryTransfer,
             thirdCountrySafeguards: row.thirdCountrySafeguards,
             securityMeasures: row.securityMeasures,
+            /*
+             * The revision moves because the row changed. Every writer to this
+             * model increments it in the statement that changes the fields, or
+             * a save composed on the copy from before would match afterwards
+             * and replace what this wrote.
+             */
+            revision: { increment: 1 },
           },
         });
       }
@@ -301,6 +323,9 @@ export class ProcessingActivityService {
       update: {
         endedAt: null,
         personalDataCategories: input.personalDataCategories,
+        // The revision moves because the row changed, as it does on every other
+        // writer to this model.
+        revision: { increment: 1 },
       },
     });
   }
@@ -309,7 +334,7 @@ export class ProcessingActivityService {
   async endPlugin(pluginId: string): Promise<void> {
     await this.prisma.processingActivity.updateMany({
       where: { sourceKey: pluginProcessorKey(pluginId), endedAt: null },
-      data: { endedAt: new Date() },
+      data: { endedAt: new Date(), revision: { increment: 1 } },
     });
   }
 
@@ -360,7 +385,17 @@ export class ProcessingActivityService {
   /** Edits a row, seeded or the board's own. */
   async update(
     activityId: string,
-    input: Partial<ActivityInput> & { actorPersonId: string },
+    input: Partial<ActivityInput> & {
+      actorPersonId: string;
+      /**
+       * The record's revision as the caller last read it.
+       *
+       * Optional on the wire, and absent means what this endpoint has always
+       * done. That keeps a caller written before the field existed working
+       * rather than failing on a precondition it does not know about.
+       */
+      expectedRevision?: number;
+    },
   ): Promise<ProcessingActivityView> {
     return this.prisma.$transaction(async (tx) => {
       /*
@@ -413,8 +448,27 @@ export class ProcessingActivityService {
           !sameValue(existing[field], input[field]),
       );
 
-      const row = await tx.processingActivity.update({
-        where: { id: activityId },
+      /*
+       * A claimed write and not a plain update, so the precondition sits in the
+       * predicate rather than in a comparison this method makes for itself. The
+       * lock above serialises two saves that overlap on the server and can say
+       * nothing about when a payload was composed: a board member who opened
+       * the record, went to a meeting and saved afterwards has a payload built
+       * on a copy that has since been replaced, and the lock lets it through in
+       * good order.
+       *
+       * Optional, and absent means what this endpoint has always done, which
+       * keeps a caller written before the field existed working. The record is
+       * edited as a whole, so what a save replaces is every field the other
+       * board member wrote.
+       */
+      const claimed = await tx.processingActivity.updateMany({
+        where: {
+          id: activityId,
+          ...(input.expectedRevision === undefined
+            ? {}
+            : { revision: input.expectedRevision }),
+        },
         data: {
           name: input.name,
           purpose: input.purpose,
@@ -442,7 +496,26 @@ export class ProcessingActivityService {
            */
           updatedByPersonId:
             changed.length === 0 ? undefined : input.actorPersonId,
+          /*
+           * In the same statement as the fields, which is the rule the column
+           * is kept by: a writer that changed the record and left the number
+           * alone would let a stale precondition match afterwards. It moves on
+           * every save and not only on one that altered something, because what
+           * it says is that the row is not the one somebody else read.
+           */
+          revision: { increment: 1 },
         },
+      });
+
+      if (claimed.count === 0) {
+        throw new ProcessingActivityError(
+          "The processing changed after it was read.",
+          "activity-changed",
+        );
+      }
+
+      const row = await tx.processingActivity.findUniqueOrThrow({
+        where: { id: activityId },
         select: ACTIVITY_SELECT,
       });
 
@@ -467,27 +540,60 @@ export class ProcessingActivityService {
     activityId: string,
     actorPersonId: string,
   ): Promise<ProcessingActivityView> {
-    const existing = await this.prisma.processingActivity.findUnique({
-      where: { id: activityId },
-      select: { id: true, endedAt: true },
-    });
-    if (existing === null) {
-      throw new ProcessingActivityError(
-        "There is no such processing.",
-        "activity-not-found",
-      );
-    }
-    if (existing.endedAt !== null) {
-      throw new ProcessingActivityError(
-        "That processing has already been ended.",
-        "already-ended",
-      );
-    }
-
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.processingActivity.update({
+      /*
+       * Before the read, as its sibling `update` takes it and for the same
+       * reason: read outside the transaction, the already-ended check answered
+       * about a row that could be ended by the time this write landed, and an
+       * `end` could interleave inside a locked save's read-write window - so
+       * the save's own comparison described a row that had stopped.
+       */
+      await lockProcessingActivity(tx, activityId);
+
+      const existing = await tx.processingActivity.findUnique({
         where: { id: activityId },
-        data: { endedAt: new Date() },
+        select: { id: true, endedAt: true },
+      });
+      if (existing === null) {
+        throw new ProcessingActivityError(
+          "There is no such processing.",
+          "activity-not-found",
+        );
+      }
+      if (existing.endedAt !== null) {
+        throw new ProcessingActivityError(
+          "That processing has already been ended.",
+          "already-ended",
+        );
+      }
+
+      /*
+       * Conditional on the row still being open, because the lock above is not
+       * taken by every writer of `endedAt`: a plugin being removed ends its own
+       * processing through `endPlugin`, which does not take it. Matched on the
+       * id alone, an end landing after that one would replace the first date
+       * with a second and record a second actor as having ended it. Matched on
+       * `endedAt: null`, it matches nothing and is refused exactly as a second
+       * attempt read above is.
+       */
+      const claimed = await tx.processingActivity.updateMany({
+        where: { id: activityId, endedAt: null },
+        data: {
+          endedAt: new Date(),
+          // Ending the processing is a change to the record, so a save composed
+          // on the copy from before it is told rather than applied.
+          revision: { increment: 1 },
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ProcessingActivityError(
+          "That processing has already been ended.",
+          "already-ended",
+        );
+      }
+
+      const row = await tx.processingActivity.findUniqueOrThrow({
+        where: { id: activityId },
         select: ACTIVITY_SELECT,
       });
 
@@ -568,6 +674,7 @@ function toView(row: {
   endedAt: Date | null;
   recordedByPersonId: string | null;
   updatedByPersonId: string | null;
+  revision: number;
 }): ProcessingActivityView {
   return {
     activityId: row.id,
@@ -586,5 +693,6 @@ function toView(row: {
     sourceKey: row.sourceKey,
     endedAt: row.endedAt?.toISOString() ?? null,
     seeded: row.sourceKey !== null && row.updatedByPersonId === null,
+    revision: row.revision,
   };
 }

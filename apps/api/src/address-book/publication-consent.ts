@@ -1,4 +1,4 @@
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDayOfInstant } from "@openbrf/shared";
 
 import type { ConsentScope } from "../generated/prisma/enums";
 
@@ -106,8 +106,15 @@ export function consentViewOf(
   return {
     scope,
     state: latest.withdrawnAt === null ? "granted" : "withdrawn",
-    grantedOn: formatDateColumn(latest.grantedAt),
-    withdrawnOn: formatDateColumn(latest.withdrawnAt),
+    /*
+     * Both are plain `DateTime`, so the day each falls on is read on the
+     * association's calendar. A consent withdrawn at twenty to eleven on a
+     * summer evening was withdrawn that evening, and a consent record stating
+     * the day before is a record of the wrong day on the one document that says
+     * how long the person agreed to be published.
+     */
+    grantedOn: formatDayOfInstant(latest.grantedAt),
+    withdrawnOn: formatDayOfInstant(latest.withdrawnAt),
     note: latest.note,
   };
 }

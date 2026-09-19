@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
+import { localDayNow, localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
@@ -295,7 +296,15 @@ export function PersonPanel({
           detail.account.invitationExpiresAt !== null &&
             new Date(detail.account.invitationExpiresAt).getTime() < Date.now(),
         );
-        const today = new Date().toISOString().slice(0, 10);
+        /*
+         * The association's day and not the viewer's, and not the UTC one
+         * either. `seat.endedOn` is a `@db.Date` column the API states as a
+         * day, and the server decides a term against this same calendar: for
+         * the hour or two after midnight here a UTC day is yesterday, so a seat
+         * that ended today would still read as held and the board would be
+         * offered an act on a term the server no longer treats as running.
+         */
+        const today = localDayNow();
         setHeldSeats(
           new Set(
             detail.boardPositions
@@ -1138,7 +1147,7 @@ export function PersonPanel({
                */}
               {invitationExpiresAt === null ? null : (
                 <span className="font-data text-data text-ink">
-                  {`${t("register.person.invitationExpiresAt")} ${invitationExpiresAt.slice(0, 10)}`}
+                  {`${t("register.person.invitationExpiresAt")} ${localDayOfInstant(invitationExpiresAt)}`}
                 </span>
               )}
               {invitationExpiresAt !== null && invitationExpired ? (
@@ -1292,7 +1301,7 @@ export function PersonPanel({
                   {person.legalHold.reason}
                 </span>
                 <span className="font-data text-data text-ink">
-                  {`${t("register.person.legalHold.placedOn")} ${person.legalHold.placedAt.slice(0, 10)}`}
+                  {`${t("register.person.legalHold.placedOn")} ${localDayOfInstant(person.legalHold.placedAt)}`}
                 </span>
               </div>
             )}

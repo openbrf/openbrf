@@ -106,10 +106,53 @@ reading as though every member had disconnected every app at once.
 
 A board term ending leaves the token in place. Every call then fails the live
 capability check, so nothing is granted that should not be, but the connection
-stays in the member's list looking healthy until they try to use it. Revoking
-on change would mean watching every fact that feeds a capability and deciding
-what a partial narrowing means for a token. That is the next change rather than
-this one.
+stays in the member's list until they try to use it. Revoking on change would
+mean watching every fact that feeds a capability and deciding what a partial
+narrowing means for a token.
+
+**Confirmed rather than reversed, and the screen now says so.** The per-call
+re-derivation is the whole mechanism, and three things decide it:
+
+The re-check is genuinely uncached. `PrincipalService.forPerson` issues one read
+against a fresh clock and holds no state, and it gates the Bearer branch of the
+guard, the catalogue and dispatch alike. There is no cache anywhere on that
+path.
+
+The browser session has exactly the same property. Nothing invalidates a session
+on a role change either, so revoking tokens while leaving sessions alone would
+make the two channels disagree about the same person - the one thing the single
+choke point exists to prevent.
+
+The hard case has no write event to hang a hook on. A board term ends by a date
+arriving, not by an act: nothing is written, no audit entry exists and no job
+fires, which `board-position.service.ts` states as a feature - nobody has to
+remember to come back and press a button - and the end date may be five years
+out. Any correct watcher is therefore a nightly sweep against the clock, and
+`connected-app-token-sweep.ts` already states the rule against that shape: a
+revocation is a deliberate act with an audit entry behind it, never something a
+clock performs. A date-lapse revoker would have to answer what entry it writes
+and against whom.
+
+What the absence costs is a list that reads as healthy while a connection can
+reach nothing, and it costs more the longer it stands, because `lastTokenIssuedAt`
+is derived from the newest live access token and the app goes on refreshing on
+schedule. So `ConnectedAppView` carries a `dormant` field derived at read time
+from the same `PrincipalService.forPerson` the refusal uses, and both screens
+label such a row - a word and a sentence, never colour alone. It is a statement
+about standing rather than about scopes: a token says whether it may read or
+write and never which records an app reaches, so the field answers the question
+the view can answer honestly, which is whether the person holds any capability
+at all beyond the `self:manage` every person row carries.
+
+The refusal itself is under test at last. Two integration cases end a person's
+standing with a token live and in the table - a board term through
+`BoardPositionService`, a residency through `MoveService`, which writes no audit
+entry at all - and assert that the token still resolves and is worth nothing but
+`self:manage` afterwards.
+
+Reopening this would cost what it always would: a nightly sweep, an answer for
+what a partial narrowing means for a token, an audit shape for a revocation
+nobody performed, and the matching question for browser sessions.
 
 ### Two coarse scopes, and a scope is not a grant
 
@@ -278,8 +321,15 @@ instance behind more than one process has as many budgets as it has processes.
 Single-process is the deployment this ships.
 
 A member's connection survives their board term ending and simply stops working.
-Until revocation-on-change exists, a member whose standing narrows will see an
-app fail rather than see it disconnected.
+The list says so - the row is marked dormant where the person holds nothing an
+app could use - but nothing disconnects it, so a member whose standing narrows
+still has to disconnect it themselves if they want it gone.
+
+The dormant marker cannot see a partial narrowing. A board member who has only
+left the board keeps every resident capability, so their connection is not
+dormant even where the only thing the app ever did needed the board's. Nothing
+on the wire says which records an app reaches, so the narrower question is not
+one this view can answer.
 
 A window remains between a client presenting a metadata URL and the document
 being fetched, in which the document could change. Nothing in the protocol
