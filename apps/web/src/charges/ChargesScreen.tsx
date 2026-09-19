@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { AccountingBasisPanel } from "../accounting/AccountingBasisPanel";
 import {
   CELL,
   DATA_CELL,
@@ -363,6 +364,8 @@ export function ChargesScreen(): ReactElement {
           {t(refusal)}
         </Notice>
       )}
+
+      {forbidden ? null : <AccountingBasisPanel onRefused={setRefusal} />}
 
       {loading && shown === null && !forbidden ? (
         <p role="status" className="text-body text-ink-muted">

@@ -460,14 +460,22 @@ export class MemberChargeService {
    * what carries an entry is the copy that leaves the association. The statutory
    * registers are audited on the read because an extract of one is public on
    * request and the log has to answer who took a copy - a charge is neither.
+   *
+   * The client is a parameter because the accounting basis export reads this
+   * list inside its own audited transaction: the rows that reach its file and
+   * the entry recording the disclosure have to commit together. It reads
+   * through here rather than querying the charges itself so that the masking
+   * rule - whether a protected person's apartment reaches a file the
+   * association hands out - is decided in one place.
    */
   async list(
     from: string,
     to: string,
     now: Date = new Date(),
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<DebitingList> {
     const period = this.readPeriod(from, to);
-    return this.build(this.prisma, period, now);
+    return this.build(client, period, now);
   }
 
   /**
