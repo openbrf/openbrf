@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -390,6 +390,47 @@ describe("a room that could not be read at all", () => {
     expect(
       screen.queryByRole("button", { name: "Skicka meddelandet" }),
     ).toBeNull();
+  });
+
+  it("gives the room back once a later read answers", async () => {
+    /*
+     * A first read that fails leaves no cursor, so the poll reads the room
+     * again four seconds later. When that read answers, the failure has to go
+     * with it. Held on, it leaves an empty room unreadable for good - no write
+     * box and no send button at a room this client has in fact read - and a
+     * room with messages shows them beneath a notice saying it could not be
+     * read. Only a reload cleared either.
+     *
+     * The first read fails the way a restarting server fails, which falls
+     * through to the general sentence; the one after it answers.
+     */
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      readChat
+        .mockReset()
+        .mockResolvedValueOnce({
+          ok: false,
+          failure: { status: 502, reason: "unavailable" },
+        })
+        .mockResolvedValue({ ok: true, value: page([]) });
+
+      render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+      expect(
+        await screen.findByText("Det gick inte just nu. Försök igen."),
+      ).not.toBeNull();
+      expect(screen.queryByLabelText("Ditt meddelande")).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+
+      expect(await screen.findByLabelText("Ditt meddelande")).not.toBeNull();
+      expect(
+        screen.queryByText("Det gick inte just nu. Försök igen."),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -529,13 +529,19 @@ test.describe("the board's chat", () => {
       page.getByRole("heading", { name: "Styrelsechatten" }),
     ).toBeVisible();
 
-    // The newest page, so the oldest line is behind it rather than missing.
-    await expect(page.getByText(oldest)).toHaveCount(0);
-
     const earlier = page.getByRole("button", {
       name: "Visa tidigare meddelanden",
     });
+    /*
+     * Waited on before the absence below. This control appears only once the
+     * client holds a page with an earlier cursor, so it is the signal that the
+     * newest page has rendered. Asked first, the absence would pass on an empty
+     * screen and prove nothing about paging.
+     */
     await expect(earlier).toBeVisible();
+
+    // The newest page, so the oldest line is behind it rather than missing.
+    await expect(page.getByText(oldest)).toHaveCount(0);
 
     // Pressed until the room runs out, because fifty-two messages is two pages
     // and the oldest is on the second.

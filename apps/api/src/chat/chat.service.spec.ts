@@ -1047,12 +1047,28 @@ describe("the read marker", () => {
      * Capped at the server's clock instead. A marker can only ever say somebody
      * has read as far as something that already exists.
      */
+    const now = Date.now();
+    const wellPastNow = new Date(now + 60 * 60 * 1000);
+    /*
+     * Written by somebody else half an hour from now: after the marker the cap
+     * leaves, and before the instant the caller asked for. Uncapped, the marker
+     * would stand past it and it would count as read.
+     */
+    const writtenLater = new Date(now + 30 * 60 * 1000);
     const { service, reads } = build({
       chats: [BOARD_CHAT],
       persons: [SEATED],
+      messages: [
+        {
+          id: "message-written-after-the-call",
+          chatId: BOARD_CHAT_ID,
+          authorPersonId: "person-somebody-else",
+          body: "Skrivet efter.",
+          createdAt: writtenLater,
+        },
+      ],
     });
     const reader = principal(SEATED.id, ["chat:participate"]);
-    const wellPastNow = new Date(Date.now() + 60 * 60 * 1000);
 
     const answer = await service.markRead(BOARD_CHAT_ID, reader, wellPastNow);
 
@@ -1061,10 +1077,11 @@ describe("the read marker", () => {
     expect((marked as Date).getTime()).toBeLessThan(wellPastNow.getTime());
     expect(answer.readAt).toBe((marked as Date).toISOString());
 
-    // And the room is not silently all-read from now on: a message written
-    // after the call is still counted.
+    // And the room is not silently all-read from now on: the message written
+    // after the call still counts, which it would not if the marker stood at
+    // the instant the caller sent.
     const rooms = await service.rooms(reader);
-    expect(rooms[0]?.unread).toBe(0);
+    expect(rooms[0]?.unread).toBe(1);
   });
 
   it("marks an instant in the past exactly as it was given", async () => {

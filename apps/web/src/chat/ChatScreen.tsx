@@ -271,6 +271,14 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                     messages: appendNew(held.messages, first.value.messages),
                     earlier: first.value.earlier,
                     cursor: first.value.latest,
+                    /*
+                     * A read that answers clears the one that did not. This
+                     * branch runs only while there is no cursor, and a refused
+                     * press for an earlier page needs a page with one - so the
+                     * only failure that can be held here is the first read's,
+                     * and it is no longer true.
+                     */
+                    failure: null,
                   },
             );
             return;
