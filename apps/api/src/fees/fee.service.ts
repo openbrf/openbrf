@@ -11,6 +11,8 @@ import {
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import { financialYearStartMonthInForce } from "../retention/financial-year";
+import { lockFeeNotifications, lockFeeRates } from "./fee-lock";
 import { sumAmounts } from "./fee-period";
 import { FeeError } from "./fee.error";
 
@@ -147,7 +149,10 @@ const FEE_FIELDS = {
  * does this apartment pay today" has exactly one answer. A rate that starts on
  * or before one already recorded is refused rather than inserted behind it: the
  * board removes the later rate and records both in order, which is the
- * correction that says what happened.
+ * correction that says what happened. So is a rate starting inside the window
+ * of one already closed, which is what removing the rate that closed it leaves
+ * behind. The reads and the write run under the lock in `fee-lock.ts`, so two
+ * rates recorded at once cannot both pass them.
  *
  * ## No free text, so no scan
  *
@@ -276,6 +281,14 @@ export class FeeService {
     }
 
     const fee = await this.prisma.$transaction(async (tx) => {
+      /*
+       * Before either read, so the two reads and the write below are one
+       * decision. Two rates recorded together for the same apartment and kind
+       * would otherwise both find nothing in the way and both be written. See
+       * `fee-lock.ts`.
+       */
+      await lockFeeRates(tx, input.apartmentId, input.kind);
+
       const later = await tx.fee.findFirst({
         where: {
           apartmentId: input.apartmentId,
@@ -294,6 +307,32 @@ export class FeeService {
         throw new FeeError(
           "A later fee of this kind is already recorded for that apartment.",
           "fee-already-recorded-later",
+        );
+      }
+
+      /*
+       * A rate already closed whose window still reaches the new start day.
+       *
+       * The query above sees only rates that begin on or after the day, and the
+       * standing lookup below only the one still open, so a closed rate covering
+       * the day passes both - which is exactly what removing the rate that
+       * closed it leaves behind. Recording into its window would give the
+       * apartment two rates for the same days, and a run would bill both.
+       * Refused with a reason of its own, because the correction differs: the
+       * new rate starts the day after this one ends, or this one is removed.
+       */
+      const covering = await tx.fee.findFirst({
+        where: {
+          apartmentId: input.apartmentId,
+          kind: input.kind,
+          appliesUntil: { not: null, gte: dateColumnOf(appliesFrom) },
+        },
+        select: { id: true },
+      });
+      if (covering !== null) {
+        throw new FeeError(
+          "A fee of this kind already applies to that apartment on that day.",
+          "fee-already-in-force",
         );
       }
 
@@ -325,6 +364,9 @@ export class FeeService {
           vatTreatment: input.vatTreatment,
           vatRatePercent,
           recordedByPersonId: input.actorPersonId,
+          // The books this rate is entered in, so its erasure is counted from
+          // them and not from whatever the setting says later.
+          financialYearStartMonth: await financialYearStartMonthInForce(tx),
         },
         select: FEE_FIELDS,
       });
@@ -388,6 +430,10 @@ export class FeeService {
    */
   async remove(feeId: string, actorPersonId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // A run issued between the question below and the delete would bill a
+      // rate that then no longer exists. See `fee-lock.ts`.
+      await lockFeeNotifications(tx);
+
       const fee = await tx.fee.findUnique({
         where: { id: feeId },
         select: {

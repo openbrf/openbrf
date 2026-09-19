@@ -217,15 +217,18 @@ const SHAPES: Record<SeedKey, SeedShape> = {
    * 2 § is what fixes how long they are kept. The contract would not explain
    * why a notice outlives the residency it was issued to.
    *
-   * The member alone, not the resident: the arsavgift is the
-   * bostadsrattshavare's to pay under BRL 7 kap. 14 §, and a partner or a
-   * tenant living in the flat holds none of it. The former resident is here
-   * because the window outlives the residency by years.
+   * The resident as well as the member. The arsavgift is the
+   * bostadsrattshavare's under BRL 7 kap. 14 §, but a rate and a notice name an
+   * apartment, and an apartment says something about everybody living in it:
+   * the data subject access report carries both to anybody whose residency
+   * overlaps them, whatever its role, so a partner or a tenant living there is
+   * a data subject of this processing too. The former resident is here because
+   * the window outlives the residency by years.
    */
   fees: {
     source: "SERVICE_DATA",
     legalBasis: "LEGAL_OBLIGATION",
-    dataSubjectCategories: ["member", "formerResident"],
+    dataSubjectCategories: ["member", "resident", "formerResident"],
     personalDataCategories: ["name", "apartment", "financial"],
   },
   motions: {

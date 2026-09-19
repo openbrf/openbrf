@@ -59,13 +59,18 @@ import {
  * and is preserved from the end of 2026. Reading the charge's own calendar year
  * gets the second right and the first a full year early.
  *
- * So `Association.financialYearStartMonth` is passed in rather than assumed.
- * The default is 1, the calendar year, and on it both functions compute exactly
- * the dates they computed before the column existed - which is what makes
- * correcting a shipped window safe. Correcting it can only move a date later,
- * never earlier, because the year a financial year ends in is never before the
- * calendar year of a day inside it; no erasure date already stated to a named
- * person on a data subject access report is brought forward.
+ * So the start month is passed in rather than assumed, and it is the charge's
+ * own: `MemberCharge.financialYearStartMonth` records the month the
+ * association's year began in when the charge was written. Reading the current
+ * setting instead would let a change to it reach back into books already
+ * closed - and moving a year from May to January would erase a June charge a
+ * year before the statute's period ends. Every charge recorded before the
+ * setting existed carries 1, the calendar year, and on it both functions compute
+ * exactly the dates they computed before - which is what makes correcting a
+ * shipped window safe. Correcting it can only move a date later, never earlier,
+ * because the year a financial year ends in is never before the calendar year
+ * of a day inside it; no erasure date already stated to a named person on a
+ * data subject access report is brought forward.
  *
  * The arithmetic itself is in `retention/financial-year.ts`, shared with the fee
  * window, because it is one reading of one statute and two copies of it could
@@ -107,9 +112,9 @@ export const MEMBER_CHARGE_RETENTION_YEARS = 7;
  *   it. Read as a calendar date rather than as an instant, because a date column
  *   carries neither a time nor a zone.
  * @param financialYearStartMonth The month the association's rakenskapsar
- *   begins in, from `Association.financialYearStartMonth`. Defaulted to the
- *   calendar year so a caller that has not read the association computes what
- *   this window computed before the column existed.
+ *   began in when the charge was recorded, from the charge's own
+ *   `financialYearStartMonth`. Defaulted to the calendar year, which is what
+ *   every charge recorded before the column existed carries.
  * @param retentionYears How many full calendar years after the one the charge's
  *   financial year ended in the charge is kept.
  */
@@ -135,8 +140,9 @@ export function computeMemberChargePurgeDate(
  *   association's own calendar: a run starting at half past midnight on New
  *   Year's Day is running in the new year in Stockholm and in the old one in
  *   UTC, and the whole window is stated in calendar years.
- * @param financialYearStartMonth The month the association's rakenskapsar begins
- *   in, from `Association.financialYearStartMonth`.
+ * @param financialYearStartMonth The start month the cutoff is asked for. A
+ *   purge asks once per month and matches each charge against the answer for
+ *   its own `financialYearStartMonth`.
  * @param retentionYears How many full calendar years after the one the charge's
  *   financial year ended in the charge is kept.
  */

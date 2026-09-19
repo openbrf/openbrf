@@ -9,9 +9,9 @@ import { FinancesPanel } from "./FinancesPanel";
  * The association's financial year and giro numbers.
  *
  * Two properties are what these tests defend. The panel says what the month
- * moves - it decides when every charge and every fee this instance holds becomes
- * erasable, and a board changing it without being told that would be changing a
- * date the data subject access report has already stated to a named person. And
+ * reaches - it is stamped on every charge and fee recorded afterwards and decides
+ * when each becomes erasable, while rows already recorded keep their own - so a
+ * board changing it knows no date already stated to a named person moves. And
  * a giro number is passed through exactly as the board wrote it, because the
  * notice prints it and a helpfully reformatted number is one a member cannot
  * match against their bank statement.
@@ -46,8 +46,10 @@ describe("FinancesPanel", () => {
 
     const notice = screen.getByText(/gallras/u);
     expect(notice.textContent).toContain("7 kap. 2 §");
-    // And the direction, which is what makes the change safe to make at all.
-    expect(notice.textContent).toContain("tidigareläggs aldrig");
+    // And its reach: only what is recorded afterwards, so no date already given
+    // moves - which is what makes the change safe to make at all.
+    expect(notice.textContent).toContain("registreras efteråt");
+    expect(notice.textContent).toContain("inget gallringsdatum flyttas");
   });
 
   it("offers the calendar year as the default", () => {

@@ -45,25 +45,26 @@ const MONTH_LABEL: Readonly<Record<number, TranslationKey>> = {
  *
  * ## The month is not cosmetic
  *
- * It decides when every charge and every fee this instance holds becomes
- * erasable. Bokforingslagen (1999:1078) 7 kap. 2 § preserves
- * rakenskapsinformation through the seventh year after the calendar year the
- * financial year closed, so on a year running from the 1st of May a charge
- * dated in June is kept a full year longer than one dated in March. A data
- * subject access report states that date to a named person, which is why the
- * notice here says plainly what changing the month moves - and why the write is
- * audited.
+ * It is stamped on every charge, fee rate and notification run written from
+ * then on, and it decides when each of them becomes erasable. Bokforingslagen
+ * (1999:1078) 7 kap. 2 § preserves rakenskapsinformation through the seventh
+ * year after the calendar year the financial year closed, so on a year running
+ * from the 1st of May a charge dated in June is kept a full year longer than
+ * one dated in March. The notice here says plainly that changing the month
+ * reaches only what is written afterwards - rows already written keep the month
+ * their own books were kept in, so no date a data subject access report has
+ * stated moves - and the write is audited because it decides every date that
+ * follows.
  *
  * The default is January, the calendar year, which is what every instance
  * recorded before this setting existed had assumed and what most cooperatives
- * run. Changing it can only move an erasure date later and never earlier, so
- * nothing already promised is brought forward.
+ * run.
  *
  * ## A giro number is checked for shape and never for existence
  *
  * Whether a number is live is the bank's answer and this platform has no way to
  * ask it. The notice says so, because the cost of getting it wrong is four
- * hundred notices carrying a number nobody can pay to.
+ * hundred notices carrying a number no payment can be made to.
  */
 export function FinancesPanel({
   finances,

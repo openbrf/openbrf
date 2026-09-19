@@ -6,7 +6,7 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { CALENDAR_YEAR_START_MONTH } from "../retention/financial-year";
+import { FINANCIAL_YEAR_START_MONTHS } from "../retention/financial-year";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import { FEE_RETENTION_YEARS, feePurgeCutoff } from "./fee-retention";
 import { FEE_TARGET_KIND } from "./fee.service";
@@ -39,6 +39,62 @@ const PURGE_CRON = "35 3 * * *";
  * the next night's run finds the rest.
  */
 const MAX_APARTMENTS_PER_RUN = 500;
+
+/**
+ * The rates, notices and runs whose retention has run out, as filters.
+ *
+ * Judged on each row's own `financialYearStartMonth` - the month the
+ * association's financial year began in when the rate was recorded or the run
+ * issued - and never on the association's current setting. Bokforingslagen
+ * 7 kap. 2 § counts from the end of the calendar year the row's own books
+ * closed, and a later change to the setting does not change the year those books
+ * closed; reading the current setting would move an erasure date already stated
+ * on a data subject access report, and could move it a year earlier.
+ *
+ * A notice is judged by its run, which carries the month and the period the
+ * notice was issued for. One branch per possible month rather than a read of the
+ * months the tables hold, so each scan and each delete stays one statement.
+ */
+function fallenOut(
+  now: Date,
+  retentionYears: number,
+): {
+  rates: {
+    OR: {
+      financialYearStartMonth: number;
+      appliesUntil: { not: null; lt: Date };
+    }[];
+  };
+  notices: {
+    notification: {
+      OR: { financialYearStartMonth: number; periodTo: { lt: Date } }[];
+    };
+  };
+  runs: { OR: { financialYearStartMonth: number; periodTo: { lt: Date } }[] };
+} {
+  const cutoffs = FINANCIAL_YEAR_START_MONTHS.map((startMonth) => ({
+    startMonth,
+    cutoff: feePurgeCutoff(now, startMonth, retentionYears),
+  }));
+  const byPeriod = cutoffs.map(({ startMonth, cutoff }) => ({
+    financialYearStartMonth: startMonth,
+    periodTo: { lt: cutoff },
+  }));
+
+  return {
+    rates: {
+      OR: cutoffs.map(({ startMonth, cutoff }) => ({
+        financialYearStartMonth: startMonth,
+        // A rate still in force has no ended day and is never erasable. Spelled
+        // as "not null and before the cutoff" rather than left to the
+        // comparison, so the rule is visible in the query.
+        appliesUntil: { not: null, lt: cutoff },
+      })),
+    },
+    notices: { notification: { OR: byPeriod } },
+    runs: { OR: byPeriod },
+  };
+}
 
 export interface FeePurgeRunSummary {
   /** Apartments the eligibility scan found erasable rows for. */
@@ -160,8 +216,7 @@ export class FeePurgeService implements OnModuleInit {
     now: Date = new Date(),
     retentionYears: number = FEE_RETENTION_YEARS,
   ): Promise<FeePurgeRunSummary> {
-    const startMonth = await this.financialYearStartMonth();
-    const apartmentIds = await this.eligible(now, retentionYears, startMonth);
+    const apartmentIds = await this.eligible(now, retentionYears);
 
     let purged = 0;
     let feesDeleted = 0;
@@ -173,7 +228,6 @@ export class FeePurgeService implements OnModuleInit {
           apartmentId,
           now,
           retentionYears,
-          startMonth,
         );
         if (deleted.fees > 0 || deleted.notices > 0) {
           purged += 1;
@@ -193,11 +247,7 @@ export class FeePurgeService implements OnModuleInit {
       }
     }
 
-    const notificationsDeleted = await this.purgeEmptyRuns(
-      now,
-      retentionYears,
-      startMonth,
-    );
+    const notificationsDeleted = await this.purgeEmptyRuns(now, retentionYears);
 
     if (feesDeleted > 0 || noticesDeleted > 0 || failed > 0) {
       this.logger.log(
@@ -232,39 +282,22 @@ export class FeePurgeService implements OnModuleInit {
    * afterwards would still have spent it, and the rows behind them would outlive
    * their retention window with nothing reporting a fault.
    */
-  async eligible(
-    now: Date,
-    retentionYears: number,
-    startMonth?: number,
-  ): Promise<string[]> {
-    const cutoff = feePurgeCutoff(
-      now,
-      startMonth ?? (await this.financialYearStartMonth()),
-      retentionYears,
-    );
+  async eligible(now: Date, retentionYears: number): Promise<string[]> {
+    const expired = fallenOut(now, retentionYears);
     const heldApartmentIds = await this.heldApartmentIds();
     const exclude =
       heldApartmentIds.length > 0 ? { notIn: heldApartmentIds } : {};
 
     const fees = await this.prisma.fee.groupBy({
       by: ["apartmentId"],
-      where: {
-        // A rate still in force has no ended day and is never erasable. Spelled
-        // as "not null and before the cutoff" rather than left to the
-        // comparison, so the rule is visible in the query.
-        appliesUntil: { not: null, lt: cutoff },
-        apartmentId: exclude,
-      },
+      where: { ...expired.rates, apartmentId: exclude },
       orderBy: [{ apartmentId: "asc" }],
       take: MAX_APARTMENTS_PER_RUN,
     });
 
     const notices = await this.prisma.feeNotice.groupBy({
       by: ["apartmentId"],
-      where: {
-        notification: { periodTo: { lt: cutoff } },
-        apartmentId: exclude,
-      },
+      where: { ...expired.notices, apartmentId: exclude },
       orderBy: [{ apartmentId: "asc" }],
       take: MAX_APARTMENTS_PER_RUN,
     });
@@ -289,11 +322,8 @@ export class FeePurgeService implements OnModuleInit {
     apartmentId: string,
     now: Date = new Date(),
     retentionYears: number = FEE_RETENTION_YEARS,
-    startMonth?: number,
   ): Promise<{ fees: number; notices: number }> {
-    const financialYearStartMonth =
-      startMonth ?? (await this.financialYearStartMonth());
-    const cutoff = feePurgeCutoff(now, financialYearStartMonth, retentionYears);
+    const expired = fallenOut(now, retentionYears);
     const holdOn = await this.residentsOf(apartmentId);
 
     return this.prisma.$transaction(async (tx) => {
@@ -330,10 +360,10 @@ export class FeePurgeService implements OnModuleInit {
       }
 
       const notices = await tx.feeNotice.deleteMany({
-        where: { apartmentId, notification: { periodTo: { lt: cutoff } } },
+        where: { apartmentId, ...expired.notices },
       });
       const fees = await tx.fee.deleteMany({
-        where: { apartmentId, appliesUntil: { not: null, lt: cutoff } },
+        where: { apartmentId, ...expired.rates },
       });
 
       if (notices.count === 0 && fees.count === 0) {
@@ -367,8 +397,9 @@ export class FeePurgeService implements OnModuleInit {
             fees: fees.count,
             notices: notices.count,
             apartmentId,
+            // Not the financial year: each rate and each run carries its own,
+            // and one apartment's rows can span a change to the setting.
             retentionYearsAfterFinancialYear: retentionYears,
-            financialYearStartMonth,
           },
         },
         tx,
@@ -395,31 +426,11 @@ export class FeePurgeService implements OnModuleInit {
   private async purgeEmptyRuns(
     now: Date,
     retentionYears: number,
-    startMonth: number,
   ): Promise<number> {
-    const cutoff = feePurgeCutoff(now, startMonth, retentionYears);
     const { count } = await this.prisma.feeNotification.deleteMany({
-      where: { periodTo: { lt: cutoff }, notices: { none: {} } },
+      where: { ...fallenOut(now, retentionYears).runs, notices: { none: {} } },
     });
     return count;
-  }
-
-  /**
-   * The month the association's financial year begins in.
-   *
-   * Read once per run and passed down, rather than read again for every
-   * apartment: the whole run judges one cohort, and a setting changed while the
-   * run was in flight would otherwise erase two apartments on two different
-   * rules. A missing association row falls back to the calendar year, which is
-   * the column's own default - an instance with no association has no fees
-   * either.
-   */
-  private async financialYearStartMonth(): Promise<number> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { financialYearStartMonth: true },
-    });
-    return association?.financialYearStartMonth ?? CALENDAR_YEAR_START_MONTH;
   }
 
   /**

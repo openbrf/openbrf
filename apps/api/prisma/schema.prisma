@@ -420,14 +420,16 @@ model Association {
   /// period in the association's history rather than its standing year, and the
   /// column states the standing one.
   ///
-  /// Read by the retention windows over charges and over fees, and by nothing
-  /// else. 7 kap. 2 § of the same act preserves rakenskapsinformation "fram
-  /// till och med det sjunde aret efter utgangen av det kalenderar da
+  /// Read when a charge, a fee rate or a notification run is written, and
+  /// stamped on that row; the retention windows read the row's own copy and
+  /// never this one. 7 kap. 2 § of the same act preserves rakenskapsinformation
+  /// "fram till och med det sjunde aret efter utgangen av det kalenderar da
   /// rakenskapsaret avslutades", so which calendar year a row's preservation
-  /// runs from is the financial year's question and not the row's own. The
-  /// default is what every instance recorded before this column existed had
-  /// assumed, and on it both windows compute exactly the dates they computed
-  /// before.
+  /// runs from is the question of the financial year its books were kept in -
+  /// and changing this setting later changes the books written afterwards, not
+  /// the ones already closed. The default is what every instance recorded
+  /// before this column existed had assumed, and on it both windows compute
+  /// exactly the dates they computed before.
   financialYearStartMonth Int @default(1)
 
   /// Where the association is paid: its bankgiro number, as the board holds it.
@@ -5842,6 +5844,19 @@ model MemberCharge {
   /// the retention window is anchored on.
   chargedOn DateTime @db.Date
 
+  /// The month the association's financial year began in when this charge was
+  /// recorded, 1 to 12.
+  ///
+  /// Stamped on the row rather than read from `Association` at purge time,
+  /// because bokforingslagen (1999:1078) 7 kap. 2 § counts the preservation
+  /// period from the end of the calendar year the financial year closed, and
+  /// which financial year a charge falls in is a fact about the books it was
+  /// entered in. An association that later changes its financial year does not
+  /// change the year its earlier books closed; reading the current setting would
+  /// move an erasure date already stated on a data subject access report, and
+  /// could move it a year earlier. No default: every writer states it.
+  financialYearStartMonth Int
+
   /// What is being charged, in kronor. Positive; a credit is not a charge.
   amount Decimal @db.Decimal(14, 2)
 
@@ -6786,6 +6801,12 @@ model Fee {
   /// cover the same day.
   appliesUntil DateTime? @db.Date
 
+  /// The month the association's financial year began in when this rate was
+  /// recorded, 1 to 12. Stamped for the reason `MemberCharge` gives: the
+  /// preservation period is counted from the books the rate was entered in, and
+  /// a later change to the setting does not reach back into them.
+  financialYearStartMonth Int
+
   /// What the apartment pays for one calendar month, in kronor. Positive; a
   /// credit is not a fee.
   monthlyAmount Decimal @db.Decimal(14, 2)
@@ -6855,6 +6876,16 @@ model FeeNotification {
   /// The day the board states the money is due. Chosen by the board; see the
   /// model comment for why nothing reads it.
   dueOn DateTime @db.Date
+
+  /// The month the association's financial year began in when the run was
+  /// issued, 1 to 12. Stamped for the reason `MemberCharge` gives.
+  ///
+  /// On the run rather than on each notice: a notice's preservation is counted
+  /// from the run's own period, every notice in a run is written in the same
+  /// transaction as the run, and a copy on each row would be one value repeated
+  /// with nothing to say which copy is right. It also lets the purge judge a run
+  /// left with no notices by the same rule it judged them by.
+  financialYearStartMonth Int
 
   /// When the run was made, and by whom. A plain column, as on the fee.
   issuedAt         DateTime @default(now())

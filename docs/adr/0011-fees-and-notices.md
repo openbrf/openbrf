@@ -107,6 +107,16 @@ payment references for one month's money. That rule is also what makes the
 payment reference unique with no counter: the reference carries the month the
 period opens in, and no two runs can open in the same month.
 
+Both of these rules - one run per month, and one rate per apartment, kind and day -
+are checked by reading a set of rows and then writing. At READ COMMITTED two
+requests arriving together would both find the months free, or both find no rate
+in the way, and both write. Each check and its write therefore run under an
+advisory lock (`fees/fee-lock.ts`), the pattern this codebase already uses for
+every invariant that spans rows and that no single row carries. A range exclusion
+constraint would state it in the table, at the price of a database extension no
+migration here installs, for a contention that does not occur: rates are recorded a
+few times a year and a period is issued once a quarter.
+
 ### Nothing computes from the due date
 
 No Swedish statute sets a forfallodag for an arsavgift; BRL 7 kap. 15 § governs
@@ -158,12 +168,25 @@ preserved from the end of 2026. Two charges eleven weeks apart, a year apart in
 when they may be erased. The module comment conceded "a few months longer or
 shorter"; the real drift is a full year, and it is only ever in one direction.
 
-`Association.financialYearStartMonth` is therefore read by both retention
-windows. Three properties make correcting a shipped window safe:
+The month the financial year begins in is recorded on `Association`, and it is
+**stamped on each row when the row is written** - every charge, every fee rate and
+every notification run carries the month its own books were kept in. Both
+retention windows and the data subject access report read the row's copy and
+never the setting. Which calendar year a row's preservation runs from is a fact
+about the books it was entered in, and changing the association's financial year
+changes the books kept from then on, not the ones already closed. Read off the
+setting instead, a move from May back to January would take a June 2026 charge
+from 1 January 2035 to 1 January 2034: erased a year before the statute allows,
+and a year before the date its member's access report stated.
 
-- The default is January, which is what every instance recorded before the column
-  existed had assumed. On it both functions compute exactly what they computed
-  before.
+Four properties make correcting a shipped window safe:
+
+- Every row written before the stamp existed carries January, the only value that
+  could have applied: there was no setting, and every purge and every report
+  computed on the calendar year. On it both functions compute exactly what they
+  computed before.
+- A later change to the setting reaches rows written afterwards and no earlier
+  one, so it can never move a date already stated.
 - The end year of a financial year containing a day is never before that day's own
   calendar year, so the correction moves erasure dates later and never earlier. No
   date already stated to a named person on a data subject access report is brought

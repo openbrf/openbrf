@@ -182,18 +182,65 @@ function ownApartments(register: FeeRegister) {
   );
 }
 
-/** Clears every fee this suite's apartments carry, between cases. */
+/**
+ * Runs this suite wrote straight into the table, with no notice to find them by.
+ *
+ * The race tests insert a run inside a transaction of their own to stand in for
+ * a second request, and such a run bills nobody. Every other run this suite
+ * makes is found through the notices on its own apartments.
+ */
+const ownRunIds = new Set<string>();
+
+/**
+ * Clears every fee and run this suite made, between cases.
+ *
+ * Scoped to this run's own rows: the runs that billed this suite's apartments
+ * and the ones it inserted directly, and never every empty run in the table.
+ */
 async function clearFees(): Promise<void> {
+  const billed = await prisma.feeNotice.findMany({
+    where: { apartmentId: { in: apartmentIds } },
+    select: { notificationId: true },
+    distinct: ["notificationId"],
+  });
+  const runIds = [
+    ...new Set([
+      ...billed.map((notice) => notice.notificationId),
+      ...ownRunIds,
+    ]),
+  ];
   await prisma.feeNotice.deleteMany({
     where: { apartmentId: { in: apartmentIds } },
   });
-  await prisma.feeNotification.deleteMany({
-    where: {
-      notices: { none: {} },
-      periodFrom: { gte: new Date("2020-01-01") },
-    },
-  });
+  await prisma.feeNotification.deleteMany({ where: { id: { in: runIds } } });
+  ownRunIds.clear();
   await prisma.fee.deleteMany({ where: { apartmentId: { in: apartmentIds } } });
+}
+
+/**
+ * The month the association's financial year began in before this suite ran,
+ * restored when it ends. Several cases change it; the suite hands the database
+ * back as it found it rather than as it assumes it was.
+ */
+let originalStartMonth = 1;
+
+/** Sets the association's financial year for the case that needs it. */
+async function setStartMonth(month: number): Promise<void> {
+  await prisma.association.update({
+    where: { id: 1 },
+    data: { financialYearStartMonth: month },
+  });
+}
+
+/**
+ * Long enough for a request already sent to have reached the statement it will
+ * wait on. Used only where a test drives two transactions against one lock on
+ * purpose, and only after the holder has signalled that it holds the lock.
+ */
+function settle(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 150);
+  });
 }
 
 let boardCookie = "";
@@ -220,11 +267,13 @@ beforeAll(async () => {
     select: { id: true },
   });
   associationCreatedHere = existing === null;
-  await prisma.association.upsert({
+  const association = await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
     update: {},
+    select: { financialYearStartMonth: true },
   });
+  originalStartMonth = association.financialYearStartMonth;
 
   await prisma.address.create({
     data: {
@@ -311,15 +360,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (prisma !== undefined) {
-    await prisma.feeNotice.deleteMany({
-      where: { apartmentId: { in: apartmentIds } },
-    });
-    await prisma.feeNotification.deleteMany({
-      where: { notices: { none: {} } },
-    });
-    await prisma.fee.deleteMany({
-      where: { apartmentId: { in: apartmentIds } },
-    });
+    await clearFees();
     await prisma.legalHold.deleteMany({
       where: { personId: { in: personIds } },
     });
@@ -342,10 +383,7 @@ afterAll(async () => {
     await prisma.person.deleteMany({ where: { id: { in: personIds } } });
     await prisma.apartment.deleteMany({ where: { id: { in: apartmentIds } } });
     await prisma.address.deleteMany({ where: { id: addressId } });
-    await prisma.association.update({
-      where: { id: 1 },
-      data: { financialYearStartMonth: 1 },
-    });
+    await setStartMonth(originalStartMonth);
 
     // Audit entries stay: the table is append-only by trigger, and every
     // assertion below selects on this run's own target ids.
@@ -495,6 +533,127 @@ describe("recording a fee", () => {
     expect(response.json<FeeRow>().vatRatePercent).toBe(25);
 
     await clearFees();
+  });
+});
+
+describe("two rates for one day", () => {
+  it("refuses a rate inside the window of one already closed", async () => {
+    /*
+     * The sequence that billed a household twice. Recording from July closes
+     * the January rate at the end of June; removing the July rate leaves the
+     * January rate closed there. A rate recorded from March then fell between
+     * the two checks - it starts before no later rate, and the January rate is
+     * no longer the open one - and both rates covered March to June, so a run
+     * billed both.
+     */
+    try {
+      expect(
+        (await recordFee(feeOn({ appliesFrom: "2026-01-01" }))).statusCode,
+      ).toBe(201);
+      const july = await recordFee(feeOn({ appliesFrom: "2026-07-01" }));
+      expect(july.statusCode).toBe(201);
+      const removed = await inject({
+        method: "DELETE",
+        url: `/api/fees/${july.json<FeeRow>().feeId}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(removed.statusCode).toBe(204);
+
+      const march = await recordFee(feeOn({ appliesFrom: "2026-03-01" }));
+
+      expect(march.statusCode).toBe(409);
+      expect(march.json<{ reason: string }>().reason).toBe(
+        "fee-already-in-force",
+      );
+      // And the register still has one answer for a day inside that window.
+      const april = await readRegister("2026-04-15");
+      expect(
+        april.apartments.find((entry) => entry.apartmentId === apartmentId)
+          ?.fees,
+      ).toHaveLength(1);
+    } finally {
+      await clearFees();
+    }
+  });
+
+  it("takes a rate from the day after the closed one ends", async () => {
+    // The correction the refusal points to, which has to stay open.
+    try {
+      await recordFee(feeOn({ appliesFrom: "2026-01-01" }));
+      const july = await recordFee(feeOn({ appliesFrom: "2026-07-01" }));
+      await inject({
+        method: "DELETE",
+        url: `/api/fees/${july.json<FeeRow>().feeId}`,
+        headers: { cookie: boardCookie },
+      });
+
+      const response = await recordFee(feeOn({ appliesFrom: "2026-07-01" }));
+      expect(response.statusCode).toBe(201);
+    } finally {
+      await clearFees();
+    }
+  });
+
+  it("serialises two rates recorded at once for one apartment and kind", async () => {
+    /*
+     * Check-then-act with nothing in the table to stop it: two requests for the
+     * same day both read "nothing later, nothing open" and both insert, and the
+     * apartment has two open rates. The transaction below stands in for the
+     * first request - it takes the lock the service takes, writes its rate and
+     * holds - and the request is sent while it holds. Under the lock the request
+     * waits, then reads the committed rate and is refused; without the lock it
+     * reads before the commit and writes a second rate.
+     */
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = (): void => {
+        resolve();
+      };
+    });
+    let holding = (): void => undefined;
+    const locked = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+
+    try {
+      const first = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`fee-rates:${apartmentId}:ANNUAL_FEE`}))`;
+          await tx.fee.create({
+            data: {
+              apartmentId,
+              kind: "ANNUAL_FEE",
+              appliesFrom: new Date("2026-03-01"),
+              monthlyAmount: "3450.50",
+              vatTreatment: "EXEMPT",
+              recordedByPersonId: board.personId,
+              financialYearStartMonth: 1,
+            },
+          });
+          holding();
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+
+      await locked;
+      const second = recordFee(feeOn({ appliesFrom: "2026-03-01" }));
+      await settle();
+      release();
+      await first;
+
+      const response = await second;
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "fee-already-recorded-later",
+      );
+      expect(
+        await prisma.fee.count({ where: { apartmentId, kind: "ANNUAL_FEE" } }),
+      ).toBe(1);
+    } finally {
+      release();
+      await clearFees();
+    }
   });
 });
 
@@ -661,6 +820,74 @@ describe("issuing a period's notices", () => {
     expect(response.json<FeeNotificationSummary>().total).toBe("6901.00");
 
     await clearFees();
+  });
+});
+
+describe("two runs at once", () => {
+  it("serialises two overlapping runs issued together", async () => {
+    /*
+     * The unique on the period stops two identical runs and nothing else. Two
+     * overlapping ones issued at the same moment both read "no run covers these
+     * months" and both bill them. The transaction below stands in for the first
+     * run - it takes the service's lock, inserts a run over February to April
+     * and holds - and a January to March run is issued while it holds. Under
+     * the lock the second waits and then sees the first; without it, it bills
+     * February and March a second time.
+     */
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = (): void => {
+        resolve();
+      };
+    });
+    let holding = (): void => undefined;
+    const locked = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+
+    try {
+      await recordFee(feeOn());
+
+      const first = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"fee-notifications"}))`;
+          const run = await tx.feeNotification.create({
+            data: {
+              periodFrom: new Date("2026-02-01"),
+              periodTo: new Date("2026-04-30"),
+              dueOn: new Date("2026-02-28"),
+              issuedByPersonId: board.personId,
+              financialYearStartMonth: 1,
+            },
+            select: { id: true },
+          });
+          ownRunIds.add(run.id);
+          holding();
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+
+      await locked;
+      const second = inject({
+        method: "POST",
+        url: "/api/fee-notifications",
+        payload: { from: "2026-01-01", to: "2026-03-31", dueOn: "2026-01-31" },
+        headers: { cookie: boardCookie },
+      });
+      await settle();
+      release();
+      await first;
+
+      const response = await second;
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "period-overlaps-a-run",
+      );
+    } finally {
+      release();
+      await clearFees();
+    }
   });
 });
 
@@ -895,6 +1122,61 @@ describe("the apartment register", () => {
     ).toBe(before);
   });
 
+  it("refuses a batch naming one apartment twice, and writes nothing", async () => {
+    /*
+     * Two rows for one apartment have no single answer to what its figures now
+     * are. Applied in turn, the later would silently win and the log would carry
+     * two entries for one change to a confidential statutory register.
+     */
+    const before = await prisma.apartment.findUnique({
+      where: { id: apartmentId },
+      select: { participationShare: true, initialShareCapital: true },
+    });
+    const entries = await prisma.auditLogEntry.count({
+      where: { action: "APARTMENT_SHARES_RECORDED", targetId: apartmentId },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/apartment-shares",
+      payload: {
+        apartments: [
+          {
+            apartmentId,
+            participationShare: "0.04",
+            initialShareCapital: "140000.00",
+          },
+          {
+            apartmentId,
+            participationShare: "0.05",
+            initialShareCapital: "150000.00",
+          },
+        ],
+      },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "apartment-listed-twice",
+    );
+    const after = await prisma.apartment.findUnique({
+      where: { id: apartmentId },
+      select: { participationShare: true, initialShareCapital: true },
+    });
+    expect(after?.participationShare?.toString()).toBe(
+      before?.participationShare?.toString(),
+    );
+    expect(after?.initialShareCapital?.toFixed(2)).toBe(
+      before?.initialShareCapital?.toFixed(2),
+    );
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "APARTMENT_SHARES_RECORDED", targetId: apartmentId },
+      }),
+    ).toBe(entries);
+  });
+
   it("is refused to a resident", async () => {
     const response = await inject({
       method: "POST",
@@ -951,6 +1233,44 @@ describe("the data subject access report", () => {
   });
 });
 
+describe("the erasure date an access report states", () => {
+  it("is counted from the financial year the run was issued under", async () => {
+    /*
+     * The date on the report is a promise to a named person, so it has to be
+     * the one the purge will act on - and it must not move when the setting
+     * does. A June 2026 run issued while the year ran from May is preserved
+     * from the end of 2027 and erasable on 1 January 2035. Read off the setting
+     * after the association moved to the calendar year, it would state 2034.
+     */
+    try {
+      await setStartMonth(5);
+      await recordFee(feeOn({ appliesFrom: "2026-06-01" }));
+      const run = await inject({
+        method: "POST",
+        url: "/api/fee-notifications",
+        payload: { from: "2026-06-01", to: "2026-06-30", dueOn: "2026-06-30" },
+        headers: { cookie: boardCookie },
+      });
+      expect(run.statusCode).toBe(201);
+      await setStartMonth(1);
+
+      const response = await inject({
+        method: "POST",
+        url: `/api/data-subject-reports/persons/${member.personId}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const notice = response
+        .json<DataSubjectReport>()
+        .feeNotices.find((entry) => entry.periodFrom === "2026-06-01");
+      expect(notice?.erasableFrom).toBe("2035-01-01");
+    } finally {
+      await setStartMonth(originalStartMonth);
+      await clearFees();
+    }
+  });
+});
+
 describe("the purge", () => {
   it("erases a rate that has ended and leaves one in force", async () => {
     await recordFee(feeOn({ appliesFrom: "2020-01-01" }));
@@ -974,34 +1294,54 @@ describe("the purge", () => {
     await clearFees();
   });
 
-  it("follows the association's financial year", async () => {
+  it("follows the financial year each row was kept in, not today's", async () => {
     /*
-     * The correction this pull request makes, asserted end to end. On a year
-     * running from the 1st of May, a period closing in June 2021 falls in the
-     * year that ends in April 2022 and is preserved a year longer than its own
-     * calendar year would suggest.
+     * The correction this pull request makes, and the stamp that keeps it. On a
+     * year running from the 1st of May, June 2021 falls in the year that ends
+     * in April 2022, so a rate ending then and the run billing that month are
+     * preserved from the end of 2022.
+     *
+     * Then the association moves its year back to the calendar year. That
+     * changes the books kept from now on and not the ones that closed in 2022:
+     * read off today's setting, the rows would be erasable from 2029 - a year
+     * before bokforingslagen 7 kap. 2 § allows, and a year before the date an
+     * access report stated. Each row carries the month it was written under,
+     * and the purge reads that.
      */
-    await prisma.association.update({
-      where: { id: 1 },
-      data: { financialYearStartMonth: 5 },
-    });
-    await recordFee(feeOn({ appliesFrom: "2021-06-01" }));
-    await recordFee(feeOn({ appliesFrom: "2021-07-01" }));
+    try {
+      await setStartMonth(5);
+      await recordFee(feeOn({ appliesFrom: "2021-06-01" }));
+      const run = await inject({
+        method: "POST",
+        url: "/api/fee-notifications",
+        payload: { from: "2021-06-01", to: "2021-06-30", dueOn: "2021-06-30" },
+        headers: { cookie: boardCookie },
+      });
+      expect(run.statusCode).toBe(201);
+      await recordFee(feeOn({ appliesFrom: "2021-07-01" }));
 
-    const purge = app.get(FeePurgeService);
+      await setStartMonth(1);
 
-    // On the calendar year's reckoning the ended rate would be gone by now.
-    const early = await purge.run(new Date("2029-06-01T12:00:00.000+02:00"));
-    expect(early.feesDeleted).toBe(0);
+      const stamped = await prisma.fee.findMany({
+        where: { apartmentId },
+        select: { financialYearStartMonth: true },
+      });
+      expect(stamped.map((fee) => fee.financialYearStartMonth)).toEqual([5, 5]);
 
-    const later = await purge.run(new Date("2030-06-01T12:00:00.000+02:00"));
-    expect(later.feesDeleted).toBeGreaterThan(0);
+      const purge = app.get(FeePurgeService);
 
-    await prisma.association.update({
-      where: { id: 1 },
-      data: { financialYearStartMonth: 1 },
-    });
-    await clearFees();
+      // On the calendar year's reckoning both rows would be gone by now.
+      const early = await purge.run(new Date("2029-06-01T12:00:00.000+02:00"));
+      expect(early.feesDeleted).toBe(0);
+      expect(early.noticesDeleted).toBe(0);
+
+      const later = await purge.run(new Date("2030-06-01T12:00:00.000+02:00"));
+      expect(later.feesDeleted).toBeGreaterThan(0);
+      expect(later.noticesDeleted).toBeGreaterThan(0);
+    } finally {
+      await setStartMonth(originalStartMonth);
+      await clearFees();
+    }
   });
 
   it("is stopped by a legal hold against anybody who lived there", async () => {

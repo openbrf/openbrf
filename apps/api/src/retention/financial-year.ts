@@ -1,5 +1,7 @@
 import { dateColumnOf, localDayOf, localDayOfColumn } from "@openbrf/shared";
 
+import type { Prisma } from "../generated/prisma/client";
+
 /**
  * The association's financial year, and the preservation window that hangs off
  * it.
@@ -44,13 +46,59 @@ import { dateColumnOf, localDayOf, localDayOfColumn } from "@openbrf/shared";
  * computation per row and what a data subject access report states.
  * {@link preservationCutoff} asks the opposite question of a whole table at
  * once - "which rows fall in a financial year that has fallen out" - which has
- * to be one comparison in SQL. They are in one file because they are one
+ * to be one comparison in SQL per start month.
+ *
+ * ## The start month is the row's, not the association's
+ *
+ * Each row carries the month the association's financial year began in when
+ * the row was written, and both functions are handed that. Changing the
+ * setting later changes the books kept from then on; it does not change the
+ * year an earlier set of books closed, so it must not move an earlier row's
+ * erasure date - least of all earlier, which would erase it before the
+ * statute's period ends and before the date its data subject was told. They are in one file because they are one
  * decision read from two ends, and `financial-year.spec.ts` runs them against
  * each other rather than trusting the arithmetic to look symmetrical.
  */
 
 /** January, the start month of a financial year that is the calendar year. */
 export const CALENDAR_YEAR_START_MONTH = 1;
+
+/**
+ * Every month a financial year can begin in, in order.
+ *
+ * A purge asks "which rows have fallen out" of a table whose rows each carry the
+ * month their own books were kept in, so it asks once per month and joins the
+ * answers. Twelve is the whole of it - 3 kap. 1 § makes a rakenskapsar twelve
+ * calendar months, so the month it starts in is all that varies - and asking
+ * for every month rather than for the ones a table happens to hold keeps the
+ * query one statement with no read before it.
+ */
+export const FINANCIAL_YEAR_START_MONTHS: readonly number[] = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+];
+
+/**
+ * The month the association's financial year begins in now, for stamping on a
+ * row about to be written.
+ *
+ * Read inside the writer's own transaction, so the row and the setting it was
+ * stamped from are one consistent read. Every writer of a charge, a fee rate or a
+ * notification run calls this and nothing else, so there is one answer to what
+ * an instance without an association row stamps: January, the calendar year,
+ * which is what the column on `Association` defaults to.
+ *
+ * This is the only place the setting is read on the way to a retention date.
+ * The purges and the data subject access report read the row's own copy.
+ */
+export async function financialYearStartMonthInForce(
+  client: Prisma.TransactionClient,
+): Promise<number> {
+  const association = await client.association.findUnique({
+    where: { id: 1 },
+    select: { financialYearStartMonth: true },
+  });
+  return association?.financialYearStartMonth ?? CALENDAR_YEAR_START_MONTH;
+}
 
 /**
  * The calendar year in which the financial year containing a day ended.

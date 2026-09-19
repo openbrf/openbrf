@@ -19,7 +19,6 @@ import { PrismaService } from "../database/prisma.service";
 import { chargesDuringResidency } from "../charges/apartment-charges";
 import { computeMemberChargePurgeDate } from "../charges/member-charge-retention";
 import { computeFeePurgeDate } from "../fees/fee-retention";
-import { CALENDAR_YEAR_START_MONTH } from "./financial-year";
 import { computeEventSignupPurgeDate } from "../events/event-signup-retention";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
@@ -364,24 +363,8 @@ export class DataSubjectReportService {
 
     const association = await tx.association.findUnique({
       where: { id: 1 },
-      select: {
-        name: true,
-        organizationNumber: true,
-        // Read for the erasure dates below rather than for the document's
-        // heading. Bokforingslagen 7 kap. 2 § counts the preservation period
-        // from the end of the calendar year the financial year closed, so which
-        // year that is is this setting's answer and not the row's own date.
-        financialYearStartMonth: true,
-      },
+      select: { name: true, organizationNumber: true },
     });
-
-    /*
-     * Defaulted to the calendar year where no association row exists, which is
-     * the column's own default and what every erasure date in this product was
-     * computed on before the setting existed.
-     */
-    const financialYearStartMonth =
-      association?.financialYearStartMonth ?? CALENDAR_YEAR_START_MONTH;
 
     /*
      * The apps this person allowed to act for them.
@@ -768,6 +751,8 @@ export class DataSubjectReportService {
       vatTreatment: true,
       vatRatePercent: true,
       handedToManagerOn: true,
+      // The month its books began in, which its erasure date is counted from.
+      financialYearStartMonth: true,
       apartment: {
         select: {
           number: true,
@@ -821,6 +806,7 @@ export class DataSubjectReportService {
                 monthlyAmount: true,
                 vatTreatment: true,
                 vatRatePercent: true,
+                financialYearStartMonth: true,
                 apartment: {
                   select: {
                     number: true,
@@ -856,6 +842,7 @@ export class DataSubjectReportService {
                     periodTo: true,
                     dueOn: true,
                     issuedAt: true,
+                    financialYearStartMonth: true,
                   },
                 },
                 apartment: {
@@ -1478,15 +1465,16 @@ export class DataSubjectReportService {
            * anchored on the charge's financial year rather than on a move-out:
            * the row belongs to a financial year, and it is that year that
            * decides when the association has no further use for it. The month
-           * that year begins in is the association's own setting, so this states
-           * the same day the purge will act on rather than an approximation of
-           * it.
+           * that year begins in is the one stamped on the charge when it was
+           * recorded, which is what the purge reads too - so this states the
+           * day the purge will act on, and a later change to the setting cannot
+           * move a date this document has already given.
            */
           erasableFrom:
             formatDateColumn(
               computeMemberChargePurgeDate(
                 charge.chargedOn,
-                financialYearStartMonth,
+                charge.financialYearStartMonth,
               ),
             ) ?? "",
         }),
@@ -1512,7 +1500,10 @@ export class DataSubjectReportService {
           fee.appliesUntil === null
             ? null
             : formatDateColumn(
-                computeFeePurgeDate(fee.appliesUntil, financialYearStartMonth),
+                computeFeePurgeDate(
+                  fee.appliesUntil,
+                  fee.financialYearStartMonth,
+                ),
               ),
       })),
       feeNotices: feeNoticesDuringResidency.map((notice): ReportFeeNotice => ({
@@ -1534,7 +1525,7 @@ export class DataSubjectReportService {
           formatDateColumn(
             computeFeePurgeDate(
               notice.notification.periodTo,
-              financialYearStartMonth,
+              notice.notification.financialYearStartMonth,
             ),
           ) ?? "",
       })),

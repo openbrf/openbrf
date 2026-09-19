@@ -27,6 +27,8 @@ import {
   totalOf,
   writeFeeNoticeList,
 } from "./fee-notice";
+import { financialYearStartMonthInForce } from "../retention/financial-year";
+import { lockFeeNotifications } from "./fee-lock";
 import { FeeError } from "./fee.error";
 import { MAX_NOTICES_PER_RUN, paymentReferenceFor } from "./payment-reference";
 
@@ -170,6 +172,14 @@ export class FeeNotificationService {
     }
 
     const summary = await this.prisma.$transaction(async (tx) => {
+      /*
+       * Before the overlap is read, so reading it and inserting the run are one
+       * decision. The unique on the period catches two identical runs and
+       * nothing else; two overlapping ones issued together would otherwise both
+       * find the months free and both bill them. See `fee-lock.ts`.
+       */
+      await lockFeeNotifications(tx);
+
       const clash = await tx.feeNotification.findFirst({
         where: {
           periodFrom: { lte: dateColumnOf(period.to) },
@@ -217,6 +227,9 @@ export class FeeNotificationService {
           periodTo: dateColumnOf(period.to),
           dueOn: dateColumnOf(dueOn),
           issuedByPersonId: input.actorPersonId,
+          // The books this run is entered in, which its notices are preserved
+          // by. A later change to the setting does not reach back into them.
+          financialYearStartMonth: await financialYearStartMonthInForce(tx),
         },
         select: { id: true, issuedAt: true },
       });

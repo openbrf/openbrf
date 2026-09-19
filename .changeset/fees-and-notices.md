@@ -39,7 +39,9 @@ year ended in, which for an association whose year is not the calendar year is a
 full year later than before for part of every year. The window used to count from
 the row's own year. Correcting it only ever moves an erasure date later, never
 earlier, so no date already stated to somebody is brought forward, and for an
-association running the calendar year nothing changes at all.
+association running the calendar year nothing changes at all. Each charge, fee
+and notice run keeps the month in force when it was recorded, so changing the
+setting later reaches only what is recorded afterwards.
 
 Amounts are shown grouped and to the ore for the first time, in the reader's own
 language.

@@ -34,6 +34,7 @@ export type FeeReason =
   | "vat-rate-out-of-range"
   | "ends-before-it-begins"
   | "fee-already-recorded-later"
+  | "fee-already-in-force"
   | "fee-notified"
   | "period-not-whole-months"
   | "period-too-long"
@@ -76,6 +77,7 @@ const FEE_FAILURES: Readonly<
   "ends-before-it-begins": "fees.errors.endsBeforeItBegins",
   // The two about a rate's place in its own history.
   "fee-already-recorded-later": "fees.errors.feeAlreadyRecordedLater",
+  "fee-already-in-force": "fees.errors.feeAlreadyInForce",
   "fee-notified": "fees.errors.feeNotified",
 
   "period-not-whole-months": "fees.errors.periodNotWholeMonths",

@@ -1084,7 +1084,7 @@
     "finances": {
       "title": "Räkenskapsår och gironummer",
       "description": "När föreningens räkenskapsår börjar, och var föreningen tar emot betalning.",
-      "retentionNotice": "Månaden avgör när debiteringar och avgifter gallras. Räkenskapsinformation bevaras till och med det sjunde året efter utgången av det kalenderår då räkenskapsåret avslutades (bokföringslagen 7 kap. 2 §), så ett brutet räkenskapsår flyttar gallringsdatumet framåt för en del av året. Ett datum som redan har lämnats i ett registerutdrag tidigareläggs aldrig av en ändring här.",
+      "retentionNotice": "Månaden avgör när debiteringar och avgifter gallras. Räkenskapsinformation bevaras till och med det sjunde året efter utgången av det kalenderår då räkenskapsåret avslutades (bokföringslagen 7 kap. 2 §). Varje debitering, avgift och avisering får den månad som gäller när den registreras, så en ändring här når bara det som registreras efteråt: redan registrerade rader behåller sitt eget räkenskapsår, och inget gallringsdatum flyttas.",
       "startMonth": "Räkenskapsåret börjar i",
       "startMonthHint": "Kalenderåret är det vanliga och är förvalt. Ett brutet räkenskapsår omfattar tolv kalendermånader räknat från den månad ni väljer (bokföringslagen 3 kap. 1 §).",
       "bankgiro": "Bankgiro",
@@ -3891,10 +3891,10 @@
   "fees": {
     "navLabel": "Avgifter",
     "heading": "Avgifter och avier",
-    "description": "Vad varje lägenhet betalar till föreningen, och avierna för perioden. Styrelsen fastställer avgifterna enligt BRL 9 kap. 13 §.",
+    "description": "Avgiften för varje lägenhet, och periodens avier. Styrelsen fastställer avgifterna enligt BRL 9 kap. 13 §.",
     "notALedger": "Open BRF håller avgiften och avin, inte reskontran. Ingenting här registrerar en betalning eller ett utestående belopp - skulden regleras i bokföringssystemet.",
     "loadFailed": "Avgifterna kunde inte läsas just nu.",
-    "forbidden": "Avgifter hanteras av styrelsen. Vad en medlem ska betala framgår av avin, och medlemmens egen kopia av det som lagras finns i registerutdraget.",
+    "forbidden": "Avgifter hanteras av styrelsen. Det belopp som aviseras framgår av avin, och medlemmens egen kopia av det som lagras finns i registerutdraget.",
     "loading": "Läser in avgifterna",
     "print": "Skriv ut",
     "documentTitle": "Avgiftsregister",
@@ -3962,6 +3962,7 @@
       "issue": "Framställ avierna",
       "wholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad. Förfallodagen är den ni anger; Open BRF räknar ingenting ur den.",
       "none": "Inga avier är framställda än.",
+      "loadFailed": "Avierna kunde inte läsas just nu.",
       "period": "{{from}} till {{to}}",
       "produce": "Ta fram dokumentet",
       "produceNamed": "Ta fram dokumentet för {{from}} till {{to}}",
@@ -3998,6 +3999,7 @@
       "vatRateOutOfRange": "Momssatsen anges i hela procent, 1 till 100.",
       "endsBeforeItBegins": "Avgiften kan inte upphöra innan den börjar gälla.",
       "feeAlreadyRecordedLater": "Det finns redan en senare avgift av samma slag för lägenheten. Ta bort den först.",
+      "feeAlreadyInForce": "En avgift av samma slag gäller redan för lägenheten den dagen. Låt den nya börja dagen efter att den slutar, eller ta bort den först.",
       "feeNotified": "Avgiften är redan aviserad och kan inte tas bort. Den är underlaget för pengar ni har begärt in.",
       "periodNotWholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad.",
       "periodTooLong": "Perioden är för lång. Ett räkenskapsår är högst arton månader.",
@@ -4110,7 +4112,7 @@
         },
         "fees": {
           "name": "Avgifter och avier",
-          "purpose": "Registrera vad varje lägenhet betalar till föreningen och framställa periodens avier.",
+          "purpose": "Registrera de avgifter som gäller för varje lägenhet och framställa periodens avier.",
           "legalBasisNote": "Rättslig förpliktelse: avierna och avgifterna bakom dem är räkenskapsinformation enligt bokföringslagen (1999:1078) 5 kap. 6-7 §§.",
           "retention": "Till och med det sjunde året efter utgången av det kalenderår då räkenskapsåret avslutades (bokföringslagen 7 kap. 2 §). En avgift som fortfarande gäller gallras inte."
         },

@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { FeesScreen } from "./FeesScreen";
@@ -376,6 +376,75 @@ describe("recording a fee", () => {
     render(<FeesScreen />);
 
     expect(await screen.findByText(/dateras framåt/u)).toBeTruthy();
+  });
+});
+
+describe("reads that fail", () => {
+  it("says so when a reload fails rather than keeping the old register", async () => {
+    /*
+     * The board changes the date and the register for it cannot be read. The
+     * previous day's document must not stay on screen under a date control
+     * naming the new one, with a stamp stating a day nobody asked for.
+     */
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+    fetchFeeRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "offline" },
+    });
+    const date = screen.getByLabelText("Gäller den");
+    await user.clear(date);
+    await user.type(date, "2026-10-15");
+
+    expect(
+      await screen.findByText("Avgifterna kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
+  });
+
+  it("does not report a failed read of the runs as none issued", async () => {
+    // "No notices have been produced yet" is a statement about the books, and a
+    // board reading it after a dropped request would issue a period twice.
+    fetchFeeNotifications.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "offline" },
+    });
+    render(<FeesScreen />);
+
+    expect(
+      await screen.findByText("Avierna kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Inga avier är framställda än.")).toBeNull();
+  });
+});
+
+describe("the dates the screen opens on", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads today on the association's calendar, not off the UTC instant", async () => {
+    /*
+     * Half past midnight on the 1st of October in Stockholm is still the 30th of
+     * September in UTC. The register opens on the association's day, and the
+     * default start for a new rate is the first of the month after it - the 1st
+     * of November, not a month already begun.
+     */
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T22:30:00.000Z"));
+
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    expect(fetchFeeRegister).toHaveBeenCalledWith("2026-10-01");
+    expect(
+      (screen.getByLabelText("Gäller från") as HTMLInputElement).value,
+    ).toBe("2026-11-01");
+    expect((screen.getByLabelText("Från") as HTMLInputElement).value).toBe(
+      "2026-10-01",
+    );
   });
 });
 

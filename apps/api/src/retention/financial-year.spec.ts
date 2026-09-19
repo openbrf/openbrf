@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CALENDAR_YEAR_START_MONTH,
+  FINANCIAL_YEAR_START_MONTHS,
   financialYearEndYearOfColumn,
   financialYearStartColumn,
   preservationCutoff,
@@ -285,5 +286,18 @@ describe("the two agree", () => {
     expect(dated.getTime()).toBeGreaterThanOrEqual(
       preservationCutoff(middayOn("2029-12-31"), MAY, 2).getTime(),
     );
+  });
+});
+
+describe("FINANCIAL_YEAR_START_MONTHS", () => {
+  it("is every month once, which is every value a row can carry", () => {
+    /*
+     * A purge asks for each month in this list and matches a row against the
+     * answer for its own month. A month missing here would be a set of rows no
+     * purge ever reached, so the list is asserted whole rather than trusted.
+     */
+    expect([...FINANCIAL_YEAR_START_MONTHS]).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
   });
 });

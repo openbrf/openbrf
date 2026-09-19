@@ -298,10 +298,11 @@ export interface FinanceSettings {
   /**
    * The calendar month the financial year begins in. 1 for the calendar year.
    *
-   * Read by the retention windows over charges and over fees: bokforingslagen
-   * (1999:1078) 7 kap. 2 § counts the preservation period from the end of the
-   * calendar year the financial year closed, so which year that is is this
-   * setting's answer rather than a row's own date.
+   * Stamped on every charge, fee rate and notification run when it is written:
+   * bokforingslagen (1999:1078) 7 kap. 2 § counts the preservation period from
+   * the end of the calendar year the financial year closed, so each row keeps
+   * the month its own books were kept in and a change here reaches only rows
+   * written after it.
    */
   financialYearStartMonth: number;
   bankgiro: string | null;

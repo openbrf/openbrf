@@ -70,7 +70,8 @@ export type ApartmentRegisterErrorReason =
   | "date-in-the-future"
   | "association-not-set-up"
   | "participation-share-not-a-number"
-  | "initial-share-capital-not-a-sum";
+  | "initial-share-capital-not-a-sum"
+  | "apartment-listed-twice";
 
 /**
  * Which reasons are a conflict rather than an absence, and which a bad request.
@@ -98,6 +99,7 @@ const ERROR_STATUS = {
   "association-not-set-up": 409,
   "participation-share-not-a-number": 400,
   "initial-share-capital-not-a-sum": 400,
+  "apartment-listed-twice": 400,
 } as const satisfies Record<ApartmentRegisterErrorReason, number>;
 
 export class ApartmentRegisterError extends DomainError {
@@ -1169,6 +1171,25 @@ export class ApartmentRegisterService {
       initialShareCapital: string | null;
     }[];
   }): Promise<{ recorded: number }> {
+    /*
+     * Refused before anything is read or written. Two rows naming one apartment
+     * have no single answer to what its figures now are: the loop would apply
+     * both, the later would silently win, and the log would carry two entries for
+     * one change to a confidential statutory register. A form built from the
+     * register never sends that, so a request that does is refused whole rather
+     * than resolved by a rule nobody chose.
+     */
+    const seen = new Set<string>();
+    for (const apartment of input.apartments) {
+      if (seen.has(apartment.apartmentId)) {
+        throw new ApartmentRegisterError(
+          "The same apartment is listed twice.",
+          "apartment-listed-twice",
+        );
+      }
+      seen.add(apartment.apartmentId);
+    }
+
     const written = input.apartments.map((apartment) => ({
       apartmentId: apartment.apartmentId,
       participationShare: readParticipationShare(apartment.participationShare),

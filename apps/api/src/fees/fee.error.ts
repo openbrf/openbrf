@@ -14,6 +14,7 @@ export type FeeReason =
   | "vat-rate-out-of-range"
   | "ends-before-it-begins"
   | "fee-already-recorded-later"
+  | "fee-already-in-force"
   | "fee-notified"
   | "period-not-whole-months"
   | "period-too-long"
@@ -32,7 +33,7 @@ export type FeeReason =
  * exception filter catches {@link DomainError} once, so nothing has to be
  * registered for this class.
  *
- * ## The two about a rate's dates
+ * ## The three about a rate's dates
  *
  * `ends-before-it-begins` is the ordinary bound. `fee-already-recorded-later`
  * refuses recording a rate that starts on or before one already recorded for
@@ -41,6 +42,11 @@ export type FeeReason =
  * covering one day with no answer to which the apartment pays. The board
  * removes the later rate and records both in order, which is the correction
  * that says what happened.
+ *
+ * `fee-already-in-force` refuses a rate starting inside the window of one that
+ * is already closed - the state removing the rate that closed it leaves behind.
+ * Its own code, because it is met by a different correction: the new rate starts
+ * the day after that one ends, or that one is removed first.
  *
  * A rate dated forward is not refused at all, and that absence is the point.
  * It is the whole difference from `charges/member-charge.error.ts`'s
@@ -117,6 +123,7 @@ function statusFor(reason: FeeReason): number {
     case "period-already-issued":
     case "period-overlaps-a-run":
     case "fee-already-recorded-later":
+    case "fee-already-in-force":
     case "fee-notified":
       /*
        * The request was well formed and refused by the state of the instance

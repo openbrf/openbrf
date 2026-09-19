@@ -114,6 +114,55 @@ describe("ApartmentSharesPanel", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
+  it("never sends an apartment the open form had no field for", async () => {
+    /*
+     * The register is read again while the form stands open - another write on
+     * the screen reloads it - and the reload brings an apartment with figures
+     * already recorded. The board never saw a field for it, so it must not be
+     * in the save at all: sent, it would carry two empty fields, which the
+     * server reads as "clear", and its recorded share and insats would be
+     * erased from the register by a save nobody aimed at it.
+     */
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ApartmentSharesPanel rows={ROWS} onSaved={vi.fn()} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Registrera andelstal och insatser",
+      }),
+    );
+
+    rerender(
+      <ApartmentSharesPanel
+        rows={[
+          ...ROWS,
+          row({
+            apartmentId: "apartment-3",
+            designation: "Storgatan 12 1003",
+            number: "1003",
+            participationShare: "0.03000000",
+            initialShareCapital: "160000.00",
+          }),
+        ]}
+        onSaved={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Spara siffrorna" }));
+
+    await waitFor(() => {
+      expect(recordApartmentShares).toHaveBeenCalledTimes(1);
+    });
+    const sent = recordApartmentShares.mock.calls[0]?.[0] as {
+      apartments: { apartmentId: string }[];
+    };
+    expect(sent.apartments.map((apartment) => apartment.apartmentId)).toEqual([
+      "apartment-1",
+      "apartment-2",
+    ]);
+  });
+
   it("puts a refusal on the panel rather than swallowing it", async () => {
     const user = userEvent.setup();
     recordApartmentShares.mockResolvedValue({

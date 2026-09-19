@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   CELL,
@@ -19,6 +20,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -62,9 +64,15 @@ function fileHref(csv: string): string {
   return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
 }
 
-/** The first day of the month a period most often opens on. */
+/**
+ * The first day of this month on the association's own calendar - the day a
+ * period most often opens on.
+ *
+ * Read in the association's time zone and never off the UTC instant, which is
+ * still last month for the first hour or two of the first of every month.
+ */
 function firstOfThisMonth(): string {
-  return `${new Date().toISOString().slice(0, 7)}-01`;
+  return `${localDayNow().slice(0, 7)}-01`;
 }
 
 export function FeeNotificationsPanel({
@@ -76,6 +84,7 @@ export function FeeNotificationsPanel({
   const { t, i18n } = useTranslation();
 
   const [runs, setRuns] = useState<FeeNotificationSummary[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const [from, setFrom] = useState(firstOfThisMonth);
   const [to, setTo] = useState("");
@@ -91,7 +100,14 @@ export function FeeNotificationsPanel({
       if (cancelled) {
         return;
       }
-      setRuns(result.ok ? result.value : []);
+      /*
+       * A failed read is reported as one and never as an empty list. "No
+       * notices have been produced yet" is a statement about the association's
+       * books, and a board reading it after a dropped request would issue a
+       * period that has already been issued - and only then meet the refusal.
+       */
+      setFailed(!result.ok);
+      setRuns(result.ok ? result.value : null);
     })();
 
     return () => {
@@ -180,7 +196,14 @@ export function FeeNotificationsPanel({
       </form>
       <p className={HINT}>{t("fees.notification.wholeMonths")}</p>
 
-      {runs === null || runs.length === 0 ? (
+      {failed ? (
+        <LoadFailure
+          messageKey="fees.notification.loadFailed"
+          onRetry={() => {
+            setReload((generation) => generation + 1);
+          }}
+        />
+      ) : runs === null ? null : runs.length === 0 ? (
         <p className="text-small text-ink-muted">
           {t("fees.notification.none")}
         </p>

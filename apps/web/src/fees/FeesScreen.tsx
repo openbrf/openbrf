@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   CELL,
@@ -72,17 +73,30 @@ import { suggestMonthlyAmounts } from "./participation-share";
  * shown, which is what keeps the reads below from looping.
  */
 
-/** The month a rate most often starts on, and the day a period opens. */
-function firstOfNextMonth(today: Date): string {
-  const year = today.getUTCFullYear();
-  const month = today.getUTCMonth() + 2;
-  const rolled = month > 12 ? { year: year + 1, month: 1 } : { year, month };
-  return `${String(rolled.year)}-${String(rolled.month).padStart(2, "0")}-01`;
+/**
+ * Today as "YYYY-MM-DD" on the association's own calendar.
+ *
+ * Read in the association's time zone and never off the UTC instant. Sweden is
+ * an hour or two ahead of UTC, so for the first hour or two of every day the UTC
+ * date is still yesterday: the register would open on the day before, and on
+ * the first of a month the default below would name a month already begun.
+ */
+function today(now: Date = new Date()): string {
+  return localDayNow(now);
 }
 
-/** Today as "YYYY-MM-DD" on the association's own calendar. */
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+/**
+ * The first day of next month on the association's own calendar - the day a
+ * rate most often starts on.
+ *
+ * Built from the association's own day rather than from the browser's local
+ * getters, which answer in whatever zone the reader's machine is set to.
+ */
+function firstOfNextMonth(now: Date = new Date()): string {
+  const [year = 0, month = 0] = localDayNow(now).split("-").map(Number);
+  const rolled =
+    month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+  return `${String(rolled.year)}-${String(rolled.month).padStart(2, "0")}-01`;
 }
 
 const KINDS: readonly FeeKind[] = [
@@ -105,7 +119,7 @@ const VAT_LABEL: Readonly<Record<FeeVatTreatment, TranslationKey>> = {
 export function FeesScreen(): ReactElement {
   const { t, i18n } = useTranslation();
 
-  const [on, setOn] = useState(today);
+  const [on, setOn] = useState(() => today());
   const [register, setRegister] = useState<FeeRegister | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -115,9 +129,7 @@ export function FeesScreen(): ReactElement {
 
   const [apartmentId, setApartmentId] = useState("");
   const [kind, setKind] = useState<FeeKind>("ANNUAL_FEE");
-  const [appliesFrom, setAppliesFrom] = useState(() =>
-    firstOfNextMonth(new Date()),
-  );
+  const [appliesFrom, setAppliesFrom] = useState(() => firstOfNextMonth());
   const [monthlyAmount, setMonthlyAmount] = useState("");
   const [vatTreatment, setVatTreatment] = useState<FeeVatTreatment>("EXEMPT");
   const [vatRatePercent, setVatRatePercent] = useState("");
@@ -243,6 +255,16 @@ export function FeesScreen(): ReactElement {
       </header>
 
       <div className="flex flex-col gap-3 print:hidden">
+        {/*
+          A read that failed after one had succeeded - the board changed the
+          date and the register for it could not be fetched. Said out loud, and
+          the document below is withheld while it stands: the register on screen
+          would otherwise be the previous day's under a date control naming the
+          new one, and the stamp on it would state a day nobody asked for.
+        */}
+        {failed ? (
+          <LoadFailure messageKey="fees.loadFailed" onRetry={load} />
+        ) : null}
         {refusal === null ? null : (
           <Notice tone="danger" live>
             {t(refusal)}
@@ -441,7 +463,7 @@ export function FeesScreen(): ReactElement {
         </button>
       </div>
 
-      {register === null ? null : (
+      {register === null || failed ? null : (
         <section {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
           <header className="flex flex-col gap-1">
             <h2 className="text-title">{t("fees.documentTitle")}</h2>

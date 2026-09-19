@@ -96,21 +96,30 @@ export function ApartmentSharesPanel({
     setFailed(false);
     setSaving(true);
     const result = await recordApartmentShares({
-      apartments: rows.map((row) => {
+      /*
+       * The apartments the form was opened with, and no others. `rows` is the
+       * register as it stands now, and a reload while the form was open can
+       * have added an apartment the board never saw a field for. Sending it
+       * would send two empty fields, which the server reads as "clear" - and
+       * an apartment's recorded figures would be erased from a confidential
+       * statutory register by a save nobody aimed at it.
+       */
+      apartments: rows.flatMap((row) => {
         const entry = draft[row.apartmentId];
-        return {
-          apartmentId: row.apartmentId,
-          // Cleared rather than stored empty: the register states a figure or
-          // says none is recorded, and an empty string is neither.
-          participationShare:
-            (entry?.participationShare ?? "").trim() === ""
-              ? null
-              : (entry?.participationShare ?? "").trim(),
-          initialShareCapital:
-            (entry?.initialShareCapital ?? "").trim() === ""
-              ? null
-              : (entry?.initialShareCapital ?? "").trim(),
-        };
+        if (entry === undefined) {
+          return [];
+        }
+        const share = entry.participationShare.trim();
+        const capital = entry.initialShareCapital.trim();
+        return [
+          {
+            apartmentId: row.apartmentId,
+            // Cleared rather than stored empty: the register states a figure
+            // or says none is recorded, and an empty string is neither.
+            participationShare: share === "" ? null : share,
+            initialShareCapital: capital === "" ? null : capital,
+          },
+        ];
       }),
     });
     setSaving(false);

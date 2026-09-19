@@ -89,6 +89,8 @@ interface Fakes {
     isConfigured: ReturnType<typeof vi.fn>;
   };
   i18n: { translatorFor: ReturnType<typeof vi.fn> };
+  /** The log. The finance and data protection contacts writes reach it. */
+  audit: { record: ReturnType<typeof vi.fn> };
 }
 
 function build(overrides: Partial<Association> = {}, exists = true): Fakes {
@@ -156,6 +158,7 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
   // No logo is uploaded in this suite: these cases are about the SMTP secret
   // and the contrast gate, and the media layer has its own tests.
   const media = { upload: vi.fn(), remove: vi.fn() };
+  const audit = { record: vi.fn(async () => undefined) };
 
   const service = new SettingsService(
     prisma as unknown as PrismaService,
@@ -164,12 +167,10 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
     media as unknown as MediaService,
     sms as unknown as SmsService,
     i18n as unknown as I18nService,
-    // Only the data protection contacts write reaches the log, which these
-    // cases do not exercise.
-    { record: vi.fn(async () => undefined) } as never,
+    audit as never,
   );
 
-  return { service, prisma, mail, sms, i18n, current: () => row };
+  return { service, prisma, mail, sms, i18n, audit, current: () => row };
 }
 
 describe("reading the settings", () => {
@@ -601,7 +602,7 @@ describe("the financial year and the giro numbers", () => {
   });
 
   it("stores a broken financial year and where the association is paid", async () => {
-    const { service, current } = build();
+    const { service, current, audit } = build();
 
     await expect(
       service.updateFinances({
@@ -617,6 +618,39 @@ describe("the financial year and the giro numbers", () => {
     });
     expect(current()?.financialYearStartMonth).toBe(5);
     expect(current()?.bankgiro).toBe("123-4567");
+
+    /*
+     * Recorded, by whom, and naming the fields that moved and never their
+     * values: the month decides the erasure dates of everything written after
+     * it, and a giro number corrected later would otherwise stand in a table
+     * nobody can amend. The plusgiro did not move, so it is not named.
+     */
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ASSOCIATION_FINANCES_RECORDED",
+        channel: "WEB",
+        actorPersonId: "person-1",
+        targetKind: "association",
+        context: { fields: ["financialYearStartMonth", "bankgiro"] },
+      }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(audit.record.mock.calls)).not.toContain("123-4567");
+  });
+
+  it("writes nothing to the log for a refused write", async () => {
+    const { service, audit } = build();
+
+    await expect(
+      service.updateFinances({
+        actorPersonId: "person-1",
+        financialYearStartMonth: 13,
+        bankgiro: null,
+        plusgiro: null,
+      }),
+    ).rejects.toMatchObject({ reason: "financial-year-start-not-a-month" });
+    expect(audit.record).not.toHaveBeenCalled();
   });
 
   it("refuses a month no year has", async () => {

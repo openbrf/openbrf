@@ -95,11 +95,11 @@ export interface FinanceSettings {
   /**
    * The calendar month the rakenskapsar begins in. 1 for the calendar year.
    *
-   * Read by the retention windows over charges and over fees, which is the
-   * whole of what it is for: bokforingslagen (1999:1078) 7 kap. 2 § counts the
-   * preservation period from the end of the calendar year the financial year
-   * closed, so which year that is is this setting's answer rather than a row's
-   * own date.
+   * Stamped on every charge, fee rate and notification run when it is written,
+   * which is the whole of what it is for: bokforingslagen (1999:1078) 7 kap.
+   * 2 § counts the preservation period from the end of the calendar year the
+   * financial year closed, so each row keeps the month its own books were kept
+   * in and a change here reaches only the rows written after it.
    */
   financialYearStartMonth: number;
   /** The association's bankgiro number, or null while none is recorded. */
@@ -1020,11 +1020,13 @@ export class SettingsService {
    * Records the association's financial year and where it is paid.
    *
    * Audited, which only one other settings write is. The month the financial
-   * year begins in decides when every charge and every fee this instance holds
-   * becomes erasable - a data subject access report states that date to a named
-   * person - so a change to it moves a promise the association has already made,
-   * and the log has to be able to say who moved it. The giro numbers travel onto
-   * a document members pay from, which is the same kind of fact.
+   * year begins in is stamped on every charge, fee rate and notification run
+   * written from then on, and it decides when each of them becomes erasable. It
+   * does not reach back into rows already written - they keep the month their
+   * own books were kept in, so no erasure date a data subject access report has
+   * stated is moved - but it decides the dates of everything that follows, and
+   * the log has to be able to say who set it. The giro numbers travel onto a
+   * document members are billed through, which is the same kind of fact.
    *
    * The entry names which fields changed and never their values, on
    * `updateDataProtectionContacts`'s rule: a giro number corrected later would

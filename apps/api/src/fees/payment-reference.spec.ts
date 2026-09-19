@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -125,5 +128,54 @@ describe("paymentReferenceIsWellFormed", () => {
     expect(paymentReferenceIsWellFormed("2")).toBe(false);
     expect(paymentReferenceIsWellFormed("26010007 8")).toBe(false);
     expect(paymentReferenceIsWellFormed("26-0100078")).toBe(false);
+  });
+});
+
+describe("the contract document", () => {
+  /*
+   * `docs/fee-notice-contract.md` is what an association checks its bank's OCR
+   * specification against, and what another implementation of this rule would
+   * be written from. Read from the repository root through the working
+   * directory, because the package compiles to CommonJS, where import.meta is
+   * not available - the runner starts in the package, as the other specs that
+   * read repository files rely on.
+   */
+  const contract = readFileSync(
+    join(process.cwd(), "..", "..", "docs", "fee-notice-contract.md"),
+    "utf8",
+  );
+
+  it("states a worked example the code agrees with", () => {
+    // Read out of the document rather than restated here, so the example a
+    // reader checks by hand and the rule the code computes by cannot drift.
+    const example = /payload `(\d{8})` gives check digit `(\d)`/u.exec(
+      contract,
+    );
+    const payload = example?.[1];
+    const digit = example?.[2];
+    expect(payload).toBeDefined();
+    expect(digit).toBeDefined();
+    expect(paymentReferenceIsWellFormed(`${payload ?? ""}${digit ?? ""}`)).toBe(
+      true,
+    );
+
+    // And the reference the document spells out in full is the one the code
+    // issues for that period and position.
+    expect(contract).toContain(`\`${paymentReferenceFor("2026-01-01", 7)}\``);
+  });
+
+  it("says which digit the doubling starts from", () => {
+    /*
+     * "Every second digit from the right" reads as the second, fourth and sixth
+     * from the right, which on this payload gives 2 and not 8 - a different
+     * reference from the one the code issues. The document names the rightmost
+     * digit as the first one doubled, which is what the code does.
+     */
+    // Whitespace folded, so rewrapping the paragraph cannot fail the check.
+    const prose = contract.replace(/\s+/gu, " ");
+    expect(prose).not.toMatch(/every second digit from the right/iu);
+    expect(prose).toContain(
+      "Starting with the rightmost digit of the payload and moving left, every other digit is doubled",
+    );
   });
 });
