@@ -68,7 +68,10 @@ export type ApartmentRegisterErrorReason =
   | "property-fields-need-other-tenure"
   | "date-not-a-calendar-date"
   | "date-in-the-future"
-  | "association-not-set-up";
+  | "association-not-set-up"
+  | "participation-share-not-a-number"
+  | "initial-share-capital-not-a-sum"
+  | "apartment-listed-twice";
 
 /**
  * Which reasons are a conflict rather than an absence, and which a bad request.
@@ -94,6 +97,9 @@ const ERROR_STATUS = {
   "date-not-a-calendar-date": 400,
   "date-in-the-future": 400,
   "association-not-set-up": 409,
+  "participation-share-not-a-number": 400,
+  "initial-share-capital-not-a-sum": 400,
+  "apartment-listed-twice": 400,
 } as const satisfies Record<ApartmentRegisterErrorReason, number>;
 
 export class ApartmentRegisterError extends DomainError {
@@ -1118,6 +1124,153 @@ export class ApartmentRegisterService {
   }
 
   /**
+   * Records the apartments' participation shares and initial share capitals.
+   *
+   * Several at once, because a board types eighty of them in one sitting or
+   * none: the figures come off a stadgar annex or a spreadsheet the economic
+   * manager sent, and a screen that took them one at a time would be eighty
+   * round trips and eighty chances to stop halfway.
+   *
+   * Register content and gated on the register's own capability, like the
+   * property designation below rather than like a setting. Both columns are on
+   * `Apartment` and both are what the apartment register exists to hold: the
+   * insats is statutory tier and confidential to that register, and the
+   * andelstal is the figure the association's own stadgar apportion by.
+   *
+   * ## Recorded and never applied
+   *
+   * Nothing in this platform derives a fee from the participation share. The
+   * word andelstal occurs nowhere in bostadsrattslagen: BRL 9 kap. 5 § forsta
+   * stycket 5 makes the basis for calculating the arsavgift a matter for the
+   * stadgar, and 9 kap. 13 § makes fixing the avgifter the board's own task. An
+   * association may apportion by area, or by a fixed table, and a platform that
+   * computed a fee from this column would be enforcing one bylaws construct as
+   * if it were statute. The fee screen offers the share as an aid the board
+   * accepts or overwrites, and what is stored there is the amount the board
+   * stated.
+   *
+   * ## Corrected in place
+   *
+   * Not append-only, on the property designation's reading: a share is the
+   * apartment's current figure rather than a dated event, and a stadgar change
+   * or a correction to a mistyped figure replaces it. The audit entry names
+   * which fields moved and never the figures - the insats is confidential to
+   * this register and the log is exempt from every purge, so a figure copied in
+   * here would outlive both the row and any correction to it.
+   *
+   * One entry per apartment whose figures actually moved. An entry for an
+   * apartment resubmitted unchanged would say an act happened that did not, and
+   * a board saving a form of eighty rows to fix one of them would write
+   * seventy-nine false records.
+   */
+  async recordApartmentShares(input: {
+    actorPersonId: string;
+    apartments: readonly {
+      apartmentId: string;
+      participationShare: string | null;
+      initialShareCapital: string | null;
+    }[];
+  }): Promise<{ recorded: number }> {
+    /*
+     * Refused before anything is read or written. Two rows naming one apartment
+     * have no single answer to what its figures now are: the loop would apply
+     * both, the later would silently win, and the log would carry two entries for
+     * one change to a confidential statutory register. A form built from the
+     * register never sends that, so a request that does is refused whole rather
+     * than resolved by a rule nobody chose.
+     */
+    const seen = new Set<string>();
+    for (const apartment of input.apartments) {
+      if (seen.has(apartment.apartmentId)) {
+        throw new ApartmentRegisterError(
+          "The same apartment is listed twice.",
+          "apartment-listed-twice",
+        );
+      }
+      seen.add(apartment.apartmentId);
+    }
+
+    const written = input.apartments.map((apartment) => ({
+      apartmentId: apartment.apartmentId,
+      participationShare: readParticipationShare(apartment.participationShare),
+      initialShareCapital: readInitialShareCapital(
+        apartment.initialShareCapital,
+      ),
+    }));
+
+    return this.prisma.$transaction(async (tx) => {
+      let recorded = 0;
+
+      for (const apartment of written) {
+        const before = await tx.apartment.findUnique({
+          where: { id: apartment.apartmentId },
+          select: { participationShare: true, initialShareCapital: true },
+        });
+        if (before === null) {
+          throw new ApartmentRegisterError(
+            "No such apartment.",
+            "apartment-not-found",
+          );
+        }
+
+        /*
+         * Compared as the strings that were submitted against the strings the
+         * column renders, so "0.05" and "0.05000000" are the same figure. A
+         * Decimal compared by identity would call every resubmission a change.
+         */
+        const fields = (
+          [
+            [
+              "participationShare",
+              before.participationShare?.toString() ?? null,
+              apartment.participationShare,
+            ],
+            [
+              "initialShareCapital",
+              before.initialShareCapital?.toFixed(2) ?? null,
+              apartment.initialShareCapital,
+            ],
+          ] as const
+        )
+          .filter(([, was, becomes]) => !sameDecimal(was, becomes))
+          .map(([field]) => field);
+
+        if (fields.length === 0) {
+          continue;
+        }
+
+        await tx.apartment.update({
+          where: { id: apartment.apartmentId },
+          data: {
+            participationShare: apartment.participationShare,
+            initialShareCapital: apartment.initialShareCapital,
+          },
+        });
+
+        await this.audit.record(
+          {
+            action: "APARTMENT_SHARES_RECORDED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            // No subject: which of the apartment's residents that would be is a
+            // question the log must not answer by guessing.
+            targetPersonId: null,
+            targetKind: "apartment",
+            targetId: apartment.apartmentId,
+            // Which fields moved, never the figures, per the method comment.
+            context: { fields },
+          },
+          tx,
+        );
+
+        recorded += 1;
+      }
+
+      return { recorded };
+    });
+  }
+
+  /**
    * Records the association's authoritative property designation.
    *
    * Register content rather than a setting, which is why it is written here and
@@ -1703,4 +1856,85 @@ function statutoryDateColumn(text: string, now: Date): Date {
       : "That date has not arrived yet.",
     parsed.problem,
   );
+}
+
+/**
+ * A participation share as the column holds it, or the refusal.
+ *
+ * `Decimal(12, 8)` and so its own pattern rather than the kronor-and-ore one
+ * every money field in this product uses: an andelstal is a proportion, it is
+ * written as a fraction of one or as a percentage depending on the stadgar, and
+ * eight decimal places is what the column was given so that a share of an
+ * eighty-flat association divides without a remainder the board has to round
+ * away.
+ *
+ * Refused and never rounded, on the rule the amounts follow: a share the board
+ * did not state is a share nobody decided on, and the stadgar are where the
+ * figure comes from.
+ */
+function readParticipationShare(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "") {
+    // Cleared rather than stored empty: the register states a share or says
+    // none is recorded, and an empty string is neither.
+    return null;
+  }
+  if (!/^\d{1,4}(\.\d{1,8})?$/.test(trimmed)) {
+    throw new ApartmentRegisterError(
+      "That is not a participation share.",
+      "participation-share-not-a-number",
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * An initial share capital as the column holds it, or the refusal.
+ *
+ * The kronor-and-ore pattern every money field in this product uses, because an
+ * insats is a sum of money: `DECIMAL(14, 2)`, at most two decimals, refused
+ * rather than rounded.
+ */
+function readInitialShareCapital(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "") {
+    return null;
+  }
+  if (!/^\d{1,12}(\.\d{1,2})?$/.test(trimmed)) {
+    throw new ApartmentRegisterError(
+      "That is not a sum of kronor and ore.",
+      "initial-share-capital-not-a-sum",
+    );
+  }
+  return trimmed;
+}
+
+/**
+ * Whether two decimal strings state the same figure.
+ *
+ * Compared by value rather than by text, so "0.05" and "0.05000000" are one
+ * figure: the column renders every stored share to its full scale, and a
+ * comparison by text would call every resubmitted form a change and write an
+ * audit entry for an act that did not happen.
+ *
+ * By normalising the digits rather than by parsing to a number. A
+ * `DECIMAL(14, 2)` runs to fourteen significant digits and a double carries
+ * fifteen or sixteen, so the two figures this compares would survive a float
+ * today - but the rule this product holds everywhere else is that a stored
+ * decimal never travels through binary floating point, and a column widened
+ * later would break the comparison silently rather than loudly.
+ */
+function sameDecimal(was: string | null, becomes: string | null): boolean {
+  if (was === null || becomes === null) {
+    return was === becomes;
+  }
+  return normaliseDecimal(was) === normaliseDecimal(becomes);
+}
+
+/** A decimal string with no leading or trailing zeros that change nothing. */
+function normaliseDecimal(value: string): string {
+  const [whole = "", fraction = ""] = value.split(".");
+  const digits = whole.replace(/^0+(?=\d)/, "");
+  const decimals = fraction.replace(/0+$/, "");
+  return decimals === "" ? digits : `${digits}.${decimals}`;
 }

@@ -252,6 +252,8 @@ export class AddressService {
             transfers: true,
             lienNotes: true,
             memberCharges: true,
+            fees: true,
+            feeNotices: true,
           },
         },
       },
@@ -273,7 +275,16 @@ export class AddressService {
        * association charged nobody - and the board is entitled to be told which
        * record stands in the way rather than meeting a constraint violation.
        */
-      counts.memberCharges;
+      counts.memberCharges +
+      /*
+       * Counted for the same reason, and the keys are Restrict on both columns.
+       * A fee names only an apartment, so a flat carrying one cannot be removed
+       * without leaving a rate the association charged nobody; a notice is the
+       * record of money the association actually asked for, which
+       * bokforingslagen 7 kap. 1 § forbids altering while it is preserved.
+       */
+      counts.fees +
+      counts.feeNotices;
 
     if (referenced > 0) {
       throw new AddressError(

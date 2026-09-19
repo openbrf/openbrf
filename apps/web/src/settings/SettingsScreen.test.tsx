@@ -113,6 +113,11 @@ const SETTINGS: InstanceSettings = {
     configured: false,
   },
   retention: { daysAfterMoveOut: 365 },
+  finances: {
+    financialYearStartMonth: 1,
+    bankgiro: null,
+    plusgiro: null,
+  },
   selfSignup: { enabled: false },
   issueReporting: { publicFormEnabled: true },
   dataProtectionContacts: {

@@ -320,6 +320,23 @@ export function recordTransferReversal(input: {
   );
 }
 
+/**
+ * Records the apartments' participation shares and initial share capitals.
+ *
+ * Several at once, because a board types them in one sitting: the figures come
+ * off a stadgar annex or a spreadsheet, and a screen that submitted them one at
+ * a time would be eighty round trips.
+ */
+export function recordApartmentShares(input: {
+  apartments: readonly {
+    apartmentId: string;
+    participationShare: string | null;
+    initialShareCapital: string | null;
+  }[];
+}): Promise<ApiResult<{ recorded: number }>> {
+  return apiRequest("POST", "/api/apartment-register/apartment-shares", input);
+}
+
 /** Records the association's authoritative property designation. */
 export function recordPropertyDesignation(input: {
   propertyDesignation: string | null;

@@ -91,6 +91,7 @@ describe("SEED_KEYS", () => {
       "events",
       "motions",
       "chat",
+      "fees",
       "websitePublication",
       "contactSubmissions",
       "signupRequestsAndInvitations",
@@ -142,6 +143,25 @@ describe("seedRows", () => {
         legalBasis: "LEGAL_OBLIGATION",
       });
     }
+  });
+
+  it("names everybody the fee records say something about", () => {
+    /*
+     * A fee rate and a notice name an apartment, and the data subject access
+     * report carries both to anybody whose residency overlaps them, whatever its
+     * role - so a partner or a tenant living in the flat is a data subject of
+     * this processing as much as the tenant-owner billed, and a record of
+     * processing activities that left them out would be incomplete under GDPR
+     * art. 30(1)(c). Former residents are there because the window outlives the
+     * residency by years.
+     */
+    expect(rowFor("fees").dataSubjectCategories).toEqual(
+      expect.arrayContaining(["member", "resident", "formerResident"]),
+    );
+    expect(rowFor("fees")).toMatchObject({
+      source: "SERVICE_DATA",
+      legalBasis: "LEGAL_OBLIGATION",
+    });
   });
 
   it("says an issue may carry health data the reporter volunteered", () => {

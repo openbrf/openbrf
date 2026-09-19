@@ -109,6 +109,37 @@ const transferReversalSchema = z.object({
   reference: z.string().trim().min(1).max(500),
 });
 
+/**
+ * The figures for a set of apartments, written together.
+ *
+ * A list because a board types them in one sitting: the figures come off a
+ * stadgar annex or a spreadsheet, and a screen that submitted them one at a
+ * time would be eighty round trips. Bounded generously - an association of a
+ * thousand flats is far larger than anything this product is built for, and the
+ * bound is here so a malformed request cannot open a transaction per row.
+ *
+ * Both figures are nullable and both are sent on every row, because the form
+ * edits them together: a row states what the apartment's two figures now are,
+ * and a null is a figure the board cleared.
+ */
+const apartmentSharesSchema = z.object({
+  apartments: z
+    .array(
+      z.object({
+        apartmentId: z.string().min(1),
+        /**
+         * Bounded as text and judged in the service, which holds the patterns
+         * for both columns: `Decimal(12, 8)` for the share and the
+         * kronor-and-ore shape for the insats.
+         */
+        participationShare: z.string().trim().max(32).nullable(),
+        initialShareCapital: z.string().trim().max(32).nullable(),
+      }),
+    )
+    .min(1)
+    .max(1000),
+});
+
 const propertyDesignationSchema = z.object({
   /** Null clears it, which is how a designation recorded in error is undone. */
   propertyDesignation: z.string().trim().max(200).nullable(),
@@ -300,6 +331,29 @@ export class ApartmentRegisterController {
    * and the prose the board publishes to a broker is a separate field that no
    * statutory answer may be derived from.
    */
+  /**
+   * Records the apartments' participation shares and initial share capitals.
+   *
+   * Here rather than in the settings module or the fees module, and gated the
+   * way the property designation below is: both columns are register content on
+   * `Apartment`, the insats is statutory tier and confidential to this register,
+   * and the andelstal is what the association's own stadgar apportion by.
+   * Nothing in this platform derives a fee from either - see the service.
+   */
+  @Post("apartment-shares")
+  @HttpCode(200)
+  @RequireCapability("apartmentRegister:read", "addressBook:write")
+  async recordApartmentShares(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<{ recorded: number }> {
+    const { apartments } = apartmentSharesSchema.parse(body);
+    return this.register.recordApartmentShares({
+      apartments,
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
   @Post("property-designation")
   @HttpCode(200)
   @RequireCapability("apartmentRegister:read", "addressBook:write")

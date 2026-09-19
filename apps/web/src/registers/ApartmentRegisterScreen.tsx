@@ -15,6 +15,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { ApartmentSharesPanel } from "./ApartmentSharesPanel";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
   CELL,
@@ -749,6 +750,22 @@ export function ApartmentRegisterScreen(): ReactElement {
               </div>
             </form>
           )
+        ) : null}
+
+        {/*
+          The apartments' participation shares and initial share capitals, in
+          one form. Both are register content on the apartment, the insats is
+          confidential to this register, and nothing in the platform derives a
+          fee from either - the fee screen offers the share as an aid the board
+          accepts or overwrites.
+        */}
+        {isBoard && extract !== null ? (
+          <ApartmentSharesPanel
+            rows={extract.rows}
+            onSaved={() => {
+              void load();
+            }}
+          />
         ) : null}
       </div>
 

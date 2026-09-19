@@ -6,6 +6,7 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { FINANCIAL_YEAR_START_MONTHS } from "../retention/financial-year";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   MEMBER_CHARGE_RETENTION_YEARS,
@@ -19,11 +20,13 @@ export const MEMBER_CHARGE_PURGE_QUEUE = "member-charge-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own: the sign-up purge takes 03:11, the
- * import session purge 03:23, the motion purge 03:29, the service data purge
- * 03:41 and the booking purge 03:53, and jobs waking together on one small
- * connection pool is a contention nobody gains anything from. 03:17 is the gap
- * between the first two.
+ * In the small hours, in the band every purge in this product wakes in, so that
+ * a night's erasures happen while nobody is using the instance. The minutes are
+ * spread across the band for a reason - jobs waking together on one small
+ * connection pool is a contention nobody gains anything from - but they are not
+ * all distinct today: 03:17 is taken by the sublet, issue and charge purges and
+ * 03:11 by the key order and sign-up purges. Free minutes in the pattern are
+ * 03:35, which the fee purge takes, and 03:47.
  */
 const PURGE_CRON = "17 3 * * *";
 
@@ -58,6 +61,35 @@ export interface MemberChargePurgeRunSummary {
   failed: number;
 }
 
+/**
+ * The charges whose retention has run out, as a filter over the table.
+ *
+ * Judged on each charge's own `financialYearStartMonth` - the month the
+ * association's financial year began in when the charge was recorded - and never
+ * on the association's current setting. Bokforingslagen 7 kap. 2 § counts from
+ * the end of the calendar year the charge's own books closed, and a later change
+ * to the setting does not change the year those books closed. Reading the
+ * current setting instead would move an erasure date already stated on a data
+ * subject access report, and moving the setting from May to January would move a
+ * June charge a year earlier - before the statute's period ends.
+ *
+ * One branch per possible month rather than a read of the months the table
+ * holds, so the scan and the delete are each still a single statement.
+ */
+function fallenOut(
+  now: Date,
+  retentionYears: number,
+): { OR: { financialYearStartMonth: number; chargedOn: { lt: Date } }[] } {
+  return {
+    OR: FINANCIAL_YEAR_START_MONTHS.map((startMonth) => ({
+      financialYearStartMonth: startMonth,
+      chargedOn: {
+        lt: memberChargePurgeCutoff(now, startMonth, retentionYears),
+      },
+    })),
+  };
+}
+
 /** One party a run erases the charges of. */
 type ChargedParty =
   { kind: "person"; id: string } | { kind: "apartment"; id: string };
@@ -69,11 +101,17 @@ type ChargedParty =
  * person, or on an apartment that leads back to whoever lives in it - and the
  * purpose it is held for ends when the accounting record it was the basis for
  * has outlived its own preservation period. So it is erased on a clock derived
- * from the charge's own date, seven calendar years later, and not on the
- * residency purge's: somebody who still lives here has no more use for a 2026
- * key charge than somebody who has left, and the residency purge would never
- * reach it at all while they stayed. The arithmetic and the reasoning are in
- * `member-charge-retention.ts`.
+ * from the financial year the charge falls in, seven calendar years after the
+ * one that year ended in, and not on the residency purge's: somebody who still
+ * lives here has no more use for a 2026 key charge than somebody who has left,
+ * and the residency purge would never reach it at all while they stayed. The
+ * arithmetic and the reasoning are in `member-charge-retention.ts`.
+ *
+ * Which financial year a charge falls in is read off the charge itself, which
+ * records the month the association's year began in when the charge was
+ * written. For the cooperative that runs the calendar year - which is most of
+ * them, and every charge recorded before the setting existed - the dates are
+ * unchanged, and a later change to the setting moves no charge already kept.
  *
  * ## What it erases
  *
@@ -230,14 +268,14 @@ export class MemberChargePurgeService implements OnModuleInit {
    * check that counts.
    */
   async eligible(now: Date, retentionYears: number): Promise<ChargedParty[]> {
-    const cutoff = memberChargePurgeCutoff(now, retentionYears);
+    const expired = fallenOut(now, retentionYears);
     const heldPersonIds = await this.heldPersonIds();
     const heldApartmentIds = await this.apartmentsOf(heldPersonIds);
 
     const persons = await this.prisma.memberCharge.groupBy({
       by: ["personId"],
       where: {
-        chargedOn: { lt: cutoff },
+        ...expired,
         personId: { not: null },
         // Spelled conditionally rather than as an empty `notIn`, so what the
         // query asks does not depend on how the client renders a list of none.
@@ -252,7 +290,7 @@ export class MemberChargePurgeService implements OnModuleInit {
     const apartments = await this.prisma.memberCharge.groupBy({
       by: ["apartmentId"],
       where: {
-        chargedOn: { lt: cutoff },
+        ...expired,
         apartmentId: { not: null },
         ...(heldApartmentIds.length > 0
           ? { apartmentId: { not: null, notIn: heldApartmentIds } }
@@ -287,7 +325,7 @@ export class MemberChargePurgeService implements OnModuleInit {
     now: Date = new Date(),
     retentionYears: number = MEMBER_CHARGE_RETENTION_YEARS,
   ): Promise<number> {
-    const cutoff = memberChargePurgeCutoff(now, retentionYears);
+    const expired = fallenOut(now, retentionYears);
     const holdOn =
       party.kind === "person" ? [party.id] : await this.residentsOf(party.id);
 
@@ -327,8 +365,8 @@ export class MemberChargePurgeService implements OnModuleInit {
       const { count } = await tx.memberCharge.deleteMany({
         where:
           party.kind === "person"
-            ? { personId: party.id, chargedOn: { lt: cutoff } }
-            : { apartmentId: party.id, chargedOn: { lt: cutoff } },
+            ? { personId: party.id, ...expired }
+            : { apartmentId: party.id, ...expired },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them
@@ -358,7 +396,9 @@ export class MemberChargePurgeService implements OnModuleInit {
             charges: count,
             party: party.kind,
             ...(party.kind === "apartment" ? { apartmentId: party.id } : {}),
-            retentionYearsAfterChargeYear: retentionYears,
+            // Not the financial year: each charge carries its own, and one
+            // party's charges can span a change to the setting.
+            retentionYearsAfterFinancialYear: retentionYears,
           },
         },
         tx,

@@ -20,6 +20,7 @@ import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { ProfilePanel } from "./ProfilePanel";
 import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
+import { FinancesPanel } from "./FinancesPanel";
 import { RetentionPanel } from "./RetentionPanel";
 import { SecurityPanel } from "./SecurityPanel";
 import { SelfSignupPanel } from "./SelfSignupPanel";
@@ -237,6 +238,16 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
                 key={`retention-${String(settings.retention.daysAfterMoveOut)}`}
                 daysAfterMoveOut={settings.retention.daysAfterMoveOut}
                 editable={canManage}
+              />
+
+              {/* Beside retention, because it is the other setting that
+                  decides when the instance erases what it holds: the financial
+                  year is what the charge and fee windows count from. */}
+              <FinancesPanel
+                key={JSON.stringify(settings.finances)}
+                finances={settings.finances}
+                editable={canManage}
+                onSaved={reload}
               />
 
               <SelfSignupPanel

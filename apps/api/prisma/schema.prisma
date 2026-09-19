@@ -409,6 +409,45 @@ model Association {
   /// indexing a secret is pure downside.
   boardMailboxPop3PasswordCipher String?
 
+  /// The calendar month the association's financial year (rakenskapsar) begins
+  /// in. 1 for the calendar year, which is what most cooperatives run.
+  ///
+  /// A month and not two dates, because bokforingslagen (1999:1078) 3 kap. 1 §
+  /// makes a rakenskapsar twelve calendar months: naming the month it starts in
+  /// says the whole of it, and a pair of dates would let an instance record a
+  /// period the statute does not allow. 3 kap. 3 § permits a shorter or longer
+  /// year when the obligation begins or the year is changed over; that is one
+  /// period in the association's history rather than its standing year, and the
+  /// column states the standing one.
+  ///
+  /// Read when a charge, a fee rate or a notification run is written, and
+  /// stamped on that row; the retention windows read the row's own copy and
+  /// never this one. 7 kap. 2 § of the same act preserves rakenskapsinformation
+  /// "fram till och med det sjunde aret efter utgangen av det kalenderar da
+  /// rakenskapsaret avslutades", so which calendar year a row's preservation
+  /// runs from is the question of the financial year its books were kept in -
+  /// and changing this setting later changes the books written afterwards, not
+  /// the ones already closed. The default is what every instance recorded
+  /// before this column existed had assumed, and on it both windows compute
+  /// exactly the dates they computed before.
+  financialYearStartMonth Int @default(1)
+
+  /// Where the association is paid: its bankgiro number, as the board holds it.
+  ///
+  /// Stated on a fee notice so the member knows where the money goes. Shape is
+  /// checked and existence is not: whether a number is live is Bankgirot's
+  /// answer and this platform has no way to ask it, so a plausible number the
+  /// association no longer holds is refused by the bank rather than here.
+  ///
+  /// Nullable, like organizationNumber above: an instance is set up before the
+  /// board has every identifier to hand, and a blank is a truthful "not
+  /// recorded" where a placeholder would be a statement nobody made.
+  bankgiro String?
+
+  /// The same for a plusgiro number. Both, because an association may hold
+  /// either or both and the notice states what it has.
+  plusgiro String?
+
   /// Null means the built-in default theme (Porttavlan) is active.
   activeThemeId String?
 
@@ -456,9 +495,21 @@ model Apartment {
   floor Int?
 
   /// Share of the association used for fee allocation (andelstal).
+  ///
+  /// Recorded by the board on the apartment register screen, under the
+  /// capability that gates that register. The word andelstal occurs nowhere in
+  /// bostadsrattslagen: BRL 9 kap. 5 § forsta stycket 5 makes the basis for
+  /// calculating the arsavgift a matter for the stadgar, and 9 kap. 13 § makes
+  /// fixing the avgifter the board's own task. So this column is a register
+  /// fact the board keeps, and nothing in the platform apportions a fee by it -
+  /// the fee screen offers the share as an aid the board accepts or overwrites,
+  /// and what is stored is the amount the board stated.
   participationShare Decimal? @db.Decimal(12, 8)
 
   /// Statutory tier, confidential: apartment register only (insats).
+  ///
+  /// Recorded beside the participation share and by the same act, because a
+  /// board holding the one figure to hand holds the other.
   initialShareCapital Decimal? @db.Decimal(14, 2)
 
   residencies           Residency[]
@@ -472,6 +523,8 @@ model Apartment {
   issues                Issue[]
   bookings              Booking[]
   memberCharges         MemberCharge[]
+  fees                  Fee[]
+  feeNotices            FeeNotice[]
   subletApplications    SubletApplication[]
   keyOrders             KeyOrder[]
 
@@ -1603,6 +1656,30 @@ enum AuditAction {
   /// A client registered itself against the instance by presenting the URL of
   /// its own metadata document. No person has consented to anything yet.
   OAUTH_CLIENT_REGISTERED
+  /// The association's financial year and giro numbers were recorded.
+  ///
+  /// The entry names the fields that changed and never their values: a giro
+  /// number corrected later would otherwise stand in a table nobody can amend.
+  ASSOCIATION_FINANCES_RECORDED
+  /// An apartment's participation share (andelstal) or initial share capital
+  /// (insats) was recorded.
+  ///
+  /// One entry per apartment whose figures moved, naming the fields and not the
+  /// figures. The insats is confidential to the apartment register, and the log
+  /// is exempt from every purge.
+  APARTMENT_SHARES_RECORDED
+  /// A fee rate was recorded for an apartment (avgift).
+  FEE_RECORDED
+  /// A fee rate recorded in error was removed. A rate a notification run has
+  /// already billed from cannot be, because it is that money's basis.
+  FEE_REMOVED
+  /// A period's fee notices were issued (avisering). The entry names the period
+  /// and how many notices, never an amount.
+  FEE_NOTIFICATION_ISSUED
+  /// A period's fee notices were produced as the document the board takes away.
+  /// A copy of named apartments' amounts leaving the association, so the read
+  /// and this entry commit together.
+  FEE_NOTIFICATION_EXPORTED
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.
@@ -5767,6 +5844,19 @@ model MemberCharge {
   /// the retention window is anchored on.
   chargedOn DateTime @db.Date
 
+  /// The month the association's financial year began in when this charge was
+  /// recorded, 1 to 12.
+  ///
+  /// Stamped on the row rather than read from `Association` at purge time,
+  /// because bokforingslagen (1999:1078) 7 kap. 2 § counts the preservation
+  /// period from the end of the calendar year the financial year closed, and
+  /// which financial year a charge falls in is a fact about the books it was
+  /// entered in. An association that later changes its financial year does not
+  /// change the year its earlier books closed; reading the current setting would
+  /// move an erasure date already stated on a data subject access report, and
+  /// could move it a year earlier. No default: every writer states it.
+  financialYearStartMonth Int
+
   /// What is being charged, in kronor. Positive; a credit is not a charge.
   amount Decimal @db.Decimal(14, 2)
 
@@ -6591,4 +6681,263 @@ model ChatRead {
 
   @@id([chatId, personId])
   @@map("chat_read")
+}
+
+// Fees and fee notices (avgifter och avier).
+// ---------------------------------------------------------------------------
+
+/// What a standing fee is for.
+///
+/// A fee is a rate that stands until the board changes it, which is what
+/// separates it from a charge (debitering): BRL 9 kap. 13 § makes fixing the
+/// avgifter the board's standing task, while a debitering records that
+/// something happened once. The charges module refuses a row dated into the
+/// future for exactly that reason, and this enum is the other half of it.
+///
+/// Three values, each of which a Swedish cooperative bills every month and each
+/// of which has a settled value added tax position. The arsavgift is the fee
+/// for the running of the association (BRL 7 kap. 14 §) and is exempt under
+/// mervardesskattelagen (2023:200) 10 kap. 35 §; a parking space and a storage
+/// space are among the upplatelser 10 kap. 36 § takes back out of that
+/// exemption, which is why the rate carries a treatment of its own rather than
+/// being assumed exempt from the kind.
+///
+/// No value carrying the board's own words for what it is, and that absence is
+/// deliberate: free text written by the board about a named household is
+/// scanned for a personal identity number on every write in this product, and a
+/// fee row has no free text at all. A fourth kind is a migration and a scan
+/// rather than a value added here.
+///
+/// Shaped so a value can be retired rather than removed. The kinds a
+/// cooperative may charge at all are the stadgar's to name within what BRL
+/// 7 kap. 14 § permits, and that section moves: Lag (2026:486) drops
+/// pantsattningsavgift from it, in force from the day the government decides.
+/// A value that stops being lawful stops being offered on the screen while the
+/// rows recorded under it stay readable, because they are the basis for money
+/// that was actually billed.
+enum FeeKind {
+  /// The annual fee for the running of the association (arsavgift), billed
+  /// monthly. BRL 7 kap. 14 §, "arsavgift for den lopande verksamheten".
+  ANNUAL_FEE
+
+  /// A parking space let to the household (parkeringsplats).
+  PARKING_SPACE
+
+  /// A storage space let to the household (forradsplats).
+  STORAGE_SPACE
+}
+
+/// How a fee is treated for value added tax (moms).
+///
+/// The same two values as `MemberChargeVatTreatment` and for the same reason:
+/// the rates are set by mervardesskattelagen and an amending act moves them, so
+/// the treatment says whether the fee carries tax at all and
+/// `Fee.vatRatePercent` says at what rate.
+///
+/// A separate enum rather than the charge's, because the two are separate
+/// modules and sharing a type would make a value added for one a change to the
+/// other. EXEMPT is not "the board has not decided yet": the column has no
+/// default and the board states one of the two every time.
+enum FeeVatTreatment {
+  /// No value added tax on this fee. The ordinary case for an arsavgift.
+  EXEMPT
+
+  /// Value added tax at the rate on `vatRatePercent`.
+  RATE
+}
+
+/// One fee rate in force for one apartment (avgift).
+///
+/// The rate and not a schedule of payments. A row says what this apartment pays
+/// per calendar month for one thing, from a date and until the board changes
+/// it; what was actually billed for a period is a `FeeNotice`, written by an
+/// act somebody took. Nothing here is derived from the participation share
+/// (andelstal) at read time and no yearly total is stored: BRL 9 kap. 5 §
+/// forsta stycket 5 leaves the basis for calculating the arsavgift to the
+/// stadgar and 9 kap. 13 § leaves fixing the amounts to the board, so a
+/// platform that apportioned by andelstal would be enforcing a bylaws construct
+/// as if it were statute.
+///
+/// ## Monthly, because the period arithmetic has to be exact
+///
+/// The amount is what the apartment pays for one calendar month. A notification
+/// run multiplies it by the months in the period, which is exact in ore; a
+/// yearly figure divided by twelve is not, and this product refuses a malformed
+/// amount rather than rounding one. The board states the monthly figure, which
+/// is also the figure a member recognises.
+///
+/// ## Dated forward, which a charge may not be
+///
+/// `appliesFrom` may be in the future, and that is the whole difference from
+/// `MemberCharge.chargedOn`, which refuses one. A rate dated forward is the
+/// board recording a decision it has taken about a rate; a charge dated forward
+/// is a claim that something happened which has not. See
+/// `charges/member-charge.error.ts` for the refusal that stays as it is.
+///
+/// ## No payment, no balance
+///
+/// As on the charge, and by the same rule: the accounting system settles the
+/// debt, and a second answer to whether something was paid is worse than none.
+///
+/// `recordedByPersonId` is a plain column and not a relation, for the reason
+/// `MemberCharge.recordedByPersonId` gives. The apartment IS a relation, with
+/// Restrict, because an apartment is the only party a fee has.
+model Fee {
+  id String @id @default(cuid())
+
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
+  kind FeeKind
+
+  /// The first day the rate applies. A date column, on the association's own
+  /// calendar, and the board may state one ahead of today.
+  appliesFrom DateTime @db.Date
+
+  /// The last day it applies, or null while it is the rate in force.
+  ///
+  /// Written by the act that records the next rate rather than by a board
+  /// member choosing it, so two rates for one apartment and kind can never
+  /// cover the same day.
+  appliesUntil DateTime? @db.Date
+
+  /// The month the association's financial year began in when this rate was
+  /// recorded, 1 to 12. Stamped for the reason `MemberCharge` gives: the
+  /// preservation period is counted from the books the rate was entered in, and
+  /// a later change to the setting does not reach back into them.
+  financialYearStartMonth Int
+
+  /// What the apartment pays for one calendar month, in kronor. Positive; a
+  /// credit is not a fee.
+  monthlyAmount Decimal @db.Decimal(14, 2)
+
+  vatTreatment FeeVatTreatment
+
+  /// The rate in whole percent, set exactly when `vatTreatment` is RATE.
+  /// Bounded 1 to 100 by the migration's check, as the charge's is.
+  vatRatePercent Int?
+
+  /// Who recorded it. A plain column, per the model comment.
+  recordedByPersonId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// This apartment's rates, which is both the register read and the read a
+  /// notification run makes per apartment.
+  @@index([apartmentId, kind, appliesFrom])
+  /// The rates in force on a day, across every apartment.
+  @@index([appliesFrom])
+  /// The purge's scan, which reaches only a rate that has ended.
+  @@index([appliesUntil])
+  @@map("fee")
+}
+
+/// One notification run: the period's fee notices, as they were issued (avisering).
+///
+/// The act and not the document. A run records that on this day the board
+/// produced the notices for a period, with a due date it chose; the document is
+/// produced from the rows and the file is written from the same shape the screen
+/// prints, so the two cannot disagree.
+///
+/// A period may be issued once. A second run over a period already issued would
+/// give the association two answers to what it billed, and the payment
+/// references would be two sets for one month's money. Overlapping periods are
+/// refused for the same reason by the service, and the unique below is what
+/// makes the identical case the database's answer rather than a race.
+///
+/// ## The due date is stated and nothing reads it
+///
+/// No Swedish statute sets a forfallodag for an arsavgift; BRL 7 kap. 15 §
+/// governs only where an avgift is paid. The date matters more here than
+/// anywhere else in this product, which is exactly why nothing computes from
+/// it: BRL 7 kap. 18 § makes an arsavgift unpaid more than a week after the
+/// forfallodag a ground for forverkande of the nyttjanderatt, and 7 kap. 23 §
+/// then requires a served notice and a message to socialnamnden. A platform
+/// counting those days would be running a forfeiture procedure. It is a field
+/// on a document.
+///
+/// ## Never edited in place
+///
+/// The run and its rows are rakenskapsinformation (bokforingslagen 1 kap. 2 §
+/// 9), and 7 kap. 1 § forbids altering what is preserved. A correction is a new
+/// act that records the correction - which 5 kap. 9 § requires of a rattelse in
+/// any case - and never an edit to a row. The purge is the one thing that
+/// reaches these rows, on the same seven-year window the charges use.
+model FeeNotification {
+  id String @id @default(cuid())
+
+  /// The period billed, inclusive at both ends. Whole calendar months, because
+  /// the amount is a monthly rate multiplied by the months in the period and a
+  /// part month has no exact figure.
+  periodFrom DateTime @db.Date
+  periodTo   DateTime @db.Date
+
+  /// The day the board states the money is due. Chosen by the board; see the
+  /// model comment for why nothing reads it.
+  dueOn DateTime @db.Date
+
+  /// The month the association's financial year began in when the run was
+  /// issued, 1 to 12. Stamped for the reason `MemberCharge` gives.
+  ///
+  /// On the run rather than on each notice: a notice's preservation is counted
+  /// from the run's own period, every notice in a run is written in the same
+  /// transaction as the run, and a copy on each row would be one value repeated
+  /// with nothing to say which copy is right. It also lets the purge judge a run
+  /// left with no notices by the same rule it judged them by.
+  financialYearStartMonth Int
+
+  /// When the run was made, and by whom. A plain column, as on the fee.
+  issuedAt         DateTime @default(now())
+  issuedByPersonId String
+
+  notices FeeNotice[]
+
+  /// One run per period, per the model comment.
+  @@unique([periodFrom, periodTo])
+  /// The purge's scan, and the list the board reads newest first.
+  @@index([periodTo])
+  @@map("fee_notification")
+}
+
+/// One apartment's notice in one run (avi).
+///
+/// The amount as it was billed, frozen on the row rather than recomputed from
+/// the rates. A rate corrected afterwards does not change what was sent, and the
+/// board has to be able to say what it sent - which is the whole reason a notice
+/// is stored at all while the debiting list is produced on the fly.
+///
+/// The payment reference is what a member quotes back over the telephone, so it
+/// is unique across the instance and indexed for exactly that lookup. Its rule
+/// is in `fees/payment-reference.ts` and is repeated in
+/// `docs/fee-notice-contract.md`; whether the association's bank accepts that
+/// shape is the association's own agreement with its bank, and the contract
+/// document says so.
+///
+/// No paid column and no status, on the charge module's rule: a notice says what
+/// is due and nothing in Open BRF ever says whether it arrived.
+model FeeNotice {
+  id String @id @default(cuid())
+
+  notificationId String
+  notification   FeeNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
+  /// What this apartment was billed for the period, in kronor.
+  amount Decimal @db.Decimal(14, 2)
+
+  /// The reference the payment is made under (betalningsreferens).
+  paymentReference String
+
+  createdAt DateTime @default(now())
+
+  /// One notice per apartment per run.
+  @@unique([notificationId, apartmentId])
+  /// Quoted back by a member and looked up by it.
+  @@unique([paymentReference])
+  /// This apartment's notices: the purge's grouping and the access report.
+  @@index([apartmentId])
+  @@map("fee_notice")
 }

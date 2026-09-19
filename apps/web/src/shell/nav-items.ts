@@ -161,6 +161,23 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "memberCharges:manage",
   },
   {
+    to: "/fees",
+    // Under the fees namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "fees.navLabel",
+    // Separate from memberCharges:manage although both are money and both sit
+    // with the board today. Fixing the avgifter is the board's standing task
+    // under BRL 9 kap. 13 § while a debitering is an event, and a cooperative
+    // that has given its treasurer the fee book while the whole board approves
+    // individual charges is a seat split only two capabilities can express.
+    //
+    // Deliberately not the external property manager's, on the motions:handle
+    // precedent: what a household pays the association is the board's business
+    // with its own members. There is no resident half - a member learns what
+    // they owe from the notice the board produces.
+    capability: "fees:manage",
+  },
+  {
     to: "/motions",
     // Under the motions namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.

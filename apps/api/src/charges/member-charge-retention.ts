@@ -1,4 +1,8 @@
-import { dateColumnOf, localDayOf, localDayOfColumn } from "@openbrf/shared";
+import {
+  CALENDAR_YEAR_START_MONTH,
+  preservationCutoff,
+  preservationEndOf,
+} from "../retention/financial-year";
 
 /**
  * How long a charge is kept, and when the purge reaches it.
@@ -36,34 +40,56 @@ import { dateColumnOf, localDayOf, localDayOfColumn } from "@openbrf/shared";
  * this row; the window is chosen to outlast that obligation rather than to meet
  * it.
  *
- * ## Anchored on the calendar year, not on a day count
+ * ## Anchored on the financial year, not on a day count
  *
  * That preservation period runs from the end of a calendar year, so this one
- * does too: every charge dated in 2026 becomes erasable on the same morning, the
- * 1st of January 2034, whether it was recorded in January or in December. A day
- * count from the charge date would erase a January charge eleven months before a
- * December one from the same books, which is a distinction the reason for the
- * window does not make.
+ * does too: every charge in one financial year becomes erasable on the same
+ * morning, whether it was recorded in the first month of that year or the last.
+ * A day count from the charge date would erase a January charge eleven months
+ * before a December one from the same books, which is a distinction the reason
+ * for the window does not make.
  *
- * The financial year is assumed to be the calendar year, which is what
- * `chargedOn` can answer on its own. An association whose rakenskapsar runs
- * differently would have its charges kept a few months longer or shorter than
- * this reasoning intends; the platform does not record the financial year, and a
- * setting for it would be the ledger's question rather than this table's.
+ * Which calendar year the clock starts at is the association's financial year's
+ * answer and not the charge date's. 7 kap. 2 § counts from the end of the year
+ * "da rakenskapsaret avslutades", and for an association whose rakenskapsar is
+ * not the calendar year those are two different years for part of every year:
+ * on a year running from the 1st of May, a charge dated in June 2026 falls in
+ * the year that ends on the 30th of April 2027 and is preserved from the end of
+ * 2027, while one dated in March 2026 falls in the year that ended that April
+ * and is preserved from the end of 2026. Reading the charge's own calendar year
+ * gets the second right and the first a full year early.
+ *
+ * So the start month is passed in rather than assumed, and it is the charge's
+ * own: `MemberCharge.financialYearStartMonth` records the month the
+ * association's year began in when the charge was written. Reading the current
+ * setting instead would let a change to it reach back into books already
+ * closed - and moving a year from May to January would erase a June charge a
+ * year before the statute's period ends. Every charge recorded before the
+ * setting existed carries 1, the calendar year, and on it both functions compute
+ * exactly the dates they computed before - which is what makes correcting a
+ * shipped window safe. Correcting it can only move a date later, never earlier,
+ * because the year a financial year ends in is never before the calendar year
+ * of a day inside it; no erasure date already stated to a named person on a
+ * data subject access report is brought forward.
+ *
+ * The arithmetic itself is in `retention/financial-year.ts`, shared with the fee
+ * window, because it is one reading of one statute and two copies of it could
+ * disagree.
  *
  * Two functions, kept in one file because they are one decision read from two
  * ends, exactly as `events/event-signup-retention.ts` is.
  * {@link computeMemberChargePurgeDate} answers "when is this charge erased",
  * which is a computation per row and what a data subject access report states.
  * {@link memberChargePurgeCutoff} asks the opposite question of the whole table
- * at once - "which charges are dated in a year that has fallen out" - which has
- * to be one comparison in SQL. If the two disagree the product erases on a day
- * other than the one it stated, so `member-charge-retention.spec.ts` runs them
- * against each other rather than trusting the arithmetic to look symmetrical.
+ * at once - "which charges fall in a financial year that has fallen out" - which
+ * has to be one comparison in SQL. If the two disagree the product erases on a
+ * day other than the one it stated, so `member-charge-retention.spec.ts` runs
+ * them against each other rather than trusting the arithmetic to look
+ * symmetrical.
  */
 
 /**
- * How many years after the charge's own calendar year a charge is kept.
+ * How many years after the one the financial year ended in a charge is kept.
  *
  * A constant rather than a board setting, on the argument
  * `EVENT_SIGNUP_RETENTION_DAYS` makes: the association's retention policy is
@@ -85,20 +111,19 @@ export const MEMBER_CHARGE_RETENTION_YEARS = 7;
  * @param chargedOn The day the charge is dated, as the `@db.Date` column holds
  *   it. Read as a calendar date rather than as an instant, because a date column
  *   carries neither a time nor a zone.
- * @param retentionYears How many full calendar years after the charge's own the
- *   charge is kept.
+ * @param financialYearStartMonth The month the association's rakenskapsar
+ *   began in when the charge was recorded, from the charge's own
+ *   `financialYearStartMonth`. Defaulted to the calendar year, which is what
+ *   every charge recorded before the column existed carries.
+ * @param retentionYears How many full calendar years after the one the charge's
+ *   financial year ended in the charge is kept.
  */
 export function computeMemberChargePurgeDate(
   chargedOn: Date,
+  financialYearStartMonth: number = CALENDAR_YEAR_START_MONTH,
   retentionYears: number = MEMBER_CHARGE_RETENTION_YEARS,
 ): Date {
-  assertRetentionYears(retentionYears);
-
-  return dateColumnOf({
-    year: localDayOfColumn(chargedOn).year + retentionYears + 1,
-    month: 1,
-    day: 1,
-  });
+  return preservationEndOf(chargedOn, financialYearStartMonth, retentionYears);
 }
 
 /**
@@ -106,49 +131,25 @@ export function computeMemberChargePurgeDate(
  *
  * A charge dated before this is erasable; one dated on or after it is not. A
  * bound rather than a last-erasable date because the comparison it feeds is over
- * a date column, and `lt` against the 1st of January says what "the year has
- * fallen out" means without any arithmetic about the last day of December.
+ * a date column, and `lt` against the first day of a financial year says what
+ * "the year has fallen out" means without any arithmetic about the last day of
+ * it.
  *
  * @param now The moment the job is running at, passed in so a test can drive the
  *   clock rather than wait seven years for it. Which year that is is read on the
  *   association's own calendar: a run starting at half past midnight on New
  *   Year's Day is running in the new year in Stockholm and in the old one in
  *   UTC, and the whole window is stated in calendar years.
- * @param retentionYears How many full calendar years after the charge's own the
- *   charge is kept.
+ * @param financialYearStartMonth The start month the cutoff is asked for. A
+ *   purge asks once per month and matches each charge against the answer for
+ *   its own `financialYearStartMonth`.
+ * @param retentionYears How many full calendar years after the one the charge's
+ *   financial year ended in the charge is kept.
  */
 export function memberChargePurgeCutoff(
   now: Date,
+  financialYearStartMonth: number = CALENDAR_YEAR_START_MONTH,
   retentionYears: number = MEMBER_CHARGE_RETENTION_YEARS,
 ): Date {
-  assertRetentionYears(retentionYears);
-
-  return dateColumnOf({
-    year: localDayOf(now).year - retentionYears,
-    month: 1,
-    day: 1,
-  });
-}
-
-/**
- * Refuses a retention window that is not a number of whole years.
- *
- * The same refusal both functions need, for the reason `purge-window.ts` gives: a
- * window that is not a number would otherwise put the cutoff in the future and
- * erase charges whose retention had not run out - including ones from the year
- * that is still running.
- *
- * Whole years and not a fraction, because the window is stated in calendar years
- * and there is no half of one to anchor on. Rounding a fraction here would erase
- * on a year other than the one the caller asked for, without saying so; the
- * value is refused instead.
- */
-function assertRetentionYears(retentionYears: number): void {
-  if (!Number.isInteger(retentionYears) || retentionYears < 0) {
-    throw new RangeError(
-      `Member charge retention must be a non-negative whole number of years, got ${String(
-        retentionYears,
-      )}.`,
-    );
-  }
+  return preservationCutoff(now, financialYearStartMonth, retentionYears);
 }

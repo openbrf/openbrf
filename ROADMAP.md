@@ -949,8 +949,43 @@ no, and the pilot is the thing that will change it.
         sum would be a second answer to what is owed. The handover is its own audit
         action, so once the order has been purged the association can still
         answer that somebody was given a key to the building on a day
-- [ ] Simple finances: fee notices, debiting lists, SIE export. Never a
-      bookkeeping engine of our own
+- [x] Fee notices: what each apartment pays the association per month
+      (årsavgift, and a parking or storage space beside it), and the notices
+      for a period issued from it. The board records the rate, which applies
+      from a stated day until the board records the next one - recording a fee
+      is the board's own standing task under BRL 9 kap. 13 §, which is why a
+      fee may be dated forward where a charge may not. The amount is the
+      board's to state and never the platform's to work out: the word
+      andelstal appears nowhere in bostadsrättslagen, BRL 9 kap. 5 § första
+      stycket 5 leaves the basis for calculating the årsavgift to each
+      association's stadgar, so the apartment register records the
+      participation share and the fee screen offers it as an aid that suggests
+      a figure and stores nothing. Issuing a period writes one notice per
+      apartment with its own payment reference, once and once only, and the
+      board takes the document away as a CSV file and as the printed page a
+      browser writes a PDF from. Open BRF produces the notice and does not send
+      it, and it holds the basis rather than the ledger: it never records a
+      payment, never carries an outstanding balance and computes nothing from
+      the due date, which matters most here because BRL 7 kap. 18 § makes an
+      unpaid årsavgift a ground for förverkande and a platform counting those
+      days would be running a forfeiture procedure. A holder with protected
+      personal data is withheld from the document while their apartment stays
+      on it, because the apartment is the party a fee is fixed on. The
+      association records its räkenskapsår beside its giro numbers, and the
+      nightly purge erases a fee and its notices at the end of the seventh
+      calendar year after the one that financial year ended in
+      (bokföringslagen 7 kap. 2 §), unless a legal hold stands
+- [ ] Exporting the period's fees and charges for whoever keeps the books: a
+      documented CSV with a column contract, on the debiting list's own
+      precedent
+- [ ] Debiting list for a joint facility association
+      (samfällighetsförening). A separate artifact for a separate legal
+      person, governed by Lag (1973:1150) om förvaltning av samfälligheter
+      42 §, which requires it to state the amount assessed, what falls on each
+      member and when payment is due. A bostadsrättsförening is an ekonomisk
+      förening and is nowhere brought inside that act; a cooperative that is a
+      delägare in such an association receives an assessment as a cost rather
+      than issuing one
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
       charged on - with the amount, the date, the reason, the VAT treatment

@@ -93,6 +93,14 @@ describe("the external property manager", () => {
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/board-mailbox");
   });
 
+  it("is not offered the fees, which are the board's own business", () => {
+    // The capability model grants them nothing here, on the same reading as the
+    // charges: what a household pays the association is its own business with
+    // its own members, and an external contractor is on neither side of it.
+    expect(PROPERTY_MANAGER).not.toContain("fees:manage");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/fees");
+  });
+
   it("reaches issues without holding the reporting capability", () => {
     // They handle the association's issues; they do not live in the building,
     // so they never hold issues:report. An entry gated on that alone would hide
@@ -131,6 +139,20 @@ describe("the other seats", () => {
     expect(destinations(["residentDirectory:read"])).not.toContain("/chat");
     expect(destinations(["motions:submit"])).not.toContain("/chat");
     expect(destinations(["issues:handle"])).not.toContain("/chat");
+  });
+
+  it("keeps the fees and the charges on two capabilities", () => {
+    /*
+     * Two doors and two grants, although the board holds both today. Fixing the
+     * avgifter is the board's standing task under BRL 9 kap. 13 § while a
+     * debitering records an event, and a cooperative that gives its treasurer
+     * the fee book while the whole board approves individual charges is a seat
+     * split only two capabilities can express.
+     */
+    expect(destinations(["fees:manage"])).toContain("/fees");
+    expect(destinations(["fees:manage"])).not.toContain("/charges");
+    expect(destinations(["memberCharges:manage"])).toContain("/charges");
+    expect(destinations(["memberCharges:manage"])).not.toContain("/fees");
   });
 
   it("offers a resident who is not a member everything but motions", () => {

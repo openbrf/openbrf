@@ -21,6 +21,7 @@ import { AddressBookRoute } from "./AddressBookRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { BookingsRoute } from "./BookingsRoute";
 import { ChargesRoute } from "./ChargesRoute";
+import { FeesRoute } from "./FeesRoute";
 import { DocumentsRoute } from "./DocumentsRoute";
 import { EventsRoute } from "./EventsRoute";
 import { ImportRoute } from "./ImportRoute";
@@ -449,6 +450,22 @@ const chargesRoute = createRoute({
 });
 
 /**
+ * The fees the apartments pay, and the notices issued from them. Signed in
+ * here, the capability inside the screen.
+ *
+ * One route and one audience, like the charges route above and for the same
+ * reason: there is no resident half of this module to be shut out of. A member
+ * learns what they owe from the notice the board produces, and what they are
+ * entitled to see of what is stored is on their data subject access report.
+ */
+const feesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/fees",
+  beforeLoad: requireSession,
+  component: FeesRoute,
+});
+
+/**
  * Motions to the general meeting. Signed in here, capabilities inside the
  * screen.
  *
@@ -664,6 +681,7 @@ const routeTree = rootRoute.addChildren([
   bookingsRoute,
   eventsRoute,
   chargesRoute,
+  feesRoute,
   motionsRoute,
   subletsRoute,
   keyOrdersRoute,

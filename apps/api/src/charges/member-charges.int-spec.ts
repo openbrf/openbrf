@@ -460,6 +460,7 @@ describe("recording a charge", () => {
           reason: "Bada halva",
           vatTreatment: "EXEMPT",
           recordedByPersonId: board.personId,
+          financialYearStartMonth: 1,
         },
       }),
     ).rejects.toThrow();
@@ -472,6 +473,7 @@ describe("recording a charge", () => {
           reason: "Ingendera",
           vatTreatment: "EXEMPT",
           recordedByPersonId: board.personId,
+          financialYearStartMonth: 1,
         },
       }),
     ).rejects.toThrow();
@@ -494,6 +496,7 @@ describe("recording a charge", () => {
           reason: "\t",
           vatTreatment: "EXEMPT",
           recordedByPersonId: board.personId,
+          financialYearStartMonth: 1,
         },
       }),
     ).rejects.toThrow();
@@ -508,6 +511,7 @@ describe("recording a charge", () => {
           reason: "\u00a0",
           vatTreatment: "EXEMPT",
           recordedByPersonId: board.personId,
+          financialYearStartMonth: 1,
         },
       }),
     ).rejects.toThrow();
@@ -524,6 +528,7 @@ describe("recording a charge", () => {
           vatTreatment: "EXEMPT",
           vatRatePercent: 25,
           recordedByPersonId: board.personId,
+          financialYearStartMonth: 1,
         },
       }),
     ).rejects.toThrow();
@@ -537,6 +542,7 @@ describe("recording a charge", () => {
           reason: "Kreditering",
           vatTreatment: "EXEMPT",
           recordedByPersonId: board.personId,
+          financialYearStartMonth: 1,
         },
       }),
     ).rejects.toThrow();
@@ -1011,6 +1017,7 @@ describe("the purge", () => {
         reason: `Gammal debitering ${suffix}`,
         vatTreatment: "EXEMPT",
         recordedByPersonId: board.personId,
+        financialYearStartMonth: 1,
       },
       select: { id: true },
     });
@@ -1113,6 +1120,68 @@ describe("the purge", () => {
     expect(
       await prisma.memberCharge.findUnique({ where: { id: held } }),
     ).toBeNull();
+  });
+
+  it("counts from the financial year the charge was recorded under", async () => {
+    /*
+     * A charge carries the month the association's year began in when it was
+     * recorded, and the purge reads that and never today's setting. On a year
+     * running from the 1st of May, a June 2026 charge falls in the year that
+     * ends in April 2027 and is kept until 1 January 2035. The association then
+     * moves back to the calendar year: that changes the books kept from now on,
+     * not the ones already closed. Read off today's setting, the charge would be
+     * erased from 2034 - a year before bokforingslagen 7 kap. 2 § allows, and a
+     * year before the date its access report stated.
+     */
+    const original = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { financialYearStartMonth: true },
+    });
+
+    try {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { financialYearStartMonth: 5 },
+      });
+      const created = await recordCharge(
+        chargeOn({
+          personId: gammal.personId,
+          chargedOn: "2026-06-15",
+          reason: `Nyckel under brutet ar ${suffix}`,
+        }),
+      );
+      expect(created.statusCode).toBe(201);
+      const chargeId = created.json<DebitingListRow>().chargeId;
+
+      expect(
+        await prisma.memberCharge.findUnique({
+          where: { id: chargeId },
+          select: { financialYearStartMonth: true },
+        }),
+      ).toEqual({ financialYearStartMonth: 5 });
+
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { financialYearStartMonth: 1 },
+      });
+
+      const purge = app.get(MemberChargePurgeService);
+
+      await purge.run(new Date("2034-06-01T03:17:00.000+02:00"));
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: chargeId } }),
+      ).not.toBeNull();
+
+      await purge.run(new Date("2035-01-01T03:17:00.000+01:00"));
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: chargeId } }),
+      ).toBeNull();
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { financialYearStartMonth: original.financialYearStartMonth },
+      });
+    }
   });
 });
 

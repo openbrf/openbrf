@@ -350,6 +350,42 @@ export const CAPABILITIES = [
    */
   "memberCharges:manage",
   /**
+   * Record the fee rates the apartments pay (avgifter), issue a period's
+   * notices (avisering) and produce the document they are taken away as.
+   *
+   * The board's, and for the reason `memberCharges:manage` is: what the
+   * association charges is the board running the cooperative's economy, while
+   * `association:manage` is the administrator's and covers how the instance is
+   * configured.
+   *
+   * Separate from `memberCharges:manage` rather than folded into it, although
+   * both are money and both sit with the board today. They are different acts
+   * under different parts of the statute: fixing the avgifter is the board's
+   * standing task under BRL 9 kap. 13 §, while a debitering records that
+   * something happened once - and a cooperative that has given its treasurer
+   * the fee book while the whole board approves individual charges is a seat
+   * split this product can express only if the two are two capabilities. One
+   * capability would also mean that widening either half widens the other,
+   * which is the kind of coupling a capability list exists to prevent.
+   *
+   * One capability and not a pair, although issuing a notice is a write and
+   * producing the document is a disclosure. The alternative would be a reading
+   * half and a writing half with the same holder: a board that records a rate
+   * does so in order to bill it, and a seat entitled to one and not the other is
+   * not a seat this product has. The document's own audit entry is what records
+   * the disclosure instead.
+   *
+   * Deliberately not the external property manager's, on the `motions:handle`
+   * precedent and the charge capability's: what a household pays the
+   * association is the board's business with its own members.
+   *
+   * There is no resident half. A member learns what they owe from the notice
+   * the board produces, and what they are entitled to see of what is stored is
+   * on their data subject access report, which is a different route with a
+   * different gate.
+   */
+  "fees:manage",
+  /**
    * Keep the association's own data protection records: the personal data
    * breach register, the record of processing activities, the classification of
    * every recipient of personal data with the agreements art. 28 requires, and
@@ -600,6 +636,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
   "meetings:manage",
   "events:attend",
   "memberCharges:manage",
+  "fees:manage",
   "dataProtection:manage",
   "boardMailbox:handle",
   "sublets:handle",

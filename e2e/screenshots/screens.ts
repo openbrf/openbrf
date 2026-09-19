@@ -509,6 +509,26 @@ export const SCREENS: readonly Screen[] = [
     // entry the picture is about.
     waitFor: { heading: MEMBER.designation },
   },
+  {
+    /*
+     * The panel that records the apartments' participation shares and initial
+     * share capitals, open.
+     *
+     * Open rather than closed, because closed it is one button and the picture
+     * would say nothing about what the panel is for: a board types eighty
+     * figures in one sitting, and the form is a row per apartment. The notice
+     * above it is half the point of the image - it says in as many words that
+     * nothing in Open BRF works a fee out from these figures, which is the
+     * distinction this panel exists to hold.
+     *
+     * A card rather than the page, because the register document below it is
+     * already photographed whole by the entry above.
+     */
+    name: "apartment-shares",
+    prepare: [{ click: { button: "Registrera andelstal och insatser" } }],
+    waitFor: { text: "Spara siffrorna" },
+    capture: { panel: "Andelstal och insatser" },
+  },
 
   // --- importing a member list -----------------------------------------------
   // Four steps, of which three are photographed: the file, the columns and the
@@ -1530,6 +1550,80 @@ export const SCREENS: readonly Screen[] = [
     // first and say nothing about the document.
     waitFor: { text: "Nyckel till cykelrummet" },
     capture: "page",
+  },
+  {
+    /*
+     * The fees, with one apartment's rate recorded.
+     *
+     * The whole page rather than a card, because what the screen is is three
+     * things standing together: the form the board records a rate in, the aid
+     * that works one out from the participation shares, and the register
+     * document below them. A picture of any one of them would leave out what
+     * makes the others make sense.
+     *
+     * The rate is put on Elin Hammar's apartment, which is the one flat in the
+     * walk somebody holds, so the register row beside it is not empty. The
+     * option carries the apartment as both registers print it, and Playwright
+     * matches an option label exactly, which is why it is spelled in full here.
+     *
+     * The date is stated rather than left to the form's default. The default is
+     * the first of next month, which is right for a board setting a rate and
+     * wrong for a walk that goes on to bill the first quarter of 2026 - the
+     * rate has to be in force during the period the entry below issues.
+     */
+    name: "fees",
+    as: "administrator",
+    goto: appPath("/fees"),
+    prepare: [
+      { see: { combobox: "Lägenhet" } },
+      {
+        select: { combobox: "Lägenhet" },
+        option: MEMBER.designation,
+      },
+      { fill: { label: "Gäller från" }, value: "2026-01-01" },
+      { fill: { label: "Belopp per månad i kronor" }, value: "3450.50" },
+      { click: { button: "Registrera avgiften" } },
+    ],
+    /*
+     * The formatted figure, which exists only once the rate has been written
+     * and the register read back with it. This is the first screen in the
+     * application that formats money at all, so the picture is of that too.
+     *
+     * A pattern rather than the text, because the character between the groups
+     * is the platform's: `Intl.NumberFormat` gives Swedish a no-break space,
+     * and which one it is has moved between ICU versions.
+     */
+    waitFor: { text: /3\s*450,50 kr/ },
+    capture: "page",
+  },
+  {
+    /*
+     * The period's notices, produced.
+     *
+     * The card rather than the page, because the register above is already
+     * photographed whole and what this image is about is the other half: the
+     * run, the document it produced and the file the board takes away.
+     *
+     * The first quarter of 2026, which the rate recorded above is in force for.
+     * A period may be issued once, and a fresh instance has issued none.
+     */
+    name: "fee-notification",
+    prepare: [
+      { fill: { label: "Från" }, value: "2026-01-01" },
+      { fill: { label: "Till" }, value: "2026-03-31" },
+      { fill: { label: "Förfallodag" }, value: "2026-01-31" },
+      { click: { button: "Framställ avierna" } },
+      {
+        click: {
+          button: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+        },
+      },
+    ],
+    // The reference on the produced document, which exists only once the server
+    // has answered. The run's own row arrives first and says nothing about the
+    // document.
+    waitFor: { text: "Betalningsreferens" },
+    capture: { panel: "Avisering" },
   },
   {
     /*
