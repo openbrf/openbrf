@@ -1969,8 +1969,8 @@ function groupChatMessages(
        * instant and a day read off an instant in UTC names yesterday for an
        * hour or two after midnight here.
        */
-      erasableFrom: formatLocalDay(
-        localDayOf(computeChatMessagePurgeDate(message.createdAt)),
+      erasableFrom: formatDayOfInstant(
+        computeChatMessagePurgeDate(message.createdAt),
       ),
     } satisfies ReportChatMessage);
   }
