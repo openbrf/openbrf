@@ -165,16 +165,28 @@ export interface UpdatePageInput {
 }
 
 /**
- * Refuses a precondition the page no longer meets, on a write that would
- * otherwise change nothing.
+ * Refuses a precondition the page no longer meets.
  *
- * Publishing a published page, or giving a page the audience it already has, is
- * not an event and writes nothing. It is still an answer, though, and the
- * caller that sent a revision asked for one about the page it read. Somebody
- * else may have rewritten that page and put it in the requested state since, so
- * answering "done" would tell the caller the content it decided on is what is
- * now published, when it has never seen what is. Absent, or matching, the
- * no-op stands as it always has.
+ * Answered before anything about the merits of the request, because it is not
+ * about the request: it is about the copy the caller decided on. Two things
+ * follow from putting it first.
+ *
+ * A write that would change nothing still answers it. Publishing a published
+ * page, or giving a page the audience it already has, is not an event and
+ * writes nothing, but somebody else may have rewritten that page and put it in
+ * the requested state since - and answering "done" would tell the caller that
+ * the content it decided on is what is now published, when it has never seen
+ * what is.
+ *
+ * And a write that would change something answers it before the publication
+ * guardrails, which on those paths read the stored page rather than anything
+ * the caller sent. A page left carrying a personal identity number by another
+ * writer would otherwise be refused on the merits of that writer's content, at
+ * a caller whose real problem is the copy in its hand.
+ *
+ * Absent, or matching, nothing here changes what the method does. The
+ * conditional claims downstream stay, because they answer a different
+ * question: whether the page changed after this read.
  */
 function refuseStalePrecondition(
   page: { revision: number },
@@ -519,9 +531,17 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
+    /*
+     * Before the guardrails, because the guardrails on this path read the page
+     * as it is stored and a caller holding an older copy has never seen that
+     * content. Run first, a page somebody else left carrying a personal
+     * identity number would answer on the merits of their writing - and this
+     * caller, whose copy is the thing that is wrong, would never reach the
+     * conflict its own client handles.
+     */
+    refuseStalePrecondition(page, input.expectedRevision);
 
     if (page.published === input.published) {
-      refuseStalePrecondition(page, input.expectedRevision);
       return toAdminView(page);
     }
 
@@ -543,18 +563,13 @@ export class PagesWriteService {
        * nothing and the board is told to look again rather than publishing
        * something nobody read.
        *
-       * Where the caller sent its own revision, that is what is claimed on
-       * instead. The one read a line above is the narrower precondition - it
-       * only refuses a write that lands between this read and this write - and
-       * the caller's is the one that refuses a publish decided on a copy
-       * somebody else replaced while the board was looking at it.
+       * The revision this method read, and not the caller's: a caller that sent
+       * one has already been refused above unless the two are the same number.
+       * What is left for this claim is the narrower window the precondition
+       * cannot see - a write landing between that read and this one.
        */
       const claimed = await tx.page.updateMany({
-        where: {
-          id,
-          revision: input.expectedRevision ?? page.revision,
-          published: page.published,
-        },
+        where: { id, revision: page.revision, published: page.published },
         data: {
           published: input.published,
           // Kept once set. It is when the page was first published, and a
@@ -621,9 +636,11 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
+    // Before the guardrails, for the reason publishing answers it first: they
+    // read the stored page, which a caller holding an older copy never saw.
+    refuseStalePrecondition(page, input.expectedRevision);
 
     if (page.visibility === input.visibility) {
-      refuseStalePrecondition(page, input.expectedRevision);
       return toAdminView(page);
     }
 
@@ -642,17 +659,12 @@ export class PagesWriteService {
        * landing between the two would be widened to a new audience without
        * anything having read it.
        *
-       * Where the caller sent its own revision, that is what is claimed on, for
-       * the reason publishing takes it: this decides who reads the page, and a
-       * board deciding it on a copy somebody else has replaced is deciding
-       * about content it never saw.
+       * The revision this method read, for the reason publishing claims on the
+       * one it read: a caller's own precondition was answered above, and what
+       * is left here is a write landing between that read and this one.
        */
       const claimed = await tx.page.updateMany({
-        where: {
-          id,
-          revision: input.expectedRevision ?? page.revision,
-          visibility: page.visibility,
-        },
+        where: { id, revision: page.revision, visibility: page.visibility },
         // The revision moves for the reason publishing moves it: this decides
         // who reads the page, and a content save built on the copy from before
         // it should be told rather than applied.

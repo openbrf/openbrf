@@ -835,36 +835,42 @@ describe("a write built on a copy somebody else has replaced", () => {
    * is the ordinary way two board members lose each other's work, and the case
    * the page save has taken a precondition for all along.
    */
-  it("claims the revision the caller read when publishing", async () => {
+  it("publishes on a matching precondition, still claiming the page it read", async () => {
+    /*
+     * The caller's precondition is answered before any of this, so by the time
+     * the write runs the two numbers are the same one. The claim stays because
+     * it answers a different question: whether anything landed between this
+     * method's own read and its write.
+     */
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
 
     await fakes.service.setPublished(
       "page-1",
-      { published: true, expectedRevision: 4 },
+      { published: true, expectedRevision: 7 },
       { personId: "person-1", channel: "WEB" },
     );
 
     expect(fakes.page.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "page-1", revision: 4, published: false },
+        where: { id: "page-1", revision: 7, published: false },
       }),
     );
   });
 
-  it("claims the revision the caller read when changing the audience", async () => {
+  it("changes the audience on a matching precondition, still claiming the page it read", async () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
 
     await fakes.service.setVisibility(
       "page-1",
-      { visibility: "MEMBER", expectedRevision: 4 },
+      { visibility: "MEMBER", expectedRevision: 7 },
       { personId: "person-1", channel: "WEB" },
     );
 
     expect(fakes.page.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "page-1", revision: 4, visibility: "PUBLIC" },
+        where: { id: "page-1", revision: 7, visibility: "PUBLIC" },
       }),
     );
   });
@@ -968,6 +974,83 @@ describe("a write built on a copy somebody else has replaced", () => {
     expect(view.revision).toBe(7);
     expect(fakes.page.updateMany).not.toHaveBeenCalled();
     expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+
+  it("answers a stale publication with the conflict, not with the stored page's guardrail", async () => {
+    /*
+     * The guardrails on this path read the page as it is stored, which is
+     * content a caller holding an older copy has never seen. Run before the
+     * precondition, a page somebody else had left carrying a personal identity
+     * number would answer 422 about that content - and the caller, whose real
+     * problem is that its copy is stale, would be handed a refusal on the
+     * merits of somebody else's writing and never reach its conflict path.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      revision: 9,
+      content: WITH_PERSONNUMMER,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setPublished(
+        "page-1",
+        { published: true, expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+  });
+
+  it("answers a stale change of audience the same way", async () => {
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      published: true,
+      revision: 9,
+      content: WITH_PERSONNUMMER,
+    });
+
+    const refusal = await refusalOf(
+      fakes.service.setVisibility(
+        "page-1",
+        { visibility: "MEMBER", expectedRevision: 4 },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+  });
+
+  it("still refuses a save on the merits of what the caller itself submitted", async () => {
+    /*
+     * The other side of the rule, and why `update` is left as it is: its
+     * guardrails read the content in the request rather than the content on
+     * the page. A personal identity number in what this caller typed is its
+     * own problem whether or not its copy is stale, and answering the conflict
+     * instead would hide the thing it has to fix.
+     */
+    const fakes = build();
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: WITH_PERSONNUMMER,
+          expectedRevision: 4,
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.status).toBe(422);
   });
 
   it("deletes without a precondition, as the route always has", async () => {
