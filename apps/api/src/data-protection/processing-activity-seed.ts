@@ -33,7 +33,7 @@ import type { ProcessorFacts } from "./processors";
  *     overwritten by a background job.
  *   - The board's own (a BOARD row, or any field it has edited). Never touched.
  *
- * The eighteen keys below are fixed and asserted by the spec. Adding a table
+ * The nineteen keys below are fixed and asserted by the spec. Adding a table
  * that holds personal data means adding a row here: that is the point of a
  * checked list rather than a derivation, and a processing the record does not
  * mention is the failure art. 30 exists to prevent.
@@ -390,7 +390,7 @@ function transfersToThirdCountry(key: SeedKey, facts: ProcessorFacts): boolean {
  * A general description of the art. 32(1) measures protecting one processing.
  *
  * Composed from the sentences that actually hold for the row rather than one
- * paragraph repeated eighteen times: art. 30(1)(g) asks what protects *this*
+ * paragraph repeated nineteen times: art. 30(1)(g) asks what protects *this*
  * processing, and a record claiming field-level encryption for a table that has
  * none would be worse than one that said nothing.
  */
@@ -430,7 +430,7 @@ export function securityMeasuresFor(
 }
 
 /**
- * The eighteen rows, translated into the association's own language and filled
+ * The nineteen rows, translated into the association's own language and filled
  * in from what this instance is configured to do.
  *
  * @param t Bound to the association's default locale, not the reader's: the
