@@ -241,18 +241,32 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
     /*
-     * The board alone, because the board chat is the only room there is: its
-     * members are whoever holds a seat, and nobody else reaches it. A row
-     * naming the residents would describe a processing this instance does not
-     * perform.
+     * The board and whoever lives here. There are two kinds of room: the board
+     * chat, whose members are whoever holds a seat, and a group, which somebody
+     * living here made for something the house is doing. Both are rooms this
+     * instance holds text in, so both belong in the record.
+     *
+     * And whoever used to. A message is erased a year after it was written and
+     * on nothing else - not on the residency that has ended, not on the seat
+     * that was not re-elected - so what somebody wrote is still held, and still
+     * on their access report, long after they have left. A record naming only
+     * the people who are here would describe a processing that stops when a
+     * person leaves, and this one does not.
      */
-    dataSubjectCategories: ["boardMember"],
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "boardMember",
+      "formerResident",
+    ],
     /*
      * Who wrote, and what they wrote. `freeText` is the substance of the
      * processing rather than a footnote: a message is text somebody composed
      * themselves and it may name anybody in the building, which is why the
      * write is scanned for a personal identity number and why the room is
-     * erased on a clock of its own.
+     * erased on a clock of its own. A group's name, and the note somebody
+     * writes when they report a message to the board, are the same kind of
+     * text under the same rule.
      */
     personalDataCategories: ["name", "freeText"],
   },

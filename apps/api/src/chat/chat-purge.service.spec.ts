@@ -74,12 +74,34 @@ function build(options: {
   restrictedPersonIds?: string[];
   erasureRequestedPersonIds?: string[];
   deletedCount?: number;
+  /**
+   * The rooms this database holds.
+   *
+   * Of both kinds, and each with however many messages are in it, because the
+   * sweep asks for exactly those two things beside the date: a fake holding only
+   * empty groups would pass a sweep that had dropped either condition and taken
+   * the board's chat or a room somebody is writing in.
+   */
+  rooms?: {
+    id: string;
+    kind: "BOARD" | "GROUP";
+    createdAt: Date;
+    messages?: number;
+  }[];
+  /** Write into this room the moment the sweep takes its lock. */
+  writtenInOnLock?: string;
+  /** The room whose delete the database refuses, every time it is tried. */
+  refusedChatId?: string;
 }) {
   const held = options.heldPersonIds ?? [];
   const restricted = options.restrictedPersonIds ?? [];
   const requested = options.erasureRequestedPersonIds ?? [];
   const withheld = [...new Set([...held, ...restricted])];
   const deletedCount = options.deletedCount ?? 2;
+  const rooms = (options.rooms ?? []).map((room) => ({
+    messages: 0,
+    ...room,
+  }));
 
   const groupBy = vi.fn(
     async (args: {
@@ -132,11 +154,33 @@ function build(options: {
   /** Every call the transaction made, in the order it made them. */
   const calls: string[] = [];
 
+  /** Every advisory lock key the sweep took, in order. */
+  const locks: string[] = [];
+
   const tx = {
-    $executeRaw: vi.fn(async () => {
-      calls.push("lock");
-      return 1;
-    }),
+    $executeRaw: vi.fn(
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        if (String(values[0]).startsWith("chat:")) {
+          calls.push("lockChat");
+          locks.push(String(values[0]));
+          /*
+           * Somebody writing in the room while the sweep waited for the lock.
+           * It is the only moment a room can stop being empty, because the
+           * delete below re-reads it under the same key.
+           */
+          const written = rooms.find(
+            (room) => room.id === options.writtenInOnLock,
+          );
+          if (written !== undefined) {
+            written.messages += 1;
+          }
+          return 1;
+        }
+        void strings;
+        calls.push("lock");
+        return 1;
+      },
+    ),
     person: {
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
         calls.push("readRestriction");
@@ -165,10 +209,84 @@ function build(options: {
         return { count: deletedCount };
       }),
     },
+    chatRead: {
+      deleteMany: vi.fn(
+        async (args: { where: { chatId: { in: string[] } } }) => {
+          calls.push("deleteReadMarkers");
+          return { count: args.where.chatId.in.length };
+        },
+      ),
+    },
+    chat: {
+      /*
+       * The delete repeats every condition the scan used, and so does this: the
+       * lock above it is only worth taking if what the scan found is checked
+       * again under it, and a fake that deleted by identifier alone would let
+       * that re-check be dropped without a test noticing.
+       */
+      deleteMany: vi.fn(
+        async (args: {
+          where: {
+            id: string;
+            kind: "GROUP";
+            createdAt: { lte: Date };
+            messages: { none: object };
+          };
+        }) => {
+          calls.push("deleteGroups");
+          if (args.where.id === options.refusedChatId) {
+            throw new Error(`the database refused ${args.where.id}`);
+          }
+          const index = rooms.findIndex(
+            (room) =>
+              room.id === args.where.id &&
+              room.kind === args.where.kind &&
+              room.messages === 0 &&
+              args.where.messages.none !== undefined &&
+              room.createdAt.getTime() <= args.where.createdAt.lte.getTime(),
+          );
+          if (index < 0) {
+            return { count: 0 };
+          }
+          rooms.splice(index, 1);
+          return { count: 1 };
+        },
+      ),
+    },
   };
 
   const prisma = {
     chatMessage: { groupBy },
+    /*
+     * The sweep for a room that holds nothing. Implemented rather than stubbed,
+     * because what it asks is the whole of the rule: a group made recently is
+     * a room waiting to be written in, and only the cutoff tells the two apart.
+     */
+    chat: {
+      findMany: vi.fn(
+        async (args: {
+          where: {
+            kind: "GROUP";
+            createdAt: { lte: Date };
+            messages: { none: object };
+          };
+          take?: number;
+        }) =>
+          rooms
+            .filter(
+              (room) =>
+                room.kind === args.where.kind &&
+                // Answered from the rows rather than assumed: the sweep asks
+                // for a room with no message in it, and a fake that ignored
+                // that would answer with rooms people are writing in.
+                (args.where.messages.none === undefined ||
+                  room.messages === 0) &&
+                room.createdAt.getTime() <= args.where.createdAt.lte.getTime(),
+            )
+            .slice(0, args.take)
+            .map((room) => ({ id: room.id })),
+      ),
+    },
     person: {
       findMany: vi.fn(
         async (args: {
@@ -211,6 +329,8 @@ function build(options: {
     audit,
     calls,
     groupBy,
+    rooms,
+    locks,
     deleteMany: tx.chatMessage.deleteMany,
   };
 }
@@ -438,6 +558,7 @@ describe("a whole run", () => {
       purged: 2,
       messagesDeleted: 4,
       failed: 0,
+      groupsDeleted: 0,
     });
   });
 
@@ -471,6 +592,7 @@ describe("a whole run", () => {
       purged: 1,
       messagesDeleted: 2,
       failed: 1,
+      groupsDeleted: 0,
     });
 
     expect(logged).toHaveBeenCalledOnce();
@@ -479,5 +601,123 @@ describe("a whole run", () => {
     // happen, and a failed transaction wrote no audit entry to carry it.
     expect(line).toContain("aa");
     expect(line).not.toContain(REVEALING_BODY);
+  });
+});
+
+describe("a room that holds nothing", () => {
+  const A_YEAR_AGO = new Date("2025-01-01T00:00:00.000Z");
+  const LAST_WEEK = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  it("erases a group the clock has emptied, and leaves every other room", async () => {
+    /*
+     * The one thing in the chat with no clock of its own. A message carries its
+     * own window, and a read marker and a report go with the message - but a
+     * membership list says which neighbours were in a room together, and a room
+     * whose last message the purge has already erased would go on saying that
+     * forever.
+     *
+     * Three rooms it must not take, one for each condition the sweep asks: the
+     * board's own chat, a group somebody is still writing in, and a group made
+     * this week.
+     */
+    const { service, rooms, calls } = build({
+      messages: [],
+      rooms: [
+        { id: "chat-old", kind: "GROUP", createdAt: A_YEAR_AGO },
+        { id: "chat-board", kind: "BOARD", createdAt: A_YEAR_AGO },
+        { id: "chat-busy", kind: "GROUP", createdAt: A_YEAR_AGO, messages: 1 },
+        { id: "chat-new", kind: "GROUP", createdAt: LAST_WEEK },
+      ],
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.groupsDeleted).toBe(1);
+    expect(rooms.map((room) => room.id)).toEqual([
+      "chat-board",
+      "chat-busy",
+      "chat-new",
+    ]);
+    /*
+     * Not by hand any more: the marker cascades with the room. Asserting the
+     * absence is what keeps the constraint load-bearing - a sweep that deleted
+     * them here as well would go on passing with the foreign key dropped. That
+     * the cascade does clear them is asserted against a real database in
+     * chat-group.int-spec.ts, which is the only place it can be.
+     */
+    expect(calls).not.toContain("deleteReadMarkers");
+  });
+
+  it("carries on past a room the database refuses, and names it by its class", async () => {
+    /*
+     * The loop is a list of erasures that are all owed. A room that fails would
+     * otherwise end the sweep where it stood and take the run's summary with
+     * it - so every room sorting after it would keep its membership list for as
+     * long as that one room kept failing, and nothing would say so.
+     *
+     * What reaches the log is the class of the failure and the room. An
+     * exception message here can be quoting a row, and this row is a room
+     * somebody named.
+     */
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const { service, rooms } = build({
+      messages: [],
+      rooms: [
+        { id: "chat-aa-refused", kind: "GROUP", createdAt: A_YEAR_AGO },
+        { id: "chat-bb", kind: "GROUP", createdAt: A_YEAR_AGO },
+      ],
+      refusedChatId: "chat-aa-refused",
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    // The second room is erased although the first one threw, and the run
+    // answers with a summary rather than rejecting.
+    expect(summary.groupsDeleted).toBe(1);
+    expect(rooms.map((room) => room.id)).toEqual(["chat-aa-refused"]);
+
+    expect(logged).toHaveBeenCalledOnce();
+    const line = String(logged.mock.calls[0]?.[0]);
+    expect(line).toContain("chat-aa-refused");
+    expect(line).toContain("Error");
+    // Never what the failure was holding: this one is quoting the room.
+    expect(line).not.toContain("the database refused");
+  });
+
+  it("takes the room's own lock before it decides the room is empty", async () => {
+    /*
+     * The key `ChatService.write` takes. A message committed between the scan
+     * and the delete is erased by the cascade and its author told it was
+     * stored, so the emptiness is decided again under this lock - which is only
+     * worth anything if both sides spell the key the same way.
+     */
+    const { service, calls, locks } = build({
+      messages: [],
+      rooms: [{ id: "chat-old", kind: "GROUP", createdAt: A_YEAR_AGO }],
+    });
+
+    await service.run(NOW, RETENTION_DAYS);
+
+    expect(locks).toEqual(["chat:chat-old"]);
+    expect(calls.indexOf("lockChat")).toBeLessThan(
+      calls.indexOf("deleteGroups"),
+    );
+  });
+
+  it("counts what it actually erased, not what it selected", async () => {
+    // The delete repeats every condition, so a room that stopped being empty
+    // between the scan and the delete is left alone - and the run says so.
+    const { service, rooms } = build({
+      messages: [],
+      rooms: [{ id: "chat-old", kind: "GROUP", createdAt: A_YEAR_AGO }],
+      writtenInOnLock: "chat-old",
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.groupsDeleted).toBe(0);
+    expect(rooms).toHaveLength(1);
   });
 });

@@ -865,7 +865,32 @@ no, and the pilot is the thing that will change it.
         its newest end, so a reader opening a long one lands where the
         conversation is, and the comments before that page are a press away
         rather than quietly missing
-  - [ ] Group and board chat
+  - [x] Group and board chat: two kinds of room, one screen and one poll. The
+        board's own is derived and never administered - its members are whoever
+        holds a board seat that has not ended, so a person joins it the day
+        their term is recorded and leaves it the day it ends. A group is made by
+        whoever wants one rather than curated by the board: somebody who lives
+        here starts it, anybody in it can add a neighbour, and each can take
+        only themselves out, because a private room in which one member could
+        throw out another would be a tribunal. A place in a group ends the day
+        the residency does, and what that person wrote stays in the room
+        attributed exactly as before. A group is invisible to somebody who is
+        not in it: it is on no list, and asked for by identifier it is refused
+        exactly as a room that does not exist, so the identifier space cannot be
+        walked to learn what rooms the house has made. Nothing is published,
+        nothing is mailed, and a read marker rather than a notification is what
+        makes the screen worth opening. Every message is erased a year after it
+        was written, on its own clock, because a conversation with no end would
+        otherwise purge nothing - and a group whose last message the clock has
+        reached is erased with the list of who was in it. The board reaches a
+        group only through a report from inside it: a member of the room carries
+        one message out, the board reads that message and nothing else about the
+        room, and can strike it through or leave it standing. A struck message
+        stays where it is with its author's name on it, its text withheld from
+        the room and readable to whoever wrote it. The board chat has no
+        strike-through at all, because the board is the whole room and a board
+        able to strike a colleague's line would be deciding what the record of
+        its own deliberation says
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the

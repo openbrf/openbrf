@@ -41,6 +41,12 @@ const readChat = vi.fn();
 const messagesSince = vi.fn();
 const writeMessage = vi.fn();
 const markChatRead = vi.fn();
+const createChatGroup = vi.fn();
+const reportChatMessage = vi.fn();
+const fetchGroupMembers = vi.fn();
+const fetchGroupCandidates = vi.fn();
+const fetchChatReports = vi.fn();
+const strikeChatReport = vi.fn();
 
 vi.mock("../api/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/chat")>()),
@@ -49,6 +55,12 @@ vi.mock("../api/chat", async (importOriginal) => ({
   messagesSince: (input: unknown) => messagesSince(input),
   writeMessage: (input: unknown) => writeMessage(input),
   markChatRead: (input: unknown) => markChatRead(input),
+  createChatGroup: (input: unknown) => createChatGroup(input),
+  reportChatMessage: (input: unknown) => reportChatMessage(input),
+  fetchGroupMembers: (input: unknown) => fetchGroupMembers(input),
+  fetchGroupCandidates: (input: unknown) => fetchGroupCandidates(input),
+  fetchChatReports: () => fetchChatReports(),
+  strikeChatReport: (input: unknown) => strikeChatReport(input),
 }));
 
 const ASTRID = "person-astrid";
@@ -72,10 +84,27 @@ const BOARD_ROOM: ChatRoom = {
   lastMessageAt: "2026-09-17T09:00:00.000Z",
 };
 
+const STAIRWELL_GROUP: ChatRoom = {
+  id: "chat-stairwell",
+  kind: "GROUP",
+  name: "Uppgång C",
+  unread: 0,
+  lastMessageAt: "2026-09-17T09:00:00.000Z",
+};
+
+const GARDEN_GROUP: ChatRoom = {
+  id: "chat-garden",
+  kind: "GROUP",
+  name: "Trädgårdsgruppen",
+  unread: 0,
+  lastMessageAt: "2026-09-17T09:00:00.000Z",
+};
+
 const FROM_A_COLLEAGUE: ChatMessage = {
   id: "message-1",
   author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
   body: "Jag har tagit in en offert pa taket.",
+  struckAt: null,
   createdAt: "2026-09-17T09:00:00.000Z",
 };
 
@@ -83,6 +112,7 @@ const MINE: ChatMessage = {
   id: "message-2",
   author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
   body: "Bra, da tar vi den pa nasta mote.",
+  struckAt: null,
   createdAt: "2026-09-17T09:05:00.000Z",
 };
 
@@ -103,7 +133,10 @@ function page(
 }
 
 beforeEach(() => {
-  fetchChats.mockReset().mockResolvedValue({ ok: true, value: [BOARD_ROOM] });
+  fetchChats.mockReset().mockResolvedValue({
+    ok: true,
+    value: { rooms: [BOARD_ROOM], mayCreateGroup: false },
+  });
   readChat.mockReset().mockResolvedValue({
     ok: true,
     value: page([FROM_A_COLLEAGUE]),
@@ -116,6 +149,18 @@ beforeEach(() => {
   markChatRead
     .mockReset()
     .mockResolvedValue({ ok: true, value: { readAt: MINE.createdAt } });
+  createChatGroup.mockReset().mockResolvedValue({
+    ok: true,
+    value: { chatId: "chat-new", name: "Uppgång C" },
+  });
+  reportChatMessage
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { reportId: "report-1" } });
+  fetchGroupMembers.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchGroupCandidates.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchChatReports
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { reports: [], mayModerate: true } });
 });
 
 describe("the room a board member opens", () => {
@@ -151,7 +196,7 @@ describe("the room a board member opens", () => {
   it("says how many are unread", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: [{ ...BOARD_ROOM, unread: 3 }],
+      value: { rooms: [{ ...BOARD_ROOM, unread: 3 }], mayCreateGroup: false },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -167,6 +212,7 @@ describe("the room a board member opens", () => {
           id: "message-9",
           author: { kind: "protected", personId: "person-skyddad" },
           body: "Jag tar offerten.",
+          struckAt: null,
           createdAt: "2026-09-17T09:00:00.000Z",
         },
       ]),
@@ -200,8 +246,12 @@ describe("the room a board member opens", () => {
 
 describe("the account that is in no room", () => {
   it("says why rather than showing an empty conversation", async () => {
-    // The administrator: every capability, and no seat on the board.
-    fetchChats.mockResolvedValue({ ok: true, value: [] });
+    // The administrator: every capability, no seat on the board, and no home
+    // here - so there is no room and no form for making one either.
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [], mayCreateGroup: false },
+    });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
 
@@ -213,8 +263,8 @@ describe("the account that is in no room", () => {
 });
 
 describe("the account the chat is not for", () => {
-  it("says the room is the board's rather than offering a retry", async () => {
-    // The guard's refusal is not a failure to answer. Telling a resident to
+  it("says who the chat is for rather than offering a retry", async () => {
+    // The guard's refusal is not a failure to answer. Telling somebody to
     // reload would teach them a part of the product is broken for them, when
     // what is true is that it is not theirs.
     fetchChats.mockResolvedValue({
@@ -225,7 +275,7 @@ describe("the account the chat is not for", () => {
     render(<ChatScreen viewer={viewer([])} />);
 
     expect(
-      await screen.findByText(/Chatten här är styrelsens egen/),
+      await screen.findByText(/Chatten är för styrelsen och för dem som bor/),
     ).not.toBeNull();
     expect(screen.queryByText(/Ladda om sidan/)).toBeNull();
   });
@@ -493,6 +543,7 @@ describe("the messages before this page", () => {
           id: "message-0",
           author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
           body: "Skrivet innan den har sidan.",
+          struckAt: null,
           createdAt: "2026-09-01T09:00:00.000Z",
         },
       ]),
@@ -518,5 +569,546 @@ describe("the messages before this page", () => {
     expect(
       screen.queryByRole("button", { name: "Visa tidigare meddelanden" }),
     ).toBeNull();
+  });
+});
+
+describe("a group", () => {
+  /** A resident: in one group, and able to make another. */
+  function inTheGarden(): void {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+  }
+
+  it("is made from the screen by whoever wants one", async () => {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [], mayCreateGroup: true },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    // The empty screen for somebody who lives here is a form and not a refusal:
+    // the board appoints nobody here, so there is nothing to ask for.
+    await userEvent.type(
+      await screen.findByLabelText("Gruppens namn"),
+      "Uppgång C",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    await waitFor(() => {
+      expect(createChatGroup).toHaveBeenCalledWith({ name: "Uppgång C" });
+    });
+  });
+
+  it("offers reporting a neighbour's message and never one's own", async () => {
+    inTheGarden();
+    readChat.mockResolvedValue({
+      ok: true,
+      value: page([FROM_A_COLLEAGUE, MINE]),
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    /*
+     * One control for the two messages: the colleague's. Reporting one's own
+     * line to the board is not an act this product needs to offer, and the
+     * absence is what the count asserts.
+     */
+    expect(
+      screen.getAllByRole("button", { name: /^Anmäl meddelandet från/ }),
+    ).toHaveLength(1);
+
+    /*
+     * Named after its author rather than labelled "report", because that is
+     * what assistive technology announces: a control announced as "report" in a
+     * list of messages names none of them.
+     */
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Anmäl meddelandet från Bo Ek till styrelsen",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Vad vill du säga om meddelandet?"),
+      "Det har handlar om min lagenhet.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka anmälan" }),
+    );
+
+    await waitFor(() => {
+      expect(reportChatMessage).toHaveBeenCalledWith({
+        messageId: "message-1",
+        note: "Det har handlar om min lagenhet.",
+      });
+    });
+    // What the screen owes the reporter afterwards is the sentence saying the
+    // board has it. The message itself is untouched until the board answers.
+    expect(
+      await screen.findByText("Meddelandet är anmält till styrelsen."),
+    ).not.toBeNull();
+  });
+
+  it("renders a struck message as the server answered it", async () => {
+    inTheGarden();
+    readChat.mockResolvedValue({
+      ok: true,
+      value: page([
+        {
+          id: "message-struck",
+          author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
+          // Withheld from this reader: they neither wrote it nor moderate.
+          body: null,
+          struckAt: "2026-09-17T10:00:00.000Z",
+          createdAt: "2026-09-17T09:00:00.000Z",
+        },
+      ]),
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(
+      await screen.findByText(/Styrelsen har strukit över meddelandet/),
+    ).not.toBeNull();
+    // The author stays named, because a strike is a strike-through and never a
+    // disappearance.
+    expect(screen.getByText("Bo Ek")).not.toBeNull();
+    // And there is nothing left to report about a message the board answered.
+    expect(
+      screen.queryByRole("button", { name: /^Anmäl meddelandet från/ }),
+    ).toBeNull();
+  });
+
+  it("offers no reporting in the board chat", async () => {
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    // The board is the whole room: there is nobody to report a colleague's line
+    // to, so the control does not exist there at all.
+    expect(
+      screen.queryByRole("button", { name: /^Anmäl meddelandet från/ }),
+    ).toBeNull();
+  });
+});
+
+describe("a refusal", () => {
+  it("is shown when the account it refuses has no room at all", async () => {
+    /*
+     * The account the create form exists for: somebody who lives here, in no
+     * group yet. There is no room panel on the screen, so a refusal folded into
+     * the room's notice had nowhere to render - the button came back and the
+     * screen said nothing. A refusal belongs to the panel that owns the act.
+     */
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [], mayCreateGroup: true },
+    });
+    createChatGroup.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "not-a-resident" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.type(
+      await screen.findByLabelText("Gruppens namn"),
+      "Uppgång C",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    expect(
+      await screen.findByText("En grupp är för dem som bor här."),
+    ).not.toBeNull();
+  });
+
+  it("is shown beside the list it belongs to when a room is open", async () => {
+    // The same refusal with a room on screen. It belongs to the list of rooms,
+    // which owns the form, rather than under the open room's own heading.
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+    createChatGroup.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "too-many-groups" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.type(
+      await screen.findByLabelText("Gruppens namn"),
+      "Uppgång C",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    const refusal = await screen.findByText(/så många grupper/);
+    const panel = refusal.closest("section");
+    expect(panel?.textContent).toContain("Gruppens namn");
+    expect(panel?.textContent).not.toContain("Ditt meddelande");
+  });
+
+  it("is said out loud when a group's member list cannot be read", async () => {
+    /*
+     * A read this panel owns. Dropped, it left the panel saying it was reading
+     * the list for ever - a sentence about the room that is not true.
+     */
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+    fetchGroupMembers.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "chat-not-found" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(await screen.findByText(/Den chatten finns inte/)).not.toBeNull();
+    expect(screen.queryByText("Läser vilka som är med...")).toBeNull();
+  });
+});
+
+describe("the board's queue of reported messages", () => {
+  it("is on the screen for whoever moderates, and nowhere else", async () => {
+    render(
+      <ChatScreen viewer={viewer(["chat:participate", "chat:moderate"])} />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Anmälda chattmeddelanden" }),
+    ).not.toBeNull();
+    // The whole of what a board with no report learns: that nothing has been
+    // reported. There is no list of groups here or anywhere else.
+    expect(await screen.findByText("Ingenting är anmält.")).not.toBeNull();
+  });
+
+  it("takes every report about a message off the queue when one is answered", async () => {
+    /*
+     * The board decides about the message rather than about one person's report
+     * of it, and the server closes every open report on it together. A sibling
+     * left on screen is a row that answers "already answered" when pressed.
+     */
+    const reported = {
+      reportedAt: "2026-09-18T08:00:00.000Z",
+      reporter: { kind: "person", personId: "person-nils", name: "Nils" },
+      note: null,
+      groupName: "Trädgårdsgruppen",
+      groupCreatedBy: { kind: "person", personId: "person-nils", name: "Nils" },
+      messageId: "message-1",
+      author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
+      body: "Nagot ingen borde skriva.",
+      writtenAt: "2026-09-17T09:00:00.000Z",
+      struckAt: null,
+    };
+    fetchChatReports.mockResolvedValue({
+      ok: true,
+      value: {
+        reports: [
+          { ...reported, reportId: "report-1" },
+          { ...reported, reportId: "report-2" },
+        ],
+        mayModerate: true,
+      },
+    });
+    strikeChatReport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...reported,
+        reportId: "report-1",
+        struckAt: "2026-09-18T09:00:00.000Z",
+      },
+    });
+
+    render(
+      <ChatScreen viewer={viewer(["chat:participate", "chat:moderate"])} />,
+    );
+    const striking = await screen.findAllByRole("button", {
+      name: "Stryk över meddelandet",
+    });
+    expect(striking).toHaveLength(2);
+
+    await userEvent.click(striking[0] as HTMLElement);
+
+    expect(await screen.findByText("Ingenting är anmält.")).not.toBeNull();
+  });
+
+  it("says the queue is the board's to an account with no seat", async () => {
+    /*
+     * The administrator holds every capability and no board seat. An empty
+     * queue would tell them that nothing has been reported, which is a fact
+     * about rooms they may not be told exist - so the server answers that the
+     * queue is not theirs and the screen says so.
+     */
+    fetchChatReports.mockResolvedValue({
+      ok: true,
+      value: { reports: [], mayModerate: false },
+    });
+
+    render(
+      <ChatScreen viewer={viewer(["chat:participate", "chat:moderate"])} />,
+    );
+
+    expect(await screen.findByText(/Den här kön är styrelsens/)).not.toBeNull();
+    expect(screen.queryByText("Ingenting är anmält.")).toBeNull();
+  });
+
+  it("is absent for somebody who does not moderate", async () => {
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    expect(
+      screen.queryByRole("heading", { name: "Anmälda chattmeddelanden" }),
+    ).toBeNull();
+    expect(fetchChatReports).not.toHaveBeenCalled();
+  });
+});
+
+describe("changing room", () => {
+  function twoRooms(): void {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+    });
+  }
+
+  it("never carries a draft written for one room into the next", async () => {
+    /*
+     * The form submits the open room's identifier with whatever is in the box,
+     * so a half-written line meant for one private room would be sent to the
+     * next room by somebody who changed rooms and pressed send. Everything in
+     * the box belongs to the room it was typed in.
+     */
+    twoRooms();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Bara for styrelsen.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+
+    expect(
+      (screen.getByLabelText("Ditt meddelande") as HTMLTextAreaElement).value,
+    ).toBe("");
+
+    await userEvent.type(screen.getByLabelText("Ditt meddelande"), "Hej.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+
+    await waitFor(() => {
+      expect(writeMessage).toHaveBeenCalledWith({
+        chatId: GARDEN_GROUP.id,
+        body: "Hej.",
+      });
+    });
+    expect(writeMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ body: "Bara for styrelsen." }),
+    );
+  });
+
+  it("leaves no refusal behind in the room it opens", async () => {
+    /*
+     * The refusal lives in the save action rather than in the screen's own
+     * state, which is what makes it the easiest of these to miss: a personal
+     * identity number refused in the board chat would be reported over the
+     * group opened next, about a message that room never saw.
+     */
+    twoRooms();
+    writeMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "personal-identity-number" },
+    });
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Det är 19811218-9876 som står där.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    expect(
+      await screen.findByText(/innehåller ett personnummer/),
+    ).not.toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+
+    expect(screen.queryByText(/innehåller ett personnummer/)).toBeNull();
+  });
+
+  it("leaves no standing report notice behind in the room it opens", async () => {
+    // The sentence says the board has this message. Said again over another
+    // room, it would be saying it about a message nobody reported.
+    twoRooms();
+    readChat.mockResolvedValue({ ok: true, value: page([FROM_A_COLLEAGUE]) });
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Anmäl meddelandet från/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka anmälan" }),
+    );
+    expect(
+      await screen.findByText("Meddelandet är anmält till styrelsen."),
+    ).not.toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Styrelsechatten" }),
+    );
+
+    expect(
+      screen.queryByText("Meddelandet är anmält till styrelsen."),
+    ).toBeNull();
+  });
+
+  it("gives each room its own member panel", async () => {
+    /*
+     * The panel holds the neighbour picked in it, the search that found them
+     * and the room's own member list. Reused across a room change, its form
+     * would submit the previous room's candidate with the new room's
+     * identifier.
+     */
+    /*
+     * Between two groups, which is where it matters: stepping through the board
+     * chat unmounts the panel and would hide the defect, because that room has
+     * no member list at all.
+     */
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: {
+        rooms: [GARDEN_GROUP, STAIRWELL_GROUP],
+        mayCreateGroup: true,
+      },
+    });
+    fetchGroupMembers.mockResolvedValue({ ok: true, value: [] });
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Med i gruppen");
+
+    await userEvent.type(
+      screen.getByLabelText("Sök bland grannarna"),
+      "Astrid",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Uppgång C" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+
+    expect(
+      (screen.getByLabelText("Sök bland grannarna") as HTMLInputElement).value,
+    ).toBe("");
+  });
+});
+
+describe("a board member who lives somewhere else", () => {
+  it("is shown their room and not the sentence for an account with none", async () => {
+    /*
+     * One room and no form: they hold a seat and no home here, so there is no
+     * list above the board's room and nothing to make. The sentence for an
+     * account in no room says this account holds no seat, which is false about
+     * them, and it belongs only to a screen with no room on it at all.
+     */
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    expect(
+      screen.queryByText(/Styrelsechatten är för den som har ett uppdrag/),
+    ).toBeNull();
+  });
+});
+
+describe("pressing another room", () => {
+  it("never marks the new room read at the old room's newest message", async () => {
+    /*
+     * The room changes at once and its messages arrive a moment later, so for
+     * that moment the screen still holds the room being left. A marker posted in
+     * that moment would mark the new room read up to an instant taken from a
+     * different conversation - and the new room's unread count would be wrong
+     * the first time anybody looked at it.
+     *
+     * The second room's read is held open here, so the moment lasts as long as
+     * the assertions need it to.
+     */
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+    });
+    let answerGarden: (value: unknown) => void = () => undefined;
+    const gardenAnswered = new Promise((resolve) => {
+      answerGarden = resolve;
+    });
+    const IN_THE_GARDEN: ChatMessage = {
+      id: "message-garden",
+      author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
+      body: "Krattorna star i forradet.",
+      struckAt: null,
+      createdAt: "2026-09-17T10:30:00.000Z",
+    };
+    readChat
+      .mockReset()
+      .mockImplementation((input: { chatId: string }) =>
+        input.chatId === GARDEN_GROUP.id
+          ? gardenAnswered
+          : Promise.resolve({ ok: true, value: page([FROM_A_COLLEAGUE]) }),
+      );
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+    await waitFor(() => {
+      expect(markChatRead).toHaveBeenCalledWith({
+        chatId: BOARD_ROOM.id,
+        readAt: FROM_A_COLLEAGUE.createdAt,
+      });
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+
+    // The room being left is not shown under the new room's name.
+    expect(await screen.findByText("Läser meddelandena...")).not.toBeNull();
+    expect(
+      screen.queryByText("Jag har tagit in en offert pa taket."),
+    ).toBeNull();
+    expect(markChatRead).not.toHaveBeenCalledWith({
+      chatId: GARDEN_GROUP.id,
+      readAt: FROM_A_COLLEAGUE.createdAt,
+    });
+
+    await act(async () => {
+      answerGarden({ ok: true, value: page([IN_THE_GARDEN]) });
+      await gardenAnswered;
+    });
+
+    // Once the new room's own messages are on screen, its own newest instant.
+    expect(
+      await screen.findByText("Krattorna star i forradet."),
+    ).not.toBeNull();
+    await waitFor(() => {
+      expect(markChatRead).toHaveBeenCalledWith({
+        chatId: GARDEN_GROUP.id,
+        readAt: IN_THE_GARDEN.createdAt,
+      });
+    });
   });
 });

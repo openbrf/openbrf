@@ -416,6 +416,12 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.CONNECTED_APP_DISCONNECTED",
   OAUTH_CLIENT_REGISTERED:
     "register.person.report.action.OAUTH_CLIENT_REGISTERED",
+  CHAT_GROUP_CREATED: "register.person.report.action.CHAT_GROUP_CREATED",
+  CHAT_GROUP_MEMBER_ADDED:
+    "register.person.report.action.CHAT_GROUP_MEMBER_ADDED",
+  CHAT_GROUP_MEMBER_REMOVED:
+    "register.person.report.action.CHAT_GROUP_MEMBER_REMOVED",
+  CHAT_MESSAGE_STRUCK: "register.person.report.action.CHAT_MESSAGE_STRUCK",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -1548,32 +1554,71 @@ export function DataSubjectReport({
              * say about the room on its own. It repeats down the rows for the
              * same reason the room does.
              *
-             * No hidden column, unlike the comments above: a chat message is
-             * never struck through and never edited, so there is no second state
-             * to report.
+             * The struck column is the counterpart of the comments' hidden one
+             * above. A strike withholds a message's text from the room and
+             * never from whoever wrote it, so the text is printed here either
+             * way - and a document that printed it without saying a moderation
+             * had happened would leave its subject unaware of one.
              */}
             <Section titleKey="register.person.report.section.chat">
               <Rows
                 empty={report.chats.length === 0}
                 headings={[
                   "register.person.report.field.chatRoom",
+                  "register.person.report.field.joined",
                   "register.person.report.field.written",
                   "register.person.report.field.message",
+                  "register.person.report.field.struck",
                   "register.person.report.field.readUpTo",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
-                {report.chats.flatMap((chat) =>
-                  chat.messages.map((message) => (
+                {report.chats.flatMap((chat) => {
+                  const room =
+                    chat.chatName ??
+                    t(
+                      chat.chatKind === "BOARD"
+                        ? "register.person.report.chat.board"
+                        : "register.person.report.chat.group",
+                    );
+                  const joined =
+                    chat.joinedOn === null ? nothing : day(chat.joinedOn);
+                  const readUpTo =
+                    chat.readUpTo === null ? (
+                      <NotRecorded
+                        meaning={t("register.person.report.chat.neverOpened")}
+                      />
+                    ) : (
+                      day(chat.readUpTo)
+                    );
+
+                  /*
+                   * A room with nothing of theirs in it still gets a line. Being
+                   * in a group is personal data the association holds whether or
+                   * not the person ever wrote in it, and a table built from the
+                   * messages alone would leave somebody who joined a room and
+                   * said nothing off their own access report.
+                   */
+                  if (chat.messages.length === 0) {
+                    return [
+                      <tr key={`${chat.chatKind}-${room}`} className={ROW}>
+                        <td className={TEXT_CELL}>{room}</td>
+                        <td className={DATA_CELL}>{joined}</td>
+                        <td className={DATA_CELL}>{nothing}</td>
+                        <td className={TEXT_CELL}>
+                          {t("register.person.report.chat.wroteNothing")}
+                        </td>
+                        <td className={DATA_CELL}>{nothing}</td>
+                        <td className={DATA_CELL}>{readUpTo}</td>
+                        <td className={DATA_CELL}>{nothing}</td>
+                      </tr>,
+                    ];
+                  }
+
+                  return chat.messages.map((message) => (
                     <tr key={message.messageId} className={ROW}>
-                      <td className={TEXT_CELL}>
-                        {chat.chatName ??
-                          t(
-                            chat.chatKind === "BOARD"
-                              ? "register.person.report.chat.board"
-                              : "register.person.report.chat.group",
-                          )}
-                      </td>
+                      <td className={TEXT_CELL}>{room}</td>
+                      <td className={DATA_CELL}>{joined}</td>
                       <td className={DATA_CELL}>{day(message.writtenAt)}</td>
                       {/*
                        * In full. Line breaks kept, as the comment above keeps
@@ -1587,22 +1632,80 @@ export function DataSubjectReport({
                         </span>
                       </td>
                       <td className={DATA_CELL}>
-                        {chat.readUpTo === null ? (
-                          <NotRecorded
-                            meaning={t(
-                              "register.person.report.chat.neverOpened",
-                            )}
-                          />
-                        ) : (
-                          day(chat.readUpTo)
-                        )}
+                        {message.struckAt === null
+                          ? nothing
+                          : day(message.struckAt)}
                       </td>
+                      <td className={DATA_CELL}>{readUpTo}</td>
                       <td className={DATA_CELL}>
                         {message.erasableFrom ?? nothing}
                       </td>
                     </tr>
-                  )),
-                )}
+                  ));
+                })}
+              </Rows>
+            </Section>
+
+            {/*
+             * The messages this person carried out of a group to the board, and
+             * the ones they answered as a board member.
+             *
+             * The message itself is deliberately not a column. It was written by
+             * somebody else, and a document handed to one person is not where
+             * another person's words belong - which is also why the note is
+             * printed only on a row this person wrote.
+             */}
+            <Section titleKey="register.person.report.section.chatReports">
+              <Rows
+                empty={report.chatReports.length === 0}
+                headings={[
+                  "register.person.report.field.chatRoom",
+                  "register.person.report.field.yourPart",
+                  "register.person.report.field.reported",
+                  "register.person.report.field.note",
+                  "register.person.report.field.answered",
+                  "register.person.report.field.outcome",
+                ]}
+              >
+                {report.chatReports.map((filed) => (
+                  <tr key={filed.reportId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      {filed.groupName ??
+                        t("register.person.report.chat.unnamedGroup")}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        filed.part === "REPORTED"
+                          ? "register.person.report.chat.reportedByYou"
+                          : "register.person.report.chat.answeredByYou",
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>{day(filed.reportedAt)}</td>
+                    <td className={TEXT_CELL}>
+                      {filed.note === null ? (
+                        nothing
+                      ) : (
+                        <span className="block whitespace-pre-line">
+                          {filed.note}
+                        </span>
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {filed.answeredAt === null
+                        ? nothing
+                        : day(filed.answeredAt)}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(
+                        filed.struck === null
+                          ? "register.person.report.chat.outcomeOpen"
+                          : filed.struck
+                            ? "register.person.report.chat.outcomeStruck"
+                            : "register.person.report.chat.outcomeStanding",
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </Rows>
             </Section>
 

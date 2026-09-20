@@ -2,16 +2,33 @@ import { HttpStatus } from "@nestjs/common";
 
 import { DomainError } from "../http/domain-error";
 
-/** Where in a message a refused value sits. */
+/** Where in a piece of written text a refused value sits. */
 export interface ChatTextLocation {
-  /** The only free-text field a message has. */
-  part: "body";
-  /** Where in the body the refused value starts. */
+  /**
+   * Which field it was in.
+   *
+   * A message has one. A report carries a note beside the message it is about,
+   * and that note is written by a resident like everything else here, so it is
+   * scanned on the same rule and the refusal has to be able to say which of the
+   * two the reader is looking at.
+   */
+  part: "body" | "note";
+  /** Where in that text the refused value starts. */
   offset: number;
 }
 
 export type ChatReason =
-  "chat-not-found" | "personal-identity-number" | "too-many-messages";
+  | "chat-not-found"
+  | "message-not-found"
+  | "report-not-found"
+  | "report-resolved"
+  | "not-a-resident"
+  | "not-reportable"
+  | "too-many-groups"
+  | "group-full"
+  | "already-reported"
+  | "personal-identity-number"
+  | "too-many-messages";
 
 /**
  * A refusal from the chat.
@@ -23,6 +40,19 @@ export type ChatReason =
  * holding `chat:participate` walk the identifier space and learn what rooms the
  * association has - and once groups exist, a group is invisible to somebody who
  * is not in it, which only holds if the two answers are one answer.
+ *
+ * `message-not-found` is vague in exactly the same way and for the same reason:
+ * it answers a message that does not exist and one in a room this person is not
+ * in, so a message identifier cannot be used to find out what is being said in
+ * rooms somebody is not in.
+ *
+ * The rest say what happened, because none of them tells the caller anything
+ * they did not already know. `not-a-resident` is the association telling
+ * somebody a group is for the people who live here; `not-reportable` is the
+ * board chat having no strike-through, which is a published rule; and
+ * `already-reported` and `report-resolved` are about acts the caller made or
+ * the board has already answered. `too-many-groups` and `group-full` are the
+ * two bounds a list has to have to stay a list.
  *
  * The refusal for a personal identity number names positions and never the
  * value: the thing the scan caught is exactly the thing that must not travel
@@ -41,11 +71,17 @@ export class ChatError extends DomainError {
     this.status =
       reason === "too-many-messages"
         ? HttpStatus.TOO_MANY_REQUESTS
-        : reason === "personal-identity-number"
-          ? // Understood and refused on its merits: this message may not be
-            // written as it stands, and its author is told where to change it.
-            HttpStatus.UNPROCESSABLE_ENTITY
-          : HttpStatus.NOT_FOUND;
+        : reason === "chat-not-found" ||
+            reason === "message-not-found" ||
+            reason === "report-not-found"
+          ? HttpStatus.NOT_FOUND
+          : /*
+             * Understood and refused on its merits: what was asked for is a
+             * thing this application does not do, and the caller is told which.
+             * Not a 403, which is the guard's answer about a capability - these
+             * callers hold the capability and are being told about the act.
+             */
+            HttpStatus.UNPROCESSABLE_ENTITY;
   }
 
   /**

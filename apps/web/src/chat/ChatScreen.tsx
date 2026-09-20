@@ -9,13 +9,15 @@ import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
 import {
+  createChatGroup,
   fetchChats,
   markChatRead,
   messagesSince,
   readChat,
+  reportChatMessage,
   writeMessage,
   type ChatMessage as Message,
-  type ChatRoom,
+  type ChatRoomList,
 } from "../api/chat";
 import type { Viewer } from "../api/instance";
 import {
@@ -30,7 +32,9 @@ import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
 import { chatFailureKey } from "./chat-failures";
+import { ChatGroupPanel } from "./ChatGroupPanel";
 import { ChatMessage } from "./ChatMessage";
+import { ChatReportQueue } from "./ChatReportQueue";
 
 /**
  * The longest message the API stores.
@@ -55,6 +59,14 @@ const MESSAGE_MAX_LENGTH = 2000;
  * The poll runs only while the tab is being looked at - see `use-poll.ts`.
  */
 const POLL_INTERVAL_MS = 4000;
+
+/**
+ * The longest name a group may carry.
+ *
+ * Mirrored from the API like every other part of the contract in this client, so
+ * a name is stopped by the box rather than by a refusal.
+ */
+const GROUP_NAME_MAX_LENGTH = 80;
 
 /** The room on screen, as this client holds it. */
 interface Conversation {
@@ -121,21 +133,48 @@ export interface ChatScreenProps {
 export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const { t } = useTranslation();
 
-  const [rooms, setRooms] = useState<readonly ChatRoom[] | null>(null);
+  const [roomList, setRoomList] = useState<ChatRoomList | null>(null);
   const [loadOutcome, setLoadOutcome] = useState<
     "reading" | "failed" | "notOffered"
   >("reading");
-  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [conversationState, setConversation] = useState<Conversation | null>(
+    null,
+  );
   const [draft, setDraft] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [reading, setReading] = useState(false);
+  /** Which room is open. Null until the first list of them has come back. */
+  const [openRoomId, setOpenRoomId] = useState<string | null>(null);
+  /** The message this account has just reported, so the row can say so. */
+  const [reported, setReported] = useState<string | null>(null);
+
+  const rooms = roomList?.rooms ?? null;
+  /*
+   * The room that is open, falling back to the first. The fallback is what
+   * answers the two cases that would otherwise leave nothing on screen: the
+   * first read, before anything has been chosen, and a room this account has
+   * just left, which is gone from the list the choice was made against.
+   */
+  const room =
+    rooms?.find((each) => each.id === openRoomId) ?? rooms?.[0] ?? null;
+  const chatId = room?.id ?? null;
+  const moderates = viewer.capabilities.includes("chat:moderate");
 
   /*
-   * One room today, and the screen is written so that a list of them is a
-   * rendering change rather than a rewrite: what it holds is the room it is
-   * reading, and the group half of the model is PR 7's.
+   * The conversation on screen, and only while it is the open room's.
+   *
+   * Pressing another room changes which room is open at once and the read that
+   * brings its messages a moment later, so for that moment the state still holds
+   * the room being left. Everything below reads this rather than the state: the
+   * read marker would otherwise be posted to the new room at the old room's
+   * newest instant, the press for earlier messages would hand the new room the
+   * old room's cursor, and the screen would show one room's messages under the
+   * other's name.
    */
-  const room = rooms?.[0] ?? null;
-  const chatId = room?.id ?? null;
+  const conversation =
+    conversationState !== null && conversationState.chatId === chatId
+      ? conversationState
+      : null;
 
   /** A poll already in flight, so two do not ask from the same cursor at once. */
   const polling = useRef(false);
@@ -144,41 +183,60 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * The cursor the poll asks from, held in a ref as well as in state. The loop
    * below reads it between requests, and reading it out of the closure would ask
    * every page from the cursor the callback was built with.
+   *
+   * It carries the room it belongs to. A poll that was in flight when another
+   * room was opened finishes afterwards and writes its own room's cursor here,
+   * and a cursor is a position in one room: asked of another, it names a point
+   * in a conversation that room never had.
    */
-  const cursorRef = useRef<string | null>(null);
+  const cursorRef = useRef<{ chatId: string; cursor: string | null } | null>(
+    null,
+  );
   /*
    * Written after the render rather than during it: a ref assigned while
    * rendering is a side effect in a function React is allowed to call twice, and
    * nothing reads this one until a poll fires.
    */
+  const conversationChatId = conversation?.chatId ?? null;
+  const conversationCursor = conversation?.cursor ?? null;
   useEffect(() => {
-    cursorRef.current = conversation?.cursor ?? null;
-  }, [conversation?.cursor]);
+    cursorRef.current =
+      conversationChatId === null
+        ? null
+        : { chatId: conversationChatId, cursor: conversationCursor };
+  }, [conversationChatId, conversationCursor]);
 
-  useEffect(() => {
-    let abandoned = false;
-
-    void (async () => {
-      const result = await fetchChats();
-      if (abandoned) {
-        return;
-      }
-      if (!result.ok) {
-        /*
-         * A refusal by the guard is not a failure to answer, and saying "try
-         * again" to somebody who holds no capability would be telling them a
-         * part of the product is broken rather than not theirs.
-         */
-        setLoadOutcome(result.failure.status === 403 ? "notOffered" : "failed");
-        return;
-      }
-      setRooms(result.value);
-    })();
-
-    return () => {
-      abandoned = true;
-    };
+  /**
+   * Reads the rooms this account is in, and opens one of them.
+   *
+   * Called again whenever the list itself changes - a group made, a group left -
+   * because which rooms exist is the server's answer and a list this screen
+   * edited would be a list nothing on the server ever said.
+   */
+  const loadRooms = useCallback(async (open: string | null): Promise<void> => {
+    const result = await fetchChats();
+    if (!result.ok) {
+      /*
+       * A refusal by the guard is not a failure to answer, and saying "try
+       * again" to somebody who holds no capability would be telling them a
+       * part of the product is broken rather than not theirs.
+       */
+      setLoadOutcome(result.failure.status === 403 ? "notOffered" : "failed");
+      return;
+    }
+    setRoomList(result.value);
+    if (open !== null) {
+      setOpenRoomId(open);
+    }
   }, []);
+
+  useEffect(() => {
+    // Inside an async call rather than as a bare one: nothing here reaches
+    // state before the request comes back, and the shape says so.
+    void (async () => {
+      await loadRooms(null);
+    })();
+  }, [loadRooms]);
 
   useEffect(() => {
     if (chatId === null) {
@@ -240,7 +298,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
          * loop exists for. Each answer's cursor is written through to the ref as
          * well, so the next interval continues from where this run stopped.
          */
-        let after = cursorRef.current;
+        let after =
+          cursorRef.current?.chatId === chatId
+            ? cursorRef.current.cursor
+            : null;
         for (;;) {
           if (!stillWanted()) {
             return;
@@ -257,12 +318,15 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
              * it and never see the first line arrive, and nor would whoever
              * wrote it. One re-read, and the cursor it comes back with takes
              * over from the next attempt.
+             *
+             * The same re-read answers a cursor that belongs to another room,
+             * which is what the ref holds for a moment after a room is pressed.
              */
             const first = await readChat({ chatId, before: null });
             if (!stillWanted() || !first.ok) {
               return;
             }
-            cursorRef.current = first.value.latest;
+            cursorRef.current = { chatId, cursor: first.value.latest };
             setConversation((held) =>
               held === null || held.chatId !== chatId
                 ? held
@@ -300,7 +364,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
 
           const update = result.value;
           after = update.cursor;
-          cursorRef.current = update.cursor;
+          cursorRef.current = { chatId, cursor: update.cursor };
           setConversation((held) =>
             held === null || held.chatId !== chatId
               ? held
@@ -353,11 +417,15 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         // would report a failure the reader can neither act on nor care about.
         return;
       }
-      setRooms(
-        (held) =>
-          held?.map((each) =>
-            each.id === chatId ? { ...each, unread: 0 } : each,
-          ) ?? null,
+      setRoomList((held) =>
+        held === null
+          ? held
+          : {
+              ...held,
+              rooms: held.rooms.map((each) =>
+                each.id === chatId ? { ...each, unread: 0 } : each,
+              ),
+            },
       );
     })();
 
@@ -406,10 +474,96 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   });
   const sending = send.state.kind === "saving";
 
-  const failure =
+  const report = useSaveAction(reportChatMessage, () => {
+    /*
+     * The message is not read back. Reporting changes nothing about the room -
+     * the message stays exactly where it is until the board answers - so what
+     * the screen owes the reporter is the sentence saying the board has it.
+     */
+  });
+  const reporting = report.state.kind === "saving";
+
+  const create = useSaveAction(createChatGroup, (made) => {
+    setGroupName("");
+    /*
+     * The room is opened as soon as it exists, because somebody who has just
+     * made one made it to write in it - and nothing of the room they were in
+     * comes with them. The same four things `openRoom` clears, spelled here
+     * because that callback needs this action's own `reset` and so is defined
+     * below it.
+     */
+    setConversation(null);
+    setDraft("");
+    setReported(null);
+    send.reset();
+    report.reset();
+    void loadRooms(made.chatId);
+  });
+  const creating = create.state.kind === "saving";
+
+  /**
+   * Opens another room, and leaves nothing of the last one behind.
+   *
+   * Everything here belongs to the room it was typed in. A draft is the worst of
+   * them: the form submits the open room's identifier with whatever is in the
+   * box, so a half-written line meant for one private room would be sent to the
+   * next one by somebody who had changed rooms and pressed send. A standing
+   * report notice and a refusal from the room being left are the same mistake in
+   * a smaller way - they would read as this room's.
+   *
+   * A refusal is one of them and is the easiest to miss, because it lives in a
+   * save action rather than in this component's own state: a personal identity
+   * number refused in the board chat would otherwise be reported over the group
+   * opened next, about a message that room never saw. Each room-bound action is
+   * reset here, which is what `useSaveAction` returns `reset` for.
+   *
+   * `ChatGroupPanel` holds its own room-local state and is given the room's
+   * identifier as its key instead, which is React's own way of saying that a
+   * different room is a different panel.
+   */
+  const openRoom = useCallback(
+    (chatId: string | null): void => {
+      setOpenRoomId(chatId);
+      setConversation(null);
+      setDraft("");
+      setReported(null);
+      send.reset();
+      report.reset();
+      create.reset();
+    },
+    [send, report, create],
+  );
+
+  /*
+   * Where a refusal is shown, and the rule this screen keeps.
+   *
+   * **A failure belongs to the panel that owns the act which produced it, and a
+   * panel that can raise one is rendered whenever that act can be attempted.**
+   * Two panels here can raise a failure and they are not the same panel: the
+   * list of rooms owns making a group, and the open room owns writing a message,
+   * reporting one and reading the room. Folding all of them into one notice put
+   * a refusal about making a group under the heading of a room it had nothing to
+   * do with - and, when there was no room to open, nowhere at all, which is
+   * exactly the case the form exists for: somebody who lives here, is in no
+   * group yet and is refused the one they are making.
+   *
+   * So there are two selectors, one per panel, and each panel renders its own.
+   * The rule also says what to check when an act is added: not only that its
+   * failure is selected somewhere, but that the element rendering it is on
+   * screen at the moment the act can fail. The group's own panel and the board's
+   * queue answer for themselves the same way, each rendering the failures of the
+   * acts inside it.
+   */
+  const roomFailure =
     send.state.kind === "failed"
       ? send.state.failure
-      : (conversation?.failure ?? null);
+      : report.state.kind === "failed"
+        ? report.state.failure
+        : (conversation?.failure ?? null);
+
+  /** The list of rooms owns making one, so it owns the refusal as well. */
+  const createFailure =
+    create.state.kind === "failed" ? create.state.failure : null;
 
   /*
    * A room the first read never answered, as against one that answered empty.
@@ -423,6 +577,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * A failure with messages behind it is a different case and is not this one -
    * that is a press for the earlier page that was refused, and the room it was
    * pressed on is still on screen and still writable.
+   *
+   * So an unreadable room shows the notice and nothing else: no empty sentence,
+   * because anything there would be a second claim about a room this client has
+   * not got, and no write box.
    */
   const unreadable =
     conversation !== null &&
@@ -453,118 +611,265 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     );
   }
 
-  if (room === null) {
-    /*
-     * The administrator's answer, and it has to be a sentence rather than an
-     * empty room. They hold every capability and no seat, so the navigation
-     * offers them this destination and the endpoints let them in - and what they
-     * find is that membership is the other question and it is answered by an
-     * election rather than by a grant.
-     */
-    return (
+  /*
+   * The list of rooms, and the form for making one.
+   *
+   * Shown only where it says something. A board member with no residency is in
+   * one room and can make none, and a panel listing that one room above it would
+   * be a heading over a list of one.
+   */
+  const roomsPanel =
+    rooms.length > 1 || roomList?.mayCreateGroup === true ? (
+      <Panel
+        title={t("chat.title")}
+        description={t("chat.intro")}
+        notice={
+          createFailure !== null ? (
+            <Notice tone="danger" live>
+              {t(chatFailureKey(createFailure))}
+            </Notice>
+          ) : null
+        }
+      >
+        {rooms.length === 0 ? (
+          <Notice tone="info">{t("chat.noRoomYet")}</Notice>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {rooms.map((each) => (
+              <li key={each.id}>
+                <button
+                  type="button"
+                  className={QUIET_BUTTON}
+                  aria-current={each.id === room?.id}
+                  onClick={() => {
+                    openRoom(each.id);
+                  }}
+                >
+                  {each.name ?? t("chat.boardChat")}
+                  {each.unread > 0
+                    ? t("chat.unreadSuffix", { count: each.unread })
+                    : ""}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {roomList?.mayCreateGroup === true ? (
+          <form
+            className="flex flex-col gap-2 border-t border-line pt-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create.submit({ name: groupName });
+            }}
+          >
+            <label className={LABEL}>
+              {t("chat.groupName")}
+              <input
+                type="text"
+                className={FIELD}
+                value={groupName}
+                maxLength={GROUP_NAME_MAX_LENGTH}
+                required
+                onChange={(event) => {
+                  setGroupName(event.target.value);
+                }}
+              />
+            </label>
+            <p className={HINT}>{t("chat.groupHint")}</p>
+            <div>
+              <button
+                type="submit"
+                className={QUIET_BUTTON}
+                disabled={creating || groupName.trim() === ""}
+              >
+                {creating ? t("chat.creating") : t("chat.createGroup")}
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </Panel>
+    ) : null;
+
+  /*
+   * The administrator's answer, and it has to be a sentence rather than an empty
+   * room. They hold every capability, hold no seat and live nowhere, so the
+   * navigation offers them this destination and the endpoints let them in - and
+   * what they find is that membership is the other question, answered by an
+   * election for the board's room and by a neighbour for a group.
+   *
+   * Only when there is no room at all. A board member who lives elsewhere is in
+   * one room and can make none, so there is no list above their room either -
+   * and the sentence saying this account holds no seat would be false about
+   * them.
+   */
+  const emptyPanel =
+    room === null && roomsPanel === null ? (
       <Panel title={t("chat.title")} description={t("chat.intro")}>
         <Notice tone="info">{t("chat.noRoom")}</Notice>
       </Panel>
-    );
-  }
+    ) : null;
 
   return (
-    <Panel
-      title={room.name ?? t("chat.boardChat")}
-      description={t("chat.description")}
-      notice={
-        failure !== null ? (
-          <Notice tone="danger" live>
-            {t(chatFailureKey(failure))}
-          </Notice>
-        ) : null
-      }
-      actions={
-        unreadable ? undefined : (
-          <button
-            type="submit"
-            form="write-chat-message"
-            className={PRIMARY_BUTTON}
-            disabled={sending || draft.trim() === ""}
-          >
-            {sending ? t("chat.sending") : t("chat.submit")}
-          </button>
-        )
-      }
-    >
-      {room.unread > 0 ? (
-        <p className={HINT}>{t("chat.unread", { count: room.unread })}</p>
-      ) : null}
+    <div className="flex flex-col gap-6">
+      {roomsPanel}
+      {emptyPanel}
 
-      {conversation === null ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("chat.reading")}
-        </p>
-      ) : unreadable ? null : conversation // here would be a second claim about a room this client has not got. // Nothing: the notice above already says what happened, and anything
-        .messages.length === 0 ? (
-        <p className="text-body text-ink-muted">{t("chat.empty")}</p>
-      ) : (
-        <>
-          {conversation.earlier === null ? null : (
-            /*
-             * Above the messages, because that is where the ones it fetches go.
-             * The reader is looking at the newest page and reaching backwards,
-             * so the control belongs at the end they are reaching from.
-             */
-            <div>
+      {room === null ? null : (
+        <Panel
+          title={room.name ?? t("chat.boardChat")}
+          description={
+            room.kind === "BOARD"
+              ? t("chat.description")
+              : t("chat.groupDescription")
+          }
+          notice={
+            roomFailure !== null ? (
+              <Notice tone="danger" live>
+                {t(chatFailureKey(roomFailure))}
+              </Notice>
+            ) : null
+          }
+          actions={
+            unreadable ? undefined : (
               <button
-                type="button"
-                className={QUIET_BUTTON}
-                disabled={reading}
-                onClick={() => {
-                  void showEarlier();
-                }}
+                type="submit"
+                form="write-chat-message"
+                className={PRIMARY_BUTTON}
+                disabled={sending || draft.trim() === ""}
               >
-                {reading ? t("chat.earlierReading") : t("chat.earlier")}
+                {sending ? t("chat.sending") : t("chat.submit")}
               </button>
-            </div>
+            )
+          }
+        >
+          {room.unread > 0 ? (
+            <p className={HINT}>{t("chat.unread", { count: room.unread })}</p>
+          ) : null}
+
+          {reported === null ? null : (
+            <Notice tone="info" live>
+              {t("chat.reported")}
+            </Notice>
           )}
 
-          <ul className="flex flex-col gap-3">
-            {conversation.messages.map((message) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                mine={
-                  message.author.kind === "person" &&
-                  message.author.personId === viewer.personId
-                }
-              />
-            ))}
-          </ul>
-        </>
-      )}
+          {conversation === null ? (
+            <p role="status" className="text-body text-ink-muted">
+              {t("chat.reading")}
+            </p>
+          ) : unreadable ? null : conversation.messages.length === 0 ? (
+            <p className="text-body text-ink-muted">{t("chat.empty")}</p>
+          ) : (
+            <>
+              {conversation.earlier === null ? null : (
+                /*
+                 * Above the messages, because that is where the ones it fetches
+                 * go. The reader is looking at the newest page and reaching
+                 * backwards, so the control belongs at the end they are reaching
+                 * from.
+                 */
+                <div>
+                  <button
+                    type="button"
+                    className={QUIET_BUTTON}
+                    disabled={reading}
+                    onClick={() => {
+                      void showEarlier();
+                    }}
+                  >
+                    {reading ? t("chat.earlierReading") : t("chat.earlier")}
+                  </button>
+                </div>
+              )}
 
-      {unreadable ? null : (
-        <form
-          id="write-chat-message"
-          className="flex flex-col gap-2 border-t border-line pt-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send.submit({ chatId: room.id, body: draft });
-          }}
-        >
-          <label className={LABEL}>
-            {t("chat.field")}
-            <textarea
-              className={`${FIELD} min-h-24 py-2`}
-              value={draft}
-              maxLength={MESSAGE_MAX_LENGTH}
-              required
-              onChange={(event) => {
-                setDraft(event.target.value);
+              <ul className="flex flex-col gap-3">
+                {conversation.messages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    mine={
+                      message.author.kind === "person" &&
+                      message.author.personId === viewer.personId
+                    }
+                    reporting={reporting}
+                    /*
+                     * No control at all in the board chat, which has no
+                     * strike-through: the board is the whole room and there is
+                     * nobody to report a colleague's line to. None on a message
+                     * already struck either - the board has answered about that
+                     * one - and none on this account's own, because reporting
+                     * one's own line to the board is not an act this product
+                     * needs to offer.
+                     */
+                    onReport={
+                      room.kind !== "GROUP" ||
+                      message.struckAt !== null ||
+                      (message.author.kind === "person" &&
+                        message.author.personId === viewer.personId)
+                        ? null
+                        : async (note) => {
+                            const sent = await report.submit({
+                              messageId: message.id,
+                              note,
+                            });
+                            if (sent) {
+                              setReported(message.id);
+                            }
+                            return sent;
+                          }
+                    }
+                  />
+                ))}
+              </ul>
+            </>
+          )}
+
+          {unreadable ? null : (
+            <form
+              id="write-chat-message"
+              className="flex flex-col gap-2 border-t border-line pt-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void send.submit({ chatId: room.id, body: draft });
+              }}
+            >
+              <label className={LABEL}>
+                {t("chat.field")}
+                <textarea
+                  className={`${FIELD} min-h-24 py-2`}
+                  value={draft}
+                  maxLength={MESSAGE_MAX_LENGTH}
+                  required
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                  }}
+                />
+              </label>
+              <p className={HINT}>
+                {room.kind === "BOARD"
+                  ? t("chat.hint")
+                  : t("chat.groupWriteHint")}
+              </p>
+            </form>
+          )}
+
+          {room.kind === "GROUP" ? (
+            <ChatGroupPanel
+              // A different room is a different panel: its member list, its
+              // search and the neighbour picked in it are all this room's.
+              key={room.id}
+              chatId={room.id}
+              onLeft={() => {
+                openRoom(null);
+                void loadRooms(null);
               }}
             />
-          </label>
-          <p className={HINT}>{t("chat.hint")}</p>
-        </form>
+          ) : null}
+        </Panel>
       )}
-    </Panel>
+
+      {moderates ? <ChatReportQueue /> : null}
+    </div>
   );
 }
 

@@ -17,7 +17,7 @@ import {
   CHAT_MESSAGE_MAX_LENGTH,
   type ChatMessageView,
   type ChatPage,
-  type ChatRoomView,
+  type ChatRoomListView,
   ChatService,
   type ChatUpdate,
   parseChatCursor,
@@ -26,10 +26,11 @@ import {
 /**
  * The chat, over HTTP.
  *
- * One controller and one capability, unlike the news comments' two. There is no
- * second audience here: everything a caller may do in a room is something a
- * member of that room does, and the one act that would need another seat -
- * striking a message through - does not exist in the board chat at all.
+ * Reading a room and writing into one, for somebody who is in it. Making a
+ * group and who is in it are `chat-group.controller.ts`, and what the board does
+ * with a message reported out of a room is `chat-report.controller.ts` - three
+ * base paths rather than one, because a static segment beside a chat identifier
+ * would be a route that depends on the order two classes were declared in.
  *
  * Every route is authenticated and there is no @Public() route in this file and
  * will not be one. Nothing about a chat is published: the association's website
@@ -131,8 +132,12 @@ const sinceQuerySchema = z.object({
  * The global guard attaches a principal to every non-public route or rejects it,
  * so reaching this throw means the guard stopped doing that, and a 500 naming
  * the guard is the honest answer.
+ *
+ * Shared with the two controllers beside this one rather than spelled again in
+ * each: the three are one feature's routes, and a second spelling is a second
+ * chance to default an actor to nobody.
  */
-function requirePrincipal(request: RequestWithPrincipal): Principal {
+export function requirePrincipal(request: RequestWithPrincipal): Principal {
   const principal = request.principal;
   if (principal === undefined) {
     throw new Error("The authorization guard did not attach a principal.");
@@ -147,15 +152,17 @@ export class ChatController {
   constructor(private readonly chat: ChatService) {}
 
   /**
-   * The rooms this person is in.
+   * The rooms this person is in, and whether they may make one.
    *
-   * Empty rather than a refusal for somebody holding the capability and no seat,
-   * which is the administrator's case. They are in no room, and that is an
-   * answer the screen can put into words - a refusal would be the instance
-   * telling its own administrator that a page it offered them is broken.
+   * Empty rather than a refusal for somebody holding the capability and no room,
+   * which is the administrator's case. They are in no room and may make none,
+   * and that is an answer the screen can put into words - a refusal would be the
+   * instance telling its own administrator that a page it offered them is
+   * broken. A resident with no group is the other empty case and a different
+   * sentence, which is why the two travel together.
    */
   @Get()
-  async rooms(@Req() request: RequestWithPrincipal): Promise<ChatRoomView[]> {
+  async rooms(@Req() request: RequestWithPrincipal): Promise<ChatRoomListView> {
     return this.chat.rooms(requirePrincipal(request));
   }
 

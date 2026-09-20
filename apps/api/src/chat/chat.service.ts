@@ -4,7 +4,15 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { ChatKind } from "../generated/prisma/enums";
-import { activeBoardSeatWhere } from "../mail/board-recipients";
+import { lockChat } from "./chat-lock";
+import {
+  groupsFor,
+  holdsBoardSeat,
+  livesHere,
+  roomFor,
+  ROOM_COLUMNS,
+  type ChatRoom,
+} from "./chat-membership";
 import { ChatError, type ChatTextLocation } from "./chat.error";
 
 /**
@@ -190,10 +198,49 @@ export type ChatAuthorView =
 export interface ChatMessageView {
   id: string;
   author: ChatAuthorView;
-  /** What was written. Never withheld: nothing strikes a message through. */
-  body: string;
+  /**
+   * What was written, or null.
+   *
+   * Null means the board struck the message through and this reader is neither
+   * its author nor somebody who moderates. The message is still in the room: a
+   * strike is a strike-through and never a disappearance, and the author stays
+   * named on it.
+   *
+   * Only a group's message can be null. The board chat has no strike-through at
+   * all - the board is the whole room, and a board able to strike a colleague's
+   * line would be deciding what the record of its own deliberation says.
+   */
+  body: string | null;
+  /** ISO instant the board struck it through, or null while it stands. */
+  struckAt: string | null;
   /** ISO instant it was written. */
   createdAt: string;
+}
+
+/**
+ * The rooms this person is in, and whether they may make one.
+ *
+ * Two answers in one payload because the screen has to be able to tell the two
+ * empty cases apart. Somebody who lives here and is in no group is looking at a
+ * screen with a form on it; the instance's administrator, who holds every
+ * capability, holds no seat and lives nowhere, is looking at a screen that has
+ * to say why there is nothing here and why there is nothing for them to do
+ * about it.
+ *
+ * Answered by the server rather than worked out in the browser from a
+ * capability, because what decides it is a residency and no capability says
+ * whether somebody lives here.
+ */
+export interface ChatRoomListView {
+  rooms: ChatRoomView[];
+  /**
+   * Whether this person may create a group.
+   *
+   * A group is for the people who live here, so living here is the whole of the
+   * condition. It is stated rather than implied: a screen that offered the form
+   * to everybody would be offering the administrator a room they cannot make.
+   */
+  mayCreateGroup: boolean;
 }
 
 /** One room this person is in, as the list of rooms says it. */
@@ -262,11 +309,12 @@ export interface WriteChatMessageInput {
   body: string;
 }
 
-const MESSAGE_COLUMNS = {
+export const MESSAGE_COLUMNS = {
   id: true,
   chatId: true,
   authorPersonId: true,
   body: true,
+  struckAt: true,
   createdAt: true,
 } as const;
 
@@ -291,6 +339,12 @@ const MESSAGE_COLUMNS = {
  * list additionally requires an address, and a board member the association
  * holds no address for still sits on the board and must still read the room.
  *
+ * A group's members are written down, because a group is made by whoever wanted
+ * it and there is no election to derive anything from. The written-down row is
+ * half of the test and a residency that has not ended is the other half, so a
+ * place in a group ends the day somebody moves out. Both questions live in
+ * `chat-membership.ts`, which is where the three services that ask them agree.
+ *
  * **One refusal for two cases.** A room that does not exist and a room this
  * person is not in are the same answer. Distinguishing them would let anybody
  * holding the capability walk the identifier space and learn what rooms the
@@ -299,12 +353,17 @@ const MESSAGE_COLUMNS = {
  *
  * **Nothing is ever erased except by the retention clock.** No edit, no delete,
  * no withdraw, by the author or by anybody else - what somebody wrote is a
- * record of what was said. And no strike-through either, which is where the
- * board chat parts company with a comment thread: a thread under a notice is
- * part of what the association publishes and the board answers for it, while
- * the board chat publishes nothing and the board is the whole room. A board able
- * to strike a colleague's line would be deciding what the record of its own
- * deliberation says.
+ * record of what was said.
+ *
+ * One thing can happen to a message afterwards, and it happens in a group alone:
+ * the board strikes it through after somebody in that room reported it, which
+ * withholds the text from the other members and erases nothing. The board chat
+ * has no strike-through at all - a thread under a notice is part of what the
+ * association publishes and the board answers for it, while the board chat
+ * publishes nothing and the board is the whole room, so a board able to strike a
+ * colleague's line would be deciding what the record of its own deliberation
+ * says. Striking is `chat-report.service.ts`; this service only decides who is
+ * shown the text afterwards.
  *
  * **A personal identity number is refused.** Every message is scanned on the way
  * in and a hit refuses the write, naming the offset and never the value. The
@@ -339,8 +398,10 @@ export class ChatService {
   /**
    * Every room this person is in, with what is unread in each.
    *
-   * Empty for somebody with no board seat, which is the whole answer rather than
-   * a refusal: they are in no room, and the screen says so.
+   * Empty for somebody with no board seat and no group, which is the whole answer
+   * rather than a refusal: they are in no room, and the screen says so. The
+   * answer also carries whether they may make a group, because a screen with
+   * nothing on it has to know which of the two empty cases it is showing.
    *
    * The board chat row is created here on first read if it is absent, so a fresh
    * instance needs no seed and nothing has to remember to create one when the
@@ -348,15 +409,30 @@ export class ChatService {
    * brought into existence by somebody who cannot read it would be a row written
    * by an administrator looking at an empty screen.
    */
-  async rooms(reader: Principal): Promise<ChatRoomView[]> {
-    // Taken once, so a single request cannot see two different boards.
+  async rooms(reader: Principal): Promise<ChatRoomListView> {
+    // Taken once, so a single request cannot see two different boards and a
+    // residency cannot end halfway through one answer.
     const now = new Date();
-    if (!(await this.holdsBoardSeat(reader.personId, now))) {
-      return [];
-    }
 
-    const chat = await this.boardChat();
-    return [await this.roomView(chat, reader.personId)];
+    const board = (await holdsBoardSeat(this.prisma, reader.personId, now))
+      ? [await this.boardChat()]
+      : [];
+    const groups = await groupsFor(this.prisma, reader.personId, now);
+
+    return {
+      /*
+       * The board chat first and the groups in the order they were joined. A
+       * board member's own deliberation is what they came for, and a list that
+       * reordered itself as rooms were written in would move the room somebody
+       * was about to press.
+       */
+      rooms: await Promise.all(
+        [...board, ...groups].map((chat) =>
+          this.roomView(chat, reader.personId),
+        ),
+      ),
+      mayCreateGroup: await livesHere(this.prisma, reader.personId, now),
+    };
   }
 
   /**
@@ -417,7 +493,7 @@ export class ChatService {
     return {
       // A reversed copy, so the rows the cursors were taken from are not
       // reordered under the two lines above by the time anybody reads them.
-      messages: await this.toViews([...page].reverse()),
+      messages: await this.toViews([...page].reverse(), reader),
       earlier,
       /*
        * Where the poll starts. Null on an empty page, and on an empty page that
@@ -455,7 +531,7 @@ export class ChatService {
     const newest = page.at(-1);
 
     return {
-      messages: await this.toViews(page),
+      messages: await this.toViews(page, reader),
       // The cursor handed in comes back when nothing arrived, so a screen
       // polling an idle room keeps its place rather than restarting from the
       // beginning of the room.
@@ -472,11 +548,15 @@ export class ChatService {
    * first because it is the cheapest and the least revealing - a caller learns
    * only what they would learn by asking to read the room.
    *
-   * One statement and no transaction, which is worth saying rather than leaving
-   * to be noticed. A comment's write is a transaction because it writes the
-   * audit entry with the row; this one has no entry to write, for the reason the
-   * class comment gives, so a transaction would wrap a single insert and promise
-   * nothing.
+   * A transaction, and what it is for is the sweep rather than the insert. No
+   * audit entry is written here, for the reason the class comment gives, so
+   * there is only one statement to commit - but the room it writes into can be
+   * erased at the same moment. The nightly purge erases a group that has held
+   * nothing for a year, deciding it from a read of the messages, and a message
+   * committed between that read and the delete goes with the room through the
+   * cascade. So both sides take `lockChat` and the loser finds the other's work
+   * done: the sweep sees the message and leaves the room, or the write finds no
+   * room and refuses.
    */
   async write(input: WriteChatMessageInput): Promise<ChatMessageView> {
     const chat = await this.requireMembershipById(
@@ -486,20 +566,42 @@ export class ChatService {
     await this.refuseTooManyMessages(input.authorPersonId);
     refusePersonalIdentityNumbers(input.body);
 
-    const row = await this.prisma.chatMessage.create({
-      data: {
-        chatId: chat.id,
-        authorPersonId: input.authorPersonId,
-        body: input.body,
-      },
-      select: MESSAGE_COLUMNS,
+    const row = await this.prisma.$transaction(async (tx) => {
+      await lockChat(tx, chat.id);
+
+      /*
+       * Read again under the lock. Membership was decided before it, and the
+       * sweep can have erased the room in between - in which case the insert
+       * would fail on the foreign key with a fault rather than an answer. A room
+       * that has gone is refused exactly as a room that never existed.
+       */
+      const still = await tx.chat.findUnique({
+        where: { id: chat.id },
+        select: { id: true },
+      });
+      if (still === null) {
+        throw new ChatError("There is no such chat.", "chat-not-found");
+      }
+
+      return tx.chatMessage.create({
+        data: {
+          chatId: chat.id,
+          authorPersonId: input.authorPersonId,
+          body: input.body,
+        },
+        select: MESSAGE_COLUMNS,
+      });
     });
 
     // The room and nothing that was said in it - ADR 0007 keeps the identifier
     // and the log keeps no prose.
     this.logger.log(`A message was written in chat ${chat.id}`);
 
-    return toView(row, await this.authorOf(row.authorPersonId));
+    return toView(row, {
+      author: await this.authorOf(row.authorPersonId),
+      // Their own message, answered back to them the instant they wrote it.
+      canReadStruckBody: true,
+    });
   }
 
   /**
@@ -568,14 +670,10 @@ export class ChatService {
    * follows it. `create` is not upsert because there is nothing to update, and
    * the conflict is expected rather than exceptional.
    */
-  private async boardChat(): Promise<{
-    id: string;
-    kind: ChatKind;
-    name: string | null;
-  }> {
+  private async boardChat(): Promise<ChatRoom> {
     const existing = await this.prisma.chat.findFirst({
       where: { kind: "BOARD" },
-      select: { id: true, kind: true, name: true },
+      select: ROOM_COLUMNS,
     });
     if (existing !== null) {
       return existing;
@@ -584,7 +682,7 @@ export class ChatService {
     try {
       return await this.prisma.chat.create({
         data: { kind: "BOARD" },
-        select: { id: true, kind: true, name: true },
+        select: ROOM_COLUMNS,
       });
     } catch {
       /*
@@ -595,7 +693,7 @@ export class ChatService {
        */
       const created = await this.prisma.chat.findFirst({
         where: { kind: "BOARD" },
-        select: { id: true, kind: true, name: true },
+        select: ROOM_COLUMNS,
       });
       if (created === null) {
         throw new Error("The board chat could not be created or read.");
@@ -606,7 +704,7 @@ export class ChatService {
 
   /** One room with its unread count and the instant it was last written in. */
   private async roomView(
-    chat: { id: string; kind: ChatKind; name: string | null },
+    chat: ChatRoom,
     personId: string,
   ): Promise<ChatRoomView> {
     const marker = await this.prisma.chatRead.findUnique({
@@ -639,30 +737,22 @@ export class ChatService {
   /**
    * The room this person may read, or the one refusal.
    *
-   * Every path takes it, and it is where the security boundary is. A room of
-   * kind GROUP is refused here exactly as a room that does not exist: the value
-   * is in the enum so that adding groups is not a migration over live rows, and
-   * until a service answers it there are no groups to be in.
+   * Every path takes it, and it is where the security boundary is. A board seat
+   * answers for the board's room and a written-down membership with a live
+   * residency answers for a group, and every "no" is the same refusal as a room
+   * that does not exist - which is what makes a group invisible to somebody who
+   * is not in it.
    */
   private async requireMembershipById(
     chatId: string,
     personId: string,
-  ): Promise<{ id: string; kind: ChatKind; name: string | null }> {
-    // Taken once for the whole call, so one request cannot see two boards.
-    const now = new Date();
-    const chat = await this.prisma.chat.findUnique({
-      where: { id: chatId },
-      select: { id: true, kind: true, name: true },
-    });
-
-    if (
-      chat === null ||
-      chat.kind !== "BOARD" ||
-      !(await this.holdsBoardSeat(personId, now))
-    ) {
+  ): Promise<ChatRoom> {
+    // Taken once for the whole call, so one request cannot see two boards and a
+    // residency cannot end between the two halves of one question.
+    const chat = await roomFor(this.prisma, chatId, personId, new Date());
+    if (chat === null) {
       throw new ChatError("There is no such chat.", "chat-not-found");
     }
-
     return chat;
   }
 
@@ -670,25 +760,8 @@ export class ChatService {
   private async requireMembership(
     chatId: string,
     reader: Principal,
-  ): Promise<{ id: string; kind: ChatKind; name: string | null }> {
+  ): Promise<ChatRoom> {
     return this.requireMembershipById(chatId, reader.personId);
-  }
-
-  /**
-   * Whether this person holds a board seat that has not ended.
-   *
-   * Asked of the register on every call rather than read off the principal's
-   * `isBoardMember`. The principal is derived from the same query and would be
-   * the same answer today, but this is the membership of a room rather than a
-   * role for a screen, and a room that trusted a flag computed somewhere else
-   * would be a boundary that moved the day that flag was cached.
-   */
-  private async holdsBoardSeat(personId: string, now: Date): Promise<boolean> {
-    const person = await this.prisma.person.findFirst({
-      where: { id: personId, ...activeBoardSeatWhere(now) },
-      select: { id: true },
-    });
-    return person !== null;
   }
 
   /** Refuses a person who has written their allowance for the window. */
@@ -708,6 +781,7 @@ export class ChatService {
   /** Every view in a page, with the authors resolved in one read. */
   private async toViews(
     rows: readonly MessageRow[],
+    reader: Principal,
   ): Promise<ChatMessageView[]> {
     const authorIds = [...new Set(rows.map((row) => row.authorPersonId))];
     const persons =
@@ -724,11 +798,19 @@ export class ChatService {
           });
     const byId = new Map(persons.map((person) => [person.id, person]));
 
+    /*
+     * The board's own moderation capability opens a struck message's text, and
+     * so does having written it. Nothing else does: a strike answers somebody in
+     * the room who asked the board to look at what was said about them, and
+     * leaving the text in front of the room afterwards would answer nothing.
+     */
+    const moderates = reader.capabilities.has("chat:moderate");
+
     return rows.map((row) =>
-      toView(
-        row,
-        authorViewOf(row.authorPersonId, byId.get(row.authorPersonId)),
-      ),
+      toView(row, {
+        author: authorViewOf(row.authorPersonId, byId.get(row.authorPersonId)),
+        canReadStruckBody: moderates || row.authorPersonId === reader.personId,
+      }),
     );
   }
 
@@ -747,11 +829,12 @@ export class ChatService {
   }
 }
 
-interface MessageRow {
+export interface MessageRow {
   id: string;
   chatId: string;
   authorPersonId: string;
   body: string;
+  struckAt: Date | null;
   createdAt: Date;
 }
 
@@ -798,12 +881,26 @@ function newerThan(cursor: ChatCursor) {
   };
 }
 
-/** One message as a reader is shown it. */
-function toView(row: MessageRow, author: ChatAuthorView): ChatMessageView {
+/**
+ * One message as a reader is shown it.
+ *
+ * A free function rather than a method, because it holds no state and because
+ * what it decides - whether this reader sees a struck message's text - is one
+ * rule worth being able to assert on its own.
+ */
+function toView(
+  row: MessageRow,
+  reader: {
+    author: ChatAuthorView;
+    /** Whether a struck message's text is withheld from this reader. */
+    canReadStruckBody: boolean;
+  },
+): ChatMessageView {
   return {
     id: row.id,
-    author,
-    body: row.body,
+    author: reader.author,
+    body: row.struckAt !== null && !reader.canReadStruckBody ? null : row.body,
+    struckAt: row.struckAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -815,8 +912,12 @@ function toView(row: MessageRow, author: ChatAuthorView): ChatMessageView {
  * no longer resolves is reported as unknown rather than as an empty name: a
  * message outlives nothing, but the person who wrote it can be erased while the
  * room still holds their words.
+ *
+ * Exported because a group's member panel and the board's queue of reported
+ * messages attribute a person on exactly these terms, and a second spelling of
+ * the rule is a second place for a protected name to escape.
  */
-function authorViewOf(
+export function authorViewOf(
   personId: string,
   person:
     | {
@@ -841,7 +942,7 @@ function authorViewOf(
 }
 
 /**
- * Refuses a message carrying a Swedish personal identity number.
+ * Refuses text carrying a Swedish personal identity number.
  *
  * The same rule a page, a news item and a comment live under. The board may read
  * the apartment register, and DESIGN.md forbids a personal identity number
@@ -851,16 +952,21 @@ function authorViewOf(
  * reach.
  *
  * Exported so the rule can be asserted directly rather than only through a
- * write.
+ * write, and taken by the note on a report as well as by a message: both are
+ * text a resident typed, and the one that goes to the board is no more
+ * entitled to carry a number than the one that stays in the room.
  */
-export function refusePersonalIdentityNumbers(body: string): void {
-  const locations = scanForPersonalIdentityNumbers(body).map(
-    (hit): ChatTextLocation => ({ part: "body", offset: hit.index }),
+export function refusePersonalIdentityNumbers(
+  text: string,
+  part: ChatTextLocation["part"] = "body",
+): void {
+  const locations = scanForPersonalIdentityNumbers(text).map(
+    (hit): ChatTextLocation => ({ part, offset: hit.index }),
   );
 
   if (locations.length > 0) {
     throw new ChatError(
-      "The message carries a personal identity number and cannot be written.",
+      "The text carries a personal identity number and cannot be written.",
       "personal-identity-number",
       locations,
     );

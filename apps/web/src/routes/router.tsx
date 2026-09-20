@@ -382,12 +382,14 @@ const boardMailboxRoute = createRoute({
 });
 
 /**
- * The board's chat. Signed in here, the capability inside the screen.
+ * The chat. Signed in here, the capability inside the screen.
  *
- * A route without a room parameter, because there is one room and nothing about
- * it is addressable: a chat has members and no subject, and a link to a
- * conversation would be a link to whatever had been said since. A group's room
- * is a later question and is PR 7's.
+ * A route without a room parameter, although there are now rooms to choose
+ * between: a chat has members and no subject, and a link to a conversation would
+ * be a link to whatever had been said since. Which room is open is the screen's
+ * own state, and a group is invisible to anybody who is not in it - an
+ * addressable one would be a link somebody could paste to a neighbour who is
+ * not.
  */
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,

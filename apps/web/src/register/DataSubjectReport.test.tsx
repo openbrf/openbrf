@@ -88,6 +88,7 @@ const EMPTY_REPORT: Report = {
   eventSignups: [],
   newsComments: [],
   chats: [],
+  chatReports: [],
   boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
@@ -424,21 +425,83 @@ const FULL_REPORT: Report = {
     {
       chatKind: "BOARD",
       chatName: null,
+      joinedOn: null,
       readUpTo: null,
       messages: [
         {
           messageId: "message-1",
           body: "Jag tar in en offert till pa taket.",
           writtenAt: "2026-02-02T09:00:00.000Z",
+          struckAt: null,
           erasableFrom: "2027-02-02",
         },
         {
           messageId: "message-2",
           body: "Den kom i morse och ar dyrare.",
           writtenAt: "2026-02-09T09:00:00.000Z",
+          struckAt: null,
           erasableFrom: "2027-02-09",
         },
       ],
+    },
+    {
+      chatKind: "GROUP",
+      chatName: "Cykelrummet",
+      joinedOn: "2026-04-02T09:00:00.000Z",
+      readUpTo: null,
+      messages: [],
+    },
+    /*
+     * A group, with a message of theirs the board struck through. The text is
+     * printed all the same: a strike withholds it from the others in the room
+     * and never from whoever wrote it, and the column beside it is what says a
+     * moderation happened at all.
+     */
+    {
+      chatKind: "GROUP",
+      chatName: "Trädgårdsgruppen",
+      joinedOn: "2026-03-01T09:00:00.000Z",
+      readUpTo: "2026-03-09T09:00:00.000Z",
+      messages: [
+        {
+          messageId: "message-3",
+          body: "Jag tar med mig krattorna.",
+          writtenAt: "2026-03-02T09:00:00.000Z",
+          struckAt: "2026-03-03T09:00:00.000Z",
+          erasableFrom: "2027-03-02",
+        },
+      ],
+    },
+  ],
+  /*
+   * A group they were put into and have never written in. It is on the report
+   * because being in a private room is personal data the association holds
+   * whether or not they ever answered in it.
+   */
+  /*
+   * One report they made and one they answered, which are the two ends of the
+   * same act: what the board decided is on the row they made, and the note they
+   * wrote is on that row alone - the row they answered carries a neighbour's
+   * words and prints none of them.
+   */
+  chatReports: [
+    {
+      reportId: "chat-report-1",
+      part: "REPORTED",
+      groupName: "Trädgårdsgruppen",
+      reportedAt: "2026-03-03T08:00:00.000Z",
+      note: "Det har handlar om min lagenhet.",
+      answeredAt: "2026-03-03T09:00:00.000Z",
+      struck: true,
+    },
+    {
+      reportId: "chat-report-2",
+      part: "ANSWERED",
+      groupName: "Uppgång C",
+      reportedAt: "2026-04-11T08:00:00.000Z",
+      note: null,
+      answeredAt: null,
+      struck: null,
     },
   ],
   /*
@@ -1443,6 +1506,62 @@ describe("what the document prints", () => {
     expect(grantRow?.textContent).toContain("Upplåtelse");
     const purchaseRow = transfers.getByText("Storgatan 12 1201").closest("tr");
     expect(purchaseRow?.textContent).toContain("Överlåtelse");
+  });
+});
+
+describe("what the chat holds about this person", () => {
+  it("prints a struck message with its text and says it was struck", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const chat = within(sectionOf("Det du har skrivit i chatten"));
+    const struck = chat.getByText("Jag tar med mig krattorna.").closest("tr");
+    /*
+     * The text is on the document although the room cannot read it any more. A
+     * strike withholds a message from the others in the room and never from
+     * whoever wrote it, and the date beside it is what says the moderation
+     * happened at all.
+     */
+    expect(struck?.textContent).toContain("Trädgårdsgruppen");
+    expect(struck?.textContent).toContain("2026-03-03");
+  });
+
+  it("prints a group they are in and have never written in", async () => {
+    /*
+     * Being in a private room is personal data the association holds, and a
+     * table built from the messages alone would leave somebody who joined a
+     * group and said nothing off their own access report entirely.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const chat = within(sectionOf("Det du har skrivit i chatten"));
+    const room = chat.getByText("Cykelrummet").closest("tr");
+    expect(room?.textContent).toContain("2026-04-02");
+    expect(room?.textContent).toContain(
+      "Du är med i gruppen och har inte skrivit något i den.",
+    );
+  });
+
+  it("prints what was reported, and prints a neighbour's words nowhere", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const reports = within(
+      sectionOf("Chattmeddelanden du har anmält eller besvarat"),
+    );
+    const made = reports
+      .getByText("Det har handlar om min lagenhet.")
+      .closest("tr");
+    expect(made?.textContent).toContain("Du anmälde meddelandet");
+    // The answer they are owed: the board looked at it, and what it decided.
+    expect(made?.textContent).toContain("Meddelandet ströks över");
+
+    const answered = reports.getByText("Uppgång C").closest("tr");
+    expect(answered?.textContent).toContain(
+      "Du svarade på anmälan som ledamot",
+    );
+    expect(answered?.textContent).toContain("Inte besvarad än");
   });
 });
 

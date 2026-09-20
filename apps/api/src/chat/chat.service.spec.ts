@@ -66,12 +66,14 @@ import {
 const LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER = "19811218-9876";
 
 const BOARD_CHAT_ID = "chat-board";
+const GROUP_CHAT_ID = "chat-garden";
 const NOW = new Date("2026-09-17T09:00:00.000Z");
 
 interface ChatFixture {
   id: string;
   kind: "BOARD" | "GROUP";
   name: string | null;
+  createdByPersonId: string | null;
 }
 
 interface MessageFixture {
@@ -79,6 +81,7 @@ interface MessageFixture {
   chatId: string;
   authorPersonId: string;
   body: string;
+  struckAt: Date | null;
   createdAt: Date;
 }
 
@@ -95,6 +98,14 @@ interface PersonFixture {
    * the membership query has to answer "no" for.
    */
   seatEndedOn?: Date | null;
+  /**
+   * When this person's residency ended, or null while they still live here.
+   *
+   * `undefined` is somebody who has never lived here at all, which is the third
+   * case again: an external board member holds a seat and no residency, and is
+   * in the board chat and in no group.
+   */
+  movedOutOn?: Date | null;
 }
 
 /** How the service orders a room: by instant, with the identifier as the tie. */
@@ -254,11 +265,18 @@ function build(options: {
   messages?: MessageFixture[];
   persons?: PersonFixture[];
   reads?: { chatId: string; personId: string; readAt: Date }[];
+  groupMembers?: { chatId: string; personId: string }[];
+  /** Erase every room the moment a write takes its lock. */
+  sweptOnLock?: boolean;
 }) {
   const chats = [...(options.chats ?? [])];
   const messages = [...(options.messages ?? [])];
   const persons = options.persons ?? [];
   const reads = [...(options.reads ?? [])];
+  const groupMembers = (options.groupMembers ?? []).map((member, index) => ({
+    ...member,
+    joinedAt: new Date(Date.UTC(2026, 0, 1, index)),
+  }));
 
   const chatCreate = vi.fn(
     async (args: { data: { kind: "BOARD" | "GROUP" } }) => {
@@ -274,6 +292,7 @@ function build(options: {
         id: `chat-${String(chats.length + 1)}`,
         kind: args.data.kind,
         name: null,
+        createdByPersonId: null,
       };
       chats.push(row);
       return row;
@@ -289,6 +308,7 @@ function build(options: {
         chatId: args.data.chatId,
         authorPersonId: args.data.authorPersonId,
         body: args.data.body,
+        struckAt: null,
         createdAt: NOW,
       };
       messages.push(row);
@@ -299,6 +319,9 @@ function build(options: {
   const messageCount = vi.fn(async (args: { where: MessageWhere }) => {
     return messages.filter((row) => matchesWhere(row, args.where)).length;
   });
+
+  /** Every advisory lock key a call took, in order. */
+  const locks: string[] = [];
 
   const prisma = {
     chat: {
@@ -349,6 +372,53 @@ function build(options: {
           ) ?? null,
       ),
     },
+    /*
+     * The two halves of a group's membership, implemented rather than stubbed:
+     * the row that says somebody was written down, and the residency that says
+     * they still live here. A fake that answered the first alone would let a
+     * service that never asked the second pass every test below.
+     */
+    chatGroupMember: {
+      findUnique: vi.fn(
+        async (args: {
+          where: { chatId_personId: { chatId: string; personId: string } };
+        }) =>
+          groupMembers.find(
+            (member) =>
+              member.chatId === args.where.chatId_personId.chatId &&
+              member.personId === args.where.chatId_personId.personId,
+          ) ?? null,
+      ),
+      findMany: vi.fn(async (args: { where: { personId: string } }) =>
+        groupMembers
+          .filter((member) => member.personId === args.where.personId)
+          .map((member) => ({
+            chat: chats.find((chat) => chat.id === member.chatId),
+          })),
+      ),
+    },
+    residency: {
+      findFirst: vi.fn(
+        async (args: {
+          where: {
+            personId: string;
+            OR: [unknown, { movedOutOn: { gt: Date } }];
+          };
+        }) => {
+          const person = persons.find(
+            (each) => each.id === args.where.personId,
+          );
+          if (person?.movedOutOn === undefined) {
+            return null;
+          }
+          const [, future] = args.where.OR;
+          return person.movedOutOn === null ||
+            person.movedOutOn.getTime() > future.movedOutOn.gt.getTime()
+            ? { id: `residency-${person.id}` }
+            : null;
+        },
+      ),
+    },
     person: {
       findFirst: vi.fn(
         async (args: { where: SeatWhere }) =>
@@ -372,7 +442,25 @@ function build(options: {
      * service overwriting the row unconditionally pass.
      */
     $executeRaw: vi.fn(
-      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        if (strings.join("").includes("pg_advisory_xact_lock")) {
+          /*
+           * The lock a write takes against the sweep that erases an empty
+           * group. Recorded rather than implemented: what one process waits for
+           * is not something a fake in one process can show, and
+           * `chat-group.int-spec.ts` is where the two meet a real database.
+           */
+          locks.push(String(values[0]));
+          /*
+           * The sweep, committing while this write waited for the lock. It is
+           * the only moment the room can go: membership was decided before the
+           * lock and the insert comes after it.
+           */
+          if (options.sweptOnLock === true) {
+            chats.length = 0;
+          }
+          return 1;
+        }
         const [chatId, personId, readAt] = values as [string, string, Date];
         const standing = reads.find(
           (row) => row.chatId === chatId && row.personId === personId,
@@ -389,12 +477,26 @@ function build(options: {
     ),
   };
 
+  Object.assign(prisma, {
+    /*
+     * The transaction a write runs in, which exists here so the lock inside it
+     * is taken at all. One client either way: what a transaction guarantees is
+     * a property of the database, and every test in this file is about what the
+     * service asks rather than about what the database promises.
+     */
+    $transaction: vi.fn(async (work: (tx: typeof prisma) => Promise<unknown>) =>
+      work(prisma),
+    ),
+  });
+
   return {
     service: new ChatService(prisma as unknown as PrismaService),
     prisma,
     chats,
     messages,
     reads,
+    groupMembers,
+    locks,
     messageCount,
     messageCreate,
   };
@@ -405,6 +507,15 @@ const BOARD_CHAT: ChatFixture = {
   id: BOARD_CHAT_ID,
   kind: "BOARD",
   name: null,
+  createdByPersonId: null,
+};
+
+/** A group, made by the resident who wanted it. */
+const GROUP_CHAT: ChatFixture = {
+  id: GROUP_CHAT_ID,
+  kind: "GROUP",
+  name: "Trädgårdsgruppen",
+  createdByPersonId: "person-nils",
 };
 
 const SEATED: PersonFixture = {
@@ -413,6 +524,7 @@ const SEATED: PersonFixture = {
   lastName: "Lindqvist",
   protectedPersonalData: false,
   seatEndedOn: null,
+  movedOutOn: null,
 };
 
 const NO_SEAT: PersonFixture = {
@@ -429,6 +541,7 @@ function messagesOverHours(count: number, authorPersonId: string) {
     chatId: BOARD_CHAT_ID,
     authorPersonId,
     body: `Rad ${String(index + 1)}.`,
+    struckAt: null,
     createdAt: new Date(Date.UTC(2026, 0, 1, index)),
   }));
 }
@@ -441,9 +554,9 @@ describe("who is in the room", () => {
       principal(SEATED.id, ["chat:participate"]),
     );
 
-    expect(rooms).toHaveLength(1);
-    expect(rooms[0]?.id).toBe(BOARD_CHAT_ID);
-    expect(rooms[0]?.kind).toBe("BOARD");
+    expect(rooms.rooms).toHaveLength(1);
+    expect(rooms.rooms[0]?.id).toBe(BOARD_CHAT_ID);
+    expect(rooms.rooms[0]?.kind).toBe("BOARD");
   });
 
   it("offers nothing to somebody holding the capability and no seat", async () => {
@@ -455,7 +568,7 @@ describe("who is in the room", () => {
     const { service } = build({ chats: [BOARD_CHAT], persons: [NO_SEAT] });
 
     expect(
-      await service.rooms(principal(NO_SEAT.id, ["chat:participate"])),
+      (await service.rooms(principal(NO_SEAT.id, ["chat:participate"]))).rooms,
     ).toEqual([]);
   });
 
@@ -468,7 +581,7 @@ describe("who is in the room", () => {
 
     expect(chats).toHaveLength(1);
     expect(chats[0]?.kind).toBe("BOARD");
-    expect(rooms[0]?.id).toBe(chats[0]?.id);
+    expect(rooms.rooms[0]?.id).toBe(chats[0]?.id);
   });
 
   it("does not create a room for somebody who could not read it", async () => {
@@ -493,7 +606,7 @@ describe("who is in the room", () => {
     });
 
     expect(
-      await service.rooms(principal(SEATED.id, ["chat:participate"])),
+      (await service.rooms(principal(SEATED.id, ["chat:participate"]))).rooms,
     ).toHaveLength(1);
   });
 
@@ -504,7 +617,7 @@ describe("who is in the room", () => {
     });
 
     expect(
-      await service.rooms(principal(SEATED.id, ["chat:participate"])),
+      (await service.rooms(principal(SEATED.id, ["chat:participate"]))).rooms,
     ).toEqual([]);
   });
 });
@@ -531,21 +644,21 @@ describe("the one refusal", () => {
     expect((notThere as ChatError).status).toBe((notIn as ChatError).status);
   });
 
-  it("refuses a room of the kind nothing answers yet, as one that does not exist", async () => {
+  it("refuses a group to somebody who is not in it, as one that does not exist", async () => {
     /*
-     * The GROUP value ships in the enum so that adding groups is not a
-     * migration over live rows. Until a service answers it, a row of that kind
-     * is refused exactly as a row that is not there - which is what makes
-     * shipping the value safe rather than merely early.
+     * The whole of what makes a group invisible. Somebody holding a board seat
+     * is refused a group they were not put into exactly as they are refused a
+     * room that is not there, so the identifier space cannot be walked to learn
+     * which rooms the house has made.
      */
     const { service } = build({
-      chats: [BOARD_CHAT, { id: "chat-group", kind: "GROUP", name: "Gården" }],
+      chats: [BOARD_CHAT, GROUP_CHAT],
       persons: [SEATED],
     });
 
     await expect(
       service.readChat(
-        "chat-group",
+        GROUP_CHAT_ID,
         principal(SEATED.id, ["chat:participate"]),
       ),
     ).rejects.toMatchObject({ reason: "chat-not-found" });
@@ -656,6 +769,7 @@ describe("reading a room", () => {
         chatId: BOARD_CHAT_ID,
         authorPersonId: SEATED.id,
         body: `Rad ${String(index + 1)}.`,
+        struckAt: null,
         createdAt: instant,
       })),
       persons: [SEATED],
@@ -718,6 +832,7 @@ describe("reading a room", () => {
           chatId: BOARD_CHAT_ID,
           authorPersonId: "person-erased",
           body: "Skrivet av nagon som ar borta.",
+          struckAt: null,
           createdAt: NOW,
         },
       ],
@@ -760,6 +875,7 @@ describe("reading a room", () => {
           chatId: BOARD_CHAT_ID,
           authorPersonId: protectedColleague.id,
           body: "Jag tar offerten.",
+          struckAt: null,
           createdAt: NOW,
         },
       ],
@@ -864,6 +980,7 @@ describe("writing", () => {
           chatId: BOARD_CHAT_ID,
           authorPersonId: SEATED.id,
           body: "Rad.",
+          struckAt: null,
           createdAt: new Date(),
         }),
       ),
@@ -903,6 +1020,7 @@ describe("writing", () => {
           chatId: BOARD_CHAT_ID,
           authorPersonId: "person-somebody-else",
           body: "Rad.",
+          struckAt: null,
           createdAt: new Date(),
         }),
       ),
@@ -964,6 +1082,54 @@ describe("writing", () => {
   });
 });
 
+describe("writing against the sweep that erases an empty room", () => {
+  it("takes the room's own lock before it inserts", async () => {
+    /*
+     * The nightly sweep erases a group that has held nothing for a year, and it
+     * decides that from a read of the messages. A message committed between
+     * that read and the delete is erased by the cascade, and its author is told
+     * it was stored. Both sides take the same key, so one of them waits: what
+     * the key is matters, because two spellings would be two locks that never
+     * meet.
+     */
+    const { service, locks } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+    });
+
+    await service.write({
+      chatId: BOARD_CHAT_ID,
+      authorPersonId: SEATED.id,
+      body: "Ett meddelande.",
+    });
+
+    expect(locks).toEqual([`chat:${BOARD_CHAT_ID}`]);
+  });
+
+  it("refuses a room the sweep erased, rather than failing on the write", async () => {
+    /*
+     * Read again under the lock. Membership is decided before the lock, so the
+     * room can be erased while this write waits for it - and without the second
+     * read the insert meets the foreign key and answers a fault where the
+     * room's own refusal belongs.
+     */
+    const { service, messages } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+      sweptOnLock: true,
+    });
+
+    await expect(
+      service.write({
+        chatId: BOARD_CHAT_ID,
+        authorPersonId: SEATED.id,
+        body: "Ett meddelande.",
+      }),
+    ).rejects.toMatchObject({ reason: "chat-not-found" });
+    expect(messages).toEqual([]);
+  });
+});
+
 describe("the read marker", () => {
   it("counts what this person has not read, and never their own", async () => {
     const { service } = build({
@@ -975,6 +1141,7 @@ describe("the read marker", () => {
           chatId: BOARD_CHAT_ID,
           authorPersonId: SEATED.id,
           body: "Min egen.",
+          struckAt: null,
           createdAt: new Date(Date.UTC(2026, 0, 1, 9)),
         },
       ],
@@ -986,8 +1153,8 @@ describe("the read marker", () => {
     );
 
     // Somebody who has just written a line does not have an unread one.
-    expect(rooms[0]?.unread).toBe(3);
-    expect(rooms[0]?.lastMessageAt).toBe(
+    expect(rooms.rooms[0]?.unread).toBe(3);
+    expect(rooms.rooms[0]?.lastMessageAt).toBe(
       new Date(Date.UTC(2026, 0, 1, 9)).toISOString(),
     );
   });
@@ -1010,7 +1177,7 @@ describe("the read marker", () => {
       principal(SEATED.id, ["chat:participate"]),
     );
 
-    expect(rooms[0]?.unread).toBe(2);
+    expect(rooms.rooms[0]?.unread).toBe(2);
   });
 
   it("never moves backwards", async () => {
@@ -1064,6 +1231,7 @@ describe("the read marker", () => {
           chatId: BOARD_CHAT_ID,
           authorPersonId: "person-somebody-else",
           body: "Skrivet efter.",
+          struckAt: null,
           createdAt: writtenLater,
         },
       ],
@@ -1080,7 +1248,7 @@ describe("the read marker", () => {
     // And the room is not silently all-read from now on: the message written
     // after the call still counts, which it would not if the marker stood at
     // the instant the caller sent.
-    const rooms = await service.rooms(reader);
+    const { rooms } = await service.rooms(reader);
     expect(rooms[0]?.unread).toBe(1);
   });
 
@@ -1158,5 +1326,172 @@ describe("the guardrail on its own", () => {
     expect(() =>
       refusePersonalIdentityNumbers("a".repeat(CHAT_MESSAGE_MAX_LENGTH)),
     ).not.toThrow();
+  });
+});
+
+describe("a group as the rooms endpoint answers it", () => {
+  /** Lives here, holds no seat, and was written into the garden group. */
+  const GARDENER: PersonFixture = {
+    ...NO_SEAT,
+    movedOutOn: null,
+  };
+
+  it("offers a group to somebody written down who still lives here", async () => {
+    const { service } = build({
+      chats: [GROUP_CHAT],
+      persons: [GARDENER],
+      groupMembers: [{ chatId: GROUP_CHAT_ID, personId: GARDENER.id }],
+    });
+
+    const answer = await service.rooms(
+      principal(GARDENER.id, ["chat:participate"]),
+    );
+
+    expect(answer.rooms).toHaveLength(1);
+    expect(answer.rooms[0]?.kind).toBe("GROUP");
+    expect(answer.rooms[0]?.name).toBe("Trädgårdsgruppen");
+  });
+
+  it("takes the group away the day the residency ends", async () => {
+    /*
+     * Decided by the register rather than by anybody striking a name off a
+     * list: a place in a group ends the day somebody moves out, exactly as a
+     * booking allowance bites on the day it says. The row is still there and
+     * answers nothing.
+     */
+    const movedOut = {
+      ...GARDENER,
+      movedOutOn: new Date("2026-05-01T00:00:00Z"),
+    };
+    const { service, groupMembers } = build({
+      chats: [GROUP_CHAT],
+      persons: [movedOut],
+      groupMembers: [{ chatId: GROUP_CHAT_ID, personId: movedOut.id }],
+    });
+
+    const answer = await service.rooms(
+      principal(movedOut.id, ["chat:participate"]),
+    );
+
+    expect(answer.rooms).toEqual([]);
+    expect(groupMembers).toHaveLength(1);
+    await expect(
+      service.readChat(
+        GROUP_CHAT_ID,
+        principal(movedOut.id, ["chat:participate"]),
+      ),
+    ).rejects.toMatchObject({ reason: "chat-not-found" });
+  });
+
+  it("keeps the room for a move-out date that has not arrived", async () => {
+    // The same half of the predicate the seat has, and the same failure if it
+    // were dropped: somebody who has given notice still lives here.
+    const leaving = {
+      ...GARDENER,
+      movedOutOn: new Date("2027-05-01T00:00:00Z"),
+    };
+    const { service } = build({
+      chats: [GROUP_CHAT],
+      persons: [leaving],
+      groupMembers: [{ chatId: GROUP_CHAT_ID, personId: leaving.id }],
+    });
+
+    expect(
+      (await service.rooms(principal(leaving.id, ["chat:participate"]))).rooms,
+    ).toHaveLength(1);
+  });
+
+  it("says who may make a group, and it is not the administrator", async () => {
+    /*
+     * No capability answers this: what makes somebody able to start a room is
+     * living here. The administrator holds every capability and lives nowhere,
+     * so the screen has to be told that the form is not for them rather than
+     * left to offer it and be refused.
+     */
+    const resident = await build({
+      persons: [GARDENER],
+    }).service.rooms(principal(GARDENER.id, ["chat:participate"]));
+    const administrator = await build({
+      persons: [NO_SEAT],
+    }).service.rooms(principal(NO_SEAT.id, ["chat:participate"]));
+
+    expect(resident.mayCreateGroup).toBe(true);
+    expect(administrator.mayCreateGroup).toBe(false);
+  });
+});
+
+describe("a message the board struck through", () => {
+  const STRUCK_AT = new Date("2026-03-03T09:00:00.000Z");
+
+  function room() {
+    return build({
+      chats: [GROUP_CHAT],
+      messages: [
+        {
+          id: "message-1",
+          chatId: GROUP_CHAT_ID,
+          authorPersonId: "person-bo",
+          body: "Det har borde ingen lasa.",
+          struckAt: STRUCK_AT,
+          createdAt: NOW,
+        },
+      ],
+      persons: [
+        { ...NO_SEAT, movedOutOn: null },
+        {
+          id: "person-bo",
+          firstName: "Bo",
+          lastName: "Ek",
+          protectedPersonalData: false,
+          movedOutOn: null,
+        },
+      ],
+      groupMembers: [
+        { chatId: GROUP_CHAT_ID, personId: NO_SEAT.id },
+        { chatId: GROUP_CHAT_ID, personId: "person-bo" },
+      ],
+    });
+  }
+
+  it("withholds the text from the room and keeps the attribution", async () => {
+    const { service } = room();
+
+    const page = await service.readChat(
+      GROUP_CHAT_ID,
+      principal(NO_SEAT.id, ["chat:participate"]),
+    );
+
+    // A strike is a strike-through and never a disappearance: the message is
+    // still in the room, still attributed, and the date says what happened.
+    expect(page.messages[0]?.body).toBeNull();
+    expect(page.messages[0]?.struckAt).toBe(STRUCK_AT.toISOString());
+    expect(page.messages[0]?.author).toMatchObject({ name: "Bo Ek" });
+  });
+
+  it("shows the text to whoever wrote it", async () => {
+    const { service } = room();
+
+    const page = await service.readChat(
+      GROUP_CHAT_ID,
+      principal("person-bo", ["chat:participate"]),
+    );
+
+    expect(page.messages[0]?.body).toBe("Det har borde ingen lasa.");
+  });
+
+  it("shows the text to whoever moderates", async () => {
+    /*
+     * The board reads the message in the queue it was reported into, and reads
+     * it here too - a board member who is in the room would otherwise be shown
+     * a withheld line they had just decided about.
+     */
+    const { service } = room();
+
+    const page = await service.readChat(
+      GROUP_CHAT_ID,
+      principal(NO_SEAT.id, ["chat:participate", "chat:moderate"]),
+    );
+
+    expect(page.messages[0]?.body).toBe("Det har borde ingen lasa.");
   });
 });

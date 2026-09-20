@@ -1986,6 +1986,26 @@ enum AuditAction {
   KEY_ORDER_HANDED_OVER
   /// The board declined an order. The subject stays whoever placed it.
   KEY_ORDER_DECLINED
+
+  /// Somebody who lives here created a group chat (grupp). Actor and subject
+  /// are the same person: they made the room and they are its first member.
+  /// The entry carries the room, never its name - a name is free text somebody
+  /// typed, and the log outlives the room it was typed into.
+  CHAT_GROUP_CREATED
+  /// Somebody in a group put another person into it. The subject is whoever was
+  /// put in: this is something done to them, and being able to read a private
+  /// room is exactly what their access report should say happened.
+  CHAT_GROUP_MEMBER_ADDED
+  /// Somebody left a group, or was taken out of one. The subject stays whoever
+  /// left the room. Only the acts that change who can read a room are recorded,
+  /// and this is one of them; what was written in it is not.
+  CHAT_GROUP_MEMBER_REMOVED
+  /// The board struck a message in a group through, after somebody in that room
+  /// reported it. The message stays where it is with its author's name on it and
+  /// its text withheld, so the entry names who decided that. The subject is
+  /// whoever wrote it. Only a group's message can be struck: the board chat has
+  /// no strike-through at all.
+  CHAT_MESSAGE_STRUCK
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -6602,7 +6622,9 @@ enum ChatKind {
   /// anybody administering a list.
   BOARD
 
-  /// A group's (grupp). Members are written down.
+  /// A group's (grupp). Members are written down, and whoever wanted the room
+  /// wrote the first of them down: a group is created by a person who lives
+  /// here rather than appointed by the board, and the board is not in it.
   GROUP
 }
 
@@ -6615,13 +6637,30 @@ model Chat {
   ///
   /// A room whose membership is derived needs nothing written down to say what
   /// it is, and a name on it would be a second answer to a question the kind
-  /// already settles. A group states its own.
+  /// already settles. A group states its own, and the service refuses a group
+  /// without one: a room nobody can name is a room its members cannot tell from
+  /// the next one.
   name String?
+
+  /// Who made a group, or null for the board chat, which nobody made.
+  ///
+  /// A record and not an office. Whoever wants a group creates one, and the
+  /// person named here administers nothing afterwards: every member of a group
+  /// may put somebody into it and each may take themselves out, so there is no
+  /// act this column decides. It is here because the board reads it when a
+  /// message is reported out of a room it cannot otherwise see, and because a
+  /// room that could not say who wanted it would leave that question with the
+  /// audit log alone.
+  ///
+  /// A plain column for the reason ChatMessage.authorPersonId is one.
+  createdByPersonId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   messages ChatMessage[]
+  members  ChatGroupMember[]
+  reads    ChatRead[]
 
   /// Finding a room of a given kind, which is how the board chat is reached.
   ///
@@ -6639,6 +6678,11 @@ model Chat {
 /// Written once and never edited, never deleted and never withdrawn, by its
 /// author or by anybody else: what somebody wrote is a record of what was said,
 /// and the only thing that removes one is the retention clock.
+///
+/// One thing can happen to it after it is written, and it happens in a group
+/// alone: the board strikes it through after somebody in the room reported it.
+/// That withholds the text from the other members and erases nothing - the row
+/// stays, attributed as before, and the retention clock is unchanged.
 model ChatMessage {
   id String @id @default(cuid())
 
@@ -6669,6 +6713,23 @@ model ChatMessage {
   /// could change would invite the edit this model does not have.
   createdAt DateTime @default(now())
 
+  /// When the board struck it through, or null while it stands.
+  ///
+  /// Never cleared, on NewsComment.hiddenAt's reasoning: a strike is an act the
+  /// board is answerable for and the audit log records it, so clearing one would
+  /// take the date off the only row a reader can see the strike-through on.
+  ///
+  /// Only a group's message can carry one. The board chat has no strike-through
+  /// at all - the board is the whole room, and a board able to strike a
+  /// colleague's line would be deciding what the record of its own deliberation
+  /// says.
+  struckAt DateTime?
+
+  /// Which board member struck it. A plain column, as authorPersonId is.
+  struckByPersonId String?
+
+  reports ChatMessageReport[]
+
   /// The page and the poll: one room's messages in the order they were written.
   @@index([chatId, createdAt])
   /// The write budget and the purge scan: this person's messages by date.
@@ -6684,11 +6745,28 @@ model ChatMessage {
 /// application is told there is something to read instead of being mailed about
 /// every line.
 ///
-/// Both columns are plain, on the same reasoning as ChatMessage.authorPersonId,
-/// and the pair is the identifier: a person has read a room up to one moment
-/// and there is nothing to say twice.
+/// The pair is the identifier: a person has read a room up to one moment, and
+/// there is nothing to say twice.
+///
+/// The two columns are not alike, and one reason covering both would be the
+/// wrong reason for one of them. `personId` is plain for ChatMessage.authorPersonId's
+/// reason: every referential action a foreign key can carry either rewrites this
+/// row when a person is erased or vetoes the erasure, and service-tier data has
+/// to be purgeable without the purge having to negotiate with a marker. `chatId`
+/// carries no such constraint - a room is not a data subject - so it is a
+/// relation like ChatMessage.chatId, and it cascades for the same reason: how far
+/// somebody had read a room that no longer exists is not a fact about anything.
+///
+/// That matters because a room is deleted: the chat purge erases a group that
+/// has held no message for as long as a message is kept, and a marker is exactly
+/// what an empty room can still carry - somebody can open a room and mark it read
+/// without ever writing in it. Before this was a relation the purge deleted the
+/// markers by hand, which worked and left the rule living in one service rather
+/// than in the schema.
 model ChatRead {
-  chatId   String
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
   personId String
 
   /// The instant the reader had seen the room up to.
@@ -6700,6 +6778,102 @@ model ChatRead {
 
   @@id([chatId, personId])
   @@map("chat_read")
+}
+
+/// One person written down as being in a group (grupp).
+///
+/// The board chat has no rows here at all: its members are derived from who
+/// holds a seat, and a list beside that would be a second answer to a question
+/// an election already settles. A group has no election to derive anything
+/// from, so its members are written down - by whoever wanted the room, and then
+/// by each other.
+///
+/// The row is half of the membership test and never the whole of it. The other
+/// half is a residency that has not ended: a group is for the people who live
+/// here, so somebody's place in it ends the day they move out, without anybody
+/// striking them off a list. What they wrote stays where it is, attributed as
+/// before, and goes on the retention clock it was always on.
+model ChatGroupMember {
+  /// The room. Cascade, because a membership of a room that is gone is nothing.
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  /// Who is in it. A plain column, as ChatRead.personId is and for the reason
+  /// ChatMessage.authorPersonId gives.
+  personId String
+
+  /// When they were put into the room.
+  joinedAt DateTime @default(now())
+
+  /// Who put them there, which is themselves for whoever created the group.
+  ///
+  /// The audit log is the record of the act; this is the fact the room itself
+  /// can state, so a member reading the panel can see who brought whom in
+  /// without the board having to read the log to them.
+  addedByPersonId String
+
+  @@id([chatId, personId])
+  /// Every group one person is in, which is how the list of rooms is read.
+  @@index([personId])
+  @@map("chat_group_member")
+}
+
+/// A message somebody in a group reported to the board (anmält chattmeddelande).
+///
+/// The only way the board reaches a group at all. A group is invisible to
+/// anybody outside it - not listed, and asked for by identifier it is refused
+/// exactly as a room that does not exist - so there is no queue of rooms for the
+/// board to watch and no list of groups for it to read. What there is, is this:
+/// a member of the room carries one message out to the board, and the board can
+/// then read that message and strike it through or leave it standing.
+///
+/// Reporting writes no audit entry, because this row is the record. It says who
+/// reported what, when, and what the board did about it, which is more than an
+/// entry naming the act could carry - and unlike an entry it is erased with the
+/// message it is about.
+model ChatMessageReport {
+  id String @id @default(cuid())
+
+  /// The message. Cascade, so the report goes when the retention clock reaches
+  /// the message: a report about a message nobody can read any more says only
+  /// that somebody was once complained about.
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  /// Who reported it. A plain column, as every person reference here is.
+  reporterPersonId String
+
+  /// What the reporter wanted to say about it, in their own words.
+  ///
+  /// Optional, bounded on the way in and scanned for a personal identity number
+  /// like every other piece of resident-written text. The board reads it beside
+  /// the message, which is the whole of the context it gets.
+  note String?
+
+  createdAt DateTime @default(now())
+
+  /// When the board finished with it, or null while it is in the queue.
+  resolvedAt DateTime?
+
+  /// Which board member finished with it.
+  resolvedByPersonId String?
+
+  /// Whether the board struck the message through, or null while it is open.
+  ///
+  /// Recorded on the report rather than read off the message, because a message
+  /// can be reported twice and dismissed once: a dismissal that later read as
+  /// upheld, because somebody else's report was upheld afterwards, would be the
+  /// row saying the board decided something it did not.
+  upheld Boolean?
+
+  /// One person reports one message once. A second press is refused rather than
+  /// queued twice, so a room cannot be turned into a flood by one member.
+  @@unique([messageId, reporterPersonId])
+  /// The board's queue: what is open, oldest first.
+  @@index([resolvedAt, createdAt])
+  /// What one person has reported, which is what their access report states.
+  @@index([reporterPersonId, createdAt])
+  @@map("chat_message_report")
 }
 
 // Fees and fee notices (avgifter och avier).
