@@ -1,4 +1,4 @@
-# ADR 0010: The association's calendar day
+# ADR 0013: The association's calendar day
 
 Date: 2026-09-18
 
