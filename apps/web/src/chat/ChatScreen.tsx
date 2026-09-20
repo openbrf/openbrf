@@ -534,14 +534,36 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     [send, report, create],
   );
 
-  const failure =
+  /*
+   * Where a refusal is shown, and the rule this screen keeps.
+   *
+   * **A failure belongs to the panel that owns the act which produced it, and a
+   * panel that can raise one is rendered whenever that act can be attempted.**
+   * Two panels here can raise a failure and they are not the same panel: the
+   * list of rooms owns making a group, and the open room owns writing a message,
+   * reporting one and reading the room. Folding all of them into one notice put
+   * a refusal about making a group under the heading of a room it had nothing to
+   * do with - and, when there was no room to open, nowhere at all, which is
+   * exactly the case the form exists for: somebody who lives here, is in no
+   * group yet and is refused the one they are making.
+   *
+   * So there are two selectors, one per panel, and each panel renders its own.
+   * The rule also says what to check when an act is added: not only that its
+   * failure is selected somewhere, but that the element rendering it is on
+   * screen at the moment the act can fail. The group's own panel and the board's
+   * queue answer for themselves the same way, each rendering the failures of the
+   * acts inside it.
+   */
+  const roomFailure =
     send.state.kind === "failed"
       ? send.state.failure
       : report.state.kind === "failed"
         ? report.state.failure
-        : create.state.kind === "failed"
-          ? create.state.failure
-          : (conversation?.failure ?? null);
+        : (conversation?.failure ?? null);
+
+  /** The list of rooms owns making one, so it owns the refusal as well. */
+  const createFailure =
+    create.state.kind === "failed" ? create.state.failure : null;
 
   /*
    * A room the first read never answered, as against one that answered empty.
@@ -598,7 +620,17 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    */
   const roomsPanel =
     rooms.length > 1 || roomList?.mayCreateGroup === true ? (
-      <Panel title={t("chat.title")} description={t("chat.intro")}>
+      <Panel
+        title={t("chat.title")}
+        description={t("chat.intro")}
+        notice={
+          createFailure !== null ? (
+            <Notice tone="danger" live>
+              {t(chatFailureKey(createFailure))}
+            </Notice>
+          ) : null
+        }
+      >
         {rooms.length === 0 ? (
           <Notice tone="info">{t("chat.noRoomYet")}</Notice>
         ) : (
@@ -692,9 +724,9 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               : t("chat.groupDescription")
           }
           notice={
-            failure !== null ? (
+            roomFailure !== null ? (
               <Notice tone="danger" live>
-                {t(chatFailureKey(failure))}
+                {t(chatFailureKey(roomFailure))}
               </Notice>
             ) : null
           }

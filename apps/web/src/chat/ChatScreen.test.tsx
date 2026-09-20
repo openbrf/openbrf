@@ -696,6 +696,85 @@ describe("a group", () => {
   });
 });
 
+describe("a refusal", () => {
+  it("is shown when the account it refuses has no room at all", async () => {
+    /*
+     * The account the create form exists for: somebody who lives here, in no
+     * group yet. There is no room panel on the screen, so a refusal folded into
+     * the room's notice had nowhere to render - the button came back and the
+     * screen said nothing. A refusal belongs to the panel that owns the act.
+     */
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [], mayCreateGroup: true },
+    });
+    createChatGroup.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "not-a-resident" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.type(
+      await screen.findByLabelText("Gruppens namn"),
+      "Uppgång C",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    expect(
+      await screen.findByText("En grupp är för dem som bor här."),
+    ).not.toBeNull();
+  });
+
+  it("is shown beside the list it belongs to when a room is open", async () => {
+    // The same refusal with a room on screen. It belongs to the list of rooms,
+    // which owns the form, rather than under the open room's own heading.
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+    createChatGroup.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "too-many-groups" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.type(
+      await screen.findByLabelText("Gruppens namn"),
+      "Uppgång C",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    const refusal = await screen.findByText(/så många grupper/);
+    const panel = refusal.closest("section");
+    expect(panel?.textContent).toContain("Gruppens namn");
+    expect(panel?.textContent).not.toContain("Ditt meddelande");
+  });
+
+  it("is said out loud when a group's member list cannot be read", async () => {
+    /*
+     * A read this panel owns. Dropped, it left the panel saying it was reading
+     * the list for ever - a sentence about the room that is not true.
+     */
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+    fetchGroupMembers.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "chat-not-found" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(await screen.findByText(/Den chatten finns inte/)).not.toBeNull();
+    expect(screen.queryByText("Läser vilka som är med...")).toBeNull();
+  });
+});
+
 describe("the board's queue of reported messages", () => {
   it("is on the screen for whoever moderates, and nowhere else", async () => {
     render(

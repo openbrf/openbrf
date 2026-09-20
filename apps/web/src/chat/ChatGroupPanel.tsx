@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import {
   addGroupMember,
   fetchGroupCandidates,
@@ -56,6 +57,23 @@ export function ChatGroupPanel({
   const [candidates, setCandidates] = useState<readonly ChatGroupCandidate[]>(
     [],
   );
+  /*
+   * A read of this room that did not answer, one piece of state per read.
+   *
+   * Held rather than dropped, on the rule the screen above states: this panel
+   * owns both reads, so it owns their refusals. Without them a member list that
+   * could not be read says "reading who is in it" for ever, and a picker that
+   * could not be read says there is nobody to add - two sentences about the room
+   * that are not true.
+   *
+   * Two, because one would be cleared by whichever read answered next: the
+   * picker is read again on every keystroke, and its answer says nothing about
+   * whether the member list arrived.
+   */
+  const [membersFailure, setMembersFailure] = useState<ApiFailure | null>(null);
+  const [candidatesFailure, setCandidatesFailure] = useState<ApiFailure | null>(
+    null,
+  );
   const [search, setSearch] = useState("");
   const [chosen, setChosen] = useState("");
 
@@ -64,9 +82,15 @@ export function ChatGroupPanel({
 
     void (async () => {
       const result = await fetchGroupMembers({ chatId });
-      if (!abandoned && result.ok) {
-        setMembers(result.value);
+      if (abandoned) {
+        return;
       }
+      if (!result.ok) {
+        setMembersFailure(result.failure);
+        return;
+      }
+      setMembers(result.value);
+      setMembersFailure(null);
     })();
 
     return () => {
@@ -88,7 +112,15 @@ export function ChatGroupPanel({
       if (abandoned) {
         return;
       }
-      setCandidates(result.ok ? result.value : []);
+      if (!result.ok) {
+        // The list is emptied as well, because a list left standing would be
+        // answering a search this room never answered.
+        setCandidates([]);
+        setCandidatesFailure(result.failure);
+        return;
+      }
+      setCandidates(result.value);
+      setCandidatesFailure(null);
     })();
 
     return () => {
@@ -108,7 +140,7 @@ export function ChatGroupPanel({
       ? add.state.failure
       : leave.state.kind === "failed"
         ? leave.state.failure
-        : null;
+        : (membersFailure ?? candidatesFailure);
 
   const person = useCallback(
     (member: ChatGroupMember): string =>
@@ -131,9 +163,11 @@ export function ChatGroupPanel({
       )}
 
       {members === null ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("chat.membersReading")}
-        </p>
+        membersFailure !== null ? null : (
+          <p role="status" className="text-body text-ink-muted">
+            {t("chat.membersReading")}
+          </p>
+        )
       ) : (
         <ul className="flex flex-col gap-1">
           {members.map((member) => (
