@@ -142,11 +142,12 @@ paid is worse than none.
 
 The debiting list names a person and withholds a protected person's apartment,
 because there the person is the charged party and the apartment is the detail. A
-notice is the other shape: the fee is fixed per apartment under BRL 9 kap. 13 §,
-so the apartment is the party and withholding it would empty the row. What
-protection exists to withhold is the link between a name and a door, so on this
-document it is the name that goes - and the row says so rather than leaving the
-cell blank.
+notice is the other shape: the arsavgift is owed for the bostadsratt
+(BRL 7 kap. 14 §) and how it falls between the apartments is the stadgar's
+question (BRL 9 kap. 5 § forsta stycket 5), so the apartment is the party and
+withholding it would empty the row. What protection exists to withhold is the
+link between a name and a door, so on this document it is the name that goes -
+and the row says so rather than leaving the cell blank.
 
 One protected holder withholds the whole household's names rather than their own.
 Naming the others on a flat of two is naming the household, and the link would be
