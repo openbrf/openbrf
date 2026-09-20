@@ -45,7 +45,9 @@ stays where it is with its author's name on it, its text withheld from the other
 in the room and readable to whoever wrote it, on the retention clock it was
 always on, and nothing clears the strike. It sits behind a capability of the
 chat's own rather than the one the association publishes its website under,
-because a group publishes nothing.
+because a group publishes nothing - and behind a board seat as well, because the
+instance's administrator holds every capability, holds no seat and is already
+refused the board's own room.
 
 What is audited is the acts that change who can read a room - making one, putting
 somebody in, somebody leaving, and striking a message through. Writing a message

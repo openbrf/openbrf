@@ -32,7 +32,15 @@ import type { ChatError } from "./chat.error";
  *
  * **Dismissing writes no audit entry at all**, because nothing changed about who
  * can read what - what the board decided is on the report row, which is what the
- * person who reported it is shown.
+ * person who reported it is shown. It closes every open report about that
+ * message, as striking does: leaving one open would let the message be struck
+ * afterwards through a sibling, which is the decision the board has just
+ * declined to make.
+ *
+ * **A capability is not a seat.** The administrator holds `chat:moderate`
+ * through the ADMIN grant and holds no board seat, and a report carries a
+ * private room's message in full - so every path here asks the register for the
+ * seat, and the queue says which of the two empty answers it is giving.
  *
  * What the database does with these rows is `chat-group.int-spec.ts`.
  */
@@ -99,7 +107,10 @@ function build(options: {
   messages?: MessageFixture[];
   reports?: ReportFixture[];
   members?: string[];
+  /** Who holds a board seat. The board member alone, unless a test says so. */
+  seatedPersonIds?: string[];
 }) {
+  const seated = options.seatedPersonIds ?? [NILS, BOARD_MEMBER];
   // Copied row by row rather than by the array, so a strike in one test cannot
   // reach the fixture the next one starts from.
   const messages = (options.messages ?? [THE_MESSAGE]).map((message) => ({
@@ -158,12 +169,15 @@ function build(options: {
     },
     person: {
       /*
-       * The seat, asked for whenever a room of kind BOARD is reached. Answered
-       * yes, so that the board chat's refusal here is about what the room is
-       * rather than about the caller not being in it: a fake that answered no
-       * would let the wrong refusal pass for the right reason.
+       * A board seat, asked for two different questions: whether a room of kind
+       * BOARD may be reached, and whether this account may answer a report.
+       * Implemented on the fixture's own list rather than answered yes, because
+       * the second question is the boundary between the board and the
+       * instance's administrator.
        */
-      findFirst: vi.fn(async () => ({ id: NILS })),
+      findFirst: vi.fn(async (args: { where: { id: string } }) =>
+        seated.includes(args.where.id) ? { id: args.where.id } : null,
+      ),
       findMany: vi.fn(async (args: { where: { id: { in: string[] } } }) =>
         [NILS, ASTRID, BOARD_MEMBER]
           .filter((id) => args.where.id.in.includes(id))
@@ -395,10 +409,12 @@ describe("reporting a message", () => {
 });
 
 describe("the queue the board reads", () => {
+  const board = principal(BOARD_MEMBER, ["chat:moderate"]);
+
   it("carries one message, who wrote it and who reported it, and no room", async () => {
     const { service } = build({ reports: [openReport()] });
 
-    const queue = await service.queue();
+    const { reports: queue } = await service.queue(board);
 
     expect(queue).toHaveLength(1);
     expect(queue[0]).toMatchObject({
@@ -427,7 +443,62 @@ describe("the queue the board reads", () => {
       ],
     });
 
-    expect(await service.queue()).toEqual([]);
+    expect((await service.queue(board)).reports).toEqual([]);
+  });
+});
+
+describe("an account with the capability and no seat", () => {
+  /*
+   * The instance's administrator. They hold every capability, they hold no seat,
+   * and the board chat already refuses them the room - so a queue that handed
+   * them a private room's message in full would keep the promise on one path and
+   * break it on the other.
+   */
+  const administrator = principal("person-admin", [
+    "chat:participate",
+    "chat:moderate",
+  ]);
+
+  it("is answered no queue, and told that the queue is not theirs", async () => {
+    const { service } = build({ reports: [openReport()] });
+
+    const answer = await service.queue(administrator);
+
+    expect(answer.reports).toEqual([]);
+    // Not "nothing has been reported": that is a statement about rooms this
+    // account may not be told exist.
+    expect(answer.mayModerate).toBe(false);
+  });
+
+  it("cannot strike or dismiss, and the message stands", async () => {
+    const { service, messages, reports } = build({ reports: [openReport()] });
+
+    await expect(
+      service.strike(administrator, "report-1"),
+    ).rejects.toMatchObject({ reason: "report-not-found" });
+    await expect(
+      service.dismiss(administrator, "report-1"),
+    ).rejects.toMatchObject({ reason: "report-not-found" });
+
+    expect(messages[0]?.struckAt).toBeNull();
+    expect(reports[0]?.resolvedAt).toBeNull();
+  });
+
+  it("is refused the same way a report that does not exist is", async () => {
+    // One refusal for two cases, as everywhere else here: anything that told
+    // them apart would say whether a private room has been reported.
+    const { service } = build({ reports: [openReport()] });
+    const board = principal(BOARD_MEMBER, ["chat:moderate"]);
+
+    const withoutSeat = (await service
+      .strike(administrator, "report-1")
+      .catch((error: unknown) => error)) as ChatError;
+    const notThere = (await service
+      .strike(board, "report-9")
+      .catch((error: unknown) => error)) as ChatError;
+
+    expect(withoutSeat.reason).toBe(notThere.reason);
+    expect(withoutSeat.status).toBe(notThere.status);
   });
 });
 
@@ -543,6 +614,28 @@ describe("leaving a message standing", () => {
     expect(answered.struckAt).toBeNull();
     // Nothing changed about who can read what, so there is nothing to record.
     expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("closes every other open report on the same message", async () => {
+    /*
+     * The board has decided about the message, not about one person's report of
+     * it. A sibling left open would let the same message be struck through
+     * afterwards - the decision this one declined to make, made by whoever
+     * pressed next.
+     */
+    const { service, messages, reports } = build({
+      reports: [openReport(), { ...openReport(ASTRID, null), id: "report-2" }],
+    });
+
+    await service.dismiss(board, "report-1");
+
+    expect(reports.every((report) => report.resolvedAt !== null)).toBe(true);
+    expect(reports.every((report) => report.upheld === false)).toBe(true);
+    expect(messages[0]?.struckAt).toBeNull();
+    // And the message cannot then be struck through the sibling.
+    await expect(service.strike(board, "report-2")).rejects.toMatchObject({
+      reason: "report-resolved",
+    });
   });
 
   it("refuses one that is already answered, and one that is not there", async () => {

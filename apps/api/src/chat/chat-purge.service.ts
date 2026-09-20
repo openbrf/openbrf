@@ -7,6 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockLegalHold } from "../retention/legal-hold-lock";
+import { lockChat } from "./chat-lock";
 import {
   erasureRequestedPersonIds,
   withheldPersonIds,
@@ -260,20 +261,52 @@ export class ChatPurgeService implements OnModuleInit {
       return 0;
     }
 
-    const chatIds = empty.map((chat) => chat.id);
-    await this.prisma.$transaction(async (tx) => {
-      /*
-       * The room alone. Its read markers and its membership rows both cascade
-       * with it, so deleting either here would leave the constraint removable
-       * without a test noticing. `chatId` carries the cascade; `personId` stays
-       * a plain column so a purge can reach a person's rows unvetoed.
-       */
-      await tx.chat.deleteMany({ where: { id: { in: chatIds } } });
-    });
+    /*
+     * Sorted, so two runs of this sweep take the same rooms in the same order
+     * and wait for each other rather than deadlock. One transaction per room
+     * rather than one for all of them: a transaction holding five hundred locks
+     * would make every writer in the house wait on a sweep of rooms nobody has
+     * written in for a year.
+     */
+    const chatIds = empty.map((chat) => chat.id).sort();
 
-    this.logger.log(`Purged ${String(chatIds.length)} empty group chats`);
+    let deleted = 0;
+    for (const chatId of chatIds) {
+      deleted += await this.prisma.$transaction(async (tx) => {
+        /*
+         * Before the emptiness is decided, so that deciding it settles the
+         * question. A message committing between the scan above and this delete
+         * would be erased by the cascade and its author told it was stored -
+         * `chat-lock.ts` has the whole of that argument, and `ChatService.write`
+         * takes the same key.
+         */
+        await lockChat(tx, chatId);
 
-    return chatIds.length;
+        /*
+         * Every condition again, under the lock and in the delete itself, so
+         * that what the scan found is not what is acted on. The room alone: its
+         * read markers and its membership rows both cascade with it, so
+         * deleting either here would leave the constraint removable without a
+         * test noticing. `chatId` carries the cascade; `personId` stays a plain
+         * column so a purge can reach a person's rows unvetoed.
+         */
+        const { count } = await tx.chat.deleteMany({
+          where: {
+            id: chatId,
+            kind: "GROUP",
+            createdAt: { lte: cutoff },
+            messages: { none: {} },
+          },
+        });
+        return count;
+      });
+    }
+
+    if (deleted > 0) {
+      this.logger.log(`Purged ${String(deleted)} empty group chats`);
+    }
+
+    return deleted;
   }
 
   /**

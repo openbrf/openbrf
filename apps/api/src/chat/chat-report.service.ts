@@ -3,7 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
-import { roomFor } from "./chat-membership";
+import { holdsBoardSeat, roomFor } from "./chat-membership";
 import { ChatError } from "./chat.error";
 import {
   authorViewOf,
@@ -29,6 +29,26 @@ export const REPORT_NOTE_MAX_LENGTH = 500;
  * ones waiting longest.
  */
 export const REPORTS_PER_PAGE = 50;
+
+/**
+ * The board's queue, and whether this account is the board.
+ *
+ * Two answers in one payload, on the room list's own reasoning: an empty queue
+ * and a queue this account may not read are different facts, and a screen shown
+ * the first when the second is true would tell the instance's administrator that
+ * nothing has been reported - which is a statement about a private room, made to
+ * somebody who is not allowed one.
+ */
+export interface ChatReportQueueView {
+  reports: ChatReportView[];
+  /**
+   * Whether this account may answer a report.
+   *
+   * Holding `chat:moderate` is not enough: the administrator holds every
+   * capability and no seat, and the board is the elected board.
+   */
+  mayModerate: boolean;
+}
 
 /** One reported message, as the board is shown it. */
 export interface ChatReportView {
@@ -85,6 +105,15 @@ export interface ChatReportView {
  * Behind `chat:moderate` rather than `site:manage`. That capability moderates a
  * comment thread because the thread is part of what the association publishes
  * and the board answers for it - and a group publishes nothing.
+ *
+ * And behind a board seat as well as that capability, which is the same division
+ * the rooms themselves live under: the capability opens the endpoint and the
+ * register decides whether there is anything behind it. `ADMIN_CAPABILITIES` is
+ * every capability, so the instance's administrator holds `chat:moderate` and
+ * holds no seat - and a report carries a private room's message in full. The
+ * board chat already refuses them the room; a queue that handed them the same
+ * text would be the promise kept on one path and broken on the other. Every
+ * path through this service asks the register for the seat, once, here.
  *
  * ## What striking does and does not do
  *
@@ -172,7 +201,16 @@ export class ChatReportService {
    * Open reports only. A resolved one is the record of a decision and stays on
    * the row; a queue that kept showing it would be a queue that never empties.
    */
-  async queue(): Promise<ChatReportView[]> {
+  async queue(reader: Principal): Promise<ChatReportQueueView> {
+    if (!(await this.holdsSeat(reader))) {
+      /*
+       * Nothing, and the screen is told why rather than being handed an empty
+       * queue: "nothing has been reported" is a fact about rooms this account
+       * may not know anything about.
+       */
+      return { reports: [], mayModerate: false };
+    }
+
     const rows = await this.prisma.chatMessageReport.findMany({
       where: { resolvedAt: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -180,7 +218,7 @@ export class ChatReportService {
       select: REPORT_COLUMNS,
     });
 
-    return this.toViews(rows);
+    return { reports: await this.toViews(rows), mayModerate: true };
   }
 
   /**
@@ -196,6 +234,8 @@ export class ChatReportService {
    * asking it would have the board decide the same message twice.
    */
   async strike(actor: Principal, reportId: string): Promise<ChatReportView> {
+    await this.requireSeat(actor);
+
     const struck = await this.prisma.$transaction(async (tx) => {
       const report = await tx.chatMessageReport.findUnique({
         where: { id: reportId },
@@ -278,29 +318,59 @@ export class ChatReportService {
    * the row is what the person who reported it is shown.
    */
   async dismiss(actor: Principal, reportId: string): Promise<ChatReportView> {
-    const { count } = await this.prisma.chatMessageReport.updateMany({
-      where: { id: reportId, resolvedAt: null },
-      data: {
-        resolvedAt: new Date(),
-        resolvedByPersonId: actor.personId,
-        upheld: false,
-      },
+    await this.requireSeat(actor);
+
+    await this.prisma.$transaction(async (tx) => {
+      const report = await tx.chatMessageReport.findUnique({
+        where: { id: reportId },
+        select: { id: true, resolvedAt: true, messageId: true },
+      });
+      if (report === null) {
+        throw new ChatError("There is no such report.", "report-not-found");
+      }
+      if (report.resolvedAt !== null) {
+        throw new ChatError(
+          "The board has already answered this report.",
+          "report-resolved",
+        );
+      }
+
+      /*
+       * Every open report about that message, exactly as striking closes every
+       * one of them. They were asking the same question and the board has
+       * answered it; a sibling left open would let the same message be struck
+       * through afterwards, which is the decision the board has just declined
+       * to make.
+       */
+      await tx.chatMessageReport.updateMany({
+        where: { messageId: report.messageId, resolvedAt: null },
+        data: {
+          resolvedAt: new Date(),
+          resolvedByPersonId: actor.personId,
+          upheld: false,
+        },
+      });
     });
 
-    if (count === 0) {
-      const exists = await this.prisma.chatMessageReport.findUnique({
-        where: { id: reportId },
-        select: { id: true },
-      });
-      throw exists === null
-        ? new ChatError("There is no such report.", "report-not-found")
-        : new ChatError(
-            "The board has already answered this report.",
-            "report-resolved",
-          );
-    }
-
     return this.byId(reportId);
+  }
+
+  /** Whether this account is on the board today. */
+  private async holdsSeat(actor: Principal): Promise<boolean> {
+    return holdsBoardSeat(this.prisma, actor.personId, new Date());
+  }
+
+  /**
+   * Refuses an account that holds the capability and no seat.
+   *
+   * The same refusal as a report that does not exist, on the rooms' own rule:
+   * an answer that told the two apart would say whether a private room has been
+   * reported to somebody who may not be told that it exists.
+   */
+  private async requireSeat(actor: Principal): Promise<void> {
+    if (!(await this.holdsSeat(actor))) {
+      throw new ChatError("There is no such report.", "report-not-found");
+    }
   }
 
   /**

@@ -1556,6 +1556,7 @@ export function DataSubjectReport({
                 empty={report.chats.length === 0}
                 headings={[
                   "register.person.report.field.chatRoom",
+                  "register.person.report.field.joined",
                   "register.person.report.field.written",
                   "register.person.report.field.message",
                   "register.person.report.field.struck",
@@ -1563,17 +1564,52 @@ export function DataSubjectReport({
                   "register.person.report.field.erasableFrom",
                 ]}
               >
-                {report.chats.flatMap((chat) =>
-                  chat.messages.map((message) => (
+                {report.chats.flatMap((chat) => {
+                  const room =
+                    chat.chatName ??
+                    t(
+                      chat.chatKind === "BOARD"
+                        ? "register.person.report.chat.board"
+                        : "register.person.report.chat.group",
+                    );
+                  const joined =
+                    chat.joinedOn === null ? nothing : day(chat.joinedOn);
+                  const readUpTo =
+                    chat.readUpTo === null ? (
+                      <NotRecorded
+                        meaning={t("register.person.report.chat.neverOpened")}
+                      />
+                    ) : (
+                      day(chat.readUpTo)
+                    );
+
+                  /*
+                   * A room with nothing of theirs in it still gets a line. Being
+                   * in a group is personal data the association holds whether or
+                   * not the person ever wrote in it, and a table built from the
+                   * messages alone would leave somebody who joined a room and
+                   * said nothing off their own access report.
+                   */
+                  if (chat.messages.length === 0) {
+                    return [
+                      <tr key={`${chat.chatKind}-${room}`} className={ROW}>
+                        <td className={TEXT_CELL}>{room}</td>
+                        <td className={DATA_CELL}>{joined}</td>
+                        <td className={DATA_CELL}>{nothing}</td>
+                        <td className={TEXT_CELL}>
+                          {t("register.person.report.chat.wroteNothing")}
+                        </td>
+                        <td className={DATA_CELL}>{nothing}</td>
+                        <td className={DATA_CELL}>{readUpTo}</td>
+                        <td className={DATA_CELL}>{nothing}</td>
+                      </tr>,
+                    ];
+                  }
+
+                  return chat.messages.map((message) => (
                     <tr key={message.messageId} className={ROW}>
-                      <td className={TEXT_CELL}>
-                        {chat.chatName ??
-                          t(
-                            chat.chatKind === "BOARD"
-                              ? "register.person.report.chat.board"
-                              : "register.person.report.chat.group",
-                          )}
-                      </td>
+                      <td className={TEXT_CELL}>{room}</td>
+                      <td className={DATA_CELL}>{joined}</td>
                       <td className={DATA_CELL}>{day(message.writtenAt)}</td>
                       {/*
                        * In full. Line breaks kept, as the comment above keeps
@@ -1591,23 +1627,13 @@ export function DataSubjectReport({
                           ? nothing
                           : day(message.struckAt)}
                       </td>
-                      <td className={DATA_CELL}>
-                        {chat.readUpTo === null ? (
-                          <NotRecorded
-                            meaning={t(
-                              "register.person.report.chat.neverOpened",
-                            )}
-                          />
-                        ) : (
-                          day(chat.readUpTo)
-                        )}
-                      </td>
+                      <td className={DATA_CELL}>{readUpTo}</td>
                       <td className={DATA_CELL}>
                         {message.erasableFrom ?? nothing}
                       </td>
                     </tr>
-                  )),
-                )}
+                  ));
+                })}
               </Rows>
             </Section>
 

@@ -83,11 +83,18 @@ const boardMember = {
   email: `group-board-${suffix}@exempel.se`,
 };
 
+/** Holds every capability through the ADMIN grant, and holds no seat. */
+const administrator = {
+  personId: `group-admin-${suffix}`,
+  email: `group-admin-${suffix}@exempel.se`,
+};
+
 const personIds = [
   nils.personId,
   astrid.personId,
   stranger.personId,
   boardMember.personId,
+  administrator.personId,
 ];
 
 let addressId: string;
@@ -186,6 +193,7 @@ let nilsCookie: string;
 let astridCookie: string;
 let strangerCookie: string;
 let boardCookie: string;
+let administratorCookie: string;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -236,7 +244,15 @@ beforeAll(async () => {
         lastName: `Grupp${suffix}`,
       },
       { id: boardMember.personId, firstName: "Bo", lastName: `Grupp${suffix}` },
+      {
+        id: administrator.personId,
+        firstName: "Holger",
+        lastName: `Grupp${suffix}`,
+      },
     ],
+  });
+  await prisma.systemRole.create({
+    data: { personId: administrator.personId, role: "ADMIN" },
   });
 
   /*
@@ -261,7 +277,7 @@ beforeAll(async () => {
   });
 
   const auth = app.get(AuthService);
-  for (const who of [nils, astrid, stranger, boardMember]) {
+  for (const who of [nils, astrid, stranger, boardMember, administrator]) {
     await auth.createAccountForPerson({
       personId: who.personId,
       email: who.email,
@@ -274,6 +290,7 @@ beforeAll(async () => {
   astridCookie = await signIn(astrid.email);
   strangerCookie = await signIn(stranger.email);
   boardCookie = await signIn(boardMember.email);
+  administratorCookie = await signIn(administrator.email);
 });
 
 afterAll(async () => {
@@ -294,6 +311,9 @@ afterAll(async () => {
       where: { authorPersonId: { in: personIds } },
     });
     await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+    await prisma.systemRole.deleteMany({
+      where: { personId: { in: personIds } },
+    });
     await prisma.boardPosition.deleteMany({
       where: { personId: { in: personIds } },
     });
@@ -545,10 +565,9 @@ describe("a message reported to the board", () => {
       headers: { cookie: boardCookie },
     });
     expect(queue.statusCode).toBe(200);
-    const rows =
-      queue.json<
-        { messageId: string; body: string; groupName: string | null }[]
-      >();
+    const { reports: rows } = queue.json<{
+      reports: { messageId: string; body: string; groupName: string | null }[];
+    }>();
     const row = rows.find((each) => each.messageId === messageId);
     expect(row?.body).toBe("Nagot ingen borde skriva.");
     expect(row?.groupName).toBe("Grillkvällen");
@@ -651,6 +670,142 @@ describe("a message reported to the board", () => {
     expect(refusedQueue.json<{ message?: string }>().message).toContain(
       "chat:moderate",
     );
+  });
+});
+
+describe("an account holding every capability and no seat", () => {
+  it("is refused the queue, and is told the queue is not theirs", async () => {
+    /*
+     * The instance's administrator. `ADMIN_CAPABILITIES` is every capability,
+     * so they hold `chat:moderate` and pass the guard - and a report carries a
+     * private room's message in full. The board chat already refuses them the
+     * room; a queue that handed them the same text would keep the promise on
+     * one path and break it on the other.
+     */
+    const chatId = await makeGroup(nilsCookie, "Insynsgruppen");
+    await inject({
+      method: "POST",
+      url: `/api/chat-groups/${chatId}/members`,
+      payload: { personId: astrid.personId },
+      headers: { cookie: nilsCookie },
+    });
+    const messageId = await write(astridCookie, chatId, "Rad i rummet.");
+    const reported = await inject({
+      method: "POST",
+      url: "/api/chat-reports",
+      payload: { messageId },
+      headers: { cookie: nilsCookie },
+    });
+    const reportId = reported.json<{ reportId: string }>().reportId;
+
+    const queue = await inject({
+      method: "GET",
+      url: "/api/chat-reports",
+      headers: { cookie: administratorCookie },
+    });
+
+    expect(queue.statusCode).toBe(200);
+    const answer = queue.json<{
+      reports: unknown[];
+      mayModerate: boolean;
+    }>();
+    expect(answer.reports).toEqual([]);
+    // Not "nothing has been reported": that is a fact about a room they may not
+    // be told exists.
+    expect(answer.mayModerate).toBe(false);
+
+    // And neither act is theirs, answered as a report that is not there.
+    for (const act of ["strike", "dismiss"]) {
+      const refused = await inject({
+        method: "POST",
+        url: `/api/chat-reports/${reportId}/${act}`,
+        headers: { cookie: administratorCookie },
+      });
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json<{ reason: string }>().reason).toBe(
+        "report-not-found",
+      );
+    }
+
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      select: { struckAt: true },
+    });
+    expect(message?.struckAt).toBeNull();
+  });
+});
+
+describe("a message two people reported", () => {
+  it("is answered once: dismissing one closes the other", async () => {
+    /*
+     * The board decides about the message rather than about one person's report
+     * of it. A sibling left open would let the same message be struck through
+     * afterwards - the decision the board has just declined to make, made by
+     * whoever pressed next.
+     */
+    const chatId = await makeGroup(nilsCookie, "Tvåanmälningar");
+    await inject({
+      method: "POST",
+      url: `/api/chat-groups/${chatId}/members`,
+      payload: { personId: astrid.personId },
+      headers: { cookie: nilsCookie },
+    });
+    await inject({
+      method: "POST",
+      url: `/api/chat-groups/${chatId}/members`,
+      payload: { personId: stranger.personId },
+      headers: { cookie: nilsCookie },
+    });
+    const messageId = await write(
+      astridCookie,
+      chatId,
+      "Rad som anmäls två gånger.",
+    );
+
+    const first = await inject({
+      method: "POST",
+      url: "/api/chat-reports",
+      payload: { messageId },
+      headers: { cookie: nilsCookie },
+    });
+    const second = await inject({
+      method: "POST",
+      url: "/api/chat-reports",
+      payload: { messageId },
+      headers: { cookie: strangerCookie },
+    });
+    expect(second.statusCode).toBe(201);
+    const secondId = second.json<{ reportId: string }>().reportId;
+
+    const dismissed = await inject({
+      method: "POST",
+      url: `/api/chat-reports/${first.json<{ reportId: string }>().reportId}/dismiss`,
+      headers: { cookie: boardCookie },
+    });
+    expect(dismissed.statusCode).toBe(200);
+
+    // The other one is closed with it, and says the board left the message
+    // standing rather than staying open for somebody to press again.
+    const sibling = await prisma.chatMessageReport.findUnique({
+      where: { id: secondId },
+      select: { resolvedAt: true, upheld: true },
+    });
+    expect(sibling?.resolvedAt).not.toBeNull();
+    expect(sibling?.upheld).toBe(false);
+
+    const struck = await inject({
+      method: "POST",
+      url: `/api/chat-reports/${secondId}/strike`,
+      headers: { cookie: boardCookie },
+    });
+    expect(struck.statusCode).toBe(422);
+    expect(struck.json<{ reason: string }>().reason).toBe("report-resolved");
+
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      select: { struckAt: true },
+    });
+    expect(message?.struckAt).toBeNull();
   });
 });
 

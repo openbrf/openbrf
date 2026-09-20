@@ -67,6 +67,17 @@ nothing. It is a second capability rather than `chat:participate` because that
 one is every resident's: a strike-through granted to everybody who lives here
 would be no rule at all.
 
+**And behind a board seat as well as that capability.** The capability opens the
+endpoint and the register decides whether there is anything behind it, which is
+the division the rooms themselves live under. It matters here because
+`ADMIN_CAPABILITIES` is every capability: the instance's administrator holds
+`chat:moderate`, holds no seat, and is already refused the board's own room. A
+queue that handed them a private room's message in full would keep that promise
+on one path and break it on the other. So every path through the moderation
+service asks the register for a seat, and an account holding the capability
+without one is told the queue is not theirs rather than that nothing has been
+reported - which would be a statement about rooms it may not be told exist.
+
 **The report row is the record.** Reporting writes no audit entry. The row holds
 who reported what, when, and what the board decided, which is more than an entry
 naming the act could carry - and unlike an entry, which is append-only and

@@ -155,6 +155,15 @@ describe("seedRows", () => {
      * art. 30(1)(c). Former residents are there because the window outlives the
      * residency by years.
      */
+    /*
+     * The chat holds what somebody wrote for a year after they wrote it, on the
+     * message's own clock, so a person who has moved out is still a data
+     * subject of this processing: their words are on file and on their own
+     * access report until that year runs out.
+     */
+    expect(rowFor("chat").dataSubjectCategories).toEqual(
+      expect.arrayContaining(["formerResident"]),
+    );
     expect(rowFor("fees").dataSubjectCategories).toEqual(
       expect.arrayContaining(["member", "resident", "formerResident"]),
     );

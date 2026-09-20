@@ -444,6 +444,13 @@ const FULL_REPORT: Report = {
         },
       ],
     },
+    {
+      chatKind: "GROUP",
+      chatName: "Cykelrummet",
+      joinedOn: "2026-04-02T09:00:00.000Z",
+      readUpTo: null,
+      messages: [],
+    },
     /*
      * A group, with a message of theirs the board struck through. The text is
      * printed all the same: a strike withholds it from the others in the room
@@ -466,6 +473,11 @@ const FULL_REPORT: Report = {
       ],
     },
   ],
+  /*
+   * A group they were put into and have never written in. It is on the report
+   * because being in a private room is personal data the association holds
+   * whether or not they ever answered in it.
+   */
   /*
    * One report they made and one they answered, which are the two ends of the
    * same act: what the board decided is on the row they made, and the note they
@@ -1483,11 +1495,30 @@ describe("what the chat holds about this person", () => {
     expect(struck?.textContent).toContain("2026-03-03");
   });
 
+  it("prints a group they are in and have never written in", async () => {
+    /*
+     * Being in a private room is personal data the association holds, and a
+     * table built from the messages alone would leave somebody who joined a
+     * group and said nothing off their own access report entirely.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const chat = within(sectionOf("Det du har skrivit i chatten"));
+    const room = chat.getByText("Cykelrummet").closest("tr");
+    expect(room?.textContent).toContain("2026-04-02");
+    expect(room?.textContent).toContain(
+      "Du är med i gruppen och har inte skrivit något i den.",
+    );
+  });
+
   it("prints what was reported, and prints a neighbour's words nowhere", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const reports = within(sectionOf("Chattmeddelanden du har anmält"));
+    const reports = within(
+      sectionOf("Chattmeddelanden du har anmält eller besvarat"),
+    );
     const made = reports
       .getByText("Det har handlar om min lagenhet.")
       .closest("tr");

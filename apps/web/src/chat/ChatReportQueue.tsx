@@ -45,6 +45,8 @@ export function ChatReportQueue(): ReactElement {
   const { t, i18n } = useTranslation();
 
   const [reports, setReports] = useState<readonly ChatReport[] | null>(null);
+  /** Whether this account may answer a report, which a capability cannot say. */
+  const [mayModerate, setMayModerate] = useState(true);
   const [failed, setFailed] = useState(false);
   /** Which report is being answered, so one row can say so while it happens. */
   const [answering, setAnswering] = useState<string | null>(null);
@@ -61,7 +63,8 @@ export function ChatReportQueue(): ReactElement {
         setFailed(true);
         return;
       }
-      setReports(result.value);
+      setReports(result.value.reports);
+      setMayModerate(result.value.mayModerate);
     })();
 
     return () => {
@@ -70,14 +73,19 @@ export function ChatReportQueue(): ReactElement {
   }, []);
 
   /*
-   * An answered report leaves the queue rather than being read back into it. The
-   * queue is what is open, and a row that stayed with a decision on it would be
-   * a queue that never empties.
+   * An answered report leaves the queue, and so does every other report about
+   * the same message: the board decides about the message rather than about one
+   * person's report of it, and the server closes them together. A sibling left
+   * on the screen would be a row that answers `report-resolved` when pressed.
+   *
+   * Read back into the queue rather than re-fetched, because the queue is what
+   * is open and a row that stayed with a decision on it would be a queue that
+   * never empties.
    */
   const answered = (report: ChatReport): void => {
     setReports(
       (held) =>
-        held?.filter((each) => each.reportId !== report.reportId) ?? null,
+        held?.filter((each) => each.messageId !== report.messageId) ?? null,
     );
   };
 
@@ -98,6 +106,20 @@ export function ChatReportQueue(): ReactElement {
         <Notice tone="danger" live>
           {t("chat.reports.loadFailed")}
         </Notice>
+      </Panel>
+    );
+  }
+
+  if (!mayModerate) {
+    /*
+     * The instance's administrator, and the sentence is the point. They hold
+     * every capability and no board seat, so the queue is not theirs - and an
+     * empty queue would tell them that nothing has been reported, which is a
+     * fact about rooms they may not be told exist.
+     */
+    return (
+      <Panel title={t("chat.reports.title")}>
+        <Notice tone="info">{t("chat.reports.notTheBoard")}</Notice>
       </Panel>
     );
   }

@@ -4,6 +4,7 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { ChatKind } from "../generated/prisma/enums";
+import { lockChat } from "./chat-lock";
 import {
   groupsFor,
   holdsBoardSeat,
@@ -547,11 +548,15 @@ export class ChatService {
    * first because it is the cheapest and the least revealing - a caller learns
    * only what they would learn by asking to read the room.
    *
-   * One statement and no transaction, which is worth saying rather than leaving
-   * to be noticed. A comment's write is a transaction because it writes the
-   * audit entry with the row; this one has no entry to write, for the reason the
-   * class comment gives, so a transaction would wrap a single insert and promise
-   * nothing.
+   * A transaction, and what it is for is the sweep rather than the insert. No
+   * audit entry is written here, for the reason the class comment gives, so
+   * there is only one statement to commit - but the room it writes into can be
+   * erased at the same moment. The nightly purge erases a group that has held
+   * nothing for a year, deciding it from a read of the messages, and a message
+   * committed between that read and the delete goes with the room through the
+   * cascade. So both sides take `lockChat` and the loser finds the other's work
+   * done: the sweep sees the message and leaves the room, or the write finds no
+   * room and refuses.
    */
   async write(input: WriteChatMessageInput): Promise<ChatMessageView> {
     const chat = await this.requireMembershipById(
@@ -561,13 +566,31 @@ export class ChatService {
     await this.refuseTooManyMessages(input.authorPersonId);
     refusePersonalIdentityNumbers(input.body);
 
-    const row = await this.prisma.chatMessage.create({
-      data: {
-        chatId: chat.id,
-        authorPersonId: input.authorPersonId,
-        body: input.body,
-      },
-      select: MESSAGE_COLUMNS,
+    const row = await this.prisma.$transaction(async (tx) => {
+      await lockChat(tx, chat.id);
+
+      /*
+       * Read again under the lock. Membership was decided before it, and the
+       * sweep can have erased the room in between - in which case the insert
+       * would fail on the foreign key with a fault rather than an answer. A room
+       * that has gone is refused exactly as a room that never existed.
+       */
+      const still = await tx.chat.findUnique({
+        where: { id: chat.id },
+        select: { id: true },
+      });
+      if (still === null) {
+        throw new ChatError("There is no such chat.", "chat-not-found");
+      }
+
+      return tx.chatMessage.create({
+        data: {
+          chatId: chat.id,
+          authorPersonId: input.authorPersonId,
+          body: input.body,
+        },
+        select: MESSAGE_COLUMNS,
+      });
     });
 
     // The room and nothing that was said in it - ADR 0007 keeps the identifier

@@ -14,6 +14,7 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import {
   ChatReportService,
   REPORT_NOTE_MAX_LENGTH,
+  type ChatReportQueueView,
   type ChatReportView,
 } from "./chat-report.service";
 import { requirePrincipal } from "./chat.controller";
@@ -31,6 +32,13 @@ import { requirePrincipal } from "./chat.controller";
  * no route that takes a message or a room: the board's whole way into a group is
  * a report from inside it, so a board member cannot strike a message nobody
  * reported, and cannot ask about a room at all.
+ *
+ * `chat:moderate` is what opens those three routes, and it is not the whole of
+ * what they ask: the service then asks the register for a board seat, because
+ * the administrator holds every capability and holds no seat. The division is
+ * the rooms' own - the capability opens the endpoint, the register decides what
+ * is behind it - and it is stated once, in the service, rather than three times
+ * here.
  */
 
 const reportSchema = z.object({
@@ -76,12 +84,16 @@ export class ChatReportController {
    *
    * It lists reported messages and never rooms. A board that has had no report
    * reads an empty queue, which is also the whole of what it can learn about
-   * whether this cooperative has any groups at all.
+   * whether this cooperative has any groups at all. An account holding the
+   * capability and no seat is told that the queue is not theirs, rather than
+   * that nothing has been reported.
    */
   @Get()
   @RequireCapability("chat:moderate")
-  async queue(): Promise<ChatReportView[]> {
-    return this.reports.queue();
+  async queue(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ChatReportQueueView> {
+    return this.reports.queue(requirePrincipal(request));
   }
 
   @Post(":reportId/strike")

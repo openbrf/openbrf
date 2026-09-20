@@ -244,6 +244,13 @@ export interface ChatGroupCandidate {
   apartment: string | null;
 }
 
+/** The board's queue of reported messages, and who may answer it. */
+export interface ChatReportQueue {
+  reports: ChatReport[];
+  /** Whether this account holds a board seat as well as the capability. */
+  mayModerate: boolean;
+}
+
 /**
  * One reported message, as the board is shown it.
  *
@@ -362,13 +369,26 @@ export function reportChatMessage(input: {
   });
 }
 
-/** What the board has been asked to look at. Open reports, oldest first. */
-export function fetchChatReports(): Promise<ApiResult<ChatReport[]>> {
+/**
+ * The board's queue, and whether this account may answer it.
+ *
+ * Holding `chat:moderate` is not the whole of it: the administrator holds every
+ * capability and no board seat, and a report carries a private room's message in
+ * full. So the server answers `mayModerate` from the register, and a screen
+ * shown `false` says that the queue is the board's rather than that nothing has
+ * been reported - which would be a claim about rooms this account may not be
+ * told exist.
+ */
+export function fetchChatReports(): Promise<ApiResult<ChatReportQueue>> {
   return apiRequest("GET", "/api/chat-reports");
 }
 
 /**
  * Strikes the reported message through.
+ *
+ * Every open report about that message is closed with it, and so it is when one
+ * is dismissed: the board decides about the message rather than about one
+ * person's report of it.
  *
  * The text is withheld from the other people in the room and from nobody else:
  * the message stays where it is, attributed as before, its author still reads

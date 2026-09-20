@@ -266,6 +266,8 @@ function build(options: {
   persons?: PersonFixture[];
   reads?: { chatId: string; personId: string; readAt: Date }[];
   groupMembers?: { chatId: string; personId: string }[];
+  /** Erase every room the moment a write takes its lock. */
+  sweptOnLock?: boolean;
 }) {
   const chats = [...(options.chats ?? [])];
   const messages = [...(options.messages ?? [])];
@@ -317,6 +319,9 @@ function build(options: {
   const messageCount = vi.fn(async (args: { where: MessageWhere }) => {
     return messages.filter((row) => matchesWhere(row, args.where)).length;
   });
+
+  /** Every advisory lock key a call took, in order. */
+  const locks: string[] = [];
 
   const prisma = {
     chat: {
@@ -437,7 +442,25 @@ function build(options: {
      * service overwriting the row unconditionally pass.
      */
     $executeRaw: vi.fn(
-      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        if (strings.join("").includes("pg_advisory_xact_lock")) {
+          /*
+           * The lock a write takes against the sweep that erases an empty
+           * group. Recorded rather than implemented: what one process waits for
+           * is not something a fake in one process can show, and
+           * `chat-group.int-spec.ts` is where the two meet a real database.
+           */
+          locks.push(String(values[0]));
+          /*
+           * The sweep, committing while this write waited for the lock. It is
+           * the only moment the room can go: membership was decided before the
+           * lock and the insert comes after it.
+           */
+          if (options.sweptOnLock === true) {
+            chats.length = 0;
+          }
+          return 1;
+        }
         const [chatId, personId, readAt] = values as [string, string, Date];
         const standing = reads.find(
           (row) => row.chatId === chatId && row.personId === personId,
@@ -454,6 +477,18 @@ function build(options: {
     ),
   };
 
+  Object.assign(prisma, {
+    /*
+     * The transaction a write runs in, which exists here so the lock inside it
+     * is taken at all. One client either way: what a transaction guarantees is
+     * a property of the database, and every test in this file is about what the
+     * service asks rather than about what the database promises.
+     */
+    $transaction: vi.fn(async (work: (tx: typeof prisma) => Promise<unknown>) =>
+      work(prisma),
+    ),
+  });
+
   return {
     service: new ChatService(prisma as unknown as PrismaService),
     prisma,
@@ -461,6 +496,7 @@ function build(options: {
     messages,
     reads,
     groupMembers,
+    locks,
     messageCount,
     messageCreate,
   };
@@ -1043,6 +1079,54 @@ describe("writing", () => {
       name: "Astrid Lindqvist",
     });
     expect(written.body).toBe("Taket ar klart.");
+  });
+});
+
+describe("writing against the sweep that erases an empty room", () => {
+  it("takes the room's own lock before it inserts", async () => {
+    /*
+     * The nightly sweep erases a group that has held nothing for a year, and it
+     * decides that from a read of the messages. A message committed between
+     * that read and the delete is erased by the cascade, and its author is told
+     * it was stored. Both sides take the same key, so one of them waits: what
+     * the key is matters, because two spellings would be two locks that never
+     * meet.
+     */
+    const { service, locks } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+    });
+
+    await service.write({
+      chatId: BOARD_CHAT_ID,
+      authorPersonId: SEATED.id,
+      body: "Ett meddelande.",
+    });
+
+    expect(locks).toEqual([`chat:${BOARD_CHAT_ID}`]);
+  });
+
+  it("refuses a room the sweep erased, rather than failing on the write", async () => {
+    /*
+     * Read again under the lock. Membership is decided before the lock, so the
+     * room can be erased while this write waits for it - and without the second
+     * read the insert meets the foreign key and answers a fault where the
+     * room's own refusal belongs.
+     */
+    const { service, messages } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+      sweptOnLock: true,
+    });
+
+    await expect(
+      service.write({
+        chatId: BOARD_CHAT_ID,
+        authorPersonId: SEATED.id,
+        body: "Ett meddelande.",
+      }),
+    ).rejects.toMatchObject({ reason: "chat-not-found" });
+    expect(messages).toEqual([]);
   });
 });
 

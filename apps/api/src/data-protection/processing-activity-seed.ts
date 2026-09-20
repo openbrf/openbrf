@@ -245,8 +245,20 @@ const SHAPES: Record<SeedKey, SeedShape> = {
      * chat, whose members are whoever holds a seat, and a group, which somebody
      * living here made for something the house is doing. Both are rooms this
      * instance holds text in, so both belong in the record.
+     *
+     * And whoever used to. A message is erased a year after it was written and
+     * on nothing else - not on the residency that has ended, not on the seat
+     * that was not re-elected - so what somebody wrote is still held, and still
+     * on their access report, long after they have left. A record naming only
+     * the people who are here would describe a processing that stops when a
+     * person leaves, and this one does not.
      */
-    dataSubjectCategories: ["member", "resident", "boardMember"],
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "boardMember",
+      "formerResident",
+    ],
     /*
      * Who wrote, and what they wrote. `freeText` is the substance of the
      * processing rather than a footnote: a message is text somebody composed

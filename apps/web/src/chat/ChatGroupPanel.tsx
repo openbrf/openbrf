@@ -9,7 +9,7 @@ import {
   type ChatGroupCandidate,
   type ChatGroupMember,
 } from "../api/chat";
-import { FIELD, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
+import { FIELD, FIELD_DATA, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { chatFailureKey } from "./chat-failures";
@@ -177,7 +177,14 @@ export function ChatGroupPanel({
         <label className={LABEL}>
           {t("chat.addMember")}
           <select
-            className={FIELD}
+            /*
+             * The data face, because every option carries an apartment number
+             * and a number in the interface face is a number a reader cannot
+             * line up against the register. An option cannot hold two faces, so
+             * the field takes the one the apartment needs - which is what the
+             * move-in screen's apartment picker does.
+             */
+            className={FIELD_DATA}
             value={chosen}
             onChange={(event) => {
               setChosen(event.target.value);

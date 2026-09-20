@@ -474,10 +474,32 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   });
   const sending = send.state.kind === "saving";
 
+  /**
+   * Opens another room, and leaves nothing of the last one behind.
+   *
+   * Everything here belongs to the room it was typed in. A draft is the worst of
+   * them: the form submits the open room's identifier with whatever is in the
+   * box, so a half-written line meant for one private room would be sent to the
+   * next one by somebody who had changed rooms and pressed send. A standing
+   * report notice and a refusal from the room being left are the same mistake in
+   * a smaller way - they would read as this room's.
+   *
+   * `ChatGroupPanel` holds its own room-local state and is given the room's
+   * identifier as its key instead, which is React's own way of saying that a
+   * different room is a different panel.
+   */
+  const openRoom = useCallback((chatId: string | null): void => {
+    setOpenRoomId(chatId);
+    setConversation(null);
+    setDraft("");
+    setReported(null);
+  }, []);
+
   const create = useSaveAction(createChatGroup, (made) => {
     setGroupName("");
     // The room is opened as soon as it exists, because somebody who has just
     // made one made it to write in it.
+    openRoom(made.chatId);
     void loadRooms(made.chatId);
   });
   const creating = create.state.kind === "saving";
@@ -567,7 +589,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                   className={QUIET_BUTTON}
                   aria-current={each.id === room?.id}
                   onClick={() => {
-                    setOpenRoomId(each.id);
+                    openRoom(each.id);
                   }}
                 >
                   {each.name ?? t("chat.boardChat")}
@@ -780,10 +802,12 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
 
           {room.kind === "GROUP" ? (
             <ChatGroupPanel
+              // A different room is a different panel: its member list, its
+              // search and the neighbour picked in it are all this room's.
+              key={room.id}
               chatId={room.id}
               onLeft={() => {
-                setOpenRoomId(null);
-                setConversation(null);
+                openRoom(null);
                 void loadRooms(null);
               }}
             />
