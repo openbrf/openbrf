@@ -426,6 +426,14 @@ repository root. That directory is git-ignored: the images belong in a pull
 request description, not in the history. Drag them out of it and drop them into
 the description.
 
+CI walks it as well. A pull request touching `apps/web`, `packages/i18n` or
+`e2e/screenshots` runs the walk in a job of its own and attaches the whole of
+`screenshots/` to the run, kept for a week; a push to `main` walks whatever it
+carries. The walk is the only thing in CI that opens every screen in the client,
+so a declared screen that has stopped being reachable is a red check rather than
+something the next person to capture by hand discovers - and the images are one
+download away from the pull request that changed them.
+
 The stack is a second one, not the suite's: compose project `openbrf-shots`, on
 ports 3011, 5443 and 8126, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two

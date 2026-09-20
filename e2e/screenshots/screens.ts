@@ -1592,8 +1592,13 @@ export const SCREENS: readonly Screen[] = [
      * A pattern rather than the text, because the character between the groups
      * is the platform's: `Intl.NumberFormat` gives Swedish a no-break space,
      * and which one it is has moved between ICU versions.
+     *
+     * The first match, because the figure stands on the screen twice: the
+     * register row, and the stamp under the document, which totals the rates in
+     * force and has exactly one to total. The row is what this entry waits for,
+     * and it is the one above.
      */
-    waitFor: { text: /3\s*450,50 kr/ },
+    waitFor: { text: /3\s*450,50 kr/, first: true },
     capture: "page",
   },
   {
@@ -1606,11 +1611,16 @@ export const SCREENS: readonly Screen[] = [
      *
      * The first quarter of 2026, which the rate recorded above is in force for.
      * A period may be issued once, and a fresh instance has issued none.
+     *
+     * The period is named inside the card. The accounting basis stands on the
+     * same route and asks for a period of its own, whose fields read "Från och
+     * med" and "Till och med"; a label matches from the beginning, so "Från"
+     * and "Till" reach both cards' fields and name neither.
      */
     name: "fee-notification",
     prepare: [
-      { fill: { label: "Från" }, value: "2026-01-01" },
-      { fill: { label: "Till" }, value: "2026-03-31" },
+      { fill: { label: "Från", within: "Avisering" }, value: "2026-01-01" },
+      { fill: { label: "Till", within: "Avisering" }, value: "2026-03-31" },
       { fill: { label: "Förfallodag" }, value: "2026-01-31" },
       { click: { button: "Framställ avierna" } },
       {
@@ -1713,7 +1723,12 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/chat"),
     // The sentence that exists only once the room list has come back. The
     // heading above it renders before the request does.
-    waitFor: { text: "Styrelsechatten är för den som har ett uppdrag" },
+    //
+    // A pattern, because this is the opening of that sentence rather than the
+    // whole of the paragraph it opens: a string is matched end to end, and
+    // `chat.noRoom` goes on to say where a board seat is recorded and how
+    // somebody comes to be in a group.
+    waitFor: { text: /Styrelsechatten är för den som har ett uppdrag/ },
     capture: "page",
   },
   {
@@ -1737,7 +1752,9 @@ export const SCREENS: readonly Screen[] = [
     as: "resident",
     goto: appPath("/chat"),
     prepare: [
-      { see: { text: "Du är inte med i något rum än" } },
+      // A pattern, for the reason the entry above gives: this is the opening
+      // sentence of `chat.noRoomYet` and two more follow it in the paragraph.
+      { see: { text: /Du är inte med i något rum än/ } },
       { fill: { label: "Gruppens namn" }, value: "Trädgårdsgruppen" },
       { click: { button: "Skapa gruppen" } },
     ],
