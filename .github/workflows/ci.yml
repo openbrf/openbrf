@@ -170,6 +170,102 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+  # A job of its own rather than a step on the end-to-end suite above, although
+  # that one has the checkout, the install and the browser already. The walk is
+  # the only thing in CI that opens every screen in the client, so it is the
+  # only thing that notices a declared screen which has stopped being reachable;
+  # a step after the suite would report that only on the days the suite is
+  # green, and a gate that goes quiet whenever something else is broken is not a
+  # gate. The price is a second production image build, and the two jobs run
+  # side by side, so it is paid in runner minutes rather than in how long a pull
+  # request waits.
+  screenshots:
+    name: Screenshot walk
+    runs-on: ubuntu-latest
+    # Builds the production image and brings up a compose stack, like the suite
+    # above, and gets the same ceiling for the same reason.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+          # The whole history, because the step below asks what a pull request
+          # changed and the base commit has to be in the clone to answer.
+          fetch-depth: 0
+
+      # What the walk photographs is the client, the Swedish it renders and the
+      # list of screens itself, so those three are what can break it, and a pull
+      # request touching none of them would pay an image build for images nobody
+      # asked for. Every push to main walks whatever it carries. GitHub filters
+      # paths per workflow and never per job, and this workflow has four other
+      # jobs that run on everything, so the filter is a step rather than a
+      # `paths:` key. A skipped job still reports, which a workflow filtered out
+      # by path does not - the difference between a check that is satisfied and
+      # one a pull request waits on forever.
+      - name: Decide whether the walk applies
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "walk=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          touched=$(git diff --name-only "$BASE_SHA" HEAD \
+            -- apps/web packages/i18n e2e/screenshots)
+          if [ -n "$touched" ]; then
+            echo "walk=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "walk=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.scope.outputs.walk == 'true'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.walk == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.scope.outputs.walk == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Chromium only, because the walk declares one project and the images are
+      # all taken in it.
+      - name: Install Chromium
+        if: steps.scope.outputs.walk == 'true'
+        run: pnpm --filter @openbrf/e2e exec playwright install --with-deps chromium
+
+      # Builds the production image, brings up the capture's own stack - compose
+      # project openbrf-shots, on ports of its own - from empty volumes, walks
+      # every screen declared in e2e/screenshots/screens.ts in light and dark,
+      # and tears the stack down again.
+      - name: Screenshot walk
+        if: steps.scope.outputs.walk == 'true'
+        run: pnpm screenshots
+
+      # A gate that proves the walk ran and shows nobody the images is half a
+      # gate: CONTRIBUTING.md asks for the images in the pull request, and the
+      # reviewer they are for is reading this one. Kept after a failed walk as
+      # well, because the screens photographed before the entry that broke are
+      # what say where it broke. The retention is the report's above: a review
+      # round, and no longer, for 162 files and about 28 MB a run.
+      - name: Upload the screenshots
+        if: ${{ !cancelled() && steps.scope.outputs.walk == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: screenshots
+          path: screenshots/
+          retention-days: 7
+          # An entry that broke before the first image leaves the directory
+          # empty, and an empty upload is not a second failure worth reporting.
+          if-no-files-found: ignore
+
   pr-title:
     name: Validate PR title
     if: github.event_name == 'pull_request'
