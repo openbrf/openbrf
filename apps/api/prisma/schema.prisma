@@ -1680,6 +1680,13 @@ enum AuditAction {
   /// A copy of named apartments' amounts leaving the association, so the read
   /// and this entry commit together.
   FEE_NOTIFICATION_EXPORTED
+  /// The period's fee notices and member charges were exported as the
+  /// accounting basis (bokforingsunderlag). A separate value from the two
+  /// exports it draws on, because it is a separate disclosure: one file
+  /// carrying both halves of the period's money, leaving the association for
+  /// whoever keeps its books. The entry carries the period and nothing the file
+  /// held - no apartment, no name and no figure.
+  ACCOUNTING_BASIS_EXPORTED
   /// A legal hold was placed on a person's data, suspending the purge.
   LEGAL_HOLD_PLACED
   /// A legal hold was released, so the purge reaches that data again.

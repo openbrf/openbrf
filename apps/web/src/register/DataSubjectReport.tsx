@@ -390,6 +390,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.FEE_NOTIFICATION_ISSUED",
   FEE_NOTIFICATION_EXPORTED:
     "register.person.report.action.FEE_NOTIFICATION_EXPORTED",
+  ACCOUNTING_BASIS_EXPORTED:
+    "register.person.report.action.ACCOUNTING_BASIS_EXPORTED",
   BOARD_MAILBOX_THREAD_TAKEN:
     "register.person.report.action.BOARD_MAILBOX_THREAD_TAKEN",
   BOARD_MAILBOX_THREAD_RELEASED:

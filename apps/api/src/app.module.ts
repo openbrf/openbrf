@@ -12,6 +12,7 @@ import { AuthorizationModule } from "./authorization/authorization.module";
 import { BoardModule } from "./board/board.module";
 import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
 import { BookingsModule } from "./bookings/bookings.module";
+import { AccountingModule } from "./accounting/accounting.module";
 import { ChargesModule } from "./charges/charges.module";
 import { ChatModule } from "./chat/chat.module";
 import { FeesModule } from "./fees/fees.module";
@@ -100,6 +101,7 @@ import { ThemesModule } from "./themes/themes.module";
     ChargesModule,
     ChatModule,
     FeesModule,
+    AccountingModule,
     ConnectedAppsModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has

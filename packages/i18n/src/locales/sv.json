@@ -648,6 +648,7 @@
           "FEE_REMOVED": "En felregistrerad avgift togs bort",
           "FEE_NOTIFICATION_ISSUED": "En periods avier framställdes",
           "FEE_NOTIFICATION_EXPORTED": "En periods avier togs fram som dokument",
+          "ACCOUNTING_BASIS_EXPORTED": "Bokföringsunderlaget exporterades",
           "BOARD_MAILBOX_THREAD_TAKEN": "En tråd i styrelsens brevlåda togs om hand",
           "BOARD_MAILBOX_THREAD_RELEASED": "En tråd i styrelsens brevlåda lämnades tillbaka",
           "BOARD_MAILBOX_REPLY_SENT": "Ett svar skickades från styrelsens brevlåda",
@@ -3959,6 +3960,33 @@
       "rangeInvalid": "Perioden kan inte sluta innan den börjar.",
       "invalidBody": "Något i formuläret kunde inte läsas. Kontrollera beloppet och datumen.",
       "unknown": "Debiteringen kunde inte sparas just nu."
+    }
+  },
+  "accounting": {
+    "basis": {
+      "title": "Bokföringsunderlag",
+      "description": "Periodens avier och debiteringar i en fil, till den som sköter föreningens bokföring.",
+      "notALedger": "Filen anger det som aviserats och debiterats. Den innehåller inga kontonummer, inga verifikationer och inga saldon, och den säger ingenting om betalning: Open BRF håller underlaget, och vilka konton beloppen bokförs på avgör den som sköter era böcker.",
+      "from": "Från och med",
+      "to": "Till och med",
+      "produce": "Ta fram bokföringsunderlaget",
+      "runsAreWhole": "En avisering hör till den period som dess egen period börjar i, och tas med i sin helhet: ett kvartal som aviseras från januari ligger i sin helhet på januaris fil. En debitering hör till den dag den är daterad.",
+      "feeRows": "Avier",
+      "chargeRows": "Debiteringar",
+      "rowsWithTotal_one": "{{count}} rad, {{amount}} kr",
+      "rowsWithTotal_other": "{{count}} rader, {{amount}} kr",
+      "total": "Tillsammans",
+      "amountWithUnit": "{{amount}} kr",
+      "download": "Hämta bokföringsunderlaget",
+      "stamp": "Bokföringsunderlag - {{from}} till {{to}} - framställt {{date}}",
+      "columnsAreDocumented": "Kolumnerna är stabila och dokumenterade, så en mappning till ert bokföringsprogram skrivs en gång och lämnas sedan i fred.",
+      "feeVat": "En debitering har sin momshantering med sig. Det har inte en avi: den är ett belopp per lägenhet över de avgiftsslag och de månader den avser, och att dela upp det här vore ett andra svar på vad som aviserats. Momshanteringen per avgift finns i avgiftsregistret."
+    },
+    "errors": {
+      "dateNotACalendarDate": "Det är inget datum.",
+      "rangeInvalid": "Perioden slutar innan den börjar.",
+      "invalidBody": "Ange perioden som två datum.",
+      "unknown": "Filen kunde inte tas fram just nu."
     }
   },
   "fees": {

@@ -1,0 +1,18 @@
+-- What exporting the accounting basis (bokforingsunderlag) has to be able to
+-- say in the log.
+--
+-- One value, and it carries no figure. The file is the period's fee notices and
+-- member charges together, leaving the association for whoever keeps its books,
+-- so the log has to be able to say who took a copy and of which period - and
+-- nothing about what was in it. The log is exempt from every purge, so an
+-- amount or an apartment copied into an entry would outlive the rows it
+-- described.
+--
+-- A value of its own rather than the two exports it draws on. Producing the
+-- debiting list and producing a run's notices are two acts a board takes on its
+-- own screens; this is a third, and an entry that reused either name would say
+-- the board had done something it had not.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ACCOUNTING_BASIS_EXPORTED';

@@ -86,6 +86,23 @@ turns every Swedish vowel into a pair of symbols. Rows end with CRLF. A cell
 containing a semicolon, a quotation mark or a line break is quoted, and an inner
 quotation mark is doubled.
 
+**A cell that a spreadsheet would read as a formula is prefixed with an
+apostrophe.** That is a cell beginning with `=`, `+`, `-`, `@`, a tab or a
+carriage return: a spreadsheet executes those when the file is opened, with the
+authority of whoever opened it rather than of the association that wrote it. The
+apostrophe is the conventional marker for "what follows is text", and it is
+shown in the formula bar rather than in the cell.
+
+**A number is left exactly as it was**, sign included, because `-450,00` is an
+amount and not a formula, and a figure turned into text is a worse fault than
+the one the prefix is for. A date needs no exemption: every date here is written
+`YYYY-MM-DD` and begins with a digit, as do the personal identity numbers and
+the organisation number. So no row of this file that an association can actually
+produce changes shape - the names, addresses, identity numbers, dates and
+enumerated words in the columns below all begin with a letter or a digit. What
+the rule reaches is free text a board typed with one of those six characters in
+front of it, such as a creditor named on a lien note.
+
 The first line is the header, and it is the column list verbatim. Every row has a
 cell for every column.
 

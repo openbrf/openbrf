@@ -1013,9 +1013,25 @@ no, and the pilot is the thing that will change it.
       nightly purge erases a fee and its notices at the end of the seventh
       calendar year after the one that financial year ended in
       (bokföringslagen 7 kap. 2 §), unless a legal hold stands
-- [ ] Exporting the period's fees and charges for whoever keeps the books: a
+- [x] Exporting the period's fees and charges for whoever keeps the books: a
       documented CSV with a column contract, on the debiting list's own
-      precedent
+      precedent. One file with both halves of the period's money, offered from
+      the fee screen and the charge screen alike, produced on a click because
+      it is an audited disclosure rather than a page anybody's browser could
+      fetch. A notification run belongs to the period its own period opens in
+      and is carried whole: an amount billed for a quarter has no exact part,
+      so consecutive exports count every run exactly once instead of
+      apportioning one. There is no SIE file and none is planned:
+      docs/accounting-basis-contract.md states every column and records what a
+      SIE 4I transactions file would have cost - a codepage 437 transcode, the
+      standard's own quoting rule and a writer nobody has written for this
+      language - against a bookkeeper mapping eleven columns once. The fee half
+      names nobody, and that is deliberate: the notice document withholds a
+      protected household's names and prints the apartment while the debiting
+      list prints the name and withholds the apartment, so a file carrying both
+      would let a reader put the name back against the door. No account
+      numbers, no vouchers, no balances and nothing about payment - Open BRF
+      holds the basis and the accounting system holds the debt
 - [ ] Debiting list for a joint facility association
       (samfällighetsförening). A separate artifact for a separate legal
       person, governed by Lag (1973:1150) om förvaltning av samfälligheter
