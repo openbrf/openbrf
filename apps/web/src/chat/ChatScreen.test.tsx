@@ -838,6 +838,39 @@ describe("changing room", () => {
     );
   });
 
+  it("leaves no refusal behind in the room it opens", async () => {
+    /*
+     * The refusal lives in the save action rather than in the screen's own
+     * state, which is what makes it the easiest of these to miss: a personal
+     * identity number refused in the board chat would be reported over the
+     * group opened next, about a message that room never saw.
+     */
+    twoRooms();
+    writeMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "personal-identity-number" },
+    });
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Det är 19811218-9876 som står där.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    expect(
+      await screen.findByText(/innehåller ett personnummer/),
+    ).not.toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+
+    expect(screen.queryByText(/innehåller ett personnummer/)).toBeNull();
+  });
+
   it("leaves no standing report notice behind in the room it opens", async () => {
     // The sentence says the board has this message. Said again over another
     // room, it would be saying it about a message nobody reported.

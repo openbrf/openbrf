@@ -3,6 +3,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
+import { lockChatMessage } from "./chat-lock";
 import { holdsBoardSeat, roomFor } from "./chat-membership";
 import { ChatError } from "./chat.error";
 import {
@@ -171,6 +173,10 @@ export class ChatReportService {
        * to know the board has it, and a silent second report would leave them
        * pressing - while a second row would let one member of a room fill the
        * queue with one message.
+       *
+       * The read is the ordinary path and the constraint is the whole rule: two
+       * presses arriving together both pass this, and the insert below answers
+       * the second with the same refusal rather than with a fault.
        */
       throw new ChatError(
         "This message has already been reported by this account.",
@@ -178,14 +184,34 @@ export class ChatReportService {
       );
     }
 
-    const created = await this.prisma.chatMessageReport.create({
-      data: {
-        messageId: message.id,
-        reporterPersonId: reporter.personId,
-        note,
-      },
-      select: { id: true },
-    });
+    const created = await this.prisma.chatMessageReport
+      .create({
+        data: {
+          messageId: message.id,
+          reporterPersonId: reporter.personId,
+          note,
+        },
+        select: { id: true },
+      })
+      .catch((cause: unknown) => {
+        /*
+         * The read above narrows the window; the unique constraint on the
+         * message and the reporter closes it. Two presses on one button arrive
+         * together, both pass the read, and the second insert raises P2002 -
+         * which without this reaches the reporter as a fault where the refusal
+         * the sentence above promises belongs.
+         */
+        if (
+          cause instanceof Prisma.PrismaClientKnownRequestError &&
+          cause.code === "P2002"
+        ) {
+          throw new ChatError(
+            "This message has already been reported by this account.",
+            "already-reported",
+          );
+        }
+        throw cause;
+      });
 
     // The room and the report, and nothing that was said in either.
     this.logger.log(
@@ -237,32 +263,19 @@ export class ChatReportService {
     await this.requireSeat(actor);
 
     const struck = await this.prisma.$transaction(async (tx) => {
-      const report = await tx.chatMessageReport.findUnique({
-        where: { id: reportId },
-        select: {
-          id: true,
-          resolvedAt: true,
-          message: {
-            select: { id: true, chatId: true, authorPersonId: true },
-          },
-        },
-      });
-      if (report === null) {
-        throw new ChatError("There is no such report.", "report-not-found");
-      }
-      if (report.resolvedAt !== null) {
-        throw new ChatError(
-          "The board has already answered this report.",
-          "report-resolved",
-        );
-      }
-
+      const report = await this.claim(tx, reportId, actor, true);
       const now = new Date();
+
       const { count } = await tx.chatMessage.updateMany({
         where: { id: report.message.id, struckAt: null },
         data: { struckAt: now, struckByPersonId: actor.personId },
       });
 
+      /*
+       * Every other report of the same message, closed with the one that was
+       * answered: they were asking the same question, and the board has
+       * answered it about the message rather than about one person's report.
+       */
       await tx.chatMessageReport.updateMany({
         where: { messageId: report.message.id, resolvedAt: null },
         data: {
@@ -321,19 +334,7 @@ export class ChatReportService {
     await this.requireSeat(actor);
 
     await this.prisma.$transaction(async (tx) => {
-      const report = await tx.chatMessageReport.findUnique({
-        where: { id: reportId },
-        select: { id: true, resolvedAt: true, messageId: true },
-      });
-      if (report === null) {
-        throw new ChatError("There is no such report.", "report-not-found");
-      }
-      if (report.resolvedAt !== null) {
-        throw new ChatError(
-          "The board has already answered this report.",
-          "report-resolved",
-        );
-      }
+      const report = await this.claim(tx, reportId, actor, false);
 
       /*
        * Every open report about that message, exactly as striking closes every
@@ -343,7 +344,7 @@ export class ChatReportService {
        * to make.
        */
       await tx.chatMessageReport.updateMany({
-        where: { messageId: report.messageId, resolvedAt: null },
+        where: { messageId: report.message.id, resolvedAt: null },
         data: {
           resolvedAt: new Date(),
           resolvedByPersonId: actor.personId,
@@ -353,6 +354,64 @@ export class ChatReportService {
     });
 
     return this.byId(reportId);
+  }
+
+  /**
+   * Takes the report, or refuses the board member who arrived second.
+   *
+   * Two things have to be settled before anything is written, and each needs its
+   * own mechanism.
+   *
+   * Two presses on one report are settled by the claim itself: the update is
+   * conditional on the report still being open, so exactly one of them changes a
+   * row and the other reads a count of zero. A read followed by an update would
+   * let both pass - at READ COMMITTED each sees the row as the other found it.
+   *
+   * Two presses on two reports of the same message are settled by the lock. The
+   * decision is about the message: one answer closes every report of it, so two
+   * answers arriving together could otherwise leave the record saying the board
+   * left a message standing while the message carries a strike. Nothing about
+   * one row can state that, so the key is the message.
+   *
+   * The refusal for a report that has gone and for one already answered stays
+   * two different sentences, because neither says anything a board member did
+   * not already know.
+   */
+  private async claim(
+    tx: Prisma.TransactionClient,
+    reportId: string,
+    actor: Principal,
+    upheld: boolean,
+  ): Promise<{ id: string; message: ClaimedMessage }> {
+    const report = await tx.chatMessageReport.findUnique({
+      where: { id: reportId },
+      select: {
+        id: true,
+        message: { select: { id: true, chatId: true, authorPersonId: true } },
+      },
+    });
+    if (report === null) {
+      throw new ChatError("There is no such report.", "report-not-found");
+    }
+
+    await lockChatMessage(tx, report.message.id);
+
+    const { count } = await tx.chatMessageReport.updateMany({
+      where: { id: report.id, resolvedAt: null },
+      data: {
+        resolvedAt: new Date(),
+        resolvedByPersonId: actor.personId,
+        upheld,
+      },
+    });
+    if (count === 0) {
+      throw new ChatError(
+        "The board has already answered this report.",
+        "report-resolved",
+      );
+    }
+
+    return report;
   }
 
   /** Whether this account is on the board today. */
@@ -515,6 +574,13 @@ const REPORT_COLUMNS = {
     },
   },
 } as const;
+
+/** The message a claimed report is about. */
+interface ClaimedMessage {
+  id: string;
+  chatId: string;
+  authorPersonId: string;
+}
 
 interface ReportRow {
   id: string;

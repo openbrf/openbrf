@@ -2697,8 +2697,8 @@
     "errors": {
       "chatNotFound": "Den chatten finns inte, eller är inte din att läsa.",
       "messageNotFound": "Det meddelandet finns inte, eller är inte ditt att läsa.",
-      "reportNotFound": "Den anmälan finns inte.",
-      "reportResolved": "Styrelsen har redan svarat på den anmälan.",
+      "reportNotFound": "Det anmälda chattmeddelandet finns inte.",
+      "reportResolved": "Styrelsen har redan svarat på anmälan av det chattmeddelandet.",
       "notAResident": "En grupp är för dem som bor här.",
       "notReportable": "Det som sägs i styrelsechatten kan inte anmälas: styrelsen är hela rummet.",
       "alreadyReported": "Du har redan anmält det meddelandet. Styrelsen har det.",

@@ -272,34 +272,51 @@ export class ChatPurgeService implements OnModuleInit {
 
     let deleted = 0;
     for (const chatId of chatIds) {
-      deleted += await this.prisma.$transaction(async (tx) => {
-        /*
-         * Before the emptiness is decided, so that deciding it settles the
-         * question. A message committing between the scan above and this delete
-         * would be erased by the cascade and its author told it was stored -
-         * `chat-lock.ts` has the whole of that argument, and `ChatService.write`
-         * takes the same key.
-         */
-        await lockChat(tx, chatId);
+      try {
+        deleted += await this.prisma.$transaction(async (tx) => {
+          /*
+           * Before the emptiness is decided, so that deciding it settles the
+           * question. A message committing between the scan above and this delete
+           * would be erased by the cascade and its author told it was stored -
+           * `chat-lock.ts` has the whole of that argument, and `ChatService.write`
+           * takes the same key.
+           */
+          await lockChat(tx, chatId);
 
-        /*
-         * Every condition again, under the lock and in the delete itself, so
-         * that what the scan found is not what is acted on. The room alone: its
-         * read markers and its membership rows both cascade with it, so
-         * deleting either here would leave the constraint removable without a
-         * test noticing. `chatId` carries the cascade; `personId` stays a plain
-         * column so a purge can reach a person's rows unvetoed.
-         */
-        const { count } = await tx.chat.deleteMany({
-          where: {
-            id: chatId,
-            kind: "GROUP",
-            createdAt: { lte: cutoff },
-            messages: { none: {} },
-          },
+          /*
+           * Every condition again, under the lock and in the delete itself, so
+           * that what the scan found is not what is acted on. The room alone: its
+           * read markers and its membership rows both cascade with it, so
+           * deleting either here would leave the constraint removable without a
+           * test noticing. `chatId` carries the cascade; `personId` stays a plain
+           * column so a purge can reach a person's rows unvetoed.
+           */
+          const { count } = await tx.chat.deleteMany({
+            where: {
+              id: chatId,
+              kind: "GROUP",
+              createdAt: { lte: cutoff },
+              messages: { none: {} },
+            },
+          });
+          return count;
         });
-        return count;
-      });
+      } catch (error) {
+        /*
+         * One room the database refuses must not stop the rest, exactly as one
+         * person's purge does not stop the run: the loop is a list of erasures
+         * that are all owed, and a room that fails every night would otherwise
+         * keep every room sorting after it for as long as it kept failing -
+         * a retention failure that hides itself behind a summary nobody sees.
+         *
+         * The class of the failure and the room, and nothing the failure was
+         * holding: an exception message here can be quoting a row, and this one
+         * would be quoting a room's name - ADR 0007.
+         */
+        this.logger.error(
+          `Purging empty group chat ${chatId} failed: ${failureName(error)}`,
+        );
+      }
     }
 
     if (deleted > 0) {

@@ -12,6 +12,7 @@ import {
   roomFor,
   type ChatRoom,
 } from "./chat-membership";
+import { lockChat } from "./chat-lock";
 import { ChatError } from "./chat.error";
 import { authorViewOf, type ChatAuthorView } from "./chat.service";
 
@@ -251,9 +252,39 @@ export class ChatGroupService {
     }
 
     await this.refuseTooManyGroups(personId);
-    await this.refuseFullGroup(group.id);
 
-    await this.prisma.$transaction(async (tx) => {
+    const added = await this.prisma.$transaction(async (tx) => {
+      /*
+       * The room's own lock, and the capacity counted under it. Two people put
+       * into a full room at the same moment would otherwise both read a count
+       * below the cap and both be let in: the bound is over a set of rows and
+       * no row carries it, which is the case `chat-lock.ts` exists for.
+       *
+       * Membership is read again under it as well, so two presses on one name
+       * settle as one - the pair is the row's identifier, and the second insert
+       * would otherwise meet the primary key rather than the idempotent answer
+       * the method promises.
+       */
+      await lockChat(tx, group.id);
+
+      const members = await tx.chatGroupMember.count({
+        where: { chatId: group.id },
+      });
+      if (members >= MEMBERS_PER_GROUP) {
+        throw new ChatError(
+          "This group already holds as many people as a group may hold.",
+          "group-full",
+        );
+      }
+
+      const standing = await tx.chatGroupMember.findUnique({
+        where: { chatId_personId: { chatId: group.id, personId } },
+        select: { chatId: true },
+      });
+      if (standing !== null) {
+        return false;
+      }
+
       await tx.chatGroupMember.create({
         data: {
           chatId: group.id,
@@ -276,9 +307,13 @@ export class ChatGroupService {
         },
         tx,
       );
+
+      return true;
     });
 
-    this.logger.log(`A person was put into group chat ${group.id}`);
+    if (added) {
+      this.logger.log(`A person was put into group chat ${group.id}`);
+    }
 
     return this.members(group.id);
   }
@@ -460,19 +495,6 @@ export class ChatGroupService {
       throw new ChatError(
         "This account is already in as many groups as one account may be in.",
         "too-many-groups",
-      );
-    }
-  }
-
-  /** Refuses a room that already holds as many people as a room may. */
-  private async refuseFullGroup(chatId: string): Promise<void> {
-    const members = await this.prisma.chatGroupMember.count({
-      where: { chatId },
-    });
-    if (members >= MEMBERS_PER_GROUP) {
-      throw new ChatError(
-        "This group already holds as many people as a group may hold.",
-        "group-full",
       );
     }
   }

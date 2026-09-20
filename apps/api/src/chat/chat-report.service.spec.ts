@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { Prisma } from "../generated/prisma/client";
+
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
@@ -109,6 +111,15 @@ function build(options: {
   members?: string[];
   /** Who holds a board seat. The board member alone, unless a test says so. */
   seatedPersonIds?: string[];
+  /**
+   * The other answer, landing while this one waits for the lock.
+   *
+   * The only moment it can: the claim below is conditional on the report still
+   * being open, and the rows it reads are read after the lock.
+   */
+  whileWaiting?: (reports: ReportFixture[], messages: MessageFixture[]) => void;
+  /** The other report, landing between the read for it and the insert. */
+  whileReading?: (reports: ReportFixture[]) => void;
 }) {
   const seated = options.seatedPersonIds ?? [NILS, BOARD_MEMBER];
   // Copied row by row rather than by the array, so a strike in one test cannot
@@ -145,7 +156,23 @@ function build(options: {
     };
   };
 
+  /** Every advisory lock key an answer took, in order. */
+  const locks: string[] = [];
+
   const client = {
+    /*
+     * The lock the board takes on the message before it answers a report about
+     * it. Recorded rather than implemented - what one transaction waits for is
+     * not something a fake in one process can show - and the hook below is how
+     * a test says "the other answer landed while this one waited".
+     */
+    $executeRaw: vi.fn(
+      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        locks.push(String(values[0]));
+        options.whileWaiting?.(reports, messages);
+        return 1;
+      },
+    ),
     chat: {
       findUnique: vi.fn(
         async (args: { where: { id: string } }) =>
@@ -231,6 +258,14 @@ function build(options: {
                     report.messageId === pair.messageId &&
                     report.reporterPersonId === pair.reporterPersonId,
                 );
+          if (pair !== undefined) {
+            /*
+             * The other press, landing after this read has answered and before
+             * the insert. That is the only gap there is, and what closes it is
+             * the constraint rather than the read.
+             */
+            options.whileReading?.(reports);
+          }
           return found === undefined ? null : reportRow(found);
         },
       ),
@@ -251,6 +286,24 @@ function build(options: {
             note: string | null;
           };
         }) => {
+          /*
+           * The constraint the table carries: one person reports one message
+           * once. Raised here rather than assumed, because the read before the
+           * insert is only the ordinary path - two presses arriving together
+           * both pass it, and what answers the second is this.
+           */
+          if (
+            reports.some(
+              (report) =>
+                report.messageId === args.data.messageId &&
+                report.reporterPersonId === args.data.reporterPersonId,
+            )
+          ) {
+            throw new Prisma.PrismaClientKnownRequestError(
+              "Unique constraint failed",
+              { code: "P2002", clientVersion: "test" },
+            );
+          }
           const row: ReportFixture = {
             id: `report-${String(reports.length + 1)}`,
             ...args.data,
@@ -307,6 +360,7 @@ function build(options: {
     audit,
     messages,
     reports,
+    locks,
   };
 }
 
@@ -393,6 +447,27 @@ describe("reporting a message", () => {
     expect(JSON.stringify(refused.details())).toContain('"note"');
     expect(JSON.stringify(refused.details())).not.toContain("19811218");
     expect(reports).toEqual([]);
+  });
+
+  it("answers a second press that arrives at the same moment with the refusal", async () => {
+    /*
+     * Two presses on one button, both past the read and into the insert. The
+     * constraint is what settles it, and what the second one gets has to be the
+     * sentence the first would have got rather than a fault: a reporter who
+     * double-clicked has done nothing wrong, and the board has the message
+     * either way.
+     */
+    const { service, reports } = build({
+      whileReading: (held) => {
+        held.push({ ...openReport(), id: "report-raced" });
+      },
+    });
+
+    await expect(
+      service.report(principal(NILS, ["chat:participate"]), MESSAGE_ID, null),
+    ).rejects.toMatchObject({ reason: "already-reported" });
+    // One row, which is the whole of what the constraint is for.
+    expect(reports).toHaveLength(1);
   });
 
   it("writes no audit entry, because the report row is the record", async () => {
@@ -595,6 +670,85 @@ describe("striking a message through", () => {
     await expect(service.strike(board, "report-9")).rejects.toMatchObject({
       reason: "report-not-found",
     });
+  });
+});
+
+describe("two answers arriving together", () => {
+  const board = principal(BOARD_MEMBER, ["chat:moderate"]);
+  const second = principal("person-second-seat", ["chat:moderate"]);
+
+  /** The other answer, landing while this one waits for the lock. */
+  function answeredWhileWaiting(upheld: boolean, struck: boolean) {
+    return (reports: ReportFixture[], messages: MessageFixture[]): void => {
+      for (const report of reports) {
+        if (report.resolvedAt === null) {
+          report.resolvedAt = new Date("2026-03-03T09:00:00.000Z");
+          report.resolvedByPersonId = second.personId;
+          report.upheld = upheld;
+        }
+      }
+      const message = messages[0];
+      if (struck && message !== undefined) {
+        message.struckAt = new Date("2026-03-03T09:00:00.000Z");
+        message.struckByPersonId = second.personId;
+      }
+    };
+  }
+
+  it("takes the message's own lock before it claims the report", async () => {
+    /*
+     * The decision is about the message rather than about one person's report
+     * of it: answering one closes every report of that message. Two answers to
+     * two reports of one line would otherwise both pass their own check, so the
+     * key is the message - and it has to be the same key on both paths.
+     */
+    const { service, locks } = build({
+      reports: [openReport()],
+      seatedPersonIds: [NILS, BOARD_MEMBER, second.personId],
+    });
+
+    await service.strike(board, "report-1");
+
+    expect(locks).toEqual([`chat-message:${MESSAGE_ID}`]);
+  });
+
+  it("refuses the strike that arrives after a dismissal, and leaves the message standing", async () => {
+    /*
+     * The record is what this protects. A strike that went through after the
+     * board had left the message standing would write CHAT_MESSAGE_STRUCK and
+     * find no report of its own to update - so the row would say the board left
+     * standing a message that carries a strike, which is worse than either
+     * answer on its own.
+     */
+    const { service, messages, reports, audit } = build({
+      reports: [openReport()],
+      seatedPersonIds: [NILS, BOARD_MEMBER, second.personId],
+      whileWaiting: answeredWhileWaiting(false, false),
+    });
+
+    await expect(service.strike(board, "report-1")).rejects.toMatchObject({
+      reason: "report-resolved",
+    });
+
+    expect(messages[0]?.struckAt).toBeNull();
+    expect(reports[0]?.upheld).toBe(false);
+    expect(reports[0]?.resolvedByPersonId).toBe(second.personId);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses the dismissal that arrives after a strike, and the record says struck", async () => {
+    const { service, messages, reports } = build({
+      reports: [openReport()],
+      seatedPersonIds: [NILS, BOARD_MEMBER, second.personId],
+      whileWaiting: answeredWhileWaiting(true, true),
+    });
+
+    await expect(service.dismiss(board, "report-1")).rejects.toMatchObject({
+      reason: "report-resolved",
+    });
+
+    expect(messages[0]?.struckAt).not.toBeNull();
+    expect(reports[0]?.upheld).toBe(true);
   });
 });
 

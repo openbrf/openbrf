@@ -474,6 +474,33 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   });
   const sending = send.state.kind === "saving";
 
+  const report = useSaveAction(reportChatMessage, () => {
+    /*
+     * The message is not read back. Reporting changes nothing about the room -
+     * the message stays exactly where it is until the board answers - so what
+     * the screen owes the reporter is the sentence saying the board has it.
+     */
+  });
+  const reporting = report.state.kind === "saving";
+
+  const create = useSaveAction(createChatGroup, (made) => {
+    setGroupName("");
+    /*
+     * The room is opened as soon as it exists, because somebody who has just
+     * made one made it to write in it - and nothing of the room they were in
+     * comes with them. The same four things `openRoom` clears, spelled here
+     * because that callback needs this action's own `reset` and so is defined
+     * below it.
+     */
+    setConversation(null);
+    setDraft("");
+    setReported(null);
+    send.reset();
+    report.reset();
+    void loadRooms(made.chatId);
+  });
+  const creating = create.state.kind === "saving";
+
   /**
    * Opens another room, and leaves nothing of the last one behind.
    *
@@ -484,34 +511,28 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * report notice and a refusal from the room being left are the same mistake in
    * a smaller way - they would read as this room's.
    *
+   * A refusal is one of them and is the easiest to miss, because it lives in a
+   * save action rather than in this component's own state: a personal identity
+   * number refused in the board chat would otherwise be reported over the group
+   * opened next, about a message that room never saw. Each room-bound action is
+   * reset here, which is what `useSaveAction` returns `reset` for.
+   *
    * `ChatGroupPanel` holds its own room-local state and is given the room's
    * identifier as its key instead, which is React's own way of saying that a
    * different room is a different panel.
    */
-  const openRoom = useCallback((chatId: string | null): void => {
-    setOpenRoomId(chatId);
-    setConversation(null);
-    setDraft("");
-    setReported(null);
-  }, []);
-
-  const create = useSaveAction(createChatGroup, (made) => {
-    setGroupName("");
-    // The room is opened as soon as it exists, because somebody who has just
-    // made one made it to write in it.
-    openRoom(made.chatId);
-    void loadRooms(made.chatId);
-  });
-  const creating = create.state.kind === "saving";
-
-  const report = useSaveAction(reportChatMessage, () => {
-    /*
-     * The message is not read back. Reporting changes nothing about the room -
-     * the message stays exactly where it is until the board answers - so what
-     * the screen owes the reporter is the sentence saying the board has it.
-     */
-  });
-  const reporting = report.state.kind === "saving";
+  const openRoom = useCallback(
+    (chatId: string | null): void => {
+      setOpenRoomId(chatId);
+      setConversation(null);
+      setDraft("");
+      setReported(null);
+      send.reset();
+      report.reset();
+      create.reset();
+    },
+    [send, report, create],
+  );
 
   const failure =
     send.state.kind === "failed"

@@ -90,6 +90,8 @@ function build(options: {
   }[];
   /** Write into this room the moment the sweep takes its lock. */
   writtenInOnLock?: string;
+  /** The room whose delete the database refuses, every time it is tried. */
+  refusedChatId?: string;
 }) {
   const held = options.heldPersonIds ?? [];
   const restricted = options.restrictedPersonIds ?? [];
@@ -232,6 +234,9 @@ function build(options: {
           };
         }) => {
           calls.push("deleteGroups");
+          if (args.where.id === options.refusedChatId) {
+            throw new Error(`the database refused ${args.where.id}`);
+          }
           const index = rooms.findIndex(
             (room) =>
               room.id === args.where.id &&
@@ -641,6 +646,44 @@ describe("a room that holds nothing", () => {
      * chat-group.int-spec.ts, which is the only place it can be.
      */
     expect(calls).not.toContain("deleteReadMarkers");
+  });
+
+  it("carries on past a room the database refuses, and names it by its class", async () => {
+    /*
+     * The loop is a list of erasures that are all owed. A room that fails would
+     * otherwise end the sweep where it stood and take the run's summary with
+     * it - so every room sorting after it would keep its membership list for as
+     * long as that one room kept failing, and nothing would say so.
+     *
+     * What reaches the log is the class of the failure and the room. An
+     * exception message here can be quoting a row, and this row is a room
+     * somebody named.
+     */
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const { service, rooms } = build({
+      messages: [],
+      rooms: [
+        { id: "chat-aa-refused", kind: "GROUP", createdAt: A_YEAR_AGO },
+        { id: "chat-bb", kind: "GROUP", createdAt: A_YEAR_AGO },
+      ],
+      refusedChatId: "chat-aa-refused",
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    // The second room is erased although the first one threw, and the run
+    // answers with a summary rather than rejecting.
+    expect(summary.groupsDeleted).toBe(1);
+    expect(rooms.map((room) => room.id)).toEqual(["chat-aa-refused"]);
+
+    expect(logged).toHaveBeenCalledOnce();
+    const line = String(logged.mock.calls[0]?.[0]);
+    expect(line).toContain("chat-aa-refused");
+    expect(line).toContain("Error");
+    // Never what the failure was holding: this one is quoting the room.
+    expect(line).not.toContain("the database refused");
   });
 
   it("takes the room's own lock before it decides the room is empty", async () => {

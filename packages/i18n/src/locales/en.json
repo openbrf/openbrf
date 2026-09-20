@@ -2697,8 +2697,8 @@
     "errors": {
       "chatNotFound": "That chat is not there, or it is not yours to read.",
       "messageNotFound": "That message does not exist, or is not yours to read.",
-      "reportNotFound": "That report does not exist.",
-      "reportResolved": "The board has already answered that report.",
+      "reportNotFound": "That reported chat message does not exist.",
+      "reportResolved": "The board has already answered that reported chat message.",
       "notAResident": "A group is for the people who live here.",
       "notReportable": "What is said in the board chat cannot be reported: the board is the whole room.",
       "alreadyReported": "You have already reported that message. The board has it.",

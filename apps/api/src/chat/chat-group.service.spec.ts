@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
-import { ChatGroupService } from "./chat-group.service";
+import { ChatGroupService, MEMBERS_PER_GROUP } from "./chat-group.service";
 
 /**
  * The rules a group lives under, decided before any row is written.
@@ -135,6 +135,12 @@ function build(options: {
   chats?: ChatFixture[];
   persons?: PersonFixture[];
   members?: { chatId: string; personId: string; addedByPersonId?: string }[];
+  /**
+   * The other press, landing while this one waits for the room's lock.
+   *
+   * The only moment it can: everything the add decides is read after the lock.
+   */
+  whileWaiting?: (members: MemberFixture[]) => void;
 }) {
   const chats = [...(options.chats ?? [])];
   const persons = options.persons ?? [];
@@ -164,7 +170,22 @@ function build(options: {
       .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime()),
   });
 
+  /** Every advisory lock key a call took, in order. */
+  const locks: string[] = [];
+
   const client = {
+    /*
+     * The room's lock, recorded rather than implemented: what one transaction
+     * waits for is not something a fake in one process can show. The hook is how
+     * a test says "the other press landed while this one waited".
+     */
+    $executeRaw: vi.fn(
+      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        locks.push(String(values[0]));
+        options.whileWaiting?.(members);
+        return 1;
+      },
+    ),
     chat: {
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
         const chat = chats.find((each) => each.id === args.where.id);
@@ -361,6 +382,7 @@ function build(options: {
     audit,
     chats,
     members,
+    locks,
   };
 }
 
@@ -496,6 +518,77 @@ describe("who may put somebody into a group", () => {
     // was admitted to a room twice.
     expect(after).toHaveLength(2);
     expect(members).toHaveLength(2);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("takes the room's own lock, and counts the room under it", async () => {
+    /*
+     * The cap is over a set of rows and no row carries it, so two people put
+     * into a nearly full room at the same moment would both read a count below
+     * it and both be let in. The key is the room, and it is the same key the
+     * sweep that erases an empty one takes.
+     */
+    const full = Array.from({ length: MEMBERS_PER_GROUP - 1 }, (_, index) => ({
+      chatId: GROUP_ID,
+      personId: `person-${String(index)}`,
+    }));
+    const { service, members, locks } = build({
+      chats: [GARDEN],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...full.slice(1)],
+      // The last free place, taken by somebody else while this press waited.
+      whileWaiting: (held) => {
+        if (held.length < MEMBERS_PER_GROUP) {
+          held.push({
+            chatId: GROUP_ID,
+            personId: "person-arrived-first",
+            addedByPersonId: NILS.id,
+            joinedAt: new Date(),
+          });
+        }
+      },
+    });
+
+    await expect(
+      service.addMember(principal(NILS.id), GROUP_ID, ASTRID.id),
+    ).rejects.toMatchObject({ reason: "group-full" });
+
+    expect(locks).toEqual([`chat:${GROUP_ID}`]);
+    expect(members).toHaveLength(MEMBERS_PER_GROUP);
+    expect(members.map((member) => member.personId)).not.toContain(ASTRID.id);
+  });
+
+  it("answers the second of two presses on one name as the first did", async () => {
+    /*
+     * The pair is the row's identifier, so a second insert would meet the
+     * primary key rather than the idempotent answer this method promises.
+     * Read again under the lock instead.
+     */
+    const { service, audit, members } = build({
+      chats: [GARDEN],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      whileWaiting: (held) => {
+        if (!held.some((member) => member.personId === ASTRID.id)) {
+          held.push({
+            chatId: GROUP_ID,
+            personId: ASTRID.id,
+            addedByPersonId: NILS.id,
+            joinedAt: new Date(),
+          });
+        }
+      },
+    });
+
+    const after = await service.addMember(
+      principal(NILS.id),
+      GROUP_ID,
+      ASTRID.id,
+    );
+
+    expect(after).toHaveLength(2);
+    expect(members).toHaveLength(2);
+    // Not a second act: nobody was admitted twice.
     expect(audit.record).not.toHaveBeenCalled();
   });
 

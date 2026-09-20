@@ -44,3 +44,30 @@ export async function lockChat(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`chat:${chatId}`}))`;
 }
+
+/**
+ * The lock the board takes before it answers a report.
+ *
+ * Keyed on the message rather than on the report, because what the board decides
+ * is about the message: striking one report through closes every other report of
+ * the same message, and so does leaving it standing. Two answers arriving
+ * together - one press on each of two reports of one line - would otherwise both
+ * pass their own check, and the record would say the board left a message
+ * standing while the message carries a strike. That is worse than either answer,
+ * because the log of what the board decided would be false.
+ *
+ * The claim on the report is a conditional update and settles a second press on
+ * the same report by itself. This is what settles two presses on two reports,
+ * which no single row can: the invariant is across the set of reports about one
+ * message, and `legal-hold-lock.ts` gives the argument for an advisory lock over
+ * an isolation level in that case.
+ *
+ * Taken for the transaction, like every other lock here, and hashed into the
+ * same int4 space: a collision costs one board member a short wait.
+ */
+export async function lockChatMessage(
+  tx: Prisma.TransactionClient,
+  messageId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`chat-message:${messageId}`}))`;
+}
