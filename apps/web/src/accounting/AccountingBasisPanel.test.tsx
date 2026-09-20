@@ -170,6 +170,35 @@ describe("AccountingBasisPanel", () => {
     expect(link.getAttribute("href")).toContain("data:text/csv");
   });
 
+  it.each([["Från och med"], ["Till och med"]])(
+    "withdraws the summary and the file once %s moves",
+    async (label) => {
+      /*
+       * The totals and the download describe the period they were taken for
+       * rather than the period on the form. A board that moved a date and read
+       * the figures still standing beneath would be checking one period against
+       * another's, and the file it handed on would be the one it had already
+       * stopped looking at.
+       */
+      render(<AccountingBasisPanel onRefused={vi.fn()} />);
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
+      );
+      expect(
+        await screen.findByRole("link", { name: "Hämta bokföringsunderlaget" }),
+      ).toBeTruthy();
+
+      await userEvent.clear(screen.getByLabelText(label));
+      await userEvent.type(screen.getByLabelText(label), "2025-07-01");
+
+      expect(screen.queryByRole("link")).toBeNull();
+      expect(screen.queryByText(/2 rader, 16\s*351,50 kr/u)).toBeNull();
+      expect(screen.queryByText(/1 rad, 450,00 kr/u)).toBeNull();
+      expect(screen.queryByText(/16\s*801,50 kr/u)).toBeNull();
+    },
+  );
+
   it.each([["fees:manage"], ["memberCharges:manage"], []])(
     "offers nothing to an account holding %j",
     (...held) => {

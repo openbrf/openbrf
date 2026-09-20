@@ -22,8 +22,8 @@ import {
 import { accountingFailureKey } from "./accounting-failures";
 
 /**
- * The accounting basis (bokforingsunderlag): the period's fees and charges as
- * one file for whoever keeps the association's books.
+ * The accounting basis (bokforingsunderlag): the period's fee notices and
+ * member charges as one file for whoever keeps the association's books.
  *
  * ## The same panel on both screens
  *
@@ -59,6 +59,13 @@ import { accountingFailureKey } from "./accounting-failures";
  * figures would be a third place to keep in step. What the summary is for is
  * the check a board makes before handing the file on: how many rows, how much
  * in each half, and do the two add up to what they expected.
+ *
+ * That summary describes the period it was taken for and not the period on the
+ * form, so either date moving withdraws it along with the download. A board
+ * that edited a date and read the totals still standing beneath would be
+ * checking one period against another's figures, and the file it then handed on
+ * would be the one it had already stopped looking at. The debiting list drops
+ * its own file on the same event and for the same reason.
  */
 
 /** The file as something a browser will save. */
@@ -160,6 +167,7 @@ export function AccountingBasisPanel({
             value={from}
             onChange={(event) => {
               setFrom(event.target.value);
+              setProduced(null);
             }}
             className={FIELD_DATA}
           />
@@ -171,6 +179,7 @@ export function AccountingBasisPanel({
             value={to}
             onChange={(event) => {
               setTo(event.target.value);
+              setProduced(null);
             }}
             className={FIELD_DATA}
           />
