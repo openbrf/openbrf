@@ -23,19 +23,19 @@ export const CHAT_PURGE_QUEUE = "chat-purge";
 /**
  * When it runs.
  *
- * 03:59, the last minute of the band, because this job erases the rows a person
- * wrote and the service-data purge at 03:53 is the one that closes a granted
- * erasure request. Running after it would be a night's delay on nothing; running
- * before it is what lets a granted erasure take these rows on the same night.
+ * 03:47, before the service-data purge. On a granted erasure request this job
+ * erases every message the person wrote however recent, and it finds the request
+ * only while the request is open: the service-data purge is the job that marks
+ * it executed and closes it. Running after that job, this one would no longer
+ * select the person, and their messages would wait out their own year while the
+ * request said it had been carried out. `retention/erasure-request-order.spec.ts`
+ * fails for any job that reads a granted request and is scheduled at or after
+ * the job closing it.
  *
- * The band as it actually stands: 03:05 board mailbox, 03:07 news comments,
- * 03:11 key orders and event sign-ups, 03:17 sublet applications, member charges
- * and issues, 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53
- * service data, 03:59 chat. Spacing it is what keeps jobs from waking together
- * on one small connection pool, and the two minutes that carry more than one job
- * are a drift the band was meant to prevent rather than a pattern to copy.
+ * A minute of its own, because jobs waking together on one small connection pool
+ * is a contention nobody gains anything from.
  */
-const PURGE_CRON = "59 3 * * *";
+const PURGE_CRON = "47 3 * * *";
 
 /**
  * The most people one run erases the messages of.
@@ -431,9 +431,9 @@ export class ChatPurgeService implements OnModuleInit {
        * A granted erasure request moves this job's cutoff to now, which is the
        * whole of what bringing the purge forward means: the same rows, on the
        * same rule, without waiting out a window the person asked to be freed
-       * from. The request is not closed here - the service-data purge runs at
-       * 03:53 and closes it, and this job runs six minutes later, so a granted
-       * erasure reaches the chat on the same night rather than the next one.
+       * from. The request is not closed here - the service-data purge runs after
+       * this job and closes it, which is why this job still sees it open and a
+       * granted erasure reaches the chat on the same night.
        */
       const request = await tx.dataSubjectRequest.findFirst({
         where: {

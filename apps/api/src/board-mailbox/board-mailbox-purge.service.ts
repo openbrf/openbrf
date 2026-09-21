@@ -21,10 +21,7 @@ export const BOARD_MAILBOX_PURGE_QUEUE = "board-mailbox-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own. The news comment and event sign-up
- * purges take 03:11, the import session purge 03:23, the motion purge 03:29, the
- * service data purge 03:41 and the booking purge 03:53, so this one takes 03:05 -
- * six minutes clear of the nearest of them. Jobs waking together on one small
+ * In the small hours, on a minute of its own. Jobs waking together on one small
  * connection pool is a contention nobody gains anything from.
  */
 const PURGE_CRON = "5 3 * * *";

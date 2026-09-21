@@ -215,7 +215,7 @@ the board has already decided on.
 ## The nightly purge
 
 Service-tier personal data is erased on the retention policy's clock by jobs
-that run between 03:07 and 03:53, each on a minute of its own so they do not
+that run between 03:05 and 03:53, spread across those minutes so they do not
 wake together on one connection pool. They are ordinary queue jobs: an instance
 that was down overnight runs them when it comes back, and nothing is lost by a
 run that was interrupted, because every one of them computes what is due from

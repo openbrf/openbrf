@@ -15,10 +15,9 @@ export const SUBLET_PURGE_QUEUE = "sublet-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own: the import session purge takes
- * 03:23, the motion purge 03:29, the service data purge 03:41 and the booking
- * purge 03:53, and jobs waking together on one small connection pool is a
- * contention nobody gains anything from.
+ * In the small hours, in the band every purge in this product wakes in. The
+ * purges are spread across its minutes because jobs waking together on one small
+ * connection pool is a contention nobody gains anything from.
  */
 const PURGE_CRON = "17 3 * * *";
 
