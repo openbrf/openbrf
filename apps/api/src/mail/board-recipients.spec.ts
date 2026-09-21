@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import { boardSeatHeldOn } from "../registers/held-on";
 import {
   activeBoardRecipientsWhere,
   activeBoardSeatWhere,
 } from "./board-recipients";
 
-const NOW = new Date("2026-09-06T08:00:00.000Z");
+/** 00:30 on the 22nd of June in Stockholm, and still the 21st in UTC. */
+const NOW = new Date("2026-06-21T22:30:00.000Z");
+const TODAY = { year: 2026, month: 6, day: 22 };
 
 describe("activeBoardSeatWhere", () => {
-  it("asks for a seat and says nothing about an address", () => {
+  it("asks for a seat held today and says nothing about an address", () => {
     /*
      * The absence is the whole point of the helper existing separately. A
      * membership question that picked up the recipient list's address condition
@@ -16,20 +19,26 @@ describe("activeBoardSeatWhere", () => {
      * room they hold a seat in.
      */
     expect(activeBoardSeatWhere(NOW)).toEqual({
-      boardPositions: {
-        some: { OR: [{ endedOn: null }, { endedOn: { gt: NOW } }] },
-      },
+      boardPositions: { some: boardSeatHeldOn(TODAY) },
     });
   });
 
-  it("moves the comparison with the clock it is given", () => {
-    const later = new Date("2027-01-01T00:00:00.000Z");
-
-    const positions = activeBoardSeatWhere(later).boardPositions as {
-      some: { OR: Array<{ endedOn: unknown }> };
+  it("reads today on the association's calendar", () => {
+    // Half past midnight here is the 22nd, so a seat elected on the 22nd is
+    // held and one ending on the 22nd is not. The UTC day would say the 21st.
+    const positions = activeBoardSeatWhere(NOW).boardPositions as {
+      some: {
+        electedOn: unknown;
+        OR: Array<{ endedOn: unknown }>;
+      };
     };
 
-    expect(positions.some.OR[1]?.endedOn).toEqual({ gt: later });
+    expect(positions.some.electedOn).toEqual({
+      lte: new Date("2026-06-22T00:00:00.000Z"),
+    });
+    expect(positions.some.OR[1]?.endedOn).toEqual({
+      gt: new Date("2026-06-22T00:00:00.000Z"),
+    });
   });
 });
 
@@ -42,17 +51,14 @@ describe("activeBoardRecipientsWhere", () => {
     );
   });
 
-  it("asks for a seat that has not ended or ends in the future", () => {
+  it("asks for a seat held today, with an address", () => {
     /*
-     * The second half is the one worth pinning. A board can minute in April
-     * that a term runs to the annual meeting, and that person is on the board
-     * until the date arrives - a clause testing only for a null end date would
-     * drop them from every reminder in the meantime.
+     * A seat whose end date is in the future is held until the date arrives,
+     * and one whose election date is in the future is not held until that date
+     * arrives - a board can minute either ahead of time.
      */
     expect(activeBoardRecipientsWhere(NOW)).toEqual({
-      boardPositions: {
-        some: { OR: [{ endedOn: null }, { endedOn: { gt: NOW } }] },
-      },
+      boardPositions: { some: boardSeatHeldOn(TODAY) },
       emailCipher: { not: null },
     });
   });
@@ -63,14 +69,13 @@ describe("activeBoardRecipientsWhere", () => {
     expect(where.emailCipher).toEqual({ not: null });
   });
 
-  it("moves the comparison with the clock it is given", () => {
-    const later = new Date("2027-01-01T00:00:00.000Z");
+  it("moves the day with the clock it is given", () => {
+    const later = new Date("2027-01-01T12:00:00.000Z");
 
     const where = activeBoardRecipientsWhere(later);
-    const positions = where.boardPositions as {
-      some: { OR: Array<{ endedOn: unknown }> };
-    };
 
-    expect(positions.some.OR[1]?.endedOn).toEqual({ gt: later });
+    expect(where.boardPositions).toEqual({
+      some: boardSeatHeldOn({ year: 2027, month: 1, day: 1 }),
+    });
   });
 });

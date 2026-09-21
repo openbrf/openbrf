@@ -6,6 +6,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { activeBoardRecipientsWhere } from "../mail/board-recipients";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { contactSubmissionMail } from "../mail/templates";
 import { ContactError } from "./contact.error";
@@ -369,15 +370,8 @@ export class ContactService implements OnModuleInit {
       return false;
     }
 
-    const now = new Date();
     const member = await this.prisma.person.findFirst({
-      where: {
-        id: personId,
-        boardPositions: {
-          some: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-        },
-        emailCipher: { not: null },
-      },
+      where: { id: personId, ...activeBoardRecipientsWhere(new Date()) },
       select: {
         id: true,
         firstName: true,
@@ -431,16 +425,10 @@ export class ContactService implements OnModuleInit {
     return true;
   }
 
-  /** Everyone holding a board position that has not ended. */
+  /** Everyone holding a board seat today, with an address to reach them at. */
   private async activeBoardMemberIds(): Promise<string[]> {
-    const now = new Date();
     const board = await this.prisma.person.findMany({
-      where: {
-        boardPositions: {
-          some: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-        },
-        emailCipher: { not: null },
-      },
+      where: activeBoardRecipientsWhere(new Date()),
       select: { id: true },
       orderBy: { id: "asc" },
     });

@@ -106,12 +106,13 @@ function roleErrorMessage(error: unknown): TranslationKey {
  * Whether a term is running, by the rule the server derives access from.
  *
  * A seat carrying an end date that has not arrived counts as running, which is
- * the same rule `isHeldOn` applies on the server and has to be: it is the rule
- * the seat still confers the board's capabilities by, and it is the window the
- * server lets the end date be written in. So the control this decides is
- * offered on such a seat, and what it offers is a correction rather than an
- * end - a date typed into the wrong year has to be reachable from here, or the
- * only way back is the database.
+ * the rule `hasTermEnded` applies on the server, negated, and has to be: it is
+ * the end half of the rule the seat confers the board's capabilities by, and
+ * it is the window the server lets the end date be written in. A seat elected
+ * from a day still to come counts too, because its end date can be corrected
+ * as well. So the control this decides is offered on such a seat, and what it
+ * offers is a correction rather than an end - a date typed into the wrong year
+ * has to be reachable from here, or the only way back is the database.
  *
  * @see apps/api/src/roles/role-changes.ts
  */

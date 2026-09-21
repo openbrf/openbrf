@@ -2,7 +2,7 @@ import { formatDateColumn } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import {
-  isHeldOn,
+  hasTermEnded,
   latestTermEnd,
   parseCalendarDate,
   refuseTermEnd,
@@ -24,28 +24,40 @@ import {
 
 const NOW = new Date("2026-06-01T12:00:00Z");
 
-describe("whether a seat is held", () => {
-  it("counts an open term as held", () => {
-    expect(isHeldOn({ endedOn: null }, NOW)).toBe(true);
+describe("whether a term has ended", () => {
+  it("counts an open term as running", () => {
+    expect(hasTermEnded({ endedOn: null }, NOW)).toBe(false);
   });
 
-  it("counts a term that has run out as not held", () => {
-    expect(isHeldOn({ endedOn: new Date("2026-05-31T00:00:00Z") }, NOW)).toBe(
-      false,
-    );
+  it("counts a term that has run out as ended", () => {
+    expect(
+      hasTermEnded({ endedOn: new Date("2026-05-31T00:00:00Z") }, NOW),
+    ).toBe(true);
   });
 
-  it("counts a term ending in the future as still held", () => {
+  it("counts a term ending in the future as running", () => {
     /*
-     * The rule the principal applies, and it has to be the same one. A board
-     * recording in April that a term runs to the annual meeting keeps that
-     * person's access until the date arrives; a register that treated the row
-     * as spent the moment the date was written would take the access away on
-     * the day the board wrote down when it should end.
+     * The end half of the rule the principal applies, and it has to be the
+     * same one. A board recording in April that a term runs to the annual
+     * meeting keeps that person's access until the date arrives; a register
+     * that treated the row as spent the moment the date was written would take
+     * the access away on the day the board wrote down when it should end.
      */
-    expect(isHeldOn({ endedOn: new Date("2026-12-31T00:00:00Z") }, NOW)).toBe(
-      true,
-    );
+    expect(
+      hasTermEnded({ endedOn: new Date("2026-12-31T00:00:00Z") }, NOW),
+    ).toBe(false);
+  });
+
+  it("ends a term at the association's midnight on its end date", () => {
+    // 00:30 on the 22nd of June here is 22:30 on the 21st in UTC. The term
+    // ending on the 22nd has ended here; read against the instant, it would
+    // run on until midnight UTC.
+    expect(
+      hasTermEnded(
+        { endedOn: new Date("2026-06-22T00:00:00Z") },
+        new Date("2026-06-21T22:30:00Z"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -144,9 +156,8 @@ describe("the date a term is recorded as ending on", () => {
   });
 
   it("treats the day the term ends as past, like the principal does", () => {
-    // isHeldOn is strict: a seat ending today stopped granting at midnight.
-    // The two rules read the same row the same way, which is the point of
-    // deciding both here.
+    // A seat ending today stopped granting at midnight. The two rules read the
+    // same row the same way, which is the point of deciding both here.
     expect(refuse("2026-07-01", new Date("2026-06-01T00:00:00Z"))).toBe(
       "term-already-ended",
     );

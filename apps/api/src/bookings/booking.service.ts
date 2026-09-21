@@ -21,6 +21,7 @@ import type {
   BookingStatus,
 } from "../generated/prisma/enums";
 import { failureName } from "../logging/failure";
+import { residencyHeldOn } from "../registers/held-on";
 import { lockApartmentBookings, lockResourceBookings } from "./booking-lock";
 import { BookingMailerService } from "./booking-mailer.service";
 import { type BookingQuota, BookingError } from "./booking.error";
@@ -185,6 +186,11 @@ export class BookingService {
   /**
    * The apartments the caller may book against: the ones they live in, today.
    *
+   * Held by the rule the principal is built from, so "may book" and "which
+   * apartment may I book against" cannot disagree: a person the guard treats as
+   * a resident is offered an apartment here, and one it does not is offered
+   * none.
+   *
    * MEMBER residencies first, so a household holding one apartment as members
    * and another as tenants gets the one they hold first. Deduplicated, because
    * joint holders and successive residencies of one apartment are several rows
@@ -192,7 +198,7 @@ export class BookingService {
    */
   async ownApartments(personId: string): Promise<BookingApartmentView[]> {
     const residencies = await this.prisma.residency.findMany({
-      where: activeResidencyOf(personId, new Date()),
+      where: { personId, ...residencyHeldOn(localDayOf(new Date())) },
       select: { apartment: { select: APARTMENT_SELECT } },
       orderBy: [{ role: "asc" }, { movedInOn: "asc" }],
     });
@@ -822,23 +828,6 @@ function quotaReached(limit: BookingQuota, allowed: number): BookingError {
     "quota-reached",
     { quota: { limit, allowed } },
   );
-}
-
-/**
- * A residency that has not ended, as every reader of this table states it.
- *
- * The same predicate the principal is built from, so "may book" and "which
- * apartment may I book against" cannot disagree: a person the guard treats as a
- * resident is offered an apartment here, and one it does not is offered none.
- */
-function activeResidencyOf(
-  personId: string,
-  now: Date,
-): Prisma.ResidencyWhereInput {
-  return {
-    personId,
-    OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-  };
 }
 
 /**

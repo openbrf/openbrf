@@ -1,4 +1,6 @@
-import { compareLocalDays, localDayOfColumn } from "@openbrf/shared";
+import { localDayOfColumn } from "@openbrf/shared";
+
+import { isResidencyHeldOn } from "../registers/held-on";
 
 /**
  * Which charges recorded against an apartment are a given person's.
@@ -28,11 +30,13 @@ import { compareLocalDays, localDayOfColumn } from "@openbrf/shared";
  * document the association hands over. A missing charge is an omission the
  * association can correct on request.
  *
- * Those are not the same size of mistake, so the boundaries are closed at both
- * ends: a charge dated on the day somebody moved in or the day they moved out is
- * theirs, and a charge dated a day either side is not. A move-out date is the
- * last day of the residency rather than the first day after it, which is how
- * every other read of that column in this product treats it.
+ * Those are not the same size of mistake, so a charge is theirs only if it is
+ * dated on a day they held the apartment, by the rule every reader of the
+ * residency table decides by (`registers/held-on.ts`): from the move-in date,
+ * which is the first day held, up to the day before the move-out date, which is
+ * the first day not held. A charge dated on the day somebody moved out is the
+ * next household's - it is the day that household moved in - and one dated the
+ * day before somebody moved in is the previous household's.
  *
  * Compared as calendar days rather than as instants. Both columns are `@db.Date`
  * and are read back as midnight UTC, which is the evening before in Stockholm
@@ -43,9 +47,12 @@ import { compareLocalDays, localDayOfColumn } from "@openbrf/shared";
 /** One period during which a person lived in one apartment. */
 export interface ResidencyPeriod {
   apartmentId: string;
-  /** The day they moved in. */
+  /** The move-in date: the first day the residency is held. */
   from: Date;
-  /** The last day of the residency, or null while it is current. */
+  /**
+   * The move-out date: the first day the residency is no longer held. Null
+   * while no move-out is recorded.
+   */
   until: Date | null;
 }
 
@@ -74,9 +81,10 @@ export function chargesDuringResidency<T extends DatedApartmentCharge>(
     return residencies.some(
       (residency) =>
         residency.apartmentId === charge.apartmentId &&
-        compareLocalDays(localDayOfColumn(residency.from), day) <= 0 &&
-        (residency.until === null ||
-          compareLocalDays(localDayOfColumn(residency.until), day) >= 0),
+        isResidencyHeldOn(
+          { movedInOn: residency.from, movedOutOn: residency.until },
+          day,
+        ),
     );
   });
 }

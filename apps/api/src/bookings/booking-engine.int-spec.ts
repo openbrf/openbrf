@@ -73,6 +73,8 @@ const addressId = `be-address-${suffix}`;
 const jointApartmentId = `be-apartment-joint-${suffix}`;
 /** A second household, so a race is between two apartments and not one. */
 const otherApartmentId = `be-apartment-other-${suffix}`;
+/** Where Alva lives while a move into the joint apartment is still ahead. */
+const movingFromApartmentId = `be-apartment-from-${suffix}`;
 
 const quotaLaundryId = `be-resource-quota-${suffix}`;
 const moveLaundryId = `be-resource-move-${suffix}`;
@@ -286,6 +288,7 @@ beforeAll(async () => {
     data: [
       { id: jointApartmentId, addressId, number: "0101", floor: 1 },
       { id: otherApartmentId, addressId, number: "0202", floor: 2 },
+      { id: movingFromApartmentId, addressId, number: "0303", floor: 3 },
     ],
   });
 
@@ -435,7 +438,9 @@ afterAll(async () => {
     });
     await prisma.person.deleteMany({ where: { id: { in: personIds } } });
     await prisma.apartment.deleteMany({
-      where: { id: { in: [jointApartmentId, otherApartmentId] } },
+      where: {
+        id: { in: [jointApartmentId, otherApartmentId, movingFromApartmentId] },
+      },
     });
     await prisma.address.deleteMany({ where: { id: addressId } });
 
@@ -982,6 +987,13 @@ describe("the quota", () => {
      * household that moves in on the Monday is told its apartment does not
      * exist when it asks for the Monday.
      *
+     * Alva moves within the building: she lives in another flat until the
+     * move, which is what she holds the resident capability by today. A
+     * residency whose move-in date is still to come holds nothing yet, the
+     * capability included, so a household moving in from outside cannot book
+     * until its first day - the question here is only which periods the new
+     * apartment is hers for.
+     *
      * Alva's residency is restored whatever happens, because the tests after
      * this one book against it: a move-in date left rewritten here would fail
      * them for a reason that is not theirs.
@@ -998,6 +1010,15 @@ describe("the quota", () => {
     };
 
     try {
+      await prisma.residency.create({
+        data: {
+          personId: alfa.personId,
+          apartmentId: movingFromApartmentId,
+          role: "RESIDENT",
+          movedInOn: new Date("2025-01-01"),
+          movedOutOn: new Date(`${formatLocalDay(arrival)}T00:00:00.000Z`),
+        },
+      });
       await moveAlvaIn(arrival);
 
       // A night, which is where the two midnights are furthest apart.
@@ -1044,6 +1065,9 @@ describe("the quota", () => {
         "apartment-not-found",
       );
     } finally {
+      await prisma.residency.deleteMany({
+        where: { personId: alfa.personId, apartmentId: movingFromApartmentId },
+      });
       await prisma.residency.updateMany({
         where: { personId: alfa.personId, apartmentId: jointApartmentId },
         data: { movedInOn: new Date("2025-01-01") },

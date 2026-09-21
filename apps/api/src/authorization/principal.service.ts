@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { boardSeatHeldOn, residencyHeldOn } from "../registers/held-on";
 import {
   capabilitiesFor,
   type Principal,
@@ -14,13 +16,18 @@ import {
  * because they change without the account being touched: a board term ends, a
  * residency gets a move-out date, an admin grant is revoked. A stale copy would
  * keep granting access after the reason for it expired.
+ *
+ * A residency or a seat counts on the days it is held, which is decided on the
+ * association's calendar by `registers/held-on.ts`: from its first day, so a
+ * move-in or an election recorded ahead of time grants nothing until the day
+ * arrives, and up to the day before its end date.
  */
 @Injectable()
 export class PrincipalService {
   constructor(private readonly prisma: PrismaService) {}
 
   async forPerson(personId: string): Promise<Principal | null> {
-    const now = new Date();
+    const today = localDayOf(new Date());
 
     const person = await this.prisma.person.findUnique({
       where: { id: personId },
@@ -28,11 +35,11 @@ export class PrincipalService {
         id: true,
         systemRoles: { select: { role: true } },
         boardPositions: {
-          where: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
+          where: boardSeatHeldOn(today),
           select: { position: true },
         },
         residencies: {
-          where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
+          where: residencyHeldOn(today),
           select: { role: true },
         },
       },
@@ -67,13 +74,12 @@ export class PrincipalService {
     personId: string,
     apartmentId: string,
   ): Promise<boolean> {
-    const now = new Date();
     const count = await this.prisma.residency.count({
       where: {
         personId,
         apartmentId,
         role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+        ...residencyHeldOn(localDayOf(new Date())),
       },
     });
     return count > 0;

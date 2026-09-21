@@ -4,11 +4,12 @@ import type {
   PluginOccupancySummary,
   PluginResident,
 } from "@openbrf/plugin-sdk";
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { residencyHeldOn } from "../registers/held-on";
 
 /**
  * The register, as a plugin may read it.
@@ -60,12 +61,14 @@ export class PluginAddressBookService {
   }
 
   /**
-   * Current residencies only.
+   * The residencies held today, and only those.
    *
    * A move-out date in the future is a scheduled move-out and does not end the
-   * residency yet, which is the same definition the authorization layer and
-   * the board's own screen use. Moved-out rows carry a computed purge date and
-   * belong to the retention story; they are not plugin business.
+   * residency yet, and a move-in date in the future has not begun it: the same
+   * definition the authorization layer and the board's own screen use.
+   * Moved-out rows carry a computed purge date and belong to the retention
+   * story, and a household that has not moved in is not living here yet;
+   * neither is plugin business.
    */
   async residents(
     options: { contact: boolean },
@@ -73,7 +76,7 @@ export class PluginAddressBookService {
   ): Promise<PluginResident[]> {
     const rows = await this.prisma.residency.findMany({
       where: {
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+        ...residencyHeldOn(localDayOf(now)),
         /*
          * Protected personal data has never reached a plugin. A restriction
          * (GDPR art. 18) is excluded here for a narrower reason: handing the
@@ -161,9 +164,7 @@ export class PluginAddressBookService {
   }
 
   async summary(now: Date = new Date()): Promise<PluginOccupancySummary> {
-    const active: Prisma.ResidencyWhereInput = {
-      OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-    };
+    const active: Prisma.ResidencyWhereInput = residencyHeldOn(localDayOf(now));
 
     const [apartments, residents, members] = await Promise.all([
       this.prisma.apartment.count(),

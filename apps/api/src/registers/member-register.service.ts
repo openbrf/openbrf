@@ -1,10 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
+import {
+  dateColumnOf,
+  formatDateColumn,
+  formatLocalDay,
+  type LocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 
 import { isMasked } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { isResidencyHeldOn } from "./held-on";
 import {
   isCurrentMembership,
   type MembershipPeriod,
@@ -151,8 +158,9 @@ export class MemberRegisterService {
       },
     });
 
+    const today = localDayOf(now);
     const periods = membershipPeriods(resolveRegisterEvents(archive)).filter(
-      (period) => scope === "all" || isCurrentMembership(period, now),
+      (period) => scope === "all" || isCurrentOn(period, today),
     );
 
     const personIds = [...new Set(periods.map((period) => period.personId))];
@@ -190,7 +198,7 @@ export class MemberRegisterService {
     const byPerson = new Map(persons.map((person) => [person.id, person]));
 
     const rows = periods
-      .map((period) => this.toRow(period, byPerson.get(period.personId), now))
+      .map((period) => this.toRow(period, byPerson.get(period.personId), today))
       .filter((row): row is MemberRegisterRow => row !== null)
       .sort(byNameThenEntry);
 
@@ -223,14 +231,14 @@ export class MemberRegisterService {
   private toRow(
     period: MembershipPeriod,
     person: PersonRecord | undefined,
-    now: Date,
+    today: LocalDay,
   ): MemberRegisterRow | null {
     const archived = recordedAt(period);
     if (person === undefined || archived === null) {
       return null;
     }
 
-    const current = isCurrentMembership(period, now);
+    const current = isCurrentOn(period, today);
     const protectedData = person.protectedPersonalData;
 
     const name = current
@@ -268,23 +276,46 @@ export class MemberRegisterService {
       protectedPersonalData: protectedData,
       enteredOn: formatDateColumn(period.entry?.eventOn ?? null),
       exitedOn: formatDateColumn(period.exit?.eventOn ?? null),
-      apartments: apartmentsFor(period, person, current),
+      apartments: apartmentsFor(period, person, current, today),
     };
   }
+}
+
+/**
+ * Whether a membership is current on a day: begun, and not ended.
+ *
+ * The entry and exit dates are the move-in and move-out dates they were written
+ * from, and they read the same way (`held-on.ts`): an entry dated ahead of the
+ * day is somebody who is not a member yet - a buyer recorded before they take
+ * over - and an exit dated on the day has happened. Compared as dates, because
+ * `eventOn` is a `@db.Date` and an instant would put the boundary at midnight
+ * UTC.
+ *
+ * A period with no entry is an exit the archive holds without the entry before
+ * it. It began on a day the register cannot name, so only its exit decides it.
+ */
+function isCurrentOn(period: MembershipPeriod, day: LocalDay): boolean {
+  const on = dateColumnOf(day);
+  const begun =
+    period.entry === null || period.entry.eventOn.getTime() <= on.getTime();
+  return begun && isCurrentMembership(period, on);
 }
 
 /**
  * The apartments a membership relates to.
  *
  * For a current membership these are the tenant-ownerships held today, which is
- * what the register is supposed to state. For an ended one they are the
- * tenant-ownerships that overlapped the membership, so a member who sold one
- * apartment and later left still shows both against the right period.
+ * what the register is supposed to state: a sale with a move-out date still to
+ * come has not happened, and a purchase with a move-in date still to come has
+ * not either. For any other they are the tenant-ownerships that overlapped the
+ * membership, so a member who sold one apartment and later left still shows
+ * both against the right period.
  */
 function apartmentsFor(
   period: MembershipPeriod,
   person: PersonRecord,
   current: boolean,
+  today: LocalDay,
 ): MemberRegisterApartment[] {
   const from = period.entry?.eventOn ?? null;
   const until = period.exit?.eventOn ?? null;
@@ -292,7 +323,7 @@ function apartmentsFor(
   return person.residencies
     .filter((residency) => {
       if (current) {
-        return residency.movedOutOn === null;
+        return isResidencyHeldOn(residency, today);
       }
       const startedBeforeExit =
         until === null || residency.movedInOn.getTime() <= until.getTime();

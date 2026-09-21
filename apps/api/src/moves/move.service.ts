@@ -10,6 +10,7 @@ import type { ResidencyRole, TransferKind } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { activeBoardRecipientsWhere } from "../mail/board-recipients";
 import { MailService } from "../mail/mail.service";
 import {
   boardMoveOutReminderMail,
@@ -268,11 +269,16 @@ export class MoveService implements OnModuleInit {
     const result = await this.prisma.$transaction(async (tx) => {
       await lockResidencyTransitions(tx, person.id);
 
+      // A residency on this apartment that would overlap the new one: open, or
+      // ending after the new move-in date. One ending on that date does not
+      // overlap it, because the move-out date is the first day a residency is
+      // no longer held - so moving back in on it, as a partner becoming a
+      // joint holder does, leaves no day held twice.
       const existing = await tx.residency.count({
         where: {
           personId: person.id,
           apartmentId: apartment.id,
-          OR: [{ movedOutOn: null }, { movedOutOn: { gte: movedInOn } }],
+          OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedInOn } }],
         },
       });
       if (existing > 0) {
@@ -633,14 +639,8 @@ export class MoveService implements OnModuleInit {
       return 0;
     }
 
-    const now = new Date();
     const board = await this.prisma.person.findMany({
-      where: {
-        boardPositions: {
-          some: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-        },
-        emailCipher: { not: null },
-      },
+      where: activeBoardRecipientsWhere(new Date()),
       select: {
         id: true,
         firstName: true,

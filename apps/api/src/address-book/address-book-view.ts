@@ -34,7 +34,7 @@
  * views; nothing here is an extract from either.
  */
 
-import { formatDateColumn } from "@openbrf/shared";
+import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import type {
   BoardPositionType,
@@ -259,19 +259,33 @@ export function signsFor(
 }
 
 /**
- * Whether a residency has ended.
+ * Whether a residency has ended by the association's day an instant falls on.
  *
- * A move-out date in the future is a scheduled move-out, and the person is
- * still resident until it arrives. This matches how PrincipalService decides
- * which residencies still grant access, and the two must agree: a row shown as
- * moved out while the account still has resident access would be a lie in
- * whichever direction the reader trusted.
+ * The move-out date is the first day a residency is no longer held, so a
+ * move-out dated today has happened, and one dated in the future is a scheduled
+ * move-out: the person is still resident until it arrives. This is the end
+ * half of the rule PrincipalService decides access by (`registers/held-on.ts`),
+ * and the two must agree: a row shown as moved out while the account still has
+ * resident access would be a lie in whichever direction the reader trusted.
+ *
+ * Read on the association's calendar, because the column is a `@db.Date` and an
+ * instant would put the boundary at midnight UTC - an hour or two after the
+ * move-out day began here.
+ *
+ * Not the negation of "held today": a household whose move-in date has not
+ * arrived has not moved out either, and the board's screens list it among an
+ * apartment's residents rather than in its history.
+ *
+ * @param now An instant; the day it falls on here is the day asked about.
  */
 export function hasMovedOut(
   movedOutOn: Date | null,
-  today: Date,
+  now: Date,
 ): movedOutOn is Date {
-  return movedOutOn !== null && movedOutOn.getTime() <= today.getTime();
+  return (
+    movedOutOn !== null &&
+    movedOutOn.getTime() <= dateColumnOf(localDayOf(now)).getTime()
+  );
 }
 
 function fullName(record: Pick<AddressBookRecord, "firstName" | "lastName">) {

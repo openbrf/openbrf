@@ -1,13 +1,14 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
+import { residencyHeldOn } from "../registers/held-on";
 import {
   groupsFor,
   isGroupMember,
-  liveResidencyWhere,
   livesHere,
   roomFor,
   type ChatRoom,
@@ -396,11 +397,12 @@ export class ChatGroupService {
       select: { personId: true },
     });
 
+    const held = residencyHeldOn(localDayOf(now));
     const people = await this.prisma.person.findMany({
       where: {
         id: { notIn: already.map((member) => member.personId) },
         protectedPersonalData: false,
-        residencies: { some: liveResidencyWhere(now) },
+        residencies: { some: held },
         ...(search === null ? {} : { AND: nameSearchWhere(search) }),
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
@@ -410,7 +412,7 @@ export class ChatGroupService {
         firstName: true,
         lastName: true,
         residencies: {
-          where: liveResidencyWhere(now),
+          where: held,
           orderBy: [{ movedInOn: "asc" }],
           take: 1,
           select: { apartment: { select: { number: true } } },

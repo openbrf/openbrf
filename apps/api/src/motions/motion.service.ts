@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
   formatLocalDay,
+  localDayOf,
   localDayOfColumn,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
@@ -11,6 +12,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { MeetingKind, MotionStatus } from "../generated/prisma/enums";
 import { lockMeetingAgendasInOrder } from "../meetings/agenda-lock";
+import { residencyHeldOn } from "../registers/held-on";
 import {
   type MotionDeadlineView,
   motionDeadlineView,
@@ -724,17 +726,16 @@ export class MotionService {
    * Refuses a caller who is not a member of the association.
    *
    * The statutory check, asked of the register rather than of the principal: see
-   * the class comment for why the capability alone is not enough. An active
-   * residency with the MEMBER role is what membership is in this data model, and
-   * it is the same derivation `PrincipalService` and the news mailing use.
+   * the class comment for why the capability alone is not enough. A residency
+   * with the MEMBER role held today is what membership is in this data model,
+   * and it is the same derivation `PrincipalService` and the news mailing use.
    */
   private async requireMember(personId: string): Promise<void> {
-    const now = new Date();
     const held = await this.prisma.residency.count({
       where: {
         personId,
         role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+        ...residencyHeldOn(localDayOf(new Date())),
       },
     });
     if (held === 0) {
