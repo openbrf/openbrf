@@ -20,8 +20,9 @@ function isMissing(error: unknown): boolean {
  *
  * The default, and the one a housing cooperative running a single container
  * needs: uploads sit next to the encryption key and the installed plugins under
- * OPENBRF_DATA_DIR, so one volume is the whole backup surface alongside the
- * database.
+ * OPENBRF_DATA_DIR, and the volume is backed up together with the database,
+ * without the key, which is kept apart (docs/backup-and-restore.md). What this
+ * driver writes is ciphertext, sealed by the media service (ADR 0015).
  */
 export class LocalDiskStorageDriver implements StorageDriver {
   readonly kind = "local" as const;

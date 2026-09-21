@@ -18,6 +18,7 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { failureName } from "../logging/failure";
 import { generateStorageKey } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
@@ -444,15 +445,18 @@ export class MediaService {
         return;
       }
       this.logger.error(
-        `The file ${file.id} stopped partway through: ${error.message}`,
+        `The file ${file.id} stopped partway through: ${failureName(error)}`,
       );
     });
 
     try {
       await once(opened, "readable");
     } catch (error) {
+      // The class and its code, such as SealedFileError (unverified-chunk),
+      // never the message: a storage error composes one from what it was
+      // handling (ADR 0007).
       this.logger.error(
-        `The file ${file.id} failed verification: ${(error as Error).message}`,
+        `The file ${file.id} failed verification: ${failureName(error)}`,
       );
       throw new MediaError("No such file.", "not-found");
     }
@@ -508,6 +512,17 @@ export class MediaService {
         cause instanceof Error ? cause.stack : undefined,
       );
     });
+
+    // The unencrypted object the job at start replaced, if its removal has not
+    // succeeded yet. The row was its only record, so it goes now or never.
+    if (file.unencryptedStorageKey !== null) {
+      const unencrypted = file.unencryptedStorageKey;
+      await this.storage.remove(unencrypted).catch((cause: unknown) => {
+        this.logger.error(
+          `Removed the record of ${file.id} but not its unencrypted object at ${unencrypted}: ${failureName(cause)}`,
+        );
+      });
+    }
   }
 }
 

@@ -47,6 +47,7 @@ interface Row {
   storageKey: string;
   encryption: "NONE" | "SECRETSTREAM_64K";
   dataKeyCipher: string | null;
+  unencryptedStorageKey: string | null;
   contentType: string;
   byteSize: number;
   checksum: string;
@@ -129,7 +130,12 @@ function build(
         throw new Error("the row could not be written");
       }
       nextId += 1;
-      const row: Row = { id: `file-${String(nextId)}`, ...data };
+      // A nullable column the write leaves out is null, as in the database.
+      const row: Row = {
+        id: `file-${String(nextId)}`,
+        ...data,
+        unencryptedStorageKey: data.unencryptedStorageKey ?? null,
+      };
       rows.set(row.id, row);
       return row;
     }),
@@ -623,8 +629,9 @@ describe("serving", () => {
 
     expect((refused as MediaError).reason).toBe("not-found");
     expect((refused as MediaError).status).toBe((absent as MediaError).status);
+    // The class and the code of the failure, never its message.
     expect(fakes.logged).toContainEqual(
-      expect.stringContaining(`The file ${id} failed verification`),
+      `The file ${id} failed verification: SealedFileError (unverified-chunk)`,
     );
   });
 
@@ -920,6 +927,25 @@ describe("removing", () => {
     expect(fakes.audited).toContainEqual(
       expect.objectContaining({ action: "MEDIA_DELETED", targetId: id }),
     );
+  });
+
+  it("removes an unencrypted object still recorded on the row as well", async () => {
+    /*
+     * A file the job at start encrypted whose old object could not yet be
+     * removed. The row is the only record of that object, so deleting the file
+     * without it would leave an unencrypted copy that nothing names.
+     */
+    const id = await stored();
+    const row = fakes.rows.get(id);
+    if (row !== undefined) {
+      row.unencryptedStorageKey = "media/2026/09/kvar.png";
+    }
+    fakes.objects.set("media/2026/09/kvar.png", pngBytes(10, 10));
+
+    await fakes.service.remove(id, "person-1", "WEB");
+
+    expect(fakes.objects.size).toBe(0);
+    expect(fakes.storage.remove).toHaveBeenCalledWith("media/2026/09/kvar.png");
   });
 
   it("writes the entry on the transaction that deletes the row", async () => {

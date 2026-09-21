@@ -64,7 +64,9 @@ therefore ask the database a question the application never can.
 - **Backup documentation is part of this decision, not an afterthought.**
   `docs/backup-and-restore.md` opens with the requirement to back up the
   database and `/data/keys` together, and the entrypoint's own log line on
-  generation points at it.
+  generation points at it. _Amended by ADR 0015: the document opens with the
+  key backed up once, into copies kept apart, and left out of every recurring
+  backup._
 - **Key rotation stays out of phase 1.** Rotating means decrypting and
   rewriting every encrypted column and every blind index. Recorded here as a
   known gap rather than left unsaid.
@@ -88,10 +90,14 @@ flag means the answer comes from whoever is least placed to know.
   `psql`, which the image already carries for the runtime role hardening.
 - Restoring a backup means restoring the key file **and** the dump from the same
   backup. A mismatch presents as unreadable fields rather than as an error, so
-  the restore procedure states the pairing explicitly.
+  the restore procedure states the pairing explicitly. _Amended by ADR 0015: the
+  key comes back from where it is kept, the dump and the data volume from one
+  backup._
 - The key is only as protected as the volume. A host backup that copies the
   volume copies the key; that is the intended behaviour and the reason the
   backup document treats a backup as being as sensitive as the register itself.
+  _Amended by ADR 0015: a recurring backup leaves the key out, because one that
+  carries it opens every encrypted field and stored file in it._
 
 ## Revisit triggers
 

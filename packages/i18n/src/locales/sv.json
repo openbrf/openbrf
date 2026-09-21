@@ -4250,6 +4250,7 @@
         "capabilityGates": "Varje anrop prövas mot vad den inloggade får göra.",
         "protectedPersons": "Personer med skyddade personuppgifter maskeras överallt.",
         "localDisk": "Filerna ligger på instansens egen disk.",
+        "filesEncrypted": "Filerna lagras krypterade, var och en med en egen nyckel som i sin tur är krypterad med instansens nyckel.",
         "s3": "Filerna ligger i objektlagring hos {{endpoint}}."
       },
       "title": "Registerförteckning",

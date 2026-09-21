@@ -9,7 +9,10 @@ import { openSealedFile } from "../crypto/stored-file-cipher";
 import type { PrismaService } from "../database/prisma.service";
 import type { StorageService } from "../storage/storage.service";
 import { unwrapFileKey } from "./media.service";
-import { StoredFileEncryptionService } from "./stored-file-encryption.service";
+import {
+  StoredFileEncryptionError,
+  StoredFileEncryptionService,
+} from "./stored-file-encryption.service";
 import { pdfBytes } from "./testing/document-fixtures";
 
 /**
@@ -31,8 +34,25 @@ interface Row {
   storageKey: string;
   encryption: "NONE" | "SECRETSTREAM_64K";
   dataKeyCipher: string | null;
+  unencryptedStorageKey: string | null;
   byteSize: number;
   checksum: string;
+}
+
+/** Whether a row matches a where clause of plain equalities and `not: null`. */
+function matches(row: Row, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([field, expected]) => {
+    const actual = row[field as keyof Row];
+    if (
+      typeof expected === "object" &&
+      expected !== null &&
+      "not" in expected &&
+      (expected as { not: unknown }).not === null
+    ) {
+      return actual !== null && actual !== undefined;
+    }
+    return actual === expected;
+  });
 }
 
 function sha256(bytes: Buffer): string {
@@ -58,9 +78,9 @@ function build(options: { rowChangesBeforeUpdate?: boolean; env?: Env } = {}) {
   };
 
   const mediaFile = {
-    findMany: vi.fn(async () =>
+    findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
       [...rows.values()]
-        .filter((row) => row.encryption === "NONE")
+        .filter((row) => matches(row, where))
         .map((row) => ({ ...row })),
     ),
     updateMany: vi.fn(
@@ -68,18 +88,14 @@ function build(options: { rowChangesBeforeUpdate?: boolean; env?: Env } = {}) {
         where,
         data,
       }: {
-        where: { id: string; storageKey: string; encryption: "NONE" };
+        where: Record<string, unknown> & { id: string };
         data: Partial<Row>;
       }) => {
         if (options.rowChangesBeforeUpdate === true) {
           rows.delete(where.id);
         }
         const row = rows.get(where.id);
-        if (
-          row === undefined ||
-          row.storageKey !== where.storageKey ||
-          row.encryption !== where.encryption
-        ) {
+        if (row === undefined || !matches(row, where)) {
           return { count: 0 };
         }
         Object.assign(row, data);
@@ -113,6 +129,7 @@ function build(options: { rowChangesBeforeUpdate?: boolean; env?: Env } = {}) {
       storageKey,
       encryption: "NONE",
       dataKeyCipher: null,
+      unencryptedStorageKey: null,
       byteSize: bytes.length,
       checksum: sha256(bytes),
     });
@@ -139,7 +156,13 @@ describe("encrypting the files stored before", () => {
     const run = await job.service.encryptRemaining();
 
     const row = job.rows.get("file-1");
-    expect(run).toEqual({ encrypted: 1, left: [] });
+    expect(run).toEqual({
+      encrypted: 1,
+      left: [],
+      removed: 1,
+      removalsPending: [],
+    });
+    expect(row?.unencryptedStorageKey).toBeNull();
     expect(row?.encryption).toBe("SECRETSTREAM_64K");
     // Under a new key in the same feature's prefix, and without an extension.
     expect(row?.storageKey).toMatch(/^documents\/\d{4}\/\d{2}\/[0-9a-f-]{36}$/);
@@ -224,10 +247,44 @@ describe("encrypting the files stored before", () => {
 
     const run = await job.service.encryptRemaining();
 
-    expect(run).toEqual({ encrypted: 0, left: [] });
+    expect(run).toEqual({
+      encrypted: 0,
+      left: [],
+      removed: 0,
+      removalsPending: [],
+    });
     expect(job.storage.open).not.toHaveBeenCalled();
     expect(job.storage.put).not.toHaveBeenCalled();
     expect(job.mediaFile.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps the unencrypted object's key on the row when it cannot be removed, and removes it on the next run", async () => {
+    /*
+     * The one leftover the job can make is the unencrypted object it has just
+     * replaced, and it is exactly what the work exists to get rid of. So the
+     * old key goes onto the row in the same update that switches the row to
+     * the encrypted copy, and it comes off only once the object is gone.
+     */
+    const job = build();
+    const oldKey = "media/2026/09/iiii.png";
+    job.plant("file-1", pdfBytes(), oldKey);
+    job.storage.remove.mockRejectedValueOnce(new Error("the disk is busy"));
+
+    const first = await job.service.encryptRemaining();
+
+    const update = job.mediaFile.updateMany.mock.calls[0]?.[0];
+    expect(update?.data.unencryptedStorageKey).toBe(oldKey);
+    expect(job.rows.get("file-1")?.encryption).toBe("SECRETSTREAM_64K");
+    expect(job.rows.get("file-1")?.unencryptedStorageKey).toBe(oldKey);
+    expect(job.objects.has(oldKey)).toBe(true);
+    expect(first.removalsPending).toEqual(["file-1"]);
+
+    const second = await job.service.encryptRemaining();
+
+    expect(job.objects.has(oldKey)).toBe(false);
+    expect(job.rows.get("file-1")?.unencryptedStorageKey).toBeNull();
+    expect(second.removed).toBe(1);
+    expect(second.removalsPending).toEqual([]);
   });
 
   it("changes nothing on a second run", async () => {
@@ -238,7 +295,12 @@ describe("encrypting the files stored before", () => {
 
     const run = await job.service.encryptRemaining();
 
-    expect(run).toEqual({ encrypted: 0, left: [] });
+    expect(run).toEqual({
+      encrypted: 0,
+      left: [],
+      removed: 0,
+      removalsPending: [],
+    });
     expect(job.rows.get("file-1")).toEqual(after);
     expect(job.storage.put).toHaveBeenCalledTimes(1);
   });
@@ -264,13 +326,49 @@ describe("running at start", () => {
     expect(job.rows.get("file-1")?.encryption).toBe("SECRETSTREAM_64K");
   });
 
-  it("logs a failure and lets the application start, so the next start retries", async () => {
+  /*
+   * A run that cannot be carried out stops the start, loudly. Serving anyway
+   * would answer every unencrypted file as missing while the log scrolled past
+   * the reason. It costs nothing on any other start: the job has work only
+   * while an unencrypted file is left.
+   */
+  it("stops the start when the database cannot be read", async () => {
     const job = build();
-    job.mediaFile.findMany.mockRejectedValueOnce(new Error("no database"));
+    job.mediaFile.findMany.mockRejectedValueOnce(
+      new Error("connect ECONNREFUSED db:5432 for anna@exempel.se"),
+    );
+
+    await expect(job.service.onModuleInit()).rejects.toBeInstanceOf(
+      StoredFileEncryptionError,
+    );
+    // The class of the failure, and nothing the message carried.
+    expect(job.errors).toEqual([
+      "Could not finish encrypting the stored files, so the instance does not start: Error",
+    ]);
+  });
+
+  it("stops the start when storage cannot be read", async () => {
+    const job = build();
+    job.plant("file-1", pdfBytes(), "media/2026/09/jjjj.png");
+    job.storage.open.mockRejectedValueOnce(new Error("storage unreachable"));
+
+    await expect(job.service.onModuleInit()).rejects.toBeInstanceOf(
+      StoredFileEncryptionError,
+    );
+    expect(job.rows.get("file-1")?.encryption).toBe("NONE");
+  });
+
+  it("lets the start go on past a file that does not match its checksum", async () => {
+    // A fact about one file rather than about the run. Stopping on it would
+    // keep the instance down for as long as that file exists.
+    const job = build();
+    job.plant("file-1", pdfBytes(), "media/2026/09/kkkk.png");
+    const row = job.rows.get("file-1");
+    if (row !== undefined) {
+      row.checksum = sha256(Buffer.from("another file"));
+    }
 
     await expect(job.service.onModuleInit()).resolves.toBeUndefined();
-    expect(job.errors).toContainEqual(
-      expect.stringContaining("the next start tries again"),
-    );
+    expect(job.rows.get("file-1")?.encryption).toBe("NONE");
   });
 });

@@ -44,11 +44,23 @@ const SEALED_CHUNK_BYTES = STORED_FILE_CHUNK_BYTES + TAG_BYTES;
 
 /**
  * A sealed file that does not open: a header, a chunk or an ending that does
- * not verify, or a length other than the row records. The message names which,
- * and never carries a byte of the file.
+ * not verify, or a length other than the row records. The message and the code
+ * name which, and neither carries a byte of the file; the code is what a log
+ * line prints.
  */
 export class SealedFileError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code:
+      | "short-header"
+      | "short-chunk"
+      | "unverified-chunk"
+      | "unexpected-chunk"
+      | "after-last-chunk"
+      | "no-last-chunk"
+      | "too-long"
+      | "too-short",
+  ) {
     super(message);
     this.name = "SealedFileError";
   }
@@ -170,11 +182,13 @@ class SealedFileOpener extends Transform {
       if (!this.finalOpened) {
         throw new SealedFileError(
           "The sealed file ends before its last chunk.",
+          "no-last-chunk",
         );
       }
       if (this.openedBytes !== this.plaintextBytes) {
         throw new SealedFileError(
           "The sealed file holds fewer bytes than its row records.",
+          "too-short",
         );
       }
       callback();
@@ -197,6 +211,7 @@ class SealedFileOpener extends Transform {
         if (ended) {
           throw new SealedFileError(
             "The sealed file is shorter than its header.",
+            "short-header",
           );
         }
         return;
@@ -216,6 +231,7 @@ class SealedFileOpener extends Transform {
       if (this.finalOpened) {
         throw new SealedFileError(
           "The sealed file continues after its last chunk.",
+          "after-last-chunk",
         );
       }
       this.openChunk(
@@ -226,7 +242,10 @@ class SealedFileOpener extends Transform {
 
   private openChunk(sealed: Buffer): void {
     if (sealed.length <= TAG_BYTES) {
-      throw new SealedFileError("A chunk of the sealed file is truncated.");
+      throw new SealedFileError(
+        "A chunk of the sealed file is truncated.",
+        "short-chunk",
+      );
     }
 
     const message = Buffer.alloc(sealed.length - TAG_BYTES);
@@ -241,6 +260,7 @@ class SealedFileOpener extends Transform {
     } catch {
       throw new SealedFileError(
         "A chunk of the sealed file does not verify under its key.",
+        "unverified-chunk",
       );
     }
 
@@ -254,12 +274,14 @@ class SealedFileOpener extends Transform {
       // carries the message tag, and no other tag is ever pushed.
       throw new SealedFileError(
         "A chunk of the sealed file is not one this format writes.",
+        "unexpected-chunk",
       );
     }
 
     if (this.openedBytes + message.length > this.plaintextBytes) {
       throw new SealedFileError(
         "The sealed file holds more bytes than its row records.",
+        "too-long",
       );
     }
     this.openedBytes += message.length;

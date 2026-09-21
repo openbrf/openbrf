@@ -91,7 +91,8 @@ services:
       # Left unset on purpose: the entrypoint generates a key into
       # /data/keys on first boot and refuses to invent one afterwards. Set it
       # only when a hosting platform injects the key instead of mounting a
-      # volume.
+      # volume, and then keep the env file with the key's copies, out of the
+      # backups (docs/backup-and-restore.md).
       OPENBRF_ENCRYPTION_KEY: ${OPENBRF_ENCRYPTION_KEY:-}
 
       OPENBRF_PLUGINS_ENABLED: ${OPENBRF_PLUGINS_ENABLED:-true}
@@ -108,8 +109,9 @@ services:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     volumes:
       # Uploads, the field encryption key, installed plugins and installed
-      # themes. Back this up together with the database: without the key the
-      # encrypted fields in a database backup cannot be read
+      # themes. Back this up together with the database, without keys/: the key
+      # is copied out once and kept apart from every backup, because a backup
+      # that carried it would open every encrypted field and stored file in it
       # (docs/backup-and-restore.md).
       - instance-data:/data
     healthcheck:

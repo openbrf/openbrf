@@ -424,6 +424,12 @@ export function securityMeasuresFor(
           })
         : t("dataProtection.processing.security.localDisk"),
     );
+    // Only once it is true of every stored file (ADR 0015). The job at start
+    // encrypts what an older instance stored, and until it has, the record
+    // leaves the claim out rather than make it early.
+    if (facts.unencryptedStoredFiles === 0) {
+      sentences.push(t("dataProtection.processing.security.filesEncrypted"));
+    }
   }
 
   return sentences.join(" ");

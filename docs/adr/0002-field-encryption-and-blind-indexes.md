@@ -45,7 +45,9 @@ before anything else in the data layer was written.
 - **Key provisioning:** the container entrypoint generates a key into
   `/data/keys` when absent; an environment variable overrides the file. Key
   loss is data loss, so backup documentation covers the database and
-  `/data/keys` together, and the setup wizard states it explicitly.
+  `/data/keys` together, and the setup wizard states it explicitly. _Amended by
+  ADR 0015: the key is backed up once, into copies kept apart, and left out of
+  every recurring backup._
 - **Key rotation tooling is out of scope for phase 1** and is recorded here as
   a known gap rather than left unsaid.
 

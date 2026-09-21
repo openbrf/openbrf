@@ -11,10 +11,20 @@ CREATE TYPE "MediaEncryption" AS ENUM ('NONE', 'SECRETSTREAM_64K');
 -- one that forgets to encrypt fails instead of storing a file in the clear.
 ALTER TABLE "media_file"
   ADD COLUMN "encryption" "MediaEncryption" NOT NULL DEFAULT 'NONE',
-  ADD COLUMN "dataKeyCipher" TEXT;
+  ADD COLUMN "dataKeyCipher" TEXT,
+  ADD COLUMN "unencryptedStorageKey" TEXT;
 ALTER TABLE "media_file" ALTER COLUMN "encryption" DROP DEFAULT;
 
 -- An encrypted file has a wrapped key, and a file that is not encrypted has
 -- none.
 ALTER TABLE "media_file" ADD CONSTRAINT "media_file_key_matches_encryption"
   CHECK (("encryption" = 'NONE') = ("dataKeyCipher" IS NULL));
+
+-- An unencrypted object waiting to be removed belongs to a file that has been
+-- encrypted, and is never the object the file is now served from: removing it
+-- must not be able to remove the encrypted copy.
+ALTER TABLE "media_file" ADD CONSTRAINT "media_file_unencrypted_key_only_when_replaced"
+  CHECK (
+    "unencryptedStorageKey" IS NULL
+    OR ("encryption" <> 'NONE' AND "unencryptedStorageKey" <> "storageKey")
+  );

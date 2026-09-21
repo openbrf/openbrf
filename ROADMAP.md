@@ -73,6 +73,16 @@ Every checked item below is implemented and covered by tests.
       register's history cannot be deleted
 - [x] Field-level encryption at rest with searchable blind indexes for email,
       phone and personal identity number
+- [x] Every stored file encrypted at rest: documents, photographs, attachments
+      mailed to the board, the website's pictures and the logo are encrypted by
+      the instance before they reach its disk or a storage bucket, each under a
+      key of its own that is itself encrypted under the instance's key, and are
+      checked piece by piece as they are served, so a file changed in storage
+      is refused rather than served. Files stored before this are encrypted
+      once, when the instance starts. The key is backed up once and kept apart
+      from every backup, because a backup that carries its own key protects
+      nothing. This is not end-to-end encryption: the instance reads every file
+      it serves, and who may read one is still decided by the file's visibility
 - [x] Append-only audit log, written in the same transaction as the access it
       records
 - [x] Sign-in with password, magic link and TOTP
@@ -196,8 +206,9 @@ locally the application runs from source beside the PostgreSQL that
       application never owns the tables whose triggers keep the statutory
       registers append-only. Backing up is
       [documented](docs/backup-and-restore.md) as one job covering the database
-      and the encryption key together, because either without the other is not
-      a backup
+      and the data volume, with the encryption key backed up once and kept
+      apart from every backup, because a backup without the key cannot be read
+      and a backup with it opens everything
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,

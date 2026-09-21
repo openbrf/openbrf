@@ -26,41 +26,50 @@ export class ProcessorFactsService {
   ) {}
 
   async read(): Promise<ProcessorFacts> {
-    const [association, plugins, connectedApps] = await Promise.all([
-      this.prisma.association.findUnique({
-        where: { id: 1 },
-        select: {
-          smtpHost: true,
-          smtpFromAddress: true,
-          smsDriver: true,
-          smsGatewayUrl: true,
-        },
-      }),
-      this.prisma.installedPlugin.findMany({
-        select: { id: true, packageName: true, version: true },
-        orderBy: [{ id: "asc" }],
-      }),
-      /*
-       * Only the clients somebody has actually allowed to act. A client row is
-       * written as soon as an app presents its metadata document, and a
-       * registration hands nobody anything: a row asking the board to classify
-       * an app no member has connected would be a false entry in the art. 28
-       * record, the way a gateway on an instance with no SMS provider would be.
-       *
-       * One row per client rather than per consent: an app forty households
-       * connected is one recipient.
-       */
-      this.prisma.oauthClient.findMany({
-        where: { consents: { some: {} } },
-        select: {
-          id: true,
-          name: true,
-          clientDiscoveryId: true,
-          uri: true,
-        },
-        orderBy: [{ id: "asc" }],
-      }),
-    ]);
+    const [association, plugins, connectedApps, unencryptedStoredFiles] =
+      await Promise.all([
+        this.prisma.association.findUnique({
+          where: { id: 1 },
+          select: {
+            smtpHost: true,
+            smtpFromAddress: true,
+            smsDriver: true,
+            smsGatewayUrl: true,
+          },
+        }),
+        this.prisma.installedPlugin.findMany({
+          select: { id: true, packageName: true, version: true },
+          orderBy: [{ id: "asc" }],
+        }),
+        /*
+         * Only the clients somebody has actually allowed to act. A client row is
+         * written as soon as an app presents its metadata document, and a
+         * registration hands nobody anything: a row asking the board to classify
+         * an app no member has connected would be a false entry in the art. 28
+         * record, the way a gateway on an instance with no SMS provider would be.
+         *
+         * One row per client rather than per consent: an app forty households
+         * connected is one recipient.
+         */
+        this.prisma.oauthClient.findMany({
+          where: { consents: { some: {} } },
+          select: {
+            id: true,
+            name: true,
+            clientDiscoveryId: true,
+            uri: true,
+          },
+          orderBy: [{ id: "asc" }],
+        }),
+        this.prisma.mediaFile.count({
+          where: {
+            OR: [
+              { encryption: "NONE" },
+              { unencryptedStorageKey: { not: null } },
+            ],
+          },
+        }),
+      ]);
 
     return {
       smtpHost: association?.smtpHost ?? null,
@@ -83,6 +92,7 @@ export class ProcessorFactsService {
         name: client.name,
         host: connectedAppHost(client),
       })),
+      unencryptedStoredFiles,
     };
   }
 }

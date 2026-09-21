@@ -1,5 +1,6 @@
 ---
 "@openbrf/api": minor
+"@openbrf/i18n": minor
 ---
 
 Encrypt every stored file at rest, each under a key of its own.
@@ -21,9 +22,21 @@ served.
 The checksum on a file's row, which is also its entity tag, is now a keyed hash
 of the file under a key derived from the instance's, so the database on its own
 cannot confirm that a known document is stored. Files stored before this change
-are encrypted once, when the instance starts and before it listens; a file that
-cannot be encrypted is left as it was, logged, and never served.
+are encrypted once, when the instance starts and before it listens. A file that
+cannot be encrypted is left as it was, logged, and never served; a run that
+cannot be carried out stops the start. The unencrypted object a file replaces
+stays named on its row until its removal has succeeded, and every start retries
+it.
+
+The record of processing activities says the files are encrypted on each
+processing that stores them, once no stored file is left unencrypted.
+
+The encryption key is now backed up once, into two copies kept apart from the
+server and from the backups, and every recurring backup leaves it out: a backup
+that carries its own key opens every encrypted field and every stored file in
+it. `docs/backup-and-restore.md` has the procedure, including copying the key
+out and putting it back on restore, and the deployment guide, the README, the
+compose file, the environment examples and the key's log lines say the same.
 
 `sodium-native` 5.1.0 is a new dependency, pinned exactly; the field encryption
-keeps its own 3.4.1. See ADR 0015, which also records that the key is backed up
-once, apart, and kept out of every recurring backup.
+keeps its own 3.4.1. See ADR 0015.

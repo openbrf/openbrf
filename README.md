@@ -11,6 +11,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 ## What it does (v1 scope)
 
 - Apartment-based address book and member register, with import. Contact details and personal identity numbers are encrypted at rest; names and postal addresses stay readable, because the statutory register must be searchable and printable
+- Every stored file - documents, photos, attachments, the website's pictures - is encrypted at rest, each under a key of its own
 - The statutory registers under Swedish law: the member register (public on request) and the confidential apartment register, kept strictly separate
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - The rest of what a controller has to do: the record of processing activities (art. 30), the personal data breach register with the 72-hour clock (art. 33), processor agreements with each recipient classified first (art. 28), a privacy notice checked against what art. 13 requires, and the requests a person makes about their own data - erasure, objection, restriction and a portable export (art. 17, 18, 20, 21)
@@ -32,7 +33,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | --- | --- |
 | [ROADMAP.md](ROADMAP.md) | What is built, what is not, and what "usable" will mean |
 | [docs/deployment.md](docs/deployment.md) | Running an instance: the compose stack, the two database roles, the reverse proxy |
-| [docs/backup-and-restore.md](docs/backup-and-restore.md) | Backing up the database and the encryption key together, and restoring both |
+| [docs/backup-and-restore.md](docs/backup-and-restore.md) | Keeping the encryption key apart from every backup, backing up the database and the data volume together, and restoring all three |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: language policy, PR process, coding standards, tests, AI policy |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |

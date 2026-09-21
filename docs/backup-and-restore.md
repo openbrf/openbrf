@@ -1,30 +1,45 @@
 # Backing up an Open BRF instance
 
-**Back up the database and `/data/keys` together, in the same job, at the same
-time. A database backup without the key is not a backup.**
+**Two rules. The encryption key is backed up once, when the instance is first
+started, and kept apart from every backup. The database and the data volume are
+backed up together, in the same job, at the same time, and without the key.**
 
 Contact details and personal identity numbers are encrypted before they are
-written (ADR 0002). The key that decrypts them lives on the data volume, at
-`/data/keys/field-encryption.key`, and nowhere else. A database dump taken
-without it holds those columns as ciphertext that nothing can ever read again:
-there is no recovery path, no reset, and no support address that can help. The
-names and postal addresses in the member register survive, because those are
-stored in plaintext on purpose - the statutory register has to be searchable and
-printable - but everything else is gone.
+written (ADR 0002), and so is every stored file - documents, photographs,
+attachments mailed to the board, the website's pictures and the logo (ADR 0015).
+The key that decrypts all of it lives on the data volume, at
+`/data/keys/field-encryption.key`. The names and postal addresses in the member
+register are stored in plaintext on purpose - the statutory register has to be
+searchable and printable - and so are the names, types and sizes of the stored
+files.
 
-The instance is built to make that failure loud rather than silent. On any boot
+Both halves of the first rule matter, and they fail in opposite directions:
+
+- **A backup without the key cannot be read.** A database dump holds the
+  encrypted columns as ciphertext, and the archive of the data volume holds the
+  stored files as ciphertext. Without the key nothing can ever read them again:
+  there is no recovery path, no reset, and no support address that can help.
+- **A backup that carries the key opens everything in it.** Whoever gets hold of
+  such a backup reads every encrypted column and every stored file, and the
+  encryption protected nothing. That is why the key is kept out of every
+  recurring backup and held somewhere else.
+
+The key never changes, because there is no key rotation yet, so the copy made on
+the first day is the key every backup ever taken needs.
+
+The instance is built to make a missing key loud rather than silent. On any boot
 after the first, a missing key file stops the container with an explanation
 instead of generating a new one, because the usual cause is a volume that was
 not mounted rather than a genuine first start.
 
 ## What has to be backed up
 
-| What                        | Where                                                           | Why                                                              |
-| --------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------- |
-| The database                | the `postgres-data` volume, through `pg_dump`                   | The registers, the accounts, the audit log                       |
-| The field encryption key    | `/data/keys/field-encryption.key` on the `instance-data` volume | Without it the encrypted columns in the dump are unreadable      |
-| The rest of the data volume | `/data/uploads`, `/data/plugins`, `/data/themes`                | Uploaded documents, and the plugins and themes the instance runs |
-| The environment file        | `.env.production` next to the compose file                      | `BETTER_AUTH_SECRET`, the database passwords                     |
+| What                             | Where                                                           | When, and where it goes                                                                                                                                                                    |
+| -------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The encryption key               | `/data/keys/field-encryption.key` on the `instance-data` volume | Once, on the first day, into two copies held apart from the server and from the backups. See "Keeping the key"                                                                             |
+| The database                     | the `postgres-data` volume, through `pg_dump`                   | Every backup: the registers, the accounts, the audit log                                                                                                                                   |
+| The data volume, without `keys/` | `/data/uploads`, `/data/plugins`, `/data/themes`                | Every backup, together with the database: the stored files, and the plugins and themes the instance runs                                                                                   |
+| The environment file             | `.env.production` next to the compose file                      | With the backups, for `BETTER_AUTH_SECRET` and the database passwords - unless it holds `OPENBRF_ENCRYPTION_KEY`, in which case it holds the key and is kept with the key's copies instead |
 
 Two things are deliberately **not** in that list. The application image is
 rebuilt from the repository, and the PostgreSQL data directory itself is never
@@ -32,10 +47,33 @@ copied file by file: a directory copied out from under a running server is not a
 consistent backup, and it is not portable across major PostgreSQL versions.
 Always dump.
 
+## Keeping the key
+
+Copy the key out once, on the day the instance is first started, and before
+anything is stored in it. A one-off container reads it, as the backup script
+below does, and the copy goes straight into a file on removable media rather
+than onto a screen or into a terminal's scrollback:
+
+```sh
+(umask 077; docker compose -f docker-compose.prod.yml --env-file .env.production \
+  run --rm --no-deps -T --entrypoint sh app \
+  -c 'cat /data/keys/field-encryption.key' \
+  > /media/usb/openbrf-field-encryption.key)
+```
+
+Make two copies, and keep them apart from each other, from the server and from
+wherever the backups are stored - two board members holding one each is the
+usual shape. Two, because a key nobody can find loses the very restore it
+exists for, and losing it loses every encrypted field and every stored file.
+
+If the key is supplied through `OPENBRF_ENCRYPTION_KEY` instead, it is not on
+the volume at all: `.env.production` holds it, and that file is kept the way the
+key's copies are, out of the backups.
+
 ## Taking a backup
 
 The script below produces one directory holding a dump and the data volume,
-which is the unit that has to be restored together.
+which is the unit that has to be restored together. The key is not in it.
 
 **The application is stopped for the length of it, and that is the point.** The
 database and the data volume hold two halves of the same instance: a row names
@@ -68,11 +106,13 @@ compose exec -T db \
   pg_dump -U openbrf -d openbrf --format=custom \
   > "${OUT}/openbrf.dump"
 
-# The data volume, key included. One archive, from the same still moment. A
-# one-off container, because the application's own is stopped; -T keeps a
-# pseudo-terminal from rewriting the bytes of the archive on their way out.
+# The data volume, without the key: a backup that carried it would open every
+# encrypted column and every stored file in it. One archive, from the same still
+# moment. A one-off container, because the application's own is stopped; -T
+# keeps a pseudo-terminal from rewriting the bytes of the archive on their way
+# out.
 compose run --rm --no-deps -T --entrypoint sh app \
-  -c 'tar -cf - -C /data .' \
+  -c 'tar -cf - -C /data --exclude=./keys .' \
   > "${OUT}/data.tar"
 
 echo "backup written to ${OUT}"
@@ -89,9 +129,11 @@ Anything else is two backups of two different moments.
 
 ## Storing a backup
 
-The dump contains the housing cooperative's member register and the personal
-data of everyone in it, and the archive contains the key that unlocks the rest.
-Together they are the whole instance.
+The dump contains the housing cooperative's member register, with the names
+and postal addresses of everyone in it in plaintext, and both halves carry what
+the encryption leaves readable: the stored files' names and sizes, and the audit
+log. The key is not in either, so the encrypted columns and the stored files in
+them cannot be read by whoever holds the backup alone.
 
 - Encrypt the backup at rest, and hold the passphrase somewhere other than the
   server being backed up.
@@ -99,7 +141,9 @@ Together they are the whole instance.
   against a mistake, not against a failure.
 - Restrict who can read it the way you would restrict who can read the register
   itself, because it is the register.
-- Test a restore. An untested backup is a belief, not a backup.
+- Test a restore, with the key taken from where it is kept. An untested backup
+  is a belief, not a backup, and a restore test is the only proof that the
+  key's copies are where they should be.
 
 ## Restoring
 
@@ -109,28 +153,36 @@ Into an empty stack:
 # 1. Start the database alone, so nothing writes while the restore runs.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d db
 
-# 2. Put the data volume back first. The application refuses to start without
-#    the key, which is the behaviour that keeps a half restore from writing
-#    ciphertext nothing can read. -T for the same reason as in the backup: a
+# 2. Put the data volume back. -T for the same reason as in the backup: a
 #    pseudo-terminal would rewrite the bytes of the archive on their way in.
 docker compose -f docker-compose.prod.yml --env-file .env.production run --rm \
   --no-deps -T --entrypoint sh app -c 'tar -xf - -C /data' < backups/<stamp>/data.tar
 
-# 3. Restore the database.
+# 3. Put the key back from where it is kept, readable by the application alone.
+#    Not needed when the key is supplied through OPENBRF_ENCRYPTION_KEY. The
+#    application refuses to start without it, which is the behaviour that keeps
+#    a half restore from writing ciphertext nothing can read.
+docker compose -f docker-compose.prod.yml --env-file .env.production run --rm \
+  --no-deps -T --entrypoint sh app \
+  -c 'umask 077 && mkdir -p /data/keys && cat > /data/keys/field-encryption.key' \
+  < /media/usb/openbrf-field-encryption.key
+
+# 4. Restore the database.
 docker compose -f docker-compose.prod.yml exec -T db \
   pg_restore -U openbrf -d openbrf --clean --if-exists \
   < backups/<stamp>/openbrf.dump
 
-# 4. Start the application. The entrypoint applies any migrations the restored
+# 5. Start the application. The entrypoint applies any migrations the restored
 #    database is missing, reinstalls the job schema and reapplies the runtime
 #    role's privileges.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-Restore the key file and the dump from the **same** backup. A key from one
-backup and a database from another decrypts whatever the two happen to share and
-nothing else, and the failure looks like corrupt data rather than like a
-mismatch.
+The key from its own place, the dump and the archive from **one** backup. A
+database from one backup and an archive from another describe two different
+moments, and a key other than the one the instance was first started with
+decrypts nothing: the failure looks like corrupt data and missing files rather
+than like a mismatch.
 
 `BETTER_AUTH_SECRET` is not needed to read the data, but changing it signs
 everyone out, so restore the environment file too unless you mean to.
@@ -145,7 +197,9 @@ housing cooperative is legally obliged to retain and to produce on request.
 
 ## Key rotation
 
-There is none yet. Rotating the field encryption key means decrypting every
-encrypted column and every blind index and rewriting them under a new key, and
-that tooling is deliberately out of phase 1 (ADR 0002, ADR 0004). Until it
-exists, treat the key as permanent: back it up, and do not change it.
+There is none yet. Rotating the encryption key means decrypting every encrypted
+column and every blind index and rewriting them under a new key, and that
+tooling is deliberately out of phase 1 (ADR 0002, ADR 0004). Until it exists,
+treat the key as permanent: keep its two copies, and do not change it. When
+rotation exists, the kept copies are replaced by the new key, and a backup taken
+before the rotation still needs the key it was taken under.

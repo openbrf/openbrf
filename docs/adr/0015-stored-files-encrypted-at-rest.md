@@ -135,10 +135,29 @@ before the server listens. For each it reads the object, checks it against the
 row's size and the plain SHA-256 the row was written with, seals it under a new
 key, writes it under a new storage key, reads it back and opens it, switches the
 row with an update that holds only while the row still names the old key and is
-still `NONE`, and then removes the old object. A file it cannot encrypt is left
-as it was and logged by id. `MediaService.open` refuses a `NONE` row as missing,
-so no path serves an unencrypted file. Blocking start is cheap only because no
-live instance holds files; nothing writes `NONE` any longer, so none can come to.
+still `NONE`, and then removes the old object. `MediaService.open` refuses a
+`NONE` row as missing, so no path serves an unencrypted file. Blocking start is
+cheap only because no live instance holds files; nothing writes `NONE` any
+longer, so none can come to.
+
+The unencrypted object is the one thing the job must not lose track of. The
+update that switches a row also records the old key in `unencryptedStorageKey`,
+and the column is cleared only once the removal has succeeded; every run tries
+the removals still recorded before anything else, and deleting a file removes
+its recorded object too. A CHECK keeps the column on encrypted rows only, and
+never naming the object the file is served from. An encrypted object orphaned
+by an ordinary delete needs no such record, because its key went with the row.
+
+A fact about one file - its object gone, or not matching its recorded size and
+checksum - leaves that file as it was, logged by id, and the run goes on, so one
+corrupt file cannot keep the instance down. A failure of the run itself - the
+database or the storage not answering - stops the start, loudly, rather than
+serving every unencrypted file as missing. That costs nothing on any other
+start, because the job only has work while an unencrypted file is left.
+
+The record of processing activities says the files are encrypted, on each
+processing that stores them, only while no stored file has bytes in storage
+that are not: no `NONE` row and no recorded unencrypted object.
 
 ### The key is backed up once, apart, and kept out of every backup
 
@@ -150,7 +169,9 @@ encrypted field. The key is copied out once, on first boot, into at least two
 copies held apart from the server and from the backup store; every recurring
 backup excludes it; a restore puts it back from where it is kept. The key never
 changes while there is no rotation, so the one copy serves every backup ever
-taken.
+taken. A key supplied through `OPENBRF_ENCRYPTION_KEY` is held in the
+environment file, which is then kept with the key's copies rather than with the
+backups. `docs/backup-and-restore.md` is the procedure.
 
 ### What this is not
 
@@ -184,5 +205,5 @@ control. And not a protection of metadata.
   the file cipher move onto one libsodium build.
 - **An upload path that streams end to end**, which sealing a whole buffer
   would then have to follow.
-- **No database holds a `NONE` row any longer**, at which point the job and the
-  value go.
+- **No database holds a `NONE` row or a recorded unencrypted object any
+  longer**, at which point the job, the value and the column go.

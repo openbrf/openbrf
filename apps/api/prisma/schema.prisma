@@ -2808,6 +2808,14 @@ model MediaFile {
   /// is not encrypted, which a CHECK holds. Deleting the row deletes the only
   /// copy of the key outside the database backups.
   dataKeyCipher String?
+  /// Where the file's unencrypted object still is, after the job at start has
+  /// replaced it with the encrypted one and until the unencrypted one is gone.
+  /// Written in the update that switches the row to the encrypted object, so a
+  /// removal that fails or never happens is recorded rather than lost, and
+  /// cleared once the removal succeeds; every run retries it, and deleting the
+  /// file removes it too. Null on every row the upload writes, and on an
+  /// unencrypted row, which a CHECK holds.
+  unencryptedStorageKey String?
 
   /// Identified from the bytes, not taken from the request. This is the type
   /// the file is served with, so trusting the declared one would let an upload

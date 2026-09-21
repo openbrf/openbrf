@@ -18,6 +18,7 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
     s3Bucket: null,
     installedPlugins: [],
     connectedApps: [],
+    unencryptedStoredFiles: 0,
     ...overrides,
   };
 }

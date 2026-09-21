@@ -9,8 +9,10 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import {
   openSealedFile,
   SEALED_FILE_CONTENT_TYPE,
+  SealedFileError,
 } from "../crypto/stored-file-cipher";
 import { PrismaService } from "../database/prisma.service";
+import { failureFrames, failureName } from "../logging/failure";
 import { generateStorageKey } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { sealForStorage, unwrapFileKey } from "./media.service";
@@ -21,14 +23,29 @@ export interface StoredFileEncryptionRun {
   encrypted: number;
   /** Files left exactly as they were, by id, each with the reason. */
   left: { id: string; reason: string }[];
+  /** Unencrypted objects removed, whichever run replaced them. */
+  removed: number;
+  /**
+   * Files whose unencrypted object is still in storage, by id. Each is
+   * recorded on its row, and the next run tries the removal again.
+   */
+  removalsPending: string[];
 }
 
-/** The row fields the job reads. */
+/** The row fields the job reads to encrypt a file. */
 interface UnencryptedFile {
   id: string;
   storageKey: string;
   byteSize: number;
   checksum: string;
+}
+
+/** A run that could not be carried out, which stops the start. */
+export class StoredFileEncryptionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoredFileEncryptionError";
+  }
 }
 
 /**
@@ -39,15 +56,28 @@ interface UnencryptedFile {
  * were encrypted, because nothing writes an unencrypted row any longer, and it
  * returns at once everywhere else. Blocking start on it is cheap because no
  * live instance held files before this: on a bucket of thousands it would
- * outlast the health check. It goes, with the NONE value, once no database
- * holds a NONE row.
+ * outlast the health check. It goes, with the NONE value and the
+ * unencryptedStorageKey column, once no database holds either.
  *
  * One file at a time, and never in a way that loses one. The sealed copy is
  * written under a new storage key, read back and opened, and only then is the
  * row switched to it, by an update that holds only if the row still names the
- * old key and is still unencrypted; the old object is removed last. A crash
- * anywhere leaves a row that opens: either still unencrypted with its object in
- * place, which the next start retries, or switched to a copy known to open.
+ * old key and is still unencrypted. The same update records the old key in
+ * unencryptedStorageKey, and the unencrypted object is removed after it; the
+ * record is cleared once the removal has succeeded. A crash anywhere leaves a
+ * row that opens, either still unencrypted with its object in place or switched
+ * to a copy known to open, and an unencrypted object that is still in storage
+ * is always named on its row, where every run looks for it first.
+ *
+ * Two kinds of failure, told apart on purpose. A fact about one file - its
+ * object is gone, or does not match its recorded size and checksum - leaves
+ * that file as it was, logged by id, and the run goes on: stopping the start on
+ * it would keep the instance down for as long as that one file exists. A
+ * failure of the run itself - the database or the storage not answering, or a
+ * key that cannot be wrapped - stops the start. Serving through it would answer
+ * every file still unencrypted as missing while the log scrolled past the
+ * reason, and it costs nothing on any other start, because the job only has
+ * work while an unencrypted file is left.
  *
  * A file left unencrypted is never served: MediaService.open refuses a NONE
  * row as missing. Writes no audit entry, because it changes how the bytes are
@@ -73,31 +103,48 @@ export class StoredFileEncryptionService implements OnModuleInit {
     try {
       await this.encryptRemaining();
     } catch (cause) {
-      // Logged and swallowed: the instance serves every encrypted file, refuses
-      // the rest as missing, and the next start runs the job again.
+      // The class and the frames, never the message: a storage or database
+      // error composes its message from what it was handling (ADR 0007).
       this.logger.error(
-        "Could not encrypt the stored files left unencrypted; the next start tries again.",
-        cause instanceof Error ? cause.stack : undefined,
+        `Could not finish encrypting the stored files, so the instance does not start: ${failureName(cause)}`,
+        failureFrames(cause),
+      );
+      throw new StoredFileEncryptionError(
+        "The stored files could not all be encrypted; see the log line before this one.",
       );
     }
   }
 
-  /** Encrypts every unencrypted file it can. Public so a test can drive it. */
+  /**
+   * Removes the unencrypted objects an earlier run left, then encrypts every
+   * unencrypted file it can. Throws when the run itself cannot be carried out.
+   * Public so a test can drive it.
+   */
   async encryptRemaining(): Promise<StoredFileEncryptionRun> {
+    const run: StoredFileEncryptionRun = {
+      encrypted: 0,
+      left: [],
+      removed: 0,
+      removalsPending: [],
+    };
+
+    const replaced = await this.prisma.mediaFile.findMany({
+      where: { unencryptedStorageKey: { not: null } },
+      select: { id: true, unencryptedStorageKey: true },
+    });
+    for (const file of replaced) {
+      if (file.unencryptedStorageKey !== null) {
+        await this.removeUnencrypted(file.id, file.unencryptedStorageKey, run);
+      }
+    }
+
     const remaining = await this.prisma.mediaFile.findMany({
       where: { encryption: "NONE" },
       orderBy: { createdAt: "asc" },
       select: { id: true, storageKey: true, byteSize: true, checksum: true },
     });
-    const run: StoredFileEncryptionRun = { encrypted: 0, left: [] };
-    if (remaining.length === 0) {
-      return run;
-    }
-
     for (const file of remaining) {
-      const reason = await this.encryptOne(file).catch(
-        () => "it could not be encrypted.",
-      );
+      const reason = await this.encryptOne(file, run);
       if (reason === null) {
         run.encrypted += 1;
       } else {
@@ -105,28 +152,32 @@ export class StoredFileEncryptionService implements OnModuleInit {
       }
     }
 
-    this.logger.log(
-      `Encrypted ${String(run.encrypted)} stored files; left ${String(run.left.length)} as they were.`,
-    );
+    if (replaced.length > 0 || remaining.length > 0) {
+      this.logger.log(
+        `Encrypted ${String(run.encrypted)} stored files and left ${String(run.left.length)} as they were; ` +
+          `removed ${String(run.removed)} unencrypted objects, and ${String(run.removalsPending.length)} are still to be removed.`,
+      );
+    }
     for (const { id, reason } of run.left) {
       this.logger.error(`Left the file ${id} unencrypted: ${reason}`);
     }
     return run;
   }
 
-  /** Encrypts one file, or says why it was left as it was. */
-  private async encryptOne(file: UnencryptedFile): Promise<string | null> {
-    let bytes: Buffer;
-    try {
-      const stored = await this.storage.open(file.storageKey);
-      if (stored === null) {
-        return "its object is not in storage.";
-      }
-      // Bounded by the upload that wrote it.
-      bytes = await buffer(stored);
-    } catch {
-      return "its object could not be read.";
+  /**
+   * Encrypts one file, or says why it was left as it was. A failure that is
+   * not about this file is thrown, and ends the run.
+   */
+  private async encryptOne(
+    file: UnencryptedFile,
+    run: StoredFileEncryptionRun,
+  ): Promise<string | null> {
+    const stored = await this.storage.open(file.storageKey);
+    if (stored === null) {
+      return "its object is not in storage.";
     }
+    // Bounded by the upload that wrote it.
+    const bytes = await buffer(stored);
 
     // Checked against the size and the SHA-256 the row was written with, before
     // anything is written: a file that is not the one its row describes is left
@@ -147,12 +198,7 @@ export class StoredFileEncryptionService implements OnModuleInit {
     );
     await this.storage.put(storageKey, sealed.body, SEALED_FILE_CONTENT_TYPE);
 
-    const opens = await this.opensTo(
-      storageKey,
-      sealed.dataKeyCipher,
-      bytes,
-    ).catch(() => false);
-    if (!opens) {
+    if (!(await this.opensTo(storageKey, sealed.dataKeyCipher, bytes))) {
       await this.removeQuietly(storageKey);
       return "its encrypted copy did not open to the same bytes.";
     }
@@ -164,6 +210,9 @@ export class StoredFileEncryptionService implements OnModuleInit {
         encryption: "SECRETSTREAM_64K",
         dataKeyCipher: sealed.dataKeyCipher,
         checksum: sealed.checksum,
+        // In this update and not a later one, so there is no moment at which
+        // the row has let go of the unencrypted object without naming it.
+        unencryptedStorageKey: file.storageKey,
       },
     });
     if (count === 0) {
@@ -172,16 +221,41 @@ export class StoredFileEncryptionService implements OnModuleInit {
       return "its row changed while it was being encrypted.";
     }
 
-    await this.storage.remove(file.storageKey).catch(() => {
-      // The one leftover the job can produce, and named so it can be found.
-      this.logger.error(
-        `Encrypted the file ${file.id} but could not remove its unencrypted object at ${file.storageKey}.`,
-      );
-    });
+    await this.removeUnencrypted(file.id, file.storageKey, run);
     return null;
   }
 
-  /** Whether the object at a key opens, under the wrapped key, to `bytes`. */
+  /**
+   * Removes a replaced unencrypted object and clears its record, or leaves the
+   * record for the next run. A failed removal does not stop the start: the file
+   * is served encrypted either way, and the object is named on its row until it
+   * is gone.
+   */
+  private async removeUnencrypted(
+    id: string,
+    storageKey: string,
+    run: StoredFileEncryptionRun,
+  ): Promise<void> {
+    try {
+      await this.storage.remove(storageKey);
+    } catch (cause) {
+      this.logger.error(
+        `Could not remove the unencrypted object of the file ${id}; it stays recorded on the row and the next start tries again: ${failureName(cause)}`,
+      );
+      run.removalsPending.push(id);
+      return;
+    }
+    await this.prisma.mediaFile.updateMany({
+      where: { id, unencryptedStorageKey: storageKey },
+      data: { unencryptedStorageKey: null },
+    });
+    run.removed += 1;
+  }
+
+  /**
+   * Whether the object at a key opens, under the wrapped key, to `bytes`.
+   * False for a copy that does not verify; a storage failure is thrown.
+   */
   private async opensTo(
     storageKey: string,
     dataKeyCipher: string,
@@ -193,15 +267,24 @@ export class StoredFileEncryptionService implements OnModuleInit {
     }
     const key = await unwrapFileKey(this.encryption, dataKeyCipher);
     const opened = openSealedFile(key, bytes.length);
-    const [, plaintext] = await Promise.all([
-      pipeline(stored, opened),
-      buffer(opened),
-    ]);
-    return plaintext.equals(bytes);
+    try {
+      const [, plaintext] = await Promise.all([
+        pipeline(stored, opened),
+        buffer(opened),
+      ]);
+      return plaintext.equals(bytes);
+    } catch (cause) {
+      if (cause instanceof SealedFileError) {
+        return false;
+      }
+      throw cause;
+    }
   }
 
+  /** Removes an encrypted copy that belongs to no row. */
   private async removeQuietly(storageKey: string): Promise<void> {
     await this.storage.remove(storageKey).catch(() => {
+      // Ciphertext whose key was never written anywhere: it opens for nobody.
       this.logger.warn(`Left an unreferenced object at ${storageKey}.`);
     });
   }
