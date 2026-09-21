@@ -215,11 +215,13 @@ the board has already decided on.
 ## The nightly purge
 
 Service-tier personal data is erased on the retention policy's clock by jobs
-that run between 03:05 and 03:53, spread across those minutes so they do not
-wake together on one connection pool. They are ordinary queue jobs: an instance
-that was down overnight runs them when it comes back, and nothing is lost by a
-run that was interrupted, because every one of them computes what is due from
-the data rather than from a flag.
+that run between 03:05 and 03:53 UTC, spread across those minutes so they do not
+wake together on one connection pool. They are ordinary queue jobs scheduled
+once a night. An occurrence the instance was down for is skipped, not run when
+it comes back, and a run that was interrupted is not resumed. Neither loses a
+retention deadline: every one of them computes what is due from the data rather
+than from a flag, so the next night's run erases what the missed one would have,
+one night late.
 
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.
