@@ -46,11 +46,11 @@ held the apartment on the 29th and not on the 30th, and a household moving in
 on the 30th holds it from that day, so no day is held by two households and none
 by nobody. A seat ending on the 30th confers nothing on the 30th.
 
-This is the reading the voting register and the booking rule state, the one
-every access check already applied, and the one the move-out notice gives the
-person moving out: their access ends on that date. The member register writes
-the move-out date as the exit, and a membership whose exit is dated today is not
-current.
+This is the reading the voting register and the booking rule state, and the
+one the move-out notice gives the person moving out: their access ends on that
+date. Every access check already read the end date this way; what they left out
+was the start. The member register writes the move-out date as the exit, and a
+membership whose exit is dated today is not current.
 
 ### Held on a day is decided on the association's calendar, as a date
 
