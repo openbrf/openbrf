@@ -5,10 +5,17 @@ import {
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { createHash } from "node:crypto";
+
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import {
+  sealedLength,
+  STORED_FILE_CHUNK_BYTES,
+} from "../crypto/stored-file-cipher";
 import { PrismaService } from "../database/prisma.service";
 import { registerMultipart } from "../http/multipart";
 import {
@@ -602,5 +609,149 @@ describe("serving a file with S3 behind it", () => {
     const response = await inject({ method: "GET", url: "/api/media/nothing" });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("a file at rest", () => {
+  let url: string;
+  let id: string;
+  let bytes: Buffer;
+
+  /** The object in the bucket, read as the storage holds it. */
+  async function storedObject(
+    fileId: string,
+  ): Promise<{ key: string; body: Buffer; contentType: string }> {
+    const { storageKey } = await prisma.mediaFile.findUniqueOrThrow({
+      where: { id: fileId },
+      select: { storageKey: true },
+    });
+    const object = bucket.objects.get(storageKey);
+    if (object === undefined) {
+      throw new Error("The file has no object in the bucket.");
+    }
+    return { key: storageKey, ...object };
+  }
+
+  /** Replaces the stored object for a file, for as long as `run` takes. */
+  async function withStoredObject(
+    fileId: string,
+    change: (body: Buffer) => Buffer,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const original = await storedObject(fileId);
+    bucket.objects.set(original.key, {
+      body: change(original.body),
+      contentType: original.contentType,
+    });
+    try {
+      await run();
+    } finally {
+      bucket.objects.set(original.key, {
+        body: original.body,
+        contentType: original.contentType,
+      });
+    }
+  }
+
+  beforeAll(async () => {
+    bytes = pngBytes(240, 80);
+    const cookie = await signIn(admin.email);
+    const branding = (
+      await uploadLogo(cookie, "light", bytes)
+    ).json() as BrandingBody;
+    url = branding.logo?.url ?? "";
+    id = url.split("/").pop() ?? "";
+  });
+
+  it("is ciphertext in the bucket, not the file that was uploaded", async () => {
+    const stored = await storedObject(id);
+
+    expect(stored.body.length).toBe(sealedLength(bytes.length));
+    expect(stored.body.equals(bytes)).toBe(false);
+    expect(stored.body.includes(bytes.subarray(0, 8))).toBe(false);
+    expect(stored.contentType).toBe("application/octet-stream");
+    expect(stored.key).toMatch(/^branding\/\d{4}\/\d{2}\/[0-9a-f-]{36}$/);
+  });
+
+  it("is served byte for byte as uploaded, tagged with its keyed checksum", async () => {
+    const response = await inject({ method: "GET", url });
+
+    const checksum = await app
+      .get(FieldEncryptionService)
+      .storedFileChecksum(bytes);
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload.equals(bytes)).toBe(true);
+    expect(response.headers.etag).toBe(`"${checksum}"`);
+    expect(response.headers.etag).not.toBe(
+      `"${createHash("sha256").update(bytes).digest("hex")}"`,
+    );
+    // Whole or not at all: there is no range to ask for.
+    expect(response.headers["accept-ranges"]).toBeUndefined();
+  });
+
+  it("answers exactly as a missing file does when one byte of it is changed", async () => {
+    const absent = await inject({ method: "GET", url: "/api/media/nothing" });
+
+    await withStoredObject(
+      id,
+      (body) => {
+        const changed = Buffer.from(body);
+        changed[40] = (changed[40] ?? 0) ^ 0x01;
+        return changed;
+      },
+      async () => {
+        const response = await inject({ method: "GET", url });
+
+        expect(response.statusCode).toBe(absent.statusCode);
+        expect(response.body).toBe(absent.body);
+      },
+    );
+  });
+
+  it("answers exactly as a missing file does when its final chunk is cut short", async () => {
+    const absent = await inject({ method: "GET", url: "/api/media/nothing" });
+
+    await withStoredObject(
+      id,
+      (body) => body.subarray(0, body.length - 1),
+      async () => {
+        const response = await inject({ method: "GET", url });
+
+        expect(response.statusCode).toBe(absent.statusCode);
+        expect(response.body).toBe(absent.body);
+      },
+    );
+  });
+
+  it("breaks off a larger file whose final chunk is cut short", async () => {
+    const large = Buffer.alloc(3 * STORED_FILE_CHUNK_BYTES + 100);
+    pngBytes(64, 64).copy(large);
+    for (let index = 33; index < large.length; index += 1) {
+      large[index] = index % 253;
+    }
+    const file = await app.get(MediaService).upload({
+      bytes: large,
+      fileName: "stor.png",
+      visibility: "PUBLIC",
+      showsIdentifiablePersons: false,
+      uploadedByPersonId: admin.personId,
+      channel: "WEB",
+    });
+
+    const whole = await inject({ method: "GET", url: file.url });
+    expect(whole.rawPayload.equals(large)).toBe(true);
+
+    await withStoredObject(
+      file.id,
+      (body) => body.subarray(0, body.length - 1),
+      async () => {
+        // The status went out with the first chunk, verified. The last one
+        // does not verify, so the reply is torn down short of the length it
+        // announced, which a client reads as a failed transfer.
+        await expect(inject({ method: "GET", url: file.url })).rejects.toThrow(
+          /destroyed before completion/,
+        );
+      },
+    );
   });
 });

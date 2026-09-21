@@ -6,7 +6,10 @@ import { randomUUID } from "node:crypto";
  * Derived from the type the bytes were identified as, never from the name the
  * upload arrived under. A client-supplied name is the wrong thing to build a
  * path from twice over: it decides where the file lands, and it decides what a
- * later reader thinks the file is.
+ * later reader thinks the file is. An encrypted file is stored as
+ * application/octet-stream, which has no entry here, so its key ends in the
+ * bare identifier rather than in an extension that would misdescribe the
+ * ciphertext.
  */
 const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/png": "png",

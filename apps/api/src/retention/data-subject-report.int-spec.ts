@@ -636,6 +636,7 @@ beforeAll(async () => {
     data: {
       id: mediaFileId,
       storageKey: `dsar/${suffix}/stadgar.pdf`,
+      encryption: "NONE",
       contentType: "application/pdf",
       byteSize: 1024,
       checksum: `sha-${suffix}`,

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import type { Env } from "../config/env";
@@ -125,6 +126,74 @@ describe("FieldEncryptionService", () => {
     await expect(
       service.decrypt("association.smtpPassword", cipher),
     ).resolves.toBe("smtp-secret");
+  });
+
+  it("round-trips a stored file's key and computes no index for it", async () => {
+    const key = "0123456789abcdef".repeat(4);
+
+    const { cipher, index } = await service.encrypt("mediaFile.dataKey", key);
+
+    // Read back by primary key alone: an index of a key would be a second
+    // copy of something that is only worth anything secret.
+    expect(index).toBeNull();
+    expect(cipher.startsWith("brng:")).toBe(true);
+    await expect(service.decrypt("mediaFile.dataKey", cipher)).resolves.toBe(
+      key,
+    );
+  });
+
+  describe("a stored file's checksum", () => {
+    const file = Buffer.from("%PDF-1.7 the association's bylaws", "latin1");
+
+    it("is 256 bits, hex encoded", async () => {
+      await expect(service.storedFileChecksum(file)).resolves.toMatch(
+        /^[0-9a-f]{64}$/,
+      );
+    });
+
+    it("is the same for the same bytes, so it can stand as the entity tag", async () => {
+      await expect(service.storedFileChecksum(file)).resolves.toBe(
+        await service.storedFileChecksum(Buffer.from(file)),
+      );
+    });
+
+    it("differs for bytes that differ by one bit", async () => {
+      const changed = Buffer.from(file);
+      changed[0] = (changed[0] ?? 0) ^ 0x01;
+
+      expect(await service.storedFileChecksum(changed)).not.toBe(
+        await service.storedFileChecksum(file),
+      );
+    });
+
+    it("cannot be computed from the file alone", async () => {
+      /*
+       * The property the keyed hash exists for. A plain SHA-256 lets anybody
+       * holding the database confirm that a document they already have is
+       * stored here; this one needs the instance's key.
+       */
+      const otherInstance = new FieldEncryptionService({
+        ...TEST_ENV,
+        OPENBRF_ENCRYPTION_KEY: "b".repeat(64),
+      });
+      const checksum = await service.storedFileChecksum(file);
+
+      expect(checksum).not.toBe(
+        createHash("sha256").update(file).digest("hex"),
+      );
+      expect(checksum).not.toBe(await otherInstance.storedFileChecksum(file));
+    });
+
+    it("takes every byte of a binary file as it is", async () => {
+      // A file is bytes, not text: two files that decode to the same string
+      // under a text encoding must still be told apart.
+      const first = Buffer.from([0x80, 0x00, 0xff]);
+      const second = Buffer.from([0x81, 0x00, 0xff]);
+
+      expect(await service.storedFileChecksum(first)).not.toBe(
+        await service.storedFileChecksum(second),
+      );
+    });
   });
 
   it("keeps fields cryptographically separate across tables", async () => {

@@ -6,6 +6,8 @@ Date: 2026-08-28
 
 Accepted
 
+Its backup custody is amended by [ADR 0015](0015-stored-files-encrypted-at-rest.md).
+
 Extends [ADR 0002](0002-field-encryption-and-blind-indexes.md), which settled
 the encryption construction and named the key file. This record covers where the
 key comes from, who is allowed to create one, and what happens when it is

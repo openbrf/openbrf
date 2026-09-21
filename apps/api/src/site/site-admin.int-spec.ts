@@ -916,6 +916,7 @@ describe("a picture on a page", () => {
     const file = await prisma.mediaFile.create({
       data: {
         storageKey: `site-admin-internal-${suffix}`,
+        encryption: "NONE",
         contentType: "image/png",
         byteSize: 128,
         checksum: "0".repeat(64),

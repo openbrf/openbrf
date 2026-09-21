@@ -6,6 +6,8 @@ Date: 2026-08-27
 
 Accepted
 
+Its backup custody is amended by [ADR 0015](0015-stored-files-encrypted-at-rest.md).
+
 ## Context
 
 Open BRF stores statutory personal data: personal identity numbers, contact

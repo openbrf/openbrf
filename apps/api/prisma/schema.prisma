@@ -2773,12 +2773,25 @@ enum MediaVisibility {
   MEMBER
 }
 
+/// How the bytes at a stored file's storage key are held.
+enum MediaEncryption {
+  /// As uploaded. Only rows written before stored files were encrypted, until
+  /// the job at start has rewritten them. Nothing writes this value, and the
+  /// serving path refuses a row that carries it.
+  NONE
+  /// libsodium's crypto_secretstream_xchacha20poly1305: the 24-byte header,
+  /// then the file in 64 KiB chunks, each followed by its 17-byte tag, the last
+  /// chunk tagged final. Under a key of the file's own, held in dataKeyCipher.
+  SECRETSTREAM_64K
+}
+
 /// An uploaded file.
 ///
 /// The bytes live in whichever storage driver the instance is configured for;
 /// this row is the only index of them, and the only thing that decides who may
 /// read them. The storage key is generated here and never derived from the name
-/// the file arrived under.
+/// the file arrived under. The bytes in storage are ciphertext, and this row
+/// holds what opens them (ADR 0015).
 model MediaFile {
   id String @id @default(cuid())
 
@@ -2786,13 +2799,30 @@ model MediaFile {
   /// client-controlled.
   storageKey String @unique
 
+  /// How the object at storageKey is held. No default: whatever writes a row
+  /// states it, so a new way of writing one cannot leave a file unencrypted by
+  /// omission.
+  encryption    MediaEncryption
+  /// The file's own key, encrypted as the field "mediaFile.dataKey" under the
+  /// instance's key (ADR 0002, ADR 0004, ADR 0015). Null exactly when the file
+  /// is not encrypted, which a CHECK holds. Deleting the row deletes the only
+  /// copy of the key outside the database backups.
+  dataKeyCipher String?
+
   /// Identified from the bytes, not taken from the request. This is the type
   /// the file is served with, so trusting the declared one would let an upload
   /// choose how a browser interprets it.
   contentType String
+  /// The size of the file as uploaded, not of the ciphertext in storage.
   byteSize    Int
-  /// SHA-256 of the stored bytes, hex encoded. Doubles as the entity tag on
-  /// the serving path.
+  /// A keyed hash of the file as uploaded, hex encoded: CipherSweet's blind
+  /// index of the bytes at 256 bits, under a key derived from the instance's
+  /// key for media_file.checksum. Doubles as the entity tag on the serving
+  /// path, and does not change when the file is encrypted again under another
+  /// key. Keyed so that the database alone cannot confirm that a document
+  /// somebody already holds is stored here. A NONE row written before stored
+  /// files were encrypted still holds the plain SHA-256 of its bytes, which the
+  /// job at start checks before it replaces it.
   checksum    String
 
   /// The name the file was uploaded under, kept for the download disposition
