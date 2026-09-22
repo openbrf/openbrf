@@ -838,7 +838,7 @@ no, and the pilot is the thing that will change it.
     decision in any case. Recording the use would be a change to the apartment
     register, and inventing the answer from a participation share would take a
     vote away on a guess
-- [ ] Comments on news items, then group and board chat. Comments first and a
+- [x] Comments on news items, then group and board chat. Comments first and a
       full discussion forum never: a forum is a product of its own, and a
       cooperative that wants one is better served by an integration with
       software built for it than by a second-rate copy inside this one. A
