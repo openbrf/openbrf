@@ -218,10 +218,12 @@ Service-tier personal data is erased on the retention policy's clock by jobs
 that run between 03:05 and 03:53 UTC, spread across those minutes so they do not
 wake together on one connection pool. They are ordinary queue jobs scheduled
 once a night. An occurrence the instance was down for is skipped, not run when
-it comes back, and a run that was interrupted is not resumed. Neither loses a
-retention deadline: every one of them computes what is due from the data rather
-than from a flag, so the next night's run erases what the missed one would have,
-one night late.
+it comes back, and a run that was interrupted is not resumed. Neither loses the
+work: every one of them computes what is due from the data rather than from a
+flag, so the next night's run erases everything the missed one would have. What
+is delayed is the erasure itself. A retention deadline that fell in the gap is
+met a night late rather than not at all, and an instance left down for several
+nights keeps that data until it is running again at the time of the band.
 
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.
