@@ -1,11 +1,17 @@
+import { localDayOf } from "@openbrf/shared";
+
 import type { Prisma } from "../generated/prisma/client";
+import { boardSeatHeldOn } from "../registers/held-on";
 
 /**
- * Who holds a seat on the board right now.
+ * Who holds a seat on the board today.
  *
- * A term that has not ended, or ends in the future. The second half is not a
+ * A term that has begun and has not ended, on the association's calendar, by
+ * the rule in `registers/held-on.ts`. An end date in the future is not a
  * technicality: a board can minute in April that a term runs to the annual
- * meeting, and that person is on the board until the date arrives.
+ * meeting, and that person is on the board until the date arrives. Nor is an
+ * election date in the future: somebody elected from the first of July is not
+ * on the board in June.
  *
  * This is the whole of the question and nothing else. It says who the board is,
  * not who the association can reach: a board member with no address recorded
@@ -19,32 +25,23 @@ import type { Prisma } from "../generated/prisma/client";
  * somebody reachable. Deciding who is in a room, who may act, or who a record
  * belongs to wants this one, because none of those depend on an address at all.
  *
- * Six places already spell this clause out inline. They are correct and are
- * deliberately left alone, for the reason the recipient list's own history
- * gives: rewriting working call sites to prove a helper is the kind of change
- * that belongs to whoever next has a reason to touch them.
- *
  * @param now Taken once by the caller, so a single request cannot see two
  *   different boards.
  */
 export function activeBoardSeatWhere(now: Date): Prisma.PersonWhereInput {
   return {
-    boardPositions: {
-      some: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-    },
+    boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
   };
 }
 
 /**
  * Who counts as the board for a message the association sends itself.
  *
- * Three places already ask this question - the move-out reminder, the contact
- * form fan-out and the register reporting notice - and each spells the same
- * clause out again. This is the fourth asking it, for the breach reminder, and
- * the first to need it under a deadline: a reminder that reached a board member
- * whose term ended last spring, or failed to reach one elected last week, is
- * the difference between the association answering a supervisory authority in
- * time and not.
+ * The move-out reminder, the contact form fan-out, the register reporting
+ * notice and the breach reminder all ask it. The breach reminder asks it under
+ * a deadline: a reminder that reached a board member whose term ended last
+ * spring, or failed to reach one elected last week, is the difference between
+ * the association answering a supervisory authority in time and not.
  *
  * The seat is {@link activeBoardSeatWhere}, and an address is added on top of
  * it. A board member with no address recorded is not an error to raise here -

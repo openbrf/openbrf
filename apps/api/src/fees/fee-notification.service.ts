@@ -7,12 +7,14 @@ import {
   formatLocalDay,
   type LocalDay,
   localDayOf,
+  localDayOfColumn,
   parseLocalDay,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { residencyHeldOn } from "../registers/held-on";
 import {
   amountForMonths,
   isWholeMonths,
@@ -455,7 +457,10 @@ export class FeeNotificationService {
 
     /*
      * Who held each flat when the period closed, which is who the notice is
-     * for. Read through the register rather than off the notice, because the
+     * for: the residencies held on its last day, by the rule in
+     * `registers/held-on.ts`. A seller whose move-out date is that day held the
+     * flat up to the day before and is not named; the buyer who moved in on it
+     * is. Read through the register rather than off the notice, because the
      * notice records the money and the register records who holds what - a name
      * copied onto a notice would be a second answer the day the flat changed
      * hands, and the notice is preserved for seven years.
@@ -470,8 +475,7 @@ export class FeeNotificationService {
       where: {
         apartmentId: { in: run.notices.map((notice) => notice.apartmentId) },
         role: "MEMBER",
-        movedInOn: { lte: run.periodTo },
-        OR: [{ movedOutOn: null }, { movedOutOn: { gte: run.periodTo } }],
+        ...residencyHeldOn(localDayOfColumn(run.periodTo)),
       },
       orderBy: [{ movedInOn: "asc" }],
       select: {

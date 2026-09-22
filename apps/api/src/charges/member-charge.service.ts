@@ -14,6 +14,7 @@ import { isMasked } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { isResidencyHeldOn } from "../registers/held-on";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
 import {
   type DebitingList,
@@ -873,6 +874,11 @@ function partyOf(
  * Several apartments are joined rather than one being chosen: a household
  * holding two flats has two, and picking one would state something the register
  * does not say.
+ *
+ * Where they lived is where they held a residency on that day, by the rule in
+ * `registers/held-on.ts`: on the day somebody moves from one flat to another
+ * they live in the one they moved into, and the move-out date of the other is
+ * the first day they no longer held it.
  */
 function apartmentOn(
   person: PersonRecord,
@@ -882,11 +888,8 @@ function apartmentOn(
     return { state: "masked" };
   }
 
-  const held = person.residencies.filter(
-    (residency) =>
-      compareLocalDays(localDayOfColumn(residency.movedInOn), day) <= 0 &&
-      (residency.movedOutOn === null ||
-        compareLocalDays(localDayOfColumn(residency.movedOutOn), day) >= 0),
+  const held = person.residencies.filter((residency) =>
+    isResidencyHeldOn(residency, day),
   );
 
   return {

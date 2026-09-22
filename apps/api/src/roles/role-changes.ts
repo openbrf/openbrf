@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import type {
   BoardPositionType,
@@ -74,18 +75,35 @@ export interface SystemRoleGrantsView {
 }
 
 /**
- * Whether a seat is held at a given moment.
+ * Whether a term has ended by the association's day an instant falls on.
  *
- * The same rule the principal applies, and it has to be: a seat with an end
- * date in the future is still held, which is how a board records at its April
- * meeting that a term runs until the annual one. A second spelling of this here
- * would let the register refuse an election for a seat the principal no longer
- * grants anything for, or accept a duplicate of one it does.
+ * The end date is the first day a seat is no longer held, so a term ending
+ * today has ended and one ending in the future has not - which is how a board
+ * records at its April meeting that a term runs until the annual one. This is
+ * the end half of the rule the principal grants by, and it has to read the end
+ * the same way: otherwise the register would refuse an election for a seat the
+ * principal no longer grants anything for, or accept a duplicate of one it
+ * does.
  *
- * @see apps/api/src/authorization/principal.service.ts
+ * Only the end half. A seat whose election date has not arrived grants nothing
+ * yet, but it has not ended either, and both callers here have to count it: a
+ * second election to a position already recorded from next month is a
+ * duplicate, and the end date of a term that has not begun is as open to
+ * correction as the end date of one that has.
+ *
+ * Read on the association's calendar, because the column is a `@db.Date` and an
+ * instant would put the boundary at midnight UTC.
+ *
+ * @see apps/api/src/registers/held-on.ts
  */
-export function isHeldOn(seat: { endedOn: Date | null }, now: Date): boolean {
-  return seat.endedOn === null || seat.endedOn.getTime() > now.getTime();
+export function hasTermEnded(
+  seat: { endedOn: Date | null },
+  now: Date,
+): boolean {
+  return (
+    seat.endedOn !== null &&
+    seat.endedOn.getTime() <= dateColumnOf(localDayOf(now)).getTime()
+  );
 }
 
 /**
@@ -148,7 +166,7 @@ export function refuseTermEnd(input: {
   endedOn: Date;
   now: Date;
 }): TermEndRefusal | null {
-  if (!isHeldOn({ endedOn: input.currentEndedOn }, input.now)) {
+  if (hasTermEnded({ endedOn: input.currentEndedOn }, input.now)) {
     return "term-already-ended";
   }
   if (input.endedOn.getTime() < input.electedOn.getTime()) {

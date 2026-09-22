@@ -766,9 +766,11 @@ describe("who a mailing goes to", () => {
            */
           communicationObjectionAt: null,
           processingRestrictedAt: null,
+          // A membership held today: begun, and not ended.
           residencies: {
             some: {
               role: "MEMBER",
+              movedInOn: { lte: expect.any(Date) },
               OR: [
                 { movedOutOn: null },
                 { movedOutOn: { gt: expect.any(Date) } },

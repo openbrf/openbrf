@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { boardSeatHeldOn } from "../registers/held-on";
 import {
   type BoardRosterEntry,
   publishableRoster,
@@ -46,16 +48,16 @@ export class BoardRosterService {
    * has not been asked for publication consent publishes no roster, and the
    * block renders as nothing rather than as a heading over an empty list.
    *
-   * A seat with an end date in the future is still held. That is how every
-   * other reader of this table decides - the principal that grants a board
-   * member their capabilities, the notice that emails the board - and a roster
-   * that dropped somebody on the day their term was recorded as ending would
-   * disagree with the access they still have.
+   * The seats held today, by the rule the principal grants a board member
+   * their capabilities by and the notice that emails the board is addressed
+   * by. A seat with an end date in the future is still held, and one with an
+   * election date in the future is not held yet: a roster that disagreed with
+   * either would print a board that is not the one holding the access.
    */
   async published(now: Date = new Date()): Promise<BoardRosterEntry[]> {
     const seats = await this.prisma.boardPosition.findMany({
       where: {
-        OR: [{ endedOn: null }, { endedOn: { gt: now } }],
+        ...boardSeatHeldOn(localDayOf(now)),
         person: {
           protectedPersonalData: false,
           /*

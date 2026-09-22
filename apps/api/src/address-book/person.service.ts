@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import { formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -10,6 +10,7 @@ import type {
   ResidencyRole,
   SystemRoleType,
 } from "../generated/prisma/enums";
+import { isResidencyHeldOn } from "../registers/held-on";
 import type { LegalHoldView } from "../retention/legal-hold.service";
 import {
   toDataSubjectRequestView,
@@ -19,7 +20,6 @@ import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
   type AddressBookContact,
-  hasMovedOut,
   isMasked,
   type MaskableField,
 } from "./address-book-view";
@@ -369,7 +369,7 @@ export class PersonService {
       isMember: person.residencies.some(
         (residency) =>
           residency.role === "MEMBER" &&
-          !hasMovedOut(residency.movedOutOn, now),
+          isResidencyHeldOn(residency, localDayOf(now)),
       ),
       residencies: person.residencies.map((residency) => ({
         residencyId: residency.id,

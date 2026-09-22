@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import { localDayOf, scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
@@ -9,6 +9,7 @@ import type {
   KeyOrderKind,
   KeyOrderStatus,
 } from "../generated/prisma/enums";
+import { residencyHeldOn } from "../registers/held-on";
 import { KeyOrderError, type KeyOrderTextLocation } from "./key-order.error";
 
 /** An apartment as a resident and the board are told which one it is. */
@@ -197,10 +198,7 @@ export class KeyOrderService {
    */
   async ownApartments(personId: string): Promise<KeyOrderApartmentView[]> {
     const residencies = await this.prisma.residency.findMany({
-      where: {
-        personId,
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: new Date() } }],
-      },
+      where: { personId, ...residencyHeldOn(localDayOf(new Date())) },
       select: { apartment: { select: APARTMENT_SELECT } },
       orderBy: [{ role: "asc" }, { movedInOn: "asc" }],
     });
@@ -552,7 +550,7 @@ export class KeyOrderService {
       where: {
         personId,
         apartmentId,
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: new Date() } }],
+        ...residencyHeldOn(localDayOf(new Date())),
       },
     });
     if (held === 0) {

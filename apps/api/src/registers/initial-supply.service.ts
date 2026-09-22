@@ -6,6 +6,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { residencyHeldOn } from "./held-on";
 import {
   SUPPLY_COLUMNS,
   type SupplyRecordType,
@@ -327,11 +328,12 @@ export class InitialSupplyService {
           where: {
             role: "MEMBER",
             // A move-out dated in the future has not happened: that person still
-            // holds the bostadsratt today and belongs in the supply. The same
-            // predicate the apartment register decides a holder's own scope by,
-            // and a plain `movedOutOn: null` would leave a current holder out of
-            // a statutory supply on the strength of a date nobody has reached.
-            OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+            // holds the bostadsratt today and belongs in the supply. A move-in
+            // dated in the future has not happened either: a buyer recorded
+            // before they take over does not hold it yet, and the seller does.
+            // The same predicate the apartment register decides a holder's own
+            // scope by.
+            ...residencyHeldOn(localDayOf(now)),
           },
           orderBy: [{ movedInOn: "asc" }],
           select: {

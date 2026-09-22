@@ -6,7 +6,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { BoardPositionType } from "../generated/prisma/enums";
 import {
   type BoardPositionView,
-  isHeldOn,
+  hasTermEnded,
   parseCalendarDate,
   refuseTermEnd,
   RoleChangeError,
@@ -68,9 +68,10 @@ export interface EndTermInput {
  * election.
  *
  * Re-election is two acts and not one: end the term, then record the new
- * election. Recording a second election onto a seat that is still held is
- * refused rather than merged, because a single row cannot carry two elections
- * and merging them would silently drop whichever date the row kept.
+ * election. Recording a second election onto a seat whose term has not ended -
+ * one held today, or one recorded from a day still to come - is refused rather
+ * than merged, because a single row cannot carry two elections and merging them
+ * would silently drop whichever date the row kept.
  *
  * Every write is audited in the transaction that made it, like every other act
  * on the register.
@@ -122,7 +123,7 @@ export class BoardPositionService {
         where: { personId: input.personId, position: input.position },
         select: { id: true, endedOn: true },
       });
-      if (held.some((existing) => isHeldOn(existing, now))) {
+      if (held.some((existing) => !hasTermEnded(existing, now))) {
         throw new RoleChangeError(
           "This person already holds that position. End the term before " +
             "recording a new election to it.",

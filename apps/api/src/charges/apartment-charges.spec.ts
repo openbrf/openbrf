@@ -51,19 +51,26 @@ describe("chargesDuringResidency", () => {
     ).toHaveLength(1);
   });
 
-  it("takes a charge dated on the day they moved in or out", () => {
-    // Both boundaries closed. A move-out date is the last day of the residency
-    // rather than the first day after it, which is how every other read of that
-    // column in this product treats it.
+  it("takes a charge dated on the day they moved in or the day before they moved out", () => {
+    // The move-in date is the first day held and the day before the move-out
+    // date is the last.
     expect(
       chargesDuringResidency(
         [
           charge("apartment-1", "2026-03-01"),
-          charge("apartment-1", "2026-09-30"),
+          charge("apartment-1", "2026-09-29"),
         ],
         [ENDED],
       ),
     ).toHaveLength(2);
+  });
+
+  it("leaves out a charge dated on the day they moved out", () => {
+    // The move-out date is the first day the residency is no longer held, and
+    // the day the next household moves in: a charge on it is theirs.
+    expect(
+      chargesDuringResidency([charge("apartment-1", "2026-09-30")], [ENDED]),
+    ).toEqual([]);
   });
 
   it("leaves out a charge dated a day either side", () => {

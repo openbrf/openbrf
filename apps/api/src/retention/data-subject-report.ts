@@ -568,8 +568,8 @@ export interface ReportEventSignup {
  * own column; a charge on an apartment reached it through the residencies this
  * person held, because such a row names no person at all and which of them are
  * theirs is an inference - `chargesDuringResidency` in
- * `charges/apartment-charges.ts` is the rule, and it closes both boundaries
- * for the reason argued there. That is the pattern the lien note and the
+ * `charges/apartment-charges.ts` is the rule, and it takes a charge only on a
+ * day the residency was held, for the reason argued there. That is the pattern the lien note and the
  * termination sections already follow, on a different archive and for a
  * different reason.
  *

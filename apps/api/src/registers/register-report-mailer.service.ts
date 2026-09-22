@@ -6,6 +6,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { activeBoardRecipientsWhere } from "../mail/board-recipients";
 import { MailService } from "../mail/mail.service";
 import { registerReportObligationMail } from "../mail/templates";
 
@@ -155,14 +156,7 @@ export class RegisterReportMailerService implements OnModuleInit {
     }
 
     const board = await this.prisma.person.findMany({
-      where: {
-        // A seat with an end date in the future is still held, which is how
-        // every other reader of this table decides.
-        boardPositions: {
-          some: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-        },
-        emailCipher: { not: null },
-      },
+      where: activeBoardRecipientsWhere(now),
       orderBy: { id: "asc" },
       select: {
         id: true,

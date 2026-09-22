@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import { localDayOf, scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
 import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
@@ -8,6 +8,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { residencyHeldOn } from "../registers/held-on";
 import {
   isTextBlock,
   type PageContent,
@@ -944,10 +945,10 @@ export class NewsWriteService {
  * Who a mailing goes to: the members, with somewhere to send it.
  *
  * The decision log says the board mails the members, and members precisely: not
- * every resident is a member (GLOSSARY: boende, medlem). Membership is an
- * active residency with the MEMBER role - the same derivation the address book
- * reads a person's own view by, written here as a query because this asks it of
- * everybody at once.
+ * every resident is a member (GLOSSARY: boende, medlem). Membership is a
+ * residency with the MEMBER role held today - the same derivation the address
+ * book reads a person's own view by, written here as a query because this asks
+ * it of everybody at once.
  *
  * A member with protected personal data is included. The protection governs
  * what the association discloses about them to others; it has never meant that
@@ -982,10 +983,7 @@ export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
     communicationObjectionAt: null,
     processingRestrictedAt: null,
     residencies: {
-      some: {
-        role: "MEMBER" as const,
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-      },
+      some: { role: "MEMBER" as const, ...residencyHeldOn(localDayOf(now)) },
     },
   };
 }

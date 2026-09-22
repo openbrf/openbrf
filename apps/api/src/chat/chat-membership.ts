@@ -1,6 +1,9 @@
+import { localDayOf } from "@openbrf/shared";
+
 import type { Prisma } from "../generated/prisma/client";
 import type { ChatKind } from "../generated/prisma/enums";
 import { activeBoardSeatWhere } from "../mail/board-recipients";
+import { residencyHeldOn } from "../registers/held-on";
 
 import type { PrismaService } from "../database/prisma.service";
 
@@ -16,16 +19,16 @@ import type { PrismaService } from "../database/prisma.service";
  *
  * ## The two kinds, and why neither is a list the board keeps
  *
- * The board chat's members are derived: whoever holds a board seat that has not
- * ended. A person joins the day their term is recorded and leaves the day it
- * ends, and nobody administers anything.
+ * The board chat's members are derived: whoever holds a board seat today. A
+ * person joins on the day their term begins and leaves on the day it ends, and
+ * nobody administers anything.
  *
  * A group's members are written down, because there is no election to derive
  * them from - but the writing down is only half of the test. The other half is a
- * residency that has not ended, so a place in a group ends the day somebody
- * moves out, exactly as a booking allowance bites on the day it says. What they
- * wrote stays in the room, attributed as before, and goes on the retention clock
- * it was always on.
+ * residency held today, so a place in a group ends the day somebody moves out,
+ * exactly as a booking allowance bites on the day it says. What they wrote
+ * stays in the room, attributed as before, and goes on the retention clock it
+ * was always on.
  *
  * ## One refusal for two cases
  *
@@ -61,24 +64,7 @@ export const ROOM_COLUMNS = {
   createdByPersonId: true,
 } as const;
 
-/**
- * A residency that has not ended.
- *
- * The predicate `PrincipalService.forPerson` derives `isResident` from, asked of
- * the register here rather than read off the principal - for the reason the seat
- * is asked for rather than read off `isBoardMember`: this is the membership of a
- * room, and a room that trusted a flag computed somewhere else would be a
- * boundary that moved the day that flag was cached.
- *
- * A move-out date in the future is a scheduled move-out and does not end the
- * residency yet, which is the same half of the predicate a clause testing only
- * for null would drop.
- */
-export function liveResidencyWhere(now: Date): Prisma.ResidencyWhereInput {
-  return { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] };
-}
-
-/** Whether this person holds a board seat that has not ended. */
+/** Whether this person holds a board seat today. */
 export async function holdsBoardSeat(
   db: ChatDbClient,
   personId: string,
@@ -97,6 +83,12 @@ export async function holdsBoardSeat(
  * Asked of the residencies rather than of the member register: a group is for
  * the people in the building, and a partner or an adult child living in one of
  * its apartments is as much a part of a work party as the member is.
+ *
+ * The predicate `PrincipalService.forPerson` derives `isResident` from, asked of
+ * the register here rather than read off the principal - for the reason the seat
+ * is asked for rather than read off `isBoardMember`: this is the membership of a
+ * room, and a room that trusted a flag computed somewhere else would be a
+ * boundary that moved the day that flag was cached.
  */
 export async function livesHere(
   db: ChatDbClient,
@@ -104,7 +96,7 @@ export async function livesHere(
   now: Date,
 ): Promise<boolean> {
   const residency = await db.residency.findFirst({
-    where: { personId, ...liveResidencyWhere(now) },
+    where: { personId, ...residencyHeldOn(localDayOf(now)) },
     select: { id: true },
   });
   return residency !== null;

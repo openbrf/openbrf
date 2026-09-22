@@ -165,7 +165,11 @@ locally the application runs from source beside the PostgreSQL that
       recipient's own language. Moving out sets the date, shows the purge date
       computed from the retention policy, records the transfer, closes the
       membership in the register when the person's last tenant-ownership ends,
-      and has the board reminded on the day
+      and has the board reminded on the day. Either may be dated ahead of
+      today: a residency is held from its move-in date up to the day before its
+      move-out date, on the association's calendar, so a buyer recorded before
+      they take over holds nothing until that day and the seller keeps
+      everything until theirs
 - [x] Import from CSV and Excel with column mapping: the columns are guessed
       from their titles in either language and confirmed by hand, and a preview
       shows every row that would be created, every person that would be matched
@@ -232,14 +236,16 @@ locally the application runs from source beside the PostgreSQL that
 - [x] Conferring a role, from the person view in the register. The board
       records an election to a position of trust - the position and the date
       the general meeting was held - and says when a term ends by writing the
-      date, which leaves the row and the period it covered on file. That date
-      may be ahead of today, so a board can minute in April that a term runs to
-      the annual meeting; it is bounded to a plausible horizon, because a seat
-      goes on conferring what a seat confers until the date arrives, and it
-      stays correctable from the same screen until it passes. An administrator
-      grants and revokes the administrator role and the external property
-      manager's access on the same panel, and nobody else is offered those
-      controls because nobody else holds the capability behind them. A grant
+      date, which leaves the row and the period it covered on file. An
+      election may be recorded ahead of the term it begins and confers nothing
+      until that day. The end date may be ahead of today too, so a board can
+      minute in April that a term runs to the annual meeting; it is bounded to
+      a plausible horizon, because a seat goes on conferring what a seat
+      confers until the date arrives, and it stays correctable from the same
+      screen until it passes. An administrator grants and revokes the
+      administrator role and the external property manager's access on the
+      same panel, and nobody else is offered those controls because nobody
+      else holds the capability behind them. A grant
       takes effect on the next request without an account being touched,
       because roles are derived from the register rather than stored on the
       account. The one refusal that cannot be retried says so: the last

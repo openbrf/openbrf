@@ -15,6 +15,7 @@ import type {
 } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
+import { residencyHeldOn } from "./held-on";
 import { RegisterReportMailerService } from "./register-report-mailer.service";
 import { reportDueOn } from "./report-deadline";
 import { statutoryDate } from "./statutory-date";
@@ -1505,12 +1506,11 @@ export class ApartmentRegisterService {
       return [apartment.id];
     }
 
-    const now = new Date();
     const held = await this.prisma.residency.findMany({
       where: {
         personId: query.actorPersonId,
         role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
+        ...residencyHeldOn(localDayOf(new Date())),
         ...(query.apartmentId === null
           ? {}
           : { apartmentId: query.apartmentId }),

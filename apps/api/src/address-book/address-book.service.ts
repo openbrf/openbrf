@@ -1,9 +1,15 @@
 import { Injectable } from "@nestjs/common";
-import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
+import {
+  dateColumnOf,
+  formatDateColumn,
+  formatLocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { boardSeatHeldOn, residencyHeldOn } from "../registers/held-on";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -318,7 +324,7 @@ export class AddressBookService {
         ? BOARD_PERSON_FIELDS
         : RESIDENT_PERSON_FIELDS;
     const boardPositionFilter = {
-      where: activeBoardPosition(now),
+      where: boardSeatHeldOn(localDayOf(now)),
       select: { position: true },
     } as const;
 
@@ -599,14 +605,16 @@ export class AddressBookService {
       case "all":
         break;
       case "members":
-        conditions.push({ role: "MEMBER" }, activeResidency(now));
+        conditions.push({ role: "MEMBER" }, residencyHeldOn(localDayOf(now)));
         break;
       case "residents":
-        conditions.push({ role: "RESIDENT" }, activeResidency(now));
+        conditions.push({ role: "RESIDENT" }, residencyHeldOn(localDayOf(now)));
         break;
       case "board":
         conditions.push({
-          person: { boardPositions: { some: activeBoardPosition(now) } },
+          person: {
+            boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
+          },
         });
         break;
       case "movedOut":
@@ -662,7 +670,9 @@ export class AddressBookService {
     ];
 
     if (query.filter === "board") {
-      conditions.push({ boardPositions: { some: activeBoardPosition(now) } });
+      conditions.push({
+        boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
+      });
     }
     if (terms !== null) {
       conditions.push(this.personSearchWhere(terms));
@@ -720,6 +730,7 @@ export class AddressBookService {
       query.addressId === undefined
         ? {}
         : { apartment: { addressId: query.addressId } };
+    const held = residencyHeldOn(localDayOf(now));
 
     // The head count follows the same visibility rule as the rows below it. A
     // resident whose board lists three names must not read "four persons" in the
@@ -737,10 +748,7 @@ export class AddressBookService {
       }),
       this.prisma.person.count({
         where: {
-          AND: [
-            ...visible,
-            { residencies: { some: { AND: [scope, activeResidency(now)] } } },
-          ],
+          AND: [...visible, { residencies: { some: { AND: [scope, held] } } }],
         },
       }),
       this.prisma.person.count({
@@ -750,7 +758,7 @@ export class AddressBookService {
             {
               residencies: {
                 some: {
-                  AND: [scope, activeResidency(now), { role: "MEMBER" }],
+                  AND: [scope, held, { role: "MEMBER" }],
                 },
               },
             },
@@ -791,22 +799,15 @@ export interface ApartmentDetail {
 }
 
 /**
- * A residency that still grants access.
+ * A residency that has ended by the association's day an instant falls on.
  *
- * A move-out date in the future is a scheduled move-out and does not end the
- * residency yet. Kept identical to PrincipalService's definition: the register
- * and the authorization layer must agree on who lives here.
+ * The query form of {@link hasMovedOut}, and the same rule: a move-out dated
+ * today has happened, because the move-out date is the first day a residency is
+ * no longer held. Compared as a date, because the column is a `@db.Date` and an
+ * instant would put the boundary at midnight UTC.
  */
-function activeResidency(now: Date): Prisma.ResidencyWhereInput {
-  return { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] };
-}
-
 function movedOutResidency(now: Date): Prisma.ResidencyWhereInput {
-  return { movedOutOn: { not: null, lte: now } };
-}
-
-function activeBoardPosition(now: Date): Prisma.BoardPositionWhereInput {
-  return { OR: [{ endedOn: null }, { endedOn: { gt: now } }] };
+  return { movedOutOn: { not: null, lte: dateColumnOf(localDayOf(now)) } };
 }
 
 /**

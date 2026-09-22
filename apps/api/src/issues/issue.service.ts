@@ -1,10 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
 import { mediaUrl, MediaService } from "../media/media.service";
+import { residencyHeldOn } from "../registers/held-on";
 import { IssueTypeService } from "./issue-type.service";
 import { lockIssue } from "./issue-lock";
 import { IssueError } from "./issue.error";
@@ -447,12 +449,8 @@ export class IssueService {
    * not an apartment.
    */
   async ownApartments(personId: string): Promise<IssueApartmentView[]> {
-    const now = new Date();
     const residencies = await this.prisma.residency.findMany({
-      where: {
-        personId,
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-      },
+      where: { personId, ...residencyHeldOn(localDayOf(new Date())) },
       select: { apartment: { select: APARTMENT_SELECT } },
       orderBy: { movedInOn: "asc" },
     });

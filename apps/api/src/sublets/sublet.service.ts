@@ -4,6 +4,7 @@ import {
   dateColumnOf,
   formatLocalDay,
   type LocalDay,
+  localDayOf,
   localDayOfColumn,
   parseLocalDay,
   scanForPersonalIdentityNumbers,
@@ -16,6 +17,7 @@ import type {
   AuditAction,
   SubletApplicationStatus,
 } from "../generated/prisma/enums";
+import { residencyHeldOn } from "../registers/held-on";
 import { SubletError, type SubletTextLocation } from "./sublet.error";
 
 /** An apartment as an applicant and the board are told which one it is. */
@@ -261,7 +263,7 @@ export class SubletService {
       where: {
         personId,
         role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: new Date() } }],
+        ...residencyHeldOn(localDayOf(new Date())),
       },
       select: { apartment: { select: APARTMENT_SELECT } },
       orderBy: [{ movedInOn: "asc" }],
@@ -748,7 +750,7 @@ export class SubletService {
         personId,
         apartmentId,
         role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: new Date() } }],
+        ...residencyHeldOn(localDayOf(new Date())),
       },
     });
     if (held === 0) {
