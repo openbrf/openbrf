@@ -4250,6 +4250,7 @@
         "capabilityGates": "Every call is checked against what the signed-in person may do.",
         "protectedPersons": "People with protected personal data are masked everywhere.",
         "localDisk": "The files are on the instance's own disk.",
+        "filesEncrypted": "The files are encrypted at rest, each under a key of its own that is itself encrypted under the instance's key.",
         "s3": "The files are in object storage at {{endpoint}}."
       },
       "title": "Record of processing activities",

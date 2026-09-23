@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +8,12 @@ import {
   type Capability,
   type Principal,
 } from "../authorization/capabilities";
+import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import {
+  sealedLength,
+  STORED_FILE_CHUNK_BYTES,
+} from "../crypto/stored-file-cipher";
 import type { PrismaService } from "../database/prisma.service";
 import type { StorageService } from "../storage/storage.service";
 import { MediaError, MediaService } from "./media.service";
@@ -22,11 +29,25 @@ import { pngBytes } from "./testing/image-fixtures";
  * viewer who may not read a file is told the same thing as a viewer asking for
  * one that does not exist, so this route cannot be used to enumerate what an
  * instance holds.
+ *
+ * The field encryption is the real one, because a stored file's key is
+ * wrapped by it and its checksum is keyed by it, and a fake would decide
+ * exactly what these cases have to show.
  */
+
+const TEST_ENV = {
+  NODE_ENV: "test",
+  OPENBRF_ENCRYPTION_KEY: "d".repeat(64),
+} as Env;
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
 interface Row {
   id: string;
   storageKey: string;
+  encryption: "NONE" | "SECRETSTREAM_64K";
+  dataKeyCipher: string | null;
+  unencryptedStorageKey: string | null;
   contentType: string;
   byteSize: number;
   checksum: string;
@@ -57,6 +78,7 @@ interface Fakes {
     open: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
   };
+  logged: string[];
   mediaFile: {
     create: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
@@ -66,7 +88,11 @@ interface Fakes {
 }
 
 function build(
-  options: { createFails?: boolean; auditFailsOn?: string } = {},
+  options: {
+    createFails?: boolean;
+    auditFailsOn?: string;
+    wrapFails?: boolean;
+  } = {},
 ): Fakes {
   const rows = new Map<string, Row>();
   const objects = new Map<string, Buffer>();
@@ -77,9 +103,21 @@ function build(
     put: vi.fn(async (key: string, body: Buffer) => {
       objects.set(key, body);
     }),
+    /*
+     * In slices, as a driver delivers a file: a read stream on a disk and a
+     * response body from a bucket both arrive a few kilobytes at a time, so a
+     * chunk after the first is read only once the reader has asked for more.
+     */
     open: vi.fn(async (key: string) => {
       const stored = objects.get(key);
-      return stored === undefined ? null : Readable.from([stored]);
+      if (stored === undefined) {
+        return null;
+      }
+      const slices: Buffer[] = [];
+      for (let offset = 0; offset < stored.length; offset += 16 * 1024) {
+        slices.push(stored.subarray(offset, offset + 16 * 1024));
+      }
+      return Readable.from(slices);
     }),
     remove: vi.fn(async (key: string) => {
       objects.delete(key);
@@ -92,7 +130,12 @@ function build(
         throw new Error("the row could not be written");
       }
       nextId += 1;
-      const row: Row = { id: `file-${String(nextId)}`, ...data };
+      // A nullable column the write leaves out is null, as in the database.
+      const row: Row = {
+        id: `file-${String(nextId)}`,
+        ...data,
+        unencryptedStorageKey: data.unencryptedStorageKey ?? null,
+      };
       rows.set(row.id, row);
       return row;
     }),
@@ -164,11 +207,28 @@ function build(
     ),
   };
 
+  const encryption = new FieldEncryptionService(TEST_ENV);
+  if (options.wrapFails === true) {
+    vi.spyOn(encryption, "encrypt").mockRejectedValue(
+      new Error("the key could not be wrapped"),
+    );
+  }
+
   const service = new MediaService(
     prisma as unknown as PrismaService,
     storage as unknown as StorageService,
     audit as unknown as AuditLogService,
+    encryption,
   );
+
+  const logged: string[] = [];
+  vi.spyOn(
+    (service as unknown as { logger: { error: (message: string) => void } })
+      .logger,
+    "error",
+  ).mockImplementation((message: string) => {
+    logged.push(message);
+  });
 
   return {
     service,
@@ -176,6 +236,7 @@ function build(
     objects,
     audited,
     storage,
+    logged,
     mediaFile,
     transactionMediaFile,
   };
@@ -243,7 +304,72 @@ describe("uploading", () => {
 
     const key = [...fakes.objects.keys()][0] ?? "";
 
-    expect(key).toMatch(/^media\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.png$/);
+    // No extension: the object is ciphertext, and a .png on it would tell the
+    // storage's own logs what kind of file it holds.
+    expect(key).toMatch(/^media\/\d{4}\/\d{2}\/[0-9a-f-]{36}$/);
+  });
+
+  it("stores the file encrypted, never the bytes that were uploaded", async () => {
+    const bytes = pngBytes(200, 60);
+    const file = await fakes.service.upload({
+      bytes,
+      fileName: "logotyp.png",
+      visibility: "PUBLIC",
+      showsIdentifiablePersons: false,
+      channel: "WEB",
+    });
+
+    // What the storage driver was handed, not what the service serves back.
+    const [[storageKey, body, contentType]] = fakes.storage.put.mock.calls as [
+      [string, Buffer, string],
+    ];
+    const row = fakes.rows.get(file.id);
+
+    expect(body.equals(bytes)).toBe(false);
+    expect(body.includes(PNG_SIGNATURE)).toBe(false);
+    expect(body.length).toBe(sealedLength(bytes.length));
+    expect(contentType).toBe("application/octet-stream");
+    expect(row?.storageKey).toBe(storageKey);
+    expect(row?.encryption).toBe("SECRETSTREAM_64K");
+    expect(row?.dataKeyCipher).toMatch(/^brng:/);
+    // The file's own size and type, not the ciphertext's.
+    expect(row?.byteSize).toBe(bytes.length);
+    expect(row?.contentType).toBe("image/png");
+  });
+
+  it("records a keyed checksum of the upload, not its plain SHA-256", async () => {
+    const bytes = pngBytes(10, 10);
+    const file = await fakes.service.upload({
+      bytes,
+      fileName: "logotyp.png",
+      visibility: "PUBLIC",
+      showsIdentifiablePersons: false,
+      channel: "WEB",
+    });
+
+    const checksum = fakes.rows.get(file.id)?.checksum;
+
+    expect(checksum).toBe(
+      await new FieldEncryptionService(TEST_ENV).storedFileChecksum(bytes),
+    );
+    expect(checksum).not.toBe(createHash("sha256").update(bytes).digest("hex"));
+  });
+
+  it("stores nothing when the file's key cannot be wrapped", async () => {
+    const failing = build({ wrapFails: true });
+
+    await expect(
+      failing.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "logotyp.png",
+        visibility: "PUBLIC",
+        showsIdentifiablePersons: false,
+        channel: "WEB",
+      }),
+    ).rejects.toThrow("the key could not be wrapped");
+
+    expect(failing.storage.put).not.toHaveBeenCalled();
+    expect(failing.rows.size).toBe(0);
   });
 
   it("keeps the file name but strips what a header or a path would take", async () => {
@@ -423,10 +549,11 @@ describe("serving", () => {
     overrides: {
       visibility?: "PUBLIC" | "INTERNAL" | "MEMBER";
       requiredCapability?: Capability;
+      bytes?: Buffer;
     } = {},
   ): Promise<string> {
     const file = await fakes.service.upload({
-      bytes: pngBytes(10, 10),
+      bytes: overrides.bytes ?? pngBytes(10, 10),
       fileName: "logotyp.png",
       visibility: overrides.visibility ?? "INTERNAL",
       requiredCapability: overrides.requiredCapability,
@@ -436,6 +563,26 @@ describe("serving", () => {
     return file.id;
   }
 
+  /** A PNG header and then enough bytes to fill three chunks and a bit. */
+  function largeImage(): Buffer {
+    const bytes = Buffer.alloc(3 * STORED_FILE_CHUNK_BYTES + 100);
+    pngBytes(10, 10).copy(bytes);
+    for (let index = 33; index < bytes.length; index += 1) {
+      bytes[index] = index % 251;
+    }
+    return bytes;
+  }
+
+  /** Flips one bit of the stored object for a file, at an offset into it. */
+  function changeStoredByte(id: string, offset: number): void {
+    const storageKey = fakes.rows.get(id)?.storageKey ?? "";
+    const stored = Buffer.from(
+      fakes.objects.get(storageKey) ?? Buffer.alloc(0),
+    );
+    stored[offset] = (stored[offset] ?? 0) ^ 0x01;
+    fakes.objects.set(storageKey, stored);
+  }
+
   it("serves a public file to nobody in particular", async () => {
     const id = await upload({ visibility: "PUBLIC" });
 
@@ -443,6 +590,130 @@ describe("serving", () => {
 
     expect(served.contentType).toBe("image/png");
     expect(await collect(served.stream)).toEqual(pngBytes(10, 10));
+  });
+
+  it.each(["PUBLIC", "INTERNAL", "MEMBER"] as const)(
+    "serves a file of several chunks as the bytes that were uploaded (%s)",
+    async (visibility) => {
+      const bytes = largeImage();
+      const id = await upload({ visibility, bytes });
+
+      const served = await fakes.service.open(
+        id,
+        principal({ isMember: true }),
+      );
+
+      expect(served.byteSize).toBe(bytes.length);
+      expect((await collect(served.stream)).equals(bytes)).toBe(true);
+    },
+  );
+
+  it("gives the keyed checksum as the entity tag", async () => {
+    const id = await upload({ visibility: "PUBLIC" });
+
+    const served = await fakes.service.open(id, null);
+
+    expect(served.checksum).toBe(fakes.rows.get(id)?.checksum);
+  });
+
+  it("answers a changed first chunk as a missing file, before anything is served", async () => {
+    const id = await upload({ visibility: "PUBLIC", bytes: largeImage() });
+    changeStoredByte(id, 24 + 100);
+
+    const refused = await fakes.service
+      .open(id, null)
+      .catch((error: MediaError) => error);
+    const absent = await fakes.service
+      .open("file-absent", null)
+      .catch((error: MediaError) => error);
+
+    expect((refused as MediaError).reason).toBe("not-found");
+    expect((refused as MediaError).status).toBe((absent as MediaError).status);
+    // The class and the code of the failure, never its message.
+    expect(fakes.logged).toContainEqual(
+      `The file ${id} failed verification: SealedFileError (unverified-chunk)`,
+    );
+  });
+
+  it("answers a changed header as a missing file", async () => {
+    const id = await upload({ visibility: "PUBLIC" });
+    changeStoredByte(id, 3);
+
+    await expect(fakes.service.open(id, null)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    expect(fakes.logged).toContainEqual(expect.stringContaining(id));
+  });
+
+  it("fails the stream at a changed later chunk, after the chunks before it", async () => {
+    const bytes = largeImage();
+    const id = await upload({ visibility: "PUBLIC", bytes });
+    // Inside the third chunk.
+    changeStoredByte(id, 24 + 2 * (STORED_FILE_CHUNK_BYTES + 17) + 10);
+
+    const served = await fakes.service.open(id, null);
+    const received: Buffer[] = [];
+    const failure = await (async () => {
+      for await (const chunk of served.stream) {
+        received.push(Buffer.from(chunk as Buffer));
+      }
+      return null;
+    })().catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    // Two whole chunks went out, verified; nothing of the changed one did.
+    expect(
+      Buffer.concat(received).equals(
+        bytes.subarray(0, 2 * STORED_FILE_CHUNK_BYTES),
+      ),
+    ).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fakes.logged).toContainEqual(
+      expect.stringContaining(`The file ${id} stopped partway through`),
+    );
+  });
+
+  it("answers a file whose key does not open as a missing file, without logging the key", async () => {
+    const id = await upload({ visibility: "PUBLIC" });
+    const row = fakes.rows.get(id);
+    const other = await new FieldEncryptionService({
+      ...TEST_ENV,
+      OPENBRF_ENCRYPTION_KEY: "e".repeat(64),
+    }).encrypt("mediaFile.dataKey", "ab".repeat(32));
+    if (row !== undefined) {
+      row.dataKeyCipher = other.cipher;
+    }
+
+    await expect(fakes.service.open(id, null)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    expect(fakes.logged).toEqual([
+      `The key of the file ${id} does not open under the instance's key.`,
+    ]);
+    expect(fakes.storage.open).not.toHaveBeenCalled();
+  });
+
+  it("never serves a file that is not encrypted, and says so by id", async () => {
+    /*
+     * A row the job at start could not encrypt. Its bytes may well be in
+     * storage and readable, and serving them would be the one path by which a
+     * file leaves unencrypted; it is refused as missing instead.
+     */
+    const id = await upload({ visibility: "PUBLIC" });
+    const row = fakes.rows.get(id);
+    if (row !== undefined) {
+      fakes.objects.set(row.storageKey, pngBytes(10, 10));
+      row.encryption = "NONE";
+      row.dataKeyCipher = null;
+    }
+
+    await expect(fakes.service.open(id, null)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    expect(fakes.logged).toEqual([
+      `The file ${id} is not encrypted at rest and is not served.`,
+    ]);
+    expect(fakes.storage.open).not.toHaveBeenCalled();
   });
 
   it("refuses an internal file to an anonymous caller", async () => {
@@ -656,6 +927,25 @@ describe("removing", () => {
     expect(fakes.audited).toContainEqual(
       expect.objectContaining({ action: "MEDIA_DELETED", targetId: id }),
     );
+  });
+
+  it("removes an unencrypted object still recorded on the row as well", async () => {
+    /*
+     * A file the job at start encrypted whose old object could not yet be
+     * removed. The row is the only record of that object, so deleting the file
+     * without it would leave an unencrypted copy that nothing names.
+     */
+    const id = await stored();
+    const row = fakes.rows.get(id);
+    if (row !== undefined) {
+      row.unencryptedStorageKey = "media/2026/09/kvar.png";
+    }
+    fakes.objects.set("media/2026/09/kvar.png", pngBytes(10, 10));
+
+    await fakes.service.remove(id, "person-1", "WEB");
+
+    expect(fakes.objects.size).toBe(0);
+    expect(fakes.storage.remove).toHaveBeenCalledWith("media/2026/09/kvar.png");
   });
 
   it("writes the entry on the transaction that deletes the row", async () => {

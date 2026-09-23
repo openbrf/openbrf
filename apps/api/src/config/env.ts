@@ -82,9 +82,10 @@ function isReachableAppUrl(value: string): boolean {
  *
  * The ceiling is this low because an upload is held in memory in full while it
  * is dealt with: the multipart parser reads it into a buffer, the type is
- * identified from those bytes, a checksum is taken over them, and the S3 driver
- * hashes them again to sign the request. One request therefore costs a small
- * multiple of the file, and concurrent uploads multiply that again, so the
+ * identified from those bytes, a checksum is taken over them, the file is
+ * sealed into a second buffer of about the same size (ADR 0015), and the S3
+ * driver hashes that again to sign the request. One request therefore costs a
+ * small multiple of the file, and concurrent uploads multiply that again, so the
  * ceiling is what a self-hosted instance in a modest container can survive
  * rather than what a file format might justify. Raising it is a decision that
  * belongs with an upload path that streams end to end.

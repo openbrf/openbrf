@@ -177,7 +177,7 @@ writeFileSync(keyPath, `${key}\n`, { encoding: "utf8", mode: 0o600 });
 
 log(`generated a field encryption key at ${keyPath}`);
 log(
-  "back it up together with the database. Losing the key loses every encrypted field: " +
-    "contact details and personal identity numbers cannot be recovered from a database " +
-    "backup alone. See docs/backup-and-restore.md.",
+  "copy it out once, into two copies kept apart from this server and from the backups, " +
+    "and leave it out of every backup. Losing it loses every encrypted field and every " +
+    "stored file; a backup that carries it opens them. See docs/backup-and-restore.md.",
 );

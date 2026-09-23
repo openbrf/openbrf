@@ -38,7 +38,8 @@ export type EncryptedFieldId =
   | "association.boardMailboxPop3Password"
   | "boardMailboxThread.correspondentName"
   | "boardMailboxThread.correspondentEmail"
-  | "importSession.rows";
+  | "importSession.rows"
+  | "mediaFile.dataKey";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
 type Normalizer = (value: string) => string | null;
@@ -205,7 +206,34 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
     fastHash: true,
     normalize: () => null,
   },
+  /*
+   * A stored file's own key, hex encoded (ADR 0015). The file is encrypted
+   * under it and it is encrypted under the instance's key, so rotating the
+   * instance's key re-encrypts this column and rewrites no object. Read back by
+   * primary key alone, so no index: indexing a key is pure downside.
+   */
+  "mediaFile.dataKey": {
+    table: "media_file",
+    field: "dataKey",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
 };
+
+/**
+ * A stored file's checksum: CipherSweet's blind index "checksum" on the field
+ * media_file.checksum, computed over the file's bytes.
+ *
+ * A blind index is a keyed hash under a key CipherSweet derives from the
+ * instance's own, which is what the checksum has to be: stable for one file,
+ * comparable by the instance, and unconfirmable by anybody holding the
+ * database alone. At 256 bits rather than INDEX_BITS, because the value stands
+ * for the bytes and is not a bucket to search.
+ */
+const CHECKSUM_TABLE = "media_file";
+const CHECKSUM_FIELD = "checksum";
+const CHECKSUM_BITS = 256;
 
 export interface EncryptedValue {
   /** Ciphertext of the value as entered, so the original spelling survives. */
@@ -230,6 +258,7 @@ export interface EncryptedValue {
 export class FieldEncryptionService {
   private readonly engine: CipherSweet;
   private readonly fields = new Map<EncryptedFieldId, EncryptedField>();
+  private checksum: EncryptedField | undefined;
 
   constructor(@Inject(ENV) env: Env) {
     const key = EncryptionKeyProvider.resolve(env);
@@ -267,6 +296,25 @@ export class FieldEncryptionService {
   }
 
   /**
+   * The checksum a stored file's row carries, as 64 hex characters.
+   *
+   * The same bytes give the same checksum under the same instance key, so it
+   * serves as the file's entity tag and survives the file being encrypted
+   * again under a key of its own. Without the instance's key it cannot be
+   * computed, so a database on its own cannot confirm that a document somebody
+   * already holds is stored here.
+   */
+  async storedFileChecksum(bytes: Buffer): Promise<string> {
+    // The published types take a string; the library takes the Buffer as it
+    // is (Util.toBuffer), and a file is bytes rather than text.
+    const calculated = await this.checksumField().getBlindIndex(
+      bytes as unknown as string,
+      CHECKSUM_FIELD,
+    );
+    return typeof calculated === "string" ? calculated : calculated.value;
+  }
+
+  /**
    * Computes the blind index for a lookup. Search paths must go through this
    * rather than normalizing by hand, or a query will miss rows that are
    * present.
@@ -292,6 +340,15 @@ export class FieldEncryptionService {
     // With typed indexes disabled the library returns the bare string, but the
     // published types describe the typed shape. Accept both.
     return typeof calculated === "string" ? calculated : calculated.value;
+  }
+
+  private checksumField(): EncryptedField {
+    this.checksum ??= new EncryptedField(
+      this.engine,
+      CHECKSUM_TABLE,
+      CHECKSUM_FIELD,
+    ).addBlindIndex(new BlindIndex(CHECKSUM_FIELD, [], CHECKSUM_BITS, true));
+    return this.checksum;
   }
 
   private fieldFor(id: EncryptedFieldId): EncryptedField {

@@ -171,6 +171,7 @@ async function fileDocument(input: {
     data: {
       id: input.mediaFileId,
       storageKey: `documents/${input.mediaFileId}.pdf`,
+      encryption: "NONE",
       contentType: "application/pdf",
       byteSize: 1024,
       checksum: input.mediaFileId,

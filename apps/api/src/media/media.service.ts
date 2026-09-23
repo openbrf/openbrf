@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import type { Readable } from "node:stream";
+import { pipeline, type Readable } from "node:stream";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import {
@@ -8,9 +8,17 @@ import {
   type Capability,
   type Principal,
 } from "../authorization/capabilities";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import {
+  newFileKey,
+  openSealedFile,
+  SEALED_FILE_CONTENT_TYPE,
+  sealFile,
+} from "../crypto/stored-file-cipher";
 import { PrismaService } from "../database/prisma.service";
-import type { AuditChannel } from "../generated/prisma/enums";
+import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { failureName } from "../logging/failure";
 import { generateStorageKey } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
@@ -108,7 +116,7 @@ export interface ServedFile {
   contentType: string;
   byteSize: number;
   fileName: string;
-  /** Hex SHA-256, used as the entity tag. */
+  /** The file's keyed checksum, hex encoded, used as the entity tag. */
   checksum: string;
   visibility: MediaVisibility;
 }
@@ -116,6 +124,50 @@ export interface ServedFile {
 /** The path a stored file is served from. Relative: same origin, always. */
 export function mediaUrl(id: string): string {
   return `/api/media/${encodeURIComponent(id)}`;
+}
+
+/** A file sealed for storage, and what its row carries to open it again. */
+export interface SealedForStorage {
+  /** The object to store: ciphertext, stored as SEALED_FILE_CONTENT_TYPE. */
+  body: Buffer;
+  /** The file's own key, encrypted under the instance's key. */
+  dataKeyCipher: string;
+  /** The keyed checksum of the file as uploaded. */
+  checksum: string;
+}
+
+/**
+ * Seals a file under a new key of its own, and wraps that key under the
+ * instance's (ADR 0015).
+ *
+ * Both the upload and the job that encrypts the files stored before files were
+ * encrypted go through here, so there is one way a file comes to be held. All
+ * of it happens before anything is stored, so a failure stores nothing.
+ */
+export async function sealForStorage(
+  encryption: FieldEncryptionService,
+  bytes: Buffer,
+): Promise<SealedForStorage> {
+  const key = newFileKey();
+  const body = sealFile(bytes, key);
+  const { cipher } = await encryption.encrypt(
+    "mediaFile.dataKey",
+    key.toString("hex"),
+  );
+  const checksum = await encryption.storedFileChecksum(bytes);
+  return { body, dataKeyCipher: cipher, checksum };
+}
+
+/** The key a row's wrapped key opens to. Throws when it opens to none. */
+export async function unwrapFileKey(
+  encryption: FieldEncryptionService,
+  dataKeyCipher: string,
+): Promise<Buffer> {
+  const hex = await encryption.decrypt("mediaFile.dataKey", dataKeyCipher);
+  if (!/^[0-9a-f]{64}$/.test(hex)) {
+    throw new Error("A wrapped file key did not open to a key.");
+  }
+  return Buffer.from(hex, "hex");
 }
 
 /**
@@ -148,6 +200,7 @@ export class MediaService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditLogService,
+    private readonly encryption: FieldEncryptionService,
   ) {}
 
   /**
@@ -157,7 +210,12 @@ export class MediaService {
    * the row cannot be written. The other order would leave a row pointing at
    * nothing, which the serving path cannot tell apart from a deleted file; this
    * order can only ever leave an unreferenced object, which costs disk and
-   * nothing else.
+   * nothing else - and which, being sealed under a key that only the unwritten
+   * row would have held, opens for nobody.
+   *
+   * The object is the file sealed under a key of its own, and is named without
+   * an extension: storage holds ciphertext, and a `.pdf` on it would both
+   * misdescribe it and tell the storage's own logs what kind of file it is.
    */
   async upload(input: UploadInput): Promise<MediaFileView> {
     if (input.bytes.length === 0) {
@@ -181,22 +239,24 @@ export class MediaService {
       );
     }
 
+    const sealed = await sealForStorage(this.encryption, input.bytes);
     const storageKey = generateStorageKey(
       input.prefix ?? "media",
-      identified.contentType,
+      SEALED_FILE_CONTENT_TYPE,
     );
-    const checksum = createHash("sha256").update(input.bytes).digest("hex");
 
-    await this.storage.put(storageKey, input.bytes, identified.contentType);
+    await this.storage.put(storageKey, sealed.body, SEALED_FILE_CONTENT_TYPE);
 
     let file;
     try {
       file = await this.prisma.mediaFile.create({
         data: {
           storageKey,
+          encryption: "SECRETSTREAM_64K",
+          dataKeyCipher: sealed.dataKeyCipher,
           contentType: identified.contentType,
           byteSize: input.bytes.length,
-          checksum,
+          checksum: sealed.checksum,
           fileName: safeFileName(input.fileName),
           width: identified.width,
           height: identified.height,
@@ -250,6 +310,10 @@ export class MediaService {
    * The refusal for a file that exists but may not be read is the same 404 as
    * for one that does not exist: the ids are unguessable, and answering 403
    * would confirm to an anonymous caller that a particular file is there.
+   *
+   * A file that may be read is decrypted as it streams, and returned only once
+   * its first chunk has verified, so a file whose stored bytes were changed is
+   * that same 404 rather than a 200 that breaks off.
    */
   async open(id: string, viewer: Principal | null): Promise<ServedFile> {
     const file = await this.prisma.mediaFile.findUnique({ where: { id } });
@@ -312,15 +376,7 @@ export class MediaService {
       throw new MediaError("No such file.", "not-found");
     }
 
-    const stream = await this.storage.open(file.storageKey);
-    if (stream === null) {
-      // The row survived its bytes. Reported as missing rather than as a
-      // server fault: there is nothing to serve and no retry that would help.
-      this.logger.error(
-        `The file at ${file.storageKey} is recorded but not in storage.`,
-      );
-      throw new MediaError("No such file.", "not-found");
-    }
+    const stream = await this.openSealed(file);
 
     return {
       stream,
@@ -330,6 +386,82 @@ export class MediaService {
       checksum: file.checksum,
       visibility,
     };
+  }
+
+  /**
+   * The file's bytes as uploaded, verified chunk by chunk as they stream.
+   *
+   * Every refusal here is the same not-found as a missing file, logged by the
+   * file's id and never with its key or a byte of it: there is nothing to serve
+   * and no retry that would help. On an instance restored with the wrong key
+   * every file answers this way.
+   */
+  private async openSealed(file: StoredFileRecord): Promise<Readable> {
+    // An allowlist with a refusing default, like the visibility: a file held
+    // any other way is never served as it lies, and no path serves one that is
+    // not encrypted.
+    if (file.encryption !== "SECRETSTREAM_64K" || file.dataKeyCipher === null) {
+      this.logger.error(
+        `The file ${file.id} is not encrypted at rest and is not served.`,
+      );
+      throw new MediaError("No such file.", "not-found");
+    }
+
+    let key: Buffer;
+    try {
+      key = await unwrapFileKey(this.encryption, file.dataKeyCipher);
+    } catch {
+      this.logger.error(
+        `The key of the file ${file.id} does not open under the instance's key.`,
+      );
+      throw new MediaError("No such file.", "not-found");
+    }
+
+    const stored = await this.storage.open(file.storageKey);
+    if (stored === null) {
+      // The row survived its bytes.
+      this.logger.error(
+        `The file at ${file.storageKey} is recorded but not in storage.`,
+      );
+      throw new MediaError("No such file.", "not-found");
+    }
+
+    /*
+     * pipeline rather than pipe, so a failure on either side destroys both: a
+     * chunk that does not verify closes the stored object, and a storage error
+     * ends the decryption. A failure after the first chunk ends the reply short
+     * of its content-length, which a client reads as a failed transfer.
+     */
+    let started = false;
+    const opened = openSealedFile(key, file.byteSize);
+    pipeline(stored, opened, (error) => {
+      if (!started || error === null || error === undefined) {
+        return;
+      }
+      // Closed by the reader: a revalidation, or a client that went away.
+      if (
+        (error as NodeJS.ErrnoException).code === "ERR_STREAM_PREMATURE_CLOSE"
+      ) {
+        return;
+      }
+      this.logger.error(
+        `The file ${file.id} stopped partway through: ${failureName(error)}`,
+      );
+    });
+
+    try {
+      await once(opened, "readable");
+    } catch (error) {
+      // The class and its code, such as SealedFileError (unverified-chunk),
+      // never the message: a storage error composes one from what it was
+      // handling (ADR 0007).
+      this.logger.error(
+        `The file ${file.id} failed verification: ${failureName(error)}`,
+      );
+      throw new MediaError("No such file.", "not-found");
+    }
+    started = true;
+    return opened;
   }
 
   /**
@@ -380,6 +512,17 @@ export class MediaService {
         cause instanceof Error ? cause.stack : undefined,
       );
     });
+
+    // The unencrypted object the job at start replaced, if its removal has not
+    // succeeded yet. The row was its only record, so it goes now or never.
+    if (file.unencryptedStorageKey !== null) {
+      const unencrypted = file.unencryptedStorageKey;
+      await this.storage.remove(unencrypted).catch((cause: unknown) => {
+        this.logger.error(
+          `Removed the record of ${file.id} but not its unencrypted object at ${unencrypted}: ${failureName(cause)}`,
+        );
+      });
+    }
   }
 }
 
@@ -457,6 +600,15 @@ function safeFileName(name: string): string {
     .slice(0, 200);
 
   return cleaned === "" ? "upload" : cleaned;
+}
+
+/** What opening a file's bytes reads from its row. */
+interface StoredFileRecord {
+  id: string;
+  storageKey: string;
+  encryption: MediaEncryption;
+  dataKeyCipher: string | null;
+  byteSize: number;
 }
 
 interface MediaFileRow {

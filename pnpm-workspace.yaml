@@ -9,8 +9,10 @@ allowBuilds:
   "@swc/core": true
   esbuild: true
   prisma: true
-  # Uses node-gyp-build, which links a shipped prebuild rather than compiling
-  # (prebuilds exist for linux-x64, linux-arm64, darwin-x64 and darwin-arm64).
+  # 3.4.1 (field encryption) uses node-gyp-build, which links a shipped
+  # prebuild rather than compiling (prebuilds exist for linux-x64, linux-arm64,
+  # darwin-x64 and darwin-arm64). 5.1.0 (stored files) has no build script and
+  # loads its prebuild at run time.
   sodium-native: true
   # Pulled in transitively by better-auth, whose default adapter supports
   # SQLite. This project uses the Prisma adapter against PostgreSQL and never
@@ -97,3 +99,16 @@ overrides:
   # connection, so the handler is unreachable, but the pin is what the CLI
   # ships and only an override moves it.
   mysql2: "^3.23.1"
+
+# Dependencies a published package leaves to its consumer, stated here instead.
+packageExtensions:
+  # sodium-plus, which ciphersweet-js encrypts fields through (ADR 0002), takes
+  # sodium-native as a peer in the 3.x range, and a peer resolves to what the
+  # packages above it provide. The API depends on sodium-native 5.1.0 for
+  # stored files (ADR 0015), so without this the field encryption would load a
+  # major its peer range excludes. As a dependency of ciphersweet-js itself,
+  # 3.4.1 is the copy sodium-plus resolves, and the process loads the two
+  # builds side by side until ciphersweet-js is replaced.
+  ciphersweet-js@2.0.6:
+    dependencies:
+      sodium-native: 3.4.1

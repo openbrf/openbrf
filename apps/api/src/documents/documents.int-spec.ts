@@ -818,6 +818,7 @@ describe("the audience a document gets when nobody names one", () => {
     const file = await prisma.mediaFile.create({
       data: {
         storageKey: `documents/default-${suffix}`,
+        encryption: "NONE",
         contentType: "application/pdf",
         byteSize: 1,
         checksum: "0".repeat(64),

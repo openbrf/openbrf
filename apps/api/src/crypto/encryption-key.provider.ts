@@ -18,7 +18,7 @@ export class EncryptionKeyError extends Error {
 }
 
 /**
- * Resolves the field encryption key (ADR 0002).
+ * Resolves the encryption key for fields and stored files (ADR 0002, ADR 0015).
  *
  * Precedence, deliberately fixed so a deploy is predictable:
  *
@@ -27,8 +27,10 @@ export class EncryptionKeyError extends Error {
  *   2. <data dir>/keys/field-encryption.key on the data volume.
  *   3. A freshly generated key written to that path.
  *
- * Losing this key loses every encrypted field. Backups must cover the key and
- * the database together; there is no recovery path from one without the other.
+ * Losing this key loses every encrypted field and every stored file, and there
+ * is no recovery path without it. It is copied out once and kept apart from
+ * every backup, because a backup that carried it would open everything in it
+ * (docs/backup-and-restore.md).
  */
 export class EncryptionKeyProvider {
   private static readonly logger = new Logger(EncryptionKeyProvider.name);
@@ -81,8 +83,10 @@ export class EncryptionKeyProvider {
     mkdirSync(dirname(keyPath), { recursive: true, mode: 0o700 });
     writeFileSync(keyPath, `${key}\n`, { encoding: "utf8", mode: 0o600 });
     this.logger.log(
-      `Generated a new field encryption key at ${keyPath}. Back it up together ` +
-        "with the database: losing it loses the encrypted data.",
+      `Generated a new field encryption key at ${keyPath}. Copy it out once and ` +
+        "keep it apart from every backup: losing it loses the encrypted data, " +
+        "and a backup that carries it opens that data " +
+        "(docs/backup-and-restore.md).",
     );
     return key;
   }

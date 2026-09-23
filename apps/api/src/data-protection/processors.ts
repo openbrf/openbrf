@@ -70,6 +70,17 @@ export interface ProcessorFacts {
     /** Where it is reached: see {@link connectedAppHost}. */
     host: string | null;
   }[];
+  /**
+   * How many stored files still have bytes in storage that are not encrypted:
+   * a file the job at start has not encrypted, and one whose replaced
+   * unencrypted object has not been removed yet (ADR 0015).
+   *
+   * A fact of the same kind as the storage driver, and read for the same
+   * reason: the record says the files are encrypted only while this is 0, and a
+   * record claiming it of files that are not would be worse than one that said
+   * nothing.
+   */
+  unencryptedStoredFiles: number;
 }
 
 /** An open agreement row, as much of it as the state derivation needs. */

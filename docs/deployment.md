@@ -167,8 +167,10 @@ env file, is the error an operator who has set up neither will read.
 
 ## Backups
 
-**The database and `/data/keys` are one unit.** A database backup without the
-encryption key is not a backup: the encrypted columns cannot be read again, ever.
+**The key is backed up once and kept apart; the database and the data volume are
+backed up together, without it.** A backup without the encryption key cannot be
+read: the encrypted columns and the stored files in it are unreadable for ever.
+A backup that carries the key opens every one of them to whoever holds it.
 [backup-and-restore.md](backup-and-restore.md) is the procedure, and it is worth
 reading before the first member is added rather than after.
 
@@ -184,6 +186,13 @@ and a client that can set it can spoof its way around both.
 
 `/data` holds the field encryption key, uploaded files, and installed plugins
 and themes. It is mounted as the named volume `instance-data`.
+
+The uploaded files on it are encrypted (ADR 0015), and the key sits beside them,
+so a copy of the whole volume opens like the original. What keeps the two apart
+is the backup procedure, which leaves the key out, or supplying the key through
+`OPENBRF_ENCRYPTION_KEY` so that it is never on the volume at all. Against a
+stolen disk, encrypt the host's disk: that is the operator's layer, and nothing
+the instance can do for itself.
 
 A named volume inherits the image's ownership and needs nothing else. A bind
 mount does not: `chown` the host directory to uid 1000 first, or the container
@@ -203,7 +212,18 @@ asking the board to remember it:
   recipient there to classify.
 - **File storage.** `local` keeps uploads on the instance's own volume and adds
   nobody; S3-compatible object storage is a recipient, and which one is read
-  from the endpoint.
+  from the endpoint. The key never goes there, so what an object store receives
+  from an instance that has always encrypted its files is ciphertext. An
+  instance upgraded from a version that did not can still have plaintext in the
+  bucket, in two shapes: a file the job at start could not encrypt, which stays
+  as it was and which the instance refuses to serve, and the unencrypted object
+  of a file it did encrypt, where the removal failed and a later start tries it
+  again. Both are logged by file id, and the record of processing activities
+  leaves out the sentence about encrypted files while either exists. It is a
+  recipient in every case, because what it holds is the association's personal
+  data. A bucket with versioning keeps every version the instance deletes - the
+  plaintext objects the job replaced among them - so a removal is still not an
+  erasure there.
 - **The host.** Whoever runs the server the container runs on is a processor
   too, and the instance cannot know who that is - the board records it.
 

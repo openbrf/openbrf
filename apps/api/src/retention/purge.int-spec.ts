@@ -374,6 +374,7 @@ beforeAll(async () => {
       {
         id: photoFileId,
         storageKey: `purge/${suffix}/trapphus.jpg`,
+        encryption: "NONE",
         contentType: "image/jpeg",
         byteSize: 2048,
         checksum: `sha-photo-${suffix}`,
@@ -384,6 +385,7 @@ beforeAll(async () => {
       {
         id: documentFileId,
         storageKey: `purge/${suffix}/stadgar.pdf`,
+        encryption: "NONE",
         contentType: "application/pdf",
         byteSize: 1024,
         checksum: `sha-doc-${suffix}`,
