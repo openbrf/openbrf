@@ -52,19 +52,52 @@ Always dump.
 Copy the key out once, on the day the instance is first started, and before
 anything is stored in it. A one-off container reads it, as the backup script
 below does, and the copy goes straight into a file on removable media rather
-than onto a screen or into a terminal's scrollback:
+than onto a screen or into a terminal's scrollback.
 
 ```sh
-(umask 077; docker compose -f docker-compose.prod.yml --env-file .env.production \
-  run --rm --no-deps -T --entrypoint sh app \
-  -c 'cat /data/keys/field-encryption.key' \
-  > /media/usb/openbrf-field-encryption.key)
+#!/bin/sh
+set -eu
+
+# Where the copy goes. Mount the device at this path first.
+DEVICE=/media/usb
+KEY="${DEVICE}/openbrf-field-encryption.key"
+
+compose() {
+  docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+}
+
+# The device has to be mounted, and this is checked before anything opens the
+# file: a directory that exists while nothing is mounted on it takes the copy
+# onto the server's own disk, where the key sits beside the data it protects
+# and inside whatever backs the host up, while whoever ran this believes a copy
+# left the building. (A host without mountpoint(1) can ask
+# `findmnt -rno TARGET "${DEVICE}"` instead.)
+mountpoint -q "${DEVICE}" || {
+  echo "${DEVICE} is not a mounted device; mount it and run this again" >&2
+  exit 1
+}
+
+(umask 077; compose run --rm --no-deps -T --entrypoint sh app \
+  -c 'cat /data/keys/field-encryption.key' > "${KEY}")
+
+# The check above proves a device was mounted, not that the bytes arrived, so
+# the copy is read back and compared. cmp says nothing when the two are equal.
+compose run --rm --no-deps -T --entrypoint sh app \
+  -c 'cat /data/keys/field-encryption.key' | cmp - "${KEY}"
+
+echo "key copied to ${KEY}"
 ```
 
-Make two copies, and keep them apart from each other, from the server and from
-wherever the backups are stored - two board members holding one each is the
+Unmount the device before taking it out. Until it is unmounted the bytes may
+still be in the host's cache rather than on the device.
+
+Make two copies, one device at a time, each written by that script with its own
+device mounted at `DEVICE`. Keep them apart from each other, from the server and
+from wherever the backups are stored - two board members holding one each is the
 usual shape. Two, because a key nobody can find loses the very restore it
-exists for, and losing it loses every encrypted field and every stored file.
+exists for, and losing it loses every encrypted field and every stored file. A
+copy written at any later time is written the same way, mount check and read-back
+included.
 
 If the key is supplied through `OPENBRF_ENCRYPTION_KEY` instead, it is not on
 the volume at all: `.env.production` holds it, and that file is kept the way the
