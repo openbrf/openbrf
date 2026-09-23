@@ -208,9 +208,9 @@ export class BookingPurgeService implements OnModuleInit {
       this.logger.log(
         `Booking purge reached its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
-        )} people on the retention window; the rest wait for a later run. ` +
-          "Everybody a granted erasure request names was taken first, so " +
-          "none of them is among those waiting.",
+        )} people. Everybody a granted erasure request names was taken ` +
+          "first and the retention window took what was left of the bound, " +
+          "so what waits for a later run is people on the window alone.",
       );
     }
 

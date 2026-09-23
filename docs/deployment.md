@@ -236,19 +236,23 @@ that night either way - what waits is the record saying the erasure was carried
 out, not the erasure.
 
 A request left open says why in the container log, and the two reasons mean
-different things. "Protected" is the product working: a legal hold, a
-restriction, a board seat, a system role, a residency that has not ended or a
-motion the association is still dealing with is keeping rows the purge must not
-take, and the request waits for that to change rather than for anybody.
-"Incomplete" is work that was owed and did not happen, and the next run takes
-it; a request that stays incomplete night after night is a job that keeps
-failing, and the failure is logged beside it. The audit entry for a closing
-names the request and the domains that were verified empty.
+different things. "Blocked" is the product working: a legal hold, a restriction,
+a board seat, a system role, a residency that has not ended or a motion the
+association is still dealing with is keeping rows the purge must not take, and
+the request waits for that to change rather than for anybody. "Incomplete" is
+work that was owed and did not happen, and the next run takes it; a request that
+stays incomplete night after night is a job that keeps failing, and the failure
+is logged beside it. Neither word says anything about the person: "blocked" is
+the request waiting, not somebody whose personal data is protected. The audit
+entry for a closing names the request and the domains that were verified empty.
 
-Each of these jobs takes at most 500 people in one run. The people a granted
-erasure request names are taken first, so the bound cuts the tail of the
-retention window and never somebody the board granted an erasure to; a run that
-reached its bound says so in the container log.
+A run takes at most 500 people off its own retention window, and the people a
+granted erasure request names are taken before that - all of them, whatever the
+number, because somebody cut off the end of a run is somebody no later run would
+select. So a run is 500 people, or as many as there are open granted requests
+where that is more. The bound cuts the tail of the retention window and never
+somebody the board granted an erasure to, and a run that reached it says so in
+the container log.
 
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.

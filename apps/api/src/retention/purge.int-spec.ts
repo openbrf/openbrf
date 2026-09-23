@@ -1511,9 +1511,9 @@ describe("what a run says about the erasures it did not finish", () => {
      * stood, and one that reported a failure the way it reports a hold would
      * hide the only case anybody has to act on.
      */
-    expect(held?.status).toBe("protected");
+    expect(held?.status).toBe("blocked");
     expect(held?.because).toContain("a legal hold stands");
-    expect(openMotion?.status).toBe("protected");
+    expect(openMotion?.status).toBe("blocked");
     expect(openMotion?.because).toContain("motions: 1 kept because");
 
     // And a held person is not a failure: nothing threw, and the count that

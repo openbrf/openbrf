@@ -27,8 +27,8 @@ do not:
 - A per-person failure. Each of those runs catches an exception, logs it and
   carries on to the next person, so the queue sees a job that succeeded and does
   not retry it.
-- The per-run bound. Each run takes at most 500 people, ordered by the person
-  column, and omits the tail.
+- The per-run bound. Each run took at most 500 people, ordered by the person
+  column, and omitted the tail.
 - A missed occurrence. The queue skips a schedule the instance was down for
   rather than catching it up, so a night the instance came back at 03:50 has the
   closing job run and the five readers not.
@@ -74,7 +74,7 @@ both rules without anybody remembering either.
 
 Two reasons, and they mean opposite things:
 
-- **protected** - a legal hold, a restriction of processing, a board seat, a
+- **blocked** - a legal hold, a restriction of processing, a board seat, a
   system role, a residency that has not ended, or a motion the association is
   still dealing with. The purge must not overrule any of these, so the request
   waits for one of them to change rather than for anybody. Expected, and logged
@@ -87,6 +87,16 @@ Two reasons, and they mean opposite things:
 The run's summary carries the same account, and the audit entry written when a
 request finally closes names the domains that were verified empty.
 
+"Blocked" rather than "protected" or "withheld", both of which are taken. In
+this product protected personal data (skyddade personuppgifter) is what
+`kind: "protected"` means everywhere a person is returned to a screen, and
+"withheld" is the state an apartment or a holder is in because of it - which the
+debiting list and the fee notice then print as the literal word "protected". A
+status on a log line beside a person id that reused either would be a false
+signal for an ordinary member and would read as a disclosure for a real one.
+"Kept" was not free either: `ERASURE_DOMAINS` already has a kept clause and a
+kept count a few lines away, meaning the rows a domain holds on purpose.
+
 ### The people a granted request names are taken before the per-run bound
 
 The bound exists so that the first run on an instance with years of data behind
@@ -95,7 +105,10 @@ stopping, because eligibility is computed from the data rather than marked on
 it - except for a granted request, which is a flag the closing job clears the
 same night. So each of the six jobs asks for the people a request names first,
 and what is left of the bound is what its own retention window may take. A run
-is the same size as before; what changed is who is cut when it is full.
+is 500 people, or as many as there are open granted requests where that is more.
+What the bound still does is stop a run erasing years of retention-window work
+in one loop; what it no longer does is cut somebody the board granted an erasure
+to.
 
 ## Consequences
 
@@ -107,7 +120,7 @@ waiting on.
 An open motion keeps a request open indefinitely, because EFL 6 kap. 15 §
 gives the member who put it the right to have it treated at the meeting and the
 motion purge leaves it standing. That is a matter the board can close itself,
-and it is reported as protected rather than as a fault.
+and it is reported as blocked rather than as a fault.
 
 A person whose request cannot close yet is selected by the closing job every
 night while it is open. That is one transaction and a count per domain, and it

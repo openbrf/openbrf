@@ -93,16 +93,23 @@ export interface PurgeOutcome {
 /**
  * Why a granted erasure request is still open when a run ends.
  *
- * Two answers and they mean opposite things. "protected" is the product working
- * as it is meant to: a legal hold, a restriction, a board seat, a system role, a
+ * Two answers and they mean opposite things. "blocked" is the product working as
+ * it is meant to: a legal hold, a restriction, a board seat, a system role, a
  * residency that has not ended or a motion the association is still dealing
  * with is keeping rows the purge must not take, and the request waits for that
  * to change. "incomplete" is work that was owed and did not happen: a run that
  * threw for this person, a reader that has not got through them, a night the
  * instance was down. The first is expected and logged as such; the second is a
  * fault and is warned about, because nothing else would report it.
+ *
+ * Not the word this product already uses for a person whose personal data is
+ * protected (skyddade personuppgifter), which every service that returns a
+ * person to a screen answers with and which a debiting list and a fee notice
+ * print in the cell where a name would go. A log line saying it beside a person
+ * id would be a false signal for an ordinary member and would read as a
+ * disclosure for a real one.
  */
-export type ErasureRequestStatus = "protected" | "incomplete";
+export type ErasureRequestStatus = "blocked" | "incomplete";
 
 /** One granted erasure request the run left open, and what it is waiting on. */
 export interface OpenErasureRequest {
@@ -334,9 +341,9 @@ export class PurgeService implements OnModuleInit {
       this.logger.log(
         `Purge reached its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
-        )} people on the retention policy's clock; the rest wait for a ` +
-          "later run. Everybody a granted erasure request names was taken " +
-          "first, so none of them is among those waiting.",
+        )} people. Everybody a granted erasure request names was taken ` +
+          "first and the retention policy's clock took what was left of the " +
+          "bound, so what waits for a later run is people on that clock alone.",
       );
     }
 
@@ -354,7 +361,7 @@ export class PurgeService implements OnModuleInit {
       const line =
         `Granted erasure request for person ${open.personId} stays open ` +
         `(${open.status}): ${open.because}`;
-      if (open.status === "protected") {
+      if (open.status === "blocked") {
         // Expected: something the purge must not overrule is keeping the rows,
         // and the request waits for it rather than for anybody.
         this.logger.log(line);
@@ -425,7 +432,7 @@ export class PurgeService implements OnModuleInit {
       if (refusal !== null) {
         open.push({
           personId,
-          status: "protected",
+          status: "blocked",
           because: join(refusal, described),
         });
       } else if (remainder.some((domain) => domain.owed > 0)) {
@@ -436,7 +443,7 @@ export class PurgeService implements OnModuleInit {
         // Only rows a domain keeps on purpose are left. The erasure has gone as
         // far as it can go, and the request says so rather than claiming to be
         // carried out.
-        open.push({ personId, status: "protected", because: described });
+        open.push({ personId, status: "blocked", because: described });
       } else {
         /*
          * Nothing owed, nothing kept and nothing refusing, so the request would

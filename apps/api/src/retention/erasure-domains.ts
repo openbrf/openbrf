@@ -301,9 +301,9 @@ export function describeRemainder(remainder: ErasureRemainder): string {
  * How many people a run may still take off its own retention window, once the
  * people a granted erasure request names have been taken.
  *
- * Every one of these jobs takes at most five hundred people in a run, so that
- * the first run on an instance with years of data behind it cannot erase all of
- * it in one transaction-per-person loop. Nothing is lost by stopping, as long
+ * Every one of these jobs bounds a run at five hundred people, so that the
+ * first run on an instance with years of data behind it cannot erase all of it
+ * in one transaction-per-person loop. Nothing is lost by stopping, as long
  * as what was left is selected again: eligibility is computed from the data
  * rather than marked on it, so the next night's run finds the rest.
  *
@@ -312,8 +312,10 @@ export function describeRemainder(remainder: ErasureRemainder): string {
  * a person pushed off the end of a bounded run would be one the flag no longer
  * names. So the people a request names are taken first, and what is left of the
  * bound is what the window may take - which is what this answers, and never
- * less than nothing. A run is the same size as before; what changed is who is
- * cut when it is full.
+ * less than nothing. So a run is five hundred people, or as many as there are
+ * open granted requests where that is more. What the bound still does is stop a
+ * run erasing years of retention-window work in one loop; what it no longer
+ * does is cut somebody the board granted an erasure to.
  *
  * The closing job's verification is what makes the tail safe rather than this
  * arithmetic: a person it did not reach keeps their request open. This is what
