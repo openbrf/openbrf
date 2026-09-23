@@ -231,20 +231,33 @@ A granted erasure request is selected by a flag rather than by a date, and the
 has counted what each of the other jobs still holds for that person and found
 nothing: a job that was interrupted, that threw for one person and carried on,
 or that did not run at all leaves rows behind, and the request stays open for
-the next night to finish. The person's contact details and account are erased
-that night either way - what waits is the record saying the erasure was carried
-out, not the erasure.
+the next night to finish. Where outstanding work is all the request is waiting
+on, the person's contact details and account are erased that night and what
+waits is the record, not the erasure.
 
-A request left open says why in the container log, and the two reasons mean
-different things. "Blocked" is the product working: a legal hold, a restriction,
-a board seat, a system role, a residency that has not ended or a motion the
-association is still dealing with is keeping rows the purge must not take, and
-the request waits for that to change rather than for anybody. "Incomplete" is
-work that was owed and did not happen, and the next run takes it; a request that
-stays incomplete night after night is a job that keeps failing, and the failure
-is logged beside it. Neither word says anything about the person: "blocked" is
-the request waiting, not somebody whose personal data is protected. The audit
-entry for a closing names the request and the domains that were verified empty.
+Where something refuses the purge for that person, nothing of theirs is erased
+at all. A legal hold, a restriction of processing, a board seat still held, a
+system role still granted or a residency that has not ended each keeps them out
+of the run: the job does not select them, and one recorded after it selected
+them stops the transaction before it writes anything. Their request stays open
+and the log says so, and the erasure has not started rather than being half
+done. An open request is not by itself data that is partly gone - the reason on
+the line is what says which it is.
+
+A request left open says that reason in the container log, and the words mean
+different things. "Blocked" is the product working, and it covers both cases
+above, which the reason tells apart. A reason naming a rule - a legal hold, a
+restriction, a board seat, a system role or a residency that has not ended -
+means nothing of that person's went this night. A reason naming a domain and a
+count means the erasure went as far as it goes and only the record is waiting; a
+motion the association is still dealing with is the one case in the product,
+because the member who put it has a right to have it treated at the meeting.
+"Incomplete" is work that was owed and did not happen, and the next run takes
+it; a request that stays incomplete night after night is a job that keeps
+failing, and the failure is logged beside it. Neither word says anything about
+the person: "blocked" is the request waiting, not somebody whose personal data
+is protected. The audit entry for a closing names the request and the domains
+that were verified empty.
 
 A run takes at most 500 people off its own retention window, and the people a
 granted erasure request names are taken before that - all of them, whatever the

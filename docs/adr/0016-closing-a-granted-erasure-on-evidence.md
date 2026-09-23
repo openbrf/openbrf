@@ -47,10 +47,20 @@ transaction that erases, what each erasure-aware domain still holds for that
 person. If any of them holds anything, the request stays open and the next
 night tries again.
 
-The erasure itself is not held back. The contact details, the account and the
-open invitations go that night whatever the other domains hold: what waits is
-the record saying the erasure was carried out, and holding the rest back would
-leave a person's contact details on file for as long as the slowest domain took.
+The erasure itself is not held back by outstanding domain work. Where that is
+what the request is waiting on, the contact details, the account and the open
+invitations go that night whatever the other domains hold: what waits is the
+record saying the erasure was carried out, and holding the rest back would leave
+a person's contact details on file for as long as the slowest domain took.
+
+A refusal is the other thing, and it holds back everything. A legal hold, a
+restriction of processing, a board seat still held, a system role still granted
+or a residency that has not ended keeps the person out of the scan altogether,
+and one recorded after the scan selected them returns the transaction before any
+write - by then it has taken two advisory locks and read two rows, and touched
+nothing of theirs. So a request left open for one of those reasons is an erasure
+that has not started, not one that is half done, and nothing here may be read as
+promising otherwise.
 
 ### One expression per domain, used by the act and by the evidence
 
@@ -78,7 +88,10 @@ Two reasons, and they mean opposite things:
   system role, a residency that has not ended, or a motion the association is
   still dealing with. The purge must not overrule any of these, so the request
   waits for one of them to change rather than for anybody. Expected, and logged
-  as an ordinary line.
+  as an ordinary line. The reason distinguishes two cases that matter to whoever
+  reads it: the first five name a rule and mean nothing of that person's was
+  erased this night, while a motion names a domain and a count and means the
+  erasure has happened and one row is staying.
 - **incomplete** - rows a job owed and has not erased, or a purge that threw for
   this person on this run. The next run takes it. Warned about, because nothing
   else would report it: a request held open by a hold and a request held open by
