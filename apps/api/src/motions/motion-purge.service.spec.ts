@@ -76,37 +76,27 @@ function build(options: {
     async (args: {
       where: {
         closedAt: { not: null; lte?: Date };
-        OR?: (
-          | { closedAt: { lte: Date } }
-          | { submittedByPersonId: { in: string[] } }
-        )[];
-        submittedByPersonId?: { notIn: string[] };
+        submittedByPersonId?: { in?: string[]; notIn?: string[] };
       };
       take: number;
     }) => {
-      const excluded = new Set(args.where.submittedByPersonId?.notIn ?? []);
-      // Both halves of the filter honoured, including the null one: a fake that
-      // silently let an open motion through would hide exactly the defect the
-      // "leaves an open motion alone" test exists to catch.
-      const requiresClosed = args.where.closedAt.not === null;
       /*
-       * The cutoff sits on `closedAt` when nobody has been granted erasure and
-       * moves into the OR when somebody has, because a request reaches their
-       * closed motions early. An open motion is out of scope either way, which
-       * is what `requiresClosed` keeps honest.
+       * Two queries, honoured as two, for the reason the whole fake exists. A
+       * run asks first for the people a granted erasure request names, with an
+       * `in` and the cutoff moved to now, and then for the people its own
+       * window selected, with the first list excluded and a `take` of what is
+       * left of the bound. A fake that merged them would pass a service that
+       * had put the requested people back inside the bound.
+       *
+       * Both halves of the date filter honoured, including the null one: an
+       * open motion is out of scope either way, and a fake that silently let
+       * one through would hide exactly the defect the "leaves an open motion
+       * alone" test exists to catch.
        */
-      const closedBefore =
-        args.where.closedAt.lte ??
-        args.where.OR?.find(
-          (clause): clause is { closedAt: { lte: Date } } =>
-            "closedAt" in clause,
-        )?.closedAt.lte;
-      const requestedIds = new Set(
-        args.where.OR?.find(
-          (clause): clause is { submittedByPersonId: { in: string[] } } =>
-            "submittedByPersonId" in clause,
-        )?.submittedByPersonId.in ?? [],
-      );
+      const requiresClosed = args.where.closedAt.not === null;
+      const closedBefore = args.where.closedAt.lte;
+      const requestedIds = args.where.submittedByPersonId?.in;
+      const excluded = new Set(args.where.submittedByPersonId?.notIn ?? []);
 
       const ids = [
         ...new Set(
@@ -117,10 +107,11 @@ function build(options: {
               }
               return (
                 motion.closedAt !== null &&
-                ((closedBefore !== undefined &&
-                  motion.closedAt.getTime() <= closedBefore.getTime()) ||
-                  requestedIds.has(motion.submittedByPersonId)) &&
-                !excluded.has(motion.submittedByPersonId)
+                (closedBefore === undefined ||
+                  motion.closedAt.getTime() <= closedBefore.getTime()) &&
+                (requestedIds === undefined
+                  ? !excluded.has(motion.submittedByPersonId)
+                  : requestedIds.includes(motion.submittedByPersonId))
               );
             })
             .map((motion) => motion.submittedByPersonId),
@@ -342,6 +333,43 @@ describe("choosing who a run erases for", () => {
     await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
       "zz",
     ]);
+  });
+
+  it("reaches a person a granted request names from behind a run's worth of expiries", async () => {
+    /*
+     * The bound is applied by the database, and a granted erasure request is
+     * not a date: the service-data purge closes it the same night, so a person
+     * cut off the end of this run is one no later run selects, and their closed
+     * motions sit past the date the board granted while the request says it was
+     * carried out. That is why the requested people are a query of their own,
+     * taken first and not cut by the bound.
+     */
+    const expiredPersonIds = Array.from(
+      { length: MAX_PERSONS_PER_RUN },
+      (_unused, index) => `aa-${String(index).padStart(4, "0")}`,
+    );
+    const { service } = build({
+      motions: [
+        ...expiredPersonIds.map(expiredMotionFor),
+        // Closed last week, so nothing but the request selects them, and
+        // sorting last so the bound is what would drop them.
+        {
+          submittedByPersonId: "zz",
+          closedAt: new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000),
+        },
+      ],
+      erasureRequestedPersonIds: ["zz"],
+    });
+
+    const eligible = await service.eligible(NOW, RETENTION_DAYS);
+
+    // Taken first, and a run's worth of people still: what the bound now cuts
+    // is the tail of the window rather than somebody the request named.
+    expect(eligible[0]).toBe("zz");
+    expect(eligible).toHaveLength(MAX_PERSONS_PER_RUN);
+    expect(eligible).not.toContain(
+      expiredPersonIds[expiredPersonIds.length - 1],
+    );
   });
 
   it("asks for no exclusion when nobody is held", async () => {

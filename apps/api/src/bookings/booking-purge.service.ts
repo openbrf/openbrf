@@ -6,6 +6,10 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  bookingsErasedOnRequest,
+  remainingRunBound,
+} from "../retention/erasure-domains";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   erasureRequestedPersonIds,
@@ -47,6 +51,10 @@ const PURGE_CRON = "41 3 * * *";
  * booking ever made in one transaction-per-person loop. Nothing is lost by
  * stopping - eligibility is computed from the data rather than marked on it, so
  * the next night's run finds the rest.
+ *
+ * The people a granted erasure request names are taken before it and cannot be
+ * cut by it, because that argument does not hold for them:
+ * `retention/erasure-domains.ts` has the whole of why.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
@@ -196,11 +204,13 @@ export class BookingPurgeService implements OnModuleInit {
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
-        `Booking purge stopped at its per-run bound of ${String(
+        `Booking purge reached its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
-        )}; the rest are erased by the next run.`,
+        )} people on the retention window; the rest wait for a later run. ` +
+          "Everybody a granted erasure request names was taken first, so " +
+          "none of them is among those waiting.",
       );
     }
 
@@ -237,6 +247,13 @@ export class BookingPurgeService implements OnModuleInit {
    *
    * The hold is checked again inside the transaction that deletes. That is the
    * check that counts.
+   *
+   * Two queries rather than one, for the bound's sake. The people a granted
+   * erasure request names are taken first and are not counted against it: they
+   * are erased on a flag the service-data purge clears the same night, so one
+   * pushed off the end of a bounded run is one no later run would select, and
+   * the bound's promise that the next run finds the rest is the one promise
+   * that does not hold for them.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = bookingPurgeCutoff(now, retentionDays);
@@ -245,31 +262,44 @@ export class BookingPurgeService implements OnModuleInit {
       (personId) => !withheld.includes(personId),
     );
 
-    const groups = await this.prisma.booking.groupBy({
-      by: ["bookedByPersonId"],
-      where: {
-        /*
-         * Either the booking's own window has run out, or the person has been
-         * granted erasure - in which case every booking of theirs goes, however
-         * recent, because bringing the purge forward is what the board granted.
-         */
-        OR: [
-          { endsAt: { lte: cutoff } },
-          ...(requested.length > 0
-            ? [{ bookedByPersonId: { in: requested } }]
-            : []),
-        ],
-        // Spelled conditionally rather than as an empty `notIn`, so what the
-        // query asks does not depend on how the client renders a list of none.
-        ...(withheld.length > 0
-          ? { bookedByPersonId: { notIn: withheld } }
-          : {}),
-      },
-      orderBy: [{ bookedByPersonId: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-    });
+    /*
+     * Every booking of theirs, however recent: bringing the purge forward is
+     * what the board granted. Asked with the expression the delete and the
+     * closing job's count both use, and bounded by the list itself, which is as
+     * many people as the board has granted erasure to and not yet had carried
+     * out.
+     */
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.booking.groupBy({
+            by: ["bookedByPersonId"],
+            where: bookingsErasedOnRequest({ in: requested }),
+            orderBy: [{ bookedByPersonId: "asc" }],
+            take: requested.length,
+          });
 
-    return groups.map((group) => group.bookedByPersonId);
+    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const excluded = [...withheld, ...requested];
+    const expired =
+      bound === 0
+        ? []
+        : await this.prisma.booking.groupBy({
+            by: ["bookedByPersonId"],
+            where: {
+              endsAt: { lte: cutoff },
+              // Spelled conditionally rather than as an empty `notIn`, so what
+              // the query asks does not depend on how the client renders a list
+              // of none.
+              ...(excluded.length > 0
+                ? { bookedByPersonId: { notIn: excluded } }
+                : {}),
+            },
+            orderBy: [{ bookedByPersonId: "asc" }],
+            take: bound,
+          });
+
+    return [...onRequest, ...expired].map((group) => group.bookedByPersonId);
   }
 
   /**
@@ -347,10 +377,10 @@ export class BookingPurgeService implements OnModuleInit {
        * erasure as carried out.
        */
       const { count } = await tx.booking.deleteMany({
-        where: {
-          bookedByPersonId: personId,
-          ...(request === null ? { endsAt: { lte: cutoff } } : {}),
-        },
+        where:
+          request === null
+            ? { bookedByPersonId: personId, endsAt: { lte: cutoff } }
+            : bookingsErasedOnRequest(personId),
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them

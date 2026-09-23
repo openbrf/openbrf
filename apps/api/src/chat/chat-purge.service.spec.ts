@@ -106,41 +106,34 @@ function build(options: {
   const groupBy = vi.fn(
     async (args: {
       where: {
-        OR: (
-          { createdAt: { lte: Date } } | { authorPersonId: { in: string[] } }
-        )[];
-        authorPersonId?: { notIn: string[] };
+        createdAt?: { lte: Date };
+        authorPersonId?: { in?: string[]; notIn?: string[] };
       };
       take: number;
     }) => {
-      const excluded = new Set(args.where.authorPersonId?.notIn ?? []);
-
       /*
-       * The OR is honoured rather than assumed, for the reason the whole fake
-       * exists: a message is selected either because its own window has run out
-       * or because the person was granted erasure, and a fake that only checked
-       * the date would pass a service that had forgotten the second half.
+       * Two queries, honoured as two, for the reason the whole fake exists. A
+       * run asks first for the people a granted erasure request names, with an
+       * `in` and no exclusion, and then for the people its own window selected,
+       * with the first list excluded and a `take` of what is left of the bound.
+       * A fake that merged them into one answer would pass a service that had
+       * put the requested people back inside the bound, which is the defect
+       * "reaches a person a granted request names" is about.
        */
-      const writtenBefore = args.where.OR.find(
-        (clause): clause is { createdAt: { lte: Date } } =>
-          "createdAt" in clause,
-      )?.createdAt.lte;
-      const requestedIds = new Set(
-        args.where.OR.find(
-          (clause): clause is { authorPersonId: { in: string[] } } =>
-            "authorPersonId" in clause,
-        )?.authorPersonId.in ?? [],
-      );
+      const requestedIds = args.where.authorPersonId?.in;
+      const excluded = new Set(args.where.authorPersonId?.notIn ?? []);
+      const writtenBefore = args.where.createdAt?.lte;
 
       const ids = [
         ...new Set(
           options.messages
             .filter(
               (message) =>
-                ((writtenBefore !== undefined &&
-                  message.createdAt.getTime() <= writtenBefore.getTime()) ||
-                  requestedIds.has(message.authorPersonId)) &&
-                !excluded.has(message.authorPersonId),
+                (writtenBefore === undefined ||
+                  message.createdAt.getTime() <= writtenBefore.getTime()) &&
+                (requestedIds === undefined
+                  ? !excluded.has(message.authorPersonId)
+                  : requestedIds.includes(message.authorPersonId)),
             )
             .map((message) => message.authorPersonId),
         ),
@@ -372,10 +365,10 @@ describe("choosing who a run erases for", () => {
       messages: [
         expiredMessageFor("held"),
         expiredMessageFor("restricted"),
-        // Written this morning, and erasable all the same.
+        // Written an hour before the run, and erasable all the same.
         {
           authorPersonId: "requested",
-          createdAt: new Date("2027-06-01T08:00:00.000Z"),
+          createdAt: new Date("2027-06-01T03:00:00.000Z"),
         },
       ],
       heldPersonIds: ["held"],
@@ -432,6 +425,40 @@ describe("choosing who a run erases for", () => {
     await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
       "zz",
     ]);
+  });
+
+  it("reaches a person a granted request names from behind a run's worth of expiries", async () => {
+    /*
+     * The bound is applied by the database, and a granted erasure request is
+     * not a date: the service-data purge closes it the same night, so a person
+     * cut off the end of this run is one no later run selects, and their
+     * messages sit past the date the board granted while the request says it
+     * was carried out. That is why the requested people are a query of their
+     * own, taken first and not counted against the bound.
+     */
+    const expiredPersonIds = Array.from(
+      { length: MAX_PERSONS_PER_RUN },
+      (_unused, index) => `aa-${String(index).padStart(4, "0")}`,
+    );
+    const { service } = build({
+      messages: [
+        ...expiredPersonIds.map(expiredMessageFor),
+        // Written this morning, so nothing but the request selects them, and
+        // sorting last so the bound is what would drop them.
+        { authorPersonId: "zz", createdAt: new Date(NOW.getTime() - 1000) },
+      ],
+      erasureRequestedPersonIds: ["zz"],
+    });
+
+    const eligible = await service.eligible(NOW, RETENTION_DAYS);
+
+    // Taken first, and a run's worth of people still: what the bound now cuts
+    // is the tail of the window rather than somebody the request named.
+    expect(eligible[0]).toBe("zz");
+    expect(eligible).toHaveLength(MAX_PERSONS_PER_RUN);
+    expect(eligible).not.toContain(
+      expiredPersonIds[expiredPersonIds.length - 1],
+    );
   });
 
   it("asks for no exclusion when nobody is held", async () => {

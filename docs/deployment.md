@@ -226,14 +226,29 @@ itself. A retention deadline that fell in the gap is met a night late rather
 than not at all, and an instance left down for several nights keeps that data
 until it is running again at the time of the band.
 
-A granted erasure request is the exception, because it is a flag rather than a
-date. The 03:53 job marks the request executed and closes it, and the jobs that
-bring a person's data forward select only requests still open. A job that
-stopped early on the night the request was closed, interrupted or at the bound
-of 500 people it takes in one run, leaves that person's remaining rows behind a
-closed request, and they fall back to their ordinary retention window instead of
-the date the board granted. The audit entry written for the closing names the
-request, and a run that stopped at its bound says so in the container log.
+A granted erasure request is selected by a flag rather than by a date, and the
+03:53 job is the one that clears it. So that job closes a request only once it
+has counted what each of the other jobs still holds for that person and found
+nothing: a job that was interrupted, that threw for one person and carried on,
+or that did not run at all leaves rows behind, and the request stays open for
+the next night to finish. The person's contact details and account are erased
+that night either way - what waits is the record saying the erasure was carried
+out, not the erasure.
+
+A request left open says why in the container log, and the two reasons mean
+different things. "Protected" is the product working: a legal hold, a
+restriction, a board seat, a system role, a residency that has not ended or a
+motion the association is still dealing with is keeping rows the purge must not
+take, and the request waits for that to change rather than for anybody.
+"Incomplete" is work that was owed and did not happen, and the next run takes
+it; a request that stays incomplete night after night is a job that keeps
+failing, and the failure is logged beside it. The audit entry for a closing
+names the request and the domains that were verified empty.
+
+Each of these jobs takes at most 500 people in one run. The people a granted
+erasure request names are taken first, so the bound cuts the tail of the
+retention window and never somebody the board granted an erasure to; a run that
+reached its bound says so in the container log.
 
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.

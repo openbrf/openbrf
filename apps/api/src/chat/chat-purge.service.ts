@@ -6,6 +6,10 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  chatMessagesErasedOnRequest,
+  remainingRunBound,
+} from "../retention/erasure-domains";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import { lockChat } from "./chat-lock";
 import {
@@ -38,7 +42,7 @@ export const CHAT_PURGE_QUEUE = "chat-purge";
 const PURGE_CRON = "47 3 * * *";
 
 /**
- * The most people one run erases the messages of.
+ * The most people one run erases the messages of on the retention window.
  *
  * A board is a handful of people and a night's worth of expiries is a handful of
  * rows each, so this is never reached in ordinary running. It exists for the
@@ -47,6 +51,10 @@ const PURGE_CRON = "47 3 * * *";
  * message ever written in one transaction-per-person loop. Nothing is lost by
  * stopping - eligibility is computed from the data rather than marked on it, so
  * the next night's run finds the rest.
+ *
+ * The people a granted erasure request names are taken before it and cannot be
+ * cut by it, because that argument does not hold for them:
+ * `retention/erasure-domains.ts` has the whole of why.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
@@ -199,11 +207,13 @@ export class ChatPurgeService implements OnModuleInit {
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
-        `Chat purge stopped at its per-run bound of ${String(
+        `Chat purge reached its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
-        )}; the rest are erased by the next run.`,
+        )} people on the retention window; the rest wait for a later run. ` +
+          "Everybody a granted erasure request names was taken first, so " +
+          "none of them is among those waiting.",
       );
     }
 
@@ -347,6 +357,13 @@ export class ChatPurgeService implements OnModuleInit {
    *
    * The hold is checked again inside the transaction that deletes. That is the
    * check that counts.
+   *
+   * Two queries rather than one, for the bound's sake. The people a granted
+   * erasure request names are taken first and are not counted against it: they
+   * are erased on a flag the service-data purge clears the same night, so one
+   * pushed off the end of a bounded run is one no later run would select, and
+   * the bound's promise that the next run finds the rest is the one promise
+   * that does not hold for them.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = chatMessagePurgeCutoff(now, retentionDays);
@@ -355,29 +372,45 @@ export class ChatPurgeService implements OnModuleInit {
       (personId) => !withheld.includes(personId),
     );
 
-    const groups = await this.prisma.chatMessage.groupBy({
-      by: ["authorPersonId"],
-      where: {
-        /*
-         * Either the message's own window has run out, or the person has been
-         * granted erasure, in which case every message of theirs goes however
-         * recent: bringing the purge forward is what the board granted.
-         */
-        OR: [
-          { createdAt: { lte: cutoff } },
-          ...(requested.length > 0
-            ? [{ authorPersonId: { in: requested } }]
-            : []),
-        ],
-        // Spelled conditionally rather than as an empty `notIn`, so what the
-        // query asks does not depend on how the client renders a list of none.
-        ...(withheld.length > 0 ? { authorPersonId: { notIn: withheld } } : {}),
-      },
-      orderBy: [{ authorPersonId: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-    });
+    /*
+     * Every message of theirs, however recent: bringing the purge forward is
+     * what the board granted. Bounded by the list itself, which is as many
+     * people as the board has granted erasure to and not yet had carried out.
+     */
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.chatMessage.groupBy({
+            by: ["authorPersonId"],
+            // The same expression the delete below and the closing job's count
+            // use, asked of the whole list at once, so what the scan looks for
+            // cannot drift from what is erased or from what is verified gone.
+            where: chatMessagesErasedOnRequest({ in: requested }, now),
+            orderBy: [{ authorPersonId: "asc" }],
+            take: requested.length,
+          });
 
-    return groups.map((group) => group.authorPersonId);
+    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const excluded = [...withheld, ...requested];
+    const expired =
+      bound === 0
+        ? []
+        : await this.prisma.chatMessage.groupBy({
+            by: ["authorPersonId"],
+            where: {
+              createdAt: { lte: cutoff },
+              // Spelled conditionally rather than as an empty `notIn`, so what
+              // the query asks does not depend on how the client renders a list
+              // of none.
+              ...(excluded.length > 0
+                ? { authorPersonId: { notIn: excluded } }
+                : {}),
+            },
+            orderBy: [{ authorPersonId: "asc" }],
+            take: bound,
+          });
+
+    return [...onRequest, ...expired].map((group) => group.authorPersonId);
   }
 
   /**
@@ -445,13 +478,11 @@ export class ChatPurgeService implements OnModuleInit {
         },
         select: { id: true },
       });
-      const effectiveCutoff = request === null ? cutoff : now;
-
       const { count } = await tx.chatMessage.deleteMany({
-        where: {
-          authorPersonId: personId,
-          createdAt: { lte: effectiveCutoff },
-        },
+        where:
+          request === null
+            ? { authorPersonId: personId, createdAt: { lte: cutoff } }
+            : chatMessagesErasedOnRequest(personId, now),
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them
