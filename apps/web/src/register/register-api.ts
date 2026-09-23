@@ -607,6 +607,27 @@ export interface DataSubjectReport {
     filedAt: string;
   }[];
   /**
+   * Entries this person filed into an apartment binder (lagenhetsparm).
+   *
+   * What they filed, and not what anybody else filed about an apartment they
+   * lived in. No date: the entry belongs to the apartment and no clock purges
+   * it, and what the purge reaches is the link on it to this person.
+   */
+  apartmentDocuments: {
+    apartmentDocumentId: string;
+    apartment: string;
+    kind:
+      | "DRAWING"
+      | "ALTERATION_PERMISSION"
+      | "WORK_RECORD"
+      | "INSPECTION"
+      | "INSTRUCTIONS"
+      | "OTHER";
+    title: string;
+    datedOn: string | null;
+    filedAt: string;
+  }[];
+  /**
    * Bookings this person made.
    *
    * One of the four sections that state a retention date per row: a booking is

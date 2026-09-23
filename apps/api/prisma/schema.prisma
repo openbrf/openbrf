@@ -513,6 +513,8 @@ model Apartment {
   initialShareCapital Decimal? @db.Decimal(14, 2)
 
   residencies           Residency[]
+  apartmentDocuments    ApartmentDocument[]
+  mediaFiles            MediaFile[]
   lienNotes             LienNote[]
   transfers             Transfer[]
   transferReversals     TransferReversal[]
@@ -2771,6 +2773,27 @@ enum MediaVisibility {
   /// the members' shelf of the document archive needs, since minutes of a
   /// general meeting name the members who spoke and how they voted.
   MEMBER
+
+  /// Whoever holds a MEMBER residency in force today on the file's apartment,
+  /// or a holder of the capability the file names.
+  ///
+  /// The apartment is the file's own apartmentId, which a CHECK requires on a
+  /// file held this way and forbids on any other, so there is no file readable
+  /// by "this apartment's tenant-owners" without saying which apartment. The
+  /// residency is asked of the database rather than of the principal, which
+  /// carries roles and capabilities and no apartment, and it is asked on the
+  /// day the association is having (registers/held-on.ts): from the first day
+  /// held to the day before the move-out date.
+  TENANT_OWNERS
+
+  /// Whoever holds any residency in force today on the file's apartment, or a
+  /// holder of the capability the file names.
+  ///
+  /// The household (hushall): the tenant-owners and everybody else living
+  /// there. A partner, an adult child and a second-hand tenant are one
+  /// residency role in the register, so this is as fine a distinction as the
+  /// register can make.
+  HOUSEHOLD
 }
 
 /// How the bytes at a stored file's storage key are held.
@@ -2871,10 +2894,25 @@ model MediaFile {
   /// erasure of the person it names. The record stands as it was written.
   uploadedByPersonId String?
 
+  /// The apartment whose household may read this file.
+  ///
+  /// Set exactly on the files held TENANT_OWNERS or HOUSEHOLD, which a CHECK
+  /// enforces in both directions: a visibility that says "this apartment's
+  /// household" without saying which apartment is a file nobody can be decided
+  /// about, and an apartment on a MEMBER or PUBLIC file would be a second
+  /// access rule that never runs.
+  ///
+  /// Restrict rather than cascade: an apartment is corrected out of the
+  /// register only when it was never right, and doing so must not silently
+  /// destroy a household's papers. The binder is emptied first.
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
   associationLogo         Association[]            @relation("AssociationLogo")
   associationLogoDark     Association[]            @relation("AssociationLogoDark")
   issuePhotos             IssuePhoto[]
   document                Document?                @relation("DocumentFile")
+  apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
   boardMailboxAttachments BoardMailboxAttachment[]
 
   createdAt DateTime @default(now())
@@ -2884,6 +2922,7 @@ model MediaFile {
   /// Scanned by the purge for the same reason as the document index: the
   /// uploader link is detached and the file stays.
   @@index([uploadedByPersonId])
+  @@index([apartmentId])
   @@map("media_file")
 }
 
@@ -3280,6 +3319,120 @@ model Document {
   /// that the link can be detached while the document itself stays.
   @@index([uploadedByPersonId])
   @@map("document")
+}
+
+// ---------------------------------------------------------------------------
+// The apartment binder.
+// ---------------------------------------------------------------------------
+
+/// What an entry in an apartment binder (lagenhetsparm) is.
+///
+/// Decides who may file it and which audience the form offers first, and
+/// nothing about what anybody may do in the apartment. An enum rather than free
+/// text, unlike the archive's binder name, because the kind carries behaviour
+/// and behaviour does not belong in a string the board types.
+enum ApartmentDocumentKind {
+  /// Ritning.
+  DRAWING
+
+  /// Tillstand till andring: the board's permission under BRL 7 kap. 7 §.
+  /// Filed by the board alone and dated the day it decided, both held by a
+  /// CHECK. Stated rather than enforced - nothing reads it to decide anything,
+  /// and the platform says nothing about whether a condition binds whoever
+  /// holds the apartment next, because the statute does not.
+  ALTERATION_PERMISSION
+
+  /// Utfort arbete.
+  WORK_RECORD
+
+  /// Besiktning och kontroll.
+  INSPECTION
+
+  /// Bruksanvisning och garanti.
+  INSTRUCTIONS
+
+  /// Ovrigt.
+  OTHER
+}
+
+/// Who in the apartment reads an entry.
+enum ApartmentDocumentAudience {
+  /// The tenant-owners (bostadsrattshavare): whoever holds a MEMBER residency
+  /// on the apartment that is in force today.
+  TENANT_OWNERS
+  /// The household (hushall): whoever holds any residency on the apartment
+  /// that is in force today.
+  HOUSEHOLD
+}
+
+/// In what capacity an entry was filed.
+///
+/// Kept when the link to the person is detached, because "the board decided
+/// this" is what a permission is worth to the next holder and it has to outlive
+/// the board member who filed it. It is also all a household is ever shown: a
+/// binder names nobody.
+enum ApartmentDocumentFiler {
+  BOARD
+  TENANT_OWNER
+}
+
+/// One entry in an apartment's binder (lagenhetsparm).
+///
+/// Service tier, kept as the apartment's record: no date purges it, and the
+/// next household reads it from the day its residency begins. What the purge
+/// reaches is filedByPersonId, detached on the filer's own retention window
+/// exactly as the archive's uploadedByPersonId is.
+///
+/// No updatedAt, because an entry is filed and taken out and never edited: a
+/// wrong title or audience is corrected by taking the entry out and filing it
+/// again, and an audience edit would widen who reads a household's papers
+/// without leaving a trace.
+model ApartmentDocument {
+  id String @id @default(cuid())
+
+  /// Restrict, for the reason MediaFile.apartmentId gives: correcting an
+  /// apartment out of the register must not destroy a household's papers as a
+  /// side effect.
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id], onDelete: Restrict)
+
+  kind     ApartmentDocumentKind
+  audience ApartmentDocumentAudience
+
+  /// What the filer calls it, in their own words. 1-200 characters, refused
+  /// when it carries a personal identity number, and never blank, which a
+  /// CHECK holds.
+  title String
+
+  /// A calendar date: the day the board decided, the drawing's date, the
+  /// inspection day. Required for ALTERATION_PERMISSION and optional
+  /// elsewhere. A date rather than an instant, because it is a day somebody
+  /// wrote on a piece of paper.
+  datedOn DateTime? @db.Date
+
+  filedAs ApartmentDocumentFiler
+
+  /// Who filed it.
+  ///
+  /// A plain column and not a relation, on the archive's reasoning: a
+  /// referential action would either rewrite this row or veto erasure of the
+  /// person it names. Null once the purge has detached them, which leaves
+  /// filedAs standing.
+  filedByPersonId String?
+
+  /// The bytes, one entry per file. One apartment per entry: one file cannot
+  /// carry two households' visibility on one row, which is the case the
+  /// archive's own unique constraint already refuses.
+  mediaFileId String    @unique
+  mediaFile   MediaFile @relation("ApartmentDocumentFile", fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([apartmentId, kind])
+  /// Scanned by the purge to find what a person filed, so that the link can be
+  /// detached while the entry stays with the apartment.
+  @@index([filedByPersonId])
+  @@map("apartment_document")
 }
 
 // ---------------------------------------------------------------------------

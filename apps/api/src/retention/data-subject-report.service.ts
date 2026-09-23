@@ -83,6 +83,7 @@ const SECTIONS = [
   "legalHolds",
   "issues",
   "documents",
+  "apartmentDocuments",
   "bookings",
   "motions",
   "subletApplications",
@@ -598,6 +599,30 @@ export class DataSubjectReportService {
         category: true,
         audience: true,
         createdAt: true,
+      },
+    });
+
+    /*
+     * Entries this person filed into an apartment binder. Metadata only, like
+     * the archive's documents above: the title and the kind say what they
+     * filed, and the file itself is fetched from the media route by whoever
+     * may have it.
+     */
+    const apartmentDocuments = await tx.apartmentDocument.findMany({
+      where: { filedByPersonId: personId },
+      orderBy: [{ createdAt: "desc" }],
+      select: {
+        id: true,
+        kind: true,
+        title: true,
+        datedOn: true,
+        createdAt: true,
+        apartment: {
+          select: {
+            number: true,
+            address: { select: { street: true, number: true } },
+          },
+        },
       },
     });
 
@@ -1385,6 +1410,17 @@ export class DataSubjectReportService {
         category: document.category,
         audience: document.audience,
         filedAt: document.createdAt.toISOString(),
+      })),
+      apartmentDocuments: apartmentDocuments.map((entry) => ({
+        apartmentDocumentId: entry.id,
+        apartment: `${entry.apartment.address.street} ${entry.apartment.address.number} ${entry.apartment.number}`,
+        kind: entry.kind,
+        title: entry.title,
+        datedOn:
+          entry.datedOn === null
+            ? null
+            : formatLocalDay(localDayOfColumn(entry.datedOn)),
+        filedAt: entry.createdAt.toISOString(),
       })),
       bookings: bookings.map((booking) => ({
         bookingId: booking.id,

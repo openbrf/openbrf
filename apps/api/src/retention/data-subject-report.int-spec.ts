@@ -57,6 +57,7 @@ const addressId = `dsar-address-${suffix}`;
 const apartmentId = `dsar-apartment-${suffix}`;
 const issueTypeId = `dsar-issue-type-${suffix}`;
 const mediaFileId = `dsar-media-${suffix}`;
+const binderFileId = `dsar-binder-media-${suffix}`;
 const bookableResourceId = `dsar-resource-${suffix}`;
 const eventId = `dsar-event-${suffix}`;
 const occurrenceId = `dsar-occurrence-${suffix}`;
@@ -655,6 +656,34 @@ beforeAll(async () => {
     },
   });
 
+  await prisma.mediaFile.create({
+    data: {
+      id: binderFileId,
+      storageKey: `dsar/${suffix}/ritning.pdf`,
+      encryption: "NONE",
+      contentType: "application/pdf",
+      byteSize: 2048,
+      checksum: `sha-binder-${suffix}`,
+      fileName: "ritning.pdf",
+      visibility: "HOUSEHOLD",
+      apartmentId,
+      requiredCapability: "apartmentBinder:manage",
+      uploadedByPersonId: subject.personId,
+    },
+  });
+  await prisma.apartmentDocument.create({
+    data: {
+      apartmentId,
+      kind: "DRAWING",
+      audience: "HOUSEHOLD",
+      title: `Ritning badrum ${suffix}`,
+      datedOn: new Date("2024-03-11T00:00:00.000Z"),
+      filedAs: "TENANT_OWNER",
+      mediaFileId: binderFileId,
+      filedByPersonId: subject.personId,
+    },
+  });
+
   await prisma.bookableResource.create({
     data: {
       id: bookableResourceId,
@@ -965,7 +994,14 @@ afterAll(async () => {
         () => prisma.proxyAuthorisation.deleteMany({ where: { meetingId } }),
         () => prisma.meeting.deleteMany({ where: { id: meetingId } }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
-        () => prisma.mediaFile.deleteMany({ where: { id: mediaFileId } }),
+        () =>
+          prisma.apartmentDocument.deleteMany({
+            where: { mediaFileId: binderFileId },
+          }),
+        () =>
+          prisma.mediaFile.deleteMany({
+            where: { id: { in: [mediaFileId, binderFileId] } },
+          }),
         () => prisma.issue.deleteMany({ where: { typeId: issueTypeId } }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
         () =>
@@ -1342,6 +1378,39 @@ describe("what the report contains", () => {
     );
     expect(report.documents).toHaveLength(1);
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);
+  });
+
+  it("lists what the person filed into an apartment binder", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.apartmentDocuments).toHaveLength(1);
+    expect(report.apartmentDocuments[0]).toMatchObject({
+      apartment: expect.stringContaining("1001") as unknown as string,
+      kind: "DRAWING",
+      title: `Ritning badrum ${suffix}`,
+      // The day on the entry, as a calendar date rather than an instant.
+      datedOn: "2024-03-11",
+    });
+  });
+
+  it("names the section in the entry that says how much was disclosed", async () => {
+    /*
+     * SECTIONS has no type link to the report's shape, so a section added to
+     * the document without being named here would be a disclosure the audit
+     * entry does not account for.
+     */
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: {
+        action: "DATA_EXPORTED",
+        targetPersonId: subject.personId,
+      },
+      orderBy: { createdAt: "desc" },
+      select: { context: true },
+    });
+
+    expect(
+      (entry?.context as { sections?: string[] } | null)?.sections,
+    ).toContain("apartmentDocuments");
   });
 
   it("lists the bookings with the earliest date each can be erased on", async () => {

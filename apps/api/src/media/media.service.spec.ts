@@ -16,7 +16,11 @@ import {
 } from "../crypto/stored-file-cipher";
 import type { PrismaService } from "../database/prisma.service";
 import type { StorageService } from "../storage/storage.service";
-import { MediaError, MediaService } from "./media.service";
+import {
+  MediaError,
+  type MediaVisibility,
+  MediaService,
+} from "./media.service";
 import { pdfBytes } from "./testing/document-fixtures";
 import { pngBytes } from "./testing/image-fixtures";
 
@@ -55,9 +59,25 @@ interface Row {
   width: number | null;
   height: number | null;
   showsIdentifiablePersons: boolean | null;
-  visibility: "PUBLIC" | "INTERNAL" | "MEMBER";
+  visibility: MediaVisibility;
   requiredCapability: string | null;
+  apartmentId: string | null;
   uploadedByPersonId: string | null;
+}
+
+/**
+ * A residency, as the serving path asks after one.
+ *
+ * Both ends as dates, because that is what the columns are and what
+ * `residencyHeldOn` compares: a move-in dated ahead and a move-out dated today
+ * are the two cases the binder's visibilities exist to get right.
+ */
+interface ResidencyRow {
+  personId: string;
+  apartmentId: string;
+  role: "MEMBER" | "RESIDENT";
+  movedInOn: Date;
+  movedOutOn: Date | null;
 }
 
 /** One recorded audit write, plus whether it joined the caller's transaction. */
@@ -71,6 +91,7 @@ interface AuditedEntry {
 interface Fakes {
   service: MediaService;
   rows: Map<string, Row>;
+  residencies: ResidencyRow[];
   objects: Map<string, Buffer>;
   audited: AuditedEntry[];
   storage: {
@@ -92,9 +113,11 @@ function build(
     createFails?: boolean;
     auditFailsOn?: string;
     wrapFails?: boolean;
+    residencies?: ResidencyRow[];
   } = {},
 ): Fakes {
   const rows = new Map<string, Row>();
+  const residencies = options.residencies ?? [];
   const objects = new Map<string, Buffer>();
   const audited: AuditedEntry[] = [];
   let nextId = 0;
@@ -135,6 +158,7 @@ function build(
         id: `file-${String(nextId)}`,
         ...data,
         unencryptedStorageKey: data.unencryptedStorageKey ?? null,
+        apartmentId: data.apartmentId ?? null,
       };
       rows.set(row.id, row);
       return row;
@@ -169,8 +193,61 @@ function build(
    */
   const transactionClient = { mediaFile: transactionMediaFile };
 
+  /*
+   * The residency question the two apartment visibilities ask, answered the way
+   * the database answers it. Written out rather than stubbed with a number,
+   * because what these cases have to show is the comparison itself: a move-in
+   * dated ahead is not held, and a move-out dated today is not held either.
+   */
+  const residency = {
+    count: vi.fn(
+      async ({
+        where,
+      }: {
+        where: {
+          personId?: string;
+          apartmentId?: string;
+          role?: "MEMBER";
+          movedInOn: { lte: Date };
+          OR: ({ movedOutOn: null } | { movedOutOn: { gt: Date } })[];
+        };
+      }) =>
+        residencies.filter((row) => {
+          // An absent field is an unconstrained one, as in the database: a
+          // query that stopped naming the apartment would ask about every
+          // apartment rather than about none, and a fake that refused instead
+          // would hide exactly that mistake.
+          if (where.personId !== undefined && row.personId !== where.personId) {
+            return false;
+          }
+          if (
+            where.apartmentId !== undefined &&
+            row.apartmentId !== where.apartmentId
+          ) {
+            return false;
+          }
+          if (where.role !== undefined && row.role !== where.role) {
+            return false;
+          }
+          if (row.movedInOn.getTime() > where.movedInOn.lte.getTime()) {
+            return false;
+          }
+          return where.OR.some((clause) =>
+            "movedOutOn" in clause && clause.movedOutOn === null
+              ? row.movedOutOn === null
+              : row.movedOutOn !== null &&
+                row.movedOutOn.getTime() >
+                  (
+                    clause as { movedOutOn: { gt: Date } }
+                  ).movedOutOn.gt.getTime(),
+          );
+        }).length,
+    ),
+  };
+
   const prisma = {
     mediaFile,
+    residency,
     /*
      * Rolls back, because that is the property under test rather than a
      * convenience. A statement that succeeded inside a transaction whose later
@@ -233,6 +310,7 @@ function build(
   return {
     service,
     rows,
+    residencies,
     objects,
     audited,
     storage,
@@ -1003,5 +1081,337 @@ describe("removing", () => {
     expect(fakes.audited).toEqual([]);
     expect(fakes.mediaFile.delete).not.toHaveBeenCalled();
     expect(fakes.storage.remove).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The two visibilities decided against a residency on the file's own apartment.
+ *
+ * What the apartment binder promises is this and nothing else: a binder file is
+ * served to whoever lives in the apartment it names, from the day their
+ * residency begins to the day before it ends, to a holder of
+ * `apartmentBinder:manage` with an audit entry, and to nobody else. Every case
+ * below is one household or one day either side of that.
+ *
+ * The days are pinned rather than taken from the clock. The comparison is on
+ * the association's own calendar day, so a residency dated relative to "today"
+ * would be a test that changed its mind at midnight here rather than at
+ * midnight UTC.
+ */
+describe("serving a file the apartment decides", () => {
+  const APARTMENT = "apartment-1201";
+  const OTHER_APARTMENT = "apartment-1202";
+
+  /** Yesterday, a day well inside every residency below. */
+  const LONG_AGO = new Date("2020-01-01T00:00:00.000Z");
+  /** A move-in the board recorded ahead of the day the buyer takes over. */
+  const NEXT_YEAR = new Date("2099-01-01T00:00:00.000Z");
+
+  const board = (): Principal => {
+    const roles = {
+      isAdmin: false,
+      isBoardMember: true,
+      isPropertyManager: false,
+      isResident: false,
+      isMember: false,
+    };
+    return {
+      personId: "board-1",
+      ...roles,
+      capabilities: capabilitiesFor(roles),
+    };
+  };
+
+  const administrator = (): Principal => {
+    const roles = {
+      isAdmin: true,
+      isBoardMember: false,
+      isPropertyManager: false,
+      isResident: false,
+      isMember: false,
+    };
+    return {
+      personId: "admin-1",
+      ...roles,
+      capabilities: capabilitiesFor(roles),
+    };
+  };
+
+  async function fileFor(
+    fakes: Fakes,
+    visibility: "TENANT_OWNERS" | "HOUSEHOLD",
+  ): Promise<string> {
+    const file = await fakes.service.upload({
+      bytes: pdfBytes(),
+      fileName: "ritning.pdf",
+      accept: "document",
+      visibility,
+      requiredCapability: "apartmentBinder:manage",
+      apartmentId: APARTMENT,
+      recordFileName: false,
+      channel: "WEB",
+      prefix: "binder",
+    });
+    return file.id;
+  }
+
+  async function read(fakes: Fakes, id: string, viewer: Principal | null) {
+    const served = await fakes.service.open(id, viewer);
+    const chunks: Buffer[] = [];
+    for await (const chunk of served.stream) {
+      chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  it("serves a household file to whoever lives there", async () => {
+    const fakes = build({
+      residencies: [
+        {
+          personId: "partner-1",
+          apartmentId: APARTMENT,
+          role: "RESIDENT",
+          movedInOn: LONG_AGO,
+          movedOutOn: null,
+        },
+      ],
+    });
+    const id = await fileFor(fakes, "HOUSEHOLD");
+
+    const bytes = await read(fakes, id, principal({ personId: "partner-1" }));
+
+    expect(bytes).toEqual(pdfBytes());
+    // A household reading its own binder is not logged. Its residency is the
+    // whole of the rule, and a row per serve would be a permanent record of
+    // which resident opened which of their own papers when.
+    expect(fakes.audited.filter((e) => e.action === "MEDIA_ACCESSED")).toEqual(
+      [],
+    );
+  });
+
+  it("serves a tenant-owners file to the tenant-owner and not to the lodger", async () => {
+    const fakes = build({
+      residencies: [
+        {
+          personId: "holder-1",
+          apartmentId: APARTMENT,
+          role: "MEMBER",
+          movedInOn: LONG_AGO,
+          movedOutOn: null,
+        },
+        {
+          personId: "partner-1",
+          apartmentId: APARTMENT,
+          role: "RESIDENT",
+          movedInOn: LONG_AGO,
+          movedOutOn: null,
+        },
+      ],
+    });
+    const id = await fileFor(fakes, "TENANT_OWNERS");
+
+    await expect(
+      read(fakes, id, principal({ personId: "holder-1" })),
+    ).resolves.toEqual(pdfBytes());
+
+    await expect(
+      fakes.service.open(id, principal({ personId: "partner-1" })),
+    ).rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("refuses a resident of another apartment", async () => {
+    const fakes = build({
+      residencies: [
+        {
+          personId: "neighbour-1",
+          apartmentId: OTHER_APARTMENT,
+          role: "MEMBER",
+          movedInOn: LONG_AGO,
+          movedOutOn: null,
+        },
+      ],
+    });
+    const id = await fileFor(fakes, "HOUSEHOLD");
+
+    await expect(
+      fakes.service.open(id, principal({ personId: "neighbour-1" })),
+    ).rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("refuses a buyer whose move-in has not arrived", async () => {
+    /*
+     * The move flow records a buyer when the board admits them, which is before
+     * tillträde. Until that day the seller still lives there and the binder is
+     * the seller's household's, so the buyer reads nothing - which is what
+     * `residencyHeldOn` settles by reading the start as well as the end
+     * (ADR 0014).
+     */
+    const fakes = build({
+      residencies: [
+        {
+          personId: "buyer-1",
+          apartmentId: APARTMENT,
+          role: "MEMBER",
+          movedInOn: NEXT_YEAR,
+          movedOutOn: null,
+        },
+      ],
+    });
+    const id = await fileFor(fakes, "TENANT_OWNERS");
+
+    await expect(
+      fakes.service.open(id, principal({ personId: "buyer-1" })),
+    ).rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("refuses a household that has moved out", async () => {
+    const fakes = build({
+      residencies: [
+        {
+          personId: "seller-1",
+          apartmentId: APARTMENT,
+          role: "MEMBER",
+          movedInOn: LONG_AGO,
+          // The first day not held, and it has been and gone.
+          movedOutOn: new Date("2021-01-01T00:00:00.000Z"),
+        },
+      ],
+    });
+    const id = await fileFor(fakes, "HOUSEHOLD");
+
+    await expect(
+      fakes.service.open(id, principal({ personId: "seller-1" })),
+    ).rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("refuses an anonymous caller holding the address", async () => {
+    const fakes = build();
+    const id = await fileFor(fakes, "HOUSEHOLD");
+
+    await expect(fakes.service.open(id, null)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+  });
+
+  it("serves the board and writes the serve to the audit log", async () => {
+    const fakes = build();
+    const id = await fileFor(fakes, "TENANT_OWNERS");
+
+    await expect(read(fakes, id, board())).resolves.toEqual(pdfBytes());
+
+    expect(
+      fakes.audited.filter((entry) => entry.action === "MEDIA_ACCESSED"),
+    ).toMatchObject([
+      {
+        action: "MEDIA_ACCESSED",
+        targetId: id,
+        inTransaction: false,
+        context: { requiredCapability: "apartmentBinder:manage" },
+      },
+    ]);
+  });
+
+  it("refuses an administrator who holds no seat", async () => {
+    // The administrator's grant is every capability but the seat-bound ones,
+    // so there is no branch here to get right: the file names a capability the
+    // grant does not carry (ADR 0017).
+    const fakes = build();
+    const id = await fileFor(fakes, "HOUSEHOLD");
+
+    await expect(fakes.service.open(id, administrator())).rejects.toMatchObject(
+      { reason: "not-found" },
+    );
+    expect(fakes.audited.filter((e) => e.action === "MEDIA_ACCESSED")).toEqual(
+      [],
+    );
+  });
+
+  it("serves a board member who lives there as a resident, unlogged", async () => {
+    // The household is asked first, so reading one's own binder is not written
+    // down as the board having read a household's papers.
+    const fakes = build({
+      residencies: [
+        {
+          personId: "board-1",
+          apartmentId: APARTMENT,
+          role: "MEMBER",
+          movedInOn: LONG_AGO,
+          movedOutOn: null,
+        },
+      ],
+    });
+    const id = await fileFor(fakes, "TENANT_OWNERS");
+
+    await expect(read(fakes, id, board())).resolves.toEqual(pdfBytes());
+    expect(fakes.audited.filter((e) => e.action === "MEDIA_ACCESSED")).toEqual(
+      [],
+    );
+  });
+
+  it("leaves the file name out of the upload entry when asked", async () => {
+    const fakes = build();
+    await fileFor(fakes, "HOUSEHOLD");
+
+    const uploaded = fakes.audited.find(
+      (entry) => entry.action === "MEDIA_UPLOADED",
+    ) as { context?: Record<string, unknown> } | undefined;
+
+    expect(uploaded?.context).not.toHaveProperty("fileName");
+    // Still on the row, and still served in the disposition: only the
+    // append-only log does without it.
+    expect([...fakes.rows.values()][0]?.fileName).toBe("ritning.pdf");
+  });
+
+  it("keeps the file name in the entry for every other upload", async () => {
+    const fakes = build();
+    await fakes.service.upload({
+      bytes: pdfBytes(),
+      fileName: "stadgar.pdf",
+      accept: "document",
+      visibility: "MEMBER",
+      channel: "WEB",
+      prefix: "documents",
+    });
+
+    const uploaded = fakes.audited.find(
+      (entry) => entry.action === "MEDIA_UPLOADED",
+    ) as { context?: Record<string, unknown> } | undefined;
+
+    expect(uploaded?.context).toMatchObject({ fileName: "stadgar.pdf" });
+  });
+
+  it("refuses to store a household file that names no apartment", async () => {
+    // A programming error rather than a caller's, so it throws before a byte is
+    // written: the column carries the same rule as a CHECK, and reaching the
+    // database would make it look like a storage fault.
+    const fakes = build();
+
+    await expect(
+      fakes.service.upload({
+        bytes: pdfBytes(),
+        fileName: "ritning.pdf",
+        accept: "document",
+        visibility: "HOUSEHOLD",
+        channel: "WEB",
+      }),
+    ).rejects.toThrow(/names an apartment/);
+    expect(fakes.objects.size).toBe(0);
+    expect(fakes.rows.size).toBe(0);
+  });
+
+  it("refuses to store an apartment on a file held any other way", async () => {
+    const fakes = build();
+
+    await expect(
+      fakes.service.upload({
+        bytes: pdfBytes(),
+        fileName: "stadgar.pdf",
+        accept: "document",
+        visibility: "MEMBER",
+        apartmentId: APARTMENT,
+        channel: "WEB",
+      }),
+    ).rejects.toThrow(/names an apartment/);
+    expect(fakes.objects.size).toBe(0);
   });
 });

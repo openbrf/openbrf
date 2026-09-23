@@ -34,8 +34,17 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
  * promise that files are served through its own authorization would rest on
  * the bucket's settings instead of on the key.
  */
+/**
+ * Which feature a stored object belongs to.
+ *
+ * Named rather than a free string so that the set of prefixes in a bucket is
+ * the set written here: an object landing under a prefix nobody declared would
+ * be one nothing in the product accounts for.
+ */
+export type StoragePrefix = "branding" | "documents" | "media" | "binder";
+
 export function generateStorageKey(
-  prefix: "branding" | "documents" | "media",
+  prefix: StoragePrefix,
   contentType: string,
   now: Date = new Date(),
 ): string {

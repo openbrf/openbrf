@@ -589,9 +589,88 @@ export const CAPABILITIES = [
    * and a board that has had no report has no way to know a group exists.
    */
   "chat:moderate",
+  /**
+   * Keep every apartment's binder (lagenhetsparm): read any of them, file into
+   * any of them - the board's permission for an alteration under BRL 7 kap. 7 §
+   * included - and take any entry out.
+   *
+   * The board's, because a permission is the board's own decision and the
+   * binder is where the association keeps it. Every serve of a binder file to
+   * somebody reading it by this capability is written to the audit log; a
+   * household reading its own binder needs no capability at all, because its
+   * residency is the whole of that rule, and is not logged.
+   *
+   * The first capability a board seat confers and no grant of capabilities
+   * carries, which is what {@link SEAT_BOUND_CAPABILITIES} states: an
+   * administrator who holds no seat does not read a household's papers, and
+   * neither does whoever operates a hosted instance. The document archive's
+   * `documents:manage` is the opposite case and stays that way - what the board
+   * files there is the association's own record, addressed to the members,
+   * while a binder holds the papers of one home.
+   *
+   * Deliberately not the property manager's either: their seat is issue
+   * handling, and a household's papers are not theirs to browse, on the
+   * archive's precedent.
+   */
+  "apartmentBinder:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
+
+/**
+ * The capabilities a board seat confers and no grant of capabilities carries.
+ *
+ * Every other capability in the product is granted by holding something: a
+ * system role, a residency, a tenant-ownership. The administrator's grant is
+ * the whole list, so a capability added to it is the administrator's from the
+ * moment it is written, and that is the right default for a person the
+ * association appointed to run its instance.
+ *
+ * It is the wrong default for exactly one kind of thing: a record that belongs
+ * to one household rather than to the association. Reading it has to follow
+ * election to the board, because a board is elected by the general meeting and
+ * answerable to it, while an administrator is whoever holds the server - which
+ * on a hosted instance is not a member at all.
+ *
+ * So this is the list of what the administrator's grant withholds, and it is
+ * enforced in the types rather than in a comment. `GrantableCapability` is
+ * every capability but these, and every grant that is not the board seat is
+ * declared as a list of those - so naming one of these in the administrator's,
+ * the member's, the resident's or the property manager's grant does not
+ * compile. The board's own grant is built by spreading this list into it, so a
+ * seat-bound capability nobody could reach is not a state this file can be
+ * left in.
+ *
+ * Adding a capability does not put it here. The list is written out by name,
+ * which is what keeps the exception deliberate in both directions: a capability
+ * added to CAPABILITIES is grantable like every other one until somebody
+ * decides otherwise here and says why in an ADR, and one named here cannot
+ * leak back into a grant by being added to the wrong array.
+ *
+ * ADR 0017 is the decision and the whole of the reasoning.
+ */
+const SEAT_BOUND_CAPABILITIES = ["apartmentBinder:manage"] as const;
+
+/** A capability a board seat confers and nothing else does. */
+export type SeatBoundCapability = (typeof SEAT_BOUND_CAPABILITIES)[number];
+
+/**
+ * A capability a grant of capabilities may carry.
+ *
+ * Every capability but the seat-bound ones. The type is what the administrator,
+ * member, resident and property manager grants are declared as, so the
+ * withholding is checked by the compiler on every edit to any of them.
+ */
+export type GrantableCapability = Exclude<Capability, SeatBoundCapability>;
+
+/** Whether a board seat is the only thing that confers this capability. */
+export function isSeatBound(
+  capability: Capability,
+): capability is SeatBoundCapability {
+  return (SEAT_BOUND_CAPABILITIES as readonly Capability[]).includes(
+    capability,
+  );
+}
 
 /** The roles a person can hold, derived rather than stored as one field. */
 export interface PrincipalRoles {
@@ -605,7 +684,19 @@ export interface PrincipalRoles {
   isMember: boolean;
 }
 
-const ADMIN_CAPABILITIES: readonly Capability[] = CAPABILITIES;
+/**
+ * What the administrator's system role grants: every capability that may be
+ * granted at all.
+ *
+ * Derived from the list rather than written out, so a capability added to
+ * CAPABILITIES is the administrator's without anybody remembering this line -
+ * which is what it has always been. What is new is the filter: a capability the
+ * board seat alone confers is not in this grant, and the element type makes
+ * that a compile error rather than a convention (SEAT_BOUND_CAPABILITIES).
+ */
+const ADMIN_CAPABILITIES: readonly GrantableCapability[] = CAPABILITIES.filter(
+  (capability): capability is GrantableCapability => !isSeatBound(capability),
+);
 
 /**
  * What a board seat grants - and the one thing it deliberately does not.
@@ -639,6 +730,13 @@ const ADMIN_CAPABILITIES: readonly Capability[] = CAPABILITIES;
  * administrator.
  */
 const BOARD_CAPABILITIES: readonly Capability[] = [
+  /*
+   * Spread rather than listed, so that a capability declared seat-bound is the
+   * board's by construction. A seat-bound capability left out of this array
+   * would be one nobody in the product could ever hold, and a list somebody has
+   * to keep in step with another list is the kind that falls out of step.
+   */
+  ...SEAT_BOUND_CAPABILITIES,
   "association:read",
   "boardPosition:manage",
   "addressBook:read",
@@ -696,7 +794,7 @@ const BOARD_CAPABILITIES: readonly Capability[] = [
  * stops holding this the day the residency ends rather than when somebody
  * remembers to revoke something.
  */
-const MEMBER_CAPABILITIES: readonly Capability[] = [
+const MEMBER_CAPABILITIES: readonly GrantableCapability[] = [
   "motions:submit",
   "sublets:apply",
 ];
@@ -706,12 +804,12 @@ const MEMBER_CAPABILITIES: readonly Capability[] = [
  * only, and never to the address book (decision 11). The list is short on
  * purpose: widening it would breach that promise.
  */
-const PROPERTY_MANAGER_CAPABILITIES: readonly Capability[] = [
+const PROPERTY_MANAGER_CAPABILITIES: readonly GrantableCapability[] = [
   "issues:handle",
   "self:manage",
 ];
 
-const RESIDENT_CAPABILITIES: readonly Capability[] = [
+const RESIDENT_CAPABILITIES: readonly GrantableCapability[] = [
   "self:manage",
   "residentDirectory:read",
   "issues:report",

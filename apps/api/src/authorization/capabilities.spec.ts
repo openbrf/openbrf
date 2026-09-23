@@ -4,6 +4,7 @@ import {
   CAPABILITIES,
   type Capability,
   capabilitiesFor,
+  isSeatBound,
   type PrincipalRoles,
 } from "./capabilities";
 
@@ -34,11 +35,76 @@ const can = (r: Partial<PrincipalRoles>, capability: Capability): boolean =>
   capabilitiesFor(roles(r)).has(capability);
 
 describe("admin", () => {
-  it("holds every capability", () => {
+  it("holds every capability that may be granted at all", () => {
     const granted = capabilitiesFor(roles({ isAdmin: true }));
-    for (const capability of CAPABILITIES) {
+    for (const capability of CAPABILITIES.filter(
+      (name) => !isSeatBound(name),
+    )) {
       expect(granted.has(capability)).toBe(true);
     }
+  });
+
+  it("does not hold a capability a board seat alone confers", () => {
+    /*
+     * The one exception to the grant above, and the reason the grant is a
+     * filter rather than the list itself. An instance administrator is whoever
+     * holds the server - on a hosted instance, not a member of the association
+     * at all - and a household's papers are read by people the general meeting
+     * elected. ADR 0017.
+     */
+    const granted = capabilitiesFor(roles({ isAdmin: true }));
+    for (const capability of CAPABILITIES.filter(isSeatBound)) {
+      expect(granted.has(capability)).toBe(false);
+    }
+    expect(granted.has("apartmentBinder:manage")).toBe(false);
+  });
+
+  it("does not reach a binder by holding every other grant either", () => {
+    // Stated as the union rather than per role, because the hazard is a
+    // combination: an administrator who also manages the property and lives
+    // here still has not been elected to anything.
+    expect(
+      capabilitiesFor(
+        roles({
+          isAdmin: true,
+          isPropertyManager: true,
+          isResident: true,
+          isMember: true,
+        }),
+      ).has("apartmentBinder:manage"),
+    ).toBe(false);
+  });
+});
+
+describe("a capability a board seat alone confers", () => {
+  it("is held by a board member", () => {
+    for (const capability of CAPABILITIES.filter(isSeatBound)) {
+      expect(can({ isBoardMember: true }, capability)).toBe(true);
+    }
+  });
+
+  it("is held by nobody without a seat", () => {
+    // Every other way the product grants a capability, at once.
+    for (const capability of CAPABILITIES.filter(isSeatBound)) {
+      expect(can({ isAdmin: true }, capability)).toBe(false);
+      expect(can({ isPropertyManager: true }, capability)).toBe(false);
+      expect(can({ isResident: true }, capability)).toBe(false);
+      expect(can({ isResident: true, isMember: true }, capability)).toBe(false);
+      expect(can({}, capability)).toBe(false);
+    }
+  });
+
+  it("is the exception and not the rule", () => {
+    /*
+     * A capability added to the list is grantable like every other one until
+     * somebody decides otherwise and says why in an ADR. Without this the
+     * withholding could grow by somebody copying the wrong line, and a
+     * capability nobody could grant would be discovered by a board finding a
+     * screen empty.
+     */
+    expect(CAPABILITIES.filter(isSeatBound)).toEqual([
+      "apartmentBinder:manage",
+    ]);
   });
 });
 

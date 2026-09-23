@@ -81,6 +81,7 @@ const EMPTY_REPORT: Report = {
   legalHolds: [],
   issues: [],
   documents: [],
+  apartmentDocuments: [],
   bookings: [],
   motions: [],
   subletApplications: [],
