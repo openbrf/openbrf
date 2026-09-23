@@ -22,17 +22,15 @@ export const NEWS_COMMENT_PURGE_QUEUE = "news-comment-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own - 03:07, which is the first of
- * the band. It used to say 03:11, which the event sign-up purge also holds:
- * the two woke together every night, which is exactly what spacing the band
- * exists to prevent.
+ * In the small hours, on a minute of its own - 03:07. It used to say 03:11,
+ * which the event sign-up purge also holds: the two woke together every night,
+ * which is exactly what spacing the band exists to prevent. Jobs waking together
+ * on one small connection pool is a contention nobody gains anything from.
  *
- * The band as it actually stands: 03:05 board mailbox, 03:07 news comments,
- * 03:11 key orders and event sign-ups, 03:17 sublet applications, member charges
- * and issues, 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53
- * service data, 03:59 chat. Jobs waking together on one small connection pool is
- * a contention nobody gains anything from, and the two minutes carrying more
- * than one job are a drift from that rather than a pattern to copy.
+ * And before the service-data purge. This job selects people with a granted
+ * erasure request, and the service-data purge is the job that marks such a
+ * request executed and closes it; `retention/erasure-request-order.spec.ts`
+ * fails for any job that reads the request and is scheduled at or after it.
  */
 const PURGE_CRON = "07 3 * * *";
 
@@ -319,8 +317,8 @@ export class NewsCommentPurgeService implements OnModuleInit {
        * A granted erasure request moves this job's cutoff to now, which is the
        * whole of what bringing the purge forward means: the same rows, on the
        * same rule, without waiting out a window the person asked to be freed
-       * from. The request is not closed here - the service-data purge runs last
-       * in the band and closes it, which is why this job still sees it open.
+       * from. The request is not closed here - the service-data purge runs
+       * after this job and closes it, which is why this job still sees it open.
        */
       const request = await tx.dataSubjectRequest.findFirst({
         where: {

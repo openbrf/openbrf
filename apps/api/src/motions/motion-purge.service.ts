@@ -19,12 +19,13 @@ export const MOTION_PURGE_QUEUE = "motion-purge";
 /**
  * When it runs.
  *
- * In the small hours, on a minute of its own.
+ * In the small hours, on a minute of its own. Jobs waking together on one
+ * small connection pool is a contention nobody gains anything from.
  *
- * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues,
- * 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53 service data.
- * Jobs waking together on one small connection pool is a contention nobody
- * gains anything from.
+ * And before the service-data purge. This job selects people with a granted
+ * erasure request, and the service-data purge is the job that marks such a
+ * request executed and closes it; `retention/erasure-request-order.spec.ts`
+ * fails for any job that reads the request and is scheduled at or after it.
  */
 const PURGE_CRON = "29 3 * * *";
 
@@ -315,8 +316,8 @@ export class MotionPurgeService implements OnModuleInit {
        * A granted erasure request moves this job's cutoff to now, which is the
        * whole of what bringing the purge forward means: the same rows, on the
        * same rule, without waiting out a window the person asked to be freed
-       * from. The request is not closed here - the service-data purge runs last
-       * in the band and closes it, which is why this job still sees it open.
+       * from. The request is not closed here - the service-data purge runs
+       * after this job and closes it, which is why this job still sees it open.
        */
       const request = await tx.dataSubjectRequest.findFirst({
         where: {

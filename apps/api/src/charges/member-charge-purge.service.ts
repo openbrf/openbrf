@@ -22,11 +22,8 @@ export const MEMBER_CHARGE_PURGE_QUEUE = "member-charge-purge";
  *
  * In the small hours, in the band every purge in this product wakes in, so that
  * a night's erasures happen while nobody is using the instance. The minutes are
- * spread across the band for a reason - jobs waking together on one small
- * connection pool is a contention nobody gains anything from - but they are not
- * all distinct today: 03:17 is taken by the sublet, issue and charge purges and
- * 03:11 by the key order and sign-up purges. Free minutes in the pattern are
- * 03:35, which the fee purge takes, and 03:47.
+ * spread across the band because jobs waking together on one small connection
+ * pool is a contention nobody gains anything from.
  */
 const PURGE_CRON = "17 3 * * *";
 

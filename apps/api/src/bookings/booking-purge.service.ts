@@ -23,9 +23,7 @@ export const BOOKING_PURGE_QUEUE = "booking-purge";
  * When it runs.
  *
  * In the small hours, on a minute of its own, and before the service-data purge
- * rather than after it. The band is 03:07 news comments, 03:11 event sign-ups,
- * 03:17 issues, 03:23 import sessions, 03:29 motions, 03:41 bookings, 03:53
- * service data; jobs waking together on one small connection pool is a
+ * rather than after it. Jobs waking together on one small connection pool is a
  * contention nobody gains anything from.
  *
  * The order matters here and not only the spacing. This purge selects people
@@ -33,7 +31,9 @@ export const BOOKING_PURGE_QUEUE = "booking-purge";
  * a request executed and closes it. Running after it would mean the request was
  * already closed, this job would not select the person, and their bookings
  * would sit out the rest of their own retention window - erased eventually, but
- * not by the request that asked for it.
+ * not by the request that asked for it. `retention/erasure-request-order.spec.ts`
+ * fails for any job that reads the request and is scheduled at or after the job
+ * closing it.
  */
 const PURGE_CRON = "41 3 * * *";
 
@@ -324,8 +324,8 @@ export class BookingPurgeService implements OnModuleInit {
        * of what bringing the purge forward means: the same rows, erased on the
        * same rule, without waiting out a window the person has asked to be
        * freed from. The request is not closed here - the service-data purge
-       * runs last in the band and closes it, which is why this job still sees
-       * it open.
+       * runs after this job and closes it, which is why this job still sees it
+       * open.
        */
       const request = await tx.dataSubjectRequest.findFirst({
         where: {

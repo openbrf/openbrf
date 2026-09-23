@@ -26,14 +26,15 @@ import {
 export const SERVICE_DATA_PURGE_QUEUE = "service-data-purge";
 
 /**
- * When it runs: last of the nightly band, and on a minute of its own.
+ * When it runs: 03:53, after every job that reads a granted erasure request, and
+ * on a minute of its own.
  *
- * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues, 03:23
- * import sessions, 03:29 motions, 03:41 bookings, 03:53 service data. Two jobs
- * waking together on one small connection pool is a contention nobody gains
- * anything from, and this one is deliberately last: it is the job that executes
- * a granted erasure request and closes it, and the module purges before it
- * select on that request still being open.
+ * This is the job that executes a granted erasure request and closes it, and the
+ * module purges select on that request still being open, so each of them takes
+ * an earlier minute. `erasure-request-order.spec.ts` beside this file finds every
+ * job that reads the request from its source and fails for one scheduled at or
+ * after this minute. Two jobs waking together on one small connection pool is a
+ * contention nobody gains anything from.
  */
 const PURGE_CRON = "53 3 * * *";
 
@@ -165,12 +166,13 @@ export interface PurgeRunSummary {
  *
  * ## Its place in the night
  *
- * This purge runs last of the nightly band, at 03:53. The module purges before
- * it select on the same granted erasure requests, and this is the job that
- * marks a request executed and closes it. Running it first would close the
- * request before the bookings, sign-ups, motions and comments had been looked
- * at, and those would wait for a clock the person had asked to be freed from. A
- * purge added to the band later takes a minute before 03:53.
+ * This purge runs at 03:53, after the module purges that select on the same
+ * granted erasure requests, and this is the job that marks a request executed
+ * and closes it. Running it first would close the request before the bookings,
+ * sign-ups, motions, comments and chat messages had been looked at, and those
+ * would wait for a clock the person had asked to be freed from. A purge that
+ * reads the request takes a minute before 03:53, and
+ * `erasure-request-order.spec.ts` fails for one that does not.
  *
  * ## How it runs
  *

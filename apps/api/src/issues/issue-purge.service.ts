@@ -14,10 +14,9 @@ export const ISSUE_PURGE_QUEUE = "issue-purge";
 /**
  * When it runs.
  *
- * The band is 03:07 news comments, 03:11 event sign-ups, 03:17 issues, 03:23
- * import sessions, 03:29 motions, 03:41 bookings, 03:53 service data. Jobs
- * waking together on one small connection pool is a contention nobody gains
- * anything from.
+ * In the small hours, in the band every purge in this product wakes in. The
+ * purges are spread across its minutes because jobs waking together on one small
+ * connection pool is a contention nobody gains anything from.
  */
 const PURGE_CRON = "17 3 * * *";
 
