@@ -218,12 +218,22 @@ Service-tier personal data is erased on the retention policy's clock by jobs
 that run between 03:05 and 03:53 UTC, spread across those minutes so they do not
 wake together on one connection pool. They are ordinary queue jobs scheduled
 once a night. An occurrence the instance was down for is skipped, not run when
-it comes back, and a run that was interrupted is not resumed. Neither loses the
-work: every one of them computes what is due from the data rather than from a
-flag, so the next night's run erases everything the missed one would have. What
-is delayed is the erasure itself. A retention deadline that fell in the gap is
-met a night late rather than not at all, and an instance left down for several
-nights keeps that data until it is running again at the time of the band.
+it comes back, and a run that was interrupted is not resumed. Work the retention
+clock is due does not go missing that way: every one of those jobs computes what
+is due from residency dates and the policy rather than from a flag, so the next
+night's run takes what the missed one would have. What is delayed is the erasure
+itself. A retention deadline that fell in the gap is met a night late rather
+than not at all, and an instance left down for several nights keeps that data
+until it is running again at the time of the band.
+
+A granted erasure request is the exception, because it is a flag rather than a
+date. The 03:53 job marks the request executed and closes it, and the jobs that
+bring a person's data forward select only requests still open. A job that
+stopped early on the night the request was closed, interrupted or at the bound
+of 500 people it takes in one run, leaves that person's remaining rows behind a
+closed request, and they fall back to their ordinary retention window instead of
+the date the board granted. The audit entry written for the closing names the
+request, and a run that stopped at its bound says so in the container log.
 
 The statutory registers and the audit log are outside all of it, and the
 database refuses to update or delete a row in either.
