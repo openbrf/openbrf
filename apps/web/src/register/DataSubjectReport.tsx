@@ -263,6 +263,7 @@ const AUDIT_ACTION_LABEL = {
   MEDIA_UPLOADED: "register.person.report.action.MEDIA_UPLOADED",
   MEDIA_DELETED: "register.person.report.action.MEDIA_DELETED",
   MEDIA_ACCESSED: "register.person.report.action.MEDIA_ACCESSED",
+  APARTMENT_BINDER_READ: "register.person.report.action.APARTMENT_BINDER_READ",
   INVITATION_SENT: "register.person.report.action.INVITATION_SENT",
   INVITATION_ACCEPTED: "register.person.report.action.INVITATION_ACCEPTED",
   SIGNUP_REQUEST_APPROVED:

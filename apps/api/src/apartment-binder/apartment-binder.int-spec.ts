@@ -533,6 +533,43 @@ describe("filing", () => {
     expect(removed.statusCode).toBe(200);
     // The bytes go with the entry, by the cascade on the reference.
     expect((await fetchFile(holderCookie, entry.url)).statusCode).toBe(404);
+
+    /*
+     * And the removal entry withholds the name the upload withheld. Taking an
+     * entry out is how the board answers an art. 17 request about one, so a
+     * name left here would put the erasure's own subject in an append-only
+     * table no purge reaches.
+     */
+    const deleted = await prisma.auditLogEntry.findFirst({
+      where: { action: "MEDIA_DELETED", actorPersonId: holder.personId },
+      orderBy: { createdAt: "desc" },
+      select: { context: true },
+    });
+    expect(deleted).not.toBeNull();
+    expect(deleted?.context).not.toHaveProperty("fileName");
+  });
+
+  it("refuses a file name carrying a personal identity number", async () => {
+    const refused = await fileEntry(
+      holderCookie,
+      `/api/apartment-binder/${apartmentId}/documents`,
+      {
+        kind: "INSPECTION",
+        audience: "HOUSEHOLD",
+        title: `Besiktning ${suffix}`,
+      },
+      "19811218-9876_besiktning.pdf",
+    );
+
+    expect(refused.statusCode).toBe(422);
+    const body = refused.json() as {
+      reason: string;
+      locations?: { part: string }[];
+    };
+    expect(body.reason).toBe("personal-identity-number");
+    expect(body.locations?.[0]?.part).toBe("fileName");
+    // The number is exactly what must not travel back.
+    expect(JSON.stringify(body)).not.toContain("19811218");
   });
 
   it("refuses the board's permission to a tenant-owner", async () => {
@@ -666,6 +703,47 @@ describe("the board's way in", () => {
       where: { action: "MEDIA_ACCESSED", actorPersonId: boardMember.personId },
     });
     expect(after).toBe(before + 1);
+  });
+
+  it("writes the listing read to the audit log, not only the byte serve", async () => {
+    /*
+     * A title like "Tillstand badrum anpassat for rullstol" carries the health
+     * data the art. 30 row declares, so the listing is the sensitive read and
+     * not only the file behind it. Without this a board member could walk every
+     * apartment's binder and leave no trace.
+     */
+    const before = await prisma.auditLogEntry.count({
+      where: {
+        action: "APARTMENT_BINDER_READ",
+        actorPersonId: boardMember.personId,
+      },
+    });
+
+    const response = await inject({
+      method: "GET",
+      url: `/api/apartment-binders/${apartmentId}`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "APARTMENT_BINDER_READ",
+        actorPersonId: boardMember.personId,
+      },
+      orderBy: { createdAt: "desc" },
+      select: { targetKind: true, targetId: true, context: true },
+    });
+
+    expect(entries).toHaveLength(before + 1);
+    expect(entries[0]).toMatchObject({
+      targetKind: "apartmentBinder",
+      targetId: apartmentId,
+    });
+    // A count of what was disclosed, never a title: the log is append-only and
+    // exempt from every purge.
+    expect(entries[0]?.context).toMatchObject({ entries: expect.any(Number) });
+    expect(JSON.stringify(entries[0]?.context)).not.toContain("Tillstand");
   });
 
   it("keeps the file name out of the upload entry", async () => {

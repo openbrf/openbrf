@@ -1380,6 +1380,51 @@ describe("serving a file the apartment decides", () => {
     expect(uploaded?.context).toMatchObject({ fileName: "stadgar.pdf" });
   });
 
+  it("leaves the file name out of the removal entry when asked", async () => {
+    /*
+     * The half the upload's switch does not cover. Taking an entry out is how
+     * the board answers an art. 17 request about one, so an entry naming
+     * "Ritning badrum rullstol.pdf" would leave the erasure's own subject in an
+     * append-only table no purge reaches - and it is the same name the upload
+     * deliberately withheld.
+     */
+    const fakes = build();
+    const id = await fileFor(fakes, "HOUSEHOLD");
+
+    await fakes.service.remove(id, "holder-1", "WEB", {
+      recordFileName: false,
+    });
+
+    const deleted = fakes.audited.find(
+      (entry) => entry.action === "MEDIA_DELETED",
+    ) as { context?: Record<string, unknown> } | undefined;
+
+    expect(deleted).toBeDefined();
+    expect(deleted?.context).not.toHaveProperty("fileName");
+  });
+
+  it("keeps the file name in the removal entry for every other caller", async () => {
+    // The switch is opt-out, so the archive, the branding files and the board
+    // mailbox purge answer exactly as they did.
+    const fakes = build();
+    const file = await fakes.service.upload({
+      bytes: pdfBytes(),
+      fileName: "stadgar.pdf",
+      accept: "document",
+      visibility: "MEMBER",
+      channel: "WEB",
+      prefix: "documents",
+    });
+
+    await fakes.service.remove(file.id, "board-1", "WEB");
+
+    const deleted = fakes.audited.find(
+      (entry) => entry.action === "MEDIA_DELETED",
+    ) as { context?: Record<string, unknown> } | undefined;
+
+    expect(deleted?.context).toMatchObject({ fileName: "stadgar.pdf" });
+  });
+
   it("refuses to store a household file that names no apartment", async () => {
     // A programming error rather than a caller's, so it throws before a byte is
     // written: the column carries the same rule as a CHECK, and reaching the

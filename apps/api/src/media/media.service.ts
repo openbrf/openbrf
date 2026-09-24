@@ -590,11 +590,18 @@ export class MediaService {
    * those two is a disclosure risk after somebody asked for a file to be
    * deleted. Storage cannot take part in the transaction, so removing the
    * object before the commit would destroy a file the database still holds.
+   *
+   * `recordFileName` is the upload's switch at the other end, and defaults the
+   * same way: every caller keeps the name in the entry unless it opts out. The
+   * apartment binder opts out, because taking an entry out is also how a board
+   * answers an art. 17 request about one - and a name left in the log would put
+   * the erasure's own subject in an append-only table no purge reaches.
    */
   async remove(
     id: string,
     actorPersonId: string | null | undefined,
     channel: AuditChannel,
+    options: { recordFileName?: boolean } = {},
   ): Promise<void> {
     const file = await this.prisma.mediaFile.findUnique({ where: { id } });
     if (file === null) {
@@ -610,7 +617,8 @@ export class MediaService {
           actorPersonId: actorPersonId ?? null,
           targetKind: "media",
           targetId: id,
-          context: { fileName: file.fileName },
+          context:
+            (options.recordFileName ?? true) ? { fileName: file.fileName } : {},
         },
         tx,
       );

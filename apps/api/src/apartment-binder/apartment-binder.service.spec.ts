@@ -7,6 +7,7 @@ import {
   type Principal,
   type PrincipalRoles,
 } from "../authorization/capabilities";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { MediaService } from "../media/media.service";
 import { ApartmentBinderError } from "./apartment-binder.error";
@@ -59,6 +60,7 @@ interface Fakes {
   upload: ReturnType<typeof vi.fn>;
   remove: ReturnType<typeof vi.fn>;
   create: ReturnType<typeof vi.fn>;
+  audited: { action: string }[];
 }
 
 function build(
@@ -103,15 +105,40 @@ function build(
         _sum: { byteSize: options.bytesStored ?? 0 },
       })),
     },
-    apartmentDocument: { create },
+    apartmentDocument: {
+      create,
+      // The entry a take-out finds. The relation filter on a residency held
+      // today is what only the integration suite can honestly answer, so this
+      // stands for "the caller may take this one out" and the case here is
+      // about what the removal records.
+      findFirst: vi.fn(async () => ({ mediaFileId: "file-1" })),
+    },
+  };
+
+  const audited: { action: string }[] = [];
+  const audit = {
+    record: vi.fn(async (entry: { action: string }) => {
+      audited.push(entry);
+    }),
+    withAuditedRead: vi.fn(
+      async (
+        entry: { action: string },
+        read: (tx: unknown) => Promise<unknown>,
+      ) => {
+        const result = await read(prisma);
+        audited.push(entry);
+        return result;
+      },
+    ),
   };
 
   const service = new ApartmentBinderService(
     prisma as unknown as PrismaService,
     { upload, remove } as unknown as MediaService,
+    audit as unknown as AuditLogService,
   );
 
-  return { service, upload, remove, create };
+  return { service, upload, remove, create, audited };
 }
 
 function filing(overrides: Record<string, unknown> = {}) {
@@ -208,6 +235,47 @@ describe("filing as a tenant-owner", () => {
     expect(fakes.upload).not.toHaveBeenCalled();
   });
 
+  it("refuses a file name carrying a personal identity number", async () => {
+    /*
+     * The name is stored on the row, answered in every household's listing and
+     * echoed in the download disposition, so a number in it reaches the next
+     * household with no retention clock - the disclosure the title rule exists
+     * to stop. `safeFileName` strips characters and looks at nothing.
+     */
+    const fakes = build();
+
+    const error = await fakes.service
+      .file(filing({ fileName: "19811218-9876_besiktning.pdf" }))
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(ApartmentBinderError);
+    const refusal = error as ApartmentBinderError;
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.details()).toEqual({
+      locations: [{ part: "fileName", offset: 0 }],
+    });
+    expect(JSON.stringify(refusal.details())).not.toContain("19811218");
+    expect(fakes.upload).not.toHaveBeenCalled();
+  });
+
+  it("names both fields when the title and the file name each carry one", async () => {
+    const fakes = build();
+
+    const error = await fakes.service
+      .file(
+        filing({
+          title: "Ritning 19811218-9876",
+          fileName: "19811218-9876.pdf",
+        }),
+      )
+      .catch((cause: unknown) => cause);
+
+    expect((error as ApartmentBinderError).details().locations).toEqual([
+      { part: "title", offset: 8 },
+      { part: "fileName", offset: 0 },
+    ]);
+  });
+
   it("refuses a filing the binder has no room for", async () => {
     const fakes = build({ bytesStored: BINDER_BYTES_PER_APARTMENT });
 
@@ -228,7 +296,26 @@ describe("filing as a tenant-owner", () => {
     await expect(fakes.service.file(filing())).rejects.toThrow(
       /could not be written/,
     );
-    expect(fakes.remove).toHaveBeenCalledWith("file-1", "holder-1", "WEB");
+    // And the rollback withholds the name too: an upload that failed to become
+    // an entry still wrote a MEDIA_UPLOADED row that left it out.
+    expect(fakes.remove).toHaveBeenCalledWith("file-1", "holder-1", "WEB", {
+      recordFileName: false,
+    });
+  });
+});
+
+describe("taking an entry out", () => {
+  it("removes the file without putting its name in the log", async () => {
+    // The removal entry is the other half of the rule the upload's
+    // `recordFileName: false` states: the log never holds a household's own
+    // words about its own home.
+    const fakes = build();
+
+    await fakes.service.takeOut("entry-1", principal());
+
+    expect(fakes.remove).toHaveBeenCalledWith("file-1", "holder-1", "WEB", {
+      recordFileName: false,
+    });
   });
 });
 
@@ -279,6 +366,21 @@ describe("the personal identity number guardrail", () => {
     expect(() =>
       refusePersonalIdentityNumbers("Besiktning ventilation 2024"),
     ).not.toThrow();
+  });
+
+  it("catches a number in the file name too", () => {
+    const error = (() => {
+      try {
+        refusePersonalIdentityNumbers("Besiktning", "19811218-9876.pdf");
+      } catch (cause) {
+        return cause as ApartmentBinderError;
+      }
+      return null;
+    })();
+
+    expect(error?.details().locations).toEqual([
+      { part: "fileName", offset: 0 },
+    ]);
   });
 
   it("catches every number in a title", () => {

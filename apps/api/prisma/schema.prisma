@@ -1575,6 +1575,12 @@ enum AuditAction {
   /// are public, or readable by anyone signed in, are not logged: one entry per
   /// image request would bury the accesses the law requires to be recorded.
   MEDIA_ACCESSED
+  /// The board opened one apartment's binder (lagenhetsparm) and was answered
+  /// its entries. The listing is the sensitive read and not only the file
+  /// behind it: a title states what was done in somebody's home, and may reveal
+  /// health. The entry names the apartment and how many entries were disclosed,
+  /// and never a title.
+  APARTMENT_BINDER_READ
   /// An invitation to activate an account was created and mailed.
   INVITATION_SENT
   /// An invitation was used and the account it activates was created.
@@ -3335,9 +3341,13 @@ enum ApartmentDocumentKind {
   /// Ritning.
   DRAWING
 
-  /// Tillstand till andring: the board's permission under BRL 7 kap. 7 §.
-  /// Filed by the board alone and dated the day it decided, both held by a
-  /// CHECK. Stated rather than enforced - nothing reads it to decide anything,
+  /// Tillstand till andring: the board's permission under BRL 7 kap. 7 §, for a
+  /// measure in forsta stycket's list or for one affecting an apartment's
+  /// protected historical, cultural, environmental or artistic value under
+  /// andra stycket, which needs permission "alltid" whatever the measure.
+  /// One kind for both: what the binder records is that the board decided,
+  /// not which stycke made it necessary. Filed by the board alone and dated
+  /// the day it decided, both held by a CHECK. Stated rather than enforced - nothing reads it to decide anything,
   /// and the platform says nothing about whether a condition binds whoever
   /// holds the apartment next, because the statute does not.
   ALTERATION_PERMISSION

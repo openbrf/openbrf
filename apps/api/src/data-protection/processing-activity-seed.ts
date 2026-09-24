@@ -200,7 +200,21 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   apartmentBinder: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
-    dataSubjectCategories: ["member", "resident", "boardMember"],
+    /*
+     * Whoever lives here, and whoever used to. The link to the person who filed
+     * an entry is detached on their own retention window rather than on the day
+     * they move out, so what they filed is still held, and still on their
+     * access report, long after they have left - and the entry itself stays
+     * with the apartment for good. A record naming only the people who are here
+     * would describe a processing that stops when somebody leaves, and this one
+     * does not. The chat row says the same of itself.
+     */
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "boardMember",
+      "formerResident",
+    ],
     /*
      * `health` on the issue row's precedent, and for the same reason: the
      * record of a bathroom adapted for a disability is health data whether or

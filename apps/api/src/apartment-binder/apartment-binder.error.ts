@@ -2,10 +2,18 @@ import { HttpStatus } from "@nestjs/common";
 
 import { DomainError } from "../http/domain-error";
 
-/** Where in a title a refused value sits. */
+/** Where in a filing's text a refused value sits. */
 export interface BinderTextLocation {
-  /** Which field it was in. One today, named so the screen need not guess. */
-  part: "title";
+  /**
+   * Which field it was in.
+   *
+   * Both fields a filing carries in words. The title is what the filer typed
+   * into the form; the file name is what the file arrived under, which is
+   * stored on the row, answered in every household's listing and echoed in the
+   * download disposition - so it reaches the next household exactly as the
+   * title does.
+   */
+  part: "title" | "fileName";
   /** Where in that text the refused value starts. */
   offset: number;
 }

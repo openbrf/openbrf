@@ -560,6 +560,7 @@
           "MEDIA_UPLOADED": "Fil laddades upp",
           "MEDIA_DELETED": "Fil togs bort",
           "MEDIA_ACCESSED": "Fil hämtades",
+          "APARTMENT_BINDER_READ": "Lägenhetspärm lästes",
           "INVITATION_SENT": "Inbjudan skickades",
           "INVITATION_ACCEPTED": "Inbjudan användes",
           "SIGNUP_REQUEST_APPROVED": "Ansökan godkändes",

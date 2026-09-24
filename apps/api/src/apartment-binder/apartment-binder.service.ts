@@ -8,6 +8,7 @@ import {
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { authorViewOf, type ChatAuthorView } from "../chat/chat.service";
 import { PrismaService } from "../database/prisma.service";
@@ -184,8 +185,8 @@ export interface FileEntryInput {
  * The papers about one apartment, kept with the apartment.
  *
  * A binder (lagenhetsparm) belongs to the apartment and not to anybody who
- * lived there: its drawings, the board's permissions for alterations under BRL
- * 7 kap. 7 §, what was done in it and when, inspections and manuals. Nothing
+ * lived there: its drawings, the board's alteration permissions under BRL 7 kap.
+ * 7 §, what was done in it and when, inspections and manuals. Nothing
  * happens when the apartment changes hands - the next household reads it from
  * the day its residency begins, and the last one stops on the day its residency
  * ends, both decided by `residencyHeldOn` on the association's own calendar
@@ -202,6 +203,7 @@ export class ApartmentBinderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
+    private readonly audit: AuditLogService,
   ) {}
 
   /**
@@ -337,7 +339,9 @@ export class ApartmentBinderService {
       throw new ApartmentBinderError("No such entry.", "not-found");
     }
 
-    await this.media.remove(entry.mediaFileId, viewer.personId, "WEB");
+    await this.media.remove(entry.mediaFileId, viewer.personId, "WEB", {
+      recordFileName: false,
+    });
   }
 
   /** Every apartment, with how many entries its binder holds. */
@@ -363,47 +367,99 @@ export class ApartmentBinderService {
     }));
   }
 
-  /** One apartment's whole binder, with who reads it today. */
-  async binder(apartmentId: string): Promise<BoardBinderView> {
+  /**
+   * One apartment's whole binder, with who reads it today.
+   *
+   * Audited, and audited here rather than only where the bytes leave. The
+   * listing is the sensitive read: a title states what was done in somebody's
+   * home - "Tillstand badrum anpassat for rullstol" - which is the health
+   * category the record of processing activities declares for this activity,
+   * and it is answered whether or not a file is then opened. Without an entry
+   * here a board member could walk every apartment's binder and leave no trace,
+   * and the glossary's promise that every board read of a binder is audited
+   * would be true of the files and false of the listing.
+   *
+   * This is not the members' shelf, whose serves `MediaService.open`
+   * deliberately does not log. That argument is about volume burying the
+   * entries the law needs - members read the bylaws and the annual report as a
+   * matter of course. A board opening one home's papers is the opposite: rare,
+   * and precisely the access that has to be accountable.
+   *
+   * `withAuditedRead` rather than a `record` afterwards, so the answer and the
+   * entry commit together: a read that was served without its entry being
+   * written is the one outcome this cannot have.
+   *
+   * The chooser, {@link binders}, is not audited. It answers apartment
+   * designations and a count each, and reads nobody's papers.
+   */
+  async binder(
+    apartmentId: string,
+    actorPersonId: string,
+  ): Promise<BoardBinderView> {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id: apartmentId },
       select: { id: true, number: true, address: { select: FULL_ADDRESS } },
     });
     if (apartment === null) {
+      // Before the audited read, so an apartment that does not exist writes no
+      // entry: the log records disclosures, and nothing was disclosed.
       throw new ApartmentBinderError("No such apartment binder.", "not-found");
     }
 
     const today = localDayOf(new Date());
-    const [rows, residencies] = await Promise.all([
-      this.prisma.apartmentDocument.findMany({
-        where: { apartmentId },
-        orderBy: ENTRY_ORDER,
-        select: ENTRY_SELECT,
-      }),
-      this.prisma.residency.findMany({
-        where: { apartmentId, ...residencyHeldOn(today) },
-        select: { role: true },
-      }),
-    ]);
 
-    const filers = await this.filersOf(rows);
+    return this.audit.withAuditedRead(
+      {
+        action: "APARTMENT_BINDER_READ",
+        channel: "WEB",
+        actorPersonId,
+        targetKind: "apartmentBinder",
+        targetId: apartmentId,
+        // How much was disclosed, never what. The log is append-only and
+        // exempt from every purge, so a title copied here would outlive the
+        // entry it described and the household that filed it.
+        context: { entries: await this.entryCount(apartmentId) },
+      },
+      async (tx) => {
+        const [rows, residencies] = await Promise.all([
+          tx.apartmentDocument.findMany({
+            where: { apartmentId },
+            orderBy: ENTRY_ORDER,
+            select: ENTRY_SELECT,
+          }),
+          tx.residency.findMany({
+            where: { apartmentId, ...residencyHeldOn(today) },
+            select: { role: true },
+          }),
+        ]);
 
-    return {
-      apartmentId: apartment.id,
-      apartment: apartmentLabel(apartment),
-      tenantOwners: residencies.filter((row) => row.role === "MEMBER").length,
-      otherResidents: residencies.filter((row) => row.role !== "MEMBER").length,
-      entries: rows.map((row) => ({
-        ...toEntryView(row),
-        filedBy:
-          row.filedByPersonId === null
-            ? { kind: "unknown" }
-            : authorViewOf(
-                row.filedByPersonId,
-                filers.get(row.filedByPersonId),
-              ),
-      })),
-    };
+        const filers = await this.filersOf(rows, tx);
+
+        return {
+          apartmentId: apartment.id,
+          apartment: apartmentLabel(apartment),
+          tenantOwners: residencies.filter((row) => row.role === "MEMBER")
+            .length,
+          otherResidents: residencies.filter((row) => row.role !== "MEMBER")
+            .length,
+          entries: rows.map((row) => ({
+            ...toEntryView(row),
+            filedBy:
+              row.filedByPersonId === null
+                ? { kind: "unknown" }
+                : authorViewOf(
+                    row.filedByPersonId,
+                    filers.get(row.filedByPersonId),
+                  ),
+          })),
+        };
+      },
+    );
+  }
+
+  /** How many entries the apartment's binder holds, for the audit entry. */
+  private async entryCount(apartmentId: string): Promise<number> {
+    return this.prisma.apartmentDocument.count({ where: { apartmentId } });
   }
 
   /** Files one entry as the board, into any apartment's binder. */
@@ -428,7 +484,9 @@ export class ApartmentBinderService {
       throw new ApartmentBinderError("No such entry.", "not-found");
     }
 
-    await this.media.remove(entry.mediaFileId, actorPersonId, "WEB");
+    await this.media.remove(entry.mediaFileId, actorPersonId, "WEB", {
+      recordFileName: false,
+    });
   }
 
   /**
@@ -453,7 +511,7 @@ export class ApartmentBinderService {
       );
     }
 
-    refusePersonalIdentityNumbers(input.title);
+    refusePersonalIdentityNumbers(input.title, input.fileName);
 
     /*
      * Counted from what is stored rather than from a running total, and counted
@@ -504,7 +562,9 @@ export class ApartmentBinderService {
       // The upload is already in the audit log, and so is this removal. That
       // pair is the honest record of what happened.
       await this.media
-        .remove(file.id, input.actor.personId, "WEB")
+        .remove(file.id, input.actor.personId, "WEB", {
+          recordFileName: false,
+        })
         .catch(() => {
           /* Reported by the media service; the original failure is the one to
              raise. */
@@ -525,6 +585,7 @@ export class ApartmentBinderService {
   /** The people the entries name, for the board's view of who filed what. */
   private async filersOf(
     rows: readonly { filedByPersonId: string | null }[],
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<Map<string, FilerRecord>> {
     const ids = [
       ...new Set(
@@ -537,7 +598,7 @@ export class ApartmentBinderService {
       return new Map();
     }
 
-    const persons = await this.prisma.person.findMany({
+    const persons = await client.person.findMany({
       where: { id: { in: ids } },
       select: {
         id: true,
@@ -642,28 +703,43 @@ function apartmentLabel(apartment: {
 }
 
 /**
- * Refuses a title carrying a Swedish personal identity number.
+ * Refuses a filing whose text carries a Swedish personal identity number.
  *
  * The same rule a message, a page, a news item and a comment live under. A
- * binder is read by whoever holds the apartment next, so a number typed into a
- * title would be a copy of register content in a service-tier record the
+ * binder is read by whoever holds the apartment next, so a number written into
+ * one would be a copy of register content in a service-tier record the
  * register's own rules do not reach - and one the next household would read.
  *
- * The file itself cannot be scanned: nothing in the product reads a PDF's text.
- * The form says so, which is the honest version of a guarantee the platform
- * cannot give.
+ * The title and the file name both. The file name is not decoration: it is
+ * stored on the row, answered in every listing and echoed in the download
+ * disposition, so `19811218-9876_besiktning.pdf` discloses exactly what a title
+ * carrying the same digits would, with no retention clock on it.
+ * `safeFileName` strips characters and looks at nothing.
+ *
+ * The file's own contents cannot be scanned: nothing in the product reads a
+ * PDF's text. The form says so, which is the honest version of a guarantee the
+ * platform cannot give.
  *
  * Exported so the rule can be asserted directly rather than only through a
  * filing.
  */
-export function refusePersonalIdentityNumbers(title: string): void {
-  const locations = scanForPersonalIdentityNumbers(title).map(
-    (hit): BinderTextLocation => ({ part: "title", offset: hit.index }),
-  );
+export function refusePersonalIdentityNumbers(
+  title: string,
+  fileName = "",
+): void {
+  const locations = [
+    ...scanForPersonalIdentityNumbers(title).map((hit): BinderTextLocation => ({
+      part: "title",
+      offset: hit.index,
+    })),
+    ...scanForPersonalIdentityNumbers(fileName).map(
+      (hit): BinderTextLocation => ({ part: "fileName", offset: hit.index }),
+    ),
+  ];
 
   if (locations.length > 0) {
     throw new ApartmentBinderError(
-      "The title carries a personal identity number and cannot be written.",
+      "The filing carries a personal identity number and cannot be written.",
       "personal-identity-number",
       locations,
     );

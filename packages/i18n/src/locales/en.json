@@ -560,6 +560,7 @@
           "MEDIA_UPLOADED": "File uploaded",
           "MEDIA_DELETED": "File deleted",
           "MEDIA_ACCESSED": "File accessed",
+          "APARTMENT_BINDER_READ": "Apartment binder read",
           "INVITATION_SENT": "Invitation sent",
           "INVITATION_ACCEPTED": "Invitation accepted",
           "SIGNUP_REQUEST_APPROVED": "Sign-up request approved",
@@ -4208,7 +4209,7 @@
         },
         "apartmentBinder": {
           "name": "Apartment binders",
-          "purpose": "Keeping each apartment's papers - drawings, the board's permissions for alterations, work done, inspections and manuals - for whoever lives there.",
+          "purpose": "Keeping each apartment's papers - drawings, the board's alteration permissions, work done, inspections and manuals - for whoever lives there.",
           "legalBasisNote": "Legitimate interest: the association's record of what was done in its house and what it permitted, and the next tenant-owner's interest in the apartment's history. A household may file papers revealing health (art. 9).",
           "retention": "The link to whoever filed an entry is detached by the purge; the entry stays with the apartment until it is taken out."
         },

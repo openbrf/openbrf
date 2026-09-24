@@ -1,0 +1,23 @@
+-- What the board opening an apartment's binder (lagenhetsparm) has to be able
+-- to say in the log.
+--
+-- One value, and it carries no title. The board reads a household's papers
+-- through a capability a board seat alone confers, and GLOSSARY.md records that
+-- every such read is audited - which the byte serve alone does not satisfy: the
+-- listing states what was done in somebody's home, and a title such as
+-- "Tillstand badrum anpassat for rullstol" is the health data the record of
+-- processing activities declares for this activity. A board member able to walk
+-- every apartment's listing and leave no trace is the access that has to be
+-- accountable.
+--
+-- The entry names the apartment and how many entries were disclosed. The log is
+-- exempt from every purge, so a title copied into one would outlive the entry
+-- it described and the household that filed it.
+--
+-- A value of its own rather than MEDIA_ACCESSED, which records one file leaving
+-- on one request. This is the board being answered a home's whole binder, and
+-- an entry reusing that name would say a file had been served when none had.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'APARTMENT_BINDER_READ';

@@ -8,7 +8,7 @@ The papers about an apartment can be kept with the apartment, for whoever lives
 there.
 
 A lägenhetspärm is the binder about one home: its drawings, the board's
-permissions for what has been altered, what was done and when, the manuals for
+alteration permissions, records of what was done and when, and manuals for
 what is installed. On paper it passes from seller to buyer with the keys, and
 that is what this is. Nothing in the service tier worked that way before: every
 resident-facing list filters by the person who created the row, and the one

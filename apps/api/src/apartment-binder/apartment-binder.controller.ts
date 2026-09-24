@@ -176,8 +176,9 @@ export class ApartmentBinderBoardController {
   @Get(":apartmentId")
   async one(
     @Param("apartmentId") apartmentId: string,
+    @Req() request: RequestWithPrincipal,
   ): Promise<BoardBinderView> {
-    return this.binder.binder(apartmentId);
+    return this.binder.binder(apartmentId, requirePrincipal(request).personId);
   }
 
   @Post(":apartmentId/documents")

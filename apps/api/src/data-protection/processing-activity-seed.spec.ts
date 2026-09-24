@@ -163,6 +163,21 @@ describe("seedRows", () => {
      * subject of this processing: their words are on file and on their own
      * access report until that year runs out.
      */
+    /*
+     * The apartment binder for the same reason: the link to whoever filed an
+     * entry stays until their own retention window runs out after they have
+     * moved out, and their access report keeps listing what they filed. A
+     * record naming only the people who are here would describe a processing
+     * that stops when somebody leaves, and this one does not.
+     */
+    expect(rowFor("apartmentBinder").dataSubjectCategories).toEqual(
+      expect.arrayContaining([
+        "member",
+        "resident",
+        "boardMember",
+        "formerResident",
+      ]),
+    );
     expect(rowFor("chat").dataSubjectCategories).toEqual(
       expect.arrayContaining(["formerResident"]),
     );

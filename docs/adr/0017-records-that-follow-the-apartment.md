@@ -9,8 +9,8 @@ Accepted
 ## Context
 
 A Swedish housing cooperative's lägenhetspärm is the binder about one
-apartment: its drawings, the board's permissions for what has been altered, what
-was done and when, the manuals for what is installed. On paper it passes from
+apartment: its drawings, the board's alteration permissions, records of what was
+done and when, and manuals for what is installed. On paper it passes from
 seller to buyer with the keys.
 
 Nothing in the service tier works that way. Every resident-facing `mine` route
@@ -43,12 +43,16 @@ for the papers of one home: an administrator is whoever holds the server, and on
 a hosted instance is not a member of the association at all.
 
 What the statute asks of the record is narrow. BRL 7 kap. 7 § requires the
-board's permission for an alteration i lägenheten and lets it attach conditions;
-7 kap. 12 a § lets the association remedy an alteration made i strid med 7 § at
-the holder's cost; 7 kap. 18 § 9 makes an alteration without behövligt tillstånd
-a ground of forfeiture. Each of those is asked about the apartment as it stands,
-whoever made the change. What no section says is whether a permission, or a
-condition attached to one, binds the next holder.
+board's permission for an alteration i lägenheten and lets it attach conditions.
+It has two triggers, not one: första stycket lists five kinds of measure, and
+andra stycket requires permission "alltid" for a measure affecting an apartment's
+särskilda historiska, kulturhistoriska, miljömässiga eller konstnärliga värden,
+whichever of the five it falls outside. 7 kap. 12 a § lets the association remedy
+an alteration made i strid med 7 § at the holder's cost; 7 kap. 18 § 9 makes an
+alteration without behövligt tillstånd a ground of forfeiture, and names första
+eller andra stycket alike. Each of those is asked about the apartment as it
+stands, whoever made the change. What no section says is whether a permission, or
+a condition attached to one, binds the next holder.
 
 ## Decision
 
@@ -140,7 +144,10 @@ The kind carries behaviour - who may file it and which audience the form offers
 first - and behaviour does not belong in a string the board types.
 
 `ALTERATION_PERMISSION` is filed by the board alone and carries the day the
-board decided, both held by a CHECK as well as by the service. What the binder
+board decided, both held by a CHECK as well as by the service. It is one kind
+for both of 7 § triggers: a board permitting work on a protected-value apartment
+files the same entry as one permitting a stambyte, because what the binder
+records is that the board decided, not which stycke made it necessary. What the binder
 is worth to the next holder is that tillstånd means the board said so, and an
 entry that claimed to be a decision of the board's while saying it was filed by
 a tenant-owner is not a state the table may be left in.
