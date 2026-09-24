@@ -18,7 +18,7 @@ import type {
   ApartmentDocumentFiler,
   ApartmentDocumentKind,
 } from "../generated/prisma/enums";
-import { MediaService, mediaUrl } from "../media/media.service";
+import { MediaService, mediaUrl, safeFileName } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
   ApartmentBinderError,
@@ -521,7 +521,15 @@ export class ApartmentBinderService {
       );
     }
 
-    refusePersonalIdentityNumbers(input.title, input.fileName);
+    /*
+     * The name as it will be stored, not as it arrived. `safeFileName` strips
+     * the Unicode "other" category and path punctuation, and stripping a
+     * character joins what it separated: "1981:1218-9876.pdf" carries no
+     * personal identity number for the scanner and is written as one. The
+     * stored name is what every later household reads, so it is the value the
+     * rule has to be true of.
+     */
+    refusePersonalIdentityNumbers(input.title, safeFileName(input.fileName));
 
     /*
      * Counted from what is stored rather than from a running total, and counted
@@ -724,7 +732,14 @@ function apartmentLabel(apartment: {
  * stored on the row, answered in every listing and echoed in the download
  * disposition, so `19811218-9876_besiktning.pdf` discloses exactly what a title
  * carrying the same digits would, with no retention clock on it.
- * `safeFileName` strips characters and looks at nothing.
+ *
+ * The caller passes the file name it is about to store rather than the one that
+ * arrived, and this scans that one value. Sanitising only ever removes
+ * characters, so a digit run that survives it was already in what was sent -
+ * there is nothing a second scan of the raw name could catch that this misses,
+ * and scanning both would report offsets into two different strings. An offset
+ * here points into the stored value, which is the string a reader is being
+ * shown.
  *
  * The file's own contents cannot be scanned: nothing in the product reads a
  * PDF's text. The form says so, which is the honest version of a guarantee the

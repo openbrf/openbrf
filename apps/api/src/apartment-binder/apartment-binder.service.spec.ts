@@ -258,6 +258,43 @@ describe("filing as a tenant-owner", () => {
     expect(fakes.upload).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "a colon, which the stored name drops as path punctuation",
+      "1981:1218-9876_besiktning.pdf",
+    ],
+    [
+      "a zero-width space, which the stored name drops as a format character",
+      "19811218\u200b-9876_besiktning.pdf",
+    ],
+  ])(
+    "refuses a file name that becomes a number once stored: %s",
+    async (_case, fileName) => {
+      /*
+       * The evasion the raw scan misses. `safeFileName` strips the Unicode
+       * "other" category and path punctuation, so a separator that breaks the
+       * pattern for the scanner is removed before the name is written - and the
+       * stored name, which is what every later household reads, is a valid
+       * personal identity number. The scan therefore runs on the value that
+       * will be stored rather than on the one that arrived.
+       */
+      const fakes = build();
+
+      const error = await fakes.service
+        .file(filing({ fileName }))
+        .catch((cause: unknown) => cause);
+
+      expect(error).toBeInstanceOf(ApartmentBinderError);
+      expect((error as ApartmentBinderError).reason).toBe(
+        "personal-identity-number",
+      );
+      expect((error as ApartmentBinderError).details().locations).toEqual([
+        { part: "fileName", offset: 0 },
+      ]);
+      expect(fakes.upload).not.toHaveBeenCalled();
+    },
+  );
+
   it("names both fields when the title and the file name each carry one", async () => {
     const fakes = build();
 

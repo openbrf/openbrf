@@ -176,22 +176,75 @@ live together, and it is the rule that protects a tenant-owner with protected
 personal data without a branch for them. The board's view names the filer
 through the named-to-nobody shape the chat exports.
 
-### Every board read of a binder file is audited, and a household's is not
+### Every board read of a binder is audited, and a household's is not
 
-A serve by capability writes `MEDIA_ACCESSED` before the bytes leave. A
-household reading its own binder writes nothing: its residency is the whole of
+Two entries, because the board reaches a binder two ways.
+
+`APARTMENT_BINDER_READ` records the board being answered one apartment's
+listing. The listing is the sensitive read and not only the file behind it: a
+title states what was done in somebody's home - "Tillstand badrum anpassat for
+rullstol" - which is the health category the art. 30 row declares, and it is
+disclosed whether or not a file is then opened. Without it a board member could
+walk every apartment's binder and leave no trace. The entry names the apartment
+and how many entries were disclosed, and never a title. It is written by
+`withAuditedRead`, so the answer and the entry commit together: a listing served
+without its entry is the one outcome this cannot have. The count is filled in by
+the read rather than counted beside it, because a second count could differ from
+the listing by whatever was filed in between, and this row outlives everything
+it describes.
+
+`MEDIA_ACCESSED` records a serve by capability, before the bytes leave, as it
+does for the board's shelf in the archive.
+
+**The apartment chooser is deliberately not audited.** It answers apartment
+designations and an entry count each and reads nobody's papers - the line
+`registerReport:export` already draws around the queue of outstanding duties.
+What is promised is that reading a binder is recorded, and that is what is
+recorded.
+
+A household reading its own binder writes nothing: its residency is the whole of
 the rule, and a row per serve would be a permanent record of which resident
-opened which of their own papers when.
+opened which of their own papers when. This is not the members' shelf, whose
+serves are unlogged because members read the bylaws and the annual report as a
+matter of course and would bury what the law needs; a board opening one home's
+papers is rare and is precisely the accountable access.
 
-`MEDIA_UPLOADED` leaves the file name out for a binder upload, which is what
-`recordFileName: false` is for. The log is append-only and exempt from every
-purge, and a household's file name is its own words about its own home - the
-rule the initial share capital's entry already states. The name is still on the
-row and still served in the disposition.
+### The log never holds a household's own words
 
-The title is refused when it carries a personal identity number, naming the
-field and the position and never the value. The file itself cannot be scanned:
-nothing in the product reads a PDF's text, and the form says so.
+`MEDIA_UPLOADED` leaves the file name out for a binder upload, and so does
+`MEDIA_DELETED` for all three removal paths - the tenant-owner's take-out, the
+board's, and the rollback when an entry cannot be written. Both are the same
+`recordFileName: false`, which defaults to recording the name so that every
+other caller of the media layer is unchanged. The log is append-only and exempt
+from every purge, and a household's file name is its own words about its own
+home - the rule the initial share capital's entry already states. Taking an
+entry out is also how the board carries out an art. 17 request about one, so a
+name recorded there would have put the erasure's own subject permanently beyond
+reach. The name is still on the row and still served in the disposition.
+
+### A filing is refused on what would be stored, not on what arrived
+
+The title and the file name are both scanned for a personal identity number,
+and the refusal names which field and where and never the value. The file name
+is not decoration: it is stored on the row, answered in every household's
+listing and echoed in the download disposition, so a number in it reaches the
+next household exactly as a number in the title would.
+
+**The file name is scanned after sanitising, and that order is the rule rather
+than an implementation detail.** `safeFileName` strips the Unicode "other"
+category and path punctuation before the name is written, and stripping a
+character joins what it separated: `1981:1218-9876.pdf` carries no personal
+identity number for the scanner and is stored as one, and a zero-width space
+does the same through the other half of that expression. So the check runs on
+the value that will be written. One scan and not two: sanitising only removes
+characters, so any digit run that survives it was already in what arrived, and
+scanning both would report offsets into two different strings. An offset in a
+refusal points into the stored value, which is the string a reader would have
+been shown.
+
+The file's own contents cannot be scanned: nothing in the product reads a PDF's
+text, and the form says so, which is the honest version of a guarantee the
+platform cannot give.
 
 ## Consequences
 
@@ -199,6 +252,11 @@ The first service-tier record a later household reads. When the apartment
 changes hands nothing happens at all: the next household reads the binder from
 the day its residency begins and the last one stops on the day its residency
 ends.
+
+A board member reading one apartment's binder leaves a row per opening, which is
+new traffic in the audit log. It is bounded by how often a board opens a home's
+papers rather than by how many files a page shows, which is the distinction that
+keeps it from burying anything.
 
 An administrator who holds no seat cannot read a household's papers, cannot list
 the binders and is answered 404 for a binder file - including whoever operates a
@@ -272,5 +330,12 @@ household could fill the association's disk ten megabytes at a time.
   form's shape and a box of its own.
 - **Images or another format are wanted**, at which point the upload takes the
   identifiable-persons declaration the media layer requires.
+- **`safeFileName` changes what it does to a name.** The scan is run on its
+  output because it removes characters; a version that instead replaced or
+  re-encoded them, or that ran anywhere but before the write, would make the
+  order above wrong rather than merely redundant. The same question is worth
+  asking of any guard the product grows: a check on text that is transformed
+  before it is stored is a check on the wrong value, and the file name was the
+  one place in this product where that was true.
 - **The product moves its remaining current-residency checks to both ends**, at
   which point the binder's bound stops being stricter than the principal's.

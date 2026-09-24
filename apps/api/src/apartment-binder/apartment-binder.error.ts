@@ -14,7 +14,13 @@ export interface BinderTextLocation {
    * title does.
    */
   part: "title" | "fileName";
-  /** Where in that text the refused value starts. */
+  /**
+   * Where in that text the refused value starts.
+   *
+   * For a file name this is an offset into the name as it would have been
+   * stored, which is the string the check is run on and the one a reader would
+   * have been shown, rather than into the bytes of the upload.
+   */
   offset: number;
 }
 

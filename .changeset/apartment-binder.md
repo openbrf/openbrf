@@ -40,18 +40,29 @@ withholds, and it is withheld in the types rather than by a branch: an
 administrator who holds no seat - including whoever operates a hosted instance -
 is answered 404 for a household's papers, at the list and at the file alike. An
 association whose administrator needs to reach a binder gives them a seat. Every
-serve of a binder file to somebody reading it as the board is written to the
-audit log; a household reading its own binder is not, because its residency is
-the whole of that rule.
+board read of a binder is written to the audit log - the listing as well as the
+file, because the titles are what say what was done in somebody's home, and a
+board that could browse them silently would be the thing the capability was
+narrowed to prevent. The entry says which apartment and how many entries, never
+a title. A household reading its own binder is not logged, because its residency
+is the whole of that rule.
 
 A binder names nobody. An entry says whether the board or a tenant-owner filed
 it, and the reader is told which are their own, and that is all - one rule for
 every household rather than a rule with an exception for people who live
 together, which is also what protects a tenant-owner with protected personal
-data. The file name a household uploads stays off the audit log, which is
-append-only and exempt from every purge. A title carrying a personal identity
-number is refused, naming the field and never the number; the file itself cannot
-be read for one, and the form will say so.
+data. The file name a household uploads stays off the audit log, both when the
+file is filed and when it is taken out, because that log is append-only and
+exempt from every purge - and taking an entry out is how the board carries out
+a request to erase one, so a name left there would outlive the erasure itself.
+
+A title or a file name carrying a personal identity number is refused, naming
+the field and never the number. The file name is checked as it would be stored
+rather than as it arrived: the stored name has path punctuation and invisible
+characters taken out of it, and taking a character out can join what it
+separated, so a name that looked harmless on the way in could be written down
+as somebody's personnummer. The file itself cannot be read for one, and the
+form will say so.
 
 The files are encrypted at rest, each under a key of its own, like every other
 stored file, and the association's record of processing activities gains a row

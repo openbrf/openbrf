@@ -708,8 +708,14 @@ function holds(viewer: Principal, capabilityName: string): boolean {
  * is quoted and because a name that looks like a path invites somebody later to
  * treat it as one. It never reaches the file system either way: the storage key
  * is generated.
+ *
+ * Exported because a caller that refuses a name on what it says has to ask
+ * about this value and not about the one that arrived. Removing a character
+ * can join what it separated: "1981:1218-9876.pdf" carries no personal identity
+ * number until the colon goes, and then it carries one. Whoever checks a name
+ * therefore checks what will be written, which is what this returns.
  */
-function safeFileName(name: string): string {
+export function safeFileName(name: string): string {
   const cleaned = name
     // The Unicode "other" category: control, format, surrogate and unassigned.
     .replace(/\p{C}/gu, "")
