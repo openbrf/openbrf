@@ -408,6 +408,23 @@ export class ApartmentBinderService {
 
     const today = localDayOf(new Date());
 
+    /*
+     * How much was disclosed, never what. The log is append-only and exempt
+     * from every purge, so a title copied here would outlive the entry it
+     * described and the household that filed it.
+     *
+     * Filled by the read rather than counted beside it, which is why it is a
+     * value the callback writes into: `withAuditedRead` writes the entry after
+     * the read returns, so what lands in the log is the number of entries this
+     * caller was actually answered. A second count taken outside the
+     * transaction could differ from the listing by anything filed in between,
+     * and a statutory-tier row saying a board was shown three entries when it
+     * was shown four is worse than one saying nothing. The integration suite
+     * asserts the two agree, so the ordering this relies on cannot be changed
+     * without a test failing.
+     */
+    const disclosed: { entries: number } = { entries: 0 };
+
     return this.audit.withAuditedRead(
       {
         action: "APARTMENT_BINDER_READ",
@@ -415,10 +432,7 @@ export class ApartmentBinderService {
         actorPersonId,
         targetKind: "apartmentBinder",
         targetId: apartmentId,
-        // How much was disclosed, never what. The log is append-only and
-        // exempt from every purge, so a title copied here would outlive the
-        // entry it described and the household that filed it.
-        context: { entries: await this.entryCount(apartmentId) },
+        context: disclosed,
       },
       async (tx) => {
         const [rows, residencies] = await Promise.all([
@@ -434,6 +448,7 @@ export class ApartmentBinderService {
         ]);
 
         const filers = await this.filersOf(rows, tx);
+        disclosed.entries = rows.length;
 
         return {
           apartmentId: apartment.id,
@@ -455,11 +470,6 @@ export class ApartmentBinderService {
         };
       },
     );
-  }
-
-  /** How many entries the apartment's binder holds, for the audit entry. */
-  private async entryCount(apartmentId: string): Promise<number> {
-    return this.prisma.apartmentDocument.count({ where: { apartmentId } });
   }
 
   /** Files one entry as the board, into any apartment's binder. */

@@ -740,9 +740,16 @@ describe("the board's way in", () => {
       targetKind: "apartmentBinder",
       targetId: apartmentId,
     });
-    // A count of what was disclosed, never a title: the log is append-only and
-    // exempt from every purge.
-    expect(entries[0]?.context).toMatchObject({ entries: expect.any(Number) });
+    /*
+     * A count of what was disclosed, never a title: the log is append-only and
+     * exempt from every purge. The count is asserted against the answer rather
+     * than against a literal, because the point of it is that the log says how
+     * many entries this caller was shown - a number taken beside the read
+     * instead of from it could differ by whatever was filed in between.
+     */
+    const shown = (response.json() as BoardBinderBody).entries.length;
+    expect(shown).toBeGreaterThan(0);
+    expect(entries[0]?.context).toMatchObject({ entries: shown });
     expect(JSON.stringify(entries[0]?.context)).not.toContain("Tillstand");
   });
 
