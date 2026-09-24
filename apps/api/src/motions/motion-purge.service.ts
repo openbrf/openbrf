@@ -6,6 +6,10 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  motionsErasedOnRequest,
+  remainingRunBound,
+} from "../retention/erasure-domains";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   erasureRequestedPersonIds,
@@ -37,6 +41,10 @@ const PURGE_CRON = "29 3 * * *";
  * instance that has been taking motions for years, or the day the retention
  * window is shortened. Nothing is lost by stopping - eligibility is computed from
  * the data rather than marked on it, so the next night's run finds the rest.
+ *
+ * The people a granted erasure request names are taken before it and cannot be
+ * cut by it, because that argument does not hold for them:
+ * `retention/erasure-domains.ts` has the whole of why.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
@@ -188,11 +196,13 @@ export class MotionPurgeService implements OnModuleInit {
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
-        `Motion purge stopped at its per-run bound of ${String(
+        `Motion purge reached its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
-        )}; the rest are erased by the next run.`,
+        )} people. Everybody a granted erasure request names was taken ` +
+          "first and the retention window took what was left of the bound, " +
+          "so what waits for a later run is people on the window alone.",
       );
     }
 
@@ -218,6 +228,13 @@ export class MotionPurgeService implements OnModuleInit {
    *
    * The hold is checked again inside the transaction that deletes. That is the
    * check that counts.
+   *
+   * Two queries rather than one, for the bound's sake. The people a granted
+   * erasure request names are taken first and are not counted against it: they
+   * are erased on a flag the service-data purge clears the same night, so one
+   * pushed off the end of a bounded run is one no later run would select, and
+   * the bound's promise that the next run finds the rest is the one promise
+   * that does not hold for them.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = motionPurgeCutoff(now, retentionDays);
@@ -226,43 +243,54 @@ export class MotionPurgeService implements OnModuleInit {
       (personId) => !withheld.includes(personId),
     );
 
-    const groups = await this.prisma.motion.groupBy({
-      by: ["submittedByPersonId"],
-      where: {
-        // Both halves, and the first is not implied by the second: a null closing
-        // date is not less than or equal to anything, but stating it makes the
-        // rule readable as the rule it is - an open motion is out of scope
-        // however old it is.
-        //
-        // That stays true for a granted erasure request, which is the one place
-        // in the band where bringing the purge forward does not reach
-        // everything: an open motion is a matter the association is still
-        // dealing with, and the member who put it has a right to have it dealt
-        // with. The request reaches their closed motions early and waits for
-        // the rest.
-        closedAt: {
-          not: null,
-          ...(requested.length > 0 ? {} : { lte: cutoff }),
-        },
-        ...(requested.length > 0
-          ? {
-              OR: [
-                { closedAt: { lte: cutoff } },
-                { submittedByPersonId: { in: requested } },
-              ],
-            }
-          : {}),
-        // Spelled conditionally rather than as an empty `notIn`, so what the
-        // query asks does not depend on how the client renders a list of none.
-        ...(withheld.length > 0
-          ? { submittedByPersonId: { notIn: withheld } }
-          : {}),
-      },
-      orderBy: [{ submittedByPersonId: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-    });
+    /*
+     * Their closed motions, however recently closed. This is the one place in
+     * the band where bringing the purge forward does not reach everything: an
+     * open motion is a matter the association is still dealing with, and the
+     * member who put it has a right to have it dealt with. The request reaches
+     * their closed motions early and waits for the rest, and the service-data
+     * purge holds the request open while one of them stands rather than
+     * recording an erasure that has not happened.
+     *
+     * Asked with the expression the delete and that job's count both use, so
+     * what the scan looks for, what is erased and what is verified gone are one
+     * rule written once.
+     */
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.motion.groupBy({
+            by: ["submittedByPersonId"],
+            where: motionsErasedOnRequest({ in: requested }, now),
+            orderBy: [{ submittedByPersonId: "asc" }],
+            take: requested.length,
+          });
 
-    return groups.map((group) => group.submittedByPersonId);
+    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const excluded = [...withheld, ...requested];
+    const expired =
+      bound === 0
+        ? []
+        : await this.prisma.motion.groupBy({
+            by: ["submittedByPersonId"],
+            where: {
+              // Both halves, and the first is not implied by the second: a null
+              // closing date is not less than or equal to anything, but stating
+              // it makes the rule readable as the rule it is - an open motion is
+              // out of scope however old it is.
+              closedAt: { not: null, lte: cutoff },
+              // Spelled conditionally rather than as an empty `notIn`, so what
+              // the query asks does not depend on how the client renders a list
+              // of none.
+              ...(excluded.length > 0
+                ? { submittedByPersonId: { notIn: excluded } }
+                : {}),
+            },
+            orderBy: [{ submittedByPersonId: "asc" }],
+            take: bound,
+          });
+
+    return [...onRequest, ...expired].map((group) => group.submittedByPersonId);
   }
 
   /**
@@ -329,15 +357,17 @@ export class MotionPurgeService implements OnModuleInit {
         },
         select: { id: true },
       });
-      const effectiveCutoff = request === null ? cutoff : now;
-
       const { count } = await tx.motion.deleteMany({
-        where: {
-          submittedByPersonId: personId,
-          // An open motion is still out of scope, request or no request:
-          // it is a matter the association is still dealing with.
-          closedAt: { not: null, lte: effectiveCutoff },
-        },
+        where:
+          request === null
+            ? {
+                submittedByPersonId: personId,
+                closedAt: { not: null, lte: cutoff },
+              }
+            : // An open motion is still out of scope, request or no request: it
+              // is a matter the association is still dealing with, which is why
+              // this expression rather than a cutoff moved to now.
+              motionsErasedOnRequest(personId, now),
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them

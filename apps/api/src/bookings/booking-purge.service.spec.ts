@@ -62,40 +62,35 @@ function build(options: {
   const groupBy = vi.fn(
     async (args: {
       where: {
-        OR: (
-          { endsAt: { lte: Date } } | { bookedByPersonId: { in: string[] } }
-        )[];
-        bookedByPersonId?: { notIn: string[] };
+        endsAt?: { lte: Date };
+        bookedByPersonId?: { in?: string[]; notIn?: string[] };
       };
       take: number;
     }) => {
-      const excluded = new Set(args.where.bookedByPersonId?.notIn ?? []);
-
       /*
-       * The OR is honoured rather than assumed, for the reason the whole fake
-       * exists: a booking is selected either because its own window has run out
-       * or because the person was granted erasure, and a fake that only checked
-       * the date would pass a service that had forgotten the second half.
+       * Two queries, honoured as two, for the reason the whole fake exists. A
+       * run asks first for the people a granted erasure request names, with an
+       * `in` and no date at all - every booking of theirs goes, a laundry slot
+       * next month included - and then for the people its own window selected,
+       * with the first list excluded and a `take` of what is left of the bound.
+       * A fake that merged them would pass a service that had put the requested
+       * people back inside the bound, or one that had gone back to erasing only
+       * their expired bookings.
        */
-      const expiredBefore = args.where.OR.find(
-        (clause): clause is { endsAt: { lte: Date } } => "endsAt" in clause,
-      )?.endsAt.lte;
-      const requestedIds = new Set(
-        args.where.OR.find(
-          (clause): clause is { bookedByPersonId: { in: string[] } } =>
-            "bookedByPersonId" in clause,
-        )?.bookedByPersonId.in ?? [],
-      );
+      const requestedIds = args.where.bookedByPersonId?.in;
+      const excluded = new Set(args.where.bookedByPersonId?.notIn ?? []);
+      const expiredBefore = args.where.endsAt?.lte;
 
       const ids = [
         ...new Set(
           options.bookings
             .filter(
               (booking) =>
-                ((expiredBefore !== undefined &&
-                  booking.endsAt.getTime() <= expiredBefore.getTime()) ||
-                  requestedIds.has(booking.bookedByPersonId)) &&
-                !excluded.has(booking.bookedByPersonId),
+                (expiredBefore === undefined ||
+                  booking.endsAt.getTime() <= expiredBefore.getTime()) &&
+                (requestedIds === undefined
+                  ? !excluded.has(booking.bookedByPersonId)
+                  : requestedIds.includes(booking.bookedByPersonId)),
             )
             .map((booking) => booking.bookedByPersonId),
         ),
@@ -286,6 +281,43 @@ describe("choosing who a run erases for", () => {
     await expect(service.eligible(NOW, RETENTION_DAYS)).resolves.toEqual([
       "zz",
     ]);
+  });
+
+  it("reaches a person a granted request names from behind a run's worth of expiries", async () => {
+    /*
+     * The bound is applied by the database, and a granted erasure request is
+     * not a date: the service-data purge closes it the same night, so a person
+     * cut off the end of this run is one no later run selects, and their
+     * bookings sit past the date the board granted while the request says it
+     * was carried out. That is why the requested people are a query of their
+     * own, taken first and not cut by the bound.
+     */
+    const expiredPersonIds = Array.from(
+      { length: MAX_PERSONS_PER_RUN },
+      (_unused, index) => `aa-${String(index).padStart(4, "0")}`,
+    );
+    const { service } = build({
+      bookings: [
+        ...expiredPersonIds.map(expiredBookingFor),
+        // Booked for next month, so nothing but the request selects them, and
+        // sorting last so the bound is what would drop them.
+        {
+          bookedByPersonId: "zz",
+          endsAt: new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000),
+        },
+      ],
+      erasureRequestedPersonIds: ["zz"],
+    });
+
+    const eligible = await service.eligible(NOW, RETENTION_DAYS);
+
+    // Taken first, and a run's worth of people still: what the bound now cuts
+    // is the tail of the window rather than somebody the request named.
+    expect(eligible[0]).toBe("zz");
+    expect(eligible).toHaveLength(MAX_PERSONS_PER_RUN);
+    expect(eligible).not.toContain(
+      expiredPersonIds[expiredPersonIds.length - 1],
+    );
   });
 
   it("asks for no exclusion when nobody is held", async () => {

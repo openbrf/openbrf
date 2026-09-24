@@ -95,6 +95,16 @@ const IDENTITY_NUMBER = runIdentityNumber(suffix);
 const addressId = `purge-address-${suffix}`;
 
 /**
+ * The two motions the motion purge is standing in for here.
+ *
+ * Named so the suite can remove them itself: the closed one is deleted by a
+ * test, standing in for the night that purge finally gets through, and the open
+ * one outlives every assertion by design.
+ */
+const closedMotionId = `purge-motion-closed-${suffix}`;
+const openMotionId = `purge-motion-open-${suffix}`;
+
+/**
  * The connected app one of the fixture's accounts authorised.
  *
  * Named here because the clean-up has to find the client row: a client is
@@ -149,6 +159,19 @@ const people = {
   requested: `purge-requested-${suffix}`,
   /** Granted erasure and never held a residency at all. */
   neverResident: `purge-never-${suffix}`,
+  /**
+   * Granted erasure, with a closed motion of theirs still on file.
+   *
+   * The motion purge runs at 03:29 and this job at 03:53. This is what the
+   * database looks like when the earlier job threw for this person, stopped at
+   * its bound before reaching them, or did not run at all: the rows it owes are
+   * still there when the closing job arrives.
+   */
+  unfinished: `purge-unfinished-${suffix}`,
+  /** Granted erasure, with a motion of theirs the association has not closed. */
+  openMotion: `purge-open-motion-${suffix}`,
+  /** Granted erasure and a legal hold, which the purge must not overrule. */
+  heldRequest: `purge-held-request-${suffix}`,
   /**
    * Filed an issue, uploaded a document and a photograph, and filed an entry
    * into an apartment binder.
@@ -218,6 +241,20 @@ async function personRow(personId: string) {
       personalIdentityNumberCipher: true,
       preferredLocale: true,
     },
+  });
+}
+
+/** The granted erasure request still open for this person. */
+async function openErasureRequestFor(personId: string) {
+  return prisma.dataSubjectRequest.findFirstOrThrow({
+    where: {
+      personId,
+      kind: "ERASURE",
+      decision: "GRANTED",
+      executedAt: null,
+      closedAt: null,
+    },
+    select: { executedAt: true, closedAt: true },
   });
 }
 
@@ -330,6 +367,41 @@ beforeAll(async () => {
     actorPersonId: people.board,
   });
 
+  await holds.place({
+    personId: people.heldRequest,
+    reason: "Forsakringsarende om vattenskada",
+    actorPersonId: people.board,
+  });
+
+  /*
+   * Motions the motion purge has not erased. `unfinished`'s is closed, so it is
+   * a row that purge owes and has not taken; `openMotion`'s is open, which that
+   * purge leaves standing whatever the board granted - EFL 6 kap. 15 gives the
+   * member who put it the right to have it treated at the meeting.
+   */
+  await prisma.motion.createMany({
+    data: [
+      {
+        id: closedMotionId,
+        title: `Byt portkod ${suffix}`,
+        body: "Portkoden har varit densamma i fem ar.",
+        submittedByPersonId: people.unfinished,
+        submittedAt: new Date("2015-01-10T00:00:00.000Z"),
+        status: "ACKNOWLEDGED" as const,
+        closedAt: new Date("2015-05-10T00:00:00.000Z"),
+      },
+      {
+        id: openMotionId,
+        title: `Laddstolpar ${suffix}`,
+        body: "Foreningen bor utreda laddstolpar pa garden.",
+        submittedByPersonId: people.openMotion,
+        submittedAt: new Date("2015-01-10T00:00:00.000Z"),
+        status: "SUBMITTED" as const,
+        closedAt: null,
+      },
+    ],
+  });
+
   // A restriction under GDPR art. 18: the association keeps the data and stops
   // using it, so the one act it may not perform is the one this job performs.
   await prisma.person.update({
@@ -337,10 +409,18 @@ beforeAll(async () => {
     data: { processingRestrictedAt: new Date("2026-01-15T00:00:00.000Z") },
   });
 
-  // Two granted erasure requests. One from somebody whose retention window is
-  // still running, one from somebody who never lived here at all.
+  // The granted erasure requests. One from somebody whose retention window is
+  // still running, one from somebody who never lived here at all, and three
+  // the closing job must not call carried out: a job ahead of it left rows, a
+  // motion of theirs is still open, and a legal hold stands.
   await prisma.dataSubjectRequest.createMany({
-    data: [people.requested, people.neverResident].map((personId) => ({
+    data: [
+      people.requested,
+      people.neverResident,
+      people.unfinished,
+      people.openMotion,
+      people.heldRequest,
+    ].map((personId) => ({
       personId,
       kind: "ERASURE" as const,
       requestedOn: new Date("2026-01-10T00:00:00.000Z"),
@@ -717,6 +797,10 @@ afterAll(async () => {
         () =>
           prisma.mediaFile.deleteMany({
             where: { id: { in: [photoFileId, documentFileId, binderFileId] } },
+          }),
+        () =>
+          prisma.motion.deleteMany({
+            where: { submittedByPersonId: { in: personIds } },
           }),
         () =>
           prisma.dataSubjectRequest.deleteMany({
@@ -1217,6 +1301,182 @@ describe("an erasure request the board has granted", () => {
   });
 });
 
+describe("closing a granted erasure request on evidence", () => {
+  it("erases its own share and leaves the request open while a job ahead of it owes rows", async () => {
+    /*
+     * The defect this exists for. Running the domain purges first settles how
+     * quickly a granted erasure finishes and not whether it finished: the
+     * motion purge threw for this person, or stopped at its bound before
+     * reaching them, and its rows are still here. Closing the request now would
+     * be the association recording an erasure it had not carried out, and no
+     * later run would come back for the rest - every job that reads the request
+     * selects only open ones.
+     */
+    const outcome = await purge.purgePerson(
+      people.unfinished,
+      dueAt,
+      retentionDays,
+    );
+
+    expect(outcome).not.toBeNull();
+    // The contact details still go tonight. What waits is the record, not the
+    // erasure: holding this back would leave them on file for as long as the
+    // motion did.
+    expect(outcome?.cleared).toEqual(expect.arrayContaining(["email"]));
+    expect(outcome?.erasureRequestClosed).toBe(false);
+    expect(outcome?.erasureRemainder).toEqual([
+      { domain: "motions", owed: 1, kept: 0 },
+    ]);
+
+    const request = await openErasureRequestFor(people.unfinished);
+    expect(request.executedAt).toBeNull();
+    expect(request.closedAt).toBeNull();
+  });
+
+  it("records what was still standing in the entry for the night it could not close", async () => {
+    const [entry] = await purgeEntriesFor(people.unfinished);
+    const context = entry?.context as Record<string, unknown>;
+
+    expect(context.requested).toBe(true);
+    expect(context.erasureRequestLeftOpen).toEqual([
+      "motions: 1 not erased yet",
+    ]);
+    expect(context).not.toHaveProperty("verifiedEmptyOf");
+  });
+
+  it("writes no second entry on a night it still cannot close", async () => {
+    // The person is selected every night while the request is open, and there
+    // is nothing left for this job to clear. An entry each time would be one a
+    // night for ever, in a table nobody can tidy.
+    await expect(
+      purge.purgePerson(people.unfinished, dueAt, retentionDays),
+    ).resolves.toBeNull();
+
+    await expect(purgeEntriesFor(people.unfinished)).resolves.toHaveLength(1);
+  });
+
+  it("closes the request on the next run once the rows are gone", async () => {
+    // The night the motion purge finally gets through them.
+    await prisma.motion.delete({ where: { id: closedMotionId } });
+
+    const outcome = await purge.purgePerson(
+      people.unfinished,
+      dueAt,
+      retentionDays,
+    );
+
+    expect(outcome?.erasureRequestClosed).toBe(true);
+    expect(outcome?.erasureRemainder).toEqual([]);
+
+    const request = await prisma.dataSubjectRequest.findFirstOrThrow({
+      where: { personId: people.unfinished, kind: "ERASURE" },
+      select: { executedAt: true, closedAt: true, closeReason: true },
+    });
+    expect(request.executedAt).not.toBeNull();
+    expect(request.closedAt).not.toBeNull();
+    expect(request.closeReason).toBe("purged");
+  });
+
+  it("names the domains it verified empty in the entry that closes it", async () => {
+    const entries = await purgeEntriesFor(people.unfinished);
+    const context = entries[entries.length - 1]?.context as Record<
+      string,
+      unknown
+    >;
+
+    /*
+     * The evidence the close rests on, in the one record that outlives the
+     * rows. Names and nothing out of them: this entry is exempt from every
+     * purge, so a title or a line of chat copied in here would be the one copy
+     * the erasure did not reach - ADR 0007.
+     */
+    expect(context.verifiedEmptyOf).toEqual([
+      "bookings",
+      "chat messages",
+      "event sign-ups",
+      "motions",
+      "news comments",
+    ]);
+  });
+
+  it("keeps the request open while a motion of theirs is still open", async () => {
+    /*
+     * The one row in the product a granted erasure does not reach. EFL 6 kap.
+     * 15 gives the member who put it the right to have it treated at the
+     * meeting, so the motion purge leaves it standing - and the request says so
+     * rather than claiming an erasure that has not happened.
+     */
+    const outcome = await purge.purgePerson(
+      people.openMotion,
+      dueAt,
+      retentionDays,
+    );
+
+    expect(outcome?.erasureRequestClosed).toBe(false);
+    expect(outcome?.erasureRemainder).toEqual([
+      {
+        domain: "motions",
+        owed: 0,
+        kept: 1,
+        keptBecause:
+          "an open motion is a matter the association is still dealing with",
+      },
+    ]);
+
+    const request = await openErasureRequestFor(people.openMotion);
+    expect(request.executedAt).toBeNull();
+  });
+
+  it("leaves a held person's request open and does not touch their data", async () => {
+    // A hold is the board deciding it needs the data. The request waits for the
+    // hold to be released, and this job neither erases nor closes anything.
+    await expect(
+      purge.purgePerson(people.heldRequest, dueAt, retentionDays),
+    ).resolves.toBeNull();
+
+    expect((await personRow(people.heldRequest)).emailCipher).not.toBeNull();
+    await expect(
+      openErasureRequestFor(people.heldRequest),
+    ).resolves.toBeDefined();
+  });
+
+  it("takes the people a granted request names before anybody the window selected", async () => {
+    /*
+     * The per-run bound is applied by the database, and these people are
+     * selected by a flag this job clears rather than by a date. Somebody cut
+     * off the end of a bounded run is somebody no later run would select, so
+     * they are taken first and the window takes what is left.
+     */
+    const eligible = await purge.eligible(dueAt, retentionDays);
+    const requested = new Set(
+      (
+        await prisma.dataSubjectRequest.findMany({
+          where: {
+            kind: "ERASURE",
+            decision: "GRANTED",
+            executedAt: null,
+            closedAt: null,
+          },
+          select: { personId: true },
+        })
+      ).map((row) => row.personId),
+    );
+
+    const lastRequested = eligible.reduce(
+      (last, personId, index) => (requested.has(personId) ? index : last),
+      -1,
+    );
+    const firstOther = eligible.findIndex(
+      (personId) => !requested.has(personId),
+    );
+
+    expect(lastRequested).toBeGreaterThanOrEqual(0);
+    if (firstOther >= 0) {
+      expect(lastRequested).toBeLessThan(firstOther);
+    }
+  });
+});
+
 describe("running the job", () => {
   it("is idempotent: a second run writes no second entry", async () => {
     const first = await purge.purgePerson(people.twice, dueAt);
@@ -1283,6 +1543,65 @@ describe("running the job", () => {
     await expect(
       prisma.oauthConsent.count({ where: { clientId: SWEPT_APP_CLIENT_ID } }),
     ).resolves.toBe(1);
+  });
+});
+
+describe("what a run says about the erasures it did not finish", () => {
+  it("tells a request held open by a hold from one held open by work not done", async () => {
+    const summary = await purge.run(dueAt);
+
+    const held = summary.erasureRequestsOpen.find(
+      (open) => open.personId === people.heldRequest,
+    );
+    const openMotion = summary.erasureRequestsOpen.find(
+      (open) => open.personId === people.openMotion,
+    );
+
+    /*
+     * Both are open and neither is a fault, which is the distinction the
+     * summary exists to draw: a run that reported them the way it reports a
+     * failure would send somebody looking for a broken job every night a hold
+     * stood, and one that reported a failure the way it reports a hold would
+     * hide the only case anybody has to act on.
+     */
+    expect(held?.status).toBe("blocked");
+    expect(held?.because).toContain("a legal hold stands");
+    expect(openMotion?.status).toBe("blocked");
+    expect(openMotion?.because).toContain("motions: 1 kept because");
+
+    // And a held person is not a failure: nothing threw, and the count that
+    // would send somebody to the log stays at nothing.
+    expect(summary.failed).toBe(0);
+  });
+
+  it("reports a request as incomplete while a job ahead of it owes rows", async () => {
+    /*
+     * Put the motion back, the way the night before a failing motion purge
+     * leaves the database, and the same request is reported the other way.
+     */
+    await prisma.motion.create({
+      data: {
+        id: closedMotionId,
+        title: `Byt portkod igen ${suffix}`,
+        body: "Portkoden har varit densamma i fem ar till.",
+        submittedByPersonId: people.unfinished,
+        submittedAt: new Date("2015-01-10T00:00:00.000Z"),
+        status: "ACKNOWLEDGED",
+        closedAt: new Date("2015-05-10T00:00:00.000Z"),
+      },
+    });
+    await prisma.dataSubjectRequest.updateMany({
+      where: { personId: people.unfinished, kind: "ERASURE" },
+      data: { executedAt: null, closedAt: null, closeReason: null },
+    });
+
+    const summary = await purge.run(dueAt);
+    const unfinished = summary.erasureRequestsOpen.find(
+      (open) => open.personId === people.unfinished,
+    );
+
+    expect(unfinished?.status).toBe("incomplete");
+    expect(unfinished?.because).toBe("motions: 1 not erased yet");
   });
 });
 

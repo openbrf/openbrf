@@ -13,6 +13,13 @@ import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
 } from "./connected-app-token-sweep";
+import {
+  describeRemainder,
+  ERASURE_DOMAINS,
+  erasureRemainder,
+  remainingRunBound,
+  type ErasureRemainder,
+} from "./erasure-domains";
 import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
 import { purgeCutoff } from "./purge-window";
@@ -39,7 +46,7 @@ export const SERVICE_DATA_PURGE_QUEUE = "service-data-purge";
 const PURGE_CRON = "53 3 * * *";
 
 /**
- * The most people one run erases.
+ * The most people one run erases off the retention policy's clock.
  *
  * A cooperative is 20 to 200 households, so this is never reached in ordinary
  * running. It exists for the day a board shortens the retention policy from
@@ -48,6 +55,11 @@ const PURGE_CRON = "53 3 * * *";
  * pool for as long as it took. The remainder is not lost - the next night's
  * run finds it, because eligibility is computed from the data rather than
  * marked on it.
+ *
+ * The people a granted erasure request names are taken before it and cannot be
+ * cut by it: they are selected by a flag rather than by a date, and this job is
+ * what clears it, so a run exceeds this number only where there are more open
+ * granted requests than it. `erasure-domains.ts` has the whole of why.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
@@ -68,6 +80,50 @@ export interface PurgeOutcome {
   /** Entries in an apartment binder whose filer link was detached. */
   binderEntriesDetachedFromPerson: number;
   mediaDetachedFromPerson: number;
+  /**
+   * Whether a granted erasure request was marked executed and closed.
+   *
+   * False where there was none, and false where there was one the run could not
+   * yet call carried out: {@link PurgeOutcome.erasureRemainder} then says what
+   * was still standing.
+   */
+  erasureRequestClosed: boolean;
+  /** What each erasure-aware domain still held, where any of them held rows. */
+  erasureRemainder: ErasureRemainder[];
+}
+
+/**
+ * Why a granted erasure request is still open when a run ends.
+ *
+ * Two answers and they mean opposite things. "blocked" is the product working as
+ * it is meant to: a legal hold, a restriction, a board seat, a system role, a
+ * residency that has not ended or a motion the association is still dealing
+ * with is keeping rows the purge must not take, and the request waits for that
+ * to change. "incomplete" is work that was owed and did not happen: a run that
+ * threw for this person, a reader that has not got through them, a night the
+ * instance was down. The first is expected and logged as such; the second is a
+ * fault and is warned about, because nothing else would report it.
+ *
+ * Not the word this product already uses for a person whose personal data is
+ * protected (skyddade personuppgifter), which every service that returns a
+ * person to a screen answers with and which a debiting list and a fee notice
+ * print in the cell where a name would go. A log line saying it beside a person
+ * id would be a false signal for an ordinary member and would read as a
+ * disclosure for a real one.
+ */
+export type ErasureRequestStatus = "blocked" | "incomplete";
+
+/** One granted erasure request the run left open, and what it is waiting on. */
+export interface OpenErasureRequest {
+  personId: string;
+  status: ErasureRequestStatus;
+  /**
+   * What is standing in the way, in names and counts.
+   *
+   * Never a value out of any of those rows - what somebody wrote in a room or
+   * proposed to a meeting is not something a log line may carry (ADR 0007).
+   */
+  because: string;
 }
 
 export interface PurgeRunSummary {
@@ -86,6 +142,15 @@ export interface PurgeRunSummary {
    * has run out has run out whoever it was issued for.
    */
   tokensSwept: ConnectedAppTokenSweepOutcome;
+  /**
+   * Granted erasure requests still open when the run ended, and why each one is.
+   *
+   * The run's own account of the erasures it did not finish. A request that
+   * closed is not here, and one that is has a reason rather than a silence:
+   * before this existed, a request the purge could not carry out was left open
+   * by a `return null` that wrote nothing anywhere.
+   */
+  erasureRequestsOpen: OpenErasureRequest[];
 }
 
 /**
@@ -148,6 +213,14 @@ export interface PurgeRunSummary {
  * rewriting its own records.
  *
  * ## Erasure requests and restrictions
+ *
+ * This is the job that marks a granted erasure request executed and closes it,
+ * and closing it ends the erasure: every job that reads the request selects
+ * only open ones. So it closes a request only once it has counted what each
+ * erasure-aware domain still holds for that person and found nothing -
+ * `erasure-domains.ts` holds the registry and ADR 0016 the decision. Running
+ * the other jobs first settles how quickly an erasure finishes; this settles
+ * whether it finished.
  *
  * A granted erasure request brings this run forward for one person: the same
  * data is erased, on the same rules, only sooner - the retention window and the
@@ -237,6 +310,14 @@ export class PurgeService implements OnModuleInit {
 
     let purged = 0;
     let failed = 0;
+    /*
+     * Who the loop threw for, so the account taken below can tell a request
+     * left open by a failure from one left open by a hold. The two look
+     * identical in the database - a granted request with no executedAt - and
+     * telling them apart is the difference between a board waiting for a date
+     * and a board waiting for somebody to look at a log.
+     */
+    const failedPersonIds = new Set<string>();
     for (const personId of personIds) {
       try {
         const outcome = await this.purgePerson(personId, now, retentionDays);
@@ -250,6 +331,7 @@ export class PurgeService implements OnModuleInit {
         // happen, and a failed transaction wrote no audit entry to carry it -
         // ADR 0007.
         failed += 1;
+        failedPersonIds.add(personId);
         this.logger.error(
           `Purge failed for person ${personId}: ${failureName(error)}`,
         );
@@ -263,12 +345,39 @@ export class PurgeService implements OnModuleInit {
         )} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
-        `Purge stopped at its per-run bound of ${String(
+        `Purge reached its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
-        )}; the rest are erased by the next run.`,
+        )} people. Everybody a granted erasure request names was taken ` +
+          "first and the retention policy's clock took what was left of the " +
+          "bound, so what waits for a later run is people on that clock alone.",
       );
+    }
+
+    /*
+     * Every granted request that is still open, with what it is waiting on.
+     * Taken after the loop and read from the database rather than assembled
+     * from it, so a request somebody granted while the run was in flight is in
+     * the account too, and so is one this job never selected.
+     */
+    const erasureRequestsOpen = await this.openErasureRequests(
+      now,
+      failedPersonIds,
+    );
+    for (const open of erasureRequestsOpen) {
+      const line =
+        `Granted erasure request for person ${open.personId} stays open ` +
+        `(${open.status}): ${open.because}`;
+      if (open.status === "blocked") {
+        // Expected: something the purge must not overrule is keeping the rows,
+        // and the request waits for it rather than for anybody.
+        this.logger.log(line);
+      } else {
+        // Owed and not done. Nothing else reports it: the request looks the
+        // same in the database either way, and the next run is what fixes it.
+        this.logger.warn(line);
+      }
     }
 
     /*
@@ -288,7 +397,103 @@ export class PurgeService implements OnModuleInit {
       );
     }
 
-    return { considered: personIds.length, purged, failed, tokensSwept };
+    return {
+      considered: personIds.length,
+      purged,
+      failed,
+      tokensSwept,
+      erasureRequestsOpen,
+    };
+  }
+
+  /**
+   * Every granted erasure request still open when a run ended, and why.
+   *
+   * Asked of the database rather than of the loop, because the question is what
+   * is true now: a request granted while the run was in flight is open and
+   * unstarted, a request whose person the bound did not reach is open and
+   * untouched, and both belong in the account.
+   *
+   * @param failedPersonIds People this run's own erasure threw for.
+   */
+  private async openErasureRequests(
+    now: Date,
+    failedPersonIds: ReadonlySet<string>,
+  ): Promise<OpenErasureRequest[]> {
+    const open: OpenErasureRequest[] = [];
+    for (const personId of await erasureRequestedPersonIds(this.prisma)) {
+      const remainder = await erasureRemainder(this.prisma, personId, now);
+      const described = remainder.map(describeRemainder).join("; ");
+
+      if (failedPersonIds.has(personId)) {
+        // The failure first, whatever else is standing: it is the thing that
+        // happened tonight and the thing somebody has to look at.
+        open.push({
+          personId,
+          status: "incomplete",
+          because: join("the erasure failed for them on this run", described),
+        });
+        continue;
+      }
+
+      const refusal = await this.purgeRefusalFor(personId, now);
+      if (refusal !== null) {
+        open.push({
+          personId,
+          status: "blocked",
+          because: join(refusal, described),
+        });
+      } else if (remainder.some((domain) => domain.owed > 0)) {
+        // A job that reads granted requests has not got through this person:
+        // it threw for them, stopped at its bound, or did not run at all.
+        open.push({ personId, status: "incomplete", because: described });
+      } else if (remainder.length > 0) {
+        // Only rows a domain keeps on purpose are left. The erasure has gone as
+        // far as it can go, and the request says so rather than claiming to be
+        // carried out.
+        open.push({ personId, status: "blocked", because: described });
+      } else {
+        /*
+         * Nothing owed, nothing kept and nothing refusing, so the request would
+         * have closed had this run reached the person. The per-run bound is
+         * what is left, and the next run takes them.
+         */
+        open.push({
+          personId,
+          status: "incomplete",
+          because: "this run did not reach them",
+        });
+      }
+    }
+    return open;
+  }
+
+  /**
+   * What refuses this person's purge, or null where nothing does.
+   *
+   * The scan's rules asked one person at a time, so a request left open has a
+   * reason that names the same thing the query filtered on. A granted request
+   * is the authority here, so the cutoff is now and a past residency is not
+   * required - every other refusal stands.
+   */
+  private async purgeRefusalFor(
+    personId: string,
+    now: Date,
+  ): Promise<string | null> {
+    const person = await this.prisma.person.findUnique({
+      where: { id: personId },
+      select: {
+        processingRestrictedAt: true,
+        residencies: { select: { movedOutOn: true } },
+        boardPositions: { select: { endedOn: true } },
+        systemRoles: { select: { role: true } },
+        legalHolds: { where: { releasedAt: null }, select: { id: true } },
+      },
+    });
+    if (person === null) {
+      return "the person row is gone";
+    }
+    return purgeRefusal(person, now, now, true);
   }
 
   /**
@@ -337,43 +542,23 @@ export class PurgeService implements OnModuleInit {
     const requested = await erasureRequestedPersonIds(this.prisma);
     const withheld = new Set(await withheldPersonIds(this.prisma));
 
-    const persons = await this.prisma.person.findMany({
-      where: {
-        residencies: { some: {} },
-        // Every residency ended, and every one of them long enough ago. Said
-        // as "none is still running" rather than "all ended", because Prisma's
-        // `every` is satisfied by a person with no residencies at all.
-        NOT: {
-          residencies: {
-            some: {
-              OR: [{ movedOutOn: null }, { movedOutOn: { gt: cutoff } }],
-            },
-          },
-        },
-        boardPositions: {
-          none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-        },
-        systemRoles: { none: {} },
-        legalHolds: { none: { releasedAt: null } },
-        processingRestrictedAt: null,
-        OR: [...clearableStates(defaultLocale), { id: { in: referencedIds } }],
-      },
-      orderBy: [{ createdAt: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-      select: { id: true },
-    });
-
     /*
-     * A granted erasure request replaces two of the conditions above and
+     * A granted erasure request replaces two of the conditions below and
      * nothing else: the retention window, and the requirement of a past
      * residency at all. A person who asked to be erased and never lived here -
      * an external board member, an administrator - has service data like
      * anybody else and no move-out to anchor a date on.
      *
-     * Every other refusal still stands, which is why this is a second query
-     * rather than a relaxed version of the first: a person who still lives
+     * Every other refusal still stands, which is why this is a query of its own
+     * rather than a relaxed version of the one below: a person who still lives
      * here, sits on the board, holds a system role or is under a hold is not
      * erased because they asked, and the board is told which of those it was.
+     *
+     * Taken first, and what is left of the bound is what the query below may
+     * take. These people are selected by a flag that this job clears, so one
+     * pushed off the end of a bounded run is one no later run would select -
+     * the single case where the bound's promise that the next run finds the
+     * rest does not hold.
      */
     const onRequest =
       requested.length === 0
@@ -396,19 +581,57 @@ export class PurgeService implements OnModuleInit {
               processingRestrictedAt: null,
             },
             orderBy: [{ createdAt: "asc" }],
-            take: MAX_PERSONS_PER_RUN,
+            take: requested.length,
+            select: { id: true },
+          });
+
+    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const persons =
+      bound === 0
+        ? []
+        : await this.prisma.person.findMany({
+            where: {
+              residencies: { some: {} },
+              // Every residency ended, and every one of them long enough
+              // ago. Said as "none is still running" rather than "all
+              // ended", because Prisma's `every` is satisfied by a person
+              // with no residencies at all.
+              NOT: {
+                residencies: {
+                  some: {
+                    OR: [{ movedOutOn: null }, { movedOutOn: { gt: cutoff } }],
+                  },
+                },
+              },
+              boardPositions: {
+                none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
+              },
+              systemRoles: { none: {} },
+              legalHolds: { none: { releasedAt: null } },
+              processingRestrictedAt: null,
+              // Excluded rather than deduplicated afterwards: the bound is
+              // applied by the database, so somebody dropped from the answer
+              // would still have spent it.
+              ...(requested.length > 0 ? { id: { notIn: requested } } : {}),
+              OR: [
+                ...clearableStates(defaultLocale),
+                { id: { in: referencedIds } },
+              ],
+            },
+            orderBy: [{ createdAt: "asc" }],
+            take: bound,
             select: { id: true },
           });
 
     const ids: string[] = [];
-    for (const person of [...persons, ...onRequest]) {
+    for (const person of [...onRequest, ...persons]) {
       if (withheld.has(person.id) || ids.includes(person.id)) {
         continue;
       }
       ids.push(person.id);
     }
 
-    return ids.slice(0, MAX_PERSONS_PER_RUN);
+    return ids;
   }
 
   /**
@@ -536,12 +759,12 @@ export class PurgeService implements OnModuleInit {
 
       if (
         person === null ||
-        !isEligible(
+        purgeRefusal(
           person,
           now,
           request === null ? cutoff : now,
           request !== null,
-        )
+        ) !== null
       ) {
         /*
          * Re-checked here rather than trusted from the scan. A legal hold
@@ -557,6 +780,28 @@ export class PurgeService implements OnModuleInit {
          */
         return null;
       }
+
+      /*
+       * What the other erasure-aware domains still hold for this person, read
+       * in this transaction and before anything is written.
+       *
+       * This is what turns closing the request from an assumption into a
+       * finding. Every job that erases a person's rows on a granted request
+       * runs before this one, and `erasure-request-order.spec.ts` keeps them
+       * there - but running first is not getting through: a run that caught a
+       * failure for one person and carried on, a run that stopped at its bound
+       * and a night the instance was down all leave the order intact and the
+       * rows standing. Closing the request on the strength of the order alone
+       * is what made those three silent, because no later run selects a person
+       * whose request is closed.
+       *
+       * Nothing here refuses the erasure below. The contact details and the
+       * account go tonight whatever the other domains hold; what waits is the
+       * record saying the request was carried out.
+       */
+      const remainder =
+        request === null ? [] : await erasureRemainder(tx, personId, now);
+      const closing = request !== null && remainder.length === 0;
 
       const cleared: string[] = [];
       const data: Prisma.PersonUpdateInput = {};
@@ -674,7 +919,7 @@ export class PurgeService implements OnModuleInit {
       }
 
       if (
-        request === null &&
+        !closing &&
         cleared.length === 0 &&
         !accountDeleted &&
         invitationsDeleted === 0
@@ -683,14 +928,19 @@ export class PurgeService implements OnModuleInit {
         // so reaching here means the last of it went while this ran; writing an
         // entry for an erasure that erased nothing would be a false record.
         //
-        // A granted request is the exception: the board was promised the run
-        // would happen, so the entry is written and the request closed even
+        // A request being closed is the exception: the board was promised the
+        // run would happen, so the entry is written and the request closed even
         // when there was nothing left to clear, which is the difference between
         // "we did it" and "we never got to it".
+        //
+        // A request that cannot close yet is not that exception. The person is
+        // selected every night while it is open, so an entry here would be one
+        // a night for ever, in a table nobody can tidy - and it would say an
+        // erasure had been carried out that had not.
         return null;
       }
 
-      if (request !== null) {
+      if (closing) {
         await tx.dataSubjectRequest.update({
           where: { id: request.id },
           data: {
@@ -733,7 +983,25 @@ export class PurgeService implements OnModuleInit {
             purgeOn: formatDateColumn(computePurgeDate(lastMoveOut, days)),
             ...(request === null
               ? {}
-              : { requested: true, erasureRequestId: request.id }),
+              : {
+                  requested: true,
+                  erasureRequestId: request.id,
+                  /*
+                   * The evidence the close rests on, or the reason there was
+                   * none. Domain names and counts, never a row out of any of
+                   * them - ADR 0007, and this entry outlives what it describes.
+                   */
+                  ...(closing
+                    ? {
+                        verifiedEmptyOf: ERASURE_DOMAINS.map(
+                          (domain) => domain.name,
+                        ),
+                      }
+                    : {
+                        erasureRequestLeftOpen:
+                          remainder.map(describeRemainder),
+                      }),
+                }),
           },
         },
         tx,
@@ -748,6 +1016,8 @@ export class PurgeService implements OnModuleInit {
         documentsDetachedFromPerson,
         binderEntriesDetachedFromPerson,
         mediaDetachedFromPerson,
+        erasureRequestClosed: closing,
+        erasureRemainder: remainder,
       };
     });
   }
@@ -794,14 +1064,17 @@ function clearableStates(defaultLocale: string): Prisma.PersonWhereInput[] {
 }
 
 /**
- * Whether this person is still eligible, judged on rows already read inside
- * the erasing transaction.
+ * What refuses this person's purge, or null where nothing does.
  *
  * The same four conditions the scan applies, expressed over objects rather
  * than as a query, because the check that matters is the one taken with the
  * rows locked in front of it.
+ *
+ * A reason rather than a boolean, so that a granted erasure request the purge
+ * will not carry out can say which rule kept it waiting. The strings are for a
+ * log line and a run summary: they name a rule and never a row.
  */
-function isEligible(
+function purgeRefusal(
   person: {
     residencies: readonly { movedOutOn: Date | null }[];
     boardPositions: readonly { endedOn: Date | null }[];
@@ -812,7 +1085,7 @@ function isEligible(
   now: Date,
   cutoff: Date,
   onRequest = false,
-): boolean {
+): string | null {
   /*
    * A restriction refuses before anything else is considered. Art. 18(2) lets
    * the association store the data and little else, so erasing it is the one
@@ -821,7 +1094,7 @@ function isEligible(
    * request wins.
    */
   if (person.processingRestrictedAt !== null) {
-    return false;
+    return "processing is restricted";
   }
   /*
    * Asked before the residencies, because none of these depends on one. A
@@ -836,10 +1109,13 @@ function isEligible(
         position.endedOn === null || position.endedOn.getTime() > now.getTime(),
     )
   ) {
-    return false;
+    return "a board seat is still held";
   }
-  if (person.systemRoles.length > 0 || person.legalHolds.length > 0) {
-    return false;
+  if (person.legalHolds.length > 0) {
+    return "a legal hold stands";
+  }
+  if (person.systemRoles.length > 0) {
+    return "a system role is still granted";
   }
   /*
    * Somebody who never lived here has no move-out to anchor a purge date on, so
@@ -848,11 +1124,33 @@ function isEligible(
    * service data whether or not they ever held a residency.
    */
   if (person.residencies.length === 0) {
-    return onRequest;
+    return onRequest ? null : "no residency to anchor a purge date on";
   }
-  return !person.residencies.some(
+  return person.residencies.some(
     (residency) =>
       residency.movedOutOn === null ||
       residency.movedOutOn.getTime() > cutoff.getTime(),
-  );
+  )
+    ? onRequest
+      ? "a residency is still running"
+      : "a residency has not ended long enough ago"
+    : null;
+}
+
+/**
+ * Two reasons in one line, or whichever of them there is.
+ *
+ * Both halves are optional and neither is worth a sentence of its own: a
+ * request waiting on a legal hold with a motion of theirs still open is waiting
+ * on both, and a line that named one would send somebody to release a hold that
+ * was not the whole of it.
+ */
+function join(first: string, second: string): string {
+  if (first === "") {
+    return second;
+  }
+  if (second === "") {
+    return first;
+  }
+  return `${first}; ${second}`;
 }
