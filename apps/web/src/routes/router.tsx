@@ -18,6 +18,7 @@ import {
 } from "./authorization-request";
 import { ActivateRoute } from "./ActivateRoute";
 import { AddressBookRoute } from "./AddressBookRoute";
+import { ApartmentBinderRoute } from "./ApartmentBinderRoute";
 import { ApartmentRegisterRoute } from "./ApartmentRegisterRoute";
 import { BookingsRoute } from "./BookingsRoute";
 import { ChargesRoute } from "./ChargesRoute";
@@ -581,6 +582,22 @@ const documentsRoute = createRoute({
 });
 
 /**
+ * The apartment binder. A session, and the residency decides the rest.
+ *
+ * Deliberately no capability in the guard, for the archive's reason and one of
+ * its own: what somebody reads in a binder follows the residencies they hold
+ * today, which no capability expresses at all, and the board's half sits behind
+ * a capability the server checks on every one of its routes. A check here would
+ * be a second opinion about both.
+ */
+const apartmentBinderRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apartment-binder",
+  beforeLoad: requireSession,
+  component: ApartmentBinderRoute,
+});
+
+/**
  * The association's news, under the website's own part of the administration.
  *
  * Signed in here, site:manage inside the screen and on every route the screen
@@ -691,6 +708,7 @@ const routeTree = rootRoute.addChildren([
   dataProtectionRoute,
   newsRoute,
   documentsRoute,
+  apartmentBinderRoute,
   newsAdminRoute,
   memberRegisterRoute,
   apartmentRegisterRoute,

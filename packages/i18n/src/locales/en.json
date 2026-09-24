@@ -2086,6 +2086,7 @@
       "purgeOn": "Service data is purged on {{date}}.",
       "registerExit": "The membership was closed in the member register.",
       "registerKept": "The member register entry itself is retained as the law requires. No retention setting reaches it.",
+      "binder": "The apartment binder follows the apartment: whoever moves in reads it from their move-in day, and anybody else living in the apartment reads it until they are moved out themselves.",
       "boardReminder": "The board is reminded on {{date}} to finish the handover."
     },
     "transfer": {
@@ -2716,6 +2717,15 @@
     }
   },
   "apartmentBinder": {
+    "navLabel": "Apartment binder",
+    "heading": "Apartment binder",
+    "intro": "The papers about one apartment: its drawings, the board's alteration permissions, the work done in it and when, inspections and manuals. The binder belongs to the apartment rather than to anybody who lived there, so you read it for as long as your residency runs, and whoever moves in next reads it from their own move-in day.",
+    "archive": "The bylaws, the house rules and the association's other documents are not in here.",
+    "archiveLink": "Document archive",
+    "loading": "Loading the binder",
+    "empty": "The register holds no apartment for this account today, so there is no binder here. A binder is read by whoever lives in the apartment, from the day the residency begins until the day it ends.",
+    "emptyForBoard": "This account holds no apartment of its own, so there is no binder of its own to read. Every apartment's binder is below.",
+    "noEntries": "Nothing has been filed in this binder yet.",
     "kind": {
       "DRAWING": "Drawing",
       "ALTERATION_PERMISSION": "Alteration permission",
@@ -2723,6 +2733,95 @@
       "INSPECTION": "Inspection or check",
       "INSTRUCTIONS": "Instructions and warranty",
       "OTHER": "Other"
+    },
+    "audience": {
+      "TENANT_OWNERS": "The tenant-owners",
+      "HOUSEHOLD": "The household"
+    },
+    "audienceHint": {
+      "TENANT_OWNERS": "Whoever holds the apartment. Somebody who lives here without holding it does not see the entry at all.",
+      "HOUSEHOLD": "Everybody whose residency on the apartment is in force: its tenant-owners and the people living there."
+    },
+    "filedAs": {
+      "BOARD": "The board",
+      "TENANT_OWNER": "A tenant-owner",
+      "you": "You"
+    },
+    "entry": {
+      "openFile": "Open {{title}}",
+      "fileSummary": "{{fileName}}, {{size}}",
+      "datedOn": "Dated {{date}}",
+      "undated": "The entry carries no date."
+    },
+    "size": {
+      "bytes": "{{size}} bytes",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "tenantOwnerNote": "What you put in the binder follows the apartment and is read by whoever lives here after you. What you filed yourself is yours to take out again, for as long as you hold the apartment.",
+    "takeOut": {
+      "action": "Take out",
+      "actionLabel": "Take {{title}} out of the binder",
+      "confirm": "Take {{title}} out of the binder? The file goes with it.",
+      "working": "Taking out..."
+    },
+    "file": {
+      "heading": "File in the binder",
+      "description": "One PDF per entry. The file is identified from its own bytes, so what it is named decides nothing.",
+      "headingBoard": "File in this apartment's binder",
+      "descriptionBoard": "What the board files is filed as the board's: the household reads that it came from the board and is never shown who filed it.",
+      "kind": "What it is",
+      "transferNote": "A transfer is recorded in the apartment register, with a reference to where the agreement is filed. The agreement itself does not go in the binder.",
+      "title": "Title",
+      "titleHint": "What the entry is called. Written as you write it, and never translated.",
+      "datedOn": "Date on the entry",
+      "datedOnHint": "The day the entry is dated, where it carries one.",
+      "datedOnRequired": "Date of the decision",
+      "datedOnHintRequired": "The day the board decided. A permission is a decision, and one without its day cannot be read against the work it permitted.",
+      "audience": "Who it is for",
+      "file": "File",
+      "choose": "Choose a file",
+      "chosen": "Chosen: {{fileName}}",
+      "submit": "File it",
+      "working": "Filing...",
+      "saved": "The entry is in the binder.",
+      "notScanned": "Nothing here opens the file. The title and the file name are checked for a personal identity number; what is written inside the document is not, so take one out before you file it.",
+      "stays": "What you file stays with the apartment when you move out. The next household reads it, and is never shown who filed it.",
+      "staysBoard": "The entry stays with the apartment. Whoever lives here reads it from their own move-in day."
+    },
+    "board": {
+      "heading": "Every apartment's binder",
+      "description": "A board seat reads any binder in the association. Every read of one is written to the audit log, with how many entries were shown and never what they were called.",
+      "chooser": "Apartment",
+      "chooserHint": "Choosing an apartment opens that household's papers, and that is written to the audit log.",
+      "choose": "Choose an apartment",
+      "apartmentOption": "{{apartment}} - {{entries}}",
+      "entries_one": "{{count}} entry",
+      "entries_other": "{{count}} entries",
+      "shownToday": "Shown today to {{owners}} and {{residents}}.",
+      "tenantOwners_one": "{{count}} tenant-owner",
+      "tenantOwners_other": "{{count}} tenant-owners",
+      "residents_one": "{{count}} other resident",
+      "residents_other": "{{count}} other residents",
+      "filedBy": "Filed by {{name}}",
+      "filerProtected": "a person with protected personal data",
+      "filerUnknown": "somebody the register no longer names"
+    },
+    "errors": {
+      "loadFailed": "The binder could not be read just now. Reload the page.",
+      "notFound": "There is no such binder, or it is not this account's to read.",
+      "kindIsTheBoards": "An alteration permission is the board's own decision, and the board files it.",
+      "dateRequired": "An alteration permission carries the day the board decided it.",
+      "personalIdentityNumber": "This carries a personal identity number and cannot be filed. A binder is read by whoever lives here next, and a number written into one is a copy the apartment register cannot account for.",
+      "scannedTitle": "It is in the title.",
+      "scannedFileName": "It is in the file name, which is stored and shown with the entry: rename the file on your own computer and choose it again.",
+      "binderFull": "This apartment's binder is full. Take something out of it before filing anything else.",
+      "tooLarge": "That file is larger than this instance accepts.",
+      "unsupportedType": "That file is not a PDF, whatever it is named.",
+      "emptyFile": "That file is empty.",
+      "noFile": "No file was chosen.",
+      "invalidBody": "An entry needs a title and one of the kinds offered.",
+      "unknown": "That could not be done just now. Please try again."
     }
   },
   "documents": {

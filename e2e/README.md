@@ -567,6 +567,22 @@ changes the screen, not later:
 - **The appearance panel's logo states.** No logo, a logo set, and a logo that
   was refused. `{ panel: "Utseende" }` already photographs that card on its own,
   so these are three entries differing only in what `prepare` sets up.
+- **The apartment binder as the board reads it.**
+  `apartment-binder-board`: the chooser over every apartment, one household's
+  binder with the name of whoever filed each entry, the two counts saying how
+  many people read it today, and the form that files the board's own alteration
+  permission with the day it was decided. `apartment-binder-member` photographs
+  the household's half, which is the same route without any of that. The walk
+  cannot reach the board's: it is behind `apartmentBinder:manage`, the one
+  capability a board seat alone confers and the administrator's grant of every
+  capability deliberately withholds (ADR 0017), and this walk elects nobody -
+  the board chat entry gives that rule, and the register screens it
+  photographs are why. An entry needs a seat recorded before it, which is
+  either an `Action` kind that asks the instance for something, as the two
+  entries below need, or an election driven through the person panel in the
+  address book; either way it belongs with the pull request that next changes
+  this screen. `specs/44-apartment-binder.spec.ts` covers the board's half,
+  including the permission only it can file.
 - **A news item with a standing mailing request.** `site-news-mailing-request`:
   the notice a board member reads when a connected app has asked for the item to
   be mailed, and the control that dismisses it. The walk cannot reach the state.

@@ -326,6 +326,42 @@ const NOTICE = {
  */
 const ACTIVATION_LINK_TOKEN = "aktiveringslank-utan-inbjudan";
 
+/**
+ * The two entries the apartment binder is photographed with.
+ *
+ * Held here rather than inline because the entry below names each of them
+ * twice: once to file it and once to wait for the row it becomes. A drawing and
+ * a manual, which are what a household puts in its own binder - the board's
+ * alteration permission is not among them, for the reason the entry gives.
+ *
+ * Each file is a PDF built the way the suite builds one: the API identifies a
+ * file from its own bytes, so it has to open with the signature and close with
+ * the end-of-file marker to be accepted at all. Nothing in it is read.
+ */
+const BINDER = {
+  drawing: {
+    title: "Ritning badrum 2019",
+    datedOn: "2019-05-04",
+    file: {
+      name: "ritning-badrum-2019.pdf",
+      mimeType: "application/pdf",
+      text:
+        "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" +
+        "% Ritning badrum 2019\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    },
+  },
+  manual: {
+    title: "Bruksanvisning diskmaskin",
+    file: {
+      name: "bruksanvisning-diskmaskin.pdf",
+      mimeType: "application/pdf",
+      text:
+        "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" +
+        "% Bruksanvisning diskmaskin\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    },
+  },
+} as const;
+
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
   // Seven screens on one URL: the wizard keeps its step in React state, so each
@@ -1760,6 +1796,62 @@ export const SCREENS: readonly Screen[] = [
     ],
     // The member panel, which exists only once the room has been read back.
     waitFor: { text: "Startade gruppen" },
+    capture: "page",
+  },
+  // --- the apartment binder ------------------------------------------------
+  // One screen rather than two, and the tenant-owner's rather than the board's.
+  // The board's half of this route is reached with apartmentBinder:manage,
+  // which a board seat alone confers and the administrator's grant of every
+  // capability does not (ADR 0017) - so photographing it would mean recording
+  // an election first, which this walk deliberately does not do: see the board
+  // chat entry above, and the list in e2e/README.md that this one is on.
+  // `specs/44-apartment-binder.spec.ts` drives the board's half instead.
+  {
+    /*
+     * A household's own binder, filled on the screen and then read on it.
+     *
+     * Filled here rather than seeded, because the filling is half of what the
+     * picture is of: an empty binder with a form under it, and two entries a
+     * moment later with the sign beside each saying who it is for and that a
+     * tenant-owner filed it - which is the whole of what a household is ever
+     * told about who, since a binder names nobody.
+     *
+     * The member rather than the resident: filing is the tenant-owner's, and
+     * the persona who holds a tenant-ownership is the honest reader of a screen
+     * that offers a form. The resident's half of it - the same list with no
+     * form under it - is covered by the spec.
+     *
+     * The whole page, because the list and the form are one screen to her: the
+     * sentence saying that what she leaves follows the apartment sits on the
+     * form, and the entries it produced are above it.
+     */
+    name: "apartment-binder-member",
+    as: "member",
+    goto: appPath("/apartment-binder"),
+    prepare: [
+      { see: { text: "Ingenting har lagts i den här pärmen ännu." } },
+      { select: { combobox: "Vad det är" }, option: "Ritning" },
+      { fill: { label: "Titel" }, value: BINDER.drawing.title },
+      {
+        fill: { label: "Datum på handlingen" },
+        value: BINDER.drawing.datedOn,
+      },
+      { upload: { label: "Fil" }, file: BINDER.drawing.file },
+      { click: { button: "Lägg in handlingen" } },
+      // The row the filing became, which arrives with the re-read of the
+      // binder rather than with the click.
+      { see: { text: BINDER.drawing.title } },
+      {
+        select: { combobox: "Vad det är" },
+        option: "Bruksanvisning och garanti",
+      },
+      { fill: { label: "Titel" }, value: BINDER.manual.title },
+      { upload: { label: "Fil" }, file: BINDER.manual.file },
+      { click: { button: "Lägg in handlingen" } },
+    ],
+    // The second row, for the same reason: the heading and the form are
+    // rendered before either filing has come back.
+    waitFor: { text: BINDER.manual.title },
     capture: "page",
   },
 ];

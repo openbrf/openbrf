@@ -2086,6 +2086,7 @@
       "purgeOn": "Servicedata gallras {{date}}.",
       "registerExit": "Medlemskapet avslutades i medlemsförteckningen.",
       "registerKept": "Själva posten i medlemsförteckningen bevaras som lagen kräver. Ingen gallringsinställning når den.",
+      "binder": "Lägenhetspärmen följer lägenheten: den som flyttar in läser den från sin inflyttningsdag, och övriga boende i lägenheten läser den tills de själva flyttas ut.",
       "boardReminder": "Styrelsen påminns {{date}} om att slutföra överlämningen."
     },
     "transfer": {
@@ -2716,6 +2717,15 @@
     }
   },
   "apartmentBinder": {
+    "navLabel": "Lägenhetspärm",
+    "heading": "Lägenhetspärm",
+    "intro": "Handlingarna om en lägenhet: ritningar, styrelsens tillstånd till ändringar, vad som gjorts och när, besiktningar och bruksanvisningar. Pärmen hör till lägenheten och inte till någon som har bott där, så du läser den så länge ditt boende löper, och den som flyttar in efter dig läser den från sin egen inflyttningsdag.",
+    "archive": "Stadgar, trivselregler och föreningens övriga dokument finns inte här.",
+    "archiveLink": "Dokumentarkivet",
+    "loading": "Hämtar pärmen",
+    "empty": "Registret har ingen lägenhet för det här kontot i dag, så det finns ingen pärm här. En pärm läses av den som bor i lägenheten, från den dag boendet börjar till den dag det upphör.",
+    "emptyForBoard": "Det här kontot innehar ingen egen lägenhet, så det finns ingen egen pärm att läsa. Alla lägenheters pärmar finns nedan.",
+    "noEntries": "Ingenting har lagts i den här pärmen ännu.",
     "kind": {
       "DRAWING": "Ritning",
       "ALTERATION_PERMISSION": "Tillstånd till ändring",
@@ -2723,6 +2733,95 @@
       "INSPECTION": "Besiktning och kontroll",
       "INSTRUCTIONS": "Bruksanvisning och garanti",
       "OTHER": "Övrigt"
+    },
+    "audience": {
+      "TENANT_OWNERS": "Bostadsrättshavarna",
+      "HOUSEHOLD": "Hushållet"
+    },
+    "audienceHint": {
+      "TENANT_OWNERS": "Den som innehar lägenheten. Den som bor här utan att inneha den ser inte handlingen alls.",
+      "HOUSEHOLD": "Alla vars boende i lägenheten gäller: bostadsrättshavarna och de som bor där."
+    },
+    "filedAs": {
+      "BOARD": "Styrelsen",
+      "TENANT_OWNER": "En bostadsrättshavare",
+      "you": "Du"
+    },
+    "entry": {
+      "openFile": "Öppna {{title}}",
+      "fileSummary": "{{fileName}}, {{size}}",
+      "datedOn": "Daterad {{date}}",
+      "undated": "Handlingen har inget datum."
+    },
+    "size": {
+      "bytes": "{{size}} byte",
+      "kilobytes": "{{size}} kB",
+      "megabytes": "{{size}} MB"
+    },
+    "tenantOwnerNote": "Det du lägger i pärmen följer lägenheten och läses av den som bor här efter dig. Det du själv har lagt in kan du ta ut igen, så länge du innehar lägenheten.",
+    "takeOut": {
+      "action": "Ta ut",
+      "actionLabel": "Ta ut {{title}} ur pärmen",
+      "confirm": "Ta ut {{title}} ur pärmen? Filen följer med.",
+      "working": "Tar ut..."
+    },
+    "file": {
+      "heading": "Lägg i pärmen",
+      "description": "En PDF per handling. Filen identifieras från sitt eget innehåll, så vad den heter avgör ingenting.",
+      "headingBoard": "Lägg i den här lägenhetens pärm",
+      "descriptionBoard": "Det styrelsen lägger in läggs in som styrelsens: hushållet ser att det kommer från styrelsen och får aldrig veta vem som lade in det.",
+      "kind": "Vad det är",
+      "transferNote": "En överlåtelse antecknas i lägenhetsförteckningen, med en hänvisning till var avtalet finns. Själva avtalet läggs inte i pärmen.",
+      "title": "Titel",
+      "titleHint": "Vad handlingen heter. Skrivs som du skriver den och översätts aldrig.",
+      "datedOn": "Datum på handlingen",
+      "datedOnHint": "Den dag handlingen är daterad, om den har någon.",
+      "datedOnRequired": "Beslutsdatum",
+      "datedOnHintRequired": "Den dag styrelsen beslutade. Ett tillstånd är ett beslut, och ett utan sin dag går inte att läsa mot arbetet det tillät.",
+      "audience": "Vem den är till för",
+      "file": "Fil",
+      "choose": "Välj en fil",
+      "chosen": "Vald: {{fileName}}",
+      "submit": "Lägg in handlingen",
+      "working": "Lägger in...",
+      "saved": "Handlingen ligger i pärmen.",
+      "notScanned": "Ingenting här öppnar filen. Titeln och filnamnet kontrolleras mot personnummer; vad som står inne i dokumentet kontrolleras inte, så ta bort det där innan du lägger in filen.",
+      "stays": "Det du lägger in stannar hos lägenheten när du flyttar ut. Nästa hushåll läser det och får aldrig veta vem som lade in det.",
+      "staysBoard": "Handlingen stannar hos lägenheten. Den som bor här läser den från sin egen inflyttningsdag."
+    },
+    "board": {
+      "heading": "Alla lägenheters pärmar",
+      "description": "Ett styrelseuppdrag ger tillgång till varje pärm i föreningen. Varje sådan läsning skrivs till granskningsloggen, med hur många handlingar som visades och aldrig vad de hette.",
+      "chooser": "Lägenhet",
+      "chooserHint": "Att välja en lägenhet öppnar det hushållets handlingar, och det skrivs till granskningsloggen.",
+      "choose": "Välj en lägenhet",
+      "apartmentOption": "{{apartment}} - {{entries}}",
+      "entries_one": "{{count}} handling",
+      "entries_other": "{{count}} handlingar",
+      "shownToday": "Visas i dag för {{owners}} och {{residents}}.",
+      "tenantOwners_one": "{{count}} bostadsrättshavare",
+      "tenantOwners_other": "{{count}} bostadsrättshavare",
+      "residents_one": "{{count}} övrig boende",
+      "residents_other": "{{count}} övriga boende",
+      "filedBy": "Inlagd av {{name}}",
+      "filerProtected": "en person med skyddade personuppgifter",
+      "filerUnknown": "någon som registret inte längre namnger"
+    },
+    "errors": {
+      "loadFailed": "Pärmen kunde inte läsas just nu. Ladda om sidan.",
+      "notFound": "Någon sådan pärm finns inte, eller så är den inte det här kontots att läsa.",
+      "kindIsTheBoards": "Ett tillstånd till ändring är styrelsens eget beslut, och styrelsen lägger in det.",
+      "dateRequired": "Ett tillstånd till ändring bär den dag styrelsen beslutade det.",
+      "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte läggas in. En pärm läses av den som bor här härnäst, och ett nummer som skrivs in i den är en kopia som lägenhetsförteckningen inte kan svara för.",
+      "scannedTitle": "Det står i titeln.",
+      "scannedFileName": "Det står i filnamnet, som sparas och visas tillsammans med handlingen: byt namn på filen i din egen dator och välj den igen.",
+      "binderFull": "Den här lägenhetens pärm är full. Ta ut något ur den innan du lägger in mer.",
+      "tooLarge": "Filen är större än den här instansen tar emot.",
+      "unsupportedType": "Filen är ingen PDF, vad den än heter.",
+      "emptyFile": "Filen är tom.",
+      "noFile": "Ingen fil valdes.",
+      "invalidBody": "En handling behöver en titel och en av de sorter som erbjuds.",
+      "unknown": "Det gick inte just nu. Försök igen."
     }
   },
   "documents": {

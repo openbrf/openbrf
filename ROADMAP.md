@@ -950,7 +950,31 @@ no, and the pilot is the thing that will change it.
       requires OAuth2 cannot be configured. And nothing tells a board member
       that a letter has arrived: the inbox is somewhere the board goes, on the
       issue queue's precedent, rather than something that reaches them
-- [ ] Digital home folder for residents
+- [x] Apartment binder (lägenhetspärm): the papers about one apartment - its
+      drawings, the board's permissions for alterations, the work done in it and
+      when, inspections and manuals - kept with the apartment rather than with
+      whoever lived there, which is what a paper binder handed over with the keys
+      has always been. Whoever lives there reads it for exactly as long as their
+      residency runs, so a change of hands copies nothing and moves nothing: the
+      next household reads it from the day it moves in, and the last one stops on
+      the day it moves out. Each entry is addressed either to the tenant-owners
+      or to the whole household, because a partner and a second-hand tenant are
+      the same row in the register while a permission's conditions are the
+      tenant-owner's own business. A tenant-owner files what the next one should
+      have and can take out what they filed for as long as they hold the
+      apartment, and the form says plainly that what is left stays. The board's
+      permission under BRL 7 kap. 7 § is an entry only the board can file, dated
+      the day it decided, and it is stated rather than enforced: the section
+      gives the permission to the tenant-owner and says nothing about whether a
+      condition binds the next one, so the platform says nothing either. A
+      household is never shown who filed an entry, only whether it was the board
+      or a tenant-owner. The board reads every binder through a capability a
+      board seat alone confers - not the administrator's grant of every other
+      capability, so whoever operates a hosted instance does not read a
+      household's papers - and every such read is in the audit log. Nothing is
+      mailed, and nothing the whole association shares is copied in: the stadgar
+      and the house rules stay in the document archive, under the archive's own
+      audiences.
 - [x] Forms: subletting applications, motions, key orders
   - [x] Motions to the general meeting: a member submits one in writing and the
         board works the queue it arrives in, recording that it has been received.
