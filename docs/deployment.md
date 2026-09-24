@@ -253,8 +253,13 @@ count means the erasure went as far as it goes and only the record is waiting; a
 motion the association is still dealing with is the one case in the product,
 because the member who put it has a right to have it treated at the meeting.
 "Incomplete" is work that was owed and did not happen, and the next run takes
-it; a request that stays incomplete night after night is a job that keeps
-failing, and the failure is logged beside it. Neither word says anything about
+it. A request that stays incomplete night after night has two causes, and only
+one of them leaves a trace: a job that keeps failing for that person logs the
+failure beside it, while a job that did not run at all logs nothing, because a
+missed occurrence is skipped rather than caught up afterwards. So check that
+each of the jobs above ran, and not only that none of them reported a failure.
+Looking for a log that was never written is how a granted erasure stays
+outstanding for weeks while everybody believes it is in hand. Neither word says anything about
 the person: "blocked" is the request waiting, not somebody whose personal data
 is protected. The audit entry for a closing names the request and the domains
 that were verified empty.
