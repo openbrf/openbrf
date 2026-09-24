@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import { ActionCatalogueModule } from "./actions/action-catalogue.module";
 import { AddressBookModule } from "./address-book/address-book.module";
 import { AddressesModule } from "./addresses/addresses.module";
+import { ApartmentBinderModule } from "./apartment-binder/apartment-binder.module";
 import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { ProtectedResourceModule } from "./auth/protected-resource.module";
@@ -87,6 +88,7 @@ import { ThemesModule } from "./themes/themes.module";
     IssuesModule,
     BoardMailboxModule,
     DocumentsModule,
+    ApartmentBinderModule,
     RetentionModule,
     DataProtectionModule,
     ContactModule,

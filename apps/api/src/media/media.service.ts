@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 import { pipeline, type Readable } from "node:stream";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -16,15 +17,34 @@ import {
   sealFile,
 } from "../crypto/stored-file-cipher";
 import { PrismaService } from "../database/prisma.service";
+import { residencyHeldOn } from "../registers/held-on";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
-import { generateStorageKey } from "../storage/storage-key";
+import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
 import { StorageService } from "../storage/storage.service";
 import { readDocumentHeader } from "./document-bytes";
 import { readImageHeader } from "./image-bytes";
 
-export type MediaVisibility = "PUBLIC" | "INTERNAL" | "MEMBER";
+export type MediaVisibility =
+  "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD";
+
+/**
+ * The visibilities decided against a residency on the file's own apartment
+ * rather than against a group.
+ *
+ * Listed once so the upload, the serving branch and the invariant that ties the
+ * two to `apartmentId` all read the same set.
+ */
+const APARTMENT_VISIBILITIES: readonly MediaVisibility[] = [
+  "TENANT_OWNERS",
+  "HOUSEHOLD",
+];
+
+/** Whether a visibility is decided against the file's apartment. */
+export function isApartmentVisibility(visibility: MediaVisibility): boolean {
+  return APARTMENT_VISIBILITIES.includes(visibility);
+}
 
 export class MediaError extends DomainError {
   readonly status: number;
@@ -79,7 +99,29 @@ export interface UploadInput {
    * carried by anything else, and recorded as null there.
    */
   showsIdentifiablePersons?: boolean;
+  /**
+   * The apartment whose household may read the file.
+   *
+   * Required exactly when the visibility is one decided against an apartment,
+   * and refused on any other, which is the CHECK on the column said in
+   * TypeScript: a file marked for a household without an apartment is one
+   * nobody can be decided about, and an apartment on a MEMBER file would be an
+   * access rule that never runs. Either mistake is a programming error rather
+   * than a caller's, so it throws before a byte is stored.
+   */
+  apartmentId?: string | null;
   uploadedByPersonId?: string | null;
+  /**
+   * Whether the name the file arrived under goes into the MEDIA_UPLOADED entry.
+   *
+   * True everywhere but the apartment binder. The audit log is append-only and
+   * exempt from every purge, and a household's file name is its own words about
+   * its own home - the rule the initial share capital's entry states, that the
+   * log names which figure moved and never what it moved to. The name is still
+   * stored on the row and served in the disposition; only the log does not get
+   * it.
+   */
+  recordFileName?: boolean;
   /**
    * Which way the upload reached the instance.
    *
@@ -91,7 +133,7 @@ export interface UploadInput {
    */
   channel: AuditChannel;
   /** Groups the object in storage. Not part of the file's identity. */
-  prefix?: "branding" | "documents" | "media";
+  prefix?: StoragePrefix;
 }
 
 export interface MediaFileView {
@@ -239,6 +281,21 @@ export class MediaService {
       );
     }
 
+    /*
+     * Before anything is stored, because neither half of this is something a
+     * request can cause: the caller decides both the visibility and the
+     * apartment, and the two disagreeing is a mistake in the calling code. The
+     * column carries the same rule as a CHECK, so without this the failure
+     * would come from the database after the bytes were written and would read
+     * as a storage fault.
+     */
+    const apartmentId = input.apartmentId ?? null;
+    if (isApartmentVisibility(input.visibility) !== (apartmentId !== null)) {
+      throw new Error(
+        `A file held ${input.visibility} names an apartment, and no other file does.`,
+      );
+    }
+
     const sealed = await sealForStorage(this.encryption, input.bytes);
     const storageKey = generateStorageKey(
       input.prefix ?? "media",
@@ -268,6 +325,7 @@ export class MediaService {
             : null,
           visibility: input.visibility,
           requiredCapability: input.requiredCapability ?? null,
+          apartmentId,
           uploadedByPersonId: input.uploadedByPersonId ?? null,
         },
       });
@@ -288,8 +346,10 @@ export class MediaService {
       targetId: file.id,
       // The name is the uploader's own text and the type is the identified
       // one, so the log says what was accepted rather than what was claimed.
+      // The name is left out where the caller asked for that, which the
+      // apartment binder does and nothing else does.
       context: {
-        fileName: file.fileName,
+        ...((input.recordFileName ?? true) ? { fileName: file.fileName } : {}),
         contentType: file.contentType,
         byteSize: file.byteSize,
         visibility: file.visibility,
@@ -352,6 +412,56 @@ export class MediaService {
        * document when, which is surveillance of ordinary membership rather than
        * the accountability the log exists for.
        */
+    } else if (visibility === "TENANT_OWNERS" || visibility === "HOUSEHOLD") {
+      /*
+       * The file's own apartment, and a residency on it held today.
+       *
+       * Asked of the database rather than of the principal: the principal
+       * carries roles and capabilities and no apartment, and the question here
+       * is about one apartment rather than about whether the viewer lives
+       * anywhere. `residencyHeldOn` is the platform's rule for a period on a
+       * day (ADR 0014), which counts a residency from its move-in day - so a
+       * buyer the board recorded before tillträde reads nothing while the
+       * seller still lives there, and the seller reads it until the day the
+       * move-out date names.
+       *
+       * The household is asked first, so a board member reading the binder of
+       * the apartment they live in is served as a resident and is not written
+       * to the log as having read it as the board.
+       */
+      if (viewer === null || file.apartmentId === null) {
+        throw new MediaError("No such file.", "not-found");
+      }
+
+      const held = await this.prisma.residency.count({
+        where: {
+          personId: viewer.personId,
+          apartmentId: file.apartmentId,
+          ...(visibility === "TENANT_OWNERS" ? { role: "MEMBER" } : {}),
+          ...residencyHeldOn(localDayOf(new Date())),
+        },
+      });
+
+      if (held === 0) {
+        if (!named) {
+          throw new MediaError("No such file.", "not-found");
+        }
+        /*
+         * Every serve of a household's papers to somebody reading them by
+         * capability, written before the bytes leave. Unlike the members'
+         * shelf, this is not traffic that would bury anything: a binder is
+         * consulted rather than followed, and who read one home's papers and
+         * when is exactly the accountability the log exists for.
+         */
+        await this.audit.record({
+          action: "MEDIA_ACCESSED",
+          channel: "WEB",
+          actorPersonId: viewer.personId,
+          targetKind: "media",
+          targetId: file.id,
+          context: { requiredCapability: required },
+        });
+      }
     } else if (visibility === "INTERNAL") {
       if (viewer === null || (required !== null && !named)) {
         throw new MediaError("No such file.", "not-found");
@@ -480,11 +590,18 @@ export class MediaService {
    * those two is a disclosure risk after somebody asked for a file to be
    * deleted. Storage cannot take part in the transaction, so removing the
    * object before the commit would destroy a file the database still holds.
+   *
+   * `recordFileName` is the upload's switch at the other end, and defaults the
+   * same way: every caller keeps the name in the entry unless it opts out. The
+   * apartment binder opts out, because taking an entry out is also how a board
+   * answers an art. 17 request about one - and a name left in the log would put
+   * the erasure's own subject in an append-only table no purge reaches.
    */
   async remove(
     id: string,
     actorPersonId: string | null | undefined,
     channel: AuditChannel,
+    options: { recordFileName?: boolean } = {},
   ): Promise<void> {
     const file = await this.prisma.mediaFile.findUnique({ where: { id } });
     if (file === null) {
@@ -500,7 +617,8 @@ export class MediaService {
           actorPersonId: actorPersonId ?? null,
           targetKind: "media",
           targetId: id,
-          context: { fileName: file.fileName },
+          context:
+            (options.recordFileName ?? true) ? { fileName: file.fileName } : {},
         },
         tx,
       );
@@ -590,8 +708,14 @@ function holds(viewer: Principal, capabilityName: string): boolean {
  * is quoted and because a name that looks like a path invites somebody later to
  * treat it as one. It never reaches the file system either way: the storage key
  * is generated.
+ *
+ * Exported because a caller that refuses a name on what it says has to ask
+ * about this value and not about the one that arrived. Removing a character
+ * can join what it separated: "1981:1218-9876.pdf" carries no personal identity
+ * number until the colon goes, and then it carries one. Whoever checks a name
+ * therefore checks what will be written, which is what this returns.
  */
-function safeFileName(name: string): string {
+export function safeFileName(name: string): string {
   const cleaned = name
     // The Unicode "other" category: control, format, surrogate and unassigned.
     .replace(/\p{C}/gu, "")

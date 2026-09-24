@@ -69,6 +69,8 @@ const issueId = `purge-issue-${suffix}`;
 const photoFileId = `purge-photo-${suffix}`;
 const documentFileId = `purge-docfile-${suffix}`;
 const documentId = `purge-doc-${suffix}`;
+const binderEntryId = `purge-binder-entry-${suffix}`;
+const binderFileId = `purge-binder-file-${suffix}`;
 
 /**
  * What a reporter wrote, naming somebody else.
@@ -170,7 +172,10 @@ const people = {
   openMotion: `purge-open-motion-${suffix}`,
   /** Granted erasure and a legal hold, which the purge must not overrule. */
   heldRequest: `purge-held-request-${suffix}`,
-  /** Filed an issue, uploaded a document and a photograph. */
+  /**
+   * Filed an issue, uploaded a document and a photograph, and filed an entry
+   * into an apartment binder.
+   */
   referenced: `purge-referenced-${suffix}`,
 } as const;
 
@@ -473,6 +478,19 @@ beforeAll(async () => {
         visibility: "MEMBER",
         uploadedByPersonId: people.referenced,
       },
+      {
+        id: binderFileId,
+        storageKey: `purge/${suffix}/ritning.pdf`,
+        encryption: "NONE",
+        contentType: "application/pdf",
+        byteSize: 1024,
+        checksum: `sha-binder-${suffix}`,
+        fileName: "ritning.pdf",
+        visibility: "HOUSEHOLD",
+        apartmentId: apartmentId(String(personIds.indexOf(people.referenced))),
+        requiredCapability: "apartmentBinder:manage",
+        uploadedByPersonId: people.referenced,
+      },
     ],
   });
   await prisma.issuePhoto.create({
@@ -486,6 +504,18 @@ beforeAll(async () => {
       audience: "MEMBER",
       mediaFileId: documentFileId,
       uploadedByPersonId: people.referenced,
+    },
+  });
+  await prisma.apartmentDocument.create({
+    data: {
+      id: binderEntryId,
+      apartmentId: apartmentId(String(personIds.indexOf(people.referenced))),
+      kind: "DRAWING",
+      audience: "HOUSEHOLD",
+      title: `Ritning badrum ${suffix}`,
+      filedAs: "TENANT_OWNER",
+      mediaFileId: binderFileId,
+      filedByPersonId: people.referenced,
     },
   });
 
@@ -761,8 +791,12 @@ afterAll(async () => {
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
         () => prisma.document.deleteMany({ where: { id: documentId } }),
         () =>
+          prisma.apartmentDocument.deleteMany({
+            where: { id: binderEntryId },
+          }),
+        () =>
           prisma.mediaFile.deleteMany({
-            where: { id: { in: [photoFileId, documentFileId] } },
+            where: { id: { in: [photoFileId, documentFileId, binderFileId] } },
           }),
         () =>
           prisma.motion.deleteMany({
@@ -1107,14 +1141,16 @@ describe("who the purge leaves alone", () => {
   });
 });
 
-describe("issues, documents and files the person left behind", () => {
+describe("issues, documents, binder entries and files the person left behind", () => {
   it("detaches them from the person and keeps every one of them", async () => {
     const outcome = await purge.purgePerson(people.referenced, dueAt);
 
     expect(outcome?.issuesDetachedFromPerson).toBe(1);
     expect(outcome?.documentsDetachedFromPerson).toBe(1);
-    // Both files: the document's own and the photograph on the issue.
-    expect(outcome?.mediaDetachedFromPerson).toBe(2);
+    expect(outcome?.binderEntriesDetachedFromPerson).toBe(1);
+    // Three files: the document's own, the photograph on the issue and the
+    // binder entry's.
+    expect(outcome?.mediaDetachedFromPerson).toBe(3);
 
     const issue = await prisma.issue.findUniqueOrThrow({
       where: { id: issueId },
@@ -1145,6 +1181,20 @@ describe("issues, documents and files the person left behind", () => {
     expect(document.uploadedByPersonId).toBeNull();
     expect(document.title).toBe(`Stadgar ${suffix}`);
 
+    /*
+     * The entry stays with the apartment, and so does the capacity it was
+     * filed in: what the next household reads is that the board decided
+     * something, or that a tenant-owner put a drawing in, and neither survives
+     * as a fact if the row only ever said who the person was.
+     */
+    const binderEntry = await prisma.apartmentDocument.findUniqueOrThrow({
+      where: { id: binderEntryId },
+      select: { filedByPersonId: true, filedAs: true, title: true },
+    });
+    expect(binderEntry.filedByPersonId).toBeNull();
+    expect(binderEntry.filedAs).toBe("TENANT_OWNER");
+    expect(binderEntry.title).toBe(`Ritning badrum ${suffix}`);
+
     const photo = await prisma.mediaFile.findUniqueOrThrow({
       where: { id: photoFileId },
       select: { uploadedByPersonId: true, storageKey: true },
@@ -1165,7 +1215,8 @@ describe("issues, documents and files the person left behind", () => {
     expect(entry?.context).toMatchObject({
       issuesDetachedFromPerson: 1,
       documentsDetachedFromPerson: 1,
-      mediaDetachedFromPerson: 2,
+      binderEntriesDetachedFromPerson: 1,
+      mediaDetachedFromPerson: 3,
     });
   });
 

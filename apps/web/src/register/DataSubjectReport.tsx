@@ -105,6 +105,21 @@ const DOCUMENT_AUDIENCE_LABEL = {
   PUBLIC: "documents.audience.public",
 } as const satisfies Record<string, TranslationKey>;
 
+/**
+ * The six kinds an apartment binder entry can be.
+ *
+ * Written out rather than composed, so a kind added to the enum without a
+ * label here is a build failure rather than a raw enum value on the document.
+ */
+const APARTMENT_DOCUMENT_KIND_LABEL = {
+  DRAWING: "apartmentBinder.kind.DRAWING",
+  ALTERATION_PERMISSION: "apartmentBinder.kind.ALTERATION_PERMISSION",
+  WORK_RECORD: "apartmentBinder.kind.WORK_RECORD",
+  INSPECTION: "apartmentBinder.kind.INSPECTION",
+  INSTRUCTIONS: "apartmentBinder.kind.INSTRUCTIONS",
+  OTHER: "apartmentBinder.kind.OTHER",
+} as const satisfies Record<string, TranslationKey>;
+
 const TERMINATION_KIND_LABEL = {
   GENERAL_MEETING_DECISION:
     "registers.apartment.terminations.kind.GENERAL_MEETING_DECISION",
@@ -248,6 +263,7 @@ const AUDIT_ACTION_LABEL = {
   MEDIA_UPLOADED: "register.person.report.action.MEDIA_UPLOADED",
   MEDIA_DELETED: "register.person.report.action.MEDIA_DELETED",
   MEDIA_ACCESSED: "register.person.report.action.MEDIA_ACCESSED",
+  APARTMENT_BINDER_READ: "register.person.report.action.APARTMENT_BINDER_READ",
   INVITATION_SENT: "register.person.report.action.INVITATION_SENT",
   INVITATION_ACCEPTED: "register.person.report.action.INVITATION_ACCEPTED",
   SIGNUP_REQUEST_APPROVED:
@@ -1128,6 +1144,31 @@ export function DataSubjectReport({
                       {t(DOCUMENT_AUDIENCE_LABEL[document.audience])}
                     </td>
                     <td className={DATA_CELL}>{day(document.filedAt)}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section titleKey="register.person.report.section.apartmentDocuments">
+              <Rows
+                empty={report.apartmentDocuments.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.entryKind",
+                  "register.person.report.field.documentTitle",
+                  "register.person.report.field.dated",
+                  "register.person.report.field.filed",
+                ]}
+              >
+                {report.apartmentDocuments.map((entry) => (
+                  <tr key={entry.apartmentDocumentId} className={ROW}>
+                    <td className={DATA_CELL}>{entry.apartment}</td>
+                    <td className={TEXT_CELL}>
+                      {t(APARTMENT_DOCUMENT_KIND_LABEL[entry.kind])}
+                    </td>
+                    <td className={TEXT_CELL}>{entry.title}</td>
+                    <td className={DATA_CELL}>{entry.datedOn ?? nothing}</td>
+                    <td className={DATA_CELL}>{day(entry.filedAt)}</td>
                   </tr>
                 ))}
               </Rows>

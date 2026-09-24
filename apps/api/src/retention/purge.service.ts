@@ -77,6 +77,8 @@ export interface PurgeOutcome {
    */
   issuesDetachedFromPerson: number;
   documentsDetachedFromPerson: number;
+  /** Entries in an apartment binder whose filer link was detached. */
+  binderEntriesDetachedFromPerson: number;
   mediaDetachedFromPerson: number;
   /**
    * Whether a granted erasure request was marked executed and closed.
@@ -186,13 +188,19 @@ export interface PurgeRunSummary {
  * so an attempt would be an error rather than an erasure, and code that tried
  * would be code that believed the archive was purgeable.
  *
- * ## Issues, documents and uploaded files
+ * ## Issues, documents, binder entries and uploaded files
  *
  * These are detached from the person rather than deleted. The link to the
  * person goes, along with the reporter's name and address held on an issue, and
  * the record stays: an issue is the association's own account of a problem with
- * its building, and a document in the archive is an association record. Neither
- * stops being worth keeping because the person who filed it has moved away.
+ * its building, a document in the archive is an association record, and an
+ * entry in an apartment binder belongs to the apartment and is read by whoever
+ * holds it next. None of them stops being worth keeping because the person who
+ * filed it has moved away.
+ *
+ * A binder entry keeps `filedAs` when the link goes, because "the board decided
+ * this" is what a permission under BRL 7 kap. 7 § is worth to the next holder
+ * and it has to outlive the board member who filed it.
  *
  * What is left is not anonymous data, and nothing here calls it that. An
  * issue's description is free text somebody wrote, and it may name a
@@ -629,13 +637,14 @@ export class PurgeService implements OnModuleInit {
   /**
    * Everybody named by a row this job detaches rather than erases.
    *
-   * Three distinct scans rather than a join: reporterPersonId,
-   * uploadedByPersonId on a document and the same column on a media file are
-   * plain columns with an index each, and asking each of them for its distinct
-   * values is one index scan apiece.
+   * Four distinct scans rather than a join: reporterPersonId,
+   * uploadedByPersonId on a document and the same column on a media file, and
+   * filedByPersonId on an apartment binder entry, are plain columns with an
+   * index each, and asking each of them for its distinct values is one index
+   * scan apiece.
    */
   private async referencedPersonIds(): Promise<string[]> {
-    const [issues, documents, media] = await Promise.all([
+    const [issues, documents, media, binderEntries] = await Promise.all([
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: { reporterPersonId: { not: null } },
@@ -648,6 +657,10 @@ export class PurgeService implements OnModuleInit {
         by: ["uploadedByPersonId"],
         where: { uploadedByPersonId: { not: null } },
       }),
+      this.prisma.apartmentDocument.groupBy({
+        by: ["filedByPersonId"],
+        where: { filedByPersonId: { not: null } },
+      }),
     ]);
 
     const ids = new Set<string>();
@@ -659,6 +672,11 @@ export class PurgeService implements OnModuleInit {
     for (const row of [...documents, ...media]) {
       if (row.uploadedByPersonId !== null) {
         ids.add(row.uploadedByPersonId);
+      }
+    }
+    for (const row of binderEntries) {
+      if (row.filedByPersonId !== null) {
+        ids.add(row.filedByPersonId);
       }
     }
     return [...ids];
@@ -862,6 +880,20 @@ export class PurgeService implements OnModuleInit {
         });
 
       /*
+       * The entries this person filed into an apartment binder. The entry stays
+       * with the apartment - it is what the next household reads, and what the
+       * association reads when it has to judge an alteration under BRL 7 kap.
+       * 12 a § or 18 § 9 - and what goes is the link to whoever filed it. The
+       * capacity stays: a permission is worth nothing to the next holder unless
+       * it still says the board decided it.
+       */
+      const { count: binderEntriesDetachedFromPerson } =
+        await tx.apartmentDocument.updateMany({
+          where: { filedByPersonId: personId },
+          data: { filedByPersonId: null },
+        });
+
+      /*
        * Every file the person uploaded, an issue photograph included. Nothing
        * is removed from storage: a photograph of a leaking pipe is the record
        * of the problem, and the flag saying it may show somebody is a default
@@ -878,6 +910,9 @@ export class PurgeService implements OnModuleInit {
       }
       if (documentsDetachedFromPerson > 0) {
         cleared.push("documents");
+      }
+      if (binderEntriesDetachedFromPerson > 0) {
+        cleared.push("apartmentDocuments");
       }
       if (mediaDetachedFromPerson > 0) {
         cleared.push("media");
@@ -941,6 +976,7 @@ export class PurgeService implements OnModuleInit {
             invitationsDeleted,
             issuesDetachedFromPerson,
             documentsDetachedFromPerson,
+            binderEntriesDetachedFromPerson,
             mediaDetachedFromPerson,
             retentionDaysAfterMoveOut: days,
             lastMovedOutOn: formatDateColumn(lastMoveOut),
@@ -978,6 +1014,7 @@ export class PurgeService implements OnModuleInit {
         invitationsDeleted,
         issuesDetachedFromPerson,
         documentsDetachedFromPerson,
+        binderEntriesDetachedFromPerson,
         mediaDetachedFromPerson,
         erasureRequestClosed: closing,
         erasureRemainder: remainder,

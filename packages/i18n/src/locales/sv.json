@@ -367,6 +367,7 @@
           "legalHolds": "Rättsliga bevarandekrav",
           "issues": "Felanmälningar",
           "documents": "Inlagda dokument",
+          "apartmentDocuments": "Inlagt i lägenhetspärm",
           "bookings": "Bokningar",
           "motions": "Motioner",
           "subletApplications": "Ansökningar om andrahandsupplåtelse",
@@ -430,6 +431,8 @@
           "photographs": "Fotografier",
           "documentTitle": "Titel",
           "binder": "Pärm",
+          "entryKind": "Sort",
+          "dated": "Daterad",
           "audience": "Målgrupp",
           "filed": "Inlagt",
           "eventTitle": "Evenemang",
@@ -557,6 +560,7 @@
           "MEDIA_UPLOADED": "Fil laddades upp",
           "MEDIA_DELETED": "Fil togs bort",
           "MEDIA_ACCESSED": "Fil hämtades",
+          "APARTMENT_BINDER_READ": "Lägenhetspärm lästes",
           "INVITATION_SENT": "Inbjudan skickades",
           "INVITATION_ACCEPTED": "Inbjudan användes",
           "SIGNUP_REQUEST_APPROVED": "Ansökan godkändes",
@@ -2711,6 +2715,16 @@
       "unknown": "Det gick inte just nu. Försök igen."
     }
   },
+  "apartmentBinder": {
+    "kind": {
+      "DRAWING": "Ritning",
+      "ALTERATION_PERMISSION": "Tillstånd till ändring",
+      "WORK_RECORD": "Utfört arbete",
+      "INSPECTION": "Besiktning och kontroll",
+      "INSTRUCTIONS": "Bruksanvisning och garanti",
+      "OTHER": "Övrigt"
+    }
+  },
   "documents": {
     "navLabel": "Dokument",
     "heading": "Dokumentarkiv",
@@ -4192,6 +4206,12 @@
           "purpose": "Förvara föreningens egna handlingar.",
           "legalBasisNote": "Berättigat intresse: att bevara föreningens handlingar.",
           "retention": "Kopplingen till den som laddade upp tas bort vid gallringen; dokumentet behålls."
+        },
+        "apartmentBinder": {
+          "name": "Lägenhetspärmar",
+          "purpose": "Förvara lägenhetens handlingar - ritningar, styrelsens tillstånd till ändringar, utfört arbete, besiktningar och bruksanvisningar - åt den som bor där.",
+          "legalBasisNote": "Berättigat intresse: föreningens uppgift om vad som gjorts i huset och vad den gett tillstånd till, och nästa bostadsrättshavares intresse av lägenhetens historia. Ett hushåll kan lägga in handlingar som röjer hälsa (art. 9).",
+          "retention": "Kopplingen till den som lade in posten tas bort vid gallringen; posten följer lägenheten tills den tas ut."
         },
         "bookings": {
           "name": "Bokningar",

@@ -88,6 +88,7 @@ describe("SEED_KEYS", () => {
       "newsMailings",
       "issues",
       "documents",
+      "apartmentBinder",
       "bookings",
       "events",
       "motions",
@@ -162,6 +163,21 @@ describe("seedRows", () => {
      * subject of this processing: their words are on file and on their own
      * access report until that year runs out.
      */
+    /*
+     * The apartment binder for the same reason: the link to whoever filed an
+     * entry stays until their own retention window runs out after they have
+     * moved out, and their access report keeps listing what they filed. A
+     * record naming only the people who are here would describe a processing
+     * that stops when somebody leaves, and this one does not.
+     */
+    expect(rowFor("apartmentBinder").dataSubjectCategories).toEqual(
+      expect.arrayContaining([
+        "member",
+        "resident",
+        "boardMember",
+        "formerResident",
+      ]),
+    );
     expect(rowFor("chat").dataSubjectCategories).toEqual(
       expect.arrayContaining(["formerResident"]),
     );
@@ -199,7 +215,12 @@ describe("seedRows", () => {
   });
 
   it("names the association's own disk under the local driver", () => {
-    for (const key of ["issues", "documents", "websitePublication"]) {
+    for (const key of [
+      "issues",
+      "documents",
+      "apartmentBinder",
+      "websitePublication",
+    ]) {
       expect(rowFor(key).recipients).toBe(
         "dataProtection.processing.seed.recipients.localDisk",
       );
@@ -327,7 +348,12 @@ describe("securityMeasuresFor", () => {
   });
 
   it("says the files are encrypted on every processing that stores them, once every file is", () => {
-    for (const key of ["issues", "documents", "websitePublication"] as const) {
+    for (const key of [
+      "issues",
+      "documents",
+      "apartmentBinder",
+      "websitePublication",
+    ] as const) {
       expect(securityMeasuresFor(key, facts(), t), key).toContain(
         "dataProtection.processing.security.filesEncrypted",
       );
@@ -340,7 +366,12 @@ describe("securityMeasuresFor", () => {
   it("does not say it while one stored file is still unencrypted", () => {
     // The job at start has not finished with a file an older instance stored,
     // or has not yet removed the unencrypted object it replaced.
-    for (const key of ["issues", "documents", "websitePublication"] as const) {
+    for (const key of [
+      "issues",
+      "documents",
+      "apartmentBinder",
+      "websitePublication",
+    ] as const) {
       expect(
         securityMeasuresFor(key, facts({ unencryptedStoredFiles: 1 }), t),
         key,
@@ -351,7 +382,12 @@ describe("securityMeasuresFor", () => {
   it("never says it of a processing that stores no files", () => {
     for (const key of SEED_KEYS.filter(
       (candidate) =>
-        !["issues", "documents", "websitePublication"].includes(candidate),
+        ![
+          "issues",
+          "documents",
+          "apartmentBinder",
+          "websitePublication",
+        ].includes(candidate),
     )) {
       expect(securityMeasuresFor(key, facts(), t), key).not.toContain(
         "dataProtection.processing.security.filesEncrypted",

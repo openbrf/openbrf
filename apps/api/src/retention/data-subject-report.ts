@@ -432,6 +432,34 @@ export interface ReportDocument {
 }
 
 /**
+ * An entry this person filed into an apartment binder (lagenhetsparm).
+ *
+ * What they filed, and not what anybody else filed about an apartment they
+ * lived in: no link the platform holds makes another household's papers this
+ * person's data, and art. 15(4) is what keeps them off this document.
+ *
+ * Listed rather than purged, as the archive's documents are. The entry belongs
+ * to the apartment and is read by whoever holds it next; what the purge reaches
+ * is the link on it to this person.
+ */
+export interface ReportApartmentDocument {
+  apartmentDocumentId: string;
+  /** The apartment the binder belongs to. */
+  apartment: string;
+  kind:
+    | "DRAWING"
+    | "ALTERATION_PERMISSION"
+    | "WORK_RECORD"
+    | "INSPECTION"
+    | "INSTRUCTIONS"
+    | "OTHER";
+  title: string;
+  /** The day on the entry, as a calendar date. Null where it carries none. */
+  datedOn: string | null;
+  filedAt: string;
+}
+
+/**
  * A booking this person made.
  *
  * Unlike the issues and documents above, these are purged: a booking is erased
@@ -1240,6 +1268,7 @@ export interface DataSubjectReport {
   }[];
   issues: ReportIssue[];
   documents: ReportDocument[];
+  apartmentDocuments: ReportApartmentDocument[];
   bookings: ReportBooking[];
   motions: ReportMotion[];
   subletApplications: ReportSubletApplication[];

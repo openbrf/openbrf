@@ -33,7 +33,7 @@ import type { ProcessorFacts } from "./processors";
  *     overwritten by a background job.
  *   - The board's own (a BOARD row, or any field it has edited). Never touched.
  *
- * The nineteen keys below are fixed and asserted by the spec. Adding a table
+ * The twenty keys below are fixed and asserted by the spec. Adding a table
  * that holds personal data means adding a row here: that is the point of a
  * checked list rather than a derivation, and a processing the record does not
  * mention is the failure art. 30 exists to prevent.
@@ -75,6 +75,7 @@ export const SEED_KEYS = [
   "newsMailings",
   "issues",
   "documents",
+  "apartmentBinder",
   "bookings",
   "events",
   "motions",
@@ -196,6 +197,33 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     dataSubjectCategories: ["member", "boardMember"],
     personalDataCategories: ["name"],
   },
+  apartmentBinder: {
+    source: "SERVICE_DATA",
+    legalBasis: "LEGITIMATE_INTEREST",
+    /*
+     * Whoever lives here, and whoever used to. The link to the person who filed
+     * an entry is detached on their own retention window rather than on the day
+     * they move out, so what they filed is still held, and still on their
+     * access report, long after they have left - and the entry itself stays
+     * with the apartment for good. A record naming only the people who are here
+     * would describe a processing that stops when somebody leaves, and this one
+     * does not. The chat row says the same of itself.
+     */
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "boardMember",
+      "formerResident",
+    ],
+    /*
+     * `health` on the issue row's precedent, and for the same reason: the
+     * record of a bathroom adapted for a disability is health data whether or
+     * not anybody meant it to be, and a binder is where the papers about that
+     * bathroom are kept. `freeText` is the title, which whoever files an entry
+     * writes themselves and which is scanned for a personal identity number.
+     */
+    personalDataCategories: ["name", "apartment", "freeText", "health"],
+  },
   bookings: {
     source: "SERVICE_DATA",
     legalBasis: "CONTRACT",
@@ -294,6 +322,7 @@ const SHAPES: Record<SeedKey, SeedShape> = {
 const STORAGE_BACKED: readonly SeedKey[] = [
   "issues",
   "documents",
+  "apartmentBinder",
   "websitePublication",
 ];
 
@@ -390,7 +419,7 @@ function transfersToThirdCountry(key: SeedKey, facts: ProcessorFacts): boolean {
  * A general description of the art. 32(1) measures protecting one processing.
  *
  * Composed from the sentences that actually hold for the row rather than one
- * paragraph repeated nineteen times: art. 30(1)(g) asks what protects *this*
+ * paragraph repeated twenty times: art. 30(1)(g) asks what protects *this*
  * processing, and a record claiming field-level encryption for a table that has
  * none would be worse than one that said nothing.
  */
@@ -436,7 +465,7 @@ export function securityMeasuresFor(
 }
 
 /**
- * The nineteen rows, translated into the association's own language and filled
+ * The twenty rows, translated into the association's own language and filled
  * in from what this instance is configured to do.
  *
  * @param t Bound to the association's default locale, not the reader's: the

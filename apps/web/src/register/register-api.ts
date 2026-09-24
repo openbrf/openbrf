@@ -289,6 +289,7 @@ export type ReportAuditAction =
   | "MEDIA_UPLOADED"
   | "MEDIA_DELETED"
   | "MEDIA_ACCESSED"
+  | "APARTMENT_BINDER_READ"
   | "INVITATION_SENT"
   | "INVITATION_ACCEPTED"
   | "SIGNUP_REQUEST_APPROVED"
@@ -604,6 +605,27 @@ export interface DataSubjectReport {
     title: string;
     category: string;
     audience: "BOARD" | "MEMBER" | "PUBLIC";
+    filedAt: string;
+  }[];
+  /**
+   * Entries this person filed into an apartment binder (lagenhetsparm).
+   *
+   * What they filed, and not what anybody else filed about an apartment they
+   * lived in. No date: the entry belongs to the apartment and no clock purges
+   * it, and what the purge reaches is the link on it to this person.
+   */
+  apartmentDocuments: {
+    apartmentDocumentId: string;
+    apartment: string;
+    kind:
+      | "DRAWING"
+      | "ALTERATION_PERMISSION"
+      | "WORK_RECORD"
+      | "INSPECTION"
+      | "INSTRUCTIONS"
+      | "OTHER";
+    title: string;
+    datedOn: string | null;
     filedAt: string;
   }[];
   /**

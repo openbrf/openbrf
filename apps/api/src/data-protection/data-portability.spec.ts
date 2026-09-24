@@ -71,6 +71,7 @@ const REPORT = {
   legalHolds: [{ holdId: "hold-1", reason: "Tvist" }],
   issues: [{ issueId: "issue-1" }],
   documents: [{ documentId: "document-1" }],
+  apartmentDocuments: [{ apartmentDocumentId: "apartment-document-1" }],
   bookings: [{ bookingId: "booking-1" }],
   motions: [{ motionId: "motion-1" }],
   eventSignups: [{ signupId: "signup-1" }],
@@ -187,6 +188,14 @@ const SECTION_DECISIONS = {
   legalHolds: "reportOnly",
   issues: "carried",
   documents: "carried",
+  /*
+   * Legitimate interest, so art. 20(1)(a) does not reach it: an apartment
+   * binder's entries belong to the apartment and the person did not provide
+   * them under a consent or a contract. (The archive's documents above rest on
+   * the same basis and are carried anyway, which is an inconsistency this
+   * change names rather than copies.)
+   */
+  apartmentDocuments: "reportOnly",
   bookings: "carried",
   motions: "carried",
   subletApplications: "carried",
@@ -319,6 +328,10 @@ describe("what the export leaves on the access report", () => {
       "personalDataBreaches",
       "boardPositions",
       "systemRoles",
+      // An apartment binder's entries belong to the apartment rather than to
+      // whoever filed them, and rest on legitimate interest, so art. 20 does
+      // not reach them.
+      "apartmentDocuments",
     ]);
 
     /*
