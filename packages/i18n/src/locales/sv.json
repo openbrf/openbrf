@@ -2809,6 +2809,7 @@
     },
     "errors": {
       "loadFailed": "Pärmen kunde inte läsas just nu. Ladda om sidan.",
+      "listFailed": "Föreningens lägenheter kunde inte listas just nu. Ladda om sidan.",
       "notFound": "Någon sådan pärm finns inte, eller så är den inte det här kontots att läsa.",
       "kindIsTheBoards": "Ett tillstånd till ändring är styrelsens eget beslut, och styrelsen lägger in det.",
       "dateRequired": "Ett tillstånd till ändring bär den dag styrelsen beslutade det.",

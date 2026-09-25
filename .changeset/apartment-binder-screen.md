@@ -46,3 +46,10 @@ The move-out panel gains one line for the board member ending a residency: the
 binder follows the apartment, the person moving in reads it from their
 move-in day, and anybody else living there reads it until they are moved out
 too.
+
+The document archive's file picker gains a focus ring with it. Its input is
+visually hidden and is what the keyboard reaches, and the label drawn in its
+place had no focus style of its own, so nothing on the screen moved when the
+control was focused. The binder's own picker was built the same way and is
+drawn the same way now: the label sits after the input, where a focus ring and
+a disabled state both reach it.

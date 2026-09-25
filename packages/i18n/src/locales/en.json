@@ -2809,6 +2809,7 @@
     },
     "errors": {
       "loadFailed": "The binder could not be read just now. Reload the page.",
+      "listFailed": "The association's apartments could not be listed just now. Reload the page.",
       "notFound": "There is no such binder, or it is not this account's to read.",
       "kindIsTheBoards": "An alteration permission is the board's own decision, and the board files it.",
       "dateRequired": "An alteration permission carries the day the board decided it.",

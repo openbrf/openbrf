@@ -32,6 +32,7 @@ const fetchBinder = vi.fn();
 const fileInMyBinder = vi.fn();
 const fileAsBoard = vi.fn();
 const takeOutOfMyBinder = vi.fn();
+const takeOutAsBoard = vi.fn();
 
 vi.mock("./apartment-binder-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./apartment-binder-api")>()),
@@ -43,6 +44,7 @@ vi.mock("./apartment-binder-api", async (importOriginal) => ({
   fileAsBoard: (apartmentId: string, fields: unknown, file: unknown) =>
     fileAsBoard(apartmentId, fields, file),
   takeOutOfMyBinder: (id: string) => takeOutOfMyBinder(id),
+  takeOutAsBoard: (id: string) => takeOutAsBoard(id),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -178,6 +180,7 @@ beforeEach(() => {
   fetchBinder.mockReset().mockResolvedValue({ ok: true, value: BOARD_VIEW });
   fileInMyBinder.mockReset().mockResolvedValue({ ok: true, value: MANUAL });
   fileAsBoard.mockReset().mockResolvedValue({ ok: true, value: PERMISSION });
+  takeOutAsBoard.mockReset().mockResolvedValue({ ok: true, value: undefined });
   takeOutOfMyBinder
     .mockReset()
     .mockResolvedValue({ ok: true, value: undefined });
@@ -561,5 +564,118 @@ describe("a board seat reading every binder", () => {
     expect(
       await screen.findByText(/som registret inte längre namnger/),
     ).toBeTruthy();
+  });
+
+  it("says which of the two reads failed, and not the other one", async () => {
+    /*
+     * The chooser and a chosen binder are two requests. A board member told
+     * that a binder could not be read, when it was the association's
+     * apartments that could not be listed, goes looking at one apartment for a
+     * fault that is not in any of them.
+     */
+    fetchBinders.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    renderScreen(["apartmentBinder:manage"]);
+
+    expect(
+      await screen.findByText(/Föreningens lägenheter kunde inte listas/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Pärmen kunde inte läsas just nu/)).toBeNull();
+  });
+
+  it("puts a binder's failure down when the board goes back to choosing", async () => {
+    /*
+     * The notice belongs to the apartment that was chosen. Left standing over
+     * a chooser with nothing chosen it reads as the screen's own fault, and
+     * nothing a board member can do on the screen would clear it.
+     */
+    fetchBinder.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    const session = userEvent.setup();
+    renderScreen(["apartmentBinder:manage"]);
+
+    const chooser = await screen.findByRole("combobox", { name: /^Lägenhet/ });
+    await session.selectOptions(chooser, "apartment-1201");
+    expect(
+      await screen.findByText(/Pärmen kunde inte läsas just nu/),
+    ).toBeTruthy();
+
+    await session.selectOptions(chooser, "");
+    await waitFor(() => {
+      expect(screen.queryByText(/Pärmen kunde inte läsas just nu/)).toBeNull();
+    });
+  });
+
+  it("keeps a binder's failure when the chooser answers after it", async () => {
+    /*
+     * Taking an entry out reads the chooser and the binder again. The chooser
+     * answering says nothing about the binder, so a failure that the other
+     * request's success wipes off the screen would leave the board reading a
+     * binder as though it had arrived.
+     *
+     * The chooser is made to answer second, and to answer with a different
+     * count, so that the option's own text is the sign that its answer has
+     * landed. Which of the two answers last is the network's to decide, and a
+     * case that waited only for the notice passed either way.
+     */
+    let listReads = 0;
+    fetchBinders.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          listReads += 1;
+          const entries = listReads === 1 ? 2 : 1;
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              value: [
+                {
+                  apartmentId: "apartment-1201",
+                  apartment: "Storgatan 12 1201",
+                  entries,
+                },
+              ],
+            });
+          }, 20);
+        }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const session = userEvent.setup();
+    renderScreen(["apartmentBinder:manage"]);
+
+    const chooser = await screen.findByRole("combobox", { name: /^Lägenhet/ });
+    const options = () =>
+      within(chooser)
+        .getAllByRole("option")
+        .map((option) => option.textContent);
+
+    await waitFor(() => {
+      expect(options()).toContain("Storgatan 12 1201 - 2 handlingar");
+    });
+    await session.selectOptions(chooser, "apartment-1201");
+
+    const control = await screen.findByRole("button", {
+      name: "Ta ut Ritning badrum 2019 ur pärmen",
+    });
+    fetchBinder.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(control);
+
+    // The new count is the chooser's answer arriving, after the binder's.
+    await waitFor(() => {
+      expect(options()).toContain("Storgatan 12 1201 - 1 handling");
+    });
+
+    expect(screen.getByText(/Pärmen kunde inte läsas just nu/)).toBeTruthy();
+    expect(
+      screen.queryByText(/Föreningens lägenheter kunde inte listas/),
+    ).toBeNull();
   });
 });

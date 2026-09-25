@@ -215,7 +215,14 @@ function BoardBinders(): ReactElement {
   const [summaries, setSummaries] = useState<BoardBinderSummary[] | null>(null);
   const [chosen, setChosen] = useState("");
   const [binder, setBinder] = useState<BoardBinder | null>(null);
-  const [failed, setFailed] = useState(false);
+  /*
+   * The chooser and the chosen binder fail apart from each other, so they are
+   * asked apart from each other. One flag for both would lose a failure the
+   * moment the other request succeeded, and would leave a binder's failure
+   * standing under a chooser that no longer has anything chosen.
+   */
+  const [listFailed, setListFailed] = useState(false);
+  const [binderFailed, setBinderFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -226,7 +233,7 @@ function BoardBinders(): ReactElement {
       if (cancelled) {
         return;
       }
-      setFailed(!result.ok);
+      setListFailed(!result.ok);
       if (result.ok) {
         setSummaries(result.value);
       }
@@ -249,7 +256,7 @@ function BoardBinders(): ReactElement {
       if (cancelled) {
         return;
       }
-      setFailed(!result.ok);
+      setBinderFailed(!result.ok);
       if (result.ok) {
         setBinder(result.value);
       }
@@ -270,6 +277,7 @@ function BoardBinders(): ReactElement {
   const choose = useCallback((apartmentId: string) => {
     setChosen(apartmentId);
     setBinder(null);
+    setBinderFailed(false);
   }, []);
 
   const reload = useCallback(() => {
@@ -285,9 +293,9 @@ function BoardBinders(): ReactElement {
         </p>
       </div>
 
-      {failed ? (
+      {listFailed ? (
         <Notice tone="danger" live>
-          {t("apartmentBinder.errors.loadFailed")}
+          {t("apartmentBinder.errors.listFailed")}
         </Notice>
       ) : null}
 
@@ -296,6 +304,16 @@ function BoardBinders(): ReactElement {
         chosen={chosen}
         onChoose={choose}
       />
+
+      {/*
+       * Under the chooser, where the binder itself would be: a notice above it
+       * reads as though the association's apartments could not be listed.
+       */}
+      {binderFailed ? (
+        <Notice tone="danger" live>
+          {t("apartmentBinder.errors.loadFailed")}
+        </Notice>
+      ) : null}
 
       {binder === null ? null : (
         <>
