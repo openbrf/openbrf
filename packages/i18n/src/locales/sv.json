@@ -1147,7 +1147,7 @@
       "appearance": "Ljust eller mörkt",
       "portability": {
         "heading": "Dina egna uppgifter",
-        "description": "Hämta det du har lämnat till föreningen, i ett maskinläsbart format (GDPR art. 20). Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
+        "description": "Hämta det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke, i ett maskinläsbart format (GDPR art. 20). Det föreningen har om dig på annan grund finns inte i filen; styrelsen tar fram ett registerutdrag på begäran. Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
         "action": "Hämta mina uppgifter",
         "working": "Hämtar...",
         "failed": "Uppgifterna kunde inte hämtas just nu."
@@ -4355,11 +4355,69 @@
           "legalBasisNote": "Berättigat intresse: föreningen avgör vem som får tillgång.",
           "retention": "En avgjord ansökan tas bort av styrelsen. En inbjudan som aldrig accepterats gallras med personens övriga tjänstedata."
         },
+        "boardPositionsAndSystemRoles": {
+          "name": "Förtroendeuppdrag och systemroller",
+          "purpose": "Veta vem som har en plats i styrelsen eller en roll i instansen, och låta var och en göra det som hör till den.",
+          "legalBasisNote": "Berättigat intresse: att veta vem som svarar för föreningen, och att i efterhand kunna säga vem som satt i styrelsen när ett beslut fattades.",
+          "retention": "Ett förtroendeuppdrag sparas som uppgift om vem som hade platsen och när; när en mandatperiod avslutas skrivs datumet in och ingenting tas bort. En systemroll sparas så länge den gäller och raderas när den tas bort."
+        },
+        "newsComments": {
+          "name": "Kommentarer på nyheter",
+          "purpose": "Låta dem som bor här svara på en nyhet under den.",
+          "legalBasisNote": "Berättigat intresse: att låta huset samtala om det styrelsen publicerar. En kommentar syns för samma personer som nyheten och visas aldrig på den publika webbplatsen.",
+          "retention": "Varje kommentar raderas ett år efter att den skrevs, oavsett om styrelsen har dolt den."
+        },
+        "subletApplications": {
+          "name": "Ansökningar om andrahandsupplåtelse",
+          "purpose": "Ta emot en bostadsrättshavares ansökan om styrelsens samtycke till andrahandsupplåtelse, och föra in styrelsens svar och ett eventuellt tillstånd från hyresnämnden.",
+          "legalBasisNote": "Avtal (art. 6(1)(b)): en bostadsrättshavare får upplåta lägenheten i andra hand endast om styrelsen ger sitt samtycke (BRL 7 kap. 10 §), och ansökan och svaret är det samtycket, begärt och givet eller vägrat. Den som söker kan självmant ange uppgifter om hälsa i skälet (art. 9).",
+          "retention": "Två år efter det senare av styrelsens svar och slutet på den sökta perioden, så att samtycket finns kvar efter upplåtelsen det gäller: en andrahandsupplåtelse utan samtycke kan leda till förverkande (BRL 7 kap. 18 § första stycket 2). En ansökan som ligger hos styrelsen gallras aldrig."
+        },
+        "keyOrders": {
+          "name": "Nyckelbeställningar",
+          "purpose": "Ta emot hushållens beställningar av nycklar och taggar, och föra in överlämningen.",
+          "legalBasisNote": "Avtal: de nycklar och taggar ett hushåll beställer för att komma in i sitt eget hus.",
+          "retention": "Ett år efter att beställningen avslutats. En öppen beställning gallras aldrig. Överlämningen finns också i granskningsloggen."
+        },
+        "boardMailbox": {
+          "name": "Styrelsens brevlåda",
+          "purpose": "Ta emot det som skrivs till styrelsens adress, och svara på det från applikationen.",
+          "legalBasisNote": "Berättigat intresse: att hantera det föreningen får frågor om, och att svara den som skrev. Ett brev kan innehålla vad som helst som avsändaren valt att skriva, också uppgifter om hälsa (art. 9).",
+          "retention": "Varje tråd raderas med sina bilagor två år efter det senaste meddelandet, om inte ett rättsligt bevarandekrav behåller den. Breven finns kvar i föreningens egen brevlåda hos dess e-postleverantör, som instansen aldrig tömmer; styrelsen raderar dem där."
+        },
+        "memberCharges": {
+          "name": "Debiteringar",
+          "purpose": "Registrera vad föreningen debiterar en medlem eller en lägenhet, och lämna underlaget till den som sköter bokföringen.",
+          "legalBasisNote": "Rättslig förpliktelse: debiteringarna är räkenskapsinformation enligt bokföringslagen (1999:1078) 5 kap. 6-7 §§.",
+          "retention": "Till och med det sjunde året efter utgången av det kalenderår då räkenskapsåret som debiteringen hör till avslutades (bokföringslagen 7 kap. 2 §)."
+        },
+        "dataSubjectRequests": {
+          "name": "Begäranden om egna uppgifter",
+          "purpose": "Anteckna vad en person begär om sina egna uppgifter - radering, invändning, begränsning - och vad styrelsen beslutade.",
+          "legalBasisNote": "Rättslig förpliktelse: GDPR art. 12(3)-(4), 17, 18 och 21 - svar inom en månad, och skälen när en begäran avslås - och art. 5(2).",
+          "retention": "Avslutas med ett datum i stället för att raderas, som uppgift om vad som begärdes och hur det besvarades. Ingen gallring når den."
+        },
+        "personalDataBreaches": {
+          "name": "Personuppgiftsincidenter",
+          "purpose": "Dokumentera varje personuppgiftsincident, vilka den nådde och besluten om att anmäla den till IMY och att informera de berörda.",
+          "legalBasisNote": "Rättslig förpliktelse: GDPR art. 33(5), med besluten enligt art. 33(1) och 34(1).",
+          "retention": "Avslutas med ett datum i stället för att raderas: art. 33(5) kräver dokumentation av varje incident. Ingen gallring når den."
+        },
+        "legalHolds": {
+          "name": "Rättsliga bevarandekrav",
+          "purpose": "Behålla en persons uppgifter efter gallringsdatum så länge ett rättsligt anspråk eller en myndighets begäran kräver det.",
+          "legalBasisNote": "Berättigat intresse: att fastställa, göra gällande eller försvara ett rättsligt anspråk, eller att besvara en myndighets begäran.",
+          "retention": "Hävs med ett datum i stället för att raderas, så att det framgår varför gallringen inte kördes för personen under den tiden."
+        },
         "recipients": {
           "noMailServer": "Ingen e-postserver är konfigurerad.",
           "localDisk": "Föreningens egen lagring på instansens disk.",
           "s3": "Objektlagring hos {{endpoint}}, hinken {{bucket}}.",
-          "noConnectedApps": "Ingen boende har anslutit någon app."
+          "noConnectedApps": "Ingen boende har anslutit någon app.",
+          "mailbox": "Föreningens brevlåda hos {{host}}, där breven kommer in och ligger kvar.",
+          "replies": "Svar skickas via {{host}}.",
+          "noMailbox": "Ingen brevlåda är konfigurerad.",
+          "economicManager": "Föreningens ekonomiska förvaltare, eller den som annars sköter bokföringen, som får underlaget för den."
         },
         "clientTransfer": "Uppgifter lämnas till {{clients}} när en boende har anslutit appen. Instansen kan inte avgöra var en app körs; styrelsen anger var den finns eller vilken skyddsåtgärd enligt art. 46 som gäller.",
         "storageTransfer": "Filerna ligger hos {{endpoint}} i hinken {{bucket}}, signerad för regionen {{region}}. Instansen kan inte avgöra var hinken finns; styrelsen anger var den är placerad eller vilken skyddsåtgärd enligt art. 46 som gäller."
@@ -4369,6 +4427,7 @@
         "auditLog": "Varje åtkomst och ändring skrivs till den oföränderliga granskningsloggen.",
         "capabilityGates": "Varje anrop prövas mot vad den inloggade får göra.",
         "protectedPersons": "Personer med skyddade personuppgifter maskeras överallt.",
+        "namedAsWritten": "Den som skriver in visas som den skrev; maskeringen av skyddade personuppgifter gäller personer som registret namnger och kan inte nå det någon skickar.",
         "localDisk": "Filerna ligger på instansens egen disk.",
         "filesEncrypted": "Filerna lagras krypterade, var och en med en egen nyckel som i sin tur är krypterad med instansens nyckel.",
         "s3": "Filerna ligger i objektlagring hos {{endpoint}}."
@@ -4424,6 +4483,7 @@
         "SMS": "SMS-gateway",
         "STORAGE": "Fillagring",
         "HOSTING": "Drift",
+        "MAILBOX": "Brevlåda",
         "PLUGIN": "Tillägg",
         "EXTERNAL": "Antecknad av styrelsen"
       },
@@ -4519,7 +4579,8 @@
       "appendFailed": "Rubrikerna kunde inte läggas till just nu."
     },
     "portability": {
-      "transmission": "Överlämnad till dig att föra vidare själv. En direkt överföring till en annan personuppgiftsansvarig enligt art. 20.2 gäller när det är tekniskt möjligt, och det finns ingen mottagande standard mellan plattformar för bostadsrättsföreningar."
+      "transmission": "Överlämnad till dig att föra vidare själv. En direkt överföring till en annan personuppgiftsansvarig enligt art. 20.2 gäller när det är tekniskt möjligt, och det finns ingen mottagande standard mellan plattformar för bostadsrättsföreningar.",
+      "scope": "Det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke. Det föreningen har om dig på annan grund, som berättigat intresse eller rättslig förpliktelse, finns inte i filen; styrelsen tar fram ett registerutdrag på begäran (art. 15)."
     },
     "categories": {
       "personalData": {

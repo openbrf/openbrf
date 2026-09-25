@@ -557,11 +557,15 @@ Free, open source, and never moved behind a paywall.
       (art. 30(1)(g)). Seeded from what the instance already knows - the
       statutory registers, the service data, the personal data categories
       every installed plugin declares, and the contact details, transfers and
-      security measures the instance can state truthfully. A board processes
-      things outside the application too, and can record one; the endpoint that
-      edits an existing entry exists and refuses a save built on a copy
-      somebody else has replaced, but no screen reaches it yet, so correcting a
-      recorded entry is not something a board can do from the application
+      security measures the instance can state truthfully. Every section of the
+      data subject access report names the processing in the record that
+      covers it, and the build fails on a section that names none, so a module
+      cannot hold personal data about a person without its row. A board
+      processes things outside the application too, and can record one; the
+      endpoint that edits an existing entry exists and refuses a save built on
+      a copy somebody else has replaced, but no screen reaches it yet, so
+      correcting a recorded entry is not something a board can do from the
+      application
 - [x] The privacy notice asks for everything GDPR art. 13 requires. The seeded
       page asks the board for the controller, the data, the purpose, the
       retention, the rights and the contact, and now for the legal basis
@@ -603,11 +607,14 @@ Free, open source, and never moved behind a paywall.
       purge from touching the person at all
 - [x] Data portability (GDPR art. 20): a machine-readable export of what a
       person gave the association under the membership contract or under their
-      consent, handed to the person, who transmits it: a direct transfer to
-      another controller (art. 20(2)) is required only where technically
-      feasible, and no receiving standard exists between housing-cooperative
-      platforms. Separate from the data subject access report, which is a
-      printed document by design and stays one
+      consent, read section by section from the record of processing
+      activities, so the export and the record cannot disagree - what rests on
+      the association's legitimate interest or on a legal obligation stays on
+      the data subject access report, handed to the person, who transmits it:
+      a direct transfer to another controller (art. 20(2)) is required only
+      where technically feasible, and no receiving standard exists between
+      housing-cooperative platforms. Separate from the data subject access
+      report, which is a printed document by design and stays one
 - [x] Purging reaches issues and the document archive, both service tier; the
       statutory registers and the audit log stay exempt as before. An issue or
       a document is detached from the person rather than deleted: the link to

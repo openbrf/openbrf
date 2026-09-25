@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 
+import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
@@ -35,6 +36,12 @@ export class ProcessorFactsService {
             smtpFromAddress: true,
             smsDriver: true,
             smsGatewayUrl: true,
+            boardMailboxAddress: true,
+            boardMailboxPop3Host: true,
+            boardMailboxPop3User: true,
+            // Only to tell whether a password is set. It is never decrypted
+            // here: the record names the mailbox, not what opens it.
+            boardMailboxPop3PasswordCipher: true,
           },
         }),
         this.prisma.installedPlugin.findMany({
@@ -93,6 +100,13 @@ export class ProcessorFactsService {
         host: connectedAppHost(client),
       })),
       unencryptedStoredFiles,
+      mailbox:
+        association !== null && boardMailboxConfigured(association)
+          ? {
+              host: association.boardMailboxPop3Host,
+              address: association.boardMailboxAddress,
+            }
+          : null,
     };
   }
 }

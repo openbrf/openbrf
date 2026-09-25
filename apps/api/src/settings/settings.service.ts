@@ -7,6 +7,7 @@ import {
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { AuditLogService } from "../audit/audit-log.service";
+import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -387,11 +388,9 @@ export class SettingsService {
         secure: association.boardMailboxPop3Secure,
         user: association.boardMailboxPop3User,
         passwordSet: association.boardMailboxPop3PasswordCipher !== null,
-        configured:
-          association.boardMailboxAddress !== null &&
-          association.boardMailboxPop3Host !== null &&
-          association.boardMailboxPop3User !== null &&
-          association.boardMailboxPop3PasswordCipher !== null,
+        // The collector's own test, so the screen cannot call a mailbox
+        // configured that the collector would not open.
+        configured: boardMailboxConfigured(association),
       },
       sms: {
         driver: association.smsDriver,

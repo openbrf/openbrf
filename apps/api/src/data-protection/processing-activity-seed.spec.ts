@@ -39,16 +39,46 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
     installedPlugins: [],
     connectedApps: [],
     unencryptedStoredFiles: 0,
+    mailbox: null,
     ...overrides,
   };
 }
 
+/**
+ * An instance storing files in a bucket, with the board mailbox configured, so
+ * the real-catalogue case below resolves the mailbox sentences too.
+ */
 const S3 = facts({
   storageDriver: "s3",
   s3Endpoint: "https://s3.example.test",
   s3Bucket: "granngarden",
   s3Region: "eu-north-1",
+  mailbox: {
+    host: "pop.example.test",
+    address: "styrelsen@granngarden.test",
+  },
 });
+
+/** An instance with the board mailbox configured, on the local driver. */
+const MAILBOX = facts({
+  mailbox: {
+    host: "pop.example.test",
+    address: "styrelsen@granngarden.test",
+  },
+});
+
+/**
+ * The rows that store files, and so name the storage and say whether the files
+ * are encrypted. The board mailbox stores its attachments through the ordinary
+ * upload path.
+ */
+const STORING_FILES = [
+  "issues",
+  "documents",
+  "apartmentBinder",
+  "websitePublication",
+  "boardMailbox",
+] as const;
 
 /** An instance two members have connected apps to, one of them unnamed. */
 const CONNECTED = facts({
@@ -83,20 +113,29 @@ describe("SEED_KEYS", () => {
       "meetingRecords",
       "auditLog",
       "addressBookAndAccounts",
+      "boardPositionsAndSystemRoles",
       "connectedApps",
       "residentDirectory",
       "newsMailings",
+      "newsComments",
       "issues",
       "documents",
       "apartmentBinder",
       "bookings",
       "events",
       "motions",
+      "subletApplications",
+      "keyOrders",
       "chat",
+      "boardMailbox",
       "fees",
+      "memberCharges",
       "websitePublication",
       "contactSubmissions",
       "signupRequestsAndInvitations",
+      "dataSubjectRequests",
+      "personalDataBreaches",
+      "legalHolds",
     ]);
   });
 
@@ -188,12 +227,85 @@ describe("seedRows", () => {
       source: "SERVICE_DATA",
       legalBasis: "LEGAL_OBLIGATION",
     });
+
+    /*
+     * Every row whose clock is not the residency's names the people who have
+     * moved, for the reason the chat and the binder give: a subletting
+     * application is kept two years past the letting, a key order a year past
+     * closing, a comment a year from writing, a charge through the accounting
+     * archive's seven years, a thread two years from its last message, and a
+     * position of trust for good.
+     */
+    for (const key of [
+      "subletApplications",
+      "keyOrders",
+      "newsComments",
+      "memberCharges",
+      "boardMailbox",
+      "boardPositionsAndSystemRoles",
+    ]) {
+      expect(rowFor(key).dataSubjectCategories, key).toContain(
+        "formerResident",
+      );
+    }
+
+    /*
+     * And somebody outside the register. Whoever writes to the board is mostly
+     * nobody the association holds; the sublessee is not recorded, but is who
+     * a subletting application's reason is about and whose number turns up
+     * pasted into it.
+     */
+    expect(rowFor("boardMailbox").dataSubjectCategories).toContain("external");
+    expect(rowFor("subletApplications").dataSubjectCategories).toContain(
+      "external",
+    );
+  });
+
+  it("puts the charges beside the fees, on the bookkeeping obligation", () => {
+    /*
+     * A charge records a receivable arising, an affärshändelse under
+     * bokföringslagen, and what documents it is kept through the seventh year
+     * after the financial year ended. The contract would not explain why a
+     * charge outlives the residency by seven years.
+     */
+    expect(rowFor("memberCharges")).toMatchObject({
+      source: "SERVICE_DATA",
+      legalBasis: "LEGAL_OBLIGATION",
+    });
+  });
+
+  it("puts the association's own compliance records on a legal obligation and a legal hold on a legitimate interest", () => {
+    /*
+     * Answering a request about own data and documenting a breach are what the
+     * GDPR itself requires (art. 12, art. 33(5)), which art. 6(3)(a) accepts as
+     * the law laying the obligation down. A legal hold is not: art. 17(3)
+     * disapplies erasure rather than supplying a basis, so keeping data for a
+     * claim rests on the association's interest in the claim.
+     */
+    for (const key of ["dataSubjectRequests", "personalDataBreaches"]) {
+      expect(rowFor(key), key).toMatchObject({
+        source: "SERVICE_DATA",
+        legalBasis: "LEGAL_OBLIGATION",
+      });
+    }
+    expect(rowFor("legalHolds")).toMatchObject({
+      source: "SERVICE_DATA",
+      legalBasis: "LEGITIMATE_INTEREST",
+    });
   });
 
   it("says an issue may carry health data the reporter volunteered", () => {
     // Nothing asks for it, but a person describing why the cold is a problem
     // may write it, and a record that did not say so would be inaccurate.
     expect(rowFor("issues").personalDataCategories).toContain("health");
+  });
+
+  it("says a letter to the board may carry health, money and photographs", () => {
+    // Whatever somebody chose to write to their association arrives: money,
+    // health, a dispute with a neighbour, and pictures of people.
+    expect(rowFor("boardMailbox").personalDataCategories).toEqual(
+      expect.arrayContaining(["health", "financial", "photograph", "freeText"]),
+    );
   });
 
   it("names the mail server and the gateway as the recipients of a mailing", () => {
@@ -215,14 +327,11 @@ describe("seedRows", () => {
   });
 
   it("names the association's own disk under the local driver", () => {
-    for (const key of [
-      "issues",
-      "documents",
-      "apartmentBinder",
-      "websitePublication",
-    ]) {
-      expect(rowFor(key).recipients).toBe(
-        "dataProtection.processing.seed.recipients.localDisk",
+    for (const key of STORING_FILES) {
+      // Last, after whatever else the row names: the board mailbox names its
+      // mailbox first.
+      expect(rowFor(key).recipients, key).toMatch(
+        /(^| )dataProtection\.processing\.seed\.recipients\.localDisk$/,
       );
       expect(rowFor(key).thirdCountryTransfer).toBe(false);
       expect(rowFor(key).thirdCountrySafeguards).toBeNull();
@@ -253,6 +362,66 @@ describe("seedRows", () => {
   it("leaves rows that store no files out of the transfer question", () => {
     expect(rowFor("memberRegister", S3).thirdCountryTransfer).toBe(false);
     expect(rowFor("bookings", S3).recipients).toBeNull();
+  });
+
+  it("names the mailbox, the mail server replies go through and the storage for the board mailbox", () => {
+    /*
+     * The letters arrive at the association's mail provider and stay there,
+     * the board's answers leave through the instance's own mail server, and
+     * the attachments are stored like any other upload: three recipients, in
+     * that order.
+     */
+    expect(rowFor("boardMailbox", MAILBOX).recipients).toBe(
+      "dataProtection.processing.seed.recipients.mailbox(host=pop.example.test) " +
+        "dataProtection.processing.seed.recipients.replies(host=smtp.example.test) " +
+        "dataProtection.processing.seed.recipients.localDisk",
+    );
+  });
+
+  it("says so when no mailbox is configured", () => {
+    expect(rowFor("boardMailbox").recipients).toBe(
+      "dataProtection.processing.seed.recipients.noMailbox " +
+        "dataProtection.processing.seed.recipients.localDisk",
+    );
+  });
+
+  it("leaves replies out when the instance cannot send", () => {
+    // A host with no sender address sends nothing, which is the test the mail
+    // row and the processor list apply.
+    expect(
+      rowFor("boardMailbox", { ...MAILBOX, smtpFromAddress: null }).recipients,
+    ).toBe(
+      "dataProtection.processing.seed.recipients.mailbox(host=pop.example.test) " +
+        "dataProtection.processing.seed.recipients.localDisk",
+    );
+  });
+
+  it("names the economic manager as the recipient of the charges and the fees", () => {
+    /*
+     * The debiting list and the accounting basis go to whoever keeps the books.
+     * No setting names that party, so the row says who it is rather than
+     * guessing at a name.
+     */
+    for (const key of ["memberCharges", "fees"]) {
+      expect(rowFor(key).recipients, key).toBe(
+        "dataProtection.processing.seed.recipients.economicManager",
+      );
+    }
+  });
+
+  it("flags the board mailbox's attachments as a transfer under the s3 driver, and not its mail host", () => {
+    /*
+     * The attachments are stored files and follow the storage rule; the mail
+     * host follows the mail rule, which flags nothing. So the safeguards name
+     * the bucket and never the mailbox.
+     */
+    const row = rowFor("boardMailbox", S3);
+
+    expect(row.thirdCountryTransfer).toBe(true);
+    expect(row.thirdCountrySafeguards).toBe(
+      "dataProtection.processing.seed.storageTransfer(endpoint=https://s3.example.test,bucket=granngarden,region=eu-north-1)",
+    );
+    expect(rowFor("boardMailbox", MAILBOX).thirdCountryTransfer).toBe(false);
   });
 
   it("names every connected app as a recipient, by where it is reached", () => {
@@ -348,12 +517,7 @@ describe("securityMeasuresFor", () => {
   });
 
   it("says the files are encrypted on every processing that stores them, once every file is", () => {
-    for (const key of [
-      "issues",
-      "documents",
-      "apartmentBinder",
-      "websitePublication",
-    ] as const) {
+    for (const key of STORING_FILES) {
       expect(securityMeasuresFor(key, facts(), t), key).toContain(
         "dataProtection.processing.security.filesEncrypted",
       );
@@ -366,12 +530,7 @@ describe("securityMeasuresFor", () => {
   it("does not say it while one stored file is still unencrypted", () => {
     // The job at start has not finished with a file an older instance stored,
     // or has not yet removed the unencrypted object it replaced.
-    for (const key of [
-      "issues",
-      "documents",
-      "apartmentBinder",
-      "websitePublication",
-    ] as const) {
+    for (const key of STORING_FILES) {
       expect(
         securityMeasuresFor(key, facts({ unencryptedStoredFiles: 1 }), t),
         key,
@@ -379,15 +538,37 @@ describe("securityMeasuresFor", () => {
     }
   });
 
+  it("does not claim masking where people are named as they wrote", () => {
+    /*
+     * The masking of protected personal data reaches the people the register
+     * names. A correspondent, whoever writes through the contact form, and
+     * whoever asks for an account are shown as they wrote themselves in, so
+     * saying they are masked would be a false statement in the record.
+     */
+    for (const key of [
+      "boardMailbox",
+      "contactSubmissions",
+      "signupRequestsAndInvitations",
+    ] as const) {
+      const text = securityMeasuresFor(key, facts(), t);
+      expect(text, key).toContain(
+        "dataProtection.processing.security.namedAsWritten",
+      );
+      expect(text, key).not.toContain(
+        "dataProtection.processing.security.protectedPersons",
+      );
+    }
+
+    // A subletting application names the tenant-owner from the register, who
+    // is masked like everywhere else.
+    expect(securityMeasuresFor("subletApplications", facts(), t)).toContain(
+      "dataProtection.processing.security.protectedPersons",
+    );
+  });
+
   it("never says it of a processing that stores no files", () => {
     for (const key of SEED_KEYS.filter(
-      (candidate) =>
-        ![
-          "issues",
-          "documents",
-          "apartmentBinder",
-          "websitePublication",
-        ].includes(candidate),
+      (candidate) => !(STORING_FILES as readonly string[]).includes(candidate),
     )) {
       expect(securityMeasuresFor(key, facts(), t), key).not.toContain(
         "dataProtection.processing.security.filesEncrypted",
@@ -408,9 +589,20 @@ describe("the seed text in the real catalogues", () => {
     const i18n = new I18nService();
     await i18n.init();
 
-    for (const locale of ["sv", "en"] as const) {
+    /*
+     * Over both kinds of instance: one with a mailbox, a bucket and a mail
+     * server, and one with none of them, so every sentence a configuration can
+     * select - the mailbox and the replies, and saying there is no mailbox and
+     * no mail server - resolves.
+     */
+    for (const [locale, from] of [
+      ["sv", S3],
+      ["en", S3],
+      ["sv", facts({ smtpHost: null })],
+      ["en", facts({ smtpHost: null })],
+    ] as const) {
       const translate = i18n.translatorFor(locale);
-      for (const row of seedRows(translate, S3)) {
+      for (const row of seedRows(translate, from)) {
         for (const [field, value] of Object.entries(row)) {
           if (typeof value !== "string") {
             continue;

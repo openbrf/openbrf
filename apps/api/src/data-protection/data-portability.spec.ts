@@ -3,9 +3,16 @@ import { describe, expect, it } from "vitest";
 
 import type { DataSubjectReport } from "../retention/data-subject-report";
 import {
+  SCOPE_NOTE_KEY,
   TRANSMISSION_NOTE_KEY,
   toDataPortabilityExport,
 } from "./data-portability";
+import { legalBasisOf } from "./processing-activity-seed";
+import {
+  PORTABLE_SECTIONS,
+  SECTION_PROCESSING,
+  type SectionProcessing,
+} from "./section-processing";
 
 /**
  * What art. 20 covers, and what it does not.
@@ -16,6 +23,11 @@ import {
  * art. 15 report. A field that leaked from the second into the first would be
  * the association handing over a statutory record it may not erase and the
  * person never provided.
+ *
+ * Which sections are carried is read from the map that ties each section of
+ * the report to its row in the record of processing activities, and the cases
+ * below tie the map to each row's basis - so the export and the record cannot
+ * disagree about what rests on a consent or a contract.
  */
 
 /** A report with something in every section the projection could reach. */
@@ -148,73 +160,10 @@ const REPORT = {
  */
 const t = ((key: string) => key) as unknown as TFunction;
 
-/** Every section name on the access report, as the type declares them. */
-const REPORT_SECTIONS = new Set(Object.keys(REPORT));
-
-/**
- * What the export does with each section of the access report.
- *
- * One decision per section, and the compiler is what requires it. The export is
- * an allow-list projection over a report that keeps growing, so a section added
- * to the report and forgotten here is data the person can read and cannot take,
- * with nothing about it failing to build - which is how the sublet applications
- * and the key orders arrived missing entirely. `satisfies` closes that: a new
- * section on {@link DataSubjectReport} has no entry here until somebody writes
- * one, and the case below checks each entry against what the projection
- * actually produced.
- *
- * "reportOnly" covers both of art. 20's bounds - what the person did not
- * provide, and what rests on a legal obligation rather than on consent or
- * contract - and the three sections that are not the person's data at all: the
- * two the file's own `about` block is written from, and the retention answer,
- * which states the association's policy rather than a fact about them.
- */
-const SECTION_DECISIONS = {
-  generatedOn: "reportOnly",
-  housingCooperative: "reportOnly",
-  person: "carried",
-  residencies: "carried",
-  boardPositions: "reportOnly",
-  systemRoles: "reportOnly",
-  account: "reportOnly",
-  connectedApps: "carried",
-  memberRegisterEntries: "reportOnly",
-  transfers: "reportOnly",
-  transferReversals: "reportOnly",
-  terminations: "reportOnly",
-  lienNotes: "reportOnly",
-  registerReportObligations: "reportOnly",
-  publicationConsents: "carried",
-  legalHolds: "reportOnly",
-  issues: "carried",
-  documents: "carried",
-  /*
-   * Legitimate interest, so art. 20(1)(a) does not reach it: an apartment
-   * binder's entries belong to the apartment and the person did not provide
-   * them under a consent or a contract. (The archive's documents above rest on
-   * the same basis and are carried anyway, which is an inconsistency this
-   * change names rather than copies.)
-   */
-  apartmentDocuments: "reportOnly",
-  bookings: "carried",
-  motions: "carried",
-  subletApplications: "carried",
-  keyOrders: "carried",
-  eventSignups: "carried",
-  memberCharges: "reportOnly",
-  fees: "reportOnly",
-  feeNotices: "reportOnly",
-  newsComments: "carried",
-  chats: "carried",
-  chatReports: "carried",
-  boardMailboxThreads: "reportOnly",
-  meetingAttendances: "reportOnly",
-  proxyAuthorisations: "reportOnly",
-  auditEntries: "reportOnly",
-  dataSubjectRequests: "carried",
-  personalDataBreaches: "reportOnly",
-  retention: "reportOnly",
-} as const satisfies Record<keyof DataSubjectReport, "carried" | "reportOnly">;
+const ENTRIES = Object.entries(SECTION_PROCESSING) as [
+  keyof DataSubjectReport,
+  SectionProcessing,
+][];
 
 /**
  * Asserts a name is a section the report really has before asserting the export
@@ -223,19 +172,31 @@ const SECTION_DECISIONS = {
  * A string that matches nothing asserts nothing: rename a section on
  * `DataSubjectReport`, carry the new name into the projection by mistake, and a
  * bare `toBeUndefined` would stay green while statutory register content
- * started travelling in a file a browser downloads.
+ * started travelling in a file a browser downloads. The map is typed against
+ * the report, so a name it holds is a section the report has.
  */
 function expectLeftOnTheReport(
   exported: Record<string, unknown>,
   sections: readonly string[],
 ): void {
   for (const section of sections) {
-    expect(REPORT_SECTIONS).toContain(section);
-    expect(exported[section]).toBeUndefined();
+    expect(Object.keys(SECTION_PROCESSING), section).toContain(section);
+    expect(exported[section], section).toBeUndefined();
   }
 }
 
 describe("what the export carries", () => {
+  it("has something in every section the report declares", () => {
+    /*
+     * The fixture is what the cases below project, so a section it forgot
+     * would let "carries exactly" pass without the projection ever having
+     * been offered that section.
+     */
+    for (const section of Object.keys(SECTION_PROCESSING)) {
+      expect(Object.keys(REPORT), section).toContain(section);
+    }
+  });
+
   it("gives back what the person provided under a consent or a contract", () => {
     const exported = toDataPortabilityExport(REPORT, t);
 
@@ -244,38 +205,58 @@ describe("what the export carries", () => {
     expect(exported.bookings).toHaveLength(1);
     expect(exported.motions).toHaveLength(1);
     expect(exported.eventSignups).toHaveLength(1);
-    expect(exported.newsComments).toHaveLength(1);
-    // The room and the words in it: what somebody wrote is squarely art. 20
-    // data, and the room is what the words were said in.
-    expect(exported.chats).toHaveLength(1);
-    expect(exported.chats[0]?.messages).toHaveLength(1);
-    expect(exported.issues).toHaveLength(1);
     expect(exported.publicationConsents).toHaveLength(1);
     expect(exported.connectedApps).toHaveLength(1);
-    expect(exported.dataSubjectRequests).toHaveLength(1);
     expect(exported.subletApplications).toHaveLength(1);
     expect(exported.keyOrders).toHaveLength(1);
   });
 
-  it("decides every section of the report, and does what it decided", () => {
+  it("carries exactly the sections the record puts on a consent or a contract", () => {
     /*
      * The guard on the projection itself rather than on any one section. The
-     * fixture puts something in every section, so a carried one being defined
-     * means the projection produced it - and a section the table calls carried
-     * that has quietly stopped being projected fails here rather than being
-     * noticed by the person who asked for their data.
+     * fixture puts something in every section, so the file's keys are what
+     * the projection produced - and a section it has quietly stopped
+     * projecting, or one it carries that the map does not, fails here rather
+     * than being noticed by the person who asked for their data.
      */
-    const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
-      string,
-      unknown
-    >;
+    const exported = Object.keys(toDataPortabilityExport(REPORT, t)).filter(
+      (key) => key !== "about",
+    );
 
-    for (const [section, decision] of Object.entries(SECTION_DECISIONS)) {
-      expect(REPORT_SECTIONS, section).toContain(section);
-      if (decision === "carried") {
-        expect(exported[section], section).toBeDefined();
-      } else {
-        expect(exported[section], section).toBeUndefined();
+    expect(exported).toEqual([...PORTABLE_SECTIONS]);
+  });
+
+  it("states the export's rule in agreement with the record", () => {
+    /*
+     * Art. 20(1)(a) reaches processing based on a consent or on the contract,
+     * and nothing else. A section is outside it exactly when the row the
+     * record says covers it rests on another basis - and a carried section's
+     * row is on one of the two. Read from the product's own statement of each
+     * basis, so a row moved to another basis moves its sections with it.
+     */
+    const disagreements = ENTRIES.flatMap(([section, entry]) => {
+      if (!("row" in entry)) {
+        return [];
+      }
+      const basis = legalBasisOf(entry.row);
+      const reached = basis === "CONSENT" || basis === "CONTRACT";
+      if ((entry.portability === "otherBasis") === reached) {
+        return [
+          `${section} is ${entry.portability} and its row ${entry.row} ` +
+            `rests on ${basis}`,
+        ];
+      }
+      return [];
+    });
+
+    expect(disagreements).toEqual([]);
+    for (const section of PORTABLE_SECTIONS) {
+      const entry: SectionProcessing = SECTION_PROCESSING[section];
+      expect("row" in entry, section).toBe(true);
+      if ("row" in entry) {
+        expect(["CONSENT", "CONTRACT"], section).toContain(
+          legalBasisOf(entry.row),
+        );
       }
     }
   });
@@ -288,14 +269,22 @@ describe("what the export carries", () => {
     expect(exported.about.transmission).toBe(TRANSMISSION_NOTE_KEY);
     expect(exported.about.association).toBe("Brf Eksemplet");
   });
+
+  it("says what it carries and where the rest is", () => {
+    // Somebody opening the file a year later and missing their issue reports
+    // or the chat finds in it that those are on the access report.
+    expect(toDataPortabilityExport(REPORT, t).about.scope).toBe(SCOPE_NOTE_KEY);
+  });
 });
 
 describe("what the export leaves on the access report", () => {
-  it("carries no statutory register content, which rests on a legal obligation", () => {
+  it("carries nothing that rests on a legal obligation", () => {
     /*
      * Art. 20(1)(a) reaches processing on consent or contract. The member
      * register, the apartment register and everything hanging off them are kept
-     * because the law requires it - which is also why no erasure reaches them.
+     * because the law requires it - which is also why no erasure reaches them -
+     * and so are the books, the audit trail and the association's own data
+     * protection records.
      */
     const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
       string,
@@ -305,56 +294,73 @@ describe("what the export leaves on the access report", () => {
     expectLeftOnTheReport(exported, [
       "memberRegisterEntries",
       "transfers",
+      "transferReversals",
       "terminations",
       "lienNotes",
       "registerReportObligations",
       "meetingAttendances",
       "proxyAuthorisations",
+      "memberCharges",
+      "fees",
+      "feeNotices",
+      "auditEntries",
+      "personalDataBreaches",
+      "dataSubjectRequests",
     ]);
   });
 
-  it("carries nothing the association wrote about the person", () => {
-    // A board's note, a hold, an audit trail and a breach record are the
-    // association's own account. Art. 15 shows them; art. 20 does not give
-    // them back, because the person never provided them.
+  it("carries nothing that rests on a legitimate interest", () => {
+    /*
+     * What somebody wrote in the chat, under a news item or in an issue report
+     * is their own words, and it is still outside art. 20(1)(a): the
+     * association holds it on its own interest rather than on a consent or the
+     * contract. The access report carries all of it.
+     */
     const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
       string,
       unknown
     >;
 
     expectLeftOnTheReport(exported, [
-      "legalHolds",
-      "auditEntries",
-      "personalDataBreaches",
+      "issues",
+      "documents",
+      "apartmentDocuments",
+      "chats",
+      "chatReports",
+      "newsComments",
+      "boardMailboxThreads",
       "boardPositions",
       "systemRoles",
-      // An apartment binder's entries belong to the apartment rather than to
-      // whoever filed them, and rest on legitimate interest, so art. 20 does
-      // not reach them.
-      "apartmentDocuments",
+      "legalHolds",
     ]);
+  });
+
+  it("carries nothing the association wrote about the person", () => {
+    /*
+     * The account rests on the contract, and when it was created and whether it
+     * has a second factor are still the association's record of it rather than
+     * something the person provided.
+     */
+    const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
+      string,
+      unknown
+    >;
+
+    expectLeftOnTheReport(exported, ["account"]);
 
     /*
-     * And the board's own answer, on the three sections the export does carry.
-     * The row is the person's - what they asked for, the period they asked
-     * about, what they ordered - and what the association decided about it is
-     * not; art. 20(1) reaches the first and not the second.
+     * And the board's own answer, on the sections the export does carry. The
+     * row is the person's - the period they asked about, what they ordered, the
+     * app they connected - and what the association decided or observed about
+     * it is not; art. 20(1) reaches the first and not the second.
      *
      * Field by field against the report's own row, so a section that gains an
      * answer field cannot start travelling here unnoticed. An allow-list
      * projection over a report that keeps growing is exactly where that goes
-     * wrong, which is how the two sections below arrived missing entirely.
+     * wrong.
      */
     const carried = toDataPortabilityExport(REPORT, t);
     const answers: Record<string, readonly string[]> = {
-      dataSubjectRequests: [
-        "decision",
-        "decisionGround",
-        "decidedAt",
-        "executedAt",
-        "closedAt",
-        "closeReason",
-      ],
       subletApplications: [
         "status",
         "closedAt",
