@@ -216,16 +216,29 @@ export function FileDocumentPanel({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <label className={`${SECONDARY_BUTTON} cursor-pointer`}>
-          {t("documents.upload.choose")}
+        <label className="cursor-pointer">
           <input
             type="file"
             accept={ACCEPTED_TYPES}
             disabled={save.state.kind === "saving"}
             aria-label={t("documents.upload.file")}
-            className="sr-only"
+            className="peer sr-only"
             onChange={onPick}
           />
+          {/*
+           * The input is visually hidden, so the focus ring and the disabled
+           * state both have to be drawn on the part the viewer can see.
+           */}
+          <span
+            className={[
+              SECONDARY_BUTTON,
+              "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
+              "peer-focus-visible:outline-trust",
+              "peer-disabled:opacity-60",
+            ].join(" ")}
+          >
+            {t("documents.upload.choose")}
+          </span>
         </label>
 
         {file === null ? null : (

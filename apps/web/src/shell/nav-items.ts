@@ -311,6 +311,29 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["residentDirectory:read", "documents:manage"],
   },
   {
+    to: "/apartment-binder",
+    // The binder's own word for itself, under its own namespace, so the label
+    // moves with the feature.
+    labelKey: "apartmentBinder.navLabel",
+    // The archive's own gate, one entry above, and for the same reasons: the
+    // people the binders are kept for are the people who live in the building,
+    // and the external property manager is deliberately not one of them - their
+    // seat is issue handling, and a household's papers are not theirs to
+    // browse.
+    //
+    // The second names the board's half, which is the one capability in the
+    // product a board seat alone confers: the administrator's grant of every
+    // capability does not carry it (ADR 0017). The administrator is still
+    // offered the destination, through the first of the two, and what they find
+    // is a sentence saying that a binder is read by whoever lives in the
+    // apartment - on the chat's reasoning, that hiding the door would hide the
+    // explanation with it.
+    //
+    // What any account may actually read is decided per request against the
+    // residencies it holds today, on the server, and never here.
+    capability: ["residentDirectory:read", "apartmentBinder:manage"],
+  },
+  {
     to: "/admin/site",
     // The website's own word for itself, under its own namespace, so the label
     // moves with the feature.

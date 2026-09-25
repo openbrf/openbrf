@@ -144,6 +144,32 @@ describe("the other seats", () => {
     expect(destinations(["issues:handle"])).not.toContain("/chat");
   });
 
+  it("offers the apartment binder to the people it is kept for", () => {
+    /*
+     * Two halves of one destination. Somebody who lives in the building reaches
+     * their own home's binder through the residency the register holds, which
+     * is the capability every resident has; a board seat reaches every
+     * apartment's through the one capability no grant of capabilities carries
+     * (ADR 0017). Neither holds the other's, so any-of rather than all-of.
+     *
+     * The external property manager is on neither side of it: their seat is
+     * issue handling, they do not live here, and a household's papers are not
+     * theirs to browse - the archive's own rule, one entry above this one.
+     */
+    expect(destinations(["residentDirectory:read"])).toContain(
+      "/apartment-binder",
+    );
+    expect(destinations(["apartmentBinder:manage"])).toContain(
+      "/apartment-binder",
+    );
+    expect(destinations(["issues:handle", "self:manage"])).not.toContain(
+      "/apartment-binder",
+    );
+    expect(destinations(["documents:manage"])).not.toContain(
+      "/apartment-binder",
+    );
+  });
+
   it("keeps the fees and the charges on two capabilities", () => {
     /*
      * Two doors and two grants, although the board holds both today. Fixing the
@@ -188,6 +214,7 @@ describe("the other seats", () => {
       "/events",
       "/news",
       "/documents",
+      "/apartment-binder",
     ]);
   });
 
@@ -213,6 +240,7 @@ describe("the other seats", () => {
       "/motions",
       "/news",
       "/documents",
+      "/apartment-binder",
     ]);
   });
 
@@ -236,6 +264,9 @@ describe("the other seats", () => {
         "dataProtection:manage",
         "boardMailbox:handle",
         "chat:participate",
+        // The one capability a board seat alone confers: an administrator
+        // holding every grant in the product does not hold it (ADR 0017).
+        "apartmentBinder:manage",
       ]),
     ).toEqual([
       "/",
@@ -252,6 +283,7 @@ describe("the other seats", () => {
       "/data-protection",
       "/news",
       "/documents",
+      "/apartment-binder",
     ]);
   });
 

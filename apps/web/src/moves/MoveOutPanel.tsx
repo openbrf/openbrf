@@ -272,6 +272,16 @@ export function MoveOutPanel({
           <p className="text-small text-ink-muted">
             {t("moves.out.registerKept")}
           </p>
+          {/*
+           * What happens to the apartment's binder, which is nothing.
+           * Beside the purge date on purpose: the line above says what is
+           * erased about this person, and a board reading it would otherwise
+           * have to guess whether the papers about the home go with them. They
+           * do not - the binder belongs to the apartment, the next household
+           * reads it from its own move-in day, and anybody else still living
+           * there keeps reading it until they are moved out too.
+           */}
+          <p className="text-small text-ink-muted">{t("moves.out.binder")}</p>
           {result.transferId === null ? null : (
             <p className="text-small text-ink-muted">
               {t("moves.transfer.recorded")}

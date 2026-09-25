@@ -101,6 +101,24 @@ describe("after the move-out", () => {
     expect(screen.getByText(/Ingen gallringsinställning når den/)).toBeTruthy();
   });
 
+  it("says the apartment binder stays with the apartment", async () => {
+    /*
+     * The one thing on this panel that says what does not go with the person.
+     * A board reading that the service data is purged would otherwise have to
+     * guess what becomes of the papers about the home - and the answer, that
+     * the next household reads them from its own move-in day and anybody else
+     * still living there keeps reading them, is the whole of what a
+     * lagenhetsparm is.
+     */
+    const session = userEvent.setup();
+    await moveSomeoneOut(session);
+
+    expect(screen.getByText(/Lägenhetspärmen följer lägenheten/)).toBeTruthy();
+    expect(
+      screen.getByText(/övriga boende i lägenheten läser den tills de själva/),
+    ).toBeTruthy();
+  });
+
   it("says when the board will be reminded", async () => {
     const session = userEvent.setup();
     await moveSomeoneOut(session);
