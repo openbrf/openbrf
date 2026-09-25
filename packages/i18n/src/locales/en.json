@@ -1147,7 +1147,7 @@
       "appearance": "Light or dark",
       "portability": {
         "heading": "Your own data",
-        "description": "Download what you have given the association, in a machine-readable format (GDPR art. 20). The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
+        "description": "Download what you have given the association under the membership or a consent, in a machine-readable format (GDPR art. 20). Everything else it holds about you is on the data subject access report, which the board produces on request. The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
         "action": "Download my data",
         "working": "Preparing...",
         "failed": "Your data could not be prepared just now."
@@ -4334,8 +4334,8 @@
         "fees": {
           "name": "Fees and fee notices",
           "purpose": "Recording the fee rates set for each apartment, and issuing the period's notices.",
-          "legalBasisNote": "Legal obligation: the notices and the fee rates behind them are accounting records under bokforingslagen (1999:1078) 5 kap. 6-7 §§.",
-          "retention": "Through the seventh year after the calendar year the financial year ended in (bokforingslagen 7 kap. 2 §). A fee rate still in force is not erased."
+          "legalBasisNote": "Legal obligation: the notices and the fee rates behind them are accounting records under bokföringslagen (1999:1078) 5 kap. 6-7 §§.",
+          "retention": "Through the seventh year after the calendar year the financial year ended in (bokföringslagen 7 kap. 2 §). A fee rate still in force is not erased."
         },
         "websitePublication": {
           "name": "Publication on the website",
@@ -4355,11 +4355,69 @@
           "legalBasisNote": "Legitimate interest: the association decides who gets access.",
           "retention": "A decided request is deleted by the board. An invitation never accepted is purged with the person's other service data."
         },
+        "boardPositionsAndSystemRoles": {
+          "name": "Positions of trust and system roles",
+          "purpose": "Knowing who holds a seat on the board or a role on the instance, and letting each do what it entails.",
+          "legalBasisNote": "Legitimate interest: knowing who answers for the association, and being able to say afterwards who sat on the board when a decision was taken.",
+          "retention": "A position of trust is kept as the record of who held the seat and when; ending a term writes its date and removes nothing. A system role is kept while it is granted and deleted when it is taken away."
+        },
+        "newsComments": {
+          "name": "Comments on news",
+          "purpose": "Letting the people who live here answer a news item under it.",
+          "legalBasisNote": "Legitimate interest: letting the house talk about what the board publishes. A comment is as visible as its news item and never appears on the public website.",
+          "retention": "Each comment is erased a year after it was written, whether or not the board has hidden it."
+        },
+        "subletApplications": {
+          "name": "Subletting applications",
+          "purpose": "Receiving a tenant-owner's application for the board's consent to subletting, and recording the board's answer and any permission from the rent tribunal.",
+          "legalBasisNote": "Contract (art. 6(1)(b)): a tenant-owner may sublet the apartment only if the board consents (BRL 7 kap. 10 §), and the application and the answer are that consent asked for and given or refused. The applicant may volunteer data about health in the reason (art. 9).",
+          "retention": "Two years after the later of the board's answer and the end of the period applied for, so the consent outlives the letting it covers: subletting without consent is a ground for forfeiture (BRL 7 kap. 18 § första stycket 2). An application still with the board is never purged."
+        },
+        "keyOrders": {
+          "name": "Key orders",
+          "purpose": "Receiving a household's orders for keys and tags, and recording the handover.",
+          "legalBasisNote": "Contract: the keys and tags a household orders to get into its own building.",
+          "retention": "A year after the order is closed. An open order is never purged. The handover is also in the audit log."
+        },
+        "boardMailbox": {
+          "name": "The board mailbox",
+          "purpose": "Receiving what is written to the board's address, and answering it from the application.",
+          "legalBasisNote": "Legitimate interest: dealing with what the association is asked, and answering whoever wrote. A letter may carry anything its writer chose to put in it, data about health among it (art. 9).",
+          "retention": "Each thread is erased with its attachments two years after its last message, unless a legal hold keeps it. The letters stay in the association's own mailbox at its mail provider, which the instance never empties; the board deletes them there."
+        },
+        "memberCharges": {
+          "name": "Charges",
+          "purpose": "Recording what the association charges a member or an apartment, and handing the basis to whoever keeps the books.",
+          "legalBasisNote": "Legal obligation: the charges are accounting records under bokföringslagen (1999:1078) 5 kap. 6-7 §§.",
+          "retention": "Through the seventh year after the calendar year the charge's financial year ended in (bokföringslagen 7 kap. 2 §)."
+        },
+        "dataSubjectRequests": {
+          "name": "Requests about own data",
+          "purpose": "Recording what a person asks about their own data - erasure, objection, restriction - and what the board decided.",
+          "legalBasisNote": "Legal obligation: GDPR art. 12(3)-(4), 17, 18 and 21 - an answer within a month, and the reasons when a request is refused - and art. 5(2).",
+          "retention": "Closed with a date rather than deleted, as the record of what was asked and how it was answered. No purge reaches it."
+        },
+        "personalDataBreaches": {
+          "name": "Personal data breaches",
+          "purpose": "Documenting every personal data breach, whom it reached, and the decisions on notifying IMY and telling the people affected.",
+          "legalBasisNote": "Legal obligation: GDPR art. 33(5), with the decisions under art. 33(1) and 34(1).",
+          "retention": "Closed with a date rather than deleted: art. 33(5) asks for the documentation of every breach. No purge reaches it."
+        },
+        "legalHolds": {
+          "name": "Legal holds",
+          "purpose": "Keeping one person's data past its purge date while a legal claim or an authority's request needs it.",
+          "legalBasisNote": "Legitimate interest: establishing, exercising or defending a legal claim, or answering an authority's request.",
+          "retention": "Released with a date rather than deleted, so the record shows why the purge did not run for the person in that period."
+        },
         "recipients": {
           "noMailServer": "No mail server is configured.",
           "localDisk": "The association's own storage on the instance's disk.",
           "s3": "Object storage at {{endpoint}}, bucket {{bucket}}.",
-          "noConnectedApps": "No resident has connected an app."
+          "noConnectedApps": "No resident has connected an app.",
+          "mailbox": "The association's mailbox at {{host}}, where the letters arrive and stay.",
+          "replies": "Replies go out through {{host}}.",
+          "noMailbox": "No mailbox is configured.",
+          "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them."
         },
         "clientTransfer": "Data is handed to {{clients}} once a resident has connected the app. The instance cannot tell where an app runs; the board states where it is, or which safeguard under art. 46 applies.",
         "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."
@@ -4369,6 +4427,7 @@
         "auditLog": "Every access and change is written to the append-only audit log.",
         "capabilityGates": "Every call is checked against what the signed-in person may do.",
         "protectedPersons": "People with protected personal data are masked everywhere.",
+        "namedAsWritten": "Whoever writes in is shown as they wrote; the masking of protected personal data applies to people the register names and cannot reach what somebody sends.",
         "localDisk": "The files are on the instance's own disk.",
         "filesEncrypted": "The files are encrypted at rest, each under a key of its own that is itself encrypted under the instance's key.",
         "s3": "The files are in object storage at {{endpoint}}."
@@ -4424,6 +4483,7 @@
         "SMS": "SMS gateway",
         "STORAGE": "File storage",
         "HOSTING": "Hosting",
+        "MAILBOX": "Mailbox",
         "PLUGIN": "Plugin",
         "EXTERNAL": "Recorded by the board"
       },
@@ -4519,7 +4579,8 @@
       "appendFailed": "The headings could not be added just now."
     },
     "portability": {
-      "transmission": "Handed to you to transmit yourself. A direct transfer to another controller under art. 20(2) applies where technically feasible, and no receiving standard exists between housing cooperative platforms."
+      "transmission": "Handed to you to transmit yourself. A direct transfer to another controller under art. 20(2) applies where technically feasible, and no receiving standard exists between housing cooperative platforms.",
+      "scope": "What you gave the association under the membership or a consent. Everything else it holds about you, including what rests on its legitimate interest or on a legal obligation, is on the data subject access report, which the board produces on request (art. 15)."
     },
     "categories": {
       "personalData": {

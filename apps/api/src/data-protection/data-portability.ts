@@ -3,9 +3,9 @@ import type { TFunction } from "i18next";
 import type {
   DataSubjectReport,
   ReportConnectedAppScope,
-  ReportDataSubjectRequest,
   ReportKeyOrder,
 } from "../retention/data-subject-report";
+import type { PortableSection } from "./section-processing";
 
 /**
  * What a person may take with them under GDPR art. 20, projected from the
@@ -23,17 +23,31 @@ import type {
  * me"; this answers "give me back what I gave you", and the article bounds it
  * three ways:
  *
- *   Data the person provided. Not what the association wrote about them: a
- *   board's note, a decision, an audit trail and a breach record are the
- *   association's own account and are on the report rather than here.
+ *   Processing on consent or contract (art. 20(1)(a)). Read section by section
+ *   from the record of processing activities: `section-processing.ts` maps
+ *   every section of the access report to the row that covers it, and this file
+ *   carries exactly the sections the map marks carried. A section whose row
+ *   rests on anything else stays on the report. Besides the statutory registers
+ *   - the member register, the apartment register, the transfers, the
+ *   terminations, the lien notes, the reporting ledger and the meeting record,
+ *   which rest on a legal obligation and are outside erasure for the same
+ *   reason - that leaves out the issue reports, the document archive, the
+ *   apartment binder, the chat, comments on news, the board mailbox and the
+ *   positions of trust, which rest on the association's legitimate interest,
+ *   and the charges, the fees and the association's own data protection
+ *   records, which rest on a legal obligation. The access report lists them
+ *   all; this does not.
  *
- *   Processing on consent or contract (art. 20(1)(a)). The statutory registers
- *   rest on a legal obligation, so the member register, the apartment register,
- *   the transfers, the terminations, the lien notes, the reporting ledger and
- *   the meeting record are all outside art. 20 - and outside erasure too, for
- *   the same reason. The report lists them; this does not.
+ *   Data the person provided. Judged per section, and recorded in the map as
+ *   "notProvided" where a section rests on the contract and is still the
+ *   association's own account - the account's creation and its second factor.
+ *   Within a carried section, a board's note, a decision and a closing date are
+ *   the association's own account too, and are left out field by field.
  *
  *   By automated means (art. 20(1)(b)), which a database trivially is.
+ *
+ * The file says what it carries and where the rest is, for the reason it says
+ * why it is a file rather than a transfer: it outlives the screen.
  *
  * ## Why it is handed over rather than transmitted
  *
@@ -42,8 +56,17 @@ import type {
  * creates no obligation to adopt or maintain compatible systems. There is no
  * receiving standard between housing cooperative platforms, so the export is
  * handed to the person and they transmit it. The file says so itself.
+ *
+ * ## Typed against the map
+ *
+ * Every section the map marks carried is a property of this type, so a carried
+ * section the type forgets fails to compile, and the spec holds the projection
+ * to exactly those sections.
  */
-export interface DataPortabilityExport {
+export interface DataPortabilityExport extends Record<
+  PortableSection,
+  unknown
+> {
   /** What this file is, in the person's own file. */
   about: {
     /** GDPR art. 20, so a reader knows what they are holding. */
@@ -52,6 +75,11 @@ export interface DataPortabilityExport {
     association: string;
     /** Why there is no direct transfer: Recital 68, in one sentence. */
     transmission: string;
+    /**
+     * What the file carries and where everything else is: the data subject
+     * access report, which the board produces on request (art. 15).
+     */
+    scope: string;
   };
   person: {
     personId: string;
@@ -64,55 +92,23 @@ export interface DataPortabilityExport {
     preferredLocale: string;
   };
   residencies: DataSubjectReport["residencies"];
-  publicationConsents: DataSubjectReport["publicationConsents"];
   /**
    * The apps they allowed to act for them, and what each may do.
    *
-   * Carried for the same reason the publication consents above are: a grant to
-   * a connected app is a consent this person gave, on a processing that rests
-   * on it, and which apps somebody connected and what they allowed each of them
-   * is their own decision rather than the association's account of them.
+   * The record puts connected apps on the contract: the connection is part of
+   * the service the person asked for. Which apps somebody connected and what
+   * they allowed each of them is their own decision rather than the
+   * association's account of them.
    */
   connectedApps: PortableConnectedApp[];
-  issues: DataSubjectReport["issues"];
-  documents: DataSubjectReport["documents"];
+  publicationConsents: DataSubjectReport["publicationConsents"];
   bookings: DataSubjectReport["bookings"];
   motions: DataSubjectReport["motions"];
-  eventSignups: DataSubjectReport["eventSignups"];
-  newsComments: DataSubjectReport["newsComments"];
-  /**
-   * What they wrote in the chat, room by room.
-   *
-   * Their own words, which is squarely what art. 20 is about, and the room they
-   * were said in, without which the words are a list of sentences. The read
-   * marker travels with the room for the same reason it is on the report: how
-   * far somebody has read is a fact about them that the association holds
-   * because they used the service, and it rests on the same contract.
-   *
-   * Nobody else's messages are here, because nobody else's are on the report.
-   */
-  chats: DataSubjectReport["chats"];
-  /**
-   * The messages they reported to the board, and the ones they answered.
-   *
-   * Their own act and the board's answer to it, which is data they supplied in
-   * the same sense a message is. The message the report was about is not here,
-   * because it is not here on the report either: somebody else wrote it.
-   */
-  chatReports: DataSubjectReport["chatReports"];
-  /**
-   * What they have asked about their own data.
-   *
-   * What they asked and why, and not what the board answered. A decision, its
-   * ground and the dates it carries are the association's own account, which
-   * this file excludes for the same reason it excludes a board's note and a
-   * breach record. The access report carries all of it.
-   */
-  dataSubjectRequests: PortableDataSubjectRequest[];
   /** What they asked the board's permission for, and why. */
   subletApplications: PortableSubletApplication[];
   /** What they ordered, how many, and what they said it was for. */
   keyOrders: PortableKeyOrder[];
+  eventSignups: DataSubjectReport["eventSignups"];
 }
 
 /**
@@ -121,8 +117,7 @@ export interface DataPortabilityExport {
  * The period and the reason are theirs: they wrote them into the form. The
  * board's answer is not - `decisionNote` and the rent tribunal's permission are
  * the association's own account of what it decided about this person, which the
- * access report carries and art. 20(1) does not reach. The same rule keeps the
- * decision fields off {@link PortableDataSubjectRequest}.
+ * access report carries and art. 20(1) does not reach.
  */
 export interface PortableSubletApplication {
   applicationId: string;
@@ -144,8 +139,8 @@ export interface PortableSubletApplication {
  * row holds a digest of a live credential, which never leaves the instance in
  * any form; and when the association last issued one is the association's own
  * observation of the connection working rather than something the person
- * provided, which is the same line that keeps a board's note off the two
- * sections below.
+ * provided, which is the same line that keeps a board's note off the
+ * subletting applications and the key orders.
  */
 export interface PortableConnectedApp {
   /** As the client declared itself, or null where it declared no name. */
@@ -170,17 +165,6 @@ export interface PortableKeyOrder {
   submittedAt: string;
 }
 
-/** One request, narrowed to what the person themselves supplied. */
-export interface PortableDataSubjectRequest {
-  requestId: string;
-  kind: ReportDataSubjectRequest["kind"];
-  requestedOn: string | null;
-  ground: string;
-  erasureGround: ReportDataSubjectRequest["erasureGround"];
-  /** The issue whose description names them, where that is what it was about. */
-  issueId: string | null;
-}
-
 /**
  * The sentence the export carries about why it is a file rather than a
  * transfer.
@@ -196,7 +180,17 @@ export interface PortableDataSubjectRequest {
 export const TRANSMISSION_NOTE_KEY = "dataProtection.portability.transmission";
 
 /**
- * Narrows the access report to what art. 20 covers.
+ * The sentence the export carries about what it holds and where the rest is.
+ *
+ * In the file for the reason {@link TRANSMISSION_NOTE_KEY} is: somebody opening
+ * it a year later, and missing the chat or their issue reports, should find in
+ * it that those are on the data subject access report, and why.
+ */
+export const SCOPE_NOTE_KEY = "dataProtection.portability.scope";
+
+/**
+ * Narrows the access report to what art. 20 covers: the sections the map marks
+ * carried, in the report's order.
  *
  * The personal identity number is deliberately absent although the person gave
  * it. It is confidential apartment register content under BRL 9 kap., held on a
@@ -214,6 +208,7 @@ export function toDataPortabilityExport(
       generatedOn: report.generatedOn,
       association: report.housingCooperative.name,
       transmission: t(TRANSMISSION_NOTE_KEY),
+      scope: t(SCOPE_NOTE_KEY),
     },
     person: {
       personId: report.person.personId,
@@ -226,29 +221,15 @@ export function toDataPortabilityExport(
       preferredLocale: report.person.preferredLocale,
     },
     residencies: report.residencies,
-    publicationConsents: report.publicationConsents,
     connectedApps: report.connectedApps.map((app) => ({
       clientName: app.clientName,
       clientHost: app.clientHost,
       scopes: app.scopes,
       connectedAt: app.connectedAt,
     })),
-    issues: report.issues,
-    documents: report.documents,
+    publicationConsents: report.publicationConsents,
     bookings: report.bookings,
     motions: report.motions,
-    eventSignups: report.eventSignups,
-    newsComments: report.newsComments,
-    chats: report.chats,
-    chatReports: report.chatReports,
-    dataSubjectRequests: report.dataSubjectRequests.map((request) => ({
-      requestId: request.requestId,
-      kind: request.kind,
-      requestedOn: request.requestedOn,
-      ground: request.ground,
-      erasureGround: request.erasureGround,
-      issueId: request.issueId,
-    })),
     subletApplications: report.subletApplications.map((application) => ({
       applicationId: application.applicationId,
       apartment: application.apartment,
@@ -265,5 +246,6 @@ export function toDataPortabilityExport(
       note: order.note,
       submittedAt: order.submittedAt,
     })),
+    eventSignups: report.eventSignups,
   };
 }

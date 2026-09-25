@@ -81,6 +81,16 @@ export interface ProcessorFacts {
    * nothing.
    */
   unencryptedStoredFiles: number;
+  /**
+   * The mailbox the board mailbox collects from over POP3, or null unless it is
+   * configured (`boardMailboxConfigured`).
+   *
+   * One object rather than two nullable fields, because "configured" is one
+   * fact. The host is where the letters are held on the association's behalf;
+   * the address is the one the board publishes, which is how a board recognises
+   * which account this is.
+   */
+  mailbox: { host: string; address: string } | null;
 }
 
 /** An open agreement row, as much of it as the state derivation needs. */
@@ -257,6 +267,16 @@ export function currentProcessors(
   }
 
   fixed("hosting", "HOSTING", null);
+
+  /*
+   * The board mailbox's account, once one is configured: every letter written
+   * to the board's address is held there on the association's behalf, and the
+   * instance never deletes one. No suggestion, because an association may run
+   * its own mail server, which is no processor; only the board knows which.
+   */
+  if (facts.mailbox !== null) {
+    fixed("mailbox", "MAILBOX", facts.mailbox.host, facts.mailbox.address);
+  }
 
   for (const plugin of facts.installedPlugins) {
     const key = pluginProcessorKey(plugin.id);
