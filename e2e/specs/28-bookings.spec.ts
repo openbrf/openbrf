@@ -17,6 +17,7 @@ import {
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -708,17 +709,11 @@ test("the property manager is offered no bookings at all", async ({
    * can only refuse them is the platform offering an outside party something it
    * said was not theirs.
    */
-  await expect(
-    page.getByRole("link", { name: "Bokningar", exact: true }),
-  ).toHaveCount(0);
-  // Named against what they are offered, so an empty navigation could not
-  // satisfy the assertion above.
-  await expect(
-    page.getByRole("link", { name: "Ärenden", exact: true }),
-  ).not.toHaveCount(0);
-  await expect(
-    page.getByRole("link", { name: "Inställningar", exact: true }),
-  ).not.toHaveCount(0);
+  // Read as the whole offer, so neither an empty navigation nor a closed
+  // section could satisfy it.
+  await expect
+    .poll(() => offeredDestinations(page))
+    .toEqual(["Ärenden", "Inställningar"]);
 
   /*
    * And nothing on the screen itself, reached by its address: neither the

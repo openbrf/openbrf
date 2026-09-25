@@ -44,6 +44,11 @@ export type Actor = "nobody" | "administrator" | "resident" | "member";
 type Where =
   | { readonly heading: string | RegExp }
   | { readonly button: string | RegExp }
+  /**
+   * A link. What proves a navigation panel, the phone bar or its sheet has its
+   * data: `text` would also count the hidden navigation's copy of the name.
+   */
+  | { readonly link: string | RegExp }
   | { readonly combobox: string | RegExp }
   | { readonly label: string | RegExp }
   | { readonly text: string | RegExp }
@@ -101,6 +106,11 @@ export type Screen = {
   readonly name: string;
   /** Establish this session first. Omit to continue in the current one. */
   readonly as?: Actor;
+  /**
+   * A phone's window (390x844, the Mobil artboard's) instead of the desk's.
+   * Every entry sets its own, so a phone entry cannot leave its size behind.
+   */
+  readonly viewport?: "phone";
   /** Go here first. Omit to stay on the screen the entry above reached. */
   readonly goto?: string;
   /** Clicks and fills that reach the state this screen is about. */
@@ -1873,5 +1883,58 @@ export const SCREENS: readonly Screen[] = [
     // rendered before either filing has come back.
     waitFor: { text: BINDER.manual.title },
     capture: "page",
+  },
+  {
+    /**
+     * The band as the board has it, with the board's own section open: four
+     * signs, Inställningar at the right end, and the panel hanging from the
+     * Styrelsen sign on the board's ground. On the general meetings, so the
+     * sign and the row are both marked as where the reader is.
+     *
+     * The click waits for the sign, which exists only once the viewer has
+     * arrived, and the panel's last row proves it has its destinations.
+     */
+    name: "navigation-sections",
+    as: "administrator",
+    goto: appPath("/meetings"),
+    prepare: [{ click: { button: "Styrelsen" } }],
+    waitFor: { link: "Dataskydd" },
+  },
+  {
+    /**
+     * A resident's phone: the bar's three - Nyheter, Ärenden, Bokningar - and
+     * Meny in the fourth column. A bar item exists only once the capabilities
+     * do, so waiting for one waits for them.
+     */
+    name: "navigation-phone",
+    as: "resident",
+    viewport: "phone",
+    goto: appPath("/news"),
+    waitFor: { link: "Bokningar" },
+  },
+  {
+    /**
+     * The sheet behind Meny for a member, floor by floor. Andrahand is a
+     * member's destination and is in the sheet only, so seeing it proves the
+     * sheet is open with the member's whole offer.
+     */
+    name: "navigation-phone-sheet",
+    as: "member",
+    viewport: "phone",
+    goto: appPath("/news"),
+    prepare: [{ click: { button: "Meny" } }],
+    waitFor: { link: "Andrahand" },
+  },
+  {
+    /**
+     * The same sheet for the administrator, whose bar is the board's
+     * (Adressbok, Ärenden, Chatt) and whose sheet holds all four sections.
+     */
+    name: "navigation-phone-sheet-board",
+    as: "administrator",
+    viewport: "phone",
+    goto: appPath("/"),
+    prepare: [{ click: { button: "Meny" } }],
+    waitFor: { link: "Dataskydd" },
   },
 ];

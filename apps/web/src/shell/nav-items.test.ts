@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { navItemsFor, NAV_ITEMS } from "./nav-items";
+import {
+  currentDestination,
+  NAV_ITEMS,
+  NAV_SECTIONS,
+  navItemsFor,
+  sectionsOf,
+} from "./nav-items";
 
 /**
  * Which destinations each seat is offered.
@@ -25,7 +31,7 @@ describe("the external property manager", () => {
   const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
   it("is offered the issue queue and their own settings, and nothing else", () => {
-    expect(destinations(PROPERTY_MANAGER)).toEqual(["/settings", "/issues"]);
+    expect(destinations(PROPERTY_MANAGER)).toEqual(["/issues", "/settings"]);
   });
 
   it("is not offered the address book", () => {
@@ -154,7 +160,7 @@ describe("the other seats", () => {
      *
      * The external property manager is on neither side of it: their seat is
      * issue handling, they do not live here, and a household's papers are not
-     * theirs to browse - the archive's own rule, one entry above this one.
+     * theirs to browse - the archive's own rule, on the documents entry.
      */
     expect(destinations(["residentDirectory:read"])).toContain(
       "/apartment-binder",
@@ -207,14 +213,14 @@ describe("the other seats", () => {
       ]),
     ).toEqual([
       "/",
-      "/settings",
+      "/news",
+      "/events",
       "/chat",
+      "/documents",
       "/issues",
       "/bookings",
-      "/events",
-      "/news",
-      "/documents",
       "/apartment-binder",
+      "/settings",
     ]);
   });
 
@@ -233,14 +239,14 @@ describe("the other seats", () => {
       ]),
     ).toEqual([
       "/",
-      "/settings",
+      "/news",
+      "/events",
+      "/documents",
+      "/motions",
       "/issues",
       "/bookings",
-      "/events",
-      "/motions",
-      "/news",
-      "/documents",
       "/apartment-binder",
+      "/settings",
     ]);
   });
 
@@ -270,20 +276,20 @@ describe("the other seats", () => {
       ]),
     ).toEqual([
       "/",
-      "/plugins",
-      "/connected-apps",
-      "/settings",
-      "/board-mailbox",
+      "/news",
+      "/events",
       "/chat",
+      "/documents",
+      "/motions",
       "/issues",
       "/bookings",
-      "/events",
-      "/motions",
+      "/apartment-binder",
+      "/board-mailbox",
       "/meetings",
       "/data-protection",
-      "/news",
-      "/documents",
-      "/apartment-binder",
+      "/settings",
+      "/plugins",
+      "/connected-apps",
     ]);
   });
 
@@ -386,5 +392,289 @@ describe("the other seats", () => {
     // its links once the viewer's capabilities arrive.
     expect(navItemsFor(undefined)).toEqual(NAV_ITEMS);
     expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/settings"]);
+  });
+});
+
+/*
+ * Each seat's whole grant, written out rather than imported for the reason the
+ * property manager's list above gives: a change to a grant shows up here as a
+ * changed expectation rather than as a test that silently follows it.
+ */
+const RESIDENT = [
+  "self:manage",
+  "residentDirectory:read",
+  "issues:report",
+  "news:comment",
+  "bookings:book",
+  "events:attend",
+  "keyOrders:place",
+  "chat:participate",
+];
+/** A resident holding the tenant-ownership: two capabilities more. */
+const MEMBER = [...RESIDENT, "motions:submit", "sublets:apply"];
+const BOARD = [
+  "apartmentBinder:manage",
+  "association:read",
+  "boardPosition:manage",
+  "addressBook:read",
+  "addressBook:write",
+  "memberRegister:read",
+  "apartmentRegister:read",
+  "protectedData:reveal",
+  "registerReport:export",
+  "invitation:send",
+  "signupRequest:decide",
+  "self:manage",
+  "residentDirectory:read",
+  "issues:handle",
+  "issues:report",
+  "issues:configure",
+  "documents:manage",
+  "site:manage",
+  "news:comment",
+  "bookings:book",
+  "bookings:manage",
+  "bookings:configure",
+  "events:manage",
+  "motions:handle",
+  "meetings:manage",
+  "events:attend",
+  "memberCharges:manage",
+  "fees:manage",
+  "dataProtection:manage",
+  "boardMailbox:handle",
+  "sublets:handle",
+  "keyOrders:place",
+  "keyOrders:handle",
+  "chat:participate",
+  "chat:moderate",
+];
+/** Every capability but the one a board seat alone confers (ADR 0017). */
+const ADMINISTRATOR = [
+  "association:manage",
+  "association:read",
+  "addressBook:read",
+  "addressBook:write",
+  "memberRegister:read",
+  "apartmentRegister:read",
+  "protectedData:reveal",
+  "registerReport:export",
+  "invitation:send",
+  "signupRequest:decide",
+  "self:manage",
+  "residentDirectory:read",
+  "issues:handle",
+  "issues:report",
+  "issues:configure",
+  "documents:manage",
+  "site:manage",
+  "news:comment",
+  "boardPosition:manage",
+  "bookings:book",
+  "bookings:manage",
+  "bookings:configure",
+  "events:manage",
+  "events:attend",
+  "systemRole:manage",
+  "motions:submit",
+  "motions:handle",
+  "meetings:manage",
+  "memberCharges:manage",
+  "fees:manage",
+  "dataProtection:manage",
+  "boardMailbox:handle",
+  "sublets:apply",
+  "sublets:handle",
+  "keyOrders:place",
+  "keyOrders:handle",
+  "chat:participate",
+  "chat:moderate",
+];
+
+const SEATS = {
+  resident: RESIDENT,
+  member: MEMBER,
+  board: BOARD,
+  administrator: ADMINISTRATOR,
+  propertyManager: ["issues:handle", "self:manage"],
+} as const;
+
+/** A seat's band: each offered section's id and the paths in it, in order. */
+const band = (capabilities: readonly string[] | undefined) =>
+  sectionsOf(navItemsFor(capabilities)).map((section) => ({
+    id: section.id,
+    paths: section.items.map((item) => item.to),
+  }));
+
+/** A seat's phone bar: the columns that hold a destination, in order. */
+const bar = (capabilities: readonly string[] | undefined) =>
+  navItemsFor(capabilities)
+    .filter((item) => item.barSlot !== undefined)
+    .map((item) => [item.barSlot, item.to])
+    .toSorted((a, b) => Number(a[0]) - Number(b[0]));
+
+const ASSOCIATION_FOR_A_RESIDENT = [
+  "/",
+  "/news",
+  "/events",
+  "/chat",
+  "/documents",
+];
+const BUILDING_FOR_A_RESIDENT = [
+  "/issues",
+  "/bookings",
+  "/key-orders",
+  "/apartment-binder",
+];
+const THE_WHOLE_BOARD_BAND = [
+  { id: "association", paths: [...ASSOCIATION_FOR_A_RESIDENT, "/motions"] },
+  { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
+  {
+    id: "board",
+    paths: [
+      "/board-mailbox",
+      "/admin/site/news",
+      "/admin/site",
+      "/meetings",
+      "/fees",
+      "/charges",
+      "/data-protection",
+    ],
+  },
+  { id: "settings", paths: ["/settings", "/plugins", "/connected-apps"] },
+];
+
+describe("the sections", () => {
+  it("puts every destination in one of the four, and leaves none of them empty", () => {
+    const every = [...new Set(Object.values(SEATS).flat())];
+    const items = navItemsFor(every);
+    const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
+
+    expect(items).toHaveLength(21);
+    for (const item of items) {
+      expect(ids).toContain(item.section);
+    }
+    for (const id of ids) {
+      expect(items.some((item) => item.section === id)).toBe(true);
+    }
+  });
+
+  it("gives a resident the association, the building and the settings", () => {
+    expect(band(SEATS.resident)).toEqual([
+      { id: "association", paths: ASSOCIATION_FOR_A_RESIDENT },
+      { id: "building", paths: BUILDING_FOR_A_RESIDENT },
+      { id: "settings", paths: ["/settings"] },
+    ]);
+  });
+
+  it("gives a member the motions and the subletting as well", () => {
+    // The two destinations membership adds, each in the section a resident
+    // already has, so the member's band has the resident's shape.
+    expect(band(SEATS.member)).toEqual([
+      { id: "association", paths: [...ASSOCIATION_FOR_A_RESIDENT, "/motions"] },
+      { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
+      { id: "settings", paths: ["/settings"] },
+    ]);
+  });
+
+  it("gives the board and the administrator all four sections, whole", () => {
+    expect(band(SEATS.board)).toEqual(THE_WHOLE_BOARD_BAND);
+    expect(band(SEATS.administrator)).toEqual(THE_WHOLE_BOARD_BAND);
+  });
+
+  it("gives the property manager the issue queue and the settings, nothing else", () => {
+    // Decision 11 read as the whole band: one destination in the building and
+    // the account's own settings, and no section that holds the address book.
+    expect(band(SEATS.propertyManager)).toEqual([
+      { id: "building", paths: ["/issues"] },
+      { id: "settings", paths: ["/settings"] },
+    ]);
+  });
+
+  it("gives an unknown viewer the settings section alone", () => {
+    expect(band(undefined)).toEqual([{ id: "settings", paths: ["/settings"] }]);
+  });
+
+  it("only ever gains sections once the viewer arrives", () => {
+    // The band shown while the viewer is unknown is part of every seat's, so
+    // no sign it shows is taken away when the capabilities arrive.
+    const unknown = band(undefined).map((section) => section.id);
+    for (const capabilities of Object.values(SEATS)) {
+      const known = band(capabilities).map((section) => section.id);
+      for (const id of unknown) {
+        expect(known).toContain(id);
+      }
+    }
+  });
+});
+
+describe("the phone bar", () => {
+  it("gives the board the register, the issue queue and its chat", () => {
+    expect(bar(SEATS.board)).toEqual([
+      [1, "/"],
+      [2, "/issues"],
+      [3, "/chat"],
+    ]);
+    expect(bar(SEATS.administrator)).toEqual(bar(SEATS.board));
+  });
+
+  it("gives everybody else the news, the issues and the bookings", () => {
+    const residents = [
+      [1, "/news"],
+      [2, "/issues"],
+      [3, "/bookings"],
+    ];
+    expect(bar(SEATS.resident)).toEqual(residents);
+    expect(bar(SEATS.member)).toEqual(residents);
+  });
+
+  it("leaves a column empty rather than filling it", () => {
+    // The property manager is offered one of the three, and the bar holds
+    // exactly that one: nothing moves up from the rest of the list.
+    expect(bar(SEATS.propertyManager)).toEqual([[1, "/issues"]]);
+  });
+
+  it("never holds the settings, and holds nothing while the viewer is unknown", () => {
+    for (const capabilities of Object.values(SEATS)) {
+      const settings = navItemsFor(capabilities).find(
+        (item) => item.to === "/settings",
+      );
+      expect(settings?.barSlot).toBeUndefined();
+    }
+    expect(bar(undefined)).toEqual([]);
+    expect(bar([])).toEqual([]);
+  });
+});
+
+describe("the current destination", () => {
+  const board = navItemsFor(SEATS.board);
+  const current = (pathname: string, items = board) =>
+    currentDestination(pathname, items)?.to;
+
+  it("is the address book only on its own path", () => {
+    expect(current("/")).toBe("/");
+    expect(current("/news")).toBe("/news");
+    expect(current("/news/some-item")).toBe("/news");
+  });
+
+  it("is the longest path that holds the page", () => {
+    // Both the website and writing news hold /admin/site/news; the page is one
+    // of them, and the longer path is the one it is.
+    expect(current("/admin/site/news")).toBe("/admin/site/news");
+    expect(current("/admin/site/menu")).toBe("/admin/site");
+    expect(current("/admin/sitemap")).toBeUndefined();
+  });
+
+  it("is nothing on a route that is no destination's", () => {
+    expect(current("/registers/members")).toBeUndefined();
+    expect(current("/plugin/x")).toBeUndefined();
+    // Nor on a destination this account is not offered.
+    expect(current("/meetings", navItemsFor(SEATS.resident))).toBeUndefined();
+  });
+
+  it("is the issue queue for the property manager on it", () => {
+    expect(current("/issues", navItemsFor(SEATS.propertyManager))).toBe(
+      "/issues",
+    );
   });
 });

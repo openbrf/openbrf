@@ -368,6 +368,30 @@ three acts write, what the access report says about a room and about what
 somebody reported, and the purge erasing a group that has held nothing for a
 year along with the list of who was in it.
 
+`45-navigation.spec.ts` covers the navigation itself. The destinations are
+grouped into four sections - Föreningen, Huset, Styrelsen and Inställningar -
+and from 1024px the band carries one sign per section the account has anything
+in, each opening its destinations under it; below that a bar carries three
+destinations chosen for the account and Meny, whose sheet holds every section.
+The spec checks that the board's band holds its four signs and the whole offer
+in band order without running off the header at 1280px and at 1024px, and that
+the bar takes over one pixel narrower; that a section opens, closes on Escape
+and on a press elsewhere, hands focus back to its sign, and marks itself as
+where the reader is after one of its destinations is chosen; that a resident's
+phone carries Nyheter, Ärenden and Bokningar, that Meny's sheet lists every
+section and makes the room behind it inert until it closes; and that the
+property manager's band is exactly two links. It is the one spec that changes
+the window, because the switch between the band and the bar is its subject;
+every other spec runs at the suite's 1280px.
+
+Every other spec reads what an account is offered through
+`src/navigation.ts`. A closed section renders no links, so an assertion that a
+link is absent from the page would pass whatever the navigation offered.
+`offeredDestinations` opens each section in turn and returns the whole offer,
+and a spec polls it for a destination the account has before asserting that
+another is absent from the same list; `goToDestination` presses a destination
+the way a person reaches it.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
@@ -506,8 +530,11 @@ The pieces:
 - **`as`** establishes a session. Omit it to carry on in the current one.
   Anything other than `nobody` provisions the cooperative and its register
   first, so an entry never has to arrange that itself.
-- **A target** is `{ heading }`, `{ button }`, `{ combobox }`, `{ label }`,
-  `{ text }` or `{ panel }` (a settings card, found by its level-2 heading).
+- **A target** is `{ heading }`, `{ button }`, `{ link }`, `{ combobox }`,
+  `{ label }`, `{ text }` or `{ panel }` (a settings card, found by its level-2
+  heading). `{ link }` is what proves a navigation panel, the phone bar or its
+  sheet has its data, where `{ text }` would also count the hidden
+  navigation's copy of the same name.
   There are no test ids in the client on purpose, so these are the names a
   person reads or hears. A string matches exactly, except in `{ label }` and
   `{ combobox }`, where it matches from the beginning: a field's `<label>` wraps
@@ -539,7 +566,10 @@ does, so the capture photographs each screen, flips the emulated preference and
 photographs it again without navigating - which is the only way a wizard step,
 held in React state, can be shown in both. The viewport, pixel density and
 motion setting are fixed in `capture.spec.ts`, and animations are stopped at the
-capture, so a rerun differs only where the interface differs.
+capture, so a rerun differs only where the interface differs. An entry may ask
+for a phone's window instead with `viewport: "phone"` (390x844, below the width
+where the band gives way to the bottom bar); every entry sets its own, so a
+phone entry never leaves its size to the next.
 
 ### Screens with no entry yet
 
