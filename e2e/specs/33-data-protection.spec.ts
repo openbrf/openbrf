@@ -610,7 +610,7 @@ test.describe("the board's own data protection records", () => {
      * processing activities puts the issue reports, the archive, the chat and
      * comments on news on the association's interest, and her requests about
      * her own data on the GDPR's own obligation. They stay on the data subject
-     * access report, and the file says so in her language.
+     * access report, and the file names that report in her language.
      */
     for (const section of [
       "issues",
@@ -623,6 +623,6 @@ test.describe("the board's own data protection records", () => {
       expect(Object.keys(body), section).not.toContain(section);
     }
     const about = body["about"] as { scope?: string } | undefined;
-    expect(about?.scope).toContain("registerutdraget");
+    expect(about?.scope).toContain("registerutdrag");
   });
 });

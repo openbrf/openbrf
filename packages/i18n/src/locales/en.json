@@ -1147,7 +1147,7 @@
       "appearance": "Light or dark",
       "portability": {
         "heading": "Your own data",
-        "description": "Download what you have given the association under the membership or a consent, in a machine-readable format (GDPR art. 20). Everything else it holds about you is on the data subject access report, which the board produces on request. The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
+        "description": "Download what you have given the association under the membership or a consent, in a machine-readable format (GDPR art. 20). What it holds about you on another basis is not in this file; the board produces a data subject access report on request. The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
         "action": "Download my data",
         "working": "Preparing...",
         "failed": "Your data could not be prepared just now."
@@ -4580,7 +4580,7 @@
     },
     "portability": {
       "transmission": "Handed to you to transmit yourself. A direct transfer to another controller under art. 20(2) applies where technically feasible, and no receiving standard exists between housing cooperative platforms.",
-      "scope": "What you gave the association under the membership or a consent. Everything else it holds about you, including what rests on its legitimate interest or on a legal obligation, is on the data subject access report, which the board produces on request (art. 15)."
+      "scope": "What you gave the association under the membership or a consent. What it holds about you on another basis, such as its legitimate interest or a legal obligation, is not in this file; the board produces a data subject access report on request (art. 15)."
     },
     "categories": {
       "personalData": {

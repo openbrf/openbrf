@@ -1147,7 +1147,7 @@
       "appearance": "Ljust eller mörkt",
       "portability": {
         "heading": "Dina egna uppgifter",
-        "description": "Hämta det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke, i ett maskinläsbart format (GDPR art. 20). Allt annat föreningen har om dig finns i registerutdraget, som styrelsen tar fram på begäran. Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
+        "description": "Hämta det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke, i ett maskinläsbart format (GDPR art. 20). Det föreningen har om dig på annan grund finns inte i filen; styrelsen tar fram ett registerutdrag på begäran. Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
         "action": "Hämta mina uppgifter",
         "working": "Hämtar...",
         "failed": "Uppgifterna kunde inte hämtas just nu."
@@ -4580,7 +4580,7 @@
     },
     "portability": {
       "transmission": "Överlämnad till dig att föra vidare själv. En direkt överföring till en annan personuppgiftsansvarig enligt art. 20.2 gäller när det är tekniskt möjligt, och det finns ingen mottagande standard mellan plattformar för bostadsrättsföreningar.",
-      "scope": "Det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke. Allt annat föreningen har om dig, också det som vilar på berättigat intresse eller rättslig förpliktelse, finns i registerutdraget, som styrelsen tar fram på begäran (art. 15)."
+      "scope": "Det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke. Det föreningen har om dig på annan grund, som berättigat intresse eller rättslig förpliktelse, finns inte i filen; styrelsen tar fram ett registerutdrag på begäran (art. 15)."
     },
     "categories": {
       "personalData": {

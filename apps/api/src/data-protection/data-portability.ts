@@ -76,8 +76,9 @@ export interface DataPortabilityExport extends Record<
     /** Why there is no direct transfer: Recital 68, in one sentence. */
     transmission: string;
     /**
-     * What the file carries and where everything else is: the data subject
-     * access report, which the board produces on request (art. 15).
+     * What the file carries, that what rests on another basis is not in it,
+     * and that the board produces the data subject access report (art. 15) on
+     * request.
      */
     scope: string;
   };
