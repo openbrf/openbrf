@@ -35,10 +35,6 @@ interface NavEntry extends NavItem {
  *
  * Plugins is different. Nothing on that screen belongs to a resident, so it is
  * offered only to whoever may read how the instance is configured.
- *
- * The document archive names no capability, because reading it needs none: the
- * server filters the shelf by the viewer's audience, so an account with
- * nothing to see there is shown an empty archive rather than a missing link.
  */
 const ENTRIES: readonly NavEntry[] = [
   {

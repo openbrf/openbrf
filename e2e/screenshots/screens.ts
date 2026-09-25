@@ -1798,6 +1798,26 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Startade gruppen" },
     capture: "page",
   },
+  // --- the document archive --------------------------------------------------
+  {
+    /*
+     * The association's archive as the board meets it before anything is filed.
+     *
+     * Empty, because nothing in this walk files a document - the page blocks
+     * above say the same. What the picture holds is the form the board files its
+     * first document with and, under it, the shelf's empty state.
+     *
+     * The whole page, because the form is half of what the screen is for.
+     */
+    name: "documents",
+    as: "administrator",
+    goto: appPath("/documents"),
+    // The sentence that exists only once the archive's own read has come back.
+    // The heading is rendered before it, so waiting for that would photograph
+    // the screen mid-load.
+    waitFor: { text: "Arkivet är ännu tomt." },
+    capture: "page",
+  },
   // --- the apartment binder ------------------------------------------------
   // One screen rather than two, and the tenant-owner's rather than the board's.
   // The board's half of this route is reached with apartmentBinder:manage,

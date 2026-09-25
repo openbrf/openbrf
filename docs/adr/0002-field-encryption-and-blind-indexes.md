@@ -65,7 +65,10 @@ Verified empirically with `ciphersweet-js` 2.0.6 on Node 26.7.0:
   exactly the property equality search depends on.
 - **No native compilation is required.** `sodium-native` ships prebuilds for
   darwin-arm64, darwin-x64, linux-arm64, linux-x64 and win32-ia32, so the
-  production image needs no build toolchain. The backend in use resolves to
+  production image needs no build toolchain. CipherSweet runs on its default
+  backend, BoringCrypto: the cipher is XChaCha20 from the pure-JavaScript
+  `xchacha20-js`, and the hashing - the BLAKE2b tag, the blind indexes and
+  Argon2id - goes through `sodium-plus`, whose own backend resolves to
   `SodiumNativeBackend`.
 - **Cost differs by three orders of magnitude:** a slow-hash (Argon2id) blind
   index measured **43.8 ms per field operation**; the fast-hash (HMAC) variant

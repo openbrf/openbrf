@@ -164,23 +164,22 @@ const SECTIONS = [
  * their retention story was unfinished would be an incomplete answer to an
  * access request, which is the one failure this document cannot have.
  *
- * Four sections state an erasure date per row, because four modules purge on
- * clocks of their own. A booking is purged a year after the booked period ended,
- * an event sign-up a year after the date it was for, a comment a year after it
- * was written, and a motion two years after it was closed - so the date at the
- * foot of the document is not the date that governs any of them, and each row
- * says when it goes. A motion still with the board states no date at all: it has
- * no closing date to count from, and the association is still processing it.
+ * Every section whose module purges on a clock of its own states an erasure
+ * date per row. A booking is purged a year after the booked period ended, an
+ * event sign-up a year after the date it was for, a comment a year after it was
+ * written and a motion two years after it was closed, and each of the others on
+ * a window of its own - so the date at the foot of the document is not the date
+ * that governs any of them, and each row says when it goes. A motion still with
+ * the board states no date at all: it has no closing date to count from, and
+ * the association is still processing it.
  *
  * The two general meeting sections state none, and that is an answer rather
  * than an omission: attendance at a general meeting and the proxy authorisation
  * a vote was exercised under are part of the meeting's record, whose lasting
  * form is the protokoll that EFL 6 kap. 39 § has the voting register taken into
  * and 40 § has kept safely. So they sit with the statutory register sections
- * above
- * - kept because the law requires the record - rather than with the four that
- * go on a clock of their own. A section added here that does purge takes the
- * count to five.
+ * above - kept because the law requires the record - rather than with the
+ * sections that go on a clock of their own.
  */
 @Injectable()
 export class DataSubjectReportService {

@@ -113,8 +113,8 @@ function nextForwardedFor(): string {
   ipCounter += 1;
   const host = ipCounter % 254;
   const subnet = Math.floor(ipCounter / 254) % 254;
-  // 10.15.0.0/16 is this suite's; the others each hold their own second octet.
-  return `10.15.${String(subnet)}.${String(host + 1)}`;
+  // 10.60.0.0/16 is this suite's; the others each hold their own second octet.
+  return `10.60.${String(subnet)}.${String(host + 1)}`;
 }
 
 function inject(options: {
