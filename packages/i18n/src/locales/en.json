@@ -829,7 +829,14 @@
     "addressBook": "Address book",
     "primary": "Main navigation",
     "signOut": "Sign out",
-    "settings": "Settings"
+    "settings": "Settings",
+    "menu": "Menu",
+    "sections": {
+      "association": "Association",
+      "building": "Building",
+      "board": "Board",
+      "settings": "Settings"
+    }
   },
   "signIn": {
     "heading": "Sign in",

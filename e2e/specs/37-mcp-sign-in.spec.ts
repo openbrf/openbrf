@@ -3,6 +3,7 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { jsonBodyOrNothing } from "../src/api";
 import { grantBoardSeat } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
+import { goToDestination, offeredDestinations } from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -392,11 +393,14 @@ test.describe("signing an MCP client in", () => {
      * not offer the destination, because a link to a screen that can only turn
      * somebody away teaches them a part of the product is broken for them. And
      * the screen itself, asked for by hand, which is the assertion that would
-     * still hold if the navigation were rebuilt tomorrow.
+     * still hold if the navigation were rebuilt tomorrow. The navigation is
+     * read from every section, after something he is offered, so the absence
+     * is the whole offer's.
      */
-    await expect(
-      page.getByRole("link", { name: "Anslutna appar", exact: true }),
-    ).toHaveCount(0);
+    await expect
+      .poll(() => offeredDestinations(page))
+      .toContain("Inställningar");
+    expect(await offeredDestinations(page)).not.toContain("Anslutna appar");
 
     await page.goto(appPath("/connected-apps"));
     await expect(
@@ -455,15 +459,9 @@ test.describe("signing an MCP client in", () => {
       ADMINISTRATOR.password,
     );
 
-    /*
-     * Reached the way a board member reaches it. The shell renders the same
-     * links twice, once for the band and once for the bottom bar on a narrow
-     * screen, which is what the first match is for.
-     */
-    await page
-      .getByRole("link", { name: "Anslutna appar", exact: true })
-      .first()
-      .click();
+    // Reached the way a board member reaches it: through the settings
+    // section's sign.
+    await goToDestination(page, "Anslutna appar");
     await expect(
       page.getByRole("heading", { name: "Anslutna appar", level: 1 }),
     ).toBeVisible();

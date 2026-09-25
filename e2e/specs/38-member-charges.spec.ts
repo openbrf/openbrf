@@ -4,6 +4,7 @@ import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -561,17 +562,14 @@ test("a resident is neither offered the screen nor allowed on it", async ({
 
   /*
    * Somewhere he does belong first, so the band is loaded and its links are the
-   * ones this account is offered. `.first()` because the shell renders the same
-   * links twice, once for the band and once for the bottom bar.
+   * ones this account is offered, read from every section.
    *
    * Then the absence: a link to a screen that can only refuse teaches somebody
    * that a part of the product is broken for them rather than not theirs.
    */
   await page.goto(appPath("/issues"));
-  await expect(
-    page.getByRole("link", { name: "Ärenden", exact: true }).first(),
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Debiteringar" })).toHaveCount(0);
+  await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
+  expect(await offeredDestinations(page)).not.toContain("Debiteringar");
 
   await page.goto(appPath("/charges"));
   await expect(

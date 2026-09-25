@@ -4,6 +4,7 @@ import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -614,9 +615,9 @@ test("a resident is neither offered the screen nor allowed on it", async ({
   await signInThroughTheScreen(page, RESIDENT.email, RESIDENT.password);
 
   // Not in the band: the navigation offers what the capability model grants.
-  await expect(
-    page.getByRole("navigation").getByRole("link", { name: "Avgifter" }),
-  ).toHaveCount(0);
+  // Read from the whole offer, after something he is offered.
+  await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
+  expect(await offeredDestinations(page)).not.toContain("Avgifter");
 
   // And refused on the screen itself, which is where the gate actually is.
   await page.goto(appPath("/fees"));

@@ -68,15 +68,53 @@ label 1.0, data 1.0. The chip carries no line height of its own.
 - Identity: 30px square, 4px radius, 1px `accent-trust-register` border; name
   14px/700/0.12em uppercase; instance name 10px/0.08em uppercase in
   `text-register-secondary`.
-- Navigation: 13px/600/0.1em uppercase, full 64px height, 3px transparent bottom
-  border. Active carries `text-register` and a 3px `accent-trust-register`
-  bottom border.
+- Navigation, from 1024px: one sign per section, 13px/600/0.1em uppercase, full
+  64px height, 8px horizontal padding and 8px between signs, 3px transparent
+  bottom border. A sign that opens carries a 12px chevron 6px after its label;
+  a section with one destination is a plain link under that destination's
+  name. The sign whose section holds the current page carries `text-register`
+  and a 3px `accent-trust-register` bottom border. Inställningar stands at the
+  band's right end, beside the person and the sign-out button. The focus ring
+  is 2px `accent-trust-register`, inset 4px inside the sign so none of it
+  falls off the band.
+- Panel: hangs from its sign's left edge (Inställningar's from its right edge),
+  at least 224px wide, `surface-register` ground, a 1px `border-register`
+  border with no top edge, 8px radius on the lower corners, one shadow. Rows
+  are at least 44px tall with 16px horizontal padding, names 15px/500
+  `text-register`, 1px `border-register` rails between them, hover to
+  `surface-register-raised`. The current row carries a 3px
+  `accent-trust-register` leading edge, inside the 16px, and
+  `accent-trust-register` text.
 - Count plate: 18px tall, minimum 18px wide, 4px radius,
   `accent-trust-register` ground, `surface-register` text, 11px/700, no letter
   spacing.
 - Person: 30px square avatar on `surface-register-raised` with a
   `border-register` border and `accent-trust-register` initials at 12px/700;
   name 13px/600; role 10px/0.1em uppercase in `accent-trust-register` at 600.
+  Shown beside the sign-out button from 640px, hidden from 1024px to 1279px
+  while the signs need the room, and back from 1280px, the name truncated at
+  192px.
+
+## The bar
+
+Below 1024px, in place of the band's signs.
+
+- A four-column grid on `surface-register`, sticky at the bottom of the window,
+  with a 1px `border-register` top rule. Columns one to three hold the
+  account's three destinations and column four holds Meny, always; a column the
+  account has nothing for stays empty.
+- Items are 56px tall, lettered as sign chips (11px/600/0.08em uppercase) in
+  `text-register-secondary`. The current one carries `accent-trust-register`
+  and a 3px top edge in the same colour; Meny carries it when the page is not
+  one of the three.
+- The sheet rises from the bar's top edge, full width, 8px radius on the upper
+  corners, one shadow, never taller than the window less the band and the bar,
+  and scrolls inside itself. Each section is a floor row with the board's floor
+  group row values as the board implements them: `surface-register-raised`
+  ground, 6px/24px padding, the label style in `text-register-secondary`.
+  Its destinations are name rows beneath: at least 44px, 24px horizontal
+  padding, 15px/500 `text-register`, 1px rails, the current one with the
+  panel's leading edge.
 
 ## The board
 
@@ -145,6 +183,15 @@ held to. The value carries links and trust labels in the room, so it is text.
 unchanged and measures 7.26:1 on the board.
 
 `packages/tokens` enforces the pair, so `#8A6D28` fails the build.
+
+### The bar is lettered at the chip size
+
+DESIGN.md's sign row uses the label size, 13px/600/0.12em. The bar's four
+columns are 90px each on a 360px phone, and at the label size "Bokningar"
+measures 89px and "Adressbok" 88px, so any padding at all would wrap them. At
+the chip size they are 71px and 72px. The longest English label, "Address book",
+is 93px at the label size and wraps to two lines inside its column at the chip
+size.
 
 ### Line heights
 

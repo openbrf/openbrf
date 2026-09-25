@@ -1,17 +1,11 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
-import type { TranslationKey } from "../i18n/translation-key";
-
-export type { TranslationKey };
-
-export interface NavItem {
-  to: string;
-  labelKey: TranslationKey;
-  /** Shown as a small brass plate, e.g. an open issue count. */
-  count?: number;
-}
+import { currentDestination, sectionsOf, type NavItem } from "./nav-items";
+import { NavSheet } from "./NavSheet";
+import { countOf, NavCount, SectionSign } from "./SectionSign";
+import { useDisclosure } from "./use-disclosure";
 
 export interface AppShellProps {
   housingCooperativeName: string;
@@ -82,81 +76,50 @@ function BandLogo({
   );
 }
 
-/** Brass plate carrying a count, e.g. open issues. */
-function NavCount({ count }: { count: number }): ReactElement {
-  return (
-    <span className="inline-flex min-w-5 items-center justify-center rounded-control bg-trust-register px-1.5 text-chip text-register">
-      {count}
-    </span>
-  );
-}
-
-/**
- * The navigation links.
- *
- * Rendered by both the band and the bottom bar rather than duplicated, so a new
- * destination cannot appear in one and be forgotten in the other.
- */
-function NavLinks({
-  navItems,
-  className,
-  activeClassName,
-}: {
-  navItems: readonly NavItem[];
-  className: string;
-  activeClassName: string;
-}): ReactElement {
-  const { t } = useTranslation();
-
-  return (
-    <>
-      {navItems.map((item) => (
-        <Link
-          key={item.to}
-          to={item.to}
-          className={className}
-          activeProps={{ className: `${className} ${activeClassName}` }}
-        >
-          {t(item.labelKey)}
-          {item.count === undefined ? null : <NavCount count={item.count} />}
-        </Link>
-      ))}
-    </>
-  );
-}
-
-const BAND_LINK =
-  "flex items-center gap-2 border-b-[3px] border-transparent text-label uppercase text-register-ink-muted transition-colors duration-150 ease-out";
-const BAND_LINK_ACTIVE = "border-trust-register text-register-ink";
-
 /*
  * The bar carries the same 3px brass marker as the band, on the top edge
  * (the side facing the content) since the bar sits at the bottom of the
  * screen. Colour alone would not do: DESIGN.md requires a second signal, and
  * a brass-on-dark colour shift is invisible to a red-green colour blind
- * board member. Link already emits aria-current="page", so this closes the
- * visual half of the same gap.
+ * board member.
+ *
+ * Lettered at the sign chip's size rather than the band's: four columns on a
+ * 360px phone are 90px each, and at the band's size "Bokningar" and
+ * "Adressbok" already fill one. A longer label wraps inside its column.
  */
-const BAR_LINK =
-  "flex min-h-14 grow items-center justify-center gap-1.5 border-t-[3px] border-transparent text-label uppercase text-register-ink-muted";
-const BAR_LINK_ACTIVE = "border-trust-register text-trust-register";
+const BAR_ITEM =
+  "flex min-h-14 w-full items-center justify-center gap-1.5 border-t-[3px] px-1 text-center text-chip uppercase transition-colors duration-150 ease-out focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
+const BAR_ITEM_AT_REST = `${BAR_ITEM} border-transparent text-register-ink-muted hover:text-register-ink`;
+const BAR_ITEM_OPEN = `${BAR_ITEM} border-transparent text-register-ink`;
+const BAR_ITEM_CURRENT = `${BAR_ITEM} border-trust-register text-trust-register`;
+
+/* Written out, so the stylesheet carries each column's placement. */
+const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
 
 /**
  * The application frame.
  *
  * Follows the design system's board topology: a fixed dark band carries the
- * cooperative's identity and the navigation as a row of signs, and the content
- * lives in the light room below. The regions are fixed and swap their content
- * rather than moving, so a board member always finds the same thing in the same
- * place.
+ * cooperative's identity and the navigation as a row of section signs, and the
+ * content lives in the light room below. The regions are fixed and swap their
+ * content rather than moving, so a board member always finds the same thing in
+ * the same place.
  *
- * The navigation appears twice in the markup, once in the band and once as a
- * bottom bar, because the two sit in different parents and CSS cannot move an
- * element between them. Only ever one is exposed: the other is `display: none`
- * at that breakpoint, which removes it from the accessibility tree as well as
- * from view. They share one aria-label because they are the same navigation.
+ * The navigation appears twice in the markup, once in the band from 1024px and
+ * once as a bottom bar below that, because the two sit in different parents and
+ * CSS cannot move an element between them. Only ever one is exposed: the other
+ * is `display: none` at that width, which removes it from the accessibility
+ * tree as well as from view. They share one aria-label because they are the
+ * same navigation, and both are built from the same items, so a destination
+ * cannot appear in one and be forgotten in the other: the band holds every
+ * offered destination behind its section signs, and the bar's menu button
+ * opens a sheet holding every one of them again.
  *
- * The bar is where a thumb reaches, and residents are mostly on phones.
+ * The bar is where a thumb reaches, and residents are mostly on phones. It
+ * keeps three destinations chosen for the account and the menu button in the
+ * fourth column, and while the sheet is open the room behind it is inert, so
+ * neither a pointer nor a screen reader lands on what it covers; the header
+ * and the bar stay live.
  */
 export function AppShell({
   housingCooperativeName,
@@ -168,6 +131,30 @@ export function AppShell({
   children,
 }: AppShellProps): ReactElement {
   const { t } = useTranslation();
+  // The path inside the application; the router strips its /app basepath.
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const current = currentDestination(pathname, navItems);
+  const sections = sectionsOf(navItems);
+  const {
+    open: sheetOpen,
+    toggle: toggleSheet,
+    close: closeSheet,
+    panelId: sheetId,
+    triggerRef: sheetTriggerRef,
+    containerRef: sheetColumnRef,
+  } = useDisclosure<HTMLLIElement>();
+  // In column order, which is also the order Tab walks them in.
+  const bar = navItems
+    .flatMap((item) =>
+      item.barSlot === undefined ? [] : [{ item, slot: item.barSlot }],
+    )
+    .toSorted((a, b) => a.slot - b.slot);
+  const behindTheMenu = navItems.filter((item) => item.barSlot === undefined);
+  // The menu is where you are when the page is none of the bar's three: a
+  // phone would otherwise not say at all which part of the product this is.
+  const sheetHoldsCurrent =
+    current !== undefined && current.barSlot === undefined;
+  const sheetCount = countOf(behindTheMenu);
 
   return (
     <div className="flex min-h-screen flex-col bg-page">
@@ -193,19 +180,30 @@ export function AppShell({
 
         <nav
           aria-label={t("nav.primary")}
-          className="hidden h-16 grow items-stretch gap-6 sm:flex"
+          className="hidden h-16 grow items-stretch lg:flex"
         >
-          <NavLinks
-            navItems={navItems}
-            className={BAND_LINK}
-            activeClassName={BAND_LINK_ACTIVE}
-          />
+          <ul className="flex grow items-stretch gap-2">
+            {sections.map((section) => (
+              <SectionSign
+                key={section.id}
+                section={section}
+                current={current}
+                atEnd={section.id === "settings"}
+              />
+            ))}
+          </ul>
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex min-w-0 items-center gap-3">
+          {/*
+           * Beside the sign-out button on a phone from 640px, out of the way
+           * while the band's signs need the room, and back from 1280px.
+           */}
           {personName === undefined ? null : (
-            <div className="hidden flex-col items-end sm:flex">
-              <span className="text-small font-semibold">{personName}</span>
+            <div className="hidden min-w-0 flex-col items-end sm:flex lg:hidden xl:flex">
+              <span className="max-w-48 truncate text-small font-semibold">
+                {personName}
+              </span>
               {roleLabel === undefined ? null : (
                 <span className="text-chip text-trust-register uppercase">
                   {roleLabel}
@@ -217,7 +215,7 @@ export function AppShell({
             <button
               type="button"
               onClick={onSignOut}
-              className="min-h-11 rounded-control border border-register-line px-3 text-small font-semibold text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink"
+              className="min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register"
             >
               {t("nav.signOut")}
             </button>
@@ -225,17 +223,66 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="grow px-4 py-5 sm:px-10 print:p-0">{children}</main>
+      <main inert={sheetOpen} className="grow px-4 py-5 sm:px-10 print:p-0">
+        {children}
+      </main>
 
       <nav
         aria-label={t("nav.primary")}
-        className="sticky bottom-0 flex shrink-0 border-t border-register-line bg-register sm:hidden print:hidden"
+        className="sticky bottom-0 z-10 shrink-0 border-t border-register-line bg-register lg:hidden print:hidden"
       >
-        <NavLinks
-          navItems={navItems}
-          className={BAR_LINK}
-          activeClassName={BAR_LINK_ACTIVE}
-        />
+        {/*
+         * Four fixed columns: the account's three in theirs and the menu
+         * button always in the fourth, so it never moves, and a column the
+         * account has nothing for stays empty rather than letting the others
+         * stretch into it.
+         */}
+        <ul className="grid grid-cols-4">
+          {bar.map(({ item, slot }) => (
+            <li key={item.to} className={COLUMN[slot]}>
+              <Link
+                to={item.to}
+                activeOptions={{ exact: true }}
+                className={
+                  item.to === current?.to ? BAR_ITEM_CURRENT : BAR_ITEM_AT_REST
+                }
+              >
+                {t(item.labelKey)}
+                {item.count === undefined ? null : (
+                  <NavCount count={item.count} />
+                )}
+              </Link>
+            </li>
+          ))}
+          <li ref={sheetColumnRef} className="col-start-4">
+            <button
+              ref={sheetTriggerRef}
+              type="button"
+              aria-expanded={sheetOpen}
+              aria-controls={sheetOpen ? sheetId : undefined}
+              aria-current={sheetHoldsCurrent ? "true" : undefined}
+              onClick={toggleSheet}
+              className={
+                sheetHoldsCurrent
+                  ? BAR_ITEM_CURRENT
+                  : sheetOpen
+                    ? BAR_ITEM_OPEN
+                    : BAR_ITEM_AT_REST
+              }
+            >
+              {t("nav.menu")}
+              {sheetCount > 0 ? <NavCount count={sheetCount} /> : null}
+            </button>
+            {sheetOpen ? (
+              <NavSheet
+                id={sheetId}
+                sections={sections}
+                current={current}
+                onClose={closeSheet}
+              />
+            ) : null}
+          </li>
+        </ul>
       </nav>
     </div>
   );
